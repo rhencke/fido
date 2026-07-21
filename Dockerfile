@@ -179,14 +179,16 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
 echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && find . -type f | sort ); cat /workspace/generated-bytes/main.go
 
-# byte/rune SOURCE-ALIAS differential witness (C4 §12/§13): a println of byte(255)/rune(65) -> a DISPOSABLE
-# tree the go-e2e builds+runs to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8,
-# rune IS int32).  Never the canonical published image.
+# byte/rune SOURCE-ALIAS differential witness (C4 §12/§13): a println of the ACCEPTED alias endpoints
+# byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) -> a DISPOSABLE tree the go-e2e builds+runs
+# to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8, rune IS int32).  The REJECTED
+# alias endpoints are exercised through the go-e2e `rej_conv` matrix.  Never the canonical published image.
 if ! rocq c -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1; then cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; fi
 [ -f /workspace/generated-alias/main.go ] || fail "byte/rune alias witness materialized no main.go"
 echo "fido: byte/rune alias pristine tree:"; ( cd /workspace/generated-alias && find . -type f | sort ); cat /workspace/generated-alias/main.go
-grep -q 'byte(255)' /workspace/generated-alias/main.go || { cat /workspace/generated-alias/main.go; fail "alias witness did not render the SOURCE spelling byte(255)"; }
-grep -q 'rune(65)'  /workspace/generated-alias/main.go || { cat /workspace/generated-alias/main.go; fail "alias witness did not render the SOURCE spelling rune(65)"; }
+for spell in 'byte(0)' 'byte(255)' 'uint8(255)' 'rune(-2147483648)' 'rune(2147483647)' 'int32(-2147483648)' 'int32(2147483647)'; do
+  grep -qF "$spell" /workspace/generated-alias/main.go || { cat /workspace/generated-alias/main.go; fail "alias witness did not render the SOURCE spelling $spell"; }
+done
 
 # --- the multi/empty/bytes materialized pristine exports carry NO .fido/lock/temp (the materializer writes
 #     none); the go-e2e fresh-build validation consumes these AUTHORITATIVE PRE-BUILD images directly. ---
@@ -712,12 +714,14 @@ echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
 [ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; rm -rf "$BFRESH"; exit 1; }
 echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go via the fresh runner (0x00/0x1f/0x7f/0x80/0xff + newline)"; rm -rf "$BFRESH"
 
-# --- BYTE/RUNE SOURCE-ALIAS DIFFERENTIAL (C4 §12/§13): the accepted alias conversions byte(255)/rune(65) must
-#     COMPILE and RUN under the pinned toolchain (byte IS uint8, rune IS int32) — a GoCompile-ACCEPTED alias
-#     program Go rejects would be a MODEL BUG.  Disposable tree; never the canonical image. ---
+# --- BYTE/RUNE SOURCE-ALIAS DIFFERENTIAL (C4 §12/§13): the ACCEPTED alias endpoints
+#     byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) must COMPILE and RUN under the pinned
+#     toolchain (byte IS uint8, rune IS int32) — a GoCompile-ACCEPTED alias program Go rejects would be a MODEL
+#     BUG.  The REJECTED alias endpoints are the `rej_conv` byte/rune/uint8/int32 lines below.  Disposable tree. ---
 [ -f /e2e/alias/main.go ] || { echo "fido e2e alias: no byte/rune alias main.go"; exit 1; }
-grep -q 'byte(255)' /e2e/alias/main.go || { echo "fido e2e alias: source spelling byte(255) not rendered"; cat /e2e/alias/main.go; exit 1; }
-grep -q 'rune(65)'  /e2e/alias/main.go || { echo "fido e2e alias: source spelling rune(65) not rendered"; cat /e2e/alias/main.go; exit 1; }
+for spell in 'byte(0)' 'byte(255)' 'uint8(255)' 'rune(-2147483648)' 'rune(2147483647)' 'int32(-2147483648)' 'int32(2147483647)'; do
+  grep -qF "$spell" /e2e/alias/main.go || { echo "fido e2e alias: source spelling $spell not rendered"; cat /e2e/alias/main.go; exit 1; }
+done
 if [ -n "$( cd /e2e/alias && gofmt -l . )" ]; then echo "fido e2e alias: alias Go is not gofmt-clean"; ( cd /e2e/alias && gofmt -l . ); exit 1; fi
 fresh_go_build /e2e/alias AFRESH || { require_go_ran fresh-go-build; cat "${AFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e alias: go build ./... REJECTED a GoCompile-ACCEPTED byte/rune alias program (model bug)"; exit 1; }
 AEXE=$(find "$AFRESH" -maxdepth 1 -type f -perm -u+x)
@@ -725,9 +729,10 @@ AEXE=$(find "$AFRESH" -maxdepth 1 -type f -perm -u+x)
 "$AEXE" > /e2e/alias.out 2> /e2e/alias.err; aec=$?
 [ "$aec" = 0 ] || { echo "fido e2e alias: byte/rune alias witness exited $aec"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
 echo "fido e2e alias: stderr=[$(cat /e2e/alias.err)]"
-grep -q '255' /e2e/alias.err || { echo "fido e2e alias: byte(255) did not print 255"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
-grep -q '65'  /e2e/alias.err || { echo "fido e2e alias: rune(65) did not print 65"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
-echo "fido e2e alias: pinned Go ACCEPTS byte(255)/rune(65) and prints the resolved values (byte->uint8, rune->int32)"; rm -rf "$AFRESH"
+grep -q '255' /e2e/alias.err || { echo "fido e2e alias: byte(255)/uint8(255) did not print 255"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+grep -q '2147483647'  /e2e/alias.err || { echo "fido e2e alias: rune/int32 max did not print 2147483647"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+grep -q -- '-2147483648' /e2e/alias.err || { echo "fido e2e alias: rune/int32 min did not print -2147483648"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+echo "fido e2e alias: pinned Go ACCEPTS the byte/rune/uint8/int32 alias endpoints and prints the resolved values (byte->uint8, rune->int32)"; rm -rf "$AFRESH"
 
 # --- EMPTY program: a rendered go.mod + ZERO .go files → `go build ./...` accepts (zero packages), via the runner. ---
 [ -f /e2e/empty/go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }
@@ -769,6 +774,16 @@ rej_conv int8-over   'println(int8(128))'
 rej_conv int8-under  'println(int8(-129))'
 rej_conv uint8-neg   'println(uint8(-1))'
 rej_conv uint8-over  'println(uint8(256))'
+# BYTE/RUNE SOURCE-ALIAS REJECT matrix (C4 §5.5): byte OVER uint8 range, rune OVER int32 range, and the
+# matching uint8/int32 endpoints — the pinned toolchain REJECTS them EXACTLY as GoCompile makes impossible
+# (scar_byte_256_rejected/scar_byte_m1_rejected/scar_rune_over_rejected/scar_rune_under_rejected + the matching
+# scar_uint8_256_rejected/scar_uint8_m1_rejected/scar_int32_over_rejected/scar_int32_under_rejected).
+rej_conv byte-neg    'println(byte(-1))'
+rej_conv byte-over   'println(byte(256))'
+rej_conv rune-under  'println(rune(-2147483649))'
+rej_conv rune-over   'println(rune(2147483648))'
+rej_conv int32-under 'println(int32(-2147483649))'
+rej_conv int32-over  'println(int32(2147483648))'
 rej_conv int64-over  'println(int64(9223372036854775808))'
 rej_conv uint64-over 'println(uint64(18446744073709551616))'
 rej_conv nested-over 'println(uint8(int(300)))'

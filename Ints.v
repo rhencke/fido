@@ -51,12 +51,6 @@ Definition integer_min (it : IntegerType) : Z :=
 Definition integer_max (it : IntegerType) : Z :=
   if integer_signed it then 2 ^ (integer_bits it - 1) - 1 else 2 ^ (integer_bits it) - 1.
 
-Definition integer_keyword (it : IntegerType) : string :=
-  match it with
-  | IInt   => "int"    | IInt8  => "int8"  | IInt16  => "int16"  | IInt32  => "int32"  | IInt64  => "int64"
-  | IUint  => "uint"   | IUint8 => "uint8" | IUint16 => "uint16" | IUint32 => "uint32" | IUint64 => "uint64"
-  end%string.
-
 (** the single representability decision: a mathematical [Z] fits an integer type iff it is within the
     inclusive range.  [Prop] form + its executable [bool] reflection. *)
 Definition IntRepresentable (it : IntegerType) (z : Z) : Prop :=
@@ -97,18 +91,6 @@ Proof. destruct it; vm_compute; reflexivity. Qed.
 Lemma integer_max_succ_not_representable :
   forall it, integer_representableb it (integer_max it + 1) = false.
 Proof. destruct it; vm_compute; reflexivity. Qed.
-
-(** the keyword authority is exact for every constructor and injective. *)
-Lemma integer_keyword_exact :
-  integer_keyword IInt    = "int"%string    /\ integer_keyword IInt8  = "int8"%string  /\
-  integer_keyword IInt16  = "int16"%string  /\ integer_keyword IInt32 = "int32"%string /\
-  integer_keyword IInt64  = "int64"%string  /\ integer_keyword IUint  = "uint"%string  /\
-  integer_keyword IUint8  = "uint8"%string  /\ integer_keyword IUint16 = "uint16"%string /\
-  integer_keyword IUint32 = "uint32"%string /\ integer_keyword IUint64 = "uint64"%string.
-Proof. repeat split. Qed.
-
-Lemma integer_keyword_inj : forall a b, integer_keyword a = integer_keyword b -> a = b.
-Proof. intros [] []; simpl; congruence. Qed.
 
 (** [int]/[int64] and [uint]/[uint64] are DISTINCT types despite sharing a range on this target. *)
 Lemma IInt_neq_IInt64 : IInt <> IInt64.

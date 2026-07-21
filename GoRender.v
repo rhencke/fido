@@ -341,9 +341,6 @@ Proof.
   rewrite str_ascii_app, render_string_body_ascii. reflexivity.
 Qed.
 
-Lemma integer_keyword_ascii : forall it, str_ascii (integer_keyword it) = true.
-Proof. intros []; reflexivity. Qed.
-
 Lemma render_signed_Z_ascii : forall z, str_ascii (render_signed_Z z) = true.
 Proof.
   intro z; unfold render_signed_Z; destruct (Z.ltb z 0).
@@ -358,10 +355,6 @@ Proof.
   - reflexivity.
   - rewrite !str_ascii_app, render_signed_Z_ascii, render_signed_exp_ascii; reflexivity.
 Qed.
-Lemma float_keyword_ascii : forall ft, str_ascii (float_keyword ft) = true.
-Proof. intro ft; destruct ft; reflexivity. Qed.
-Lemma complex_keyword_ascii : forall ct, str_ascii (complex_keyword ct) = true.
-Proof. intro ct; destruct ct; reflexivity. Qed.
 Lemma render_complex_literal_ascii : forall dc, str_ascii (render_complex_literal dc) = true.
 Proof.
   intro dc; unfold render_complex_literal.
@@ -1559,18 +1552,8 @@ Lemma render_boundary_min :
   /\ ResolveExpr UsePrintlnArg (ENeg (Z.to_N (- int_min))) (TInteger IInt).
 Proof. split; [ reflexivity | apply resolve_expr_sound; reflexivity ]. Qed.
 
-(** ---- explicit-conversion rendering fixtures: the exact keyword spelling of each of the ten integer
-    types, and the exact rendered spelling of a (possibly nested) conversion. ---- *)
-Example kw_int    : integer_keyword IInt    = "int".    Proof. reflexivity. Qed.
-Example kw_int8   : integer_keyword IInt8   = "int8".   Proof. reflexivity. Qed.
-Example kw_int16  : integer_keyword IInt16  = "int16".  Proof. reflexivity. Qed.
-Example kw_int32  : integer_keyword IInt32  = "int32".  Proof. reflexivity. Qed.
-Example kw_int64  : integer_keyword IInt64  = "int64".  Proof. reflexivity. Qed.
-Example kw_uint   : integer_keyword IUint   = "uint".   Proof. reflexivity. Qed.
-Example kw_uint8  : integer_keyword IUint8  = "uint8".  Proof. reflexivity. Qed.
-Example kw_uint16 : integer_keyword IUint16 = "uint16". Proof. reflexivity. Qed.
-Example kw_uint32 : integer_keyword IUint32 = "uint32". Proof. reflexivity. Qed.
-Example kw_uint64 : integer_keyword IUint64 = "uint64". Proof. reflexivity. Qed.
+(** ---- explicit-conversion rendering fixtures: the exact rendered SOURCE spelling of a (possibly nested)
+    conversion (the renderer emits the source type name, never the resolved semantic type). ---- *)
 Example render_int8_127 : render_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 127)) = "int8(127)". Proof. reflexivity. Qed.
 Example render_uint64_big : render_expr (EConvert (GoAST.tsyn GoNames.TNuint64) (EInt 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
 Example render_nested : render_expr (EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 127))) = "int8(int16(127))". Proof. reflexivity. Qed.

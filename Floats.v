@@ -20,16 +20,11 @@ Definition float_type_eqb (a b : FloatType) : bool :=
 Lemma float_type_eqb_eq : forall a b, float_type_eqb a b = true <-> a = b.
 Proof. intros [] []; simpl; split; congruence. Qed.
 
-Definition float_keyword (ft : FloatType) : string :=
-  match ft with F32 => "float32" | F64 => "float64" end%string.
-
 (** binary32 = (prec 24, emax 128); binary64 = (prec 53, emax 1024).  SpecFloat is precision-parameterized,
     so faithful binary32 is the SAME functions with these two magic pairs. *)
 Definition float_prec (ft : FloatType) : Z := match ft with F32 => 24 | F64 => 53 end.
 Definition float_emax (ft : FloatType) : Z := match ft with F32 => 128 | F64 => 1024 end.
 
-Lemma float_keyword_F32 : float_keyword F32 = "float32"%string. Proof. reflexivity. Qed.
-Lemma float_keyword_F64 : float_keyword F64 = "float64"%string. Proof. reflexivity. Qed.
 Lemma float_prec_F32 : float_prec F32 = 24.   Proof. reflexivity. Qed.
 Lemma float_prec_F64 : float_prec F64 = 53.   Proof. reflexivity. Qed.
 Lemma float_emax_F32 : float_emax F32 = 128.  Proof. reflexivity. Qed.

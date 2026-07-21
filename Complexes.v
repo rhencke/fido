@@ -38,13 +38,6 @@ Definition complex_component_type (ct : ComplexType) : FloatType :=
 Lemma complex_component_C64 : complex_component_type C64 = F32. Proof. reflexivity. Qed.
 Lemma complex_component_C128 : complex_component_type C128 = F64. Proof. reflexivity. Qed.
 
-(** the source keyword of a complex type. *)
-Definition complex_keyword (ct : ComplexType) : string :=
-  match ct with C64 => "complex64" | C128 => "complex128" end.
-
-Lemma complex_keyword_C64 : complex_keyword C64 = "complex64"%string. Proof. reflexivity. Qed.
-Lemma complex_keyword_C128 : complex_keyword C128 = "complex128"%string. Proof. reflexivity. Qed.
-
 (** exact untyped complex constants *)
 
 (** an EXACT complex constant: two exact canonical rational [FloatConst] components — real and imaginary.  It

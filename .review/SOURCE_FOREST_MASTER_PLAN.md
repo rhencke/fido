@@ -2079,15 +2079,19 @@ C4.4 Conversion source syntax
 
 The permanent direction is a source conversion whose target is source type syntax.
 
-Do not delete the family-specific current conversion nodes until exact replacement semantics exist for every newly representable target.
+DONE at C4: the ONE `EConvert TypeSyntax GoExpr` source-shaped conversion is LIVE and the former family-specific
+conversion nodes (`EIntConvert`/`EFloatConvert`/`EComplexConvert`) are DELETED — replaced same-checkpoint once
+exact replacement semantics existed for every representable target (the closed sixteen-name source class,
+resolved to a semantic `GoType` in `GoCompile`).
 
-Before `EConvert TypeSyntax Expr` becomes live:
+The replacement, as landed:
 
-- audit every type name made representable as a conversion target;
-- model every accepted conversion from the currently representable operand domain;
-- make unsupported target forms unrepresentable rather than blanket-rejected.
+- every type name made representable as a conversion target was audited (the closed sixteen: fourteen numeric
+  names plus the `byte`/`rune` source aliases);
+- every accepted conversion from the representable operand domain is modelled (exact per numeric family);
+- unsupported target forms are UNREPRESENTABLE (no `SupportedTypeName` carries them) rather than blanket-rejected.
 
-This is a vertical feature, not a cosmetic node rename.
+This was a vertical feature, not a cosmetic node rename.
 
 C4.5 One vertical checkpoint
 

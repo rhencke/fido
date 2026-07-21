@@ -453,7 +453,8 @@ Arguments AtNode {p} _.  Arguments AtFile {p} _.  Arguments AtPackage {p} _.  Ar
    the later declaration, [earlier_related] the first (canonical-order) main. *)
 Inductive DiagnosticReason (p : GoProgram) : Type :=
 | DRInvalidConversion
-    (primary : GoIndex.ExprRef p) (outer_context : list (GoIndex.ExprRef p))
+    (primary : GoIndex.ExprRef p) (target_ref : GoIndex.TypeNameRef p)
+    (outer_context : list (GoIndex.ExprRef p))
     (target : GoType) (operand_status : ConstInfo)
 | DRDefaultNotRepresentable
     (primary : GoIndex.ExprRef p) (exact_constant : GoConst) (default_target : GoType)
@@ -466,7 +467,7 @@ Inductive DiagnosticReason (p : GoProgram) : Type :=
    output name.  This is NOT a source/typing/package-count reason — it is a build-OUTPUT-planning reason. *)
 | DRBuildOutputIsDirectory
     (package_primary : PackageRef p) (output_name : string).
-Arguments DRInvalidConversion {p} _ _ _ _.  Arguments DRDefaultNotRepresentable {p} _ _ _.
+Arguments DRInvalidConversion {p} _ _ _ _ _.  Arguments DRDefaultNotRepresentable {p} _ _ _.
 Arguments DRMainRedeclared {p} _ _.  Arguments DRMissingMainEntry {p} _.  Arguments DRBuildOutputIsDirectory {p} _ _.
 
 Inductive DiagnosticCode : Type :=
@@ -474,7 +475,7 @@ Inductive DiagnosticCode : Type :=
 
 Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
   match d with
-  | DRInvalidConversion _ _ _ _   => DCInvalidConversion
+  | DRInvalidConversion _ _ _ _ _ => DCInvalidConversion
   | DRDefaultNotRepresentable _ _ _ => DCDefaultNotRepresentable
   | DRMainRedeclared _ _           => DCMainRedeclared
   | DRMissingMainEntry _               => DCMissingMainEntry
@@ -483,7 +484,7 @@ Definition diagnostic_code {p} (d : DiagnosticReason p) : DiagnosticCode :=
 
 Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p :=
   match d with
-  | DRInvalidConversion pr _ _ _      => AtNode (GoIndex.erase_ref pr)
+  | DRInvalidConversion pr _ _ _ _    => AtNode (GoIndex.erase_ref pr)
   | DRDefaultNotRepresentable pr _ _  => AtNode (GoIndex.erase_ref pr)
   | DRMainRedeclared later _           => AtNode (GoIndex.erase_ref later)
   | DRMissingMainEntry pk                  => AtPackage pk
@@ -492,7 +493,7 @@ Definition diagnostic_primary {p} (d : DiagnosticReason p) : DiagnosticAnchor p 
 
 Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnchor p) :=
   match d with
-  | DRInvalidConversion _ outer _ _   => map (fun r => AtNode (GoIndex.erase_ref r)) outer
+  | DRInvalidConversion _ _ outer _ _ => map (fun r => AtNode (GoIndex.erase_ref r)) outer
   | DRDefaultNotRepresentable _ _ _   => []
   | DRMainRedeclared _ earlier         => [AtNode (GoIndex.erase_ref earlier)]
   | DRMissingMainEntry _                   => []
@@ -506,7 +507,7 @@ Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   | DCInvalidConversion, AtNode _ | DCDefaultNotRepresentable, AtNode _ | DCMainRedeclared, AtNode _ => True
   | _, _ => False
   end.
-Proof. intros p [pr o t s|pr c dt|l e|pk|pk nm]; cbn; exact I. Qed.
+Proof. intros p [pr tr o t s|pr c dt|l e|pk|pk nm]; cbn; exact I. Qed.
 
 (* ERASED cross-snapshot reports.  A [DiagnosticReason p] is indexed by the snapshot [p], so
    two snapshots' diagnostics have DIFFERENT dependent types.  [erase_diagnostic] projects a reason to a
@@ -538,14 +539,19 @@ Record ErasedDiagnostic : Type := mkErasedDiagnostic {
      [DRBuildOutputIsDirectory] reason (the directory the fresh-image `go build` output would collide with),
      [None] for every other reason.  Carried across snapshots so two erased build-output reports for DIFFERENT
      collision names compare UNEQUAL. *)
-  ed_output  : option string
+  ed_output  : option string ;
+  (* §4 the STABLE SOURCE-TARGET payload of an invalid conversion: the exact source [TypeSyntax] recovered
+     THROUGH the retained target [TypeNameRef] (never reverse-mapped from the resolved [GoType]), so an invalid
+     [byte(...)] and an invalid [uint8(...)] — same resolved [ed_target = uint8] — erase to DIFFERENT source
+     targets (byte vs uint8) and compare UNEQUAL; [None] for every non-conversion reason. *)
+  ed_source_target : option GoAST.TypeSyntax
 }.
 
 (* the STABLE erased payload: the conversion TARGET / default target [GoType] where the reason carries one —
    NO source expression (the exact operand stays reachable through the typed anchor inside one [p]). *)
 Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
   match d with
-  | DRInvalidConversion _ _ t _      => Some t
+  | DRInvalidConversion _ _ _ t _    => Some t
   | DRDefaultNotRepresentable _ _ dt => Some dt
   | DRMainRedeclared _ _              => None
   | DRMissingMainEntry _                  => None
@@ -556,16 +562,25 @@ Definition erased_target {p} (d : DiagnosticReason p) : option GoType :=
    default executable name; every other reason carries none. *)
 Definition erased_output {p} (d : DiagnosticReason p) : option string :=
   match d with
-  | DRInvalidConversion _ _ _ _      => None
+  | DRInvalidConversion _ _ _ _ _    => None
   | DRDefaultNotRepresentable _ _ _  => None
   | DRMainRedeclared _ _              => None
   | DRMissingMainEntry _                  => None
   | DRBuildOutputIsDirectory _ nm    => Some nm
   end.
 
+(* the STABLE erased SOURCE-TARGET payload, derived THROUGH the retained target [TypeNameRef]
+   ([type_name_ref_syntax] recovers the exact raw spelling from the reference) — NOT reverse-mapped from the
+   resolved [GoType].  [None] for every non-conversion reason. *)
+Definition erased_source_target {p} (d : DiagnosticReason p) : option GoAST.TypeSyntax :=
+  match d with
+  | DRInvalidConversion _ tr _ _ _ => GoIndex.type_name_ref_syntax tr
+  | _ => None
+  end.
+
 Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
   mkErasedDiagnostic (diagnostic_code d) (erase_anchor (diagnostic_primary d))
-    (map erase_anchor (diagnostic_related d)) (erased_target d) (erased_output d).
+    (map erase_anchor (diagnostic_related d)) (erased_target d) (erased_output d) (erased_source_target d).
 
 (* intra-snapshot preservation: erasing keeps the CODE, the primary anchor's KEY identity, and the related
    anchors AS A MAP (so their canonical order is preserved). *)
@@ -643,6 +658,71 @@ Proof. intros o e ci Hv Hc. unfold occ_expr_fact. rewrite Hv, Hc. reflexivity. Q
 Lemma occ_expr_fact_none_nonexpr : forall o,
   GoIndex.view_expr o = None -> occ_expr_fact o = None.
 Proof. intros o Hv. unfold occ_expr_fact. rewrite Hv. reflexivity. Qed.
+
+(** ---- §3.4 the ONE production expression outcome authority: bottom-up, a conversion reads its target
+    [TypeNameFact] + operand [ExprFact] and calls [convert_const] ONCE, storing SUCCESS (the expression fact),
+    a LOCAL invalid conversion (the resolved target + operand status — exact diagnostic evidence, no second
+    [convert_const]), or BLOCKED-BY-CHILD (the operand had no successful fact — no outer failure emitted). ---- *)
+Inductive ExprOutcome : Type :=
+  | EOOk       : ExprFact -> ExprOutcome                 (* a leaf or a successful conversion *)
+  | EOConvFail : GoType -> ConstInfo -> ExprOutcome      (* local invalid conversion: resolved target + operand status *)
+  | EOChildFail : ExprOutcome.                           (* blocked: the operand had no successful fact *)
+
+(** the untyped constant of a LEAF (resolver-free — the production fold never invokes the source-name resolver
+    for a leaf); [leaf_const_ok] pins it to [const_info] on a leaf. *)
+Definition leaf_ci (e : GoExpr) : ConstInfo :=
+  match e with
+  | EBool b     => CIUntyped (CBool b)
+  | EInt n      => CIUntyped (CInt (Z.of_N n))
+  | ENeg n      => CIUntyped (CInt (- Z.of_N n))
+  | EString s   => CIUntyped (CString s)
+  | EFloat d    => CIUntyped (CFloat (decimal_value d))
+  | EComplex dc => CIUntyped (CComplex (decimal_complex_value dc))
+  | EConvert _ _ => CIUntyped (CBool false)   (* unreachable: guarded by [expr_conv_target e = None] *)
+  end.
+Lemma leaf_const_ok : forall e, expr_child e = None -> const_info e = Some (leaf_ci e).
+Proof. intros [| | | | | | ts x] H; try reflexivity; cbn in H; discriminate H. Qed.
+
+(** the DECLARATIVE per-occurrence outcome (over the raw syntax via [const_info]): the production fold is proved
+    EXACTLY this at every visited occurrence. *)
+Definition occ_outcome (o : GoIndex.SourceOccurrence) : option ExprOutcome :=
+  match GoIndex.view_expr o with
+  | None => None
+  | Some e =>
+      match const_info e with
+      | Some ci => Some (EOOk (mkExprFact ci (occ_use_resolved o)))
+      | None =>
+          match e with
+          | EConvert ts x =>
+              match const_info x with
+              | Some ci_op => Some (EOConvFail (predeclared_type ts) ci_op)
+              | None => Some EOChildFail
+              end
+          | _ => None   (* a leaf always has [const_info = Some]; this arm is dead *)
+          end
+      end
+  end.
+
+Lemma occ_outcome_none_nonexpr : forall o,
+  GoIndex.view_expr o = None -> occ_outcome o = None.
+Proof. intros o Hv. unfold occ_outcome. rewrite Hv. reflexivity. Qed.
+
+(* the expression fact PROJECTS the outcome: an occurrence has an [ExprFact] IFF its outcome is [EOOk]. *)
+Lemma occ_expr_fact_of_outcome : forall o f,
+  occ_outcome o = Some (EOOk f) -> occ_expr_fact o = Some f.
+Proof.
+  intros o f H. unfold occ_outcome, occ_expr_fact in *.
+  destruct (GoIndex.view_expr o) as [e|]; [| discriminate H].
+  destruct (const_info e) as [ci|] eqn:Hci; [ injection H as <-; reflexivity |].
+  destruct e as [ | | | | | | ts x]; try discriminate H. destruct (const_info x); discriminate H.
+Qed.
+Lemma occ_expr_fact_of_outcome_none : forall o,
+  (forall f, occ_outcome o <> Some (EOOk f)) -> occ_expr_fact o = None.
+Proof.
+  intros o H. unfold occ_outcome, occ_expr_fact in *.
+  destruct (GoIndex.view_expr o) as [e|]; [| reflexivity].
+  destruct (const_info e) as [ci|] eqn:Hci; [ exfalso; apply (H (mkExprFact ci (occ_use_resolved o))); reflexivity | reflexivity ].
+Qed.
 
 
 (** the per-file expression-fact map: fold the visit stream, keying each occurrence's fact by its NodeKey.
@@ -803,17 +883,18 @@ Proof.
   - apply GoAST.file_bindings_nodup_keys.
 Qed.
 
-(* [prog_expr_facts] is defined below as the SINGLE-PASS fold reading [prog_status_map] (no per-occurrence
-   [const_info]); [add_occ_fact] above is its per-node SPECIFICATION, used only to state exactness. *)
+(* [prog_expr_facts] is defined below as a PROJECTION of the ONE expression-outcome authority
+   [prog_conv_outcomes] (extract each occurrence's [EOOk] fact — no per-occurrence [const_info] rescan);
+   [add_occ_fact] above is its per-node SPECIFICATION, used only to state exactness. *)
 
 
-(* the occurrence status map + its exactness are built below as ONE fold over the delivered visit stream
-   ([prog_status_map] / [prog_status_map_find] / [prog_status_map_find_operand]), replacing the former
-   [file_statuses] source recursion. *)
+(* the ONE expression-outcome map + its exactness are built below as ONE fold over the delivered visit stream
+   ([prog_conv_outcomes] / [prog_conv_outcomes_find]); every production expression fact AND every conversion
+   diagnostic PROJECTS this single authority, never a second [const_info]/[convert_const] pass. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its TYPE-NAME occurrence at [Pos.succ me] and its
    operand occurrence at [Pos.succ (Pos.succ me)] (the two-child conversion layout: target type name, then
-   operand subtree), so a conversion's operand status is read from [prog_status_map] at the operand key — no
+   operand subtree), so the outcome fold reads the operand's already-built outcome at [operand_key] — no
    [const_info] rescan of the operand subtree. ---- *)
 
 Lemma occs_expr_head_ex : forall e parent role start,
@@ -931,6 +1012,211 @@ Proof.
   - destruct (occs_decls_operand (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ ce x Hin Hv Hc)
       as [occ' [Hin' Hv']].
     exists occ'. split; [right; right; exact Hin' | exact Hv'].
+Qed.
+
+(* ---- TYPE-NAME ADJACENCY (§3.3): a conversion occurrence at [me] has its SOURCE type-name occurrence at
+   [Pos.succ me] (the target child), whose [view_typename] is the exact source [TypeSyntax] — mirrors the
+   operand adjacency, one child earlier.  The production path reads the retained type-name fact at this key. ---- *)
+
+(* the conversion target's SOURCE syntax projection (mirrors [expr_child] for the target child). *)
+Definition expr_conv_target (e : GoExpr) : option GoAST.TypeSyntax :=
+  match e with EConvert ts _ => Some ts | _ => None end.
+
+Lemma expr_conv_target_some : forall e ts, expr_conv_target e = Some ts -> exists x, e = EConvert ts x.
+Proof.
+  intros e ts H. destruct e as [ | | | | | | ts0 x]; cbn in H; try discriminate H.
+  injection H as H0. subst ts0. exists x. reflexivity.
+Qed.
+
+Lemma occs_expr_type_name : forall e parent role start me occ ts x,
+  In (me, occ) (GoIndex.occs_expr parent role start e) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_expr parent role start e) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  induction e as [ b|n1|n2|s| df | dcx | ty y IHy ]; intros parent role start me occ ts x Hin Hv.
+  1,2,3,4,5,6: cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|Hf]; [| destruct Hf];
+    injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv; discriminate Hv.
+  cbn [GoIndex.occs_expr] in Hin. destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv; injection Hv as <- <-.
+    eexists. split; [ right; left; reflexivity | cbn [GoIndex.view_typename GoIndex.occurrence_view]; reflexivity ].
+  - destruct Hin as [Heq|Hin].
+    + injection Heq as <- <-; cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv; discriminate Hv.
+    + destruct (IHy start GoIndex.RConversionOperand (Pos.succ (Pos.succ start)) me occ ts x Hin Hv) as [occ' [Hin' Hv']].
+      exists occ'; split; [ right; right; exact Hin' | exact Hv' ].
+Qed.
+
+Lemma in_app_type_name {L1 L2 : list (positive * GoIndex.SourceOccurrence)} me occ ts x :
+  (forall M O T X, In (M, O) L1 -> GoIndex.view_expr O = Some (EConvert T X) ->
+     exists O', In (Pos.succ M, O') L1 /\ GoIndex.view_typename O' = Some T) ->
+  (forall M O T X, In (M, O) L2 -> GoIndex.view_expr O = Some (EConvert T X) ->
+     exists O', In (Pos.succ M, O') L2 /\ GoIndex.view_typename O' = Some T) ->
+  In (me, occ) (L1 ++ L2) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (L1 ++ L2) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  intros H1 H2 Hin Hv. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - destruct (H1 me occ ts x Hin Hv) as [occ' [Hin' Hv']]. exists occ'. split; [apply in_or_app; left; exact Hin' | exact Hv'].
+  - destruct (H2 me occ ts x Hin Hv) as [occ' [Hin' Hv']]. exists occ'. split; [apply in_or_app; right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_args_type_name : forall es parent aidx start me occ ts x,
+  In (me, occ) (GoIndex.occs_args parent aidx start es) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_args parent aidx start es) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx start me occ ts x Hin Hv; cbn [GoIndex.occs_args] in *; [destruct Hin|].
+  eapply in_app_type_name; [ | | exact Hin | exact Hv ].
+  - intros M O T X HinM HvM. unfold GoIndex.occs_arg. eapply occs_expr_type_name; eauto.
+  - intros M O T X HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_stmt_type_name : forall s parent sidx start me occ ts x,
+  In (me, occ) (GoIndex.occs_stmt parent sidx start s) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_stmt parent sidx start s) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  intros [args] parent sidx start me occ ts x Hin Hv. cbn [GoIndex.occs_stmt] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_args_type_name args start 0 (Pos.succ start) me occ ts x Hin Hv) as [occ' [Hin' Hv']].
+    exists occ'. split; [right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_stmts_type_name : forall ss parent sidx start me occ ts x,
+  In (me, occ) (GoIndex.occs_stmts parent sidx start ss) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_stmts parent sidx start ss) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx start me occ ts x Hin Hv; cbn [GoIndex.occs_stmts] in *; [destruct Hin|].
+  eapply in_app_type_name; [ | | exact Hin | exact Hv ].
+  - intros M O T X HinM HvM. eapply occs_stmt_type_name; eauto.
+  - intros M O T X HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_decl_type_name : forall d parent didx start me occ ts x,
+  In (me, occ) (GoIndex.occs_decl parent didx start d) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_decl parent didx start d) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  intros [body] parent didx start me occ ts x Hin Hv. cbn [GoIndex.occs_decl] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_stmts_type_name body start 0 (Pos.succ start) me occ ts x Hin Hv) as [occ' [Hin' Hv']].
+    exists occ'. split; [right; exact Hin' | exact Hv'].
+Qed.
+
+Lemma occs_decls_type_name : forall ds parent didx start me occ ts x,
+  In (me, occ) (GoIndex.occs_decls parent didx start ds) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_decls parent didx start ds) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx start me occ ts x Hin Hv; cbn [GoIndex.occs_decls] in *; [destruct Hin|].
+  eapply in_app_type_name; [ | | exact Hin | exact Hv ].
+  - intros M O T X HinM HvM. eapply occs_decl_type_name; eauto.
+  - intros M O T X HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_file_type_name : forall f me occ ts x,
+  In (me, occ) (GoIndex.occs_file f) ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists occ', In (Pos.succ me, occ') (GoIndex.occs_file f) /\ GoIndex.view_typename occ' = Some ts.
+Proof.
+  intros f me occ ts x Hin Hv. unfold GoIndex.occs_file in *.
+  destruct (source_imports f) as [|i tl]; [| destruct i].
+  destruct Hin as [Heq|[Heq|Hin]].
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - injection Heq as <- <-. cbn [GoIndex.view_expr GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - destruct (occs_decls_type_name (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ ts x Hin Hv)
+      as [occ' [Hin' Hv']].
+    exists occ'. split; [right; right; exact Hin' | exact Hv'].
+Qed.
+
+(* ---- TARGET ROLE: any visited occurrence whose [view_typename] is [Some] is a conversion TARGET
+   (role [RConversionTarget]) — the ONLY occurrence kind carrying a [ViewTypeName] view is the conversion's
+   type-name child, built with that role.  Mirrors the [_type_name] adjacency chain (view identifies it). ---- *)
+
+Lemma occs_expr_typename_role : forall e parent role start me occ ts,
+  In (me, occ) (GoIndex.occs_expr parent role start e) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  induction e as [ b|n1|n2|s| df | dcx | ty y IHy ]; intros parent role start me occ ts Hin Hv.
+  1,2,3,4,5,6: cbn [GoIndex.occs_expr] in Hin; destruct Hin as [Heq|Hf]; [| destruct Hf];
+    injection Heq as <- <-; cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv; discriminate Hv.
+  cbn [GoIndex.occs_expr] in Hin. destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-; cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv; discriminate Hv.
+  - destruct Hin as [Heq|Hin].
+    + injection Heq as <- <-; cbn [GoIndex.occurrence_role]; reflexivity.
+    + exact (IHy start GoIndex.RConversionOperand (Pos.succ (Pos.succ start)) me occ ts Hin Hv).
+Qed.
+
+Lemma in_app_typename_role {L1 L2 : list (positive * GoIndex.SourceOccurrence)} me occ ts :
+  (forall M O T, In (M, O) L1 -> GoIndex.view_typename O = Some T -> GoIndex.occurrence_role O = GoIndex.RConversionTarget) ->
+  (forall M O T, In (M, O) L2 -> GoIndex.view_typename O = Some T -> GoIndex.occurrence_role O = GoIndex.RConversionTarget) ->
+  In (me, occ) (L1 ++ L2) -> GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  intros H1 H2 Hin Hv. apply in_app_or in Hin. destruct Hin as [Hin|Hin];
+    [ exact (H1 me occ ts Hin Hv) | exact (H2 me occ ts Hin Hv) ].
+Qed.
+
+Lemma occs_args_typename_role : forall es parent aidx start me occ ts,
+  In (me, occ) (GoIndex.occs_args parent aidx start es) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  induction es as [|e rest IH]; intros parent aidx start me occ ts Hin Hv; cbn [GoIndex.occs_args] in *; [destruct Hin|].
+  eapply in_app_typename_role; [ | | exact Hin | exact Hv ].
+  - intros M O T HinM HvM. unfold GoIndex.occs_arg. eapply occs_expr_typename_role; eauto.
+  - intros M O T HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_stmt_typename_role : forall s parent sidx start me occ ts,
+  In (me, occ) (GoIndex.occs_stmt parent sidx start s) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  intros [args] parent sidx start me occ ts Hin Hv. cbn [GoIndex.occs_stmt] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - exact (occs_args_typename_role args start 0 (Pos.succ start) me occ ts Hin Hv).
+Qed.
+
+Lemma occs_stmts_typename_role : forall ss parent sidx start me occ ts,
+  In (me, occ) (GoIndex.occs_stmts parent sidx start ss) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  induction ss as [|s rest IH]; intros parent sidx start me occ ts Hin Hv; cbn [GoIndex.occs_stmts] in *; [destruct Hin|].
+  eapply in_app_typename_role; [ | | exact Hin | exact Hv ].
+  - intros M O T HinM HvM. eapply occs_stmt_typename_role; eauto.
+  - intros M O T HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_decl_typename_role : forall d parent didx start me occ ts,
+  In (me, occ) (GoIndex.occs_decl parent didx start d) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  intros [body] parent didx start me occ ts Hin Hv. cbn [GoIndex.occs_decl] in *.
+  destruct Hin as [Heq|Hin].
+  - injection Heq as <- <-. cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - exact (occs_stmts_typename_role body start 0 (Pos.succ start) me occ ts Hin Hv).
+Qed.
+
+Lemma occs_decls_typename_role : forall ds parent didx start me occ ts,
+  In (me, occ) (GoIndex.occs_decls parent didx start ds) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  induction ds as [|d rest IH]; intros parent didx start me occ ts Hin Hv; cbn [GoIndex.occs_decls] in *; [destruct Hin|].
+  eapply in_app_typename_role; [ | | exact Hin | exact Hv ].
+  - intros M O T HinM HvM. eapply occs_decl_typename_role; eauto.
+  - intros M O T HinM HvM. eapply IH; eauto.
+Qed.
+
+Lemma occs_file_typename_role : forall f me occ ts,
+  In (me, occ) (GoIndex.occs_file f) ->
+  GoIndex.view_typename occ = Some ts -> GoIndex.occurrence_role occ = GoIndex.RConversionTarget.
+Proof.
+  intros f me occ ts Hin Hv. unfold GoIndex.occs_file in *.
+  destruct (source_imports f) as [|i tl]; [| destruct i].
+  destruct Hin as [Heq|[Heq|Hin]].
+  - injection Heq as <- <-. cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - injection Heq as <- <-. cbn [GoIndex.view_typename GoIndex.occurrence_view] in Hv. discriminate Hv.
+  - exact (occs_decls_typename_role (source_decls f) GoIndex.root_id 0 (Pos.succ GoIndex.pkg_id) me occ ts Hin Hv).
 Qed.
 
 (* EXPRESSION-FACT TOTALITY GROUNDWORK.  On a TYPED program every visited expression occurrence has a
@@ -1176,291 +1462,158 @@ Proof.
   - rewrite Hsor; exact Hvx.
 Qed.
 
-(* the one bottom-up step: a non-expression occurrence contributes nothing; an expression occurrence stores its
-   [const_info] computed by ONE [const_info_step], reading its operand's status at [operand_key] from the accumulator. *)
-Definition psm_step {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
-    (m : GoIndex.NodeKeyMapBase.t (option ConstInfo)) : GoIndex.NodeKeyMapBase.t (option ConstInfo) :=
-  match GoIndex.view_expr (snd ro) with
-  | None => m
-  | Some e =>
-      GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro))
-        (GoTypes.const_info_step predeclared_type e
-           match expr_child e with
-           | Some _ => match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) m with Some s => s | None => None end
-           | None => None
-           end) m
-  end.
+(* the SOURCE type-name occurrence of a conversion at [r] has key [type_name_key r] (same file, [Pos.succ local]
+   — the target child, one before the operand). *)
+Definition type_name_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
+  GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (GoIndex.Snap.node_ref_local r)).
 
-Definition prog_status_map (p : GoProgram) : GoIndex.NodeKeyMapBase.t (option ConstInfo) :=
-  fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) (prog_visit p).
-
-(* the fold's find at a visited expression occurrence's key is EXACTLY its [const_info]: for a leaf,
-   [const_info_step] ignores the (absent) child; for a conversion, the operand — a LATER preorder node, so it is
-   in the ALREADY-FOLDED tail [l2] (the [OperandClosed] hypothesis) — has its own exact status by the induction
-   hypothesis, and [const_info_step_reflect] recombines it into the node's [const_info].  Keys are distinct
-   (NoDup), so no later add disturbs an earlier occurrence's stored status. *)
-Lemma psm_fold_find {p} (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
-  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) ->
-  (forall l1 r occ l2, L = l1 ++ (r, occ) :: l2 ->
-     forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
-     exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2) ->
-  forall r occ e, In (r, occ) L -> GoIndex.view_expr occ = Some e ->
-    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
-      (fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) L) = Some (const_info e).
+(* the target child key is INJECTIVE in the conversion's own key: two conversions at DISTINCT keys have DISTINCT
+   target type-name keys (so distinct target refs) — occurrence identity, not name identity. *)
+Lemma type_name_key_inj {p} (r1 r2 : GoIndex.Snap.NodeRef p) :
+  type_name_key r1 = type_name_key r2 -> GoIndex.Snap.node_ref_key r1 = GoIndex.Snap.node_ref_key r2.
 Proof.
-  induction L as [|[r0 occ0] t IH]; intros Hnd Hoc r occ e Hin Hv; [ destruct Hin |].
-  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
-  assert (Hoct : forall l1 r' occ' l2, t = l1 ++ (r', occ') :: l2 ->
-     forall e' x, GoIndex.view_expr occ' = Some e' -> expr_child e' = Some x ->
-     exists r'' occ'', GoIndex.Snap.node_ref_key r'' = operand_key r' /\ GoIndex.view_expr occ'' = Some x /\ In (r'', occ'') l2).
-  { intros l1 r' occ' l2 Ht e' x Hv' Hc'.
-    refine (Hoc ((r0, occ0) :: l1) r' occ' l2 _ e' x Hv' Hc').
-    cbn [app]; rewrite Ht; reflexivity. }
-  cbn [fold_right].
-  destruct Hin as [Heq|Hin].
-  - injection Heq as Hr0 Hocc0; subst r0; subst occ0.
-    unfold psm_step at 1; cbn [fst snd]. rewrite Hv, GoIndex.nodekeymap_add_eq. f_equal.
-    rewrite (GoTypes.const_info_step_reflect predeclared_type e).
-    destruct (expr_child e) as [x|] eqn:Ec.
-    + destruct (Hoc [] r occ t eq_refl e x Hv Ec) as [r' [occ' [Hk [Hvx Hin']]]].
-      rewrite <- Hk, (IH Hnd' Hoct r' occ' x Hin' Hvx). reflexivity.
-    + reflexivity.
-  - unfold psm_step at 1; cbn [fst snd].
-    destruct (GoIndex.view_expr occ0) as [e0|] eqn:Hv0.
-    + rewrite GoIndex.nodekeymap_add_neq; [ exact (IH Hnd' Hoct r occ e Hin Hv) |].
-      intro Hkeq. apply Hni. apply in_map_iff. exists (r, occ). split; [ cbn [fst]; congruence | exact Hin ].
-    + exact (IH Hnd' Hoct r occ e Hin Hv).
+  unfold type_name_key. rewrite !GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file].
+  intro H. injection H as Hf Hl. apply Pos.succ_inj in Hl. rewrite Hf, Hl. reflexivity.
 Qed.
 
-(* ---- OPERAND-CLOSURE of the visit stream (discharges [psm_fold_find]'s side condition): a conversion's
-   operand is a LATER preorder node in the SAME file, so it lies in the ALREADY-FOLDED tail [l2]. ---- *)
-
-Lemma SS_prefix_lt {A} (R : A -> A -> Prop) (a : list A) (v : A) (b : list A) :
-  StronglySorted R (a ++ v :: b) -> Forall (fun z => R z v) a.
+(* the target type-name of a visited conversion is ITSELF a visited occurrence whose key is [type_name_key] and
+   whose [view_typename] is the exact source [TypeSyntax] (minted through the index from its exact local id). *)
+Lemma prog_visit_type_name (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ ts x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+  exists r', In (r', GoIndex.Snap.source_occurrence_of_ref r') (prog_visit p)
+    /\ GoIndex.Snap.node_ref_key r' = type_name_key r
+    /\ GoIndex.view_typename (GoIndex.Snap.source_occurrence_of_ref r') = Some ts
+    /\ GoIndex.occurrence_role (GoIndex.Snap.source_occurrence_of_ref r') = GoIndex.RConversionTarget.
 Proof.
-  induction a as [|y a IH]; intro Hss; [constructor|].
-  cbn [app] in Hss. apply StronglySorted_inv in Hss. destruct Hss as [Hss Hall].
-  constructor; [ rewrite Forall_forall in Hall; apply Hall, in_or_app; right; left; reflexivity | apply IH; exact Hss ].
-Qed.
-
-Lemma ss_after_local {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) P y S :
-  StronglySorted Pos.lt (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) l) ->
-  l = P ++ y :: S ->
-  forall z, In z l -> (GoIndex.Snap.node_ref_local (fst y) < GoIndex.Snap.node_ref_local (fst z))%positive -> In z S.
-Proof.
-  intros Hss Hsplit z Hz Hlt. subst l. rewrite map_app in Hss. cbn [map] in Hss.
-  pose proof (SS_prefix_lt _ (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P)
-                (GoIndex.Snap.node_ref_local (fst y))
-                (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) S) Hss) as Hpre.
-  apply in_app_or in Hz. destruct Hz as [HzP | [Hzy | HzS]].
-  - exfalso. rewrite Forall_forall in Hpre.
-    assert (Hzin : In (GoIndex.Snap.node_ref_local (fst z)) (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P))
-      by (apply in_map_iff; exists z; split; [reflexivity | exact HzP]).
-    exact (Pos.lt_irrefl _ (Pos.lt_trans _ _ _ Hlt (Hpre _ Hzin))).
-  - subst z. exact (False_ind _ (Pos.lt_irrefl _ Hlt)).
-  - exact HzS.
-Qed.
-
-Lemma split_unique {A} (x : A) (l1 l2 a b : list A) :
-  l1 ++ x :: l2 = a ++ x :: b -> ~ In x l1 -> ~ In x a -> l2 = b.
-Proof.
-  revert a; induction l1 as [|y l1 IH]; intros a Heq Hnl1 Hna.
-  - destruct a as [|z a]; cbn [app] in Heq.
-    + injection Heq as Hrest. exact Hrest.
-    + injection Heq as He Hrest. exfalso. apply Hna. left. symmetry; exact He.
-  - destruct a as [|z a]; cbn [app] in Heq.
-    + injection Heq as He Hrest. exfalso. apply Hnl1. left. exact He.
-    + injection Heq as He Hrest. apply (IH a Hrest);
-        [ intro Hbad; apply Hnl1; right; exact Hbad | intro Hbad; apply Hna; right; exact Hbad ].
-Qed.
-
-Lemma prog_visit_not_in_prefix {p} (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) l1 r occ l2 :
-  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) -> L = l1 ++ (r, occ) :: l2 -> ~ In (r, occ) l1.
-Proof.
-  intros Hnd HL Hbad. rewrite HL, map_app in Hnd. cbn [map fst] in Hnd.
-  apply NoDup_remove_2 in Hnd. apply Hnd, in_or_app. left.
-  apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hbad].
-Qed.
-
-Lemma prog_visit_operand_closed (p : GoProgram) :
-  forall l1 r occ l2, prog_visit p = l1 ++ (r, occ) :: l2 ->
-    forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
-    exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2.
-Proof.
-  intros l1 r occ l2 Hsplit e x Hv Hc.
-  assert (Hin_ro : In (r, occ) (prog_visit p)) by (rewrite Hsplit; apply in_or_app; right; left; reflexivity).
-  destruct (prog_visit_operand p r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey Hvx]]].
-  exists r', (GoIndex.Snap.source_occurrence_of_ref r'). split; [exact Hkey | split; [exact Hvx |]].
-  pose proof Hin_ro as Hb0. rewrite prog_visit_flat_map in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
+  intros Hin Hv.
+  rewrite prog_visit_flat_map in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
   unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
-  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
-  pose proof (GoIndex.Snap.node_ref_key_eq r') as Hk'. rewrite Hkey in Hk'. unfold operand_key in Hk'.
-  rewrite GoIndex.Snap.node_ref_key_eq in Hk'. cbn [GoIndex.nk_file] in Hk'. rewrite Hfile in Hk'.
-  injection Hk' as Hpatheq Hloceq.
-  assert (Hfile' : GoIndex.Snap.node_ref_file r' = fr) by (apply GoIndex.Snap.file_ref_path_inj; symmetry; exact Hpatheq).
-  pose proof (GoIndex.Snap.visit_file_complete p fr r' Hfile') as Hin'block.
-  apply in_split in Hrb. destruct Hrb as [P [S Hvfsplit]].
-  assert (Hin'S : In (r', GoIndex.Snap.source_occurrence_of_ref r') S).
-  { apply (ss_after_local (GoIndex.Snap.visit_file fr) P (r, occ) S (GoIndex.Snap.visit_file_order p fr) Hvfsplit
-             (r', GoIndex.Snap.source_occurrence_of_ref r') Hin'block).
-    cbn [fst]. rewrite <- Hloceq. lia. }
-  apply in_split in Hb. destruct Hb as [B1 [B2 Hbsplit]].
-  assert (Hbv : binding_visit p b = GoIndex.Snap.visit_file fr) by (unfold binding_visit; rewrite Ef; reflexivity).
-  assert (Hpv : prog_visit p = (flat_map (binding_visit p) B1 ++ P) ++ (r, occ) :: (S ++ flat_map (binding_visit p) B2)).
-  { rewrite prog_visit_flat_map, Hbsplit, flat_map_app. cbn [flat_map]. rewrite Hbv, Hvfsplit.
-    rewrite <- !app_assoc. reflexivity. }
-  pose proof (prog_visit_key_nodup p) as Hnd.
-  assert (Hl2 : l2 = S ++ flat_map (binding_visit p) B2).
-  { apply (split_unique (r, occ) l1 l2 (flat_map (binding_visit p) B1 ++ P) (S ++ flat_map (binding_visit p) B2)).
-    - rewrite <- Hsplit. exact Hpv.
-    - exact (prog_visit_not_in_prefix (prog_visit p) l1 r occ l2 Hnd Hsplit).
-    - exact (prog_visit_not_in_prefix (prog_visit p) (flat_map (binding_visit p) B1 ++ P) r occ
-               (S ++ flat_map (binding_visit p) B2) Hnd Hpv). }
-  rewrite Hl2. apply in_or_app. left. exact Hin'S.
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [Hocc Hfile].
+  assert (Hsrc : GoIndex.source_occurrence_at (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) = Some occ).
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r) as Hso. rewrite Hfile in Hso. rewrite Hso, Hocc. reflexivity. }
+  apply GoIndex.occs_file_exact in Hsrc.
+  destruct (occs_file_type_name (GoIndex.Snap.file_ref_source fr) (GoIndex.Snap.node_ref_local r) occ ts x Hsrc Hv)
+    as [occ' [Hin' Hvts]].
+  pose proof (occs_file_typename_role (GoIndex.Snap.file_ref_source fr)
+                (Pos.succ (GoIndex.Snap.node_ref_local r)) occ' ts Hin' Hvts) as Hrole.
+  apply GoIndex.occs_file_exact in Hin'.
+  assert (Hvalid : GoIndex.valid_localb (GoIndex.Snap.file_ref_source fr) (Pos.succ (GoIndex.Snap.node_ref_local r)) = true).
+  { unfold GoIndex.valid_localb.
+    rewrite (GoIndex.source_occurrence_meta (GoIndex.Snap.file_ref_source fr)
+               (Pos.succ (GoIndex.Snap.node_ref_local r)) occ' Hin'). reflexivity. }
+  pose proof (GoIndex.Snap.file_of_path_source_exact p (fst b) fr Ef) as Hfind.
+  pose proof (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) as Hpath.
+  assert (Hfind' : GoAST.find_file (GoIndex.Snap.file_ref_path fr) (prog_files p) = Some (GoIndex.Snap.file_ref_source fr))
+    by (rewrite Hpath; exact Hfind).
+  destruct (GoIndex.Snap.ref_of_key_source p (GoIndex.indexed_syntax (GoIndex.index_program p))
+              (GoIndex.Snap.file_ref_path fr) (GoIndex.Snap.file_ref_source fr)
+              (Pos.succ (GoIndex.Snap.node_ref_local r)) Hfind' Hvalid) as [r' [Hrok [Hrlocal Hrsrc]]].
+  exists r'.
+  assert (Hkey : GoIndex.Snap.node_ref_key r' = type_name_key r).
+  { pose proof (GoIndex.Snap.ref_of_key_sound p (GoIndex.indexed_syntax (GoIndex.index_program p)) _ r' Hrok) as Hk.
+    rewrite Hk. unfold type_name_key. rewrite GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file]. rewrite Hfile. reflexivity. }
+  assert (Hsor : GoIndex.Snap.source_occurrence_of_ref r' = occ').
+  { pose proof (GoIndex.Snap.source_occ_of_ref_eq r') as Hso'.
+    rewrite Hrlocal, Hrsrc in Hso'.
+    rewrite Hin' in Hso'. injection Hso' as ->. reflexivity. }
+  split; [ | split; [ | split ] ].
+  - apply noderef_in_prog_visit.
+  - exact Hkey.
+  - rewrite Hsor; exact Hvts.
+  - rewrite Hsor; exact Hrole.
 Qed.
 
-(** STATUS-MAP EXACTNESS (from the ONE visit-stream fold): at each visited expression occurrence's key, the
-    status map holds exactly that occurrence's [const_info] — read O(1), one [const_info_step] per occurrence,
-    no separate source recursion. *)
-Lemma prog_status_map_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_status_map p) = Some (const_info e).
-Proof.
-  intros Hin Hv. unfold prog_status_map.
-  exact (psm_fold_find (prog_visit p) (prog_visit_key_nodup p) (prog_visit_operand_closed p) r occ e Hin Hv).
-Qed.
-
-(** STATUS-MAP OPERAND EXACTNESS: the operand key of a visited conversion holds the operand's exact [const_info]
-    (the operand is itself a visited occurrence — [prog_visit_operand] — read at its own key = [operand_key]). *)
-Lemma prog_status_map_find_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
-  GoIndex.NodeKeyMapBase.find (operand_key r) (prog_status_map p) = Some (const_info x).
-Proof.
-  intros Hin Hv Hc. destruct (prog_visit_operand p r occ e x Hin Hv Hc) as [r' [Hin' [Hkey Hvx]]].
-  rewrite <- Hkey. exact (prog_status_map_find p r' (GoIndex.Snap.source_occurrence_of_ref r') x Hin' Hvx).
-Qed.
-
-(* ---- the SINGLE-PASS expression-fact map: fold the visit stream, keying each occurrence's fact by its
-   NodeKey, taking its constant status from the precomputed [prog_status_map] (O(1), never a [const_info]
-   rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
-
-(* the use-context resolution DERIVED from an already-computed ConstInfo (no [const_info] / [resolve_expr_const]
-   rescan): a println-argument root resolves its status, everything else has no use resolution. *)
-Definition resolve_ci (ci : ConstInfo) : option ResolvedConst :=
-  match resolve_const_info ci with
-  | Some rc => if use_allowsb UsePrintlnArg (resolved_const_type rc) then Some rc else None
+(* §3.3 the total structural helper: a conversion [ExprRef]'s exact target [TypeNameRef], minted THROUGH the
+   retained index (`ref_of_key` at the target child key [type_name_key], refined to [KTypeName]).  For a LIVE
+   conversion it yields the exact target ref: KTypeName (by type), the direct [type_name_key] child, role
+   [RConversionTarget], recovering the exact raw source [TypeSyntax] through the ref.  The production path uses
+   THIS typed ref — never a raw source-name lookup. *)
+Definition conversion_target_ref {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p)
+  : option (GoIndex.TypeNameRef p) :=
+  match GoIndex.Snap.ref_of_key p idx (type_name_key (GoIndex.erase_ref er)) with
+  | Some r => GoIndex.as_type_name idx r
   | None => None
   end.
-Definition occ_use_resolved_ci (o : GoIndex.SourceOccurrence) (ci : ConstInfo) : option ResolvedConst :=
-  match GoIndex.occurrence_role o with GoIndex.RPrintlnArg _ => resolve_ci ci | _ => None end.
 
-(* the status-map version reads the ConstInfo from [ci] (the occurrence's own status); [occ_use_resolved_ci]
-   AGREES with the [occ_use_resolved] spec when [ci] is the occurrence's [const_info]. *)
-Lemma occ_use_resolved_ci_eq : forall o e ci,
-  GoIndex.view_expr o = Some e -> const_info e = Some ci -> occ_use_resolved_ci o ci = occ_use_resolved o.
-Proof.
-  intros o e ci Hv Hc. unfold occ_use_resolved_ci, occ_use_resolved, resolve_ci.
-  destruct (GoIndex.occurrence_role o); try reflexivity.
-  rewrite Hv. unfold GoTypes.resolve_expr_const. rewrite Hc. reflexivity.
-Qed.
-
-Definition add_occ_fact_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
-    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (m : GoIndex.NodeKeyMapBase.t ExprFact)
-  : GoIndex.NodeKeyMapBase.t ExprFact :=
-  match GoIndex.view_expr (snd ro) with
-  | Some _ =>
-      match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) smap with
-      | Some (Some ci) => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro))
-                                                     (mkExprFact ci (occ_use_resolved_ci (snd ro) ci)) m
-      | _ => m
-      end
-  | None => m
-  end.
-
-Definition prog_expr_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprFact :=
-  fold_right (add_occ_fact_sm (prog_status_map p)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
-
-Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
-  (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
-Proof.
-  induction l as [|a l IH]; intro H; [reflexivity|].
-  cbn [fold_right]. rewrite IH by (intros a' b Ha'; apply H; right; exact Ha').
-  apply H; left; reflexivity.
-Qed.
-
-(* on the visit stream, the single-pass step agrees with the [add_occ_fact] specification. *)
-Lemma add_occ_fact_sm_eq (p : GoProgram) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
-    (m : GoIndex.NodeKeyMapBase.t ExprFact) :
-  In ro (prog_visit p) -> add_occ_fact_sm (prog_status_map p) ro m = add_occ_fact ro m.
-Proof.
-  intro Hin. destruct ro as [r occ]. unfold add_occ_fact_sm, add_occ_fact, occ_expr_fact. cbn [snd fst].
-  destruct (GoIndex.view_expr occ) as [e|] eqn:Hv; [|reflexivity].
-  rewrite (prog_status_map_find p r occ e Hin Hv).
-  destruct (const_info e) as [ci|] eqn:Hc; [| reflexivity].
-  rewrite (occ_use_resolved_ci_eq occ e ci Hv Hc). reflexivity.
-Qed.
-
-Lemma prog_expr_facts_eq_spec (p : GoProgram) :
-  prog_expr_facts p = fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
-Proof.
-  unfold prog_expr_facts. apply fold_ext_in. intros ro m Hin. apply add_occ_fact_sm_eq; exact Hin.
-Qed.
-
-(** PROGRAM-LEVEL FACT EXACTNESS: the fact at a program-visited ref's key is EXACTLY that occurrence's fact
-    (the single-pass map agrees with the [occ_expr_fact] specification). *)
-Lemma prog_expr_facts_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
+Lemma conversion_target_ref_conv {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) ts x :
   In (r, occ) (prog_visit p) ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_expr_facts p) = occ_expr_fact occ.
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  GoIndex.as_expr idx r = Some er ->
+  exists tr, conversion_target_ref idx er = Some tr
+    /\ GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr) = type_name_key r
+    /\ GoIndex.occurrence_role (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref tr)) = GoIndex.RConversionTarget
+    /\ GoIndex.type_name_ref_syntax tr = Some ts.
 Proof.
-  intro Hin. rewrite prog_expr_facts_eq_spec. apply fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ].
+  intros Hin Hv Hae.
+  pose proof (GoIndex.erase_as_kind idx r GoIndex.KExpression er Hae) as Her.
+  destruct (prog_visit_type_name p r occ ts x Hin Hv) as [r' [Hin' [Hkey [Hvts Hrole]]]].
+  assert (Hkind : GoIndex.Snap.node_kind idx r' = GoIndex.KTypeName).
+  { rewrite (GoIndex.Snap.node_kind_matches_source p idx r'). exact (GoIndex.view_typename_kind _ ts Hvts). }
+  destruct (GoIndex.as_kind_complete idx r' GoIndex.KTypeName Hkind) as [tr [Hastr Hetr]].
+  exists tr.
+  assert (Hcompute : conversion_target_ref idx er = Some tr).
+  { unfold conversion_target_ref. rewrite Her, <- Hkey, GoIndex.Snap.ref_of_key_complete.
+    unfold GoIndex.as_type_name. exact Hastr. }
+  split; [ exact Hcompute | ].
+  split; [ rewrite Hetr; exact Hkey | ].
+  split; [ rewrite Hetr; exact Hrole | ].
+  unfold GoIndex.type_name_ref_syntax. rewrite Hetr. exact Hvts.
 Qed.
 
-(** DOMAIN EXACTNESS: EVERY key with an entry is a VISITED occurrence's key whose fact is exactly the stored
-    one — so no non-expression / file-root / foreign key can carry a fact (a forged entry is unrepresentable). *)
-Lemma fold_add_occ_fact_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) k f :
-  GoIndex.NodeKeyMapBase.find k (fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) l) = Some f ->
-  exists ro, In ro l /\ GoIndex.Snap.node_ref_key (fst ro) = k /\ occ_expr_fact (snd ro) = Some f.
+(* the one bottom-up step: a non-expression occurrence contributes nothing; an expression occurrence stores its
+   [const_info] computed by ONE [const_info_step], reading its operand's status at [operand_key] from the accumulator. *)
+(* the EOOk outcome of an occurrence pins its expression to a successful [const_info] = the fact's status. *)
+Lemma occ_outcome_ok : forall o e f,
+  GoIndex.view_expr o = Some e -> occ_outcome o = Some (EOOk f) -> const_info e = Some (ef_const_status f).
 Proof.
-  induction l as [|ro rest IH]; intro Hf.
-  - rewrite GoIndex.NodeKeyMapFacts.empty_o in Hf; discriminate Hf.
-  - cbn [fold_right] in Hf. unfold add_occ_fact in Hf.
-    destruct (occ_expr_fact (snd ro)) as [f0|] eqn:Ef.
-    + destruct (GoIndex.thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (fst ro)) k) as [He|Hne].
-      * subst k. rewrite GoIndex.nodekeymap_add_eq in Hf. injection Hf as <-.
-        exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
-      * rewrite GoIndex.nodekeymap_add_neq in Hf by exact Hne.
-        destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
-    + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+  intros o e f Hv H. unfold occ_outcome in H. rewrite Hv in H.
+  destruct (const_info e) as [ci|] eqn:Hci; [ injection H as <-; cbn [ef_const_status]; reflexivity |].
+  destruct e as [ | | | | | | ts x]; try discriminate H. destruct (const_info x); discriminate H.
+Qed.
+(* a non-[EOOk] outcome of an EXPRESSION occurrence means its [const_info] failed (a leaf never does). *)
+Lemma occ_outcome_notok : forall o e,
+  GoIndex.view_expr o = Some e -> (forall f, occ_outcome o <> Some (EOOk f)) -> const_info e = None.
+Proof.
+  intros o e Hne H. unfold occ_outcome in H. rewrite Hne in H.
+  destruct (const_info e) as [ci|] eqn:Hci; [ exfalso; apply (H (mkExprFact ci (occ_use_resolved o))); reflexivity | reflexivity ].
 Qed.
 
-Lemma prog_expr_facts_domain (p : GoProgram) k f :
-  GoIndex.NodeKeyMapBase.find k (prog_expr_facts p) = Some f ->
-  exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
-    /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
+(* the constant status of a CONVERSION node in terms of its operand's status (one [convert_const]): the ONE
+   place production reduces [const_info (EConvert …)] to expose the operand status, WITHOUT [cbn]-expanding the
+   operand's own [const_info] into a stuck match. *)
+Lemma const_info_conv_eq : forall ts x,
+  const_info (EConvert ts x)
+  = match const_info x with
+    | Some ci => option_map (CITyped (predeclared_type ts)) (convert_const (predeclared_type ts) ci)
+    | None => None
+    end.
+Proof. intros ts x. reflexivity. Qed.
+
+(* the declarative outcome of a LEAF occurrence (its untyped fact). *)
+Lemma occ_outcome_leaf : forall o e,
+  GoIndex.view_expr o = Some e -> expr_child e = None ->
+  occ_outcome o = Some (EOOk (mkExprFact (leaf_ci e) (occ_use_resolved o))).
+Proof. intros o e Hv Hc. unfold occ_outcome. rewrite Hv, (leaf_const_ok e Hc). reflexivity. Qed.
+
+(* the declarative outcome of a CONVERSION occurrence, reduced through its operand status and ONE
+   [convert_const] — the form the production fold is proved to match. *)
+Lemma occ_outcome_conv : forall o ts x,
+  GoIndex.view_expr o = Some (EConvert ts x) ->
+  occ_outcome o
+  = match const_info x with
+    | Some ci_op =>
+        match convert_const (predeclared_type ts) ci_op with
+        | Some tc => Some (EOOk (mkExprFact (CITyped (predeclared_type ts) tc) (occ_use_resolved o)))
+        | None => Some (EOConvFail (predeclared_type ts) ci_op)
+        end
+    | None => Some EOChildFail
+    end.
 Proof.
-  rewrite prog_expr_facts_eq_spec. intro Hf.
-  destruct (fold_add_occ_fact_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
-  exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
+  intros o ts x H. unfold occ_outcome. rewrite H, const_info_conv_eq. cbv iota.
+  destruct (const_info x) as [ci|];
+    [ destruct (convert_const (predeclared_type ts) ci) as [tc|]; cbn [option_map]; reflexivity | reflexivity ].
 Qed.
-
-(** the SEALED expression-fact table: the standard NodeKey map + its two exactness proofs (domain =
-    exactly the visited expression occurrences with a fact; each visited occurrence's fact is exact).  A forged
-    table with a foreign/file-root key is unrepresentable; the fact of any expression reference is recoverable. *)
-Record ExprFactTable (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkExprFactTable {
-  eft_map      : GoIndex.NodeKeyMapBase.t ExprFact ;
-  eft_domain   : forall k f, GoIndex.NodeKeyMapBase.find k eft_map = Some f ->
-                   exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
-                     /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f ;
-  eft_complete : forall r occ, In (r, occ) (prog_visit p) ->
-                   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) eft_map = occ_expr_fact occ
-}.
-Arguments mkExprFactTable {p ip} _ _ _.
-Arguments eft_map {p ip} _.
-Arguments eft_domain {p ip} _.
-Arguments eft_complete {p ip} _.
-
-Definition prog_expr_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ExprFactTable p ip :=
-  mkExprFactTable (prog_expr_facts p) (prog_expr_facts_domain p) (prog_expr_facts_find p).
 
 (* ---- §8 OCCURRENCE-KEYED TYPE-NAME FACTS: a conversion's SOURCE type name resolves (§7) to a semantic
    [GoType]; the fact stores THAT resolved type ONLY (no syntax copy — the retained [TypeNameRef] + source view
@@ -1554,6 +1707,17 @@ Lemma prog_type_name_facts_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ
   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_type_name_facts p) = occ_type_name_fact occ.
 Proof. intro Hin. apply tn_fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ]. Qed.
 
+(* the retained type-name fact map find at a conversion's [type_name_key] is EXACTLY its resolved target
+   ([predeclared_type ts]) — the production path reads THIS, never re-resolving. *)
+Lemma prog_type_name_facts_find_conv (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ ts x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+  GoIndex.NodeKeyMapBase.find (type_name_key r) (prog_type_name_facts p) = Some (mkTypeNameFact (predeclared_type ts)).
+Proof.
+  intros Hin Hv. destruct (prog_visit_type_name p r occ ts x Hin Hv) as [r' [Hin' [Hkey [Hvts _]]]].
+  rewrite <- Hkey, (prog_type_name_facts_find p r' _ Hin').
+  exact (occ_type_name_fact_some _ ts Hvts).
+Qed.
+
 Lemma prog_type_name_facts_domain (p : GoProgram) k f :
   GoIndex.NodeKeyMapBase.find k (prog_type_name_facts p) = Some f ->
   exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
@@ -1562,6 +1726,317 @@ Proof.
   intro Hf. destruct (tn_fold_facts_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
   exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
 Qed.
+
+(* the ONE bottom-up production step (§3.4): a non-expression occurrence contributes nothing; a LEAF stores its
+   untyped fact; a CONVERSION reads its target [TypeNameFact] (from the once-built [tnfacts]) and its operand
+   outcome (from the accumulator, at [operand_key]) and calls [convert_const] ONCE — storing the success fact,
+   the local invalid-conversion evidence, or blocked-by-child.  It NEVER invokes the source-name resolver. *)
+Definition outcome_step {p} (tnfacts : GoIndex.NodeKeyMapBase.t TypeNameFact)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t ExprOutcome) : GoIndex.NodeKeyMapBase.t ExprOutcome :=
+  match GoIndex.view_expr (snd ro) with
+  | None => m
+  | Some e =>
+      GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro))
+        (match expr_conv_target e with
+         | None => EOOk (mkExprFact (leaf_ci e) (occ_use_resolved (snd ro)))
+         | Some _ =>
+             match GoIndex.NodeKeyMapBase.find (type_name_key (fst ro)) tnfacts,
+                   GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) m with
+             | Some tnf, Some (EOOk opf) =>
+                 match convert_const (tnf_type tnf) (ef_const_status opf) with
+                 | Some tc => EOOk (mkExprFact (CITyped (tnf_type tnf) tc) (occ_use_resolved (snd ro)))
+                 | None => EOConvFail (tnf_type tnf) (ef_const_status opf)
+                 end
+             | _, _ => EOChildFail
+             end
+         end) m
+  end.
+
+Definition prog_conv_outcomes (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprOutcome :=
+  fold_right (outcome_step (prog_type_name_facts p)) (GoIndex.NodeKeyMapBase.empty ExprOutcome) (prog_visit p).
+
+(* a key outside the folded stream's key set is absent (the fold only ever adds at a visited occurrence's own
+   key) — discharges the non-expression-head case of [outcome_fold_find]. *)
+Lemma outcome_fold_not_in {p} (tnfacts : GoIndex.NodeKeyMapBase.t TypeNameFact)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (k : GoIndex.NodeKey) :
+  ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
+  GoIndex.NodeKeyMapBase.find k (fold_right (outcome_step tnfacts) (GoIndex.NodeKeyMapBase.empty ExprOutcome) l) = None.
+Proof.
+  induction l as [|[r0 occ0] rest IH]; intros Hni; simpl.
+  - apply GoIndex.NodeKeyMapFacts.empty_o.
+  - simpl in Hni.
+    assert (Hne : GoIndex.Snap.node_ref_key r0 <> k) by (intro H; apply Hni; left; exact H).
+    assert (Hrest : ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest))
+      by (intro H; apply Hni; right; exact H).
+    unfold outcome_step; cbn [snd fst]. destruct (GoIndex.view_expr occ0) as [e|].
+    + rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact (IH Hrest).
+    + exact (IH Hrest).
+Qed.
+
+(* the fold's find at a visited expression occurrence's key is EXACTLY its declarative [occ_outcome]: a leaf
+   stores its fact; a conversion reads its retained target fact ([tnfacts]-correctness [Htnf]) and its operand
+   outcome (the operand is a LATER preorder node, in the ALREADY-FOLDED tail [l2] — the operand-closure [Hoc]),
+   whose [const_info] recombines through [convert_const] into the node's outcome.  Distinct keys (NoDup). *)
+Lemma outcome_fold_find {p} (tnfacts : GoIndex.NodeKeyMapBase.t TypeNameFact)
+    (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) ->
+  (forall l1 r occ l2, L = l1 ++ (r, occ) :: l2 ->
+     forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+     exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2) ->
+  (forall r occ ts x, In (r, occ) L -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+     GoIndex.NodeKeyMapBase.find (type_name_key r) tnfacts = Some (mkTypeNameFact (predeclared_type ts))) ->
+  forall r occ, In (r, occ) L ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
+      (fold_right (outcome_step tnfacts) (GoIndex.NodeKeyMapBase.empty ExprOutcome) L) = occ_outcome occ.
+Proof.
+  induction L as [|[r0 occ0] t IH]; intros Hnd Hoc Htnf r occ Hin; [ destruct Hin |].
+  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
+  assert (Hoct : forall l1 r' occ' l2, t = l1 ++ (r', occ') :: l2 ->
+     forall e' x, GoIndex.view_expr occ' = Some e' -> expr_child e' = Some x ->
+     exists r'' occ'', GoIndex.Snap.node_ref_key r'' = operand_key r' /\ GoIndex.view_expr occ'' = Some x /\ In (r'', occ'') l2).
+  { intros l1 r' occ' l2 Ht e' x Hv' Hc'.
+    refine (Hoc ((r0, occ0) :: l1) r' occ' l2 _ e' x Hv' Hc'). cbn [app]; rewrite Ht; reflexivity. }
+  assert (Htnft : forall r' occ' ts x, In (r', occ') t -> GoIndex.view_expr occ' = Some (EConvert ts x) ->
+     GoIndex.NodeKeyMapBase.find (type_name_key r') tnfacts = Some (mkTypeNameFact (predeclared_type ts)))
+    by (intros r' occ' ts x Hin' Hv'; exact (Htnf r' occ' ts x (or_intror Hin') Hv')).
+  cbn [fold_right].
+  destruct Hin as [Heq|Hin].
+  - injection Heq as Hr0 Hocc0; subst r0; subst occ0.
+    unfold outcome_step at 1; cbn [fst snd].
+    destruct (GoIndex.view_expr occ) as [e|] eqn:Hv;
+      [| rewrite (occ_outcome_none_nonexpr occ Hv); exact (outcome_fold_not_in tnfacts t (GoIndex.Snap.node_ref_key r) Hni)].
+    rewrite GoIndex.nodekeymap_add_eq.
+    destruct (expr_conv_target e) as [ts|] eqn:Ect.
+    + (* conversion: e = EConvert ts x *)
+      destruct (expr_conv_target_some e ts Ect) as [x He]; subst e.
+      assert (Hvc : GoIndex.view_expr occ = Some (EConvert ts x)) by exact Hv.
+      destruct (Hoc [] r occ t eq_refl (EConvert ts x) x Hv eq_refl) as [r' [occ' [Hk [Hvx Hin']]]].
+      rewrite (Htnf r occ ts x (or_introl eq_refl) Hvc).
+      rewrite <- Hk, (IH Hnd' Hoct Htnft r' occ' Hin').
+      rewrite (occ_outcome_conv occ ts x Hvc).
+      destruct (occ_outcome occ') as [[opf|t0 ci0|]|] eqn:Hoo; cbn [tnf_type].
+      * rewrite (occ_outcome_ok occ' x opf Hvx Hoo).
+        destruct (convert_const (predeclared_type ts) (ef_const_status opf)) as [tc|] eqn:Ecv; reflexivity.
+      * rewrite (occ_outcome_notok occ' x Hvx) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+      * rewrite (occ_outcome_notok occ' x Hvx) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+      * rewrite (occ_outcome_notok occ' x Hvx) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+    + (* leaf: outcome is [EOOk] of its untyped fact *)
+      assert (Hc0 : expr_child e = None) by (destruct e; cbn in Ect |- *; try reflexivity; discriminate Ect).
+      rewrite (occ_outcome_leaf occ e Hv Hc0). reflexivity.
+  - unfold outcome_step at 1; cbn [fst snd].
+    destruct (GoIndex.view_expr occ0) as [e0|] eqn:Hv0.
+    + rewrite GoIndex.nodekeymap_add_neq; [ exact (IH Hnd' Hoct Htnft r occ Hin) |].
+      intro Hkeq. apply Hni. apply in_map_iff. exists (r, occ). split; [ cbn [fst]; congruence | exact Hin ].
+    + exact (IH Hnd' Hoct Htnft r occ Hin).
+Qed.
+
+(* ---- OPERAND-CLOSURE of the visit stream (discharges [outcome_fold_find]'s side condition): a conversion's
+   operand is a LATER preorder node in the SAME file, so it lies in the ALREADY-FOLDED tail [l2]. ---- *)
+
+Lemma SS_prefix_lt {A} (R : A -> A -> Prop) (a : list A) (v : A) (b : list A) :
+  StronglySorted R (a ++ v :: b) -> Forall (fun z => R z v) a.
+Proof.
+  induction a as [|y a IH]; intro Hss; [constructor|].
+  cbn [app] in Hss. apply StronglySorted_inv in Hss. destruct Hss as [Hss Hall].
+  constructor; [ rewrite Forall_forall in Hall; apply Hall, in_or_app; right; left; reflexivity | apply IH; exact Hss ].
+Qed.
+
+Lemma ss_after_local {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) P y S :
+  StronglySorted Pos.lt (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) l) ->
+  l = P ++ y :: S ->
+  forall z, In z l -> (GoIndex.Snap.node_ref_local (fst y) < GoIndex.Snap.node_ref_local (fst z))%positive -> In z S.
+Proof.
+  intros Hss Hsplit z Hz Hlt. subst l. rewrite map_app in Hss. cbn [map] in Hss.
+  pose proof (SS_prefix_lt _ (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P)
+                (GoIndex.Snap.node_ref_local (fst y))
+                (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) S) Hss) as Hpre.
+  apply in_app_or in Hz. destruct Hz as [HzP | [Hzy | HzS]].
+  - exfalso. rewrite Forall_forall in Hpre.
+    assert (Hzin : In (GoIndex.Snap.node_ref_local (fst z)) (map (fun rc => GoIndex.Snap.node_ref_local (fst rc)) P))
+      by (apply in_map_iff; exists z; split; [reflexivity | exact HzP]).
+    exact (Pos.lt_irrefl _ (Pos.lt_trans _ _ _ Hlt (Hpre _ Hzin))).
+  - subst z. exact (False_ind _ (Pos.lt_irrefl _ Hlt)).
+  - exact HzS.
+Qed.
+
+Lemma split_unique {A} (x : A) (l1 l2 a b : list A) :
+  l1 ++ x :: l2 = a ++ x :: b -> ~ In x l1 -> ~ In x a -> l2 = b.
+Proof.
+  revert a; induction l1 as [|y l1 IH]; intros a Heq Hnl1 Hna.
+  - destruct a as [|z a]; cbn [app] in Heq.
+    + injection Heq as Hrest. exact Hrest.
+    + injection Heq as He Hrest. exfalso. apply Hna. left. symmetry; exact He.
+  - destruct a as [|z a]; cbn [app] in Heq.
+    + injection Heq as He Hrest. exfalso. apply Hnl1. left. exact He.
+    + injection Heq as He Hrest. apply (IH a Hrest);
+        [ intro Hbad; apply Hnl1; right; exact Hbad | intro Hbad; apply Hna; right; exact Hbad ].
+Qed.
+
+Lemma prog_visit_not_in_prefix {p} (L : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) l1 r occ l2 :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) L) -> L = l1 ++ (r, occ) :: l2 -> ~ In (r, occ) l1.
+Proof.
+  intros Hnd HL Hbad. rewrite HL, map_app in Hnd. cbn [map fst] in Hnd.
+  apply NoDup_remove_2 in Hnd. apply Hnd, in_or_app. left.
+  apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hbad].
+Qed.
+
+Lemma prog_visit_operand_closed (p : GoProgram) :
+  forall l1 r occ l2, prog_visit p = l1 ++ (r, occ) :: l2 ->
+    forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
+    exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2.
+Proof.
+  intros l1 r occ l2 Hsplit e x Hv Hc.
+  assert (Hin_ro : In (r, occ) (prog_visit p)) by (rewrite Hsplit; apply in_or_app; right; left; reflexivity).
+  destruct (prog_visit_operand p r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey Hvx]]].
+  exists r', (GoIndex.Snap.source_occurrence_of_ref r'). split; [exact Hkey | split; [exact Hvx |]].
+  pose proof Hin_ro as Hb0. rewrite prog_visit_flat_map in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
+  unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
+  pose proof (GoIndex.Snap.visit_file_view p fr r occ Hrb) as [_ Hfile].
+  pose proof (GoIndex.Snap.node_ref_key_eq r') as Hk'. rewrite Hkey in Hk'. unfold operand_key in Hk'.
+  rewrite GoIndex.Snap.node_ref_key_eq in Hk'. cbn [GoIndex.nk_file] in Hk'. rewrite Hfile in Hk'.
+  injection Hk' as Hpatheq Hloceq.
+  assert (Hfile' : GoIndex.Snap.node_ref_file r' = fr) by (apply GoIndex.Snap.file_ref_path_inj; symmetry; exact Hpatheq).
+  pose proof (GoIndex.Snap.visit_file_complete p fr r' Hfile') as Hin'block.
+  apply in_split in Hrb. destruct Hrb as [P [S Hvfsplit]].
+  assert (Hin'S : In (r', GoIndex.Snap.source_occurrence_of_ref r') S).
+  { apply (ss_after_local (GoIndex.Snap.visit_file fr) P (r, occ) S (GoIndex.Snap.visit_file_order p fr) Hvfsplit
+             (r', GoIndex.Snap.source_occurrence_of_ref r') Hin'block).
+    cbn [fst]. rewrite <- Hloceq. lia. }
+  apply in_split in Hb. destruct Hb as [B1 [B2 Hbsplit]].
+  assert (Hbv : binding_visit p b = GoIndex.Snap.visit_file fr) by (unfold binding_visit; rewrite Ef; reflexivity).
+  assert (Hpv : prog_visit p = (flat_map (binding_visit p) B1 ++ P) ++ (r, occ) :: (S ++ flat_map (binding_visit p) B2)).
+  { rewrite prog_visit_flat_map, Hbsplit, flat_map_app. cbn [flat_map]. rewrite Hbv, Hvfsplit.
+    rewrite <- !app_assoc. reflexivity. }
+  pose proof (prog_visit_key_nodup p) as Hnd.
+  assert (Hl2 : l2 = S ++ flat_map (binding_visit p) B2).
+  { apply (split_unique (r, occ) l1 l2 (flat_map (binding_visit p) B1 ++ P) (S ++ flat_map (binding_visit p) B2)).
+    - rewrite <- Hsplit. exact Hpv.
+    - exact (prog_visit_not_in_prefix (prog_visit p) l1 r occ l2 Hnd Hsplit).
+    - exact (prog_visit_not_in_prefix (prog_visit p) (flat_map (binding_visit p) B1 ++ P) r occ
+               (S ++ flat_map (binding_visit p) B2) Hnd Hpv). }
+  rewrite Hl2. apply in_or_app. left. exact Hin'S.
+Qed.
+
+(** OUTCOME EXACTNESS (from the ONE visit-stream fold): at each visited expression occurrence's key, the
+    outcome map holds exactly that occurrence's declarative [occ_outcome] — the [tnfacts]-correctness side
+    condition is discharged by [prog_type_name_facts_find_conv] (each conversion's target fact was resolved by
+    the SAME once-built [prog_type_name_facts]), the operand-closure by [prog_visit_operand_closed]. *)
+Lemma prog_conv_outcomes_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (prog_visit p) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_conv_outcomes p) = occ_outcome occ.
+Proof.
+  intro Hin. unfold prog_conv_outcomes.
+  exact (outcome_fold_find (prog_type_name_facts p) (prog_visit p) (prog_visit_key_nodup p)
+           (prog_visit_operand_closed p) (prog_type_name_facts_find_conv p) r occ Hin).
+Qed.
+
+(* ---- the production expression-fact map = a PROJECTION of the ONE outcome authority: fold the visit stream,
+   keying each occurrence's SUCCESS fact by its NodeKey, reading the stored [EOOk] outcome (O(1), never a
+   [const_info] rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
+
+Definition add_occ_fact_om {p} (omap : GoIndex.NodeKeyMapBase.t ExprOutcome)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (m : GoIndex.NodeKeyMapBase.t ExprFact)
+  : GoIndex.NodeKeyMapBase.t ExprFact :=
+  match GoIndex.view_expr (snd ro) with
+  | Some _ =>
+      match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) omap with
+      | Some (EOOk f) => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro)) f m
+      | _ => m
+      end
+  | None => m
+  end.
+
+Definition prog_expr_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  fold_right (add_occ_fact_om (prog_conv_outcomes p)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
+
+Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
+  (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
+Proof.
+  induction l as [|a l IH]; intro H; [reflexivity|].
+  cbn [fold_right]. rewrite IH by (intros a' b Ha'; apply H; right; exact Ha').
+  apply H; left; reflexivity.
+Qed.
+
+(* on the visit stream, the projection step agrees with the [add_occ_fact] specification: the stored [EOOk]
+   fact of an occurrence is EXACTLY its [occ_expr_fact] ([occ_outcome] projects to [occ_expr_fact]). *)
+Lemma add_occ_fact_om_eq (p : GoProgram) (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t ExprFact) :
+  In ro (prog_visit p) -> add_occ_fact_om (prog_conv_outcomes p) ro m = add_occ_fact ro m.
+Proof.
+  intro Hin. destruct ro as [r occ]. unfold add_occ_fact_om, add_occ_fact. cbn [snd fst].
+  destruct (GoIndex.view_expr occ) as [e|] eqn:Hv;
+    [| rewrite (occ_expr_fact_none_nonexpr occ Hv); reflexivity].
+  rewrite (prog_conv_outcomes_find p r occ Hin).
+  destruct (occ_outcome occ) as [[f| | ]|] eqn:Hoo.
+  - rewrite (occ_expr_fact_of_outcome occ f Hoo). reflexivity.
+  - rewrite (occ_expr_fact_of_outcome_none occ) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+  - rewrite (occ_expr_fact_of_outcome_none occ) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+  - rewrite (occ_expr_fact_of_outcome_none occ) by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo). reflexivity.
+Qed.
+
+Lemma prog_expr_facts_eq_spec (p : GoProgram) :
+  prog_expr_facts p = fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
+Proof.
+  unfold prog_expr_facts. apply fold_ext_in. intros ro m Hin. apply add_occ_fact_om_eq; exact Hin.
+Qed.
+
+(** PROGRAM-LEVEL FACT EXACTNESS: the fact at a program-visited ref's key is EXACTLY that occurrence's fact
+    (the single-pass map agrees with the [occ_expr_fact] specification). *)
+Lemma prog_expr_facts_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (prog_visit p) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_expr_facts p) = occ_expr_fact occ.
+Proof.
+  intro Hin. rewrite prog_expr_facts_eq_spec. apply fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ].
+Qed.
+
+(** DOMAIN EXACTNESS: EVERY key with an entry is a VISITED occurrence's key whose fact is exactly the stored
+    one — so no non-expression / file-root / foreign key can carry a fact (a forged entry is unrepresentable). *)
+Lemma fold_add_occ_fact_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) k f :
+  GoIndex.NodeKeyMapBase.find k (fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) l) = Some f ->
+  exists ro, In ro l /\ GoIndex.Snap.node_ref_key (fst ro) = k /\ occ_expr_fact (snd ro) = Some f.
+Proof.
+  induction l as [|ro rest IH]; intro Hf.
+  - rewrite GoIndex.NodeKeyMapFacts.empty_o in Hf; discriminate Hf.
+  - cbn [fold_right] in Hf. unfold add_occ_fact in Hf.
+    destruct (occ_expr_fact (snd ro)) as [f0|] eqn:Ef.
+    + destruct (GoIndex.thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (fst ro)) k) as [He|Hne].
+      * subst k. rewrite GoIndex.nodekeymap_add_eq in Hf. injection Hf as <-.
+        exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
+      * rewrite GoIndex.nodekeymap_add_neq in Hf by exact Hne.
+        destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+    + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+Lemma prog_expr_facts_domain (p : GoProgram) k f :
+  GoIndex.NodeKeyMapBase.find k (prog_expr_facts p) = Some f ->
+  exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+    /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
+Proof.
+  rewrite prog_expr_facts_eq_spec. intro Hf.
+  destruct (fold_add_occ_fact_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
+  exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+(** the SEALED expression-fact table: the standard NodeKey map + its two exactness proofs (domain =
+    exactly the visited expression occurrences with a fact; each visited occurrence's fact is exact).  A forged
+    table with a foreign/file-root key is unrepresentable; the fact of any expression reference is recoverable. *)
+Record ExprFactTable (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkExprFactTable {
+  eft_map      : GoIndex.NodeKeyMapBase.t ExprFact ;
+  eft_domain   : forall k f, GoIndex.NodeKeyMapBase.find k eft_map = Some f ->
+                   exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+                     /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f ;
+  eft_complete : forall r occ, In (r, occ) (prog_visit p) ->
+                   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) eft_map = occ_expr_fact occ
+}.
+Arguments mkExprFactTable {p ip} _ _ _.
+Arguments eft_map {p ip} _.
+Arguments eft_domain {p ip} _.
+Arguments eft_complete {p ip} _.
+
+Definition prog_expr_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ExprFactTable p ip :=
+  mkExprFactTable (prog_expr_facts p) (prog_expr_facts_domain p) (prog_expr_facts_find p).
+
 
 (** the SEALED type-name-fact table: the standard NodeKey map + domain (keys are EXACTLY the visited
     type-name occurrences — no expression/statement/file/package/foreign key) + completeness (each visited
@@ -1578,9 +2053,8 @@ Arguments mkTypeNameFactTable {p ip} _ _ _.
 Arguments tnft_map {p ip} _.
 Arguments tnft_domain {p ip} _.
 Arguments tnft_complete {p ip} _.
-
-Definition prog_type_name_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : TypeNameFactTable p ip :=
-  mkTypeNameFactTable (prog_type_name_facts p) (prog_type_name_facts_domain p) (prog_type_name_facts_find p).
+(* [elaborate_indexed] seals the once-built [prog_type_name_facts] map into [ef_type_name_facts] DIRECTLY via
+   [mkTypeNameFactTable] — the SAME map production consumes — so there is NO separate table builder to rebuild it. *)
 
 (* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [ProgramTyped] ---- *)
 
@@ -2124,7 +2598,11 @@ Definition occ_expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (
       | None => []
       | Some e =>
           match local_conv_failure e with
-          | Some (t, ci) => [ DRInvalidConversion er outer t ci ]
+          | Some (t, ci) =>
+              match conversion_target_ref idx er with
+              | Some tr => [ DRInvalidConversion er tr outer t ci ]
+              | None => []   (* provably dead: a live conversion always mints its target ref *)
+              end
           | None =>
               match arg_default_failure (snd ro) e with
               | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
@@ -2150,10 +2628,11 @@ Qed.
     occurrence's syntax IS the explicit conversion to the reported target [t] of operand [x] ([conv_targets]);
     the reported operand status [ci] is [x]'s exact successful [const_info]; and the shared [convert_const]
     genuinely REJECTS it.  So target/operand-status/primary faithfully denote the reported conversion. *)
-Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er outer' t ci :
-  In (DRInvalidConversion er outer' t ci) (occ_expr_diags idx outer ro) ->
+Lemma occ_expr_diags_conv_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) ro outer er tr outer' t ci :
+  In (DRInvalidConversion er tr outer' t ci) (occ_expr_diags idx outer ro) ->
   outer' = outer
   /\ GoIndex.as_expr idx (fst ro) = Some er
+  /\ conversion_target_ref idx er = Some tr
   /\ convert_const t ci = None
   /\ exists e x, GoIndex.view_expr (snd ro) = Some e /\ conv_targets e = Some (t, x) /\ const_info x = Some ci.
 Proof.
@@ -2161,12 +2640,14 @@ Proof.
   destruct (GoIndex.as_expr idx (fst ro)) as [er2|] eqn:Ea; [| destruct Hin].
   destruct (GoIndex.view_expr (snd ro)) as [e|] eqn:Ev; [| destruct Hin].
   destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc.
-  - destruct Hin as [Heq|[]]. injection Heq as He Ho Ht Hc. subst er2 t' ci'.
+  - destruct (conversion_target_ref idx er2) as [tr2|] eqn:Ectr; [| destruct Hin].
+    destruct Hin as [Heq|[]]. injection Heq as He Htr Ho Ht Hc. subst er2 tr2 t' ci'.
     destruct (local_conv_failure_char e t ci Elc) as [x [Hct [Hci Hcv]]].
     split; [ symmetry; exact Ho
            | split; [ reflexivity
-                    | split; [ exact Hcv
-                             | exists e, x; split; [reflexivity | split; [exact Hct | exact Hci]]]]].
+                    | split; [ exact Ectr
+                             | split; [ exact Hcv
+                                      | exists e, x; split; [reflexivity | split; [exact Hct | exact Hci]]]]]].
   - destruct (arg_default_failure (snd ro) e) as [[c dt]|];
       [ destruct Hin as [Heq|[]]; discriminate Heq | destruct Hin ].
 Qed.
@@ -2187,7 +2668,9 @@ Proof.
   intro Hin. unfold occ_expr_diags in Hin.
   destruct (GoIndex.as_expr idx (fst ro)) as [er'|] eqn:Ea; [| destruct Hin].
   destruct (GoIndex.view_expr (snd ro)) as [e|] eqn:Ev; [| destruct Hin].
-  destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc; [ destruct Hin as [Heq|[]]; discriminate Heq |].
+  destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc;
+    [ destruct (conversion_target_ref idx er') as [tr'|];
+      [ destruct Hin as [Heq|[]]; discriminate Heq | destruct Hin ] |].
   destruct (arg_default_failure (snd ro) e) as [[c' dt']|] eqn:Ead; [| destruct Hin].
   destruct Hin as [Heq|[]]. injection Heq as He Hc Hd. subst er' c' dt'.
   unfold arg_default_failure in Ead.
@@ -2201,70 +2684,82 @@ Proof.
                            | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
-(* ---- the SINGLE-PASS diagnostic step: reads each occurrence's own status and (for a conversion) its
-   OPERAND's status from the precomputed [prog_status_map] — never recomputing [const_info].  Proved to agree
-   with the [occ_expr_diags] specification on the visit stream. ---- *)
+(* ---- the SINGLE-PASS diagnostic step: PROJECTS each occurrence's stored outcome from the ONE
+   [prog_conv_outcomes] authority — a local invalid conversion reads its own [EOConvFail] (the resolved target +
+   operand status ALREADY computed by the outcome fold — never a second [convert_const] or resolver call); a
+   default failure reads its own [EOOk] fact's status.  Proved to agree with the [occ_expr_diags] spec. ---- *)
 
 
-Definition local_conv_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+Definition local_conv_failure_om {p} (omap : GoIndex.NodeKeyMapBase.t ExprOutcome)
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : option (GoType * ConstInfo) :=
-  match GoIndex.view_expr (snd ro) with
-  | Some (EConvert ts _) =>
-      match GoIndex.NodeKeyMapBase.find (operand_key (fst ro)) smap with
-      | Some (Some ci) => match convert_const (predeclared_type ts) ci with
-                          | None => Some (predeclared_type ts, ci) | Some _ => None end
-      | _ => None end
+  match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) omap with
+  | Some (EOConvFail t ci) => Some (t, ci)
   | _ => None
   end.
 
-Definition arg_default_failure_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+Definition arg_default_failure_om {p} (omap : GoIndex.NodeKeyMapBase.t ExprOutcome)
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role (snd ro) with
   | GoIndex.RPrintlnArg _ =>
-      match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) smap with
-      | Some (Some (CIUntyped c)) => match default_const c with None => Some (c, default_target_of c) | Some _ => None end
+      match GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (fst ro)) omap with
+      | Some (EOOk f) =>
+          match ef_const_status f with
+          | CIUntyped c => match default_const c with None => Some (c, default_target_of c) | Some _ => None end
+          | _ => None end
       | _ => None end
   | _ => None
   end.
 
-Definition occ_expr_diags_sm {p} (smap : GoIndex.NodeKeyMapBase.t (option ConstInfo))
+Definition occ_expr_diags_sm {p} (omap : GoIndex.NodeKeyMapBase.t ExprOutcome)
     (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
   : list (DiagnosticReason p) :=
   match GoIndex.as_expr idx (fst ro) with
   | None => []
   | Some er =>
-      match local_conv_failure_sm smap ro with
-      | Some (t, ci) => [ DRInvalidConversion er outer t ci ]
+      match local_conv_failure_om omap ro with
+      | Some (t, ci) =>
+          match conversion_target_ref idx er with
+          | Some tr => [ DRInvalidConversion er tr outer t ci ]
+          | None => []
+          end
       | None =>
-          match arg_default_failure_sm smap ro with
+          match arg_default_failure_om omap ro with
           | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
           | None => []
           end
       end
   end.
 
-Lemma local_conv_failure_sm_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
+Lemma local_conv_failure_om_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
   In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  local_conv_failure_sm (prog_status_map p) (r, occ) = local_conv_failure e.
+  local_conv_failure_om (prog_conv_outcomes p) (r, occ) = local_conv_failure e.
 Proof.
-  intros Hin Hv. unfold local_conv_failure_sm, local_conv_failure; cbn [fst snd]; rewrite Hv.
-  destruct e as [ b|n1|n2|s| df | dcx | ts x ]; try reflexivity.
-  rewrite (prog_status_map_find_operand p r occ (EConvert ts x) x Hin Hv eq_refl); destruct (const_info x); reflexivity.
+  intros Hin Hv. unfold local_conv_failure_om; cbn [fst].
+  rewrite (prog_conv_outcomes_find p r occ Hin). unfold occ_outcome. rewrite Hv.
+  destruct e as [ b|n1|n2|s| df | dcx | ts x ]; try (destruct (const_info _) as [ci|]; reflexivity).
+  unfold local_conv_failure. cbn [GoTypes.const_info].
+  destruct (const_info x) as [cix|]; [| reflexivity].
+  destruct (convert_const (predeclared_type ts) cix) as [tc|]; cbn [option_map]; reflexivity.
 Qed.
 
-Lemma arg_default_failure_sm_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
+Lemma arg_default_failure_om_eq {p} (r : GoIndex.Snap.NodeRef p) occ e :
   In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  arg_default_failure_sm (prog_status_map p) (r, occ) = arg_default_failure occ e.
+  arg_default_failure_om (prog_conv_outcomes p) (r, occ) = arg_default_failure occ e.
 Proof.
-  intros Hin Hv. unfold arg_default_failure_sm, arg_default_failure; cbn [fst snd].
+  intros Hin Hv. unfold arg_default_failure_om, arg_default_failure; cbn [fst snd].
   destruct (GoIndex.occurrence_role occ); try reflexivity.
-  rewrite (prog_status_map_find p r occ e Hin Hv). destruct (const_info e) as [[c|t tc]|]; reflexivity.
+  rewrite (prog_conv_outcomes_find p r occ Hin).
+  destruct (occ_outcome occ) as [[f| | ]|] eqn:Hoo.
+  - rewrite (occ_outcome_ok occ e f Hv Hoo). reflexivity.
+  - rewrite (occ_outcome_notok occ e Hv) by (intros ff Hff; rewrite Hff in Hoo; discriminate Hoo). reflexivity.
+  - rewrite (occ_outcome_notok occ e Hv) by (intros ff Hff; rewrite Hff in Hoo; discriminate Hoo). reflexivity.
+  - rewrite (occ_outcome_notok occ e Hv) by (intros ff Hff; rewrite Hff in Hoo; discriminate Hoo). reflexivity.
 Qed.
 
 Lemma occ_expr_diags_sm_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list (GoIndex.ExprRef p))
     (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
-  In ro (prog_visit p) -> occ_expr_diags_sm (prog_status_map p) idx outer ro = occ_expr_diags idx outer ro.
+  In ro (prog_visit p) -> occ_expr_diags_sm (prog_conv_outcomes p) idx outer ro = occ_expr_diags idx outer ro.
 Proof.
   intro Hin. destruct ro as [r occ]. unfold occ_expr_diags_sm, occ_expr_diags; cbn [fst snd].
   destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea; [|reflexivity].
@@ -2278,7 +2773,7 @@ Proof.
   assert (Hkind : GoIndex.occurrence_kind occ = GoIndex.KExpression).
   { rewrite Hocc, <- (GoIndex.Snap.node_kind_matches_source p idx r). exact Hk. }
   destruct (GoIndex.kind_view_expr occ Hkind) as [e Hv]. rewrite Hv.
-  rewrite (local_conv_failure_sm_eq r occ e Hin Hv), (arg_default_failure_sm_eq r occ e Hin Hv). reflexivity.
+  rewrite (local_conv_failure_om_eq r occ e Hin Hv), (arg_default_failure_om_eq r occ e Hin Hv). reflexivity.
 Qed.
 
 Lemma flat_map_ext_in {A B} (f g : A -> list B) (l : list A) :
@@ -2288,11 +2783,11 @@ Proof.
   cbn [flat_map]. rewrite (H a (or_introl eq_refl)), IH by (intros a' Ha'; apply H; right; exact Ha'). reflexivity.
 Qed.
 
-(* the production expression diagnostics: the SINGLE-PASS status step over the ONE-PASS annotated stream —
-   each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its status is
-   read from [prog_status_map]; no per-diagnostic [visit_file]/[node_at]. *)
+(* the production expression diagnostics: the SINGLE-PASS outcome projection over the ONE-PASS annotated stream —
+   each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its outcome is
+   read from [prog_conv_outcomes]; no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (fun roc => occ_expr_diags_sm (prog_status_map p) idx (snd roc) (fst roc)) (annotate_program idx).
+  flat_map (fun roc => occ_expr_diags_sm (prog_conv_outcomes p) idx (snd roc) (fst roc)) (annotate_program idx).
 
 Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   expr_diags idx = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
@@ -2305,8 +2800,8 @@ Qed.
     whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary — a real
     strict-ancestor conversion, never fabricated or copied syntax.  (Delivered by the ONE-PASS annotation,
     proved sound by [annotate_program_ctx_sound].) *)
-Lemma expr_diags_conv_scar_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) er outer t ci :
-  In (DRInvalidConversion er outer t ci) (expr_diags idx) ->
+Lemma expr_diags_conv_scar_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) er tr outer t ci :
+  In (DRInvalidConversion er tr outer t ci) (expr_diags idx) ->
   forall a, In a outer ->
     is_conversion_occ (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref a)) = true
     /\ Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref er))
@@ -2314,7 +2809,7 @@ Lemma expr_diags_conv_scar_sound {p} (idx : GoIndex.Snap.SyntaxIndex p) er outer
 Proof.
   intros Hin a Ha. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin.
   destruct Hin as [roc [Hroc Hd]].
-  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er outer t ci Hd) as [Hoeq [Hae _]].
+  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er tr outer t ci Hd) as [Hoeq [Hae _]].
   subst outer.
   pose proof Hroc as Hroc2. rewrite (surjective_pairing roc) in Hroc2.
   destruct (annotate_program_ctx_sound idx (fst roc) (snd roc) a Hroc2 Ha) as [Hconv [Hlt Hle]].
@@ -2325,15 +2820,15 @@ Qed.
 
 (** the nested scar is SAME-FILE (as the primary), NEAREST-FIRST (deepest enclosing
     conversion first), and DUPLICATE-FREE for every invalid-conversion diagnostic in the whole report. *)
-Lemma expr_diags_conv_scar_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) er outer t ci :
-  In (DRInvalidConversion er outer t ci) (expr_diags idx) ->
+Lemma expr_diags_conv_scar_wf {p} (idx : GoIndex.Snap.SyntaxIndex p) er tr outer t ci :
+  In (DRInvalidConversion er tr outer t ci) (expr_diags idx) ->
   Forall (fun a => GoIndex.Snap.node_ref_file (GoIndex.erase_ref a) = GoIndex.Snap.node_ref_file (GoIndex.erase_ref er)) outer
   /\ StronglySorted (fun a b => Pos.lt (GoIndex.Snap.node_ref_local (GoIndex.erase_ref b)) (GoIndex.Snap.node_ref_local (GoIndex.erase_ref a))) outer
   /\ NoDup outer.
 Proof.
   intro Hin. rewrite expr_diags_eq_spec in Hin. apply in_flat_map in Hin.
   destruct Hin as [roc [Hroc Hd]].
-  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er outer t ci Hd) as [Hoeq [Hae _]].
+  destruct (occ_expr_diags_conv_sound idx (fst roc) (snd roc) er tr outer t ci Hd) as [Hoeq [Hae _]].
   subst outer.
   pose proof Hroc as Hroc2. rewrite (surjective_pairing roc) in Hroc2.
   destruct (annotate_program_ctx_wf idx (fst roc) (snd roc) Hroc2) as [Hfile [Hss Hnd]].
@@ -2531,20 +3026,26 @@ Lemma occ_expr_diags_empty {p} (idx : GoIndex.Snap.SyntaxIndex p) (outer : list 
   (occ_expr_diags idx outer (r, occ) = nil <-> occ_emits_none_pure occ = true).
 Proof.
   intro Hin. pose proof (prog_visit_view p r occ Hin) as Hocc.
-  unfold occ_expr_diags, occ_emits_none_pure, occ_local_ok, occ_default_ok, GoIndex.as_expr, GoIndex.as_kind.
-  cbn [fst snd].
-  destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [Hk|Hk].
+  unfold occ_emits_none_pure, occ_local_ok, occ_default_ok. cbn [fst snd].
+  unfold occ_expr_diags. cbn [fst snd].
+  destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea.
   - assert (Hke : GoIndex.occurrence_kind occ = GoIndex.KExpression).
-    { rewrite Hocc, <- (GoIndex.Snap.node_kind_matches_source p idx r). exact Hk. }
+    { rewrite Hocc, <- (GoIndex.Snap.node_kind_matches_source p idx r).
+      unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
+      destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [Hk|]; [exact Hk|discriminate Ea]. }
     destruct (GoIndex.kind_view_expr occ Hke) as [e Hve]. rewrite Hve.
-    destruct (local_conv_failure e) as [[t ci]|]; cbn [andb];
-      [ | destruct (arg_default_failure occ e) as [[c dt]|]; cbn [andb] ];
-      split; intro H; try discriminate H; reflexivity.
-  - assert (Hkne : GoIndex.occurrence_kind occ <> GoIndex.KExpression).
-    { intro Hc. apply Hk. rewrite (GoIndex.Snap.node_kind_matches_source p idx r), <- Hocc. exact Hc. }
-    assert (Hve : GoIndex.view_expr occ = None).
+    destruct (local_conv_failure e) as [[t ci]|] eqn:Elc; cbn [andb].
+    + (* a real conversion mints its target ref, so the emitted list is a nonempty singleton *)
+      destruct e as [ b|n1|n2|s| df | dcx | ts x ]; try discriminate Elc.
+      destruct (conversion_target_ref_conv idx r occ er ts x Hin Hve Ea) as [tr [Hctr _]].
+      rewrite Hctr. split; intro H; discriminate H.
+    + destruct (arg_default_failure occ e) as [[c dt]|]; cbn [andb];
+        split; intro H; try discriminate H; reflexivity.
+  - assert (Hve : GoIndex.view_expr occ = None).
     { destruct (GoIndex.view_expr occ) as [e|] eqn:E; [| reflexivity].
-      exfalso. apply Hkne. exact (GoIndex.view_expr_kind occ e E). }
+      exfalso. unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
+      destruct (GoIndex.syntaxkind_eq_dec (GoIndex.Snap.node_kind idx r) GoIndex.KExpression) as [|Hk]; [discriminate Ea|].
+      apply Hk. rewrite (GoIndex.Snap.node_kind_matches_source p idx r), <- Hocc. exact (GoIndex.view_expr_kind occ e E). }
     rewrite Hve. split; intro H; try discriminate H; reflexivity.
 Qed.
 
@@ -3649,9 +4150,9 @@ Qed.
 Lemma occ_expr_diags_le1 {p} (idx : GoIndex.Snap.SyntaxIndex p) outer ro :
   (length (occ_expr_diags idx outer ro) <= 1)%nat.
 Proof.
-  unfold occ_expr_diags. destruct (GoIndex.as_expr idx (fst ro)); [|cbn; lia].
+  unfold occ_expr_diags. destruct (GoIndex.as_expr idx (fst ro)) as [er|]; [|cbn; lia].
   destruct (GoIndex.view_expr (snd ro)); [|cbn; lia].
-  destruct (local_conv_failure g) as [[t ci]|]; [cbn; lia|].
+  destruct (local_conv_failure g) as [[t ci]|]; [ destruct (conversion_target_ref idx er); cbn; lia |].
   destruct (arg_default_failure (snd ro) g) as [[c dt]|]; cbn; lia.
 Qed.
 
@@ -3663,7 +4164,8 @@ Proof.
   assert (Her : GoIndex.erase_ref er = fst ro) by exact (GoIndex.erase_as_kind idx (fst ro) GoIndex.KExpression er Ea).
   destruct (GoIndex.view_expr (snd ro)) as [e|]; [|destruct Hin].
   destruct (local_conv_failure e) as [[t ci]|].
-  - cbn [In] in Hin. destruct Hin as [<-|[]]. cbn [diag_node_key diagnostic_primary]. rewrite Her. reflexivity.
+  - destruct (conversion_target_ref idx er) as [tr|]; [|destruct Hin].
+    cbn [In] in Hin. destruct Hin as [<-|[]]. cbn [diag_node_key diagnostic_primary]. rewrite Her. reflexivity.
   - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [|destruct Hin].
     cbn [In] in Hin. destruct Hin as [<-|[]]. cbn [diag_node_key diagnostic_primary]. rewrite Her. reflexivity.
 Qed.
@@ -3949,37 +4451,43 @@ Definition erase_occ_diags (kroc : (GoIndex.NodeKey * GoIndex.SourceOccurrence) 
   | Some e =>
       match local_conv_failure e with
       | Some (t, _) => [ mkErasedDiagnostic DCInvalidConversion (EANode (fst (fst kroc)))
-                                            (map EANode (snd kroc)) (Some t) None ]
+                                            (map EANode (snd kroc)) (Some t) None (expr_conv_target e) ]
       | None =>
           match arg_default_failure (snd (fst kroc)) e with
-          | Some (_, dt) => [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (fst (fst kroc))) [] (Some dt) None ]
+          | Some (_, dt) => [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (fst (fst kroc))) [] (Some dt) None None ]
           | None => []
           end
       end
   end.
 
 (* erasing the two expression diagnostics, computed explicitly (isolating the anchor/target projection). *)
-Lemma erase_diagnostic_invalid {p} (er : GoIndex.ExprRef p) outer t ci :
-  erase_diagnostic (DRInvalidConversion er outer t ci)
+Lemma erase_diagnostic_invalid {p} (er : GoIndex.ExprRef p) tr outer t ci :
+  erase_diagnostic (DRInvalidConversion er tr outer t ci)
   = mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)))
-      (map (fun r => EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref r))) outer) (Some t) None.
+      (map (fun r => EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref r))) outer) (Some t) None
+      (GoIndex.type_name_ref_syntax tr).
 Proof.
   unfold erase_diagnostic.
-  cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erased_output erase_anchor].
+  cbn [diagnostic_code diagnostic_primary diagnostic_related erased_target erased_output erased_source_target erase_anchor].
   rewrite map_map. reflexivity.
 Qed.
 
 Lemma erase_diagnostic_default {p} (er : GoIndex.ExprRef p) c dt :
   erase_diagnostic (DRDefaultNotRepresentable er c dt)
-  = mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))) [] (Some dt) None.
+  = mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er))) [] (Some dt) None None.
 Proof. reflexivity. Qed.
 
-(* per VALID occurrence: erasing the ref-emitted diagnostics equals the keyed emitter on the erased annotation. *)
+(* per VISITED occurrence: erasing the ref-emitted diagnostics equals the keyed emitter on the erased
+   annotation.  Membership is needed so a LOCAL conversion failure mints its exact target ref
+   ([conversion_target_ref_conv]) — ruling out the (dead) [None] branch — AND so the ref-side source-target
+   payload [type_name_ref_syntax tr] equals the source-side [expr_conv_target e] (both the exact source name). *)
 Lemma erase_occ_diags_eq {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ ctx :
-  occ = GoIndex.Snap.source_occurrence_of_ref r ->
+  In (r, occ) (prog_visit p) ->
   map erase_diagnostic (occ_expr_diags idx ctx (r, occ)) = erase_occ_diags (erase_annot ((r, occ), ctx)).
 Proof.
-  intro Hval. unfold occ_expr_diags, erase_occ_diags, erase_annot. cbn [fst snd].
+  intro Hin.
+  assert (Hval : occ = GoIndex.Snap.source_occurrence_of_ref r) by exact (prog_visit_view p r occ Hin).
+  unfold occ_expr_diags, erase_occ_diags, erase_annot. cbn [fst snd].
   destruct (GoIndex.as_expr idx r) as [er|] eqn:Ea.
   - assert (Hk : GoIndex.Snap.node_kind idx r = GoIndex.KExpression).
     { unfold GoIndex.as_expr, GoIndex.as_kind in Ea.
@@ -3988,8 +4496,11 @@ Proof.
       by (rewrite Hval, <- (GoIndex.Snap.node_kind_matches_source p idx r); exact Hk).
     destruct (GoIndex.kind_view_expr occ Hke) as [e Hv]. rewrite Hv.
     assert (Her : GoIndex.erase_ref er = r) by exact (GoIndex.erase_as_kind idx r GoIndex.KExpression er Ea).
-    destruct (local_conv_failure e) as [[t ci]|].
-    + cbn [map]. rewrite erase_diagnostic_invalid, Her, map_map. reflexivity.
+    destruct (local_conv_failure e) as [[t ci]|] eqn:Elc.
+    + destruct e as [ b|n1|n2|s| df | dcx | ts x ]; try discriminate Elc.
+      destruct (conversion_target_ref_conv idx r occ er ts x Hin Hv Ea) as [tr [Hctr [_ [_ Hsyn]]]].
+      rewrite Hctr. cbn [map]. rewrite erase_diagnostic_invalid, Her, map_map, Hsyn.
+      cbn [expr_conv_target]. reflexivity.
     + destruct (arg_default_failure occ e) as [[c dt]|].
       * cbn [map]. rewrite erase_diagnostic_default, Her. reflexivity.
       * reflexivity.
@@ -4011,7 +4522,7 @@ Proof.
   intros roc Hin. destruct roc as [[r occ] ctx]. cbn [fst snd].
   apply erase_occ_diags_eq.
   pose proof (in_map fst _ _ Hin) as Hin'. rewrite annotate_program_fst in Hin'. cbn [fst] in Hin'.
-  exact (prog_visit_view p r occ Hin').
+  exact Hin'.
 Qed.
 
 (** the erased EXPRESSION report is a SOURCE function of the file map (via [annotate_source]). *)
@@ -4128,8 +4639,8 @@ Qed.
 (* the ERASED package diagnostics of one bucket, over its erased (NodeKey) keys — a pure source function. *)
 Definition erase_bucket_diag (kv : string * list GoIndex.NodeKey) : list ErasedDiagnostic :=
   match snd kv with
-  | nil        => [ mkErasedDiagnostic DCMissingMainEntry (EAPackage (fst kv)) [] None None ]
-  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCMainRedeclared (EANode ek) [EANode e1] None None) erest
+  | nil        => [ mkErasedDiagnostic DCMissingMainEntry (EAPackage (fst kv)) [] None None None ]
+  | e1 :: erest => map (fun ek => mkErasedDiagnostic DCMainRedeclared (EANode ek) [EANode e1] None None None) erest
   end.
 
 Lemma pkg_diag_of_bucket_erased {p} (m : PM.t (list (GoIndex.DeclRef p))) Hpres dir l Hmt :
@@ -4344,7 +4855,8 @@ Proof.
   destruct (GoIndex.as_expr idx (fst ro)) as [er|]; [| destruct Hin].
   destruct (GoIndex.view_expr (snd ro)) as [e|]; [| destruct Hin].
   destruct (local_conv_failure e) as [[t ci]|].
-  - destruct Hin as [<-|[]]. split; reflexivity.
+  - destruct (conversion_target_ref idx er) as [tr|]; [| destruct Hin].
+    destruct Hin as [<-|[]]. split; reflexivity.
   - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [ destruct Hin as [<-|[]]; split; reflexivity | destruct Hin ].
 Qed.
 
@@ -4783,7 +5295,8 @@ Proof.
     by (rewrite <- Her; exact (GoIndex.noderefof_kind er)).
   destruct (GoIndex.view_expr (snd ro)) as [e|]; [|destruct Hin].
   destruct (local_conv_failure e) as [[t ci]|].
-  - cbn [In] in Hin. destruct Hin as [<-|[]].
+  - destruct (conversion_target_ref idx er) as [tr|]; [|destruct Hin].
+    cbn [In] in Hin. destruct Hin as [<-|[]].
     split; [ cbn [diag_node_key diagnostic_primary]; rewrite Her; reflexivity | exact Hk ].
   - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [|destruct Hin].
     cbn [In] in Hin. destruct Hin as [<-|[]].
@@ -6191,6 +6704,82 @@ Proof.
   intro H. apply (f_equal GoAST.ts_name) in H. rewrite !GoAST.ts_name_tsyn in H. discriminate H.
 Qed.
 
+(** ★§5.2 ALL SIXTEEN SOURCE NAMES: the one closed conjunction pinning every predeclared mapping — the
+    fourteen numeric names to their semantic [GoType], plus the two aliases [byte]->[uint8] and [rune]->[int32].
+    No name resolves anywhere else; this is the whole source-name authority in one reviewed statement. *)
+Theorem predeclared_all_sixteen :
+     predeclared_type (GoAST.tsyn GoNames.TNint)        = TInteger IInt
+  /\ predeclared_type (GoAST.tsyn GoNames.TNint8)       = TInteger IInt8
+  /\ predeclared_type (GoAST.tsyn GoNames.TNint16)      = TInteger IInt16
+  /\ predeclared_type (GoAST.tsyn GoNames.TNint32)      = TInteger IInt32
+  /\ predeclared_type (GoAST.tsyn GoNames.TNint64)      = TInteger IInt64
+  /\ predeclared_type (GoAST.tsyn GoNames.TNuint)       = TInteger IUint
+  /\ predeclared_type (GoAST.tsyn GoNames.TNuint8)      = TInteger IUint8
+  /\ predeclared_type (GoAST.tsyn GoNames.TNuint16)     = TInteger IUint16
+  /\ predeclared_type (GoAST.tsyn GoNames.TNuint32)     = TInteger IUint32
+  /\ predeclared_type (GoAST.tsyn GoNames.TNuint64)     = TInteger IUint64
+  /\ predeclared_type (GoAST.tsyn GoNames.TNfloat32)    = TFloat F32
+  /\ predeclared_type (GoAST.tsyn GoNames.TNfloat64)    = TFloat F64
+  /\ predeclared_type (GoAST.tsyn GoNames.TNcomplex64)  = TComplex C64
+  /\ predeclared_type (GoAST.tsyn GoNames.TNcomplex128) = TComplex C128
+  /\ predeclared_type (GoAST.tsyn GoNames.TNbyte)       = TInteger IUint8
+  /\ predeclared_type (GoAST.tsyn GoNames.TNrune)       = TInteger IInt32.
+Proof. repeat split; reflexivity. Qed.
+
+(** ★§5.1 PRODUCTION FACT CONSUMPTION: for a LIVE conversion occurrence, (1) its target type-name fact is read
+    from the ONCE-built type-name map at the target child key (= [predeclared_type] of the source name), and
+    (2) the production expression outcome at the conversion's key CONSUMES exactly that fact's type together
+    with the operand's [const_info] through ONE [GoTypes.convert_const] — yielding the index-free GoTypes
+    success ([CITyped (predeclared_type ts) tc]) or the EXACT local invalid-conversion evidence
+    ([EOConvFail (predeclared_type ts) (operand status)]).  The production path is tied to the stored entry. *)
+Theorem prog_conv_outcome_consumes {p} (r : GoIndex.Snap.NodeRef p) occ ts x :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+  GoIndex.NodeKeyMapBase.find (type_name_key r) (prog_type_name_facts p)
+      = Some (mkTypeNameFact (predeclared_type ts))
+  /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_conv_outcomes p)
+     = match const_info x with
+       | Some ci_op =>
+           match convert_const (predeclared_type ts) ci_op with
+           | Some tc => Some (EOOk (mkExprFact (CITyped (predeclared_type ts) tc) (occ_use_resolved occ)))
+           | None => Some (EOConvFail (predeclared_type ts) ci_op)
+           end
+       | None => Some EOChildFail
+       end.
+Proof.
+  intros Hin Hv. split.
+  - exact (prog_type_name_facts_find_conv p r occ ts x Hin Hv).
+  - rewrite (prog_conv_outcomes_find p r occ Hin). exact (occ_outcome_conv occ ts x Hv).
+Qed.
+
+(** ★§5.3 REPEATED EQUAL NAMES AT DISTINCT OCCURRENCES: two conversions to the SAME source name ([uint8] here)
+    at DISTINCT occurrences (distinct keys) obtain, THROUGH the retained index, TWO distinct target
+    [TypeNameRef]s (distinct NodeKeys — occurrence identity, not name identity), yet their recovered source
+    [TypeSyntax] values are EQUAL and their sealed [TypeNameFact]s are EQUAL.  Replaces the tautological
+    [scar_repeated_uint8]; holds for ANY such pair, so any concrete two-[uint8] snapshot instantiates it. *)
+Theorem repeated_name_distinct_refs {p} (ip : GoIndex.IndexedProgram p) (facts : ElaborationFacts p ip)
+    (r1 : GoIndex.Snap.NodeRef p) occ1 (er1 : GoIndex.ExprRef p) x1
+    (r2 : GoIndex.Snap.NodeRef p) occ2 (er2 : GoIndex.ExprRef p) x2 :
+  let idx := GoIndex.indexed_syntax ip in
+  In (r1, occ1) (prog_visit p) -> GoIndex.view_expr occ1 = Some (EConvert (GoAST.tsyn GoNames.TNuint8) x1) ->
+    GoIndex.as_expr idx r1 = Some er1 ->
+  In (r2, occ2) (prog_visit p) -> GoIndex.view_expr occ2 = Some (EConvert (GoAST.tsyn GoNames.TNuint8) x2) ->
+    GoIndex.as_expr idx r2 = Some er2 ->
+  GoIndex.Snap.node_ref_key r1 <> GoIndex.Snap.node_ref_key r2 ->
+  exists tr1 tr2,
+    conversion_target_ref idx er1 = Some tr1 /\ conversion_target_ref idx er2 = Some tr2
+    /\ GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr1) <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr2)
+    /\ GoIndex.type_name_ref_syntax tr1 = GoIndex.type_name_ref_syntax tr2
+    /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
+Proof.
+  intros idx Hin1 Hv1 Ha1 Hin2 Hv2 Ha2 Hne.
+  destruct (conversion_target_ref_conv idx r1 occ1 er1 (GoAST.tsyn GoNames.TNuint8) x1 Hin1 Hv1 Ha1) as [tr1 [Hc1 [Hk1 [_ Hs1]]]].
+  destruct (conversion_target_ref_conv idx r2 occ2 er2 (GoAST.tsyn GoNames.TNuint8) x2 Hin2 Hv2 Ha2) as [tr2 [Hc2 [Hk2 [_ Hs2]]]].
+  exists tr1, tr2. split; [exact Hc1 | split; [exact Hc2 | split; [ | split ]]].
+  - intro Heq. apply Hne. rewrite Hk1, Hk2 in Heq. exact (type_name_key_inj r1 r2 Heq).
+  - rewrite Hs1, Hs2. reflexivity.
+  - rewrite (type_name_fact_at_resolves facts tr1 _ Hs1), (type_name_fact_at_resolves facts tr2 _ Hs2). reflexivity.
+Qed.
+
 (** ★§12 byte / rune ALIAS SCARS (semantic, through the predeclared resolver): [byte] ranges over [uint8]
     ([byte(0)]/[byte(255)] accepted, [byte(256)]/[byte(-1)] rejected), [rune] over [int32] (min/max accepted,
     one past either endpoint rejected); and [byte(255)] / [rune(65)] yield the SAME constant status as
@@ -6207,10 +6796,19 @@ Example scar_rune_under_rejected : resolve_expr UsePrintlnArg (EConvert (GoAST.t
 Example scar_rune_over_rejected  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNrune) (EInt 2147483648))  = None. Proof. reflexivity. Qed.
 Example scar_int32_65_eq_rune : const_info (EConvert (GoAST.tsyn GoNames.TNint32) (EInt 65))
                               = const_info (EConvert (GoAST.tsyn GoNames.TNrune)  (EInt 65)). Proof. reflexivity. Qed.
-(** repeated equal type names at DISTINCT source occurrences resolve identically (source identity is the
-    OCCURRENCE, not the name — two [uint8(...)] targets are the same closed symbol, different occurrences). *)
-Example scar_repeated_uint8 : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7))
-                            = resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)). Proof. reflexivity. Qed.
+(** the MATCHING semantic-target boundaries: [uint8] over the same range as [byte], [int32] over the same range
+    as [rune] — the accept/reject endpoints coincide (pairs with the pinned-Go alias accept/reject matrix). *)
+Example scar_uint8_0_accepted    : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 0))          = Some (TInteger IUint8). Proof. reflexivity. Qed.
+Example scar_uint8_255_accepted  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 255))        = Some (TInteger IUint8). Proof. reflexivity. Qed.
+Example scar_uint8_256_rejected  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 256))        = None. Proof. reflexivity. Qed.
+Example scar_uint8_m1_rejected   : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (ENeg 1))          = None. Proof. reflexivity. Qed.
+Example scar_int32_min_accepted  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint32) (ENeg 2147483648)) = Some (TInteger IInt32). Proof. reflexivity. Qed.
+Example scar_int32_max_accepted  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint32) (EInt 2147483647)) = Some (TInteger IInt32). Proof. reflexivity. Qed.
+Example scar_int32_under_rejected : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint32) (ENeg 2147483649)) = None. Proof. reflexivity. Qed.
+Example scar_int32_over_rejected  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint32) (EInt 2147483648)) = None. Proof. reflexivity. Qed.
+(** repeated equal type names at DISTINCT source occurrences: the REAL occurrence-distinctness property (two
+    [uint8(...)] targets are the same closed symbol, DIFFERENT occurrences with distinct refs / keys, equal
+    recovered syntax, equal facts) is [repeated_name_distinct_refs] above — not a tautology over one term. *)
 (** a wrong-kind conversion operand still resolves through the ONE authority (nested source-named conversion). *)
 Example scar_nested_byte_uint16 : resolve_expr UsePrintlnArg
   (EConvert (GoAST.tsyn GoNames.TNbyte) (EConvert (GoAST.tsyn GoNames.TNuint16) (EInt 255))) = Some (TInteger IUint8). Proof. reflexivity. Qed.
@@ -6317,15 +6915,16 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
   let idx     := GoIndex.indexed_syntax ip in
   let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
   let visit   := concat blocks in                (* = prog_visit p — the flattened elaboration stream *)
-  let status  := fold_right psm_step (GoIndex.NodeKeyMapBase.empty (option ConstInfo)) visit in
+  let tnfacts := prog_type_name_facts p in       (* the once-built occurrence-keyed type-name fact map, built ONCE from the retained visit, CONSUMED by the outcome fold below AND sealed unchanged into [ef_type_name_facts] (no rebuild) *)
+  let outcomes := fold_right (outcome_step tnfacts) (GoIndex.NodeKeyMapBase.empty ExprOutcome) visit in  (* = prog_conv_outcomes p — the ONE expression-outcome authority; a conversion reads its target [tnfacts] fact + operand outcome, [convert_const] ONCE *)
   let buckets := prog_package_refs_from_visit idx visit in  (* the shared builder over the RETAINED visit (= prog_package_refs idx; NO second prog_visit/prog_blocks/visit_file) *)
-  let facts   := fold_right (add_occ_fact_sm status) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
+  let facts   := fold_right (add_occ_fact_om outcomes) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
   (* the ONE retained fresh ROOT LAYOUT and BUILD PLAN, derived from the retained buckets +
      the file layout, computed ONCE and threaded through the disposition test, the failure diagnostics, AND the
      stored facts — never a second [fresh_build_plan p] recompute. *)
   let rl      := root_layout p in
   let plan    := fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) rl in
-  let raw     := flat_map (fun roc => occ_expr_diags_sm status idx (snd roc) (fst roc))
+  let raw     := flat_map (fun roc => occ_expr_diags_sm outcomes idx (snd roc) (fst roc))
                           (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
@@ -6341,7 +6940,7 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
         eq_trans (eq_sym (command_plan_diags_eq p ip)) He in
       ElaborationOK (mkElaborationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
-                  (prog_type_name_fact_table p ip)
+                  (mkTypeNameFactTable tnfacts (prog_type_name_facts_domain p) (prog_type_name_facts_find p))
                   buckets
                   (prog_package_refs_present idx)
                   (prog_package_refs_bucket_len idx)
@@ -6358,6 +6957,20 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
 Definition elaborate (p : GoProgram) : ProgramElaboration p :=
   let ip := GoIndex.index_program p in
   mkProgramElaboration ip (elaborate_indexed p ip).
+
+(** ★§5.1 THE SEALED MAP IS THE CONSUMED MAP: the type-name fact map sealed into a successful
+    [ElaborationFacts] is EXACTLY [prog_type_name_facts p] — the SAME once-built map the production outcome fold
+    ([prog_conv_outcomes], hence [prog_conv_outcome_consumes]) reads.  [elaborate_indexed] binds it ONCE and uses
+    it for both; there is no [prog_type_name_fact_table p ip] rebuild after the decision. *)
+Theorem elaborate_ok_seals_tnfacts (p : GoProgram) facts :
+  pe_result (elaborate p) = ElaborationOK facts ->
+  tnft_map (ef_type_name_facts facts) = prog_type_name_facts p.
+Proof.
+  unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
+  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
+  - intro H. injection H as <-. reflexivity.
+  - discriminate.
+Qed.
 
 (** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
@@ -6917,7 +7530,7 @@ Lemma erased_fresh_report_of_sole : forall p dir,
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
   map erase_diagnostic (fresh_build_diagnostics p)
     = [mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage dir) [] None
-         (Some (default_exec_name (prog_module p) dir))].
+         (Some (default_exec_name (prog_module p) dir)) None].
 Proof.
   intros p dir Hk Hpf.
   destruct (proj1 (preflight_fails_iff p) Hpf) as [dir' [Hk' Hfind]].
@@ -7161,7 +7774,7 @@ Theorem nested_conv_erased_report :
   = [ mkErasedDiagnostic DCInvalidConversion
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 7%positive))
         [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive) ]
-        (Some (TInteger IInt8)) None ].
+        (Some (TInteger IInt8)) None (Some (GoAST.tsyn GoNames.TNint8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ---- THREE MAINS IN ONE PACKAGE: the program is REJECTED (a package with != 1 main), so its
@@ -7178,10 +7791,10 @@ Theorem three_main_erased_report :
   erased_report three_main_program (GoIndex.Snap.index_program three_main_program)
   = [ mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 6%positive))
-        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None None
     ; mkErasedDiagnostic DCMainRedeclared
         (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 9%positive))
-        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None ].
+        [ EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 3%positive) ] None None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
@@ -7194,7 +7807,7 @@ Definition missing_main_program : GoProgram :=
    a PACKAGE anchor, never a fake file/node primary — with no related anchor and no target payload. *)
 Theorem missing_main_erased_report :
   erased_report missing_main_program (GoIndex.Snap.index_program missing_main_program)
-  = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None None ].
+  = [ mkErasedDiagnostic DCMissingMainEntry (EAPackage "") [] None None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** the EXACT expression-fact query: on ANY valid [ElaborationFacts], EVERY expression reference's
@@ -7318,50 +7931,90 @@ Proof. rewrite prog_expr_facts_source, keyed_visit_source. vm_compute. reflexivi
 Definition over_default_int_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EInt 9223372036854775808 ] ] ].
 Theorem over_default_int_erased :
   erased_report over_default_int_program (GoIndex.Snap.index_program over_default_int_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* default float overflow: a bare finite decimal outside finite [float64]. *)
 Definition over_default_float_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EFloat (mkDecimal 1 400 eq_refl) ] ] ].
 Theorem over_default_float_erased :
   erased_report over_default_float_program (GoIndex.Snap.index_program over_default_float_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TFloat F64)) None ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TFloat F64)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* default complex overflow: a bare complex whose component cannot default to [complex128]. *)
 Definition over_default_complex_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EComplex (mkDC (mkDecimal 1 400 eq_refl) (mkDecimal 0 0 eq_refl)) ] ] ].
 Theorem over_default_complex_erased :
   erased_report over_default_complex_program (GoIndex.Snap.index_program over_default_complex_program)
-  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TComplex C128)) None ].
+  = [ mkErasedDiagnostic DCDefaultNotRepresentable (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TComplex C128)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* invalid explicit integer conversion [int8(128)]: anchored at the conversion, target [TInteger IInt8]. *)
 Definition bad_int8_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint8) (EInt 128) ] ] ].
 Theorem bad_int8_erased :
   erased_report bad_int8_program (GoIndex.Snap.index_program bad_int8_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None (Some (GoAST.tsyn GoNames.TNint8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* fractional float -> integer [int(3.5)]: anchored at the conversion. *)
 Definition frac_f2i_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint) (EFloat (mkDecimal 35 (-1) eq_refl)) ] ] ].
 Theorem frac_f2i_erased :
   erased_report frac_f2i_program (GoIndex.Snap.index_program frac_f2i_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None (Some (GoAST.tsyn GoNames.TNint)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* nonzero-imaginary complex -> scalar [int(complex(3,1))]: anchored at the conversion. *)
 Definition nz_c2s_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint) (EComplex (mkDC (mkDecimal 3 0 eq_refl) (mkDecimal 1 0 eq_refl))) ] ] ].
 Theorem nz_c2s_erased :
   erased_report nz_c2s_program (GoIndex.Snap.index_program nz_c2s_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None (Some (GoAST.tsyn GoNames.TNint)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* wrong-kind conversion [int(true)]: anchored at the conversion, no generic unlocated typing error. *)
 Definition wrongkind_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint) (EBool true) ] ] ].
 Theorem wrongkind_erased :
   erased_report wrongkind_program (GoIndex.Snap.index_program wrongkind_program)
-  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None ].
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None (Some (GoAST.tsyn GoNames.TNint)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(** ★§4 SOURCE-TARGET IN THE ERASED REPORT: an invalid [byte(256)] and an invalid [uint8(256)] resolve to the
+    SAME semantic target ([uint8]) but carry DIFFERENT erased source targets ([byte] vs [uint8]) — so the two
+    cross-snapshot reports are DISTINGUISHABLE (the source spelling is not lost to the resolved [GoType]).  Same
+    for [rune(2147483648)] vs [int32(2147483648)] (both resolve to [int32]). *)
+Definition bad_byte256_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNbyte) (EInt 256) ] ] ].
+Definition bad_uint8_256_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 256) ] ] ].
+Theorem bad_byte256_erased :
+  erased_report bad_byte256_program (GoIndex.Snap.index_program bad_byte256_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IUint8)) None (Some (GoAST.tsyn GoNames.TNbyte)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+Theorem bad_uint8_256_erased :
+  erased_report bad_uint8_256_program (GoIndex.Snap.index_program bad_uint8_256_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IUint8)) None (Some (GoAST.tsyn GoNames.TNuint8)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+Theorem byte_uint8_erased_differ :
+  erased_report bad_byte256_program (GoIndex.Snap.index_program bad_byte256_program)
+  <> erased_report bad_uint8_256_program (GoIndex.Snap.index_program bad_uint8_256_program).
+Proof.
+  intro H. rewrite bad_byte256_erased, bad_uint8_256_erased in H.
+  apply tsyn_byte_neq_uint8. congruence.
+Qed.
+
+Definition bad_rune_over_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNrune) (EInt 2147483648) ] ] ].
+Definition bad_int32_over_program := singleton_program c3_ms (mkFP "main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint32) (EInt 2147483648) ] ] ].
+Theorem bad_rune_over_erased :
+  erased_report bad_rune_over_program (GoIndex.Snap.index_program bad_rune_over_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt32)) None (Some (GoAST.tsyn GoNames.TNrune)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+Theorem bad_int32_over_erased :
+  erased_report bad_int32_over_program (GoIndex.Snap.index_program bad_int32_over_program)
+  = [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "main.go" eq_refl) 5%positive)) [] (Some (TInteger IInt32)) None (Some (GoAST.tsyn GoNames.TNint32)) ].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+Theorem rune_int32_erased_differ :
+  erased_report bad_rune_over_program (GoIndex.Snap.index_program bad_rune_over_program)
+  <> erased_report bad_int32_over_program (GoIndex.Snap.index_program bad_int32_over_program).
+Proof.
+  intro H. rewrite bad_rune_over_erased, bad_int32_over_erased in H.
+  apply tsyn_rune_neq_int32. congruence.
+Qed.
 
 (** DUPLICATE MAINS ACROSS FILES: two root-package files each declaring `main`.  The report names
     the CANONICAL later main (path order: [b.go] after [a.go]) as primary, related to the FIRST canonical main
@@ -7371,7 +8024,7 @@ Theorem dup_across_files_erased :
              (build_program c3_ms [ main_file_node (mkFP "a.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
                                   ; main_file_node (mkFP "b.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ] ])
   = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "b.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None None ].
+             [ EANode (GoIndex.mkKey (mkFP "a.go" eq_refl) 3%positive) ] None None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
@@ -7387,11 +8040,11 @@ Theorem simultaneous_failures_erased :
         ; main_file_node (mkFP "c/p.go" eq_refl) [ DMain [ SPrintln [ EInt 1 ] ] ]
         ; main_file_node (mkFP "c/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
         ; main_file_node (mkFP "d/z.go" eq_refl) [ ] ])
-  = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None
-         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None
+  = Some [ mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "a/x.go" eq_refl) 5%positive)) [] (Some (TInteger IInt8)) None (Some (GoAST.tsyn GoNames.TNint8))
+         ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "b/y.go" eq_refl) 5%positive)) [] (Some (TInteger IInt)) None (Some (GoAST.tsyn GoNames.TNint))
          ; mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "c/q.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None None
-         ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None None ].
+             [ EANode (GoIndex.mkKey (mkFP "c/p.go" eq_refl) 3%positive) ] None None None
+         ; mkErasedDiagnostic DCMissingMainEntry (EAPackage "d") [] None None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
@@ -7406,9 +8059,9 @@ Theorem mixed_order_erased :
         ; main_file_node (mkFP "a/q.go" eq_refl) [ DMain [ SPrintln [ EInt 2 ] ] ]
         ; main_file_node (mkFP "z/main.go" eq_refl) [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint8) (EInt 128) ] ] ] ])
   = Some [ mkErasedDiagnostic DCMainRedeclared (EANode (GoIndex.mkKey (mkFP "a/q.go" eq_refl) 3%positive))
-             [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None None
+             [ EANode (GoIndex.mkKey (mkFP "a/p.go" eq_refl) 3%positive) ] None None None
          ; mkErasedDiagnostic DCInvalidConversion (EANode (GoIndex.mkKey (mkFP "z/main.go" eq_refl) 5%positive))
-             [] (Some (TInteger IInt8)) None ].
+             [] (Some (TInteger IInt8)) None (Some (GoAST.tsyn GoNames.TNint8)) ].
 Proof. vm_compute. reflexivity. Qed.
 
 (* the fixtures spell string keys/paths/output-names directly, so reopen the string scope (list [;] and
@@ -7479,7 +8132,7 @@ Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf
    (the erased payload distinguishes this collision from one at a different output name). *)
 Example fx_2006_erased_output :
   map erase_diagnostic (fresh_build_diagnostics fx_av2)
-  = [ mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage "a/v2") [] None (Some "a") ].
+  = [ mkErasedDiagnostic DCBuildOutputIsDirectory (EAPackage "a/v2") [] None (Some "a") None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 20.7 — IMMEDIATE v2 PACKAGE v2/main.go: import example.com/m/v2 -> output name "m" (the module basename,

@@ -10,8 +10,8 @@
 From Fido Require Import Ints Floats Complexes FilePath Collections ModulePath GoVersion GoAST GoIndex GoTypes GoCompile GoSafe GoRender GoEmit.
 
 (* the ONE integer-family authority: type-equality reflection; the single representability reflection;
-   exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected; keyword exactness +
-   injectivity; int<>int64 and uint<>uint64 distinct despite equal ranges; the derived default-int bounds. *)
+   exact 64-bit int/uint; generic min/max accepted and below-min/above-max rejected;
+   int<>int64 and uint<>uint64 distinct despite equal ranges; the derived default-int bounds. *)
 Print Assumptions Ints.integer_type_eqb_eq.
 Print Assumptions Ints.integer_representableb_spec.
 Print Assumptions Ints.IInt_bits_64.
@@ -20,20 +20,16 @@ Print Assumptions Ints.integer_min_representable.
 Print Assumptions Ints.integer_max_representable.
 Print Assumptions Ints.integer_min_pred_not_representable.
 Print Assumptions Ints.integer_max_succ_not_representable.
-Print Assumptions Ints.integer_keyword_exact.
-Print Assumptions Ints.integer_keyword_inj.
 Print Assumptions Ints.IInt_neq_IInt64.
 Print Assumptions Ints.IUint_neq_IUint64.
 Print Assumptions Ints.int_min_val.
 Print Assumptions Ints.int_max_val.
 Print Assumptions Ints.uint_max_val.
 
-(* the ONE float-family authority (Floats.v, axiom-free over SpecFloat): FloatType equality; exact keywords;
+(* the ONE float-family authority (Floats.v, axiom-free over SpecFloat): FloatType equality;
    precision/exponent settings; direct binary32/binary64 rounding of exact rationals; the double-rounding
    counterexample (direct F32 differs from binary64-then-binary32); precision boundaries 2^24+1 / 2^53+1. *)
 Print Assumptions Floats.float_type_eqb_eq.
-Print Assumptions Floats.float_keyword_F32.
-Print Assumptions Floats.float_keyword_F64.
 Print Assumptions Floats.float_prec_F32.
 Print Assumptions Floats.float_prec_F64.
 Print Assumptions Floats.float_emax_F32.
@@ -82,14 +78,12 @@ Print Assumptions GoSafe.value_denotes_constant_runtime.
 Print Assumptions GoSafe.float_nonconstant_no_denotes.
 
 (* Complexes — the ONE complex-type authority, COMPOSED from the Floats component authority: decidable
-   ComplexType equality; the exact keywords; the ONE component mapping (C64->F32, C128->F64) sourcing all
+   ComplexType equality; the ONE component mapping (C64->F32, C128->F64) sourcing all
    precision; exact ComplexConst equality; the decimal-complex exact value projections; round_typed_complex's
    componentwise results (each rounds ONCE) + representability reflection + component-overflow rejection;
    underflow-to-+0 + no-NaN/Inf/-0 runtime component shape (inherited from TypedFloatConst); the runtime
    component read-back coherence. *)
 Print Assumptions Complexes.complex_type_eqb_eq.
-Print Assumptions Complexes.complex_keyword_C64.
-Print Assumptions Complexes.complex_keyword_C128.
 Print Assumptions Complexes.complex_component_C64.
 Print Assumptions Complexes.complex_component_C128.
 Print Assumptions Complexes.complex_const_eqb_eq.
@@ -284,14 +278,15 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* the occurrence-keyed status map is ONE fold over the DELIVERED visit stream ([prog_status_map],
-   reading each conversion's operand at [operand_key] from the already-folded tail via [psm_fold_find] +
-   [prog_visit_operand_closed]): its find at a visited occurrence's key is EXACTLY that occurrence's exact
-   const_info (and each conversion operand's) — one const_info_step per occurrence, no separate source
-   recursion, read O(1). *)
+(* §3.4 the ONE expression-outcome authority is ONE fold over the DELIVERED visit stream
+   ([prog_conv_outcomes], each conversion reading its target type-name fact + its operand outcome at
+   [operand_key] from the already-folded tail via [outcome_fold_find] + [prog_visit_operand_closed]): its find
+   at a visited occurrence's key is EXACTLY that occurrence's declarative outcome — one [convert_const] per
+   conversion, read O(1); the production expression facts AND the conversion diagnostics both PROJECT it. *)
 Print Assumptions GoCompile.occs_file_operand.
-Print Assumptions GoCompile.prog_status_map_find.
-Print Assumptions GoCompile.prog_status_map_find_operand.
+Print Assumptions GoCompile.prog_conv_outcomes_find.
+Print Assumptions GoCompile.add_occ_fact_om_eq.
+Print Assumptions GoCompile.local_conv_failure_om_eq.
 Print Assumptions GoCompile.expr_diags_eq_spec.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
    per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
@@ -323,6 +318,27 @@ Print Assumptions GoCompile.tnfact_byte_uint8_same_type.
 Print Assumptions GoCompile.tnfact_rune_int32_same_type.
 Print Assumptions GoCompile.tsyn_byte_neq_uint8.
 Print Assumptions GoCompile.tsyn_rune_neq_int32.
+(* §5.2 the ONE closed conjunction pinning all SIXTEEN source-name mappings (14 numeric + byte->uint8 +
+   rune->int32). *)
+Print Assumptions GoCompile.predeclared_all_sixteen.
+(* §3.3 the conversion TARGET ref is obtained THROUGH the retained index (minted TypeNameRef): the exact
+   RConversionTarget child key, role RConversionTarget, recovering the exact raw source TypeSyntax. *)
+Print Assumptions GoCompile.conversion_target_ref_conv.
+(* §5.1 PRODUCTION FACT CONSUMPTION: the production expression outcome at a live conversion's key reads its
+   target fact from the ONCE-built type-name map and the operand status through ONE convert_const (index-free
+   GoTypes success or exact invalid evidence); and the map SEALED into a successful ElaborationFacts IS that
+   same consumed [prog_type_name_facts] map (no rebuild after the decision). *)
+Print Assumptions GoCompile.prog_conv_outcome_consumes.
+Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
+(* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
+   recovered syntax and EQUAL sealed facts (occurrence identity, not name identity). *)
+Print Assumptions GoCompile.repeated_name_distinct_refs.
+(* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
+   TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
+   invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)
+Print Assumptions GoCompile.occ_expr_diags_conv_sound.
+Print Assumptions GoCompile.byte_uint8_erased_differ.
+Print Assumptions GoCompile.rune_int32_erased_differ.
 (* the legacy compile class projects the elaboration diagnostics (matches the decision), not a rerun. *)
 Print Assumptions GoCompile.go_compile_class_spec.
 (* decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
@@ -469,7 +485,6 @@ Print Assumptions GoRender.render_conv_rune_neq_int32.
 Print Assumptions GoRender.render_decimal_ascii.
 Print Assumptions GoRender.decode_render_decimal.
 Print Assumptions GoRender.render_float_denotes.
-Print Assumptions GoRender.integer_keyword_ascii.
 Print Assumptions GoRender.print_Z_dec_faithful.
 Print Assumptions GoRender.print_Z_pos_no_leading_zero.
 Print Assumptions GoRender.render_boundary_max.
@@ -491,7 +506,6 @@ Print Assumptions GoRender.render_resolved_string_denotes.
    literal renders exactly and is ASCII; the INDEPENDENT complex decoder round-trips the canonical spelling
   ; the conversion spellings; a bare complex literal denotes its exact ComplexConst (the FUNCTIONAL
    denotation + final resolved root, gated generically above, now cover complex too). *)
-Print Assumptions GoRender.complex_keyword_ascii.
 Print Assumptions GoRender.render_complex_literal_ascii.
 Print Assumptions GoRender.decode_render_complex_literal.
 Print Assumptions GoRender.render_cplx_denotes.
