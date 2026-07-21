@@ -40,14 +40,20 @@ disposable Docker build; keep the tracked generated module byte-exact.
   a prose-and-authority-only batch closing the one remaining blocking class from the final-cleanup confirmation
   — malformed comments, obsolete phase names, dead file/theorem pointers, and a few false authority statements.
   No executable, proof, gate, collection, or generated-byte change.
-- **Candidate SHA:** _pending freeze after the semantic read-through and verification pass._
-- **Gate:** 386/386 (unchanged; prose-only batch).
-- **Verification:** _pending (`make prove` / `e2e` / `check` / `regenerate` / `regen-guard` + staged, plus the
-  change-boundary and symbol/pointer audits)._
-- **Final confirmation:** _pending — the one bounded Implementation Review confirmation authorized by this
-  override._  A prior revision of this ledger asserted "zero stale/scar hits"; that claim was FALSE (it rested
-  on a fixed-token scan) and is withdrawn — no zero-residue claim is made here until the read-through and
-  confirmation succeed.
+- **Candidate SHA:** `f119dc2` (frozen).
+- **Gate:** 386/386 (unchanged; prose-only batch — no `Print Assumptions` command was touched).
+- **Verification (all GREEN from the candidate):** `make prove` (readable gate 386/386, whole-theory audit,
+  self-tests A-E — verified by the pre-commit hook on the exact staged bytes, then cache-hit under `make
+  prove`), `make e2e`, `make check`, `make regenerate`, `make regen-guard`, staged pre-commit.  Generated
+  `go.mod` + recursive `.go` byte-IDENTICAL; `git diff --check` clean; no trailing whitespace.  Change-boundary
+  audit: every changed source file differs in COMMENTS ONLY (no Gallina/theorem/proof/OCaml-branch/shell/Docker/
+  gate change).  Current-symbol audit (theorem/symbol names in the six authority docs) and file-pointer audit
+  (every `.review/*.md` path) both pass.  Whole repository **1,537,321** bytes, below the ~1,566,637 snapshot
+  (−29,316); the hard requirement (smaller than snapshot) is met, ~700 bytes short of the 30 KB stretch target
+  because the mandated 29,389-byte directive offsets most of the 54,861 bytes of the two deleted directives, and
+  no useful explanation was cut to chase the number.
+- **Final confirmation:** the one bounded Implementation Review confirmation authorized by this override is
+  requested (`.review/REVIEW_REQUEST.md`).  No zero-residue claim is made until it returns GREEN.
 - **Human approval:** pending.  **C4:** forbidden.
 
 ## Standing decisions
