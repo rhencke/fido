@@ -142,7 +142,7 @@ RUN mkdir -p /workspace/adv-mount
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
-rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes 2>/dev/null || true
+rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes /workspace/generated-alias 2>/dev/null || true
 # cached: Dune compiles the proved theory + the transport plugin (shared cache id)
 if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
@@ -179,6 +179,15 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
 echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && find . -type f | sort ); cat /workspace/generated-bytes/main.go
 
+# byte/rune SOURCE-ALIAS differential witness (C4 §12/§13): a println of byte(255)/rune(65) -> a DISPOSABLE
+# tree the go-e2e builds+runs to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8,
+# rune IS int32).  Never the canonical published image.
+if ! rocq c -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1; then cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; fi
+[ -f /workspace/generated-alias/main.go ] || fail "byte/rune alias witness materialized no main.go"
+echo "fido: byte/rune alias pristine tree:"; ( cd /workspace/generated-alias && find . -type f | sort ); cat /workspace/generated-alias/main.go
+grep -q 'byte(255)' /workspace/generated-alias/main.go || { cat /workspace/generated-alias/main.go; fail "alias witness did not render the SOURCE spelling byte(255)"; }
+grep -q 'rune(65)'  /workspace/generated-alias/main.go || { cat /workspace/generated-alias/main.go; fail "alias witness did not render the SOURCE spelling rune(65)"; }
+
 # --- the multi/empty/bytes materialized pristine exports carry NO .fido/lock/temp (the materializer writes
 #     none); the go-e2e fresh-build validation consumes these AUTHORITATIVE PRE-BUILD images directly. ---
 check_pristine() {  # <materialized-pristine>
@@ -188,7 +197,8 @@ check_pristine() {  # <materialized-pristine>
 check_pristine /workspace/generated-multi
 check_pristine /workspace/generated-empty
 check_pristine /workspace/generated-bytes
-echo "fido: pristine multi/empty/bytes exports assembled (no .fido)"
+check_pristine /workspace/generated-alias
+echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 
 # provenance (1): a forged raw transport (not a DirectoryImage) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
@@ -601,6 +611,7 @@ COPY --from=generated-module /generated/ ./tree/
 COPY --from=emit /workspace/generated-multi/ ./multi/
 COPY --from=emit /workspace/generated-empty/ ./empty/
 COPY --from=emit /workspace/generated-bytes/ ./bytes/
+COPY --from=emit /workspace/generated-alias/ ./alias/
 COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
@@ -700,6 +711,23 @@ b_want=$(tr -dc '0-9a-f' < /e2e/golden.bytes.hex)
 echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
 [ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; rm -rf "$BFRESH"; exit 1; }
 echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go via the fresh runner (0x00/0x1f/0x7f/0x80/0xff + newline)"; rm -rf "$BFRESH"
+
+# --- BYTE/RUNE SOURCE-ALIAS DIFFERENTIAL (C4 §12/§13): the accepted alias conversions byte(255)/rune(65) must
+#     COMPILE and RUN under the pinned toolchain (byte IS uint8, rune IS int32) — a GoCompile-ACCEPTED alias
+#     program Go rejects would be a MODEL BUG.  Disposable tree; never the canonical image. ---
+[ -f /e2e/alias/main.go ] || { echo "fido e2e alias: no byte/rune alias main.go"; exit 1; }
+grep -q 'byte(255)' /e2e/alias/main.go || { echo "fido e2e alias: source spelling byte(255) not rendered"; cat /e2e/alias/main.go; exit 1; }
+grep -q 'rune(65)'  /e2e/alias/main.go || { echo "fido e2e alias: source spelling rune(65) not rendered"; cat /e2e/alias/main.go; exit 1; }
+if [ -n "$( cd /e2e/alias && gofmt -l . )" ]; then echo "fido e2e alias: alias Go is not gofmt-clean"; ( cd /e2e/alias && gofmt -l . ); exit 1; fi
+fresh_go_build /e2e/alias AFRESH || { require_go_ran fresh-go-build; cat "${AFRESH:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e alias: go build ./... REJECTED a GoCompile-ACCEPTED byte/rune alias program (model bug)"; exit 1; }
+AEXE=$(find "$AFRESH" -maxdepth 1 -type f -perm -u+x)
+{ [ -n "$AEXE" ] && [ "$(printf '%s\n' "$AEXE" | wc -l)" = 1 ] && [ -x "$AEXE" ]; } || { echo "fido e2e alias: the sole-main go build ./... produced not-exactly-one default executable [$AEXE]"; rm -rf "$AFRESH"; exit 1; }
+"$AEXE" > /e2e/alias.out 2> /e2e/alias.err; aec=$?
+[ "$aec" = 0 ] || { echo "fido e2e alias: byte/rune alias witness exited $aec"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+echo "fido e2e alias: stderr=[$(cat /e2e/alias.err)]"
+grep -q '255' /e2e/alias.err || { echo "fido e2e alias: byte(255) did not print 255"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+grep -q '65'  /e2e/alias.err || { echo "fido e2e alias: rune(65) did not print 65"; cat /e2e/alias.err; rm -rf "$AFRESH"; exit 1; }
+echo "fido e2e alias: pinned Go ACCEPTS byte(255)/rune(65) and prints the resolved values (byte->uint8, rune->int32)"; rm -rf "$AFRESH"
 
 # --- EMPTY program: a rendered go.mod + ZERO .go files → `go build ./...` accepts (zero packages), via the runner. ---
 [ -f /e2e/empty/go.mod ] || { echo "fido e2e empty: no rendered go.mod"; exit 1; }

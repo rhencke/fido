@@ -136,6 +136,15 @@ Proof.
   f_equal; f_equal; apply GoNames.stn_eq, GoNames.ident_eq; exact H.
 Qed.
 
+(** ★C4 byte/rune source aliases render DISTINCT text from uint8/int32 (the source spelling is preserved even
+    though the resolved semantic types are equal — [GoCompile.tnfact_byte_uint8_same_type]). *)
+Lemma render_conv_byte_neq_uint8 :
+  render_type_syntax (GoAST.tsyn GoNames.TNbyte) <> render_type_syntax (GoAST.tsyn GoNames.TNuint8).
+Proof. unfold render_type_syntax; rewrite !GoAST.ts_stn_tsyn; apply GoNames.render_stn_byte_neq_uint8. Qed.
+Lemma render_conv_rune_neq_int32 :
+  render_type_syntax (GoAST.tsyn GoNames.TNrune) <> render_type_syntax (GoAST.tsyn GoNames.TNint32).
+Proof. unfold render_type_syntax; rewrite !GoAST.ts_stn_tsyn; apply GoNames.render_stn_rune_neq_int32. Qed.
+
 Fixpoint render_expr (e : GoExpr) : string :=
   match e with
   | EBool true  => "true"
@@ -1334,28 +1343,8 @@ Proof.
   - injection Heq as Hxy H2; f_equal; [ exact Hxy | apply IH; exact H2 ].
 Qed.
 
-(** the integer-conversion spelling `<int-keyword>(<body>` determines its keyword and body: every integer
-    keyword is `(`-free, so the leading `(` splits the spelling uniquely. *)
-Lemma int_kw_paren_inj : forall t1 t2 r1 r2,
-  (integer_keyword t1 ++ String "("%char r1)%string = (integer_keyword t2 ++ String "("%char r2)%string ->
-  t1 = t2 /\ r1 = r2.
-Proof.
-  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
-    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
-Qed.
-
-Lemma float_kw_paren_inj : forall t1 t2 r1 r2,
-  (float_keyword t1 ++ String "("%char r1)%string = (float_keyword t2 ++ String "("%char r2)%string ->
-  t1 = t2 /\ r1 = r2.
-Proof.
-  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
-    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
-Qed.
-
-(** an integer-conversion spelling and a float-conversion spelling never coincide (keyword lead char i/u vs f). *)
-Lemma int_float_kw_paren_disjoint : forall t1 t2 r1 r2,
-  (integer_keyword t1 ++ String "("%char r1)%string <> (float_keyword t2 ++ String "("%char r2)%string.
-Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
+(** ---- COMPLEX-LITERAL spelling head lemmas (used by the source-name determinism proof to tell a
+    `complex(...)` literal apart from a `<name>(...)` conversion). ---- *)
 
 (** ---- COMPLEX-SPELLING DISJOINTNESS: the complex-literal spelling `complex(...)` and the
     complex-conversion spelling `complex64(...)`/`complex128(...)` are pairwise disjoint from each other and
@@ -1376,41 +1365,6 @@ Qed.
 Lemma decode_complex_literal_not_c : forall c0 s,
   Ascii.eqb "c"%char c0 = false -> decode_complex_literal (String c0 s) = None.
 Proof. intros c0 s H; unfold decode_complex_literal; cbn [strip_prefix]; rewrite H; reflexivity. Qed.
-
-(** the complex CONVERSION spelling (`complex64(`/`complex128(`) is not a complex LITERAL: they share the
-    `complex` stem but diverge at index 7 (`(` vs `6`/`1`). *)
-Lemma decode_complex_literal_complex_convert_none : forall t X,
-  decode_complex_literal (complex_keyword t ++ String "("%char X) = None.
-Proof. intros t X; destruct t; reflexivity. Qed.
-
-(** the two complex-conversion keywords are injective through the leading `(`. *)
-Lemma complex_kw_paren_inj : forall t1 t2 r1 r2,
-  (complex_keyword t1 ++ String "("%char r1)%string = (complex_keyword t2 ++ String "("%char r2)%string ->
-  t1 = t2 /\ r1 = r2.
-Proof.
-  intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H;
-    solve [ discriminate H | injection H; intros; subst; split; reflexivity ].
-Qed.
-
-(** a complex-conversion spelling never coincides with an integer- or float-conversion spelling (lead c vs i/u/f). *)
-Lemma int_complex_kw_paren_disjoint : forall t1 t2 r1 r2,
-  (integer_keyword t1 ++ String "("%char r1)%string <> (complex_keyword t2 ++ String "("%char r2)%string.
-Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
-Lemma float_complex_kw_paren_disjoint : forall t1 t2 r1 r2,
-  (float_keyword t1 ++ String "("%char r1)%string <> (complex_keyword t2 ++ String "("%char r2)%string.
-Proof. intros t1 t2 r1 r2 H; destruct t1, t2; cbn in H; discriminate H. Qed.
-
-(** a complex-conversion spelling is not a bare integer / decimal / string / decoded-complex-literal (lead 'c'). *)
-Lemma complex_kw_go_int_lit_false : forall t X, go_int_lit (complex_keyword t ++ String "("%char X) = false.
-Proof. intros t X; destruct t; reflexivity. Qed.
-Lemma complex_kw_decode_decimal_none : forall t X, decode_decimal (complex_keyword t ++ String "("%char X) = None.
-Proof.
-  intros t X; destruct t;
-    apply decode_decimal_nonnumeric_head; reflexivity.
-Qed.
-Lemma complex_kw_decode_complex_none : forall t X,
-  decode_complex_literal (complex_keyword t ++ String "("%char X) = None.
-Proof. exact decode_complex_literal_complex_convert_none. Qed.
 
 (** a 'c'-led spelling (a complex literal) is not a bare integer / decimal / string. *)
 Lemma head_c_go_int_lit_false : forall rest, go_int_lit (String "c"%char rest) = false.

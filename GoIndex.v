@@ -3433,6 +3433,9 @@ Definition PackageClauseRef (p : GoProgram) := NodeRefOf p KPackageClause.
 Definition DeclRef          (p : GoProgram) := NodeRefOf p KTopLevelDecl.
 Definition StmtRef          (p : GoProgram) := NodeRefOf p KStatement.
 Definition ExprRef          (p : GoProgram) := NodeRefOf p KExpression.
+(* a conversion's SOURCE type-name occurrence (C4): a typed reference to a KTypeName node — the source
+   identity of a conversion target, from which the retained source [TypeSyntax] spelling is recovered. *)
+Definition TypeNameRef      (p : GoProgram) := NodeRefOf p KTypeName.
 
 Definition syntaxkind_eq_dec (a b : SyntaxKind) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
@@ -3449,6 +3452,7 @@ Definition as_package_clause {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p)
 Definition as_decl {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (DeclRef p) := as_kind idx r KTopLevelDecl.
 Definition as_stmt {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (StmtRef p) := as_kind idx r KStatement.
 Definition as_expr {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (ExprRef p) := as_kind idx r KExpression.
+Definition as_type_name {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) : option (TypeNameRef p) := as_kind idx r KTypeName.
 
 (* refinement soundness: erasure recovers exactly the refined reference. *)
 Lemma erase_as_kind {p} (idx : Snap.SyntaxIndex p) (r : Snap.NodeRef p) (k : SyntaxKind) (tr : NodeRefOf p k) :
@@ -3474,6 +3478,15 @@ Qed.
 Lemma noderefof_kind {p k} (tr : NodeRefOf p k) :
   occurrence_kind (Snap.source_occurrence_of_ref (erase_ref tr)) = k.
 Proof. destruct tr as [r Hk]. exact Hk. Qed.
+
+(* the SOURCE type-name syntax a [TypeNameRef] designates — the retained source spelling recovered THROUGH the
+   reference (never from the resolved semantic fact).  Always [Some] for a real [TypeNameRef] (its occurrence
+   is KTypeName by construction). *)
+Definition type_name_ref_syntax {p} (tr : TypeNameRef p) : option TypeSyntax :=
+  view_typename (Snap.source_occurrence_of_ref (erase_ref tr)).
+Lemma type_name_ref_syntax_some {p} (tr : TypeNameRef p) :
+  exists ts, type_name_ref_syntax tr = Some ts.
+Proof. unfold type_name_ref_syntax. apply kind_view_typename, noderefof_kind. Qed.
 (* erased NodeKey determines typed-reference identity — no new identity system. *)
 Lemma noderefof_key_inj {p k} (tr1 tr2 : NodeRefOf p k) :
   Snap.node_ref_key (erase_ref tr1) = Snap.node_ref_key (erase_ref tr2) -> tr1 = tr2.

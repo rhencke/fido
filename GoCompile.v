@@ -1462,6 +1462,126 @@ Arguments eft_complete {p ip} _.
 Definition prog_expr_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ExprFactTable p ip :=
   mkExprFactTable (prog_expr_facts p) (prog_expr_facts_domain p) (prog_expr_facts_find p).
 
+(* ---- §8 OCCURRENCE-KEYED TYPE-NAME FACTS: a conversion's SOURCE type name resolves (§7) to a semantic
+   [GoType]; the fact stores THAT resolved type ONLY (no syntax copy — the retained [TypeNameRef] + source view
+   carry source identity, so [byte]/[uint8] stay distinct SOURCES with EQUAL facts).  One sealed NodeKey-keyed
+   standard map, built by the ONE retained visit fold (never a second AST walk), analogous to [ExprFactTable]. *)
+
+Record TypeNameFact : Type := mkTypeNameFact { tnf_type : GoType }.
+
+(* the type-name fact of a single occurrence: [Some] EXACTLY for a KTypeName occurrence, resolving its retained
+   source [TypeSyntax] through the predeclared context; non-type-name occurrences contribute nothing. *)
+Definition occ_type_name_fact (o : GoIndex.SourceOccurrence) : option TypeNameFact :=
+  match GoIndex.view_typename o with
+  | Some ts => Some (mkTypeNameFact (predeclared_type ts))
+  | None => None
+  end.
+
+Lemma occ_type_name_fact_some : forall o ts,
+  GoIndex.view_typename o = Some ts -> occ_type_name_fact o = Some (mkTypeNameFact (predeclared_type ts)).
+Proof. intros o ts H. unfold occ_type_name_fact. rewrite H. reflexivity. Qed.
+Lemma occ_type_name_fact_none : forall o,
+  GoIndex.view_typename o = None -> occ_type_name_fact o = None.
+Proof. intros o H. unfold occ_type_name_fact. rewrite H. reflexivity. Qed.
+
+Definition add_tn_fact {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (m : GoIndex.NodeKeyMapBase.t TypeNameFact) : GoIndex.NodeKeyMapBase.t TypeNameFact :=
+  match occ_type_name_fact (snd ro) with
+  | Some f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro)) f m
+  | None => m
+  end.
+
+Lemma tn_facts_not_in_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (k : GoIndex.NodeKey) :
+  ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
+  GoIndex.NodeKeyMapBase.find k (fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) l) = None.
+Proof.
+  induction l as [|[r0 occ0] rest IH]; intros Hni; simpl.
+  - apply GoIndex.NodeKeyMapFacts.empty_o.
+  - simpl in Hni.
+    assert (Hne : GoIndex.Snap.node_ref_key r0 <> k) by (intro H; apply Hni; left; exact H).
+    assert (Hrest : ~ In k (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest))
+      by (intro H; apply Hni; right; exact H).
+    unfold add_tn_fact; cbn [snd fst]. destruct (occ_type_name_fact occ0) as [f|].
+    + rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact (IH Hrest).
+    + exact (IH Hrest).
+Qed.
+
+Lemma tn_fold_facts_find {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) r occ :
+  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
+  In (r, occ) l ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
+    (fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) l) = occ_type_name_fact occ.
+Proof.
+  induction l as [|[r0 occ0] rest IH]; intros Hnd Hin; [ destruct Hin |].
+  simpl in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
+  simpl. destruct Hin as [Heq | Hin].
+  - injection Heq as <- <-. unfold add_tn_fact; cbn [snd fst].
+    destruct (occ_type_name_fact occ0) as [f|] eqn:Ef.
+    + rewrite GoIndex.nodekeymap_add_eq. reflexivity.
+    + apply tn_facts_not_in_domain. exact Hni.
+  - assert (Hin' : In (GoIndex.Snap.node_ref_key r)
+             (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest)).
+    { apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hin]. }
+    assert (Hkr : GoIndex.Snap.node_ref_key r <> GoIndex.Snap.node_ref_key r0)
+      by (intro Hk; apply Hni; rewrite <- Hk; exact Hin').
+    unfold add_tn_fact; cbn [snd fst]. destruct (occ_type_name_fact occ0) as [f0|].
+    + rewrite GoIndex.nodekeymap_add_neq by (intro Hk; apply Hkr; symmetry; exact Hk).
+      exact (IH Hnd' Hin).
+    + exact (IH Hnd' Hin).
+Qed.
+
+Lemma tn_fold_facts_domain {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) k f :
+  GoIndex.NodeKeyMapBase.find k (fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) l) = Some f ->
+  exists ro, In ro l /\ GoIndex.Snap.node_ref_key (fst ro) = k /\ occ_type_name_fact (snd ro) = Some f.
+Proof.
+  induction l as [|ro rest IH]; intro Hf.
+  - rewrite GoIndex.NodeKeyMapFacts.empty_o in Hf; discriminate Hf.
+  - cbn [fold_right] in Hf. unfold add_tn_fact in Hf.
+    destruct (occ_type_name_fact (snd ro)) as [f0|] eqn:Ef.
+    + destruct (GoIndex.thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (fst ro)) k) as [He|Hne].
+      * subst k. rewrite GoIndex.nodekeymap_add_eq in Hf. injection Hf as <-.
+        exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
+      * rewrite GoIndex.nodekeymap_add_neq in Hf by exact Hne.
+        destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+    + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+Definition prog_type_name_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t TypeNameFact :=
+  fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) (prog_visit p).
+
+Lemma prog_type_name_facts_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (prog_visit p) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_type_name_facts p) = occ_type_name_fact occ.
+Proof. intro Hin. apply tn_fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ]. Qed.
+
+Lemma prog_type_name_facts_domain (p : GoProgram) k f :
+  GoIndex.NodeKeyMapBase.find k (prog_type_name_facts p) = Some f ->
+  exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+    /\ GoIndex.Snap.node_ref_key r = k /\ occ_type_name_fact occ = Some f.
+Proof.
+  intro Hf. destruct (tn_fold_facts_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
+  exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
+Qed.
+
+(** the SEALED type-name-fact table: the standard NodeKey map + domain (keys are EXACTLY the visited
+    type-name occurrences — no expression/statement/file/package/foreign key) + completeness (each visited
+    occurrence's fact is exact).  Mirrors [ExprFactTable]; a forged foreign-key table is unrepresentable. *)
+Record TypeNameFactTable (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkTypeNameFactTable {
+  tnft_map      : GoIndex.NodeKeyMapBase.t TypeNameFact ;
+  tnft_domain   : forall k f, GoIndex.NodeKeyMapBase.find k tnft_map = Some f ->
+                    exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+                      /\ GoIndex.Snap.node_ref_key r = k /\ occ_type_name_fact occ = Some f ;
+  tnft_complete : forall r occ, In (r, occ) (prog_visit p) ->
+                    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) tnft_map = occ_type_name_fact occ
+}.
+Arguments mkTypeNameFactTable {p ip} _ _ _.
+Arguments tnft_map {p ip} _.
+Arguments tnft_domain {p ip} _.
+Arguments tnft_complete {p ip} _.
+
+Definition prog_type_name_fact_table (p : GoProgram) (ip : GoIndex.IndexedProgram p) : TypeNameFactTable p ip :=
+  mkTypeNameFactTable (prog_type_name_facts p) (prog_type_name_facts_domain p) (prog_type_name_facts_find p).
+
 (* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [ProgramTyped] ---- *)
 
 Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
@@ -5888,6 +6008,9 @@ Qed.
 Record ElaborationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type := mkElaborationFacts {
   (* the SEALED expression-fact table: no non-expression/foreign key, each visited occurrence's fact exact. *)
   ef_expr_facts      : ExprFactTable p ip ;
+  (* the SEALED type-name-fact table (§8): a conversion's SOURCE type name resolved to its semantic [GoType],
+     keyed by NodeKey; domain = exactly the visited type-name occurrences (no expression/foreign key). *)
+  ef_type_name_facts : TypeNameFactTable p ip ;
   ef_package_refs    : PM.t (list (GoIndex.DeclRef p)) ;
   (* the bucket map's domain is exactly the represented package set... *)
   ef_package_present : forall dir, PM.In dir ef_package_refs <-> list_dir_mem dir (GoAST.file_bindings (prog_files p)) = true ;
@@ -5909,8 +6032,9 @@ Record ElaborationFacts (p : GoProgram) (ip : GoIndex.IndexedProgram p) : Type :
   ef_build_plan      : FreshBuildDisposition ;
   ef_build_plan_ok   : ef_build_plan = fresh_build_plan p
 }.
-Arguments mkElaborationFacts {p ip} _ _ _ _ _ _ _ _ _ _ _.
+Arguments mkElaborationFacts {p ip} _ _ _ _ _ _ _ _ _ _ _ _.
 Arguments ef_expr_facts {p ip} _.
+Arguments ef_type_name_facts {p ip} _.
 Arguments ef_package_refs {p ip} _.
 Arguments ef_package_present {p ip} _.
 Arguments ef_package_len {p ip} _.
@@ -5978,6 +6102,162 @@ Proof.
     (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eft_map (ef_expr_facts facts)))
     eq_refl f Hf).
 Qed.
+
+(** the public TYPE-NAME-fact query is TOTAL (§8): EVERY [TypeNameRef] has an exact stored entry.  Unlike the
+    expression fact this needs NO validity hypothesis — a [TypeNameRef] denotes a VISITED KTypeName occurrence
+    ([noderef_in_prog_visit] + [kind_view_typename]) whose source name resolves by construction (§7,
+    [predeclared_type] total), so [occ_type_name_fact] is [Some] and [tnft_complete] equates the lookup to it. *)
+Lemma type_name_ref_fact_some {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) :
+  exists f, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr))
+              (tnft_map (ef_type_name_facts facts)) = Some f.
+Proof.
+  assert (Hkind : GoIndex.occurrence_kind (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref tr)) = GoIndex.KTypeName)
+    by exact (proj2_sig tr).
+  destruct (GoIndex.kind_view_typename _ Hkind) as [ts Hv].
+  pose proof (noderef_in_prog_visit p (GoIndex.erase_ref tr)) as Hin.
+  pose proof (tnft_complete (ef_type_name_facts facts) (GoIndex.erase_ref tr)
+                (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref tr)) Hin) as Hfind.
+  exists (mkTypeNameFact (predeclared_type ts)).
+  rewrite Hfind. exact (occ_type_name_fact_some _ ts Hv).
+Qed.
+
+Lemma type_name_fact_at_not_none {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (tnft_map (ef_type_name_facts facts)) = None -> False.
+Proof. intro Hn. destruct (type_name_ref_fact_some facts tr) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
+
+Definition tnfact_of_find {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p)
+  (o : option TypeNameFact) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (tnft_map (ef_type_name_facts facts)) = o -> TypeNameFact :=
+  match o with
+  | Some f => fun _ => f
+  | None   => fun Hn => False_rect TypeNameFact (type_name_fact_at_not_none facts tr Hn)
+  end.
+
+Definition type_name_fact_at {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) : TypeNameFact :=
+  tnfact_of_find facts tr
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (tnft_map (ef_type_name_facts facts)))
+    eq_refl.
+
+Lemma tnfact_of_find_some {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) o Ho f :
+  o = Some f -> tnfact_of_find facts tr o Ho = f.
+Proof. intros ->. cbn. reflexivity. Qed.
+
+(** the total type-name query PROJECTS the sealed table — where the map holds a fact, [type_name_fact_at]
+    returns EXACTLY it (it does not recompute resolution). *)
+Lemma type_name_fact_at_find {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) f :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (tnft_map (ef_type_name_facts facts)) = Some f ->
+  type_name_fact_at facts tr = f.
+Proof.
+  intro Hf. unfold type_name_fact_at.
+  exact (tnfact_of_find_some facts tr
+    (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (tnft_map (ef_type_name_facts facts)))
+    eq_refl f Hf).
+Qed.
+
+(** ★§8 EXACTNESS: the stored fact EQUALS [GoCompile] resolution of the SOURCE type name recovered THROUGH the
+    reference ([type_name_ref_syntax]) — the resolved [GoType] is [predeclared_type] of that exact source name,
+    not a recomputation and not a copy of the spelling. *)
+Theorem type_name_fact_at_resolves {p ip} (facts : ElaborationFacts p ip) (tr : GoIndex.TypeNameRef p) ts :
+  GoIndex.type_name_ref_syntax tr = Some ts ->
+  type_name_fact_at facts tr = mkTypeNameFact (predeclared_type ts).
+Proof.
+  intro Hts. unfold GoIndex.type_name_ref_syntax in Hts.
+  pose proof (noderef_in_prog_visit p (GoIndex.erase_ref tr)) as Hin.
+  pose proof (tnft_complete (ef_type_name_facts facts) (GoIndex.erase_ref tr)
+                (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref tr)) Hin) as Hfind.
+  rewrite (occ_type_name_fact_some _ ts Hts) in Hfind.
+  exact (type_name_fact_at_find facts tr _ Hfind).
+Qed.
+
+(** ★§8 byte/uint8 (and rune/int32): DISTINCT source type syntax, but the SAME resolved semantic [GoType]
+    ([TInteger IUint8] / [TInteger IInt32]) — the fact stores the resolved type only, so a [byte] fact and a
+    [uint8] fact are EQUAL even though their sources (and rendered spellings, [GoRender]) differ. *)
+Example predeclared_byte_is_uint8 : predeclared_type (GoAST.tsyn GoNames.TNbyte) = TInteger IUint8. Proof. reflexivity. Qed.
+Example predeclared_rune_is_int32 : predeclared_type (GoAST.tsyn GoNames.TNrune) = TInteger IInt32. Proof. reflexivity. Qed.
+Theorem tnfact_byte_uint8_same_type :
+  mkTypeNameFact (predeclared_type (GoAST.tsyn GoNames.TNbyte))
+  = mkTypeNameFact (predeclared_type (GoAST.tsyn GoNames.TNuint8)).
+Proof. reflexivity. Qed.
+Theorem tnfact_rune_int32_same_type :
+  mkTypeNameFact (predeclared_type (GoAST.tsyn GoNames.TNrune))
+  = mkTypeNameFact (predeclared_type (GoAST.tsyn GoNames.TNint32)).
+Proof. reflexivity. Qed.
+Theorem tsyn_byte_neq_uint8 : GoAST.tsyn GoNames.TNbyte <> GoAST.tsyn GoNames.TNuint8.
+Proof.
+  intro H. apply (f_equal GoAST.ts_name) in H. rewrite !GoAST.ts_name_tsyn in H. discriminate H.
+Qed.
+Theorem tsyn_rune_neq_int32 : GoAST.tsyn GoNames.TNrune <> GoAST.tsyn GoNames.TNint32.
+Proof.
+  intro H. apply (f_equal GoAST.ts_name) in H. rewrite !GoAST.ts_name_tsyn in H. discriminate H.
+Qed.
+
+(** ★§12 byte / rune ALIAS SCARS (semantic, through the predeclared resolver): [byte] ranges over [uint8]
+    ([byte(0)]/[byte(255)] accepted, [byte(256)]/[byte(-1)] rejected), [rune] over [int32] (min/max accepted,
+    one past either endpoint rejected); and [byte(255)] / [rune(65)] yield the SAME constant status as
+    [uint8(255)] / [int32(65)] — distinct SOURCE spellings, identical SEMANTICS. *)
+Example scar_byte_0_accepted   : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNbyte) (EInt 0))   = Some (TInteger IUint8). Proof. reflexivity. Qed.
+Example scar_byte_255_accepted : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNbyte) (EInt 255)) = Some (TInteger IUint8). Proof. reflexivity. Qed.
+Example scar_byte_256_rejected : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNbyte) (EInt 256)) = None. Proof. reflexivity. Qed.
+Example scar_byte_m1_rejected  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNbyte) (ENeg 1))   = None. Proof. reflexivity. Qed.
+Example scar_uint8_255_eq_byte : const_info (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 255))
+                               = const_info (EConvert (GoAST.tsyn GoNames.TNbyte)  (EInt 255)). Proof. reflexivity. Qed.
+Example scar_rune_min_accepted  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNrune) (ENeg 2147483648)) = Some (TInteger IInt32). Proof. reflexivity. Qed.
+Example scar_rune_max_accepted  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNrune) (EInt 2147483647))  = Some (TInteger IInt32). Proof. reflexivity. Qed.
+Example scar_rune_under_rejected : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNrune) (ENeg 2147483649)) = None. Proof. reflexivity. Qed.
+Example scar_rune_over_rejected  : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNrune) (EInt 2147483648))  = None. Proof. reflexivity. Qed.
+Example scar_int32_65_eq_rune : const_info (EConvert (GoAST.tsyn GoNames.TNint32) (EInt 65))
+                              = const_info (EConvert (GoAST.tsyn GoNames.TNrune)  (EInt 65)). Proof. reflexivity. Qed.
+(** repeated equal type names at DISTINCT source occurrences resolve identically (source identity is the
+    OCCURRENCE, not the name — two [uint8(...)] targets are the same closed symbol, different occurrences). *)
+Example scar_repeated_uint8 : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7))
+                            = resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)). Proof. reflexivity. Qed.
+(** a wrong-kind conversion operand still resolves through the ONE authority (nested source-named conversion). *)
+Example scar_nested_byte_uint16 : resolve_expr UsePrintlnArg
+  (EConvert (GoAST.tsyn GoNames.TNbyte) (EConvert (GoAST.tsyn GoNames.TNuint16) (EInt 255))) = Some (TInteger IUint8). Proof. reflexivity. Qed.
+
+(** ★§12 INTRINSIC-DOMAIN EXCLUSION: a C4 conversion target is a [TypeSyntax] = [TSName (TNUnqualified stn)]
+    over a [SupportedTypeName], whose [stn_exact] proof forces [classify (render stn) = Some] one of the sixteen
+    closed lexical names.  [bool], [string], [uintptr], [any], [error], [comparable], an unknown [foo], and a
+    qualified [pkg.T] are NOT among those sixteen ([GoNames.classify] returns [None]), so NO [SupportedTypeName]
+    — hence NO conversion target — can carry them: they are UNREPRESENTABLE, not rejected. *)
+Example excl_bool       : GoNames.classify "bool" = None.        Proof. reflexivity. Qed.
+Example excl_string     : GoNames.classify "string" = None.      Proof. reflexivity. Qed.
+Example excl_uintptr    : GoNames.classify "uintptr" = None.     Proof. reflexivity. Qed.
+Example excl_any        : GoNames.classify "any" = None.         Proof. reflexivity. Qed.
+Example excl_error      : GoNames.classify "error" = None.       Proof. reflexivity. Qed.
+Example excl_comparable : GoNames.classify "comparable" = None.  Proof. reflexivity. Qed.
+Example excl_foo        : GoNames.classify "foo" = None.         Proof. reflexivity. Qed.
+Example excl_qualified  : GoNames.classify "pkg.T" = None.       Proof. reflexivity. Qed.
+Fail Definition excl_bool_target : GoAST.TypeSyntax :=
+  GoAST.TSName (GoAST.TNUnqualified (GoNames.mkSTN (GoNames.mkIdent "bool" eq_refl) GoNames.TNint eq_refl)).
+
+(** ★§12 representative migrated conversion fixtures (results preserved — one accept + one reject per numeric
+    family, a nested and a same-target-identity case, and the load-bearing scalar + complex-component
+    double-round scars at the [const_info] level; the FULL deleted matrix is closed by the universal
+    [convert_const]/[resolve] lemmas, not re-added as hundreds of fixtures). *)
+Example rep_int8_127_accept : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 127)) = Some (TInteger IInt8). Proof. reflexivity. Qed.
+Example rep_int8_128_reject : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 128)) = None. Proof. reflexivity. Qed.
+Example rep_f32_accept      : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat GoTypes.d_15em1)) = Some (TFloat F32). Proof. reflexivity. Qed.
+Example rep_f32_bool_reject : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNfloat32) (EBool true)) = None. Proof. reflexivity. Qed.
+Example rep_c64_accept      : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex GoTypes.dc_1p5_m2p5)) = Some (TComplex C64). Proof. vm_compute. reflexivity. Qed.
+Example rep_c128_str_reject : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EString "x")) = None. Proof. reflexivity. Qed.
+Example rep_nested_accept   : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 127))) = Some (TInteger IInt8). Proof. reflexivity. Qed.
+Example rep_nested_reject   : resolve_expr UsePrintlnArg (EConvert (GoAST.tsyn GoNames.TNint8) (EConvert (GoAST.tsyn GoNames.TNint16) (EInt 128))) = None. Proof. reflexivity. Qed.
+Example rep_same_f32_identity :
+  const_info (EConvert (GoAST.tsyn GoNames.TNfloat32) (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat GoTypes.d_scar)))
+  = const_info (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat GoTypes.d_scar)). Proof. vm_compute. reflexivity. Qed.
+Example rep_scalar_double_round_scar :
+  const_info (EConvert (GoAST.tsyn GoNames.TNfloat32) (EFloat GoTypes.d_scar))
+  <> const_info (EConvert (GoAST.tsyn GoNames.TNfloat32) (EConvert (GoAST.tsyn GoNames.TNfloat64) (EFloat GoTypes.d_scar))). Proof. vm_compute. discriminate. Qed.
+Example rep_complex_component_scar :
+  const_info (EConvert (GoAST.tsyn GoNames.TNcomplex64) (EComplex (mkDC GoTypes.d_scar GoTypes.d_0_0)))
+  <> const_info (EConvert (GoAST.tsyn GoNames.TNcomplex64)
+        (EConvert (GoAST.tsyn GoNames.TNcomplex128) (EComplex (mkDC GoTypes.d_scar GoTypes.d_0_0)))). Proof. vm_compute. discriminate. Qed.
+(** NO type-name fact on a wrong-kind (expression) occurrence — the fact table's domain is exactly the
+    type-name occurrences (mirrors [ef_package]/[ef_expr] domain exactness). *)
+Example rep_no_tnfact_on_expr : forall e par role sub,
+  occ_type_name_fact (GoIndex.mkOcc GoIndex.KExpression (GoIndex.ViewExpression e) (Some par) role sub) = None.
+Proof. reflexivity. Qed.
 
 (** on SUCCESS each package's bucket is a singleton (length = main count = 1). *)
 Lemma ef_package_singleton {p ip} (facts : ElaborationFacts p ip) dir l :
@@ -6061,6 +6341,7 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
         eq_trans (eq_sym (command_plan_diags_eq p ip)) He in
       ElaborationOK (mkElaborationFacts
                   (mkExprFactTable facts (prog_expr_facts_domain p) (prog_expr_facts_find p))
+                  (prog_type_name_fact_table p ip)
                   buckets
                   (prog_package_refs_present idx)
                   (prog_package_refs_bucket_len idx)

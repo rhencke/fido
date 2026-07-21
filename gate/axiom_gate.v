@@ -311,6 +311,18 @@ Print Assumptions GoCompile.ef_package_singleton.
    the sealed table (returns exactly the stored fact — a defect-shipping option result is impossible). *)
 Print Assumptions GoCompile.expr_ref_fact_some.
 Print Assumptions GoCompile.expr_fact_at_find.
+(* §8 the SEALED occurrence-keyed TYPE-NAME fact table: the query is TOTAL (every TypeNameRef has a stored
+   entry, needing no validity — a conversion's source name resolves by construction) and PROJECTS the sealed
+   table (returns exactly the stored fact); the stored fact EQUALS predeclared resolution of the SOURCE name
+   recovered THROUGH the reference (no recompute, no spelling copy); and byte/uint8 (rune/int32) are DISTINCT
+   source type syntax with EQUAL resolved-GoType facts. *)
+Print Assumptions GoCompile.type_name_ref_fact_some.
+Print Assumptions GoCompile.type_name_fact_at_find.
+Print Assumptions GoCompile.type_name_fact_at_resolves.
+Print Assumptions GoCompile.tnfact_byte_uint8_same_type.
+Print Assumptions GoCompile.tnfact_rune_int32_same_type.
+Print Assumptions GoCompile.tsyn_byte_neq_uint8.
+Print Assumptions GoCompile.tsyn_rune_neq_int32.
 (* the legacy compile class projects the elaboration diagnostics (matches the decision), not a rerun. *)
 Print Assumptions GoCompile.go_compile_class_spec.
 (* decision (expression half): every println argument resolves IFF program_typedb / ProgramTyped. *)
@@ -446,6 +458,12 @@ Print Assumptions GoRender.render_expr_ascii.
 Print Assumptions GoRender.render_const_info_denotes.
 Print Assumptions GoRender.render_const_info_denotes_functional.
 Print Assumptions GoRender.render_resolved_expr_denotes.
+(* §11 the source type name is rendered from the RETAINED source identifier: distinct conversion type names
+   render distinct text, so the byte/rune source aliases render "byte"/"rune" — distinct from "uint8"/"int32"
+   even though they resolve to equal semantic types. *)
+Print Assumptions GoRender.render_type_syntax_inj.
+Print Assumptions GoRender.render_conv_byte_neq_uint8.
+Print Assumptions GoRender.render_conv_rune_neq_int32.
 (* float rendering: the canonical decimal spelling + conversion spellings; ASCII; the decoder/renderer
    semantic round trip; a bare float denotes its exact rational, a conversion the rounded typed constant. *)
 Print Assumptions GoRender.render_decimal_ascii.

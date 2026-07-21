@@ -27,7 +27,8 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 - **`GoAST`** — `ModuleSpec` + `GoProgram := { prog_module ; prog_files : GoFileMap }` (may be empty); the map
   KEY is the path; a construction/view `GoFileNode` = `FilePath` + source-owned `PkgMain` clause + empty imports
   + `source_decls`; the sound/complete/exact duplicate-rejecting `filemap_of_nodes`; `DMain`, `SPrintln`,
-  `EBool`/`EInt`/`ENeg`/`EString` (exact bytes)/`EFloat`/`EComplex` + the three explicit conversions.
+  `EBool`/`EInt`/`ENeg`/`EString` (exact bytes)/`EFloat`/`EComplex` + ONE source-shaped `EConvert TypeSyntax`
+  conversion over the closed sixteen source names (the fourteen numeric + `byte`→uint8 / `rune`→int32 aliases).
 - **`GoIndex`** — the ONE structural occurrence-identity + navigation authority derived from one immutable
   `GoProgram` (imports only `GoAST`/`Collections`/`FilePath`): canonical file-local `positive` ids; sealed
   `NodeTable`; the universal `index_file_source_exact`; sealed snapshot-indexed refs; the `visit_file`
@@ -84,16 +85,16 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 
 ## Source Forest campaign (ACTIVE)
 
-Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) in progress
-(the current authority chain and repair directive are in `.review/NEXT_STEPS.md`). Live status:
-`.review/SOURCE_FOREST_STATUS.md`.
-Each checkpoint is activated ONLY by explicit Rob authorization; C4 and later remain FORBIDDEN.
+Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
+Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) ACTIVE
+(the current authority chain is in `.review/NEXT_STEPS.md`). Live status: `.review/SOURCE_FOREST_STATUS.md`.
+Each checkpoint is activated ONLY by explicit Rob authorization; C5 and later remain FORBIDDEN.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
-- `uintptr` + the predeclared aliases (`byte`=`uint8`, `rune`=`int32`) are the next type phase (needs explicit
-  sign-off before starting). Bool, the ten integer types, F32/F64, C64/C128, and exact strings are LANDED as
-  static constant roots.
+- `byte`→uint8 / `rune`→int32 SOURCE ALIASES are LANDED in C4 (source-name resolution; distinct source, equal
+  semantic type). `uintptr` + exact rune constants/literals are the next type phase (C5 — needs explicit
+  sign-off). Bool, the ten integer types, F32/F64, C64/C128, and exact strings are LANDED as static constant roots.
 - The first construct that can panic or not terminate — `GoSafe` grows a real `Panicked`/`Outcome` distinction,
   introduced together with the constructor (`GoSafe` stops being `True`).
 - Imports — a complete closed-world resolution model (every import resolves to an owned package in the same

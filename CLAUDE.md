@@ -17,9 +17,13 @@ GoProgram -> GoTypes (evidence, ONE type authority) -> GoCompile (whole-program 
 **The admitted fragment is small and grows only by proof.** Files group by directory into `package main`
 packages; each source file is a source-owned `package main` clause + empty imports + `DMain` (a `func main()`);
 statements are `SPrintln` over primitive literals: bool, the ten integer types, float32/64, complex64/128, exact
-strings, and the explicit integer/float/complex conversions. Each literal is an exact UNTYPED constant; a
-conversion is a TYPED constant. Anything else — other decls, calls, params, non-empty imports, non-`main`
-packages, strange paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free and exercised by a
+strings, and ONE source-shaped explicit conversion `EConvert TypeSyntax GoExpr`. A conversion names a SOURCE
+type — the closed sixteen-name lexical class (the fourteen numeric names plus the `byte`→uint8 and `rune`→int32
+SOURCE ALIASES) — which `GoCompile`'s predeclared context resolves to a semantic `GoType`; `byte`/`rune` render
+their own spelling but resolve to `uint8`/`int32`. Each literal is an exact UNTYPED constant; a conversion is a
+TYPED constant at the resolved target. Anything else — other decls, calls, params, non-empty imports, non-`main`
+packages, `bool`/`string`/`uintptr`/`any`/`error`/`comparable`/unknown/qualified conversion targets, strange
+paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free and exercised by a
 real emitted-and-built witness tree (see `ARCHITECTURE.md` for the layer-by-layer charter and the full witness
 inventory).
 
@@ -143,7 +147,13 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    and the one type authority is `GoTypes` (each type landed together with its syntax + value + rendering +
    proofs, never ahead of it). There is NO `TargetConfig`, no second width/type authority, no per-width runtime
    record family, no `GoTypeTag`, no `unknown`/`opaque`/`raw` type ahead of its syntax, and no typed AST beside
-   the one raw `GoAST`.
+   the one raw `GoAST`. A conversion's SOURCE type name is a `TypeSyntax` (source identity: the `GoNames` closed
+   sixteen-name lexical class carrying a retained `IdentifierSyntax` + a classify-match proof) — the ONE source-
+   name authority; the SOURCE name never decides its semantic type. `GoCompile`'s predeclared context is the ONE
+   source-name→`GoType` resolver (`byte`→`uint8`, `rune`→`int32`), kept as sealed occurrence-keyed type-name
+   FACTS (the resolved `GoType` only, keyed by `NodeKey`, retained in `ElaborationFacts`/`CompilableProgram`);
+   `byte`/`uint8` (and `rune`/`int32`) are DISTINCT source syntax with EQUAL semantic facts. No source-name→
+   `GoType` table lives in `GoAST`, `GoTypes`, or `GoRender`; no `TByte`/`TRune`/`IByte`/`IRune`/`uintptr`.
 9. **Closed world; imports on hold.** No import syntax is representable. When imports arrive, every import
    must resolve to an owned package in the SAME program or reject the whole program — no stdlib / cache /
    network / vendor / workspace / ambient escape. Adding imports needs explicit sign-off.
@@ -172,8 +182,10 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 
 One authority per layer, over the ONE program:
 `FilePath` · `Collections` (the ONE standard-collection foundation) · `Ints` · `Floats` · `Complexes` ·
-`ModulePath` · `GoVersion` · `GoAST` · `GoIndex` (structural occurrence identity + navigation) · `GoTypes`
-(the ONE type authority, evidence over the raw AST) · `GoCompile` (whole-program admissibility) · `GoSafe` ·
+`ModulePath` · `GoVersion` · `GoNames` (the ONE source type-name class — the closed sixteen-name lexical
+authority) · `GoAST` · `GoIndex` (structural occurrence identity + navigation) · `GoTypes`
+(the ONE type authority, evidence over the raw AST) · `GoCompile` (whole-program admissibility + the ONE
+source-name→`GoType` predeclared resolver) · `GoSafe` ·
 `GoRender` · `GoEmit` · the OCaml transport (`g_fido.mlg` / `fido_sink.ml`). The full responsibility of each
 layer — its definitions, invariants, and theorem surfaces — is the binding charter in **`ARCHITECTURE.md`**;
 do not restate it here.
@@ -225,8 +237,10 @@ complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS 
 
 - **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`,
   `Collections.v` (the ONE standard-collection foundation — pinned `FMapAVL`/`FMapPositive` wrappers; there is
-  NO project-authored `FMap.v`), `ModulePath.v`, `GoVersion.v`, `GoAST.v`, `GoIndex.v`, `GoTypes.v`,
-  `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`. `GoIndex.v` is the production
+  NO project-authored `FMap.v`), `ModulePath.v`, `GoVersion.v`, `GoNames.v` (the source type-name foundation —
+  the proof-carrying `IdentifierSyntax` domain + the closed sixteen-name `TypeName`/`SupportedTypeName` class
+  with `tn_spelling`/`classify` inverse and the `byte`/`uint8` + `rune`/`int32` source-distinctness), `GoAST.v`,
+  `GoIndex.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`. `GoIndex.v` is the production
   occurrence-index / structural authority, between `GoAST` and `GoTypes`; it imports ONLY
   `GoAST`/`Collections`/`FilePath` (it knows no semantic type, compiler acceptance, rendering, or diagnostics)
   and is CONSUMED by `GoCompile`'s `elaborate` as the ONE indexed whole-program pass. Every generated byte is
@@ -234,8 +248,10 @@ complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS 
 - `plugin/g_fido.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit;
   `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library.
   `e2e/Witness.v` — the witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` —
-  the multi-package differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessNeg.v` — the
-  raw-transport rejection fixture (forged-image provenance fixtures are GENERATED TRANSIENTLY — no tracked
+  the multi-package differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessBytes.v` — the
+  boundary-byte string witness (DISPOSABLE); `e2e/WitnessAlias.v` — the `byte`/`rune` source-alias pinned-Go
+  differential (DISPOSABLE — `byte(255)`/`rune(65)` accepted by Go, never the canonical image); `e2e/WitnessNeg.v`
+  — the raw-transport rejection fixture (forged-image provenance fixtures are GENERATED TRANSIENTLY — no tracked
   axioms); `e2e/sink_test.ml` — the sink driver; `e2e/fido_apply.ml` — the filesystem-only `make regenerate`
   apply adapter; `e2e/golden.*` — reviewed goldens.
 - **Tracked canonical generated module**: `go.mod` + `main.go` at the repo root (Fido-headed; verified
