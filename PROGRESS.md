@@ -85,7 +85,8 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) in progress
-under `.review/C3_FINAL_CLEANUP_DIRECTIVE.md`. Live status + the authority chain: `.review/SOURCE_FOREST_STATUS.md`.
+(the current authority chain and repair directive are in `.review/NEXT_STEPS.md`). Live status:
+`.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization; C4 and later remain FORBIDDEN.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)

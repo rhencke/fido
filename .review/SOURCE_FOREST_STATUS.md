@@ -1,83 +1,59 @@
 # Source Forest Campaign — Status Ledger
 
 Campaign: **Specification-Shaped Source Forest, Snapshot-Local Occurrence Identity, and Occurrence-Anchored
-Compilation.**  A ledger, not a plan — the full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; commit-level
-history is the git log (the archive).  Updated at checkpoint boundaries.
+Compilation.**  A compact ledger — the full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; commit-level
+history is the git log (the archive).
 
 ## Anchors & authority
-- Campaign master plan installed @`e1138cf`; declared/actual baseline `5e7efd8adf38473a931a0144ede62b2caa90272a`.
-- **Active checkpoint: C3** (Fresh-Image Literal-Build closeout).  Active authority chain:
-  `.review/NEXT_STEPS.md` (pointer) → contract `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md`
-  (activation `83c398992be5316f7e28fbbe02b94794b85fb34c`, sha256 `a13779c2…3814f212`, basis
-  `.review/REVIEW_BASIS.md`) → current repair authority `.review/C3_FINAL_CLEANUP_DIRECTIVE.md`
-  (`human_override: C3-final-cleanup-1`).
-- Each C0..C6 checkpoint is activated ONLY by an explicit Rob authorization.  **C4 and every later checkpoint
-  remain FORBIDDEN** until Rob authorizes.
+- Campaign master plan installed @`e1138cf`; baseline `5e7efd8adf38473a931a0144ede62b2caa90272a`.
+- **Active checkpoint: C3.**  Authority chain: `.review/NEXT_STEPS.md` (pointer) → functional contract
+  `.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md` (sha256 `a13779c2…3814f212`) → accepted basis
+  `.review/REVIEW_BASIS.md` → current repair authority `.review/C3_SEMANTIC_PROSE_CLOSEOUT.md`
+  (`human_override: C3-semantic-prose-closeout-1`).
+- Each C0..C6 checkpoint is activated ONLY by explicit Rob authorization.  **C4 and every later checkpoint
+  remain FORBIDDEN.**
 
-## Completed checkpoints (each Codex-GREEN and human-approved; details in git log)
-| Checkpoint | Scope | Final result |
+## Completed checkpoints (each Codex-GREEN and human-approved; git log has the detail)
+| Checkpoint | Scope | Result |
 |---|---|---|
 | C0 / C0A / C0B | preflight + occurrence-index spike; snapshot-local occurrence identity + total navigation; exact source-occurrence correspondence | GREEN, approved |
-| C1 | specification-shaped file roots + path-keyed source forest (FMapAVL `FilePath` map) | GREEN, approved |
-| C1A | standard-collection foundations + repository-wide collection audit (ROOT `cc7a4d7`, FINAL `39be07d`) | GREEN, approved |
-| C1B | collection-policy enforcement + plan reconciliation | GREEN, approved |
-| C2 | production occurrence index (`GoIndex`), snapshot-local refs, indexed traversal | GREEN, approved (C3 activation 2026-07-18) |
-| C3 (structural) | one retained indexed elaboration, occurrence-keyed facts, structured diagnostics; Codex-GREEN @`fea6493` | RETAINED; superseded by the C3 closeout below |
+| C1 / C1A / C1B | specification-shaped file roots + path-keyed source forest; standard-collection foundations + collection audit; collection-policy enforcement | GREEN, approved |
+| C2 | production occurrence index (`GoIndex`), snapshot-local refs, indexed traversal | GREEN, approved |
+| C3 (structural) | one retained indexed elaboration, occurrence-keyed facts, structured diagnostics | GREEN @`fea6493`; superseded by the C3 closeout below |
 
 ## C3 — Fresh-Image Literal-Build closeout (ACTIVE)
-Goal: make `GoCompile` accept exactly what the pinned one-shot `go build ./...` accepts for every representable
-rendered program (semantic + cmd/go package/output logic — types, one-main, directory-collision — EXCLUDING
-platform fs limits), materialize/validate/publish through a fresh disposable Docker build, and keep the tracked
-generated module byte-exact.
+Goal: `GoCompile` accepts exactly what the pinned one-shot `go build ./...` accepts for every representable
+rendered program (source typing + package semantics + the cmd/go default-output logic — one main per package,
+directory collision — excluding platform filesystem limits); materialize / validate / publish through a fresh
+disposable Docker build; keep the tracked generated module byte-exact.
 
-- **History (git log has the detail):** the manual whole-snapshot closeout and Implementation Review #1 +
-  confirmations #1/#2/#3 each returned BLOCKING and were repaired one batch each.  Rob's C3 WEEDWHACKER
-  DIRECTIVE (2026-07-20) then deleted BOTH manifest systems (no checksum system exists), made Docker the ONE
-  fresh-build runner (cooperating-developer threat model), kept F1 as an index-free SPECIFICATION decision plus
-  a separate proved retained-bucket production implementation, and set a net-deletion target + a review HARD CAP.
-  The weedwhacker batch and its `C3-weedwhacker-repair-1` follow-up EACH went to their one bounded confirmation
-  and EACH returned BLOCKING; per the hard cap both were closed / recorded / stopped.
-- **Current repair — `human_override: C3-final-cleanup-1`** (`.review/C3_FINAL_CLEANUP_DIRECTIVE.md`): ONE batch
-  closing the four repair-1 confirmation findings — (1) the fresh-build runner is an explicit fail-closed state
-  machine (infrastructure failure never masquerades as a Go outcome; four fault self-tests); (2) the missing
-  package-import proofs restored over the component authority (`package_import_path_inj` +
-  `package_import_path_deterministic`, both gated); (3) false semantic/workflow comments corrected
-  (`semantic_ok_b` = the SOURCE half only; `erased_report` = the source-semantic report, distinct from the full
-  `erased_elaboration_report`); (4) the tracked-tree malformed-prose sweep + active-authority files.  Gate
-  substitution: removed `package_import_path_InputEqual` (now a corollary of `_deterministic`) +
-  `package_import_path_root` (base-case shape), added the two direct claims → readable gate stays **386/386**.
-- **Deletions in this batch:** the superseded weedwhacker findings diary and the unreferenced
-  `REVIEW_BASIS_TEMPLATE.md` (git history is the archive); compacted `REVIEW_REQUEST` / `NEXT_STEPS` /
-  this ledger; pure banner decoration and duplicated charter restatements in the Makefile / Dockerfile /
-  `GoCompile` + `GoIndex` headers (the layer charter stays ARCHITECTURE.md, not restated per module).  No
-  invariant, theorem, or rationale was deleted to meet a byte number.
-- **Candidate `a95f9be` (frozen).**  Build/proof verification, all from that tree: `make prove` (readable gate
-  **386/386**, whole-theory assumption audit, self-tests A-E), `make e2e` (incl. the four new fresh-runner fault
-  tests), `make check`, `make regenerate`, `make regen-guard`, staged pre-commit — all GREEN; generated `go.mod`
-  + recursive `.go` byte-IDENTICAL; `git diff --check` clean; no trailing whitespace.  Whole repository
-  **1,564,197** bytes, below the 1,565,977 snapshot baseline (GoCompile.v −2,260; all root Rocq source −10,951).
-- 🔴🛑 **The ONE authorized confirmation returned BLOCKING** (Codex `task-mrtsfkcj`, range `38561c6..b093d84`);
-  per the directive §8 the request is CLOSED, recorded here, Rob notified, and autonomous work STOPPED — no
-  repair and no further review round without a NEW explicit human override.  **Closed by the reviewer:**
-  fail-closed fresh-runner classification; the component-based `package_import_path_inj` / `_deterministic` and
-  their gating; gate exactly 386 with no weakened trust surface; architecture and forbidden scope (no C4, no
-  competing authority, generated output unchanged); size; the two authorized deletions.  **STILL OPEN — the
-  tracked-tree prose sweep (directive §3-§4):** two repair-INDUCED scars `(* / —` (GoCompile.v:3599) and
-  `(** / —` (GoCompile.v:6743); previously-observable residues `(**:` (Floats.v:524), the damaged sentence
-  `disposable copy — )` (Dockerfile:835), empty parentheses after "index elaboration" (GoCompile.v:6419),
-  "analysis" for the whole-program phase (GoIndex.v:2492), CLAUDE.md:81 pointing permanent trust prose at the
-  superseded weedwhacker directive + checkpoint chronology at CLAUDE.md:228, and `COLLECTION_AUDIT.md`
-  checkpoint archaeology plus its citation of a NONEXISTENT theorem at line 40
-  (`collect_diagnostics_node_strict`; the real name is `semantic_diagnostics_node_strict`).  **A prior revision
-  of this ledger claimed "zero stale/scar hits" — that claim was FALSE** (it rested on a fixed-token scan that
-  never matched the spaced `/ —` variant) and is corrected here.  The required outcome remains ONE genuine
-  semantic read-through of current prose, not another token-deletion pass.  C4 remains FORBIDDEN.
+- **Substantive implementation state: complete.**  A serial-review closeout, then Rob's weedwhacker directive
+  (delete both manifest systems, Docker as the one fresh-build runner under a cooperating-developer threat
+  model, F1 as an index-free source specification plus a separate proved retained-bucket production
+  implementation), then the final-cleanup directive (fail-closed fresh-runner state machine + fault tests;
+  restored component-based `package_import_path_inj` / `_deterministic`; corrected `semantic_ok_b` /
+  `erased_report` claims).  Each phase's bounded confirmation was recorded and closed per its hard cap.  The
+  runner, package-import proofs, lower component authority, readable gate (386/386), zero-assumption boundary,
+  fresh-image + publication architecture, manifest/checksum deletion, source-specification vs production split,
+  generated-byte identity, and size reduction are all CLOSED by review; no C4 work exists.
+- **Current repair — `human_override: C3-semantic-prose-closeout-1`** (`.review/C3_SEMANTIC_PROSE_CLOSEOUT.md`):
+  a prose-and-authority-only batch closing the one remaining blocking class from the final-cleanup confirmation
+  — malformed comments, obsolete phase names, dead file/theorem pointers, and a few false authority statements.
+  No executable, proof, gate, collection, or generated-byte change.
+- **Candidate SHA:** _pending freeze after the semantic read-through and verification pass._
+- **Gate:** 386/386 (unchanged; prose-only batch).
+- **Verification:** _pending (`make prove` / `e2e` / `check` / `regenerate` / `regen-guard` + staged, plus the
+  change-boundary and symbol/pointer audits)._
+- **Final confirmation:** _pending — the one bounded Implementation Review confirmation authorized by this
+  override._  A prior revision of this ledger asserted "zero stale/scar hits"; that claim was FALSE (it rested
+  on a fixed-token scan) and is withdrawn — no zero-residue claim is made here until the read-through and
+  confirmation succeed.
+- **Human approval:** pending.  **C4:** forbidden.
 
 ## Standing decisions
-- **Platform limits OUT of scope** (Rob, 2026-07-19): Fido models no NAME_MAX/PATH_MAX/disk/memory limit; a path
-  is unlimited length for modeling; over-long paths fail loud at OS materialization (ENAMETOOLONG), not in the
-  model/grammar/sink.
+- **Platform limits out of scope** (Rob, 2026-07-19): Fido models no NAME_MAX/PATH_MAX/disk/memory limit; a
+  path is unlimited length for modeling; over-long paths fail loud at OS materialization (ENAMETOOLONG), not in
+  the model, grammar, or sink.
 - **Two-review policy:** `.review/CODEX_REVIEW_POLICY.md` (Contract Review + Implementation Review; gated by
-  `.review/REVIEW_REQUEST.md`).  The active repair directive's hard cap governs: ONE repair batch + at most ONE
-  bounded confirmation per human override; a BLOCKING result ENDS autonomous work (no repair or re-request
-  without a new explicit human override).
+  `.review/REVIEW_REQUEST.md`).  Each human override authorizes ONE repair batch + at most ONE bounded
+  confirmation; a BLOCKING result ENDS autonomous work (no repair or re-request without a new explicit override).

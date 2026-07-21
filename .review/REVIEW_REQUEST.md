@@ -3,23 +3,19 @@
 state: closed
 review: Implementation Review
 confirmation: yes
-confirmation_used: yes
-human_override: C3-final-cleanup-1
-result: BLOCKING (Codex task-mrtsfkcj, range 38561c6..b093d84)
+confirmation_used: no
+human_override: C3-semantic-prose-closeout-1
 
 contract: .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md
 contract_sha256: a13779c2e55c679e461e857d019eeae6adef27b0666876ed0cac92833814f212
-repair_directive: .review/C3_FINAL_CLEANUP_DIRECTIVE.md
+repair_directive: .review/C3_SEMANTIC_PROSE_CLOSEOUT.md
 review_basis: .review/REVIEW_BASIS.md
-candidate: a95f9be
-range: 38561c6..HEAD
 
-# The ONE bounded confirmation authorized by `C3-final-cleanup-1`, over the single repair batch closing the
-# four findings of the blocked weedwhacker repair-1 confirmation: (1) fail-closed fresh-runner state machine
-# + four fault tests; (2) `package_import_path_inj` / `_deterministic` restored over the component root, both
-# gated, gate exactly 386; (3) corrected `semantic_ok_b` / `erased_report` / publication-boundary /
-# path-authority / naming / elaboration claims; (4) tracked-tree prose sweep + true authority state.
-# Confirmation scope and exclusions: `.review/C3_FINAL_CLEANUP_DIRECTIVE.md` §8.
+# Prior result: the C3-final-cleanup-1 bounded confirmation returned BLOCKING on the tracked-tree prose sweep
+# alone (the runner, package-import proofs, gate 386, architecture, and size were closed).  Rob's
+# `.review/C3_SEMANTIC_PROSE_CLOSEOUT.md` (human_override C3-semantic-prose-closeout-1) authorizes ONE prose-only
+# repair batch + ONE final bounded confirmation.  This file stays `state: closed` during the repair; it is set
+# to `requested` (confirmation_used: yes) only once the candidate is frozen and every required check is GREEN.
 
 ## Rules
 

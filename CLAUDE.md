@@ -78,7 +78,8 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    system exists** — a checksum cannot prove a build succeeded; the supported publication ordering IS the Docker
    workflow graph. ⚠ This is
    accidental-publication protection for a COOPERATING developer (the pre-commit hook's level); the project does
-   NOT attempt to resist a deliberate local bypass (`.review/C3_WEEDWHACKER_DIRECTIVE.md` §0.3).
+   NOT attempt to resist a deliberate local bypass (extracting a binary, hand-editing the Dockerfile/hooks) —
+   that is outside the threat model, by design.
    The OCaml uses mature runtime collections for identity/membership: the sink keys desired outputs by path in
    a `Map.Make(String)` (rejecting a duplicate path before any effect; canonical path-sorted iteration) and
    holds stale-target / abandoned-temp membership in a `Set.Make(String)`; the bridge's assumption-audit roots
