@@ -90,17 +90,21 @@ Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`run
 successive candidates were BLOCKING at human Implementation Review; the authorized
 `C4-retained-phase-scope-ledger-repair-4` is applied: the production expression path is ONE `ExpressionPhase`
 built from ONE retained `CompilationInput` — the PROOF-CARRYING `ExprOutcomeTable` (`build_outcome_table`
-wrapping the `build_outcomes` `fold_right` over the retained source-order visit with its completeness proof)
+wrapping the `build_outcomes` `fold_right` over the retained source-order visit with the ONE carried invariant —
+the DIRECT cause `eot_caused` (`OutcomeCause`) plus its EXACT `ExprWork` domain `eot_dom`; the source spec is
+reached from the cause by the SEPARATE `outcomes_caused_matches`)
 CONSUMING the once-built `TypeNameFactTable` object, querying the table at each conversion's retained target ref
 (the TOTAL `total_outcome_at` / `type_name_fact_at_table`, no fallback), reading its operand's ALREADY-COMPUTED
 outcome from the processed suffix (TOTAL `from_some`, no fallback), and calling `convert_const` ONCE per
 conversion (no `index_program` reconstruction in the phase closure); the TOTAL fact projection and the TOTAL
-diagnostic projection both read that SAME `ExprOutcomeTable` inside the one phase
-(`facts_and_diags_share_phase`, object identity — no fail-open `find`), the `EOConvFail` outcome carries the
-exact conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`, projected without
-re-mint) with its cause read directly off the phase (`phase_convfail_cause`), and the phase's `TypeNameFactTable`
-and `ExprFactTable` are sealed into `ElaborationFacts` by object identity (`elaborate_ok_seals_tnfacts` /
-`elaborate_ok_seals_facts`); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
+diagnostic projection both read that SAME `ExprOutcomeTable` inside the one phase — the diagnostic over the exact
+typed `ExprWork` (`awork_diags`, keyed by each work's OWN `ew_expr_ref`, NO `as_expr` and NO fail-open `None`
+branch) (`facts_and_diags_share_phase`, object identity — no fail-open `find`), the `EOConvFail` outcome carries
+the exact conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`, projected without
+re-mint) with its cause a PROJECTION of the carried `OutcomeCause` (`phase_convfail_cause`, with
+`phase_convok_cause`/`phase_childfail_cause`), and the phase's `TypeNameFactTable` and `ExprFactTable` are sealed
+into `ElaborationFacts` by object identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); full
+pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
 Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
 `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`). Live status: `.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization; C5 and later remain FORBIDDEN.

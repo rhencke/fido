@@ -2334,8 +2334,8 @@ Proof.
     + exists (EConvert ts x). split; [exact Hv | cbn [local_conv_failure]; rewrite Ecx; reflexivity].
 Qed.
 
-(* coverage from the CAUSE invariant (the operand-present fact the fold needs, now sourced from [outcomes_caused]
-   so [build_outcomes] need not carry [outcomes_ok]). *)
+(* coverage from the CAUSE invariant (the operand-present fact the fold needs): the DIRECT cause
+   [outcomes_caused] is the SOLE carried outcome invariant, and coverage is derived from it. *)
 Lemma outcomes_caused_covers {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
     (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m :
   outcomes_caused idx tnft l m -> outcome_covers l m.
@@ -2689,8 +2689,8 @@ Qed.
     [as_expr = None] skip): a Some-view occurrence's ref cannot be [None].  [total_outcome_at] over this ref is
     the shared phase-indexed total query the fact + diagnostic projections both use. *)
 
-(* the membership-carrying enumeration of a list: each element paired with a proof it belongs to the whole list;
-   [fold_self_mem_ext] folds it as if folding the list, when the step is proof-irrelevant on the membership. *)
+(* two fold steps that agree on every MEMBER of the list produce the same fold — the extensionality the typed-work
+   fold equivalence ([build_work_sig]/[prog_work_fold]) is discharged with. *)
 Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
   (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
 Proof.
@@ -2832,27 +2832,6 @@ Definition prog_work_fold {p} (input : CompilationInput p) {B}
     (Hskip : forall r occ b, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None -> fo (r, occ) b = b) :
   fold_right fw init (prog_work input) = fold_right fo init (ci_visit input) :=
   proj2_sig (build_work_sig input (ci_visit input) (fun ro H => H)) B fw fo init Hagree Hskip.
-Fixpoint self_mem {A} (l : list A) : list { a : A | In a l } :=
-  match l with
-  | nil => nil
-  | a :: rest => exist _ a (or_introl eq_refl)
-                 :: map (fun s => exist (fun x => In x (a :: rest)) (proj1_sig s) (or_intror (proj2_sig s)))
-                        (self_mem rest)
-  end.
-Lemma fold_self_mem_proj {A B} (l : list A) (g : A -> B -> B) (init : B) :
-  fold_right (fun s => g (proj1_sig s)) init (self_mem l) = fold_right g init l.
-Proof.
-  induction l as [|a rest IH]; [reflexivity|].
-  cbn [self_mem fold_right]. rewrite fold_right_map. cbn [proj1_sig]. rewrite IH. reflexivity.
-Qed.
-Lemma fold_self_mem_ext {A B} (l : list A) (f : { a : A | In a l } -> B -> B) (g : A -> B -> B) (init : B) :
-  (forall a (H : In a l) b, f (exist _ a H) b = g a b) ->
-  fold_right f init (self_mem l) = fold_right g init l.
-Proof.
-  intro Hfg. rewrite <- (fold_self_mem_proj l g init).
-  apply fold_ext_in. intros [a H] b _. cbn [proj1_sig]. exact (Hfg a H b).
-Qed.
-
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
     its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
