@@ -56,16 +56,20 @@ before any consumer needs it.
 `int`/`uint` at 64 bits is a *choice of the domain over which the theorems are stated*, not a shortcut inside
 them. Every integer theorem (range well-formedness, conversion, value denotation, render round-trip) is
 proven in full for the concrete widths. Nothing is admitted, approximated, or left `Admitted` on account of
-the pin. Widening the domain later is additive (a new target dimension), not a repair of something skipped.
+the pin. Widening the domain later is NOT guaranteed to be purely additive: target generalization may require
+REPLACING and REPROVING the current concrete `int`/`uint` roots (and the numeric proofs built on them), though
+doing so would not make the current single-target theorems false — it would re-express them under a target
+parameter. It is a deferred generalization, not a repair of something skipped.
 
 ### Why target-parametric int/uint would add a real cross-cutting abstraction now
 
 Making `int`/`uint` width a parameter means threading a target descriptor through `Ints`, every
 `ConstInfo`/`convert_const` step, every `VInteger` value, `ValueWF`, and every render/denotation proof — a
-descriptor that would appear in dozens of statements whose ONLY current use would be a portability claim Fido
-does not make. That is a genuine abstraction with a real proof cost and, today, no consumer. The pin avoids
-paying that cost before it buys anything (consistent with "cut representable scope before weakening a proof,"
-and with taking the more-correct path only when it earns its keep).
+descriptor that would appear in dozens of statements. Today its only consumer would be a portability claim Fido
+does not make — but note this is time-boxed: **C5 introduces `uintptr`, whose width IS target-dependent**, so
+C5 is a near-term consumer of a target model (see the reconsideration triggers). The pin avoids paying the
+cross-cutting cost before C5 forces the question, and C5 will have to decide (below) whether `uintptr` is
+pinned to 64 under linux/amd64 or a target descriptor lands first.
 
 ### Which current definitions / proofs / tests depend on 64-bit int/uint
 
@@ -99,9 +103,16 @@ and with taking the more-correct path only when it earns its keep).
 
 ### Why the chosen option is presently better
 
-It yields an exact, reproducible, falsifiable `GoCompile == go build` claim and concrete, fully-proven
-`int`/`uint` semantics, with zero premature abstraction — while leaving every widening path open as an
-additive future step under its own review.
+It yields an exact, reproducible, falsifiable `GoCompile == go build` adequacy TARGET and concrete,
+fully-proven `int`/`uint` semantics, with zero premature abstraction — while leaving every widening path open
+as a future step (which may require reproving, not necessarily additive) under its own review.
+
+**`GoCompile == go build` is an external ADEQUACY TARGET, not a Rocq theorem.** It is a goal about the pinned
+real toolchain, supported by DIFFERENTIAL evidence (the e2e over `golang:1.23-alpine` + accept/reject
+fixtures), attacked empirically — NOT a kernel-proved property of `cmd/go`. The kernel theorems are about the
+formal judgment (`go_compile_ok_valid`, completeness); adequacy to the real compiler is evidence-backed. This
+distinction is load-bearing: the pin makes the differential exact against ONE toolchain, but it never turns the
+adequacy target into a theorem.
 
 ## Enforcement
 
@@ -128,6 +139,10 @@ SR-001, that would open a comment-vs-enforcement gap to catch.
 - A request to support 32-bit.
 - A request to support arm64 or another OS.
 - Any portable-Go public claim.
+- **C5 activation AUTOMATICALLY reopens this ADR** — C5 adds `uintptr`, whose width is target-dependent, so it
+  extends the target-dependent semantic surface. Before `uintptr` is implemented, C5 must decide whether
+  `uintptr` is pinned to 64-bit under linux/amd64 (consistent with this ADR) or a target descriptor lands
+  first (generalizing this ADR). This ADR must be revisited at that point regardless.
 - `uintptr`/pointer/layout work that needs a richer target model.
 - A toolchain/target image change.
 - A proof benefit from a target descriptor that exceeds its cost.

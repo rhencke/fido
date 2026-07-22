@@ -76,7 +76,7 @@ future holistic review may reopen every entry.
 - **Reconsideration triggers:** a decision to model a specific deployment filesystem's limits as a
   correctness property (not currently in scope).
 - **Linked:** `ARCHITECTURE.md`; memory note `no-magic-numeric-caps`.
-- **Approval state:** REVIEWED / ACCEPTED (standing project law). Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob (reflects the platform-limits standing rule, memory `no-magic-numeric-caps` 2026-07-19; the ledger text/classification are new and unreviewed). Date: 2026-07-22.
 
 ---
 
@@ -107,7 +107,7 @@ future holistic review may reopen every entry.
   adversary (would require a fundamentally different trust base).
 - **Linked:** `CLAUDE.md` (Standing technical law §1); `ARCHITECTURE.md` (trust boundary);
   `.review/CODEX_REVIEW_POLICY.md` (local-verifier attacks declared out of scope).
-- **Approval state:** REVIEWED / ACCEPTED (declared threat model). Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob (reflects the declared threat model, `CLAUDE.md` Standing law §1 + `.review/CODEX_REVIEW_POLICY.md`; the ledger text is new). Date: 2026-07-22.
 
 ---
 
@@ -130,63 +130,92 @@ future holistic review may reopen every entry.
 - **Reconsideration triggers:** a decision to support and pin a host toolchain as an equal authority (not
   planned).
 - **Linked:** `CLAUDE.md` (Workflow & commands); `Makefile`; `Dockerfile`.
-- **Approval state:** REVIEWED / ACCEPTED (standing workflow law). Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob (reflects the buildx-only workflow law, `CLAUDE.md`; the ledger text is new). Date: 2026-07-22.
 
 ---
 
-## SR-005 — Major-version module path forms excluded
+## SR-005 — Module-path grammar exclusions (the FULL narrowing, not just `/vN`)
 
 - **Classification:** REVIEWED MODEL EXCLUSION.
-- **Exact excluded case:** the narrow canonical `ModulePath` (slash-separated lowercase `[a-z][a-z0-9.]*`
-  segments) EXCLUDES — does not narrow — otherwise-valid Go module path forms: `/v2`+ major-version suffixes
-  and `gopkg.in/…` paths. The mapping to a Go 1.23 `module` directive is exact one-way; the reverse does not
-  hold.
+- **Correction (this repair):** SR-005 previously discussed only `/vN` major-version suffixes and `gopkg.in`
+  forms. The canonical `ModulePath` grammar excludes much more. Full enumeration of what it excludes:
+  - lowercase-only segments (`[a-z][a-z0-9.]*`) — rejects uppercase (`github.com/User/Repo`);
+  - no hyphen and no other punctuation beyond `.` within a segment — rejects `my-org/pkg`, `x_y/pkg`;
+  - a dot required in (the shape of) the first segment (host-like) and a canonical dot shape — rejects
+    single-word first segments and unusual dot placements;
+  - reserved device names (where applicable) excluded;
+  - `/vN` (v2+) major-version path elements excluded;
+  - `gopkg.in/…vN` vanity forms excluded;
+  - any other class the `ModulePath.v` grammar rejects.
+- **Go-INVALID vs Go-VALID-but-Fido-unrepresentable:** nearly all of the above are Go-VALID module paths that
+  Fido simply cannot represent (uppercase, hyphens, `/vN`, `gopkg.in`, single-word hosts). Only genuinely
+  malformed paths (empty/……/trailing-slash) are Go-invalid; those are correctly rejected. The material loss is
+  the Go-VALID set.
+- **Exact excluded case:** every Go-valid module path outside the narrow canonical grammar above.
 - **Exact reason:** the module path is a semantic program fact rendered into `go.mod`; a deliberately narrow,
-  canonical, decidable-equality form is modelled exactly and completely, rather than admitting the full
-  `cmd/go` module-path grammar (with its version-suffix and vanity-host special cases) ahead of any consumer
-  that needs them. Excluding is honest (unrepresentable), narrowing would be plausible-but-wrong.
-- **Why difficulty is not the reason:** the excluded forms are excluded as UNREPRESENTABLE, not admitted with
-  a conservative approximation — consistent with faithful-or-fail-loud. They return when a real need
-  (imports/multi-module) justifies the broader grammar, by proof.
-- **Benefit obtained:** an exact, canonical, decidable module-path model with a proven one-way render into a
-  real `go.mod`.
-- **Valid Go / environments lost:** modules whose path uses a `/vN` major-version element or a `gopkg.in`
-  vanity form cannot be represented as the generated module's path.
+  canonical, decidable-equality subset is modelled exactly ahead of any consumer (imports/multi-module) that
+  needs the broader grammar. The mapping to a Go 1.23 `module` directive is exact one-way; the reverse does
+  not hold.
+- **Why difficulty is not the reason:** the excluded forms are UNREPRESENTABLE (not admitted with a
+  conservative approximation) — faithful-or-fail-loud. They return when imports/multi-module justify the
+  broader grammar, by proof. It is a deliberate subset, not "too hard."
+- **Benefit obtained:** an exact, canonical, decidable module-path model with a proven one-way render.
+- **Valid Go / environments lost:** every module whose path uses uppercase, hyphens, underscores, a single-word
+  first segment, a `/vN` element, or a `gopkg.in` vanity form — all Go-valid, all currently unrepresentable.
 - **Enforcement points:** `ModulePath.v` (the segment grammar + one-way mapping note); `ARCHITECTURE.md`
   (ModuleSpec row); `GoRender` module-path rendering.
 - **Guarantees relying on it:** `ModulePath` decidable equality / canonical render; the exact `go.mod`
   module directive.
-- **Reconsideration triggers:** imports or multi-module support that requires representing version-suffixed
-  or vanity module paths.
+- **Reconsideration triggers:** imports or multi-module support requiring any of the excluded forms; a request
+  to represent a mixed-case/hyphenated module path.
+- **Decision record:** if the canonical subset is retained, its minimality + reconsideration trigger belong in
+  a proposed decision record (or a link from ADR-0001's target family). Presented to Rob, not decided here.
 - **Linked:** `ModulePath.v`; `ARCHITECTURE.md`.
-- **Approval state:** REVIEWED / ACCEPTED (model faithfulness). Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob. The narrowing is real and broad; its minimality is not yet a
+  reviewed decision. Date: 2026-07-22.
 
 ---
 
-## SR-006 — Source-file naming restrictions
+## SR-006 — Source-file naming restrictions (TWO distinct decisions)
 
 - **Classification:** REVIEWED MODEL EXCLUSION.
-- **Exact excluded case:** the `FilePath` grammar rejects underscores, leading dots, and the `.go` filename
-  stems / directory names that `go build` itself ignores or reserves: no hidden files/dirs, no `_test.go`,
-  no `testdata`/`vendor` directory components. (A stem like `testdata.go` or `vendor.go` is allowed — only
-  the DIRECTORY names are reserved.)
-- **Exact reason:** the represented file set is exactly the source files a whole-program `go build ./...`
-  compiles. Test files and build-ignored/reserved directories are excluded because they are NOT part of that
-  compiled set; representing them would model files the build does not compile.
-- **Why difficulty is not the reason:** these are excluded to match `go build`'s own file-selection LOGIC
-  exactly, not because parsing them is hard — admitting a `_test.go` file would be a faithfulness bug, not a
-  feature.
-- **Benefit obtained:** the file map == the `go build ./...` compiled set, keeping the admissibility claim
-  exact.
-- **Valid Go / environments lost:** test files (`_test.go`), files under `testdata`/`vendor`, and
-  hidden/underscore-named files cannot be represented (they are not part of the compiled program anyway).
+- **Correction (this repair):** SR-006 previously claimed the restriction "exists to match `go build`
+  file-selection logic exactly" and listed only ignored/reserved files as lost. That is FALSE and incomplete.
+  `FilePath.component_ok` allows only a lowercase first character and lowercase letters/digits thereafter, so
+  it ALSO rejects ordinary compiled Go source names — e.g. `foo_bar.go`, `Foo.go` — that `go build` compiles
+  fine. The decision must be split:
+  - **(a) `cmd/go` build-selection exclusions** — files/directories `go build ./...` itself omits: leading-dot
+    and underscore-prefixed hidden files/dirs, `_test.go` test files, and the `testdata`/`vendor` reserved
+    directory names (a stem like `testdata.go`/`vendor.go` is still allowed — only the DIRECTORY names are
+    reserved). Excluding these keeps the file map == the compiled set (faithful).
+  - **(b) an ADDITIONAL canonical lowercase/alphanumeric restriction** — Fido's `component_ok` further
+    rejects uppercase letters, hyphens, underscores, and other characters that appear in perfectly valid,
+    `go build`-compiled source paths. This is NOT "matching go build"; it is a deliberate narrowing BEYOND
+    what `go build` imposes.
+- **Exact excluded case:** part (a) — hidden/`_test.go`/`testdata`/`vendor`; part (b) — every valid Go source
+  path containing an uppercase letter, hyphen, underscore, or a non-`[a-z0-9.]` component character
+  (`foo_bar.go`, `Foo.go`, `my-pkg/x.go`, …).
+- **Exact reason:** (a) faithfulness to `go build`'s file selection; (b) a canonical, decidable, minimal path
+  subset that keeps `FilePath` equality/rendering simple ahead of any consumer needing the broader grammar.
+- **Why difficulty is not the reason:** (a) is a correctness match (admitting `_test.go` would be a
+  faithfulness bug); (b) is a deliberate subset choice, not "too hard" — it returns to the full safe grammar
+  when a real need arises, by proof.
+- **Benefit obtained:** (a) file map == compiled set; (b) a simple canonical path model.
+- **Valid Go / environments lost:** (a) none representable (those files are not part of the compiled program);
+  (b) ORDINARY valid Go source paths — any with uppercase/hyphen/underscore/other component chars — are
+  currently UNREPRESENTABLE despite `go build` compiling them.
 - **Enforcement points:** `FilePath.v` (`component_ok`, `reserved_dir`, `filename_ok`, `path_ok` + the
   `no_test`/`no_testdata` examples).
-- **Guarantees relying on it:** the file map's correspondence to the `go build ./...` compiled set.
-- **Reconsideration triggers:** a decision to model test compilation or build-tagged/ignored files as part of
-  the program.
+- **Guarantees relying on it:** the file map's correspondence to the `go build ./...` compiled set (part a);
+  `FilePath` decidable equality / canonical render (part b).
+- **Reconsideration triggers:** any need to represent a valid mixed-case/hyphen/underscore Go source path; a
+  decision to model test compilation or build-tagged/ignored files.
+- **Decision record for part (b):** the additional lowercase/alphanumeric restriction needs its OWN proposed
+  ADR (exact valid Go files lost + why the subset is minimal), OR `FilePath` should be broadened to admit
+  ordinary safe names and model build-suffix selection exactly. Not decided here — presented to Rob.
 - **Linked:** `FilePath.v`; `ARCHITECTURE.md`.
-- **Approval state:** REVIEWED / ACCEPTED (model faithfulness). Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob. Part (a) reflects `go build` file-selection faithfulness; part
+  (b) is a Fido-only narrowing whose minimality is NOT yet justified (needs the ADR above). Date: 2026-07-22.
 
 ---
 
@@ -212,7 +241,7 @@ future holistic review may reopen every entry.
 - **Reconsideration triggers:** the imports arc landing with its resolver + closed-world proof, under
   explicit sign-off.
 - **Linked:** `ARCHITECTURE.md` (Closed world); `CLAUDE.md` §9; memory note `primitives-before-libraries`.
-- **Approval state:** REVIEWED / ACCEPTED as a temporary frontier. Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob (the frontier itself is `CLAUDE.md` standing law; this ledger entry is new and unreviewed). Date: 2026-07-22.
 
 ---
 
@@ -243,4 +272,39 @@ future holistic review may reopen every entry.
 - **Reconsideration triggers:** each future Source-Forest / feature checkpoint that lands a new construct with
   its proofs.
 - **Linked:** `ARCHITECTURE.md`; `CLAUDE.md`; `PROGRESS.md`; memory note `campaign-source-forest`.
-- **Approval state:** REVIEWED / ACCEPTED as a temporary frontier. Date: 2026-07-22.
+- **Approval state:** PROPOSED — pending Rob (the frontier itself is `CLAUDE.md` standing law; this ledger entry is new and unreviewed). Date: 2026-07-22.
+
+---
+
+## SR-009 — Bounded DecimalFloat literal domain (`|coeff| < 10^40`, `|exp10| ≤ 4096`)
+
+- **Classification:** REVIEWED MODEL EXCLUSION.
+- **Exact excluded case:** the `DecimalFloat` literal domain is a bounded box — a canonical `coeff·10^exp10`
+  with `decimal_max_coeff = 10^40` (at most 40 significant digits, `|coeff| < 10^40`) and
+  `decimal_max_exp = 4096` (`-4096 ≤ exp10 ≤ 4096`). A source float literal outside this box (more than 40
+  significant digits, or `|exp10| > 4096`) is UNREPRESENTABLE in the AST — even though pinned Go's parser
+  accepts much larger/longer float literals (Go bounds float constants by ~1e400+ magnitude and effectively
+  unbounded digit count before rounding).
+- **Go-valid lost:** Go float-literal source forms with >40 significant digits, or decimal exponents beyond
+  ±4096, that Go would parse and round — e.g. a literal with 60 significant digits, or `1e5000` (which Go
+  rejects as overflow only above its own much larger bound, and accepts many forms Fido cannot hold).
+- **Exact reason (as currently stated in `Floats.v`):** the caps were "chosen to cover every F32/F64 overflow
+  (~e39/e309) and underflow (~e-330) fixture WITH MARGIN." This is a FIXTURE-COVERAGE rationale, not a
+  language-faithfulness or toolchain-limit one — exactly the kind of magic bound that requires hostile review.
+- **Why difficulty is not the reason:** widening or removing the box is not blocked by difficulty; the caps
+  exist as a deliberate current subset. Whether they should be an implementation-minimum, an experimentally
+  pinned larger box, unbounded canonical decimal syntax, or retained as a language subset is an OPEN decision.
+- **Benefit obtained:** a small, decidable, intrinsically-canonical decimal domain with simple bounds proofs;
+  every current F32/F64 fixture covered with margin.
+- **Enforcement points:** `Floats.v` (`decimal_max_coeff`, `decimal_max_exp`, the canonicality + bound
+  predicates on `DecimalFloat`); `ARCHITECTURE.md` (GoAST row: `|coeff|<10^40`, `|exp|≤4096`).
+- **Guarantees relying on it:** the `DecimalFloat` bound/canonicality proofs and the exact float render/decode
+  round-trip over the bounded domain.
+- **Reconsideration triggers:** any real float literal beyond the box; a decision to match Go's float-constant
+  bound exactly; a proof/round-trip that needs a larger domain.
+- **Decision record:** a proposed **ADR-0002** (bounded DecimalFloat domain) records the exact forms lost, why
+  fixture coverage is not a sufficient reason, the actual proof/computation/toolchain need for a bound, and the
+  alternatives (unbounded canonical syntax / toolchain-minimum bound / larger experimentally-pinned box /
+  retain-as-subset). The numeric model is NOT changed in this C4 repair.
+- **Approval state:** PROPOSED — pending Rob (a material magic-cap exclusion surfaced by this review; needs
+  ADR-0002). Date: 2026-07-22.
