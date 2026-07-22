@@ -3448,6 +3448,97 @@ Proof.
   rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin).
 Qed.
 
+(** ═══ §9.2 THE TOTAL DIAGNOSTIC PROJECTION ═══ for each annotated occurrence the ref is minted inline and its
+    stored outcome queried TOTALLY: an [EOConvFail] emits [DRInvalidConversion] from its STORED refs + evidence;
+    an [EOOk] at a println use performs default reporting from its STORED fact; an [EOChildFail] emits no local
+    reason; every other [EOOk] none.  No optional [conv_failure]/[arg_default] map lookup, no fail-open. *)
+Definition work_default_failure (occ : GoIndex.SourceOccurrence) (f : ExprFact) : option (GoConst * GoType) :=
+  match GoIndex.occurrence_role occ with
+  | GoIndex.RPrintlnArg _ =>
+      match ef_const_status f with
+      | CIUntyped c => match default_const c with None => Some (c, default_target_of c) | Some _ => None end
+      | _ => None end
+  | _ => None
+  end.
+Lemma work_default_failure_eq (occ : GoIndex.SourceOccurrence) e f :
+  const_info e = Some (ef_const_status f) -> work_default_failure occ f = arg_default_failure occ e.
+Proof.
+  intro Hci. unfold work_default_failure, arg_default_failure.
+  destruct (GoIndex.occurrence_role occ); try reflexivity. rewrite Hci. reflexivity.
+Qed.
+Lemma local_conv_failure_none_of_const e ci : const_info e = Some ci -> local_conv_failure e = None.
+Proof.
+  intro Hci. destruct (local_conv_failure e) as [[t' ci']|] eqn:Elc; [| reflexivity].
+  exfalso. pose proof (local_conv_failure_const_none e t' ci' Elc) as Hcn. rewrite Hci in Hcn. discriminate Hcn.
+Qed.
+
+Definition occ_work_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft)
+    (roc : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p))
+  : list (DiagnosticReason p) :=
+  match GoIndex.as_expr (ci_idx input) (fst (fst roc)) with
+  | None => []
+  | Some er =>
+      match total_outcome_at ot er with
+      | EOConvFail er2 tr2 opr2 t ci => [ DRInvalidConversion er2 tr2 opr2 (snd roc) t ci ]
+      | EOOk f =>
+          match work_default_failure (snd (fst roc)) f with
+          | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
+          | None => []
+          end
+      | EOChildFail => []
+      end
+  end.
+
+Lemma occ_work_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) roc :
+  In (fst roc) (prog_visit p) ->
+  occ_work_diags input tnft ot roc = occ_expr_diags (ci_idx input) (snd roc) (fst roc).
+Proof.
+  intro Hin. destruct roc as [[r occ] ctx]. cbn [fst snd] in Hin |- *.
+  unfold occ_work_diags, occ_expr_diags. cbn [fst snd].
+  destruct (GoIndex.as_expr (ci_idx input) r) as [er|] eqn:Hae; [| reflexivity].
+  assert (Her : GoIndex.erase_ref er = r) by exact (GoIndex.erase_as_kind (ci_idx input) r GoIndex.KExpression er Hae).
+  assert (Hv : GoIndex.view_expr occ = Some (expr_ref_view er))
+    by (rewrite (prog_visit_occ_is_source p r occ Hin), <- Her; exact (expr_ref_view_eq er)).
+  rewrite Hv.
+  pose proof (total_outcome_at_matches ot r occ er (expr_ref_view er) Hin Hv Hae Her) as Hm.
+  destruct (total_outcome_at ot er) as [f|er2 tr2 opr2 t ci| ]; cbn [outcome_matches] in Hm.
+  - (* EOOk f : has a fact => not a local failure; default from the stored fact = the source default failure *)
+    assert (Hcf : const_info (expr_ref_view er) = Some (ef_const_status f)).
+    { unfold occ_expr_fact in Hm. rewrite Hv in Hm.
+      destruct (const_info (expr_ref_view er)) as [ce|] eqn:Ece; [| discriminate Hm]. injection Hm as Hf0. rewrite <- Hf0. reflexivity. }
+    rewrite (local_conv_failure_none_of_const (expr_ref_view er) (ef_const_status f) Hcf).
+    rewrite (work_default_failure_eq occ (expr_ref_view er) f Hcf). reflexivity.
+  - (* EOConvFail : the stored evidence IS the spec diagnostic *)
+    destruct Hm as [_ [Hae2 [[e' [Hv' Hlcf]] [Htr2 Hopr2]]]].
+    rewrite Hae in Hae2. injection Hae2 as He2. subst er2.
+    rewrite Hv in Hv'. injection Hv' as He'. subst e'.
+    rewrite Hlcf, Htr2, Hopr2. reflexivity.
+  - (* EOChildFail : no local failure and no fact => no reason *)
+    destruct Hm as [Hnf [e' [Hv' Hlcf]]]. rewrite Hv in Hv'. injection Hv' as He'. subst e'.
+    rewrite Hlcf. unfold arg_default_failure.
+    assert (Hcn : const_info (expr_ref_view er) = None).
+    { unfold occ_expr_fact in Hnf. rewrite Hv in Hnf.
+      destruct (const_info (expr_ref_view er)) as [ce|] eqn:Ece; [discriminate Hnf | reflexivity]. }
+    destruct (GoIndex.occurrence_role occ); try reflexivity. rewrite Hcn. reflexivity.
+Qed.
+
+Definition phase_expr_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) : list (DiagnosticReason p) :=
+  flat_map (occ_work_diags input tnft ot) (flat_map (annotate_encl (ci_idx input) []) (ci_blocks input)).
+
+Lemma phase_expr_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) :
+  phase_expr_diags input tnft ot
+  = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
+Proof.
+  unfold phase_expr_diags. rewrite (ci_blocks_ok input).
+  change (flat_map (annotate_encl (ci_idx input) []) (prog_blocks p)) with (annotate_program (ci_idx input)).
+  apply flat_map_ext_in. intros roc Hin. apply occ_work_diags_eq_spec.
+  rewrite <- (annotate_program_fst (ci_idx input)). exact (in_map fst _ _ Hin).
+Qed.
+
 (** ★§3.8 ONE OUTCOME TABLE FOR BOTH PROJECTIONS: the production expression FACTS and the conversion
     DIAGNOSTICS are BOTH projections of the SAME bottom-up outcome map [prog_outcomes_c idx] (the accumulator
     over the [prog_tnft] table object) — the facts fold and [expr_diags] name the IDENTICAL object (object
