@@ -2338,9 +2338,8 @@ Lemma prog_outcomes_c_proj {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.S
            /\ outcome_proj_fact out occ.
 Proof. exact (prog_outcomes_bu_proj idx prog_tnft r occ e). Qed.
 
-(* every [ExprRef] views an expression: the total view + its defining equation (the convoy witness).  Used only
-   by the DIAGNOSTICS bridge to name a live conversion's own syntax; the production outcome is the bottom-up
-   [prog_outcomes_c] accumulator above, not a per-ref recursion. *)
+(* every [ExprRef] views an expression: the total view + its defining equation (the convoy witness).  Used by the
+   TOTAL outcome/diagnostic queries to name a ref's own syntax without an option. *)
 Definition expr_ref_view_opt {p} (er : GoIndex.ExprRef p) : option GoExpr :=
   GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)).
 Lemma expr_ref_view_not_none {p} (er : GoIndex.ExprRef p) : expr_ref_view_opt er <> None.
@@ -2356,6 +2355,102 @@ Proof.
   destruct (GoIndex.kind_view_expr _ (GoIndex.noderefof_kind er)) as [e Hv].
   assert (E : expr_ref_view_opt er = Some e) by exact Hv.
   unfold expr_ref_view. rewrite (from_some_eq _ (expr_ref_view_not_none er) e E). exact Hv.
+Qed.
+
+(** ═══ §3 THE RETAINED COMPILATION INPUT ═══ derived evidence over the ONE [GoProgram]: the retained index, the
+    per-file visit BLOCKS, and their flattened visit — held as STORED VALUES with a source-provenance proof that
+    they are the exact traversal of the snapshot.  [elaborate] builds this ONCE; every production C4 builder
+    consumes THIS object (its stored [ci_blocks]/[ci_visit]/[ci_idx]), never re-invoking [prog_blocks]/[prog_visit]/
+    [index_program].  Specification theorems compare the stored values to the canonical helpers by [ci_blocks_ok]. *)
+Record CompilationInput (p : GoProgram) : Type := mkCompilationInput {
+  ci_ip     : GoIndex.IndexedProgram p ;
+  ci_blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) ;
+  ci_blocks_ok : ci_blocks = prog_blocks p    (* PROVENANCE (spec-level): the stored blocks ARE the snapshot's *)
+}.
+Arguments mkCompilationInput {p} _ _ _.
+Arguments ci_ip {p} _.  Arguments ci_blocks {p} _.  Arguments ci_blocks_ok {p} _.
+
+Definition ci_idx {p} (input : CompilationInput p) : GoIndex.Snap.SyntaxIndex p :=
+  GoIndex.indexed_syntax (ci_ip input).
+Definition ci_visit {p} (input : CompilationInput p)
+  : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) := concat (ci_blocks input).
+
+(* the stored visit IS the snapshot's canonical [prog_visit] (spec equality; the DATA is the retained value). *)
+Lemma ci_visit_ok {p} (input : CompilationInput p) : ci_visit input = prog_visit p.
+Proof. unfold ci_visit, prog_visit. rewrite (ci_blocks_ok input). reflexivity. Qed.
+
+(* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p] (elaborate is not a builder
+   "called by elaborate" — it is elaborate).  Everything downstream consumes the stored values. *)
+Definition build_compilation_input (p : GoProgram) (ip : GoIndex.IndexedProgram p) : CompilationInput p :=
+  mkCompilationInput ip (prog_blocks p) eq_refl.
+
+(** ═══ §5 THE RETAINED-INPUT TYPE-NAME FACT TABLE ═══ built from the exact retained [ci_visit input] (the DATA is
+    the stored visit); its domain/completeness proofs transport the canonical [prog_type_name_facts] exactness via
+    [ci_visit_ok].  This is the object passed to outcome construction and later SEALED. *)
+Lemma tn_input_map_eq {p} (input : CompilationInput p) :
+  fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) (ci_visit input) = prog_type_name_facts p.
+Proof. unfold prog_type_name_facts. rewrite (ci_visit_ok input). reflexivity. Qed.
+
+Definition build_type_name_fact_table {p} (input : CompilationInput p) : TypeNameFactTable p.
+Proof.
+  refine (mkTypeNameFactTable
+            (fold_right add_tn_fact (GoIndex.NodeKeyMapBase.empty TypeNameFact) (ci_visit input)) _ _).
+  - intros k f Hf. rewrite (tn_input_map_eq input) in Hf. exact (prog_type_name_facts_domain p k f Hf).
+  - intros r occ Hin. rewrite (tn_input_map_eq input). exact (prog_type_name_facts_find p r occ Hin).
+Defined.
+
+(* the retained-input table's map IS [prog_type_name_facts p] (spec); its total query resolves the source name. *)
+Lemma build_tnft_map {p} (input : CompilationInput p) :
+  tnft_map (build_type_name_fact_table input) = prog_type_name_facts p.
+Proof. exact (tn_input_map_eq input). Qed.
+
+(** ═══ §6 THE PROOF-CARRYING OUTCOME TABLE ═══ the outcome map PAIRED with its completeness/match proof over the
+    retained visit — the proof STAYS on the production path.  [total_outcome_at] returns an [ExprOutcome] (NOT an
+    option): a missing entry is eliminated by [eot_ok], so facts and diagnostics never see a fail-open [None]. *)
+Record ExprOutcomeTable {p} (input : CompilationInput p) (tnft : TypeNameFactTable p) : Type :=
+  mkExprOutcomeTable {
+    eot_map : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
+    eot_ok  : outcomes_ok (ci_idx input) (ci_visit input) eot_map
+  }.
+Arguments mkExprOutcomeTable {p input tnft} _ _.
+Arguments eot_map {p input tnft} _.  Arguments eot_ok {p input tnft} _.
+
+Definition build_outcome_table {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+  : ExprOutcomeTable input tnft :=
+  let bo := build_outcomes (ci_idx input) tnft (ci_visit input)
+              (ex_intro _ (@nil (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (eq_sym (ci_visit_ok input))) in
+  mkExprOutcomeTable (proj1_sig bo) (proj2_sig bo).
+
+(* the TOTAL outcome query: for any [ExprRef], its stored outcome — [from_some] of the table's own completeness
+   proof (the None branch is [False_rect], never a semantic default). *)
+Lemma eot_at_not_none {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (er : GoIndex.ExprRef p) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eot_map ot) <> None.
+Proof.
+  assert (Hin : In (GoIndex.erase_ref er, GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) (ci_visit input)).
+  { rewrite (ci_visit_ok input). apply noderef_in_prog_visit. }
+  destruct (eot_ok ot (GoIndex.erase_ref er) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
+              (expr_ref_view er) Hin (expr_ref_view_eq er)) as [out [Hf _]].
+  rewrite Hf. discriminate.
+Qed.
+Definition total_outcome_at {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (er : GoIndex.ExprRef p) : ExprOutcome p :=
+  from_some (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eot_map ot))
+            (eot_at_not_none ot er).
+
+(* the TOTAL query MATCHES the occurrence — the direct table→production interface (no raw option, no [find]). *)
+Lemma total_outcome_at_matches {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  outcome_matches (ci_idx input) r occ (total_outcome_at ot er).
+Proof.
+  intros Hin Hv Hae Her.
+  assert (Hin' : In (r, occ) (ci_visit input)) by (rewrite (ci_visit_ok input); exact Hin).
+  destruct (eot_ok ot r occ e Hin' Hv) as [out [Hf Hm]].
+  rewrite <- Her in Hf.
+  unfold total_outcome_at.
+  rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hm.
 Qed.
 
 (* ---- the production expression-fact map = a PROJECTION of the ONE outcome authority: fold the visit stream,
