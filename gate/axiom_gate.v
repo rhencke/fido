@@ -353,6 +353,12 @@ Print Assumptions GoCompile.elaborate_ok_seals_facts.
    and their real minted TypeNameRefs DISCHARGED from the source, not assumed). *)
 Print Assumptions GoCompile.repeated_name_distinct_refs.
 Print Assumptions GoCompile.two_uint8_distinct_target_refs.
+(* §15/§10.8 the deep-nested conversion phase fixtures: a valid four-deep nest compiles and its TOTAL
+   diagnostic projection is EMPTY (no fail-open); a deep nest with an innermost overflow yields EXACTLY ONE
+   diagnostic (no drop, no per-ancestor double-count). *)
+Print Assumptions GoCompile.deep_nested_compiles.
+Print Assumptions GoCompile.deep_nested_no_diags.
+Print Assumptions GoCompile.deep_fail_one_diag.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)

@@ -8607,6 +8607,43 @@ Theorem inner_fail_one_inner_no_outer :
         (Some (TInteger IInt8)) None (Some (GoAST.tsyn GoNames.TNint8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
+(* ---- §15/§10.8 DEEP NESTED CONVERSION PHASE FIXTURES: a four-deep conversion chain exercises the ONE
+   [ExpressionPhase] over a genuinely nested tree.  (a) a VALID deep nest compiles and its TOTAL diagnostic
+   projection is EMPTY — no fail-open spurious diagnostic anywhere in the tree; (b) a deep nest whose INNERMOST
+   conversion overflows produces EXACTLY ONE diagnostic (at the inner failure; the three enclosing conversions
+   are blocked-by-child with no outer reason) — the total projection neither drops it (fail-open) nor
+   double-counts it per ancestor. ---- *)
+Definition deep_nested_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint64)
+                          (EConvert (GoAST.tsyn GoNames.TNint32)
+                            (EConvert (GoAST.tsyn GoNames.TNint16)
+                              (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) ] ] ].
+Example deep_nested_valid : source_spec_valid_b deep_nested_program = true.
+Proof. vm_compute. reflexivity. Qed.
+Lemma deep_nested_compiles : GoCompile deep_nested_program.
+Proof.
+  split.
+  - unfold fresh_build_preflight_ok. vm_compute. reflexivity.
+  - exact (proj1 (source_spec_valid_b_iff deep_nested_program) deep_nested_valid).
+Qed.
+(* the phase's TOTAL diagnostic projection over the whole valid deep tree is empty — no fail-open. *)
+Theorem deep_nested_no_diags :
+  erased_report deep_nested_program (GoIndex.Snap.index_program deep_nested_program) = [].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+Definition deep_fail_program : GoProgram :=
+  singleton_program c3_ms (mkFP "main.go" eq_refl)
+    [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint64)
+                          (EConvert (GoAST.tsyn GoNames.TNint32)
+                            (EConvert (GoAST.tsyn GoNames.TNint16)
+                              (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)))) ] ] ].
+(* EXACTLY ONE diagnostic: the innermost int8(300) overflow, anchored at its own node with its stored operand
+   ref; the three enclosing conversions are blocked-by-child (no second reason, no per-ancestor re-report). *)
+Theorem deep_fail_one_diag :
+  length (erased_report deep_fail_program (GoIndex.Snap.index_program deep_fail_program)) = 1%nat.
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
 (* ---- ★§5.3 CONCRETE-SNAPSHOT PLUMBING: on a REAL compiled program, the retained index mints a REAL [ExprRef]
    for a source conversion occurrence — the occurrence hypotheses of [conversion_target_ref_conv] are DISCHARGED
    from source-level facts (find_file / source_occurrence_at / view), never assumed. ---- *)
