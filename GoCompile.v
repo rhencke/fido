@@ -2067,6 +2067,75 @@ Lemma outcomes_ok_covers {p} (idx : GoIndex.Snap.SyntaxIndex p)
   outcomes_ok idx l m -> outcome_covers l m.
 Proof. intros H r occ e Hin Hv. destruct (H r occ e Hin Hv) as [out [Hf _]]. rewrite Hf. discriminate. Qed.
 
+(** ═══ §6 THE DIRECT OUTCOME-CAUSE RELATION ═══ the PRODUCTION cause of a stored outcome, read entirely off the
+    retained phase: the table query at the retained target ref, the operand's ALREADY-COMPUTED outcome in the
+    processed accumulator [prior], and ONE [convert_const] — NEVER [local_conv_failure], [conv_targets], a
+    resolver call, or a recursive [const_info] of the conversion subtree.  This is the invariant the outcome
+    table CARRIES (§2.5–§2.7); the bridge to the index-free source specification is a SEPARATE theorem. *)
+Definition outcome_is_fail {p} (o : ExprOutcome p) : Prop :=
+  match o with EOOk _ => False | _ => True end.
+
+Inductive OutcomeCause {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
+    (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence) : ExprOutcome p -> Prop :=
+| OCLeaf : forall (er : GoIndex.ExprRef p) e ci,
+    GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+    GoIndex.view_expr occ = Some e -> expr_child e = None -> const_info e = Some ci ->
+    OutcomeCause idx tnft prior r occ (leaf_outcome er ci)
+| OCConvOk : forall (er : GoIndex.ExprRef p) ts x (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf tc,
+    GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+    GoIndex.view_expr occ = Some (EConvert ts x) ->
+    conversion_target_ref idx er = Some tr -> conversion_operand_ref idx er = Some opr ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some (EOOk opf) ->
+    convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = Some tc ->
+    OutcomeCause idx tnft prior r occ
+      (EOOk (mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)
+               (use_resolved_of_ci (expr_ref_role er)
+                  (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc))))
+| OCConvFail : forall (er : GoIndex.ExprRef p) ts x (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf,
+    GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+    GoIndex.view_expr occ = Some (EConvert ts x) ->
+    conversion_target_ref idx er = Some tr -> conversion_operand_ref idx er = Some opr ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some (EOOk opf) ->
+    convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = None ->
+    OutcomeCause idx tnft prior r occ
+      (EOConvFail er tr opr (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf))
+| OCChildFail : forall (er : GoIndex.ExprRef p) ts x (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) oout,
+    GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+    GoIndex.view_expr occ = Some (EConvert ts x) ->
+    conversion_target_ref idx er = Some tr -> conversion_operand_ref idx er = Some opr ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some oout ->
+    outcome_is_fail oout ->
+    OutcomeCause idx tnft prior r occ EOChildFail.
+
+(* the computed LEAF outcome is directly caused: [leaf_outcome er ci] is [OCLeaf]. *)
+Lemma leaf_outcome_cause {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p) prior
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e ci :
+  GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+  GoIndex.view_expr occ = Some e -> expr_child e = None -> const_info e = Some ci ->
+  OutcomeCause idx tnft prior r occ (leaf_outcome er ci).
+Proof. intros; eapply OCLeaf; eassumption. Qed.
+
+(* the computed CONVERSION outcome is directly caused: [conv_outcome tnft er tr opr oo] — where [oo] is the
+   operand's outcome ALREADY stored in [prior] at the operand ref — satisfies [OutcomeCause] by ONE
+   [convert_const] on the table query + operand-outcome status.  No source recomputation. *)
+Lemma conv_outcome_cause {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p) prior
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) ts x
+    (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) oo :
+  GoIndex.as_expr idx r = Some er -> GoIndex.erase_ref er = r ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  conversion_target_ref idx er = Some tr -> conversion_operand_ref idx er = Some opr ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some oo ->
+  OutcomeCause idx tnft prior r occ (conv_outcome tnft er tr opr oo).
+Proof.
+  intros Hae Her Hv Htr Hopr Hfind. destruct oo as [opf | er2 tr2 opr2 t2 ci2 | ]; cbn [conv_outcome].
+  - destruct (convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf)) as [tc|] eqn:E.
+    + eapply OCConvOk; eassumption.
+    + eapply OCConvFail; eassumption.
+  - eapply OCChildFail; try eassumption. exact I.
+  - eapply OCChildFail; try eassumption. exact I.
+Qed.
+
 (* the resolved target of a conversion's minted target ref, read from the passed-in TABLE OBJECT (not recomputed):
    the table's stored fact for [conversion_target_ref_tot …] is [predeclared_type ts]. *)
 Lemma conv_target_table_type {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
