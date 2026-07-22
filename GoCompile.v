@@ -7600,6 +7600,20 @@ Proof.
   - discriminate.
 Qed.
 
+(** §10.7 the SEALED ExprFactTable object: a successful ElaborationFacts stores the EXACT expression-fact map
+    PROJECTED from the phase actually built ([ep_facts] of the one [ExpressionPhase]) — quantified over the
+    CONSTRUCTED table object, the fact-side mirror of [elaborate_ok_seals_tnfacts]. *)
+Theorem elaborate_ok_seals_facts (p : GoProgram) facts :
+  pe_result (elaborate p) = ElaborationOK facts ->
+  eft_map (ef_expr_facts facts)
+  = ep_facts (build_expression_phase (build_compilation_input p (GoIndex.index_program p))).
+Proof.
+  unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
+  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
+  - intro H. injection H as <-. reflexivity.
+  - discriminate.
+Qed.
+
 (** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
     diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  (The [diags] computed inside

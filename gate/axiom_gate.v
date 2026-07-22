@@ -335,12 +335,18 @@ Print Assumptions GoCompile.predeclared_all_sixteen.
 (* §3.3 the conversion TARGET ref is obtained THROUGH the retained index (minted TypeNameRef): the exact
    RConversionTarget child key, role RConversionTarget, recovering the exact raw source TypeSyntax. *)
 Print Assumptions GoCompile.conversion_target_ref_conv.
+(* §3.2/§10.2 the conversion OPERAND ref THROUGH the retained index: the exact RConversionOperand child key,
+   role RConversionOperand, recovering the exact raw operand. *)
+Print Assumptions GoCompile.conversion_operand_ref_conv.
 (* §8/§3.8 ONE EXPRESSION PHASE (OBJECT IDENTITY): the sealed FACTS and the DIAGNOSTICS are BOTH projections of
    the SAME retained [ep_ot] outcome table inside one [ExpressionPhase] ([facts_and_diags_share_phase]); and the
    type-name TABLE OBJECT sealed into a successful ElaborationFacts IS the [ep_tnft] of the phase actually built
    ([elaborate_ok_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
+(* §10.7 the fact-side seal: the ExprFactTable map sealed into a successful ElaborationFacts IS [ep_facts] of
+   the phase actually built. *)
+Print Assumptions GoCompile.elaborate_ok_seals_facts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
    property AND its CONCRETE non-hypothetical instance on a real compiled two-[uint8] program (the two occurrences
