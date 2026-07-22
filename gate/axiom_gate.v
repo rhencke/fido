@@ -278,13 +278,20 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* §3.4 the ONE expression-outcome authority is ONE fold over the DELIVERED visit stream
-   ([prog_conv_outcomes], each conversion reading its target type-name fact + its operand outcome at
-   [operand_key] from the already-folded tail via [outcome_fold_find] + [prog_visit_operand_closed]): its find
-   at a visited occurrence's key is EXACTLY that occurrence's declarative outcome — one [convert_const] per
-   conversion, read O(1); the production expression facts AND the conversion diagnostics both PROJECT it. *)
+(* §3.4/§3.6 the ONE expression-outcome authority [prog_outcomes] is ONE fold over the DELIVERED visit stream,
+   keying each occurrence's [typed_outcome] — the STRUCTURAL recursion on the operand VIEW: a conversion mints
+   its target [TypeNameRef] + operand [ExprRef] through the retained index, reads the resolved target from the
+   once-built [prog_type_name_facts] via the TOTAL [tnfact_at], recurses on the retained operand ExprRef, and
+   combines through ONE [convert_const].  Its find at a visited occurrence's key is EXACTLY [typed_outcome];
+   the invalid-conversion outcome CARRIES the exact conversion/target/operand refs ([typed_outcome_convfail]);
+   the production expression facts ([outcome_facts_eq_spec]) AND the conversion diagnostics both PROJECT it; the
+   live conversion path CONSUMES its retained target + operand refs ([prog_conv_outcome_consumes]). *)
 Print Assumptions GoCompile.occs_file_operand.
-Print Assumptions GoCompile.prog_conv_outcomes_find.
+Print Assumptions GoCompile.prog_outcomes_find.
+Print Assumptions GoCompile.tnfact_at_resolves.
+Print Assumptions GoCompile.typed_outcome_convfail.
+Print Assumptions GoCompile.typed_outcome_expr_fact_ok.
+Print Assumptions GoCompile.outcome_facts_eq_spec.
 Print Assumptions GoCompile.add_occ_fact_om_eq.
 Print Assumptions GoCompile.local_conv_failure_om_eq.
 Print Assumptions GoCompile.expr_diags_eq_spec.
@@ -331,8 +338,11 @@ Print Assumptions GoCompile.conversion_target_ref_conv.
 Print Assumptions GoCompile.prog_conv_outcome_consumes.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
-   recovered syntax and EQUAL sealed facts (occurrence identity, not name identity). *)
+   recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
+   property AND its CONCRETE non-hypothetical instance on a real compiled two-[uint8] program (the two occurrences
+   and their real minted TypeNameRefs DISCHARGED from the source, not assumed). *)
 Print Assumptions GoCompile.repeated_name_distinct_refs.
+Print Assumptions GoCompile.two_uint8_distinct_target_refs.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)
