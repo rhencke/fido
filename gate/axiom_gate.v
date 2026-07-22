@@ -278,24 +278,22 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* §3.4/§3.6 the ONE expression-outcome authority [prog_outcomes_c] is the PROOF-CARRYING BOTTOM-UP ACCUMULATOR
-   over the retained source-order visit, CONSUMING the once-built [prog_tnft] TABLE OBJECT: each conversion step
-   queries the table at its retained target ref (TOTAL [type_name_fact_at_table]), reads its operand's
-   ALREADY-COMPUTED outcome from the processed suffix (TOTAL [from_some] of the operand-closure proof — no
-   fallback), and calls [convert_const] ONCE.  Its find at a visited occurrence's key MATCHES the occurrence
-   ([prog_outcomes_bu_match]): the EOOk fact IS [occ_expr_fact], an invalid conversion CARRIES the exact
-   conversion/target/operand refs + a genuine [local_conv_failure] ([local_conv_failure_om_eq_c]).  The production
-   expression facts ([outcome_facts_eq_spec_c] / [add_occ_fact_om_eq_c]) AND the conversion diagnostics
-   ([occ_expr_diags_sm_eq_c]) both PROJECT the SAME map; the resolved-target query is the table's stored fact
+(* §3/§5/§6 the retained-phase production path: the ONE [CompilationInput] retains the visit as a STORED value
+   that IS the snapshot's traversal ([ci_visit_ok]); the [TypeNameFactTable] is built from THAT retained visit
+   ([build_tnft_map]); the PROOF-CARRYING [ExprOutcomeTable] pairs the outcome map with its completeness proof so
+   the query is TOTAL — [total_outcome_at] returns an [ExprOutcome], not an option, and MATCHES the occurrence
+   ([total_outcome_at_matches]); the resolved-target query is the table's stored fact
    ([type_name_fact_at_table_resolves]). *)
 Print Assumptions GoCompile.occs_file_operand.
-Print Assumptions GoCompile.prog_outcomes_c_proj.
+Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
-Print Assumptions GoCompile.prog_outcomes_bu_match.
-Print Assumptions GoCompile.outcome_expr_facts_find_c.
-Print Assumptions GoCompile.outcome_facts_eq_spec_c.
-Print Assumptions GoCompile.add_occ_fact_om_eq_c.
-Print Assumptions GoCompile.local_conv_failure_om_eq_c.
+Print Assumptions GoCompile.build_tnft_map.
+Print Assumptions GoCompile.total_outcome_at_matches.
+(* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
+   fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
+Print Assumptions GoCompile.phase_expr_facts_eq_spec.
+Print Assumptions GoCompile.occ_work_diags_eq_spec.
+Print Assumptions GoCompile.phase_expr_diags_eq_spec.
 Print Assumptions GoCompile.expr_diags_eq_spec.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
    per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
@@ -333,11 +331,10 @@ Print Assumptions GoCompile.predeclared_all_sixteen.
 (* §3.3 the conversion TARGET ref is obtained THROUGH the retained index (minted TypeNameRef): the exact
    RConversionTarget child key, role RConversionTarget, recovering the exact raw source TypeSyntax. *)
 Print Assumptions GoCompile.conversion_target_ref_conv.
-(* §3.8 PRODUCTION TABLE CONSUMPTION (OBJECT IDENTITY): the diagnostics project the SAME bottom-up outcome map
-   the facts project ([occ_expr_diags_sm_eq_c] over [prog_outcomes_c]); and the type-name TABLE OBJECT sealed
-   into a successful ElaborationFacts IS [prog_tnft] — the SAME object [prog_outcomes_c] consumes (definitional
-   identity, not extensional map equality; no rebuild after the decision). *)
-Print Assumptions GoCompile.occ_expr_diags_sm_eq_c.
+(* §8/§3.8 ONE EXPRESSION PHASE (OBJECT IDENTITY): the sealed FACTS and the DIAGNOSTICS are BOTH projections of
+   the SAME retained [ep_ot] outcome table inside one [ExpressionPhase] ([facts_and_diags_share_phase]); and the
+   type-name TABLE OBJECT sealed into a successful ElaborationFacts IS the [ep_tnft] of the phase actually built
+   ([elaborate_ok_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL

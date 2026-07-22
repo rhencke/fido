@@ -3438,15 +3438,15 @@ Qed.
    each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its outcome is
    read from the ONE [prog_outcomes] authority; a local invalid conversion emits its STORED refs (no re-mint),
    no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
+(* the SPECIFICATION expression-diagnostic report: the declarative per-occurrence [occ_expr_diags] over the
+   one-pass annotated stream.  The PRODUCTION report is [phase_expr_diags] (the TOTAL projection of the retained
+   [ExprOutcomeTable]), proved equal to THIS ([phase_expr_diags_eq_spec] / [ep_diags_eq_expr_diags]). *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
-  flat_map (fun roc => occ_expr_diags_sm (prog_outcomes_c idx) idx (snd roc) (fst roc)) (annotate_program idx).
+  flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
 
 Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   expr_diags idx = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
-Proof.
-  unfold expr_diags. apply flat_map_ext_in. intros roc Hin. apply occ_expr_diags_sm_eq_c.
-  rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin).
-Qed.
+Proof. reflexivity. Qed.
 
 (** ═══ §9.2 THE TOTAL DIAGNOSTIC PROJECTION ═══ for each annotated occurrence the ref is minted inline and its
     stored outcome queried TOTALLY: an [EOConvFail] emits [DRInvalidConversion] from its STORED refs + evidence;
