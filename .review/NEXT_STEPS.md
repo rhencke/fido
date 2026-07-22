@@ -22,7 +22,14 @@
   (HEAD `842fd2d` is `9d4aff5` plus a doc-only status commit; the code baseline is exactly `9d4aff5`.)
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_5.md`.
 - **Human repair authorization token:** `C4-typed-work-direct-cause-scope-repair-5`.
-- **State:** C4 Implementation Review BLOCKING; repair 5 active.
+- **State:** C4 Implementation Review repair-5 candidate **FROZEN** (this commit is the freeze head), pending
+  Rob's **HUMAN** Implementation Review. All 18 blocking classes (§2.1–§2.18) are closed behaviorally, each backed
+  by a gated zero-axiom theorem: exact typed **ExprWork** domain (facts/outcomes/diagnostics consume it — no
+  `as_expr` in production); the DIRECT **OutcomeCause** as the SOLE carried outcome invariant (`eot_caused`;
+  source spec reached by the separate `outcomes_caused_matches`); **exact-domain** table (`eot_domain_iff_work` —
+  extras uninhabitable); typed-work diagnostics (`awork_diags`, no fail-open); object-identity `ExprFactTable`
+  seal; input-provenance `TypeNameFactTable`; real phase fixtures. `make prove`/`e2e`/`check`/`regenerate` GREEN,
+  no generated-byte drift. **STOP** — no further repair or re-request without an explicit later `human_override`.
 - **Scope decisions:** ADR-0001 and every new scope-ledger disposition remain **PROPOSED pending Rob** (unless an
   exact prior human authority/contract is cited). A model must not certify its own trade-offs.
 - **Automatic Codex review:** DISABLED (do NOT request or run a Codex review; this directive is Rob's later

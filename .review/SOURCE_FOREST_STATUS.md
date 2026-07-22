@@ -18,14 +18,16 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
   ignored by the semantic builders).
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
   repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3`;
-  repair 4 `C4-retained-phase-scope-ledger-repair-4` (ACTIVE).
-- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_4.md` (repairs 1–3 superseded — each deleted in the
+  repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`
+  (FROZEN — see C4 implementation state).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_5.md` (repairs 1–4 superseded — each deleted in the
   first implementation commit of the next repair; git history is their archive). The scope ledger
-  (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` are authorized as review
-  governance under this repair (a newly authorized requirement, NOT a weakening of the binding C4 contract).
+  (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` + `ADR-0002-BOUNDED-
+  DECIMALFLOAT-DOMAIN` are authorized as review governance under this repair (all dispositions PROPOSED pending
+  Rob — a model does not certify its own trade-offs).
 - Automatic Codex review: DISABLED. This directive is Rob's later explicit authorization; on repair completion
-  the candidate is frozen (`review(final): C4 — freeze retained-phase candidate`) and reported for Rob's human
-  Implementation Review — no Codex review is requested or run.
+  the candidate is frozen (`review(final): C4 — freeze typed-work direct-cause candidate`) and reported for Rob's
+  human Implementation Review — no Codex review is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
 ## Completed checkpoints
@@ -39,10 +41,19 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-**CURRENT: typed-work / direct-cause / scope-decision repair 5 ACTIVE from clean baseline `9d4aff5`** (authority
+**CURRENT: typed-work / direct-cause / scope-decision repair 5 FROZEN from clean baseline `9d4aff5`** (authority
 `.review/C4_IMPLEMENTATION_REPAIR_5.md`, token `C4-typed-work-direct-cause-scope-repair-5`). The repair-4
 candidate `9d4aff5` was the **FIFTH BLOCKING**: repair 4 built the right NAMES but not the right BEHAVIOR — the
-abstractions are named, the required behavior is missing. Repair 4 results to KEEP (per §0): one `CompilationInput`
+abstractions were named, the required behavior missing. **Repair 5 REPLACED each named-not-behavioral boundary
+with a gated zero-axiom theorem** and is now FROZEN pending Rob's HUMAN Implementation Review: exact typed
+`ExprWork` domain (facts/outcomes/diagnostics consume it — no `as_expr` in production); the DIRECT `OutcomeCause`
+as the SOLE carried outcome invariant (`eot_caused`; source spec reached only by the SEPARATE
+`outcomes_caused_matches`); exact-domain table (`eot_domain_iff_work` — extras uninhabitable, `eot_nonexpr_absent`);
+typed-work diagnostics (`awork_diags`, no fail-open); object-identity `ExprFactTable` seal; input-provenance
+`TypeNameFactTable`; real phase fixtures (`deep_nested_phase_no_diags`/`deep_fail_phase_reports`); honest PROPOSED
+scope ledger + ADR-0001/0002. `make prove`/`e2e`/`check`/`regenerate`/`regen-guard` GREEN, no generated-byte drift.
+STOP — no further repair or re-request without an explicit later `human_override`. (The §2 blocking classes below
+are the historical record of the findings repair 5 closed.) Repair 4 results to KEEP (per §0): one `CompilationInput`
 value; type-name facts built from the retained input; one proof-carrying `ExprOutcomeTable` value; one
 `ExpressionPhase` value; operand read from the processed suffix; total type-name query consuming the passed table;
 retained index threaded through conversion child proofs; `EOConvFail`/`DRInvalidConversion` retain refs;
