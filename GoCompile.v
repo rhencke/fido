@@ -2174,6 +2174,88 @@ Definition outcomes_caused {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNa
     exists out, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m = Some out
              /\ OutcomeCause idx tnft m r occ out.
 
+(* the EXACT-DOMAIN invariant (§7): the stored map has NO key beyond the visited occurrences' keys — every
+   present key is some visited occurrence's node key.  (This is also what supplies the fold's freshness
+   [find (node_ref_key r) m_rest = None] from the visit-level [suffix_head_key_fresh].) *)
+Definition outcome_dom_ok {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : Prop :=
+  forall k, GoIndex.NodeKeyMapBase.find k m <> None ->
+    exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) l /\ GoIndex.Snap.node_ref_key r = k.
+
+Lemma outcome_dom_ok_empty {p} :
+  outcome_dom_ok (@nil (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)).
+Proof. intros k Hk. exfalso. apply Hk. apply GoIndex.NodeKeyMapFacts.empty_o. Qed.
+
+Lemma outcome_dom_ok_skip {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest :
+  outcome_dom_ok rest m_rest -> outcome_dom_ok ((r, occ) :: rest) m_rest.
+Proof.
+  intros Hdom k Hk. destruct (Hdom k Hk) as [r0 [occ0 [Hin0 Hk0]]].
+  exists r0, occ0. split; [right; exact Hin0 | exact Hk0].
+Qed.
+
+Lemma outcome_dom_ok_add {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest (v : ExprOutcome p) :
+  outcome_dom_ok rest m_rest ->
+  outcome_dom_ok ((r, occ) :: rest) (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest).
+Proof.
+  intros Hdom k Hk.
+  assert (HIn : GoIndex.NodeKeyMapBase.In k
+                  (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest))
+    by (rewrite GoIndex.NodeKeyMapFacts.in_find_iff; exact Hk).
+  apply GoIndex.NodeKeyMapFacts.add_in_iff in HIn. destruct HIn as [Heq | HIn0].
+  - exists r, occ. split; [left; reflexivity | exact Heq].
+  - assert (Hkm : GoIndex.NodeKeyMapBase.find k m_rest <> None)
+      by (rewrite <- GoIndex.NodeKeyMapFacts.in_find_iff; exact HIn0).
+    destruct (Hdom k Hkm) as [r0 [occ0 [Hin0 Hk0]]].
+    exists r0, occ0. split; [right; exact Hin0 | exact Hk0].
+Qed.
+
+(* the FRESH-KEY fact the fold needs: a suffix head's key is absent from the accumulator (its domain is the
+   tail's visited keys, and the head key is fresh by [suffix_head_key_fresh]). *)
+Lemma outcome_dom_head_fresh {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest :
+  outcome_dom_ok rest m_rest ->
+  ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m_rest = None.
+Proof.
+  intros Hdom Hnd. destruct (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m_rest) as [w|] eqn:E;
+    [exfalso | reflexivity].
+  destruct (Hdom (GoIndex.Snap.node_ref_key r) (ltac:(rewrite E; discriminate))) as [r1 [occ1 [Hin1 Hk1]]].
+  apply Hnd. rewrite <- Hk1. apply in_map_iff. exists (r1, occ1). split; [reflexivity | exact Hin1].
+Qed.
+
+Lemma outcomes_caused_skip {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest :
+  outcomes_caused idx tnft rest m_rest -> GoIndex.view_expr occ = None ->
+  outcomes_caused idx tnft ((r, occ) :: rest) m_rest.
+Proof.
+  intros Hc Hv r0 occ0 e0 Hin0 Hv0. destruct Hin0 as [Heq | Hin0].
+  - injection Heq as Hr0 Ho0. subst r0 occ0. rewrite Hv in Hv0; discriminate Hv0.
+  - exact (Hc r0 occ0 e0 Hin0 Hv0).
+Qed.
+
+Lemma outcomes_caused_add {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) e m_rest (v : ExprOutcome p) :
+  outcomes_caused idx tnft rest m_rest -> outcome_dom_ok rest m_rest ->
+  ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest) ->
+  GoIndex.view_expr occ = Some e ->
+  OutcomeCause idx tnft (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest) r occ v ->
+  outcomes_caused idx tnft ((r, occ) :: rest) (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest).
+Proof.
+  intros Hc Hdom Hnd Hv Hhead.
+  pose proof (outcome_dom_head_fresh r occ rest m_rest Hdom Hnd) as Hfr.
+  intros r0 occ0 e0 Hin0 Hv0. destruct Hin0 as [Heq | Hin0].
+  - injection Heq as Hr0 Ho0. subst r0 occ0. exists v.
+    split; [ apply GoIndex.nodekeymap_add_eq | exact Hhead ].
+  - destruct (Hc r0 occ0 e0 Hin0 Hv0) as [out [Hf HC]]. exists out. split.
+    + rewrite GoIndex.nodekeymap_add_neq;
+        [ exact Hf | intro Hbad; apply Hnd; rewrite Hbad; apply in_map_iff; exists (r0, occ0); split; [reflexivity | exact Hin0] ].
+    + exact (OutcomeCause_add_fresh idx tnft m_rest (GoIndex.Snap.node_ref_key r) v r0 occ0 out Hfr HC).
+Qed.
+
 (* the resolved target of a conversion's minted target ref, read from the passed-in TABLE OBJECT (not recomputed):
    the table's stored fact for [conversion_target_ref_tot …] is [predeclared_type ts]. *)
 Lemma conv_target_table_type {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
