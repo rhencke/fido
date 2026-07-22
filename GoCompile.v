@@ -3261,6 +3261,49 @@ Proof.
     unfold conv_outcome. destruct oout; [ destruct Hfail | reflexivity | reflexivity ].
 Qed.
 
+(** ═══ §6 THE SEPARATE EXACTNESS THEOREM ═══ the carried DIRECT cause AGREES with the index-free source
+    specification: every [OutcomeCause] entry satisfies [outcome_matches].  Proven by structural induction on the
+    occurrence's VIEW (a conversion's operand [x] is a strict subterm of [EConvert ts x], so the operand's
+    [outcome_matches] is the IH; the operand's fact status comes from the IH, NOT a fresh source scan).  This is
+    what lets the outcome table carry ONLY [OutcomeCause] while the fact/diagnostic projections still reach the
+    source specification. *)
+Lemma outcomes_caused_matches {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
+    (Hcaused : outcomes_caused idx tnft (prog_visit p) m) :
+  forall e (r : GoIndex.Snap.NodeRef p) occ out,
+    In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+    OutcomeCause idx tnft m r occ out -> outcome_matches idx r occ out.
+Proof.
+  intros e; induction e as [ b|nn|n0|s|dd|dc| ts x IHx ]; intros r occ out Hin Hv HC.
+  1-6: (destruct (OutcomeCause_leaf_view_inv idx tnft m r occ _ out Hv (ltac:(reflexivity)) HC)
+          as [er [ci [Ha [Her [Hci Hout]]]]]; subst out;
+        assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
+          by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity);
+        exact (leaf_stored_matches idx r er occ _ ci Hv Hrole Hci)).
+  destruct (OutcomeCause_conv_shape idx tnft m r occ ts x out Hv HC)
+    as [er [tr [opr [operand_out [Ha [Her [Htr [Hopr [Hfind Hout]]]]]]]]].
+  subst out.
+  destruct (conversion_operand_ref_conv idx r occ er ts x Hin Hv Ha) as [opr0 [Hoprc [_ [_ Hoprv]]]].
+  rewrite Hopr in Hoprc. injection Hoprc as Hopreq. subst opr0.
+  destruct (Hcaused (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) x
+              (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv) as [oout [Hfop HCop]].
+  rewrite Hfind in Hfop. injection Hfop as Hoo. subst oout.
+  pose proof (IHx (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr))
+                operand_out (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv HCop) as Hopm.
+  assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
+    by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity).
+  destruct (conversion_target_ref_conv idx r occ er ts x Hin Hv Ha) as [tr0 [Htrc [_ [_ Htsyn]]]].
+  rewrite Htr in Htrc. injection Htrc as Htreq. subst tr0.
+  assert (Htnf : tnf_type (type_name_fact_at_table tnft tr) = predeclared_type ts)
+    by (rewrite (type_name_fact_at_table_resolves tnft tr ts Htsyn); reflexivity).
+  exact (conv_stored_matches idx tnft r er opr tr occ
+           (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) ts x
+           Ha Hv Hrole Htnf Htr Hopr operand_out
+           (outcome_matches_proj idx (GoIndex.erase_ref opr)
+              (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) operand_out Hopm)
+           Hoprv).
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
