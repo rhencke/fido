@@ -2305,24 +2305,26 @@ Qed.
 Record CompilationInput (p : GoProgram) : Type := mkCompilationInput {
   ci_ip     : GoIndex.IndexedProgram p ;
   ci_blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) ;
-  ci_blocks_ok : ci_blocks = prog_blocks p    (* PROVENANCE (spec-level): the stored blocks ARE the snapshot's *)
+  ci_visit  : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) ;   (* STORED once, consumed by every builder *)
+  ci_blocks_ok    : ci_blocks = prog_blocks p ;   (* PROVENANCE (spec): the stored blocks ARE the snapshot's *)
+  ci_visit_blocks : ci_visit  = concat ci_blocks  (* COHERENCE: the stored visit IS its blocks' flattening *)
 }.
-Arguments mkCompilationInput {p} _ _ _.
-Arguments ci_ip {p} _.  Arguments ci_blocks {p} _.  Arguments ci_blocks_ok {p} _.
+Arguments mkCompilationInput {p} _ _ _ _ _.
+Arguments ci_ip {p} _.  Arguments ci_blocks {p} _.  Arguments ci_visit {p} _.
+Arguments ci_blocks_ok {p} _.  Arguments ci_visit_blocks {p} _.
 
 Definition ci_idx {p} (input : CompilationInput p) : GoIndex.Snap.SyntaxIndex p :=
   GoIndex.indexed_syntax (ci_ip input).
-Definition ci_visit {p} (input : CompilationInput p)
-  : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) := concat (ci_blocks input).
 
-(* the stored visit IS the snapshot's canonical [prog_visit] (spec equality; the DATA is the retained value). *)
+(* the STORED visit IS the snapshot's canonical [prog_visit] (spec equality via the two coherence proofs; the DATA
+   is the retained field, not a re-flattening). *)
 Lemma ci_visit_ok {p} (input : CompilationInput p) : ci_visit input = prog_visit p.
-Proof. unfold ci_visit, prog_visit. rewrite (ci_blocks_ok input). reflexivity. Qed.
+Proof. unfold prog_visit. rewrite (ci_visit_blocks input), (ci_blocks_ok input). reflexivity. Qed.
 
-(* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p] (elaborate is not a builder
-   "called by elaborate" — it is elaborate).  Everything downstream consumes the stored values. *)
+(* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p]/[prog_visit p] (elaborate is not
+   a builder "called by elaborate" — it is elaborate).  Everything downstream consumes the stored fields. *)
 Definition build_compilation_input (p : GoProgram) (ip : GoIndex.IndexedProgram p) : CompilationInput p :=
-  mkCompilationInput ip (prog_blocks p) eq_refl.
+  mkCompilationInput ip (prog_blocks p) (prog_visit p) eq_refl eq_refl.
 
 (** ═══ §5 THE RETAINED-INPUT TYPE-NAME FACT TABLE ═══ built from the exact retained [ci_visit input] (the DATA is
     the stored visit); its domain/completeness proofs transport the canonical [prog_type_name_facts] exactness via
