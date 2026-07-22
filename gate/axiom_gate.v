@@ -278,22 +278,24 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* §3.4/§3.6 the ONE expression-outcome authority [prog_outcomes] is ONE fold over the DELIVERED visit stream,
-   keying each occurrence's [typed_outcome] — the STRUCTURAL recursion on the operand VIEW: a conversion mints
-   its target [TypeNameRef] + operand [ExprRef] through the retained index, reads the resolved target from the
-   once-built [prog_type_name_facts] via the TOTAL [tnfact_at], recurses on the retained operand ExprRef, and
-   combines through ONE [convert_const].  Its find at a visited occurrence's key is EXACTLY [typed_outcome];
-   the invalid-conversion outcome CARRIES the exact conversion/target/operand refs ([typed_outcome_convfail]);
-   the production expression facts ([outcome_facts_eq_spec]) AND the conversion diagnostics both PROJECT it; the
-   live conversion path CONSUMES its retained target + operand refs ([prog_conv_outcome_consumes]). *)
+(* §3.4/§3.6 the ONE expression-outcome authority [prog_outcomes_c] is the PROOF-CARRYING BOTTOM-UP ACCUMULATOR
+   over the retained source-order visit, CONSUMING the once-built [prog_tnft] TABLE OBJECT: each conversion step
+   queries the table at its retained target ref (TOTAL [type_name_fact_at_table]), reads its operand's
+   ALREADY-COMPUTED outcome from the processed suffix (TOTAL [from_some] of the operand-closure proof — no
+   fallback), and calls [convert_const] ONCE.  Its find at a visited occurrence's key MATCHES the occurrence
+   ([prog_outcomes_bu_match]): the EOOk fact IS [occ_expr_fact], an invalid conversion CARRIES the exact
+   conversion/target/operand refs + a genuine [local_conv_failure] ([local_conv_failure_om_eq_c]).  The production
+   expression facts ([outcome_facts_eq_spec_c] / [add_occ_fact_om_eq_c]) AND the conversion diagnostics
+   ([occ_expr_diags_sm_eq_c]) both PROJECT the SAME map; the resolved-target query is the table's stored fact
+   ([type_name_fact_at_table_resolves]). *)
 Print Assumptions GoCompile.occs_file_operand.
-Print Assumptions GoCompile.prog_outcomes_find.
-Print Assumptions GoCompile.tnfact_at_resolves.
-Print Assumptions GoCompile.typed_outcome_convfail.
-Print Assumptions GoCompile.typed_outcome_expr_fact_ok.
-Print Assumptions GoCompile.outcome_facts_eq_spec.
-Print Assumptions GoCompile.add_occ_fact_om_eq.
-Print Assumptions GoCompile.local_conv_failure_om_eq.
+Print Assumptions GoCompile.prog_outcomes_c_proj.
+Print Assumptions GoCompile.type_name_fact_at_table_resolves.
+Print Assumptions GoCompile.prog_outcomes_bu_match.
+Print Assumptions GoCompile.outcome_expr_facts_find_c.
+Print Assumptions GoCompile.outcome_facts_eq_spec_c.
+Print Assumptions GoCompile.add_occ_fact_om_eq_c.
+Print Assumptions GoCompile.local_conv_failure_om_eq_c.
 Print Assumptions GoCompile.expr_diags_eq_spec.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
    per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
@@ -331,11 +333,11 @@ Print Assumptions GoCompile.predeclared_all_sixteen.
 (* §3.3 the conversion TARGET ref is obtained THROUGH the retained index (minted TypeNameRef): the exact
    RConversionTarget child key, role RConversionTarget, recovering the exact raw source TypeSyntax. *)
 Print Assumptions GoCompile.conversion_target_ref_conv.
-(* §5.1 PRODUCTION FACT CONSUMPTION: the production expression outcome at a live conversion's key reads its
-   target fact from the ONCE-built type-name map and the operand status through ONE convert_const (index-free
-   GoTypes success or exact invalid evidence); and the map SEALED into a successful ElaborationFacts IS that
-   same consumed [prog_type_name_facts] map (no rebuild after the decision). *)
-Print Assumptions GoCompile.prog_conv_outcome_consumes.
+(* §3.8 PRODUCTION TABLE CONSUMPTION (OBJECT IDENTITY): the diagnostics project the SAME bottom-up outcome map
+   the facts project ([occ_expr_diags_sm_eq_c] over [prog_outcomes_c]); and the type-name TABLE OBJECT sealed
+   into a successful ElaborationFacts IS [prog_tnft] — the SAME object [prog_outcomes_c] consumes (definitional
+   identity, not extensional map equality; no rebuild after the decision). *)
+Print Assumptions GoCompile.occ_expr_diags_sm_eq_c.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
