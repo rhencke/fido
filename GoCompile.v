@@ -2136,6 +2136,44 @@ Proof.
   - eapply OCChildFail; try eassumption. exact I.
 Qed.
 
+(* [OutcomeCause] is PRESERVED when the accumulator is extended with a FRESH key (one not already present): the
+   operand lookup the cause reads is at a key already in [prior] (its find is [Some]), so it is unaffected by an
+   add at a fresh key.  This is what lets the bottom-up fold state each entry's cause against the FINAL map. *)
+Lemma OutcomeCause_add_fresh {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) k v
+    (r : GoIndex.Snap.NodeRef p) occ out :
+  GoIndex.NodeKeyMapBase.find k prior = None ->
+  OutcomeCause idx tnft prior r occ out ->
+  OutcomeCause idx tnft (GoIndex.NodeKeyMapBase.add k v prior) r occ out.
+Proof.
+  intros Hfresh HC. destruct HC as
+    [ er e ci Hae Her Hv Hchild Hci
+    | er ts x tr opr opf tc Hae Her Hv Htr Hopr Hfind Hcv
+    | er ts x tr opr opf Hae Her Hv Htr Hopr Hfind Hcv
+    | er ts x tr opr oout Hae Her Hv Htr Hopr Hfind Hfail ].
+  - eapply OCLeaf; eassumption.
+  - assert (Hne : k <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr))
+      by (intro Heq; rewrite Heq, Hfind in Hfresh; discriminate).
+    eapply OCConvOk; try eassumption. rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact Hfind.
+  - assert (Hne : k <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr))
+      by (intro Heq; rewrite Heq, Hfind in Hfresh; discriminate).
+    eapply OCConvFail; try eassumption. rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact Hfind.
+  - assert (Hne : k <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr))
+      by (intro Heq; rewrite Heq, Hfind in Hfresh; discriminate).
+    eapply OCChildFail; try eassumption. rewrite GoIndex.nodekeymap_add_neq by exact Hne. exact Hfind.
+Qed.
+
+(* the CARRIED-CAUSE accumulator invariant: every visited expression occurrence has a stored outcome that is
+   DIRECTLY CAUSED off the retained phase ([OutcomeCause] against the FINAL map), NOT a source-spec witness.
+   This is what the [ExprOutcomeTable] carries (replacing the [outcome_convfail_ev]-based [outcome_matches] as the
+   causal invariant); the bridge to the source specification is a separate exactness theorem. *)
+Definition outcomes_caused {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : Prop :=
+  forall r occ e, In (r, occ) l -> GoIndex.view_expr occ = Some e ->
+    exists out, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m = Some out
+             /\ OutcomeCause idx tnft m r occ out.
+
 (* the resolved target of a conversion's minted target ref, read from the passed-in TABLE OBJECT (not recomputed):
    the table's stored fact for [conversion_target_ref_tot …] is [predeclared_type ts]. *)
 Lemma conv_target_table_type {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
