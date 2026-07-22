@@ -283,12 +283,16 @@ Print Assumptions GoCompile.prog_expr_facts_eq_spec.
    ([build_tnft_map]); the PROOF-CARRYING [ExprOutcomeTable] pairs the outcome map with its completeness proof so
    the query is TOTAL — [total_outcome_at] returns an [ExprOutcome], not an option, and MATCHES the occurrence
    ([total_outcome_at_matches]); the resolved-target query is the table's stored fact
-   ([type_name_fact_at_table_resolves]). *)
+   ([type_name_fact_at_table_resolves]); and a stored conversion FAILURE's cause is read DIRECTLY off the
+   retained phase — its refs are the occurrence's own retained refs, the target type is the sealed table's
+   stored fact, the operand's own outcome is a success whose status IS the reported one, and [convert_const]
+   genuinely rejects ([phase_convfail_cause]). *)
 Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
 Print Assumptions GoCompile.build_tnft_map.
 Print Assumptions GoCompile.total_outcome_at_matches.
+Print Assumptions GoCompile.phase_convfail_cause.
 (* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
    fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
 Print Assumptions GoCompile.phase_expr_facts_eq_spec.

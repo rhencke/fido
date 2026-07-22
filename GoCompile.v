@@ -2758,6 +2758,73 @@ Proof.
      exists x; cbn [conv_targets]; rewrite Ex; split; [reflexivity | split; [reflexivity | exact Ec]]).
 Qed.
 
+(** ═══ §7 THE DIRECT CONVERSION-FAILURE CAUSE ═══ a stored [EOConvFail] does NOT reduce to a re-run of the
+    source-spec [local_conv_failure]/[const_info]: its cause is read DIRECTLY off the retained phase.  For any
+    visited conversion occurrence whose TOTAL outcome is [EOConvFail], the reported refs ARE the occurrence's
+    OWN retained conversion target/operand refs; the reported target type IS the SEALED [TypeNameFactTable]'s
+    stored fact at that target ref (never a fresh resolver call); the operand's OWN total outcome is a SUCCESS
+    [EOOk opf] whose [ef_const_status] IS the reported [ci] (never a fresh [const_info] scan); and
+    [convert_const] genuinely REJECTS that status at that resolved target.  The whole causal chain is a query
+    of the ONE retained phase. *)
+Lemma phase_convfail_cause {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e
+    (er2 : GoIndex.ExprRef p) (tr2 : GoIndex.TypeNameRef p) (opr2 : GoIndex.ExprRef p) t ci :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  total_outcome_at ot er = EOConvFail er2 tr2 opr2 t ci ->
+     er2 = er
+  /\ conversion_target_ref (ci_idx input) er = Some tr2
+  /\ conversion_operand_ref (ci_idx input) er = Some opr2
+  /\ t = tnf_type (type_name_fact_at_table tnft tr2)
+  /\ (exists opf, total_outcome_at ot opr2 = EOOk opf /\ ci = ef_const_status opf)
+  /\ convert_const t ci = None.
+Proof.
+  intros Hin Hv Hae Her Hcf.
+  pose proof (total_outcome_at_matches ot r occ er e Hin Hv Hae Her) as Hm.
+  rewrite Hcf in Hm. cbn [outcome_matches] in Hm.
+  destruct Hm as [_ Hev]. unfold outcome_convfail_ev in Hev.
+  destruct Hev as [Ha2 [[e' [Hve' Hlc]] [Htr2 Hopr2]]].
+  (* er2 = er: both are [as_expr (ci_idx input) r] *)
+  rewrite Hae in Ha2. injection Ha2 as He2. subst er2.
+  (* e' = e (same view) *)
+  rewrite Hv in Hve'. injection Hve' as He'e. subst e'.
+  (* characterise the local failure and expose the source syntax [ts] *)
+  destruct (local_conv_failure_char e t ci Hlc) as [x0 [Hct [Hcix Hcv]]].
+  destruct e as [ b|n1|n2|s| df | dcx | ts x1 ]; cbn [conv_targets] in Hct; try discriminate Hct.
+  injection Hct as Ht Hx. subst t. subst x1.
+  (* target ref + [type_name_ref_syntax tr2 = Some ts] via [conversion_target_ref_conv] *)
+  destruct (conversion_target_ref_conv (ci_idx input) r occ er ts x0 Hin Hv Hae)
+    as [tr [Htrc [_ [_ Htsyn]]]].
+  rewrite Htr2 in Htrc. injection Htrc as Htreq. subst tr.
+  (* operand ref + operand-occurrence view via [conversion_operand_ref_conv] *)
+  destruct (conversion_operand_ref_conv (ci_idx input) r occ er ts x0 Hin Hv Hae)
+    as [opr [Hoprc [_ [_ Hoprv]]]].
+  rewrite Hopr2 in Hoprc. injection Hoprc as Hopreq. subst opr.
+  split; [ reflexivity | ].
+  split; [ exact Htr2 | ].
+  split; [ exact Hopr2 | ].
+  split.
+  { (* t = tnf_type of the SEALED table's stored fact at tr2 *)
+    rewrite (type_name_fact_at_table_resolves tnft tr2 ts Htsyn). reflexivity. }
+  split.
+  { (* the operand's OWN total outcome is EOOk opf with ef_const_status opf = ci *)
+    pose proof (total_outcome_at_matches ot (GoIndex.erase_ref opr2)
+                  (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr2)) opr2 x0
+                  (noderef_in_prog_visit p (GoIndex.erase_ref opr2)) Hoprv
+                  (as_expr_erase (ci_idx input) opr2) eq_refl) as Hmop.
+    destruct (total_outcome_at ot opr2) as [opf| ? ? ? ? ? | ] eqn:Hoo;
+      cbn [outcome_matches] in Hmop.
+    - exists opf. split; [ reflexivity | ].
+      unfold occ_expr_fact in Hmop. rewrite Hoprv, Hcix in Hmop.
+      injection Hmop as Hopf. rewrite <- Hopf. reflexivity.
+    - exfalso. destruct Hmop as [Hnone _]. unfold occ_expr_fact in Hnone.
+      rewrite Hoprv, Hcix in Hnone. discriminate Hnone.
+    - exfalso. destruct Hmop as [Hnone _]. unfold occ_expr_fact in Hnone.
+      rewrite Hoprv, Hcix in Hnone. discriminate Hnone. }
+  (* convert_const genuinely rejects at the resolved target *)
+  exact Hcv.
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
