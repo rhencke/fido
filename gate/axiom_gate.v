@@ -344,8 +344,9 @@ Print Assumptions GoCompile.conversion_operand_ref_conv.
    ([elaborate_ok_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
-(* §10.7 the fact-side seal: the ExprFactTable map sealed into a successful ElaborationFacts IS [ep_facts] of
-   the phase actually built. *)
+(* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the ExprFactTable OBJECT sealed into a successful
+   ElaborationFacts IS the retained [ep_eft] of the phase actually built (not a fresh table whose map merely
+   equals the projection). *)
 Print Assumptions GoCompile.elaborate_ok_seals_facts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)

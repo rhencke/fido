@@ -2617,6 +2617,24 @@ Arguments eft_map {p ip} _.
 Arguments eft_domain {p ip} _.
 Arguments eft_complete {p ip} _.
 
+(** §9 the proof-backed ExprFactTable OBJECT projected from the phase's [ExprOutcomeTable] — its map is
+    [phase_expr_facts] (the TOTAL success projection, definitionally), carrying the source-determined
+    domain + completeness against [prog_visit p].  ONE such object is retained in the [ExpressionPhase]
+    ([ep_eft]) and later stored into [ElaborationFacts] by OBJECT IDENTITY (§2.8), never rebuilt. *)
+Definition build_expr_fact_table {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) : ExprFactTable p (ci_ip input).
+Proof.
+  refine (mkExprFactTable (phase_expr_facts input tnft ot) _ _).
+  - intros k f Hf. rewrite (phase_expr_facts_eq_spec input tnft ot) in Hf.
+    exact (prog_expr_facts_domain p k f Hf).
+  - intros r occ Hin. rewrite (phase_expr_facts_eq_spec input tnft ot).
+    exact (prog_expr_facts_find p r occ Hin).
+Defined.
+Lemma build_expr_fact_table_map {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) :
+  eft_map (build_expr_fact_table input tnft ot) = phase_expr_facts input tnft ot.
+Proof. reflexivity. Qed.
+
 
 (* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [ProgramTyped] ---- *)
 
@@ -3444,15 +3462,18 @@ Qed.
     [ep_ot] object — NOT two extensional equalities to a global map. *)
 Record ExpressionPhase {p} (input : CompilationInput p) : Type := mkExpressionPhase {
   ep_tnft : TypeNameFactTable p ;
-  ep_ot   : ExprOutcomeTable input ep_tnft
+  ep_ot   : ExprOutcomeTable input ep_tnft ;
+  ep_eft  : ExprFactTable p (ci_ip input)       (* §9/§2.8 the RETAINED proof-backed fact object, sealed by identity *)
 }.
-Arguments mkExpressionPhase {p input} _ _.
-Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.
+Arguments mkExpressionPhase {p input} _ _ _.
+Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.  Arguments ep_eft {p input} _.
 
 Definition build_expression_phase {p} (input : CompilationInput p) : ExpressionPhase input :=
   let tnft := build_type_name_fact_table input in
-  mkExpressionPhase tnft (build_outcome_table input tnft).
+  let ot   := build_outcome_table input tnft in
+  mkExpressionPhase tnft ot (build_expr_fact_table input tnft ot).
 
+(* the phase's fact projection (= the retained [ep_eft] object's map for the built phase, definitionally). *)
 Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input)
   : GoIndex.NodeKeyMapBase.t ExprFact := phase_expr_facts input (ep_tnft ph) (ep_ot ph).
 Definition ep_diags {p} {input : CompilationInput p} (ph : ExpressionPhase input)
@@ -7570,24 +7591,6 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
-(* the SEALED [ExprFactTable] built from the ONE phase's [ep_facts] (= [prog_expr_facts p]), retaining the
-   source-determined domain + exactness proofs. *)
-Lemma ep_facts_domain {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
-  forall k f, GoIndex.NodeKeyMapBase.find k (ep_facts ph) = Some f ->
-    exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
-      /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
-Proof.
-  intros k f. unfold ep_facts. rewrite (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph)).
-  exact (prog_expr_facts_domain p k f).
-Qed.
-Lemma ep_facts_complete {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
-  forall (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p) ->
-    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (ep_facts ph) = occ_expr_fact occ.
-Proof.
-  intros r occ Hin. unfold ep_facts. rewrite (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph)).
-  exact (prog_expr_facts_find p r occ Hin).
-Qed.
-
 (* the phase-projected command-ordered expression + package diagnostics EQUAL the canonical
    [semantic_diagnostics] (the phase diags are [expr_diags], the bucket diags are [pkg_diags], both by identity). *)
 Lemma elaborate_phase_raw_eq (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
@@ -7625,7 +7628,6 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
   let idx     := ci_idx input in                   (* = [indexed_syntax ip]; every builder reads THIS retained index *)
   let phase   := build_expression_phase input in   (* §8 the ONE ExpressionPhase: the retained TypeNameFactTable + the proof-carrying OutcomeTable, from the SAME [input] *)
   let tnft    := ep_tnft phase in                  (* the SEALED type-name TABLE OBJECT — the SAME [ep_ot phase] consumed and the facts/diagnostics both project *)
-  let facts   := ep_facts phase in                 (* §9.1 the TOTAL fact projection of [ep_ot phase] (= [prog_expr_facts p]) *)
   let buckets := prog_package_refs_from_visit idx (ci_visit input) in  (* over the RETAINED [ci_visit] (= [prog_package_refs idx]) *)
   let rl      := root_layout p in
   let plan    := fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) rl in
@@ -7639,7 +7641,7 @@ Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : E
       let He' : elaboration_diagnostics p idx = nil :=
         eq_trans (eq_sym (elaborate_diags_eq_elaboration p ip)) He in
       ElaborationOK (mkElaborationFacts
-                  (mkExprFactTable facts (ep_facts_domain input phase) (ep_facts_complete input phase))
+                  (ep_eft phase)                (* §2.8 the RETAINED fact object, stored by IDENTITY — never rebuilt *)
                   tnft
                   buckets
                   (prog_package_refs_present idx)
@@ -7673,13 +7675,14 @@ Proof.
   - discriminate.
 Qed.
 
-(** §10.7 the SEALED ExprFactTable object: a successful ElaborationFacts stores the EXACT expression-fact map
-    PROJECTED from the phase actually built ([ep_facts] of the one [ExpressionPhase]) — quantified over the
-    CONSTRUCTED table object, the fact-side mirror of [elaborate_ok_seals_tnfacts]. *)
+(** §9/§2.8 the SEALED ExprFactTable OBJECT (OBJECT IDENTITY, not map equality): a successful ElaborationFacts
+    stores the EXACT [ep_eft] object retained in the phase actually built — the fact-side mirror of
+    [elaborate_ok_seals_tnfacts].  The phase RETAINS the proof-backed table and [elaborate] stores THAT object;
+    it is not a fresh [mkExprFactTable] whose map merely equals the projection. *)
 Theorem elaborate_ok_seals_facts (p : GoProgram) facts :
   pe_result (elaborate p) = ElaborationOK facts ->
-  eft_map (ef_expr_facts facts)
-  = ep_facts (build_expression_phase (build_compilation_input p (GoIndex.index_program p))).
+  ef_expr_facts facts
+  = ep_eft (build_expression_phase (build_compilation_input p (GoIndex.index_program p))).
 Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
