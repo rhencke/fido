@@ -86,13 +86,18 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — the first
-candidate (`89b8e54`) was BLOCKING at human Implementation Review; the authorized repair
-(`C4-retained-facts-and-diagnostics-repair-1`) is applied: production consumes ONE retained expression-outcome
-authority reading the once-built type-name fact map + operand fact (`convert_const` once), the SAME map sealed
-into `ElaborationFacts`; the invalid-conversion diagnostic retains the target `TypeNameRef` + source spelling;
-full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation Review (the current authority
-chain is in `.review/NEXT_STEPS.md`). Live status: `.review/SOURCE_FOREST_STATUS.md`.
+Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — three
+successive candidates were BLOCKING at human Implementation Review; the authorized
+`C4-retained-table-bottom-up-repair-3` is applied: the production expression path is the PROOF-CARRYING BOTTOM-UP
+ACCUMULATOR `prog_outcomes_c` — a `fold_right` over the retained source-order visit that CONSUMES the once-built
+`prog_tnft` TABLE OBJECT, queries the table at each conversion's retained target ref (TOTAL, no fallback), reads
+its operand's ALREADY-COMPUTED outcome from the processed suffix (TOTAL `from_some`, no fallback), and calls
+`convert_const` ONCE per conversion; the FACTS and the DIAGNOSTICS both project that SAME accumulator
+(`facts_and_diags_share_outcomes`), the `EOConvFail` outcome carries the exact conversion / target / operand refs
+(the operand ref a field of `DRInvalidConversion`, projected without re-mint), and the SAME `prog_tnft` object is
+sealed into `ElaborationFacts` by object identity; full pinned-Go accept/reject alias matrix.  Frozen for Rob's
+human Implementation Review (the current authority chain is in `.review/NEXT_STEPS.md`). Live status:
+`.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization; C5 and later remain FORBIDDEN.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)

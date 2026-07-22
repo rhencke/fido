@@ -14,8 +14,14 @@
 - **Current repair baseline:** `1b38b68c104bc987744ececc36e771d8977bdbf2`.
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_3.md`.
 - **Human repair authorization token:** `C4-retained-table-bottom-up-repair-3`.
-- **State:** C4 Implementation Review BLOCKING; retained-table bottom-up repair active.
-- **Automatic Codex review:** DISABLED (do NOT request or run a Codex review; the directive is the accepted
-  human Contract Review; on completion freeze with `review(final): C4 — freeze retained-table bottom-up
-  candidate` and stop for Rob's human Implementation Review).
+- **State:** C4 Implementation Review — the third BLOCKING result is REPAIRED and the candidate is FROZEN
+  (`review(final): C4 — freeze retained-table bottom-up candidate`). A new human C4 Implementation Review is
+  PENDING. The production expression path is now the proof-carrying bottom-up accumulator `prog_outcomes_c`
+  (a `fold_right` over the retained visit CONSUMING the `prog_tnft` table object; one `convert_const` per
+  conversion; operand read from the processed suffix; facts + diagnostics project the SAME accumulator;
+  `prog_tnft` sealed by object identity). The old `typed_outcome`/`tnfact_at` recursive/recomputing root is
+  DELETED. GREEN: `make prove` (axiom-free) + `make e2e` + `make check` (byte-identical) + `make regenerate`
+  (no drift).
+- **Automatic Codex review:** DISABLED (do NOT request or run a Codex review; the directive was the accepted
+  human Contract Review). Autonomous work is STOPPED pending Rob's human Implementation Review.
 - **C5 is FORBIDDEN** until explicit Rob authorization.

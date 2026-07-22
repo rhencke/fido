@@ -35,7 +35,24 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-Active under this contract.  Goal: replace the three family-specific conversion constructors
+**🔒 CURRENT: retained-table bottom-up repair 3 COMPLETE — candidate FROZEN
+(`review(final): C4 — freeze retained-table bottom-up candidate`).** The production expression path is now the
+proof-carrying BOTTOM-UP ACCUMULATOR `prog_outcomes_c`: a `fold_right` over the retained source-order visit
+(`build_outcomes`) that CONSUMES the once-built `prog_tnft` TABLE OBJECT, queries the table at each conversion's
+retained target ref (TOTAL `type_name_fact_at_table`, no fallback), reads its operand's ALREADY-COMPUTED outcome
+from the processed suffix (TOTAL `from_some` of the operand-closure proof, no fallback), and calls `convert_const`
+ONCE per conversion. The FACTS and the DIAGNOSTICS both project that SAME accumulator
+(`facts_and_diags_share_outcomes`); `EOConvFail` carries the exact conversion/target/operand refs and the operand
+ref is a field of `DRInvalidConversion` (projected without re-mint); `prog_tnft` is sealed into `ElaborationFacts`
+by OBJECT IDENTITY (`elaborate_ok_seals_tnfacts`). The rejected `typed_outcome`/`typed_outcome_e`/`tnfact_at`/
+`add_typed_outcome`/`prog_conv_outcome_consumes` recursive/recomputing root, the fake `leaf_ci` case, and the old
+facts/diagnostics bridges are DELETED. `two_uint8_distinct_target_refs` queries the sealed `prog_tnft` table.
+GREEN: `make prove` (axiom-free, whole-theory audit) + `make e2e` + `make check` (byte-identical) + `make
+regenerate` (no drift). **STOP: pending Rob's HUMAN Implementation Review; automatic Codex DISABLED; C5 FORBIDDEN.**
+Baselines: original `8c9212a`, first blocked `89b8e54`, second blocked `1c4a7de`, third blocked `806ce87`,
+repair-3 clean baseline `1b38b68`.
+
+Goal (unchanged): replace the three family-specific conversion constructors
 (`EIntConvert`/`EFloatConvert`/`EComplexConvert`) with one source-shaped `EConvert TypeSyntax GoExpr`; resolve
 the source type name in `GoCompile` through the current predeclared context; retain occurrence-keyed type-name
 facts; render from the source spelling; and delete the old path in the same checkpoint.  Sixteen live target
@@ -43,8 +60,8 @@ names (the fourteen existing numeric names plus the `byte`→`uint8` and `rune`�
 semantic types.  No C5 work (no `uintptr`, no rune literals/constants).
 
 - **`806ce87` (repair-2 candidate) was a THIRD C4 Implementation Review BLOCKING; retained-table bottom-up repair 3
-  `C4-retained-table-bottom-up-repair-3` (authority `.review/C4_IMPLEMENTATION_REPAIR_3.md`) is ACTIVE from clean
-  main `1b38b68`.** Repair 2 moved typed refs into `typed_outcome` and fixed the hidden use-resolution rescan, but
+  `C4-retained-table-bottom-up-repair-3` (authority `.review/C4_IMPLEMENTATION_REPAIR_3.md`) was applied from clean
+  main `1b38b68` and is now COMPLETE (frozen, see above).** Repair 2 moved typed refs into `typed_outcome` and fixed the hidden use-resolution rescan, but
   it did NOT implement the required production model. Two decisive faults: (a) production does not CONSUME the
   `TypeNameFactTable` object built from the retained visit — `typed_outcome_e` calls `tnfact_at p tr` →
   `prog_type_name_facts p`, re-folding `prog_visit p` for every conversion (equivalent recomputation sold as
