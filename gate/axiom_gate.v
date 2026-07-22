@@ -292,7 +292,13 @@ Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
 Print Assumptions GoCompile.build_tnft_map.
 Print Assumptions GoCompile.total_outcome_at_matches.
+(* §6 the outcome table CARRIES the DIRECT cause: the total query projects the carried [OutcomeCause]
+   ([total_outcome_at_caused]); the three DIRECT cause theorems (conversion success / local rejection / blocked
+   child) are PROJECTIONS of that carried relation — NOT reconstructed from [local_conv_failure]/[const_info]. *)
+Print Assumptions GoCompile.total_outcome_at_caused.
 Print Assumptions GoCompile.phase_convfail_cause.
+Print Assumptions GoCompile.phase_convok_cause.
+Print Assumptions GoCompile.phase_childfail_cause.
 (* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
    fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
 Print Assumptions GoCompile.phase_expr_facts_eq_spec.

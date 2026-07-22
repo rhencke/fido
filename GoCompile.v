@@ -3135,6 +3135,81 @@ Proof.
   exact Hcv.
 Qed.
 
+(* §7/§2.7 the DIRECT CHILD-FAILURE cause: the only [OutcomeCause] producing [EOChildFail] is [OCChildFail], so
+   a blocked conversion read its operand's ALREADY-STORED outcome and it is a genuine FAILURE. *)
+Lemma OutcomeCause_EOChildFail_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ :
+  OutcomeCause idx tnft prior r occ EOChildFail ->
+  exists (er : GoIndex.ExprRef p) ts x (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) oout,
+    GoIndex.as_expr idx r = Some er
+    /\ GoIndex.view_expr occ = Some (EConvert ts x)
+    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some oout
+    /\ outcome_is_fail oout.
+Proof. intro HC. inversion HC; subst. do 6 eexists. repeat split; eassumption. Qed.
+
+Lemma phase_childfail_cause {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  total_outcome_at ot er = EOChildFail ->
+  exists (opr : GoIndex.ExprRef p) oout,
+    conversion_operand_ref (ci_idx input) er = Some opr
+    /\ total_outcome_at ot opr = oout /\ outcome_is_fail oout.
+Proof.
+  intros Hin Hv Hae Her Hcf.
+  pose proof (total_outcome_at_caused ot r occ er e Hin Hv Hae Her) as HC. rewrite Hcf in HC.
+  destruct (OutcomeCause_EOChildFail_inv (ci_idx input) tnft (eot_map ot) r occ HC)
+    as [er0 [ts [x [tr [opr [oout [Ha [_ [_ [Hopr [Hfind Hfail]]]]]]]]]]].
+  assert (Her0 : er0 = er) by (rewrite Hae in Ha; injection Ha as Hh; exact (eq_sym Hh)). subst er0.
+  exists opr, oout. split; [ exact Hopr | ]. split; [ | exact Hfail ].
+  unfold total_outcome_at. rewrite (from_some_eq _ (eot_at_not_none ot opr) oout Hfind). reflexivity.
+Qed.
+
+(* §7/§2.7 the DIRECT CONVERSION-SUCCESS cause: a conversion occurrence (view = [EConvert]) whose outcome is
+   [EOOk f] is [OCConvOk] (never [OCLeaf] — a conversion has a child), so [f] was built from the table query +
+   the operand's EOOk fact + ONE succeeding [convert_const]. *)
+Lemma OutcomeCause_EOOk_conv_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ f ts x :
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  OutcomeCause idx tnft prior r occ (EOOk f) ->
+  exists (er : GoIndex.ExprRef p) (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf tc,
+    GoIndex.as_expr idx r = Some er
+    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some (EOOk opf)
+    /\ convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)
+             (use_resolved_of_ci (expr_ref_role er) (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)).
+Proof.
+  intros Hview HC. inversion HC; subst.
+  - exfalso.
+    match goal with Hvl : GoIndex.view_expr occ = Some ?e0, Hch : expr_child ?e0 = None |- _ =>
+      rewrite Hview in Hvl; injection Hvl as He0; subst e0; discriminate Hch end.
+  - do 5 eexists. repeat split; try eassumption; try reflexivity.
+Qed.
+
+Lemma phase_convok_cause {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) ts x f :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  total_outcome_at ot er = EOOk f ->
+  exists (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf tc,
+    conversion_target_ref (ci_idx input) er = Some tr
+    /\ conversion_operand_ref (ci_idx input) er = Some opr
+    /\ total_outcome_at ot opr = EOOk opf
+    /\ convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)
+             (use_resolved_of_ci (expr_ref_role er) (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)).
+Proof.
+  intros Hin Hv Hae Her Hcf.
+  pose proof (total_outcome_at_caused ot r occ er (EConvert ts x) Hin Hv Hae Her) as HC. rewrite Hcf in HC.
+  destruct (OutcomeCause_EOOk_conv_inv (ci_idx input) tnft (eot_map ot) r occ f ts x Hv HC)
+    as [er0 [tr [opr [opf [tc [Ha [Htr [Hopr [Hfind [Hcv Hfeq]]]]]]]]]].
+  assert (Her0 : er0 = er) by (rewrite Hae in Ha; injection Ha as Hh; exact (eq_sym Hh)). subst er0.
+  exists tr, opr, opf, tc. split; [ exact Htr | ]. split; [ exact Hopr | ]. split; [ | split; [ exact Hcv | exact Hfeq ] ].
+  unfold total_outcome_at. rewrite (from_some_eq _ (eot_at_not_none ot opr) (EOOk opf) Hfind). reflexivity.
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
