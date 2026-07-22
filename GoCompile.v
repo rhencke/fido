@@ -7671,35 +7671,76 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
+(* the SEALED [ExprFactTable] built from the ONE phase's [ep_facts] (= [prog_expr_facts p]), retaining the
+   source-determined domain + exactness proofs. *)
+Lemma ep_facts_domain {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
+  forall k f, GoIndex.NodeKeyMapBase.find k (ep_facts ph) = Some f ->
+    exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
+      /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
+Proof.
+  intros k f. unfold ep_facts. rewrite (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph)).
+  exact (prog_expr_facts_domain p k f).
+Qed.
+Lemma ep_facts_complete {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
+  forall (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p) ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (ep_facts ph) = occ_expr_fact occ.
+Proof.
+  intros r occ Hin. unfold ep_facts. rewrite (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph)).
+  exact (prog_expr_facts_find p r occ Hin).
+Qed.
+
+(* the phase-projected command-ordered expression + package diagnostics EQUAL the canonical
+   [semantic_diagnostics] (the phase diags are [expr_diags], the bucket diags are [pkg_diags], both by identity). *)
+Lemma elaborate_phase_raw_eq (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  let input := build_compilation_input p ip in
+  let ph := build_expression_phase input in
+  let idx := ci_idx input in
+  let buckets := prog_package_refs_from_visit idx (ci_visit input) in
+  bucket_flatten (node_keyed (ep_diags ph
+      ++ bucket_diags_elems buckets (bucket_key_present idx) (PM.elements buckets) (elements_all_mapsto buckets)))
+    ++ pkg_primary (ep_diags ph
+      ++ bucket_diags_elems buckets (bucket_key_present idx) (PM.elements buckets) (elements_all_mapsto buckets))
+  = semantic_diagnostics p idx.
+Proof.
+  cbn zeta. rewrite (ep_diags_eq_expr_diags (build_compilation_input p ip) (build_expression_phase (build_compilation_input p ip))).
+  reflexivity.
+Qed.
+
+(* the phase-projected command-ordered diagnostics EQUAL the canonical [elaboration_diagnostics] — the bridge
+   the decision theorems use (so they need not re-derive the transport). *)
+Lemma elaborate_diags_eq_elaboration (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  let input := build_compilation_input p ip in
+  let ph := build_expression_phase input in
+  let idx := ci_idx input in
+  let buckets := prog_package_refs_from_visit idx (ci_visit input) in
+  command_diagnostics_of p (fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) (root_layout p))
+    (bucket_flatten (node_keyed (ep_diags ph
+        ++ bucket_diags_elems buckets (bucket_key_present idx) (PM.elements buckets) (elements_all_mapsto buckets)))
+     ++ pkg_primary (ep_diags ph
+        ++ bucket_diags_elems buckets (bucket_key_present idx) (PM.elements buckets) (elements_all_mapsto buckets)))
+  = elaboration_diagnostics p idx.
+Proof. cbn zeta. rewrite (elaborate_phase_raw_eq p ip). exact (command_plan_diags_eq p ip). Qed.
+
 Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ElaborationResult p ip :=
-  let idx     := GoIndex.indexed_syntax ip in
-  let blocks  := prog_blocks p in                (* the per-file visit blocks, retained ONCE *)
-  let visit   := concat blocks in                (* = prog_visit p — the flattened elaboration stream *)
-  let tnft    := prog_tnft in                    (* the ONE retained type-name-fact TABLE OBJECT (§3.3), built ONCE from [prog_type_name_facts p]; SEALED into [ef_type_name_facts] AND CONSUMED by the outcome accumulator through [prog_outcomes_c] — the SAME object (object identity, [elaborate_ok_seals_tnfacts]) *)
-  let outcomes := prog_outcomes_c idx in         (* = the bottom-up accumulator over the retained visit, CONSUMING [tnft]; the ONE expression-outcome authority read by BOTH the facts projection and the diagnostics (one [convert_const] per conversion, operand read from the processed suffix) *)
-  let buckets := prog_package_refs_from_visit idx visit in  (* the shared builder over the RETAINED visit (= prog_package_refs idx; NO second prog_visit/prog_blocks/visit_file) *)
-  let facts   := fold_right (add_occ_fact_om outcomes) (GoIndex.NodeKeyMapBase.empty ExprFact) visit in
-  (* the ONE retained fresh ROOT LAYOUT and BUILD PLAN, derived from the retained buckets +
-     the file layout, computed ONCE and threaded through the disposition test, the failure diagnostics, AND the
-     stored facts — never a second [fresh_build_plan p] recompute. *)
+  let input   := build_compilation_input p ip in   (* §3 the ONE retained input, built ONCE (the sole [prog_blocks p]) *)
+  let idx     := ci_idx input in                   (* = [indexed_syntax ip]; every builder reads THIS retained index *)
+  let phase   := build_expression_phase input in   (* §8 the ONE ExpressionPhase: the retained TypeNameFactTable + the proof-carrying OutcomeTable, from the SAME [input] *)
+  let tnft    := ep_tnft phase in                  (* the SEALED type-name TABLE OBJECT — the SAME [ep_ot phase] consumed and the facts/diagnostics both project *)
+  let facts   := ep_facts phase in                 (* §9.1 the TOTAL fact projection of [ep_ot phase] (= [prog_expr_facts p]) *)
+  let buckets := prog_package_refs_from_visit idx (ci_visit input) in  (* over the RETAINED [ci_visit] (= [prog_package_refs idx]) *)
   let rl      := root_layout p in
   let plan    := fresh_build_plan_of (prog_module p) (map fst (PM.elements buckets)) rl in
-  let raw     := flat_map (fun roc => occ_expr_diags_sm outcomes idx (snd roc) (fst roc))
-                          (flat_map (annotate_encl idx []) blocks)   (* = annotate_program idx *)
+  let raw     := ep_diags phase                    (* §9.2 the TOTAL diagnostic projection of [ep_ot phase] *)
                    ++ bucket_diags_elems buckets (bucket_key_present idx)
                         (PM.elements buckets) (elements_all_mapsto buckets) in
-  (* canonical order: node-primary diagnostics bucketed by NodeKey + flattened, then package-primary.
-     COMMAND order: if the fresh-build output preflight (on the RETAINED [plan]) FAILS the report is
-     EXACTLY the build-output-directory diagnostic (precedence), else the semantic diagnostics.  This [diags] is
-     [command_plan_diags_eq]-equal to [elaboration_diagnostics p idx]. *)
   let diags   := command_diagnostics_of p plan
                    (bucket_flatten (node_keyed raw) ++ pkg_primary raw) in
   match list_is_nil diags with
   | left He  =>
       let He' : elaboration_diagnostics p idx = nil :=
-        eq_trans (eq_sym (command_plan_diags_eq p ip)) He in
+        eq_trans (eq_sym (elaborate_diags_eq_elaboration p ip)) He in
       ElaborationOK (mkElaborationFacts
-                  (mkExprFactTable facts (outcome_expr_facts_domain_c idx) (outcome_expr_facts_find_c idx))
+                  (mkExprFactTable facts (ep_facts_domain input phase) (ep_facts_complete input phase))
                   tnft
                   buckets
                   (prog_package_refs_present idx)
@@ -7718,13 +7759,14 @@ Definition elaborate (p : GoProgram) : ProgramElaboration p :=
   let ip := GoIndex.index_program p in
   mkProgramElaboration ip (elaborate_indexed p ip).
 
-(** ★§3.8 THE SEALED TABLE IS THE CONSUMED TABLE (OBJECT IDENTITY): the type-name-fact table sealed into a
-    successful [ElaborationFacts] IS [prog_tnft] — the SAME table object [prog_outcomes_c] (the outcome
-    accumulator) consumes and the facts + diagnostics both read.  Not extensional map equality: the [ef_type_name_facts]
-    field is definitionally [prog_tnft].  [elaborate_indexed] binds it ONCE and uses it for both. *)
+(** ★§5/§3.8 THE SEALED TABLE IS THE CONSTRUCTED-AND-CONSUMED TABLE (OBJECT IDENTITY): the type-name-fact table
+    sealed into a successful [ElaborationFacts] IS [ep_tnft] of the ExpressionPhase actually built in the retained
+    phase — the SAME object the [ExprOutcomeTable] ([ep_ot phase]) was built consuming and the total facts +
+    diagnostics both project.  This quantifies over the table object CONSTRUCTED in the phase, not a global helper. *)
 Theorem elaborate_ok_seals_tnfacts (p : GoProgram) facts :
   pe_result (elaborate p) = ElaborationOK facts ->
-  ef_type_name_facts facts = prog_tnft.
+  ef_type_name_facts facts
+  = ep_tnft (build_expression_phase (build_compilation_input p (GoIndex.index_program p))).
 Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
@@ -7745,12 +7787,12 @@ Proof.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx;
       [ exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p)))
-                 (eq_trans (eq_sym (command_plan_diags_eq p (GoIndex.index_program p))) He))
+                 (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (GoIndex.index_program p))) He))
       | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
     + exfalso. apply Hne.
-      exact (eq_trans (command_plan_diags_eq p (GoIndex.index_program p))
+      exact (eq_trans (elaborate_diags_eq_elaboration p (GoIndex.index_program p))
                (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hx)).
 Qed.
 
@@ -7763,10 +7805,10 @@ Proof.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
     + exfalso. apply Hx.
       exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p)))
-               (eq_trans (eq_sym (command_plan_diags_eq p (GoIndex.index_program p))) He)).
+               (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (GoIndex.index_program p))) He)).
   - split; intro Hx.
     + intro Hv. apply Hne.
-      exact (eq_trans (command_plan_diags_eq p (GoIndex.index_program p))
+      exact (eq_trans (elaborate_diags_eq_elaboration p (GoIndex.index_program p))
                (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (GoIndex.indexed_syntax (GoIndex.index_program p))) Hv)).
     + eexists; eexists; reflexivity.
 Qed.
@@ -7779,7 +7821,7 @@ Proof.
   unfold elaborate, elaborate_indexed; cbn [pe_result]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hn] end.
   - intro H; discriminate H.
-  - intro H. inversion H. exact (command_plan_diags_eq p (GoIndex.index_program p)).
+  - intro H. inversion H. exact (elaborate_diags_eq_elaboration p (GoIndex.index_program p)).
 Qed.
 
 (** A failed elaboration result is incompatible with validity (used to discharge the impossible branch when
