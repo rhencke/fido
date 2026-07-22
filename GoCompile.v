@@ -698,20 +698,6 @@ Inductive ExprOutcome (p : GoProgram) : Type :=
   | EOChildFail : ExprOutcome p.                           (* blocked: the operand's outcome was a real non-success *)
 Arguments EOOk {p} _.  Arguments EOConvFail {p} _ _ _ _ _.  Arguments EOChildFail {p}.
 
-(** the untyped constant of a LEAF expression (no conversion child): [leaf_const_ok] pins it to [const_info]. *)
-Definition leaf_ci (e : GoExpr) : ConstInfo :=
-  match e with
-  | EBool b     => CIUntyped (CBool b)
-  | EInt n      => CIUntyped (CInt (Z.of_N n))
-  | ENeg n      => CIUntyped (CInt (- Z.of_N n))
-  | EString s   => CIUntyped (CString s)
-  | EFloat d    => CIUntyped (CFloat (decimal_value d))
-  | EComplex dc => CIUntyped (CComplex (decimal_complex_value dc))
-  | EConvert _ _ => CIUntyped (CBool false)   (* unreachable on a leaf ([expr_child e = None]) *)
-  end.
-Lemma leaf_const_ok : forall e, expr_child e = None -> const_info e = Some (leaf_ci e).
-Proof. intros [| | | | | | ts x] H; try reflexivity; cbn in H; discriminate H. Qed.
-
 (** the per-file expression-fact map: fold the visit stream, keying each occurrence's fact by its NodeKey.
     Non-expression / const_info-failed occurrences contribute nothing.  Because [visit_file] keys are DISTINCT
     (NoDup), the fold never overwrites, and the stored fact at each ref's key is EXACTLY that occurrence's fact. *)
@@ -898,16 +884,15 @@ Qed.
    [outcome_facts_eq_spec]. *)
 
 
-(* the ONE expression-outcome map ([prog_outcomes] / [prog_outcomes_find]) is built below as ONE fold over the
-   delivered visit stream, keying each occurrence's [typed_outcome] (the structural operand-view recursion) by
-   its NodeKey; every production expression fact AND every conversion diagnostic PROJECTS this single authority,
-   never a second [const_info]/[convert_const] pass. *)
+(* the ONE expression-outcome map ([prog_outcomes_c]) is the bottom-up accumulator (built below) folding the
+   delivered visit stream and CONSUMING the [prog_tnft] table object; every production expression fact AND every
+   conversion diagnostic PROJECTS this single authority, never a second [const_info]/[convert_const] pass. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its TYPE-NAME occurrence at [Pos.succ me] and its
    operand occurrence at [Pos.succ (Pos.succ me)] (the two-child conversion layout: target type name, then
    operand subtree).  This adjacency is what lets [conversion_target_ref] / [conversion_operand_ref] MINT the
-   conversion's target [TypeNameRef] and operand [ExprRef] THROUGH the retained index; [typed_outcome] descends
-   into the operand ExprRef by structural recursion — no [const_info] rescan of the operand subtree. ---- *)
+   conversion's target [TypeNameRef] and operand [ExprRef] THROUGH the retained index; the bottom-up accumulator
+   then reads the operand's ALREADY-COMPUTED outcome from the processed suffix — no [const_info] rescan. ---- *)
 
 Lemma occs_expr_head_ex : forall e parent role start,
   exists occ, In (start, occ) (GoIndex.occs_expr parent role start e) /\ GoIndex.view_expr occ = Some e.
@@ -1434,9 +1419,9 @@ Qed.
 (* the conversion-child KEYS over the DELIVERED visit stream (no separate source recursion).  [operand_key r] is
    the canonical operand key of a conversion at [r] (same file, [Pos.succ (Pos.succ local)] — the operand is TWO
    past the conversion, since [Pos.succ local] is the type-name occurrence).  [conversion_operand_ref] mints the
-   operand [ExprRef] at this key through the retained index; [typed_outcome] then descends into that ref by
-   structural recursion.  [prog_visit_operand] proves the operand really is a visited occurrence at [operand_key]
-   whose view is the conversion's operand (the soundness of the minted ref). *)
+   operand [ExprRef] at this key through the retained index; the bottom-up accumulator reads that ref's
+   ALREADY-COMPUTED outcome from the processed suffix.  [prog_visit_operand] proves the operand really is a
+   visited occurrence at [operand_key] whose view is the conversion's operand (the soundness of the minted ref). *)
 
 Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
   GoIndex.mkKey (GoIndex.nk_file (GoIndex.Snap.node_ref_key r)) (Pos.succ (Pos.succ (GoIndex.Snap.node_ref_local r))).
@@ -1846,34 +1831,6 @@ Arguments tnft_map {p} _.
 Arguments tnft_domain {p} _.
 Arguments tnft_complete {p} _.
 
-(** §3.3 the TOTAL raw-map type-name query the production outcome path consumes: every [TypeNameRef]'s node is
-    visited ([noderef_in_prog_visit]) and a KTypeName occurrence's source name resolves by construction, so its
-    fact is stored in the ONE once-built [prog_type_name_facts p] map — the query PROJECTS it with NO [None]
-    fallback (the impossible branch is [False_rect] of the [not_none] proof, never a semantic default).  The
-    successful [ElaborationFacts] seals the SAME map into [ef_type_name_facts] ([elaborate_ok_seals_tnfacts]), so
-    the map the outcome path reads IS the sealed map. *)
-Lemma prog_tnfacts_ref_not_none (p : GoProgram) (tr : GoIndex.TypeNameRef p) :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (prog_type_name_facts p) <> None.
-Proof.
-  destruct (GoIndex.kind_view_typename _ (GoIndex.noderefof_kind tr)) as [ts Hv].
-  rewrite (prog_type_name_facts_find p (GoIndex.erase_ref tr) _ (noderef_in_prog_visit p (GoIndex.erase_ref tr))).
-  rewrite (occ_type_name_fact_some _ ts Hv). discriminate.
-Qed.
-Definition tnfact_at (p : GoProgram) (tr : GoIndex.TypeNameRef p) : TypeNameFact :=
-  from_some (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (prog_type_name_facts p))
-            (prog_tnfacts_ref_not_none p tr).
-Lemma tnfact_at_find (p : GoProgram) (tr : GoIndex.TypeNameRef p) f :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr)) (prog_type_name_facts p) = Some f ->
-  tnfact_at p tr = f.
-Proof. intro Hf. unfold tnfact_at. apply from_some_eq. exact Hf. Qed.
-Lemma tnfact_at_resolves (p : GoProgram) (tr : GoIndex.TypeNameRef p) ts :
-  GoIndex.type_name_ref_syntax tr = Some ts -> tnfact_at p tr = mkTypeNameFact (predeclared_type ts).
-Proof.
-  intro Hts. unfold GoIndex.type_name_ref_syntax in Hts. apply tnfact_at_find.
-  rewrite (prog_type_name_facts_find p (GoIndex.erase_ref tr) _ (noderef_in_prog_visit p (GoIndex.erase_ref tr))).
-  exact (occ_type_name_fact_some _ ts Hts).
-Qed.
-
 (** §3.3 the TABLE-LEVEL total query the production outcome path CONSUMES: given the retained
     [TypeNameFactTable] OBJECT, project its stored entry for a [TypeNameRef].  Totality comes from the table's own
     [tnft_complete] proof (every KTypeName occurrence resolves), NOT from re-resolving; it never calls
@@ -2129,18 +2086,19 @@ Proof.
   rewrite (type_name_fact_at_table_resolves tnft tr0 ts Hsyn). reflexivity.
 Qed.
 
-(* a leaf occurrence's stored outcome matches (EOOk fact = exact [occ_expr_fact]). *)
+(* a leaf occurrence's stored outcome matches (EOOk fact = exact [occ_expr_fact]).  The stored [ci] is the
+   occurrence's own [const_info] (no fake fallback: the stored value carries no proof term). *)
 Lemma leaf_stored_matches {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p)
-    (er : GoIndex.ExprRef p) occ e
+    (er : GoIndex.ExprRef p) occ e (ci : ConstInfo)
     (Hv : GoIndex.view_expr occ = Some e)
     (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
-    (Hleaf : expr_child e = None) :
-  outcome_matches idx r occ (leaf_outcome er (leaf_ci e)).
+    (Hci : const_info e = Some ci) :
+  outcome_matches idx r occ (leaf_outcome er ci).
 Proof.
   cbn [outcome_matches leaf_outcome].
-  rewrite (occ_expr_fact_status occ e (leaf_ci e) Hv (leaf_const_ok e Hleaf)).
+  rewrite (occ_expr_fact_status occ e ci Hv Hci).
   do 2 f_equal. rewrite <- Hrole. symmetry.
-  exact (use_resolved_of_ci_eq occ e (leaf_ci e) Hv (leaf_const_ok e Hleaf)).
+  exact (use_resolved_of_ci_eq occ e ci Hv Hci).
 Qed.
 
 (* a conversion occurrence's stored outcome ([conv_outcome] of the table query + the operand's outcome) matches:
@@ -2288,7 +2246,7 @@ Proof.
       1-6: eexists;
            eapply outcomes_ok_add;
            [ exact Hok_rest | exact Hnd | exact Hv
-           | apply (leaf_stored_matches idx r er occ _ Hv Hrole); reflexivity ].
+           | eapply (leaf_stored_matches idx r er occ); [exact Hv | exact Hrole | reflexivity] ].
       (* the conversion occurrence: mint target + operand refs, read the operand's outcome, one [convert_const] *)
       assert (Hview : GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
                         = Some (EConvert ts x)) by (rewrite Her, <- Hocc; exact Hv).
@@ -2380,18 +2338,9 @@ Lemma prog_outcomes_c_proj {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.S
            /\ outcome_proj_fact out occ.
 Proof. exact (prog_outcomes_bu_proj idx prog_tnft r occ e). Qed.
 
-(** ---- §3.4/§3.6 the ONE production expression outcome, DEFINED BY STRUCTURAL RECURSION ON THE OPERAND VIEW.
-    For an expression reference [er], dispatch on its OWN source view ([expr_ref_view] — every ExprRef views an
-    expression, total).  A leaf stores its untyped fact.  A conversion [EConvert ts x] mints its target
-    [TypeNameRef] + operand [ExprRef] THROUGH the retained index, reads the resolved target from the once-built
-    [prog_type_name_facts] map ([tnfact_at], TOTAL — no [None] fallback), obtains the operand's already-computed
-    outcome by RECURSING on the retained operand ExprRef (the operand view [x] is a STRICT SUBTERM — structural,
-    no fuel, no map lookup, no [const_info] on the live path), and calls [convert_const] ONCE on the operand's
-    constant status.  It stores the success fact, the LOCAL invalid-conversion evidence CARRYING the exact
-    conversion/target/operand refs + resolved target + operand status, or blocked-by-child.  Use-context
-    resolution comes from the just-computed [ConstInfo] (§3.5, [use_resolved_of_ci]). ---- *)
-
-(* every [ExprRef] views an expression: the total view + its defining equation (the convoy witness). *)
+(* every [ExprRef] views an expression: the total view + its defining equation (the convoy witness).  Used only
+   by the DIAGNOSTICS bridge to name a live conversion's own syntax; the production outcome is the bottom-up
+   [prog_outcomes_c] accumulator above, not a per-ref recursion. *)
 Definition expr_ref_view_opt {p} (er : GoIndex.ExprRef p) : option GoExpr :=
   GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)).
 Lemma expr_ref_view_not_none {p} (er : GoIndex.ExprRef p) : expr_ref_view_opt er <> None.
@@ -2407,271 +2356,6 @@ Proof.
   destruct (GoIndex.kind_view_expr _ (GoIndex.noderefof_kind er)) as [e Hv].
   assert (E : expr_ref_view_opt er = Some e) by exact Hv.
   unfold expr_ref_view. rewrite (from_some_eq _ (expr_ref_view_not_none er) e E). exact Hv.
-Qed.
-
-(* the use-context role an expression reference carries (its source occurrence's role). *)
-Definition typed_outcome_role {p} (er : GoIndex.ExprRef p) : GoIndex.NodeRole :=
-  GoIndex.occurrence_role (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)).
-
-Fixpoint typed_outcome_e {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) (e : GoExpr)
-    (Hv : GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e)
-    {struct e} : ExprOutcome p :=
-  match e as e0
-    return (GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some e0 -> ExprOutcome p)
-  with
-  | EConvert ts x => fun Hv0 =>
-      let tr  := conversion_target_ref_tot idx er ts x Hv0 in
-      let opr := conversion_operand_ref_tot idx er ts x Hv0 in
-      let t   := tnf_type (tnfact_at p tr) in
-      match typed_outcome_e idx opr x (conversion_operand_ref_tot_view idx er ts x Hv0) with
-      | EOOk opf =>
-          match convert_const t (ef_const_status opf) with
-          | Some tc => EOOk (mkExprFact (CITyped t tc) (use_resolved_of_ci (typed_outcome_role er) (CITyped t tc)))
-          | None    => EOConvFail er tr opr t (ef_const_status opf)
-          end
-      | _ => EOChildFail
-      end
-  | e0 => fun _ => EOOk (mkExprFact (leaf_ci e0) (use_resolved_of_ci (typed_outcome_role er) (leaf_ci e0)))
-  end Hv.
-
-Definition typed_outcome {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) : ExprOutcome p :=
-  typed_outcome_e idx er (expr_ref_view er) (expr_ref_view_eq er).
-
-(* the conversion-node unfolding (the convoy reduces on the concrete constructor; refs/target INLINED so the
-   [typed_outcome_target_type] rewrite fires without a [zeta] expansion). *)
-Lemma typed_outcome_e_conv {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) ts x Hv :
-  typed_outcome_e idx er (EConvert ts x) Hv
-  = match typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-            (conversion_operand_ref_tot_view idx er ts x Hv) with
-    | EOOk opf =>
-        match convert_const (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv))) (ef_const_status opf) with
-        | Some tc => EOOk (mkExprFact (CITyped (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv))) tc)
-                             (use_resolved_of_ci (typed_outcome_role er)
-                                (CITyped (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv))) tc)))
-        | None    => EOConvFail er (conversion_target_ref_tot idx er ts x Hv) (conversion_operand_ref_tot idx er ts x Hv)
-                       (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv))) (ef_const_status opf)
-        end
-    | _ => EOChildFail
-    end.
-Proof. reflexivity. Qed.
-
-(* the resolved target type read on the conversion path IS the predeclared resolution of the source name. *)
-Lemma typed_outcome_target_type {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) ts x Hv :
-  tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv)) = predeclared_type ts.
-Proof.
-  destruct (conversion_target_ref_of_view idx er ts x Hv) as [tr0 [Hc [_ [_ Hsyn]]]].
-  rewrite (conversion_target_ref_tot_eq idx er ts x Hv tr0 Hc).
-  rewrite (tnfact_at_resolves p tr0 ts Hsyn). reflexivity.
-Qed.
-
-(* THE OUTCOME PROJECTS THE CONSTANT STATUS: a successful outcome's stored status is the operand-view's exact
-   [const_info]; any non-success means [const_info] fails — the ONE bridge tying the live typed recursion to the
-   [const_info] specification (used only in proofs). *)
-Lemma typed_outcome_e_const_ok {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  forall (e : GoExpr) (er : GoIndex.ExprRef p) Hv f,
-    typed_outcome_e idx er e Hv = EOOk f -> const_info e = Some (ef_const_status f).
-Proof.
-  intros e. induction e as [ b | n | n0 | s | d | dc | ts x IHx ]; intros er Hv f H.
-  1-6: cbn [typed_outcome_e] in H; injection H as <-; cbn [ef_const_status]; apply leaf_const_ok; reflexivity.
-  rewrite typed_outcome_e_conv in H. rewrite (typed_outcome_target_type idx er ts x Hv) in H.
-  destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-              (conversion_operand_ref_tot_view idx er ts x Hv)) as [opf| | ] eqn:Hoo;
-    [ | discriminate H | discriminate H ].
-  pose proof (IHx (conversion_operand_ref_tot idx er ts x Hv)
-                (conversion_operand_ref_tot_view idx er ts x Hv) opf Hoo) as Hcx.
-  destruct (convert_const (predeclared_type ts) (ef_const_status opf)) as [tc|] eqn:Ecv;
-    [ | discriminate H ].
-  injection H as <-. cbn [ef_const_status]. rewrite const_info_conv_eq, Hcx, Ecv. reflexivity.
-Qed.
-
-(* a conversion whose operand succeeds and whose own [convert_const] step succeeds HAS a successful outcome
-   (the exact success value is irrelevant here — only that it IS [EOOk], to contradict a "never [EOOk]" premise). *)
-Lemma typed_outcome_e_conv_success {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) ts x Hv opf tc :
-  typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-      (conversion_operand_ref_tot_view idx er ts x Hv) = EOOk opf ->
-  convert_const (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv))) (ef_const_status opf) = Some tc ->
-  exists f, typed_outcome_e idx er (EConvert ts x) Hv = EOOk f.
-Proof.
-  intros Ho Hc. rewrite typed_outcome_e_conv, Ho. cbv iota. rewrite Hc. eexists; reflexivity.
-Qed.
-
-Lemma typed_outcome_e_const_none {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  forall (e : GoExpr) (er : GoIndex.ExprRef p) Hv,
-    (forall f, typed_outcome_e idx er e Hv <> EOOk f) -> const_info e = None.
-Proof.
-  intros e. induction e as [ b | n | n0 | s | d | dc | ts x IHx ]; intros er Hv H.
-  1-6: exfalso; cbn [typed_outcome_e] in H; exact (H _ eq_refl).
-  destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-              (conversion_operand_ref_tot_view idx er ts x Hv)) as [opf| | ] eqn:Hoo.
-  - pose proof (typed_outcome_e_const_ok idx x (conversion_operand_ref_tot idx er ts x Hv)
-                  (conversion_operand_ref_tot_view idx er ts x Hv) opf Hoo) as Hcx.
-    destruct (convert_const (tnf_type (tnfact_at p (conversion_target_ref_tot idx er ts x Hv)))
-                (ef_const_status opf)) as [tc|] eqn:Ecv.
-    + exfalso. destruct (typed_outcome_e_conv_success idx er ts x Hv opf tc Hoo Ecv) as [f Hf].
-      exact (H f Hf).
-    + rewrite const_info_conv_eq, Hcx.
-      rewrite (typed_outcome_target_type idx er ts x Hv) in Ecv. rewrite Ecv. reflexivity.
-  - assert (Hne : forall f, typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-                    (conversion_operand_ref_tot_view idx er ts x Hv) <> EOOk f)
-      by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo).
-    rewrite const_info_conv_eq,
-            (IHx (conversion_operand_ref_tot idx er ts x Hv)
-               (conversion_operand_ref_tot_view idx er ts x Hv) Hne). reflexivity.
-  - assert (Hne : forall f, typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-                    (conversion_operand_ref_tot_view idx er ts x Hv) <> EOOk f)
-      by (intros f Hf; rewrite Hf in Hoo; discriminate Hoo).
-    rewrite const_info_conv_eq,
-            (IHx (conversion_operand_ref_tot idx er ts x Hv)
-               (conversion_operand_ref_tot_view idx er ts x Hv) Hne). reflexivity.
-Qed.
-
-(* a successful outcome's use-resolution is [use_resolved_of_ci] of its own role + stored status (direct — the
-   fact is built that way at every node). *)
-Lemma typed_outcome_e_use_res {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) e Hv f :
-  typed_outcome_e idx er e Hv = EOOk f ->
-  ef_use_resolved f = use_resolved_of_ci (typed_outcome_role er) (ef_const_status f).
-Proof.
-  destruct e as [ b | n | n0 | s | d | dc | ts x ];
-    try (cbn [typed_outcome_e]; intro H; injection H as <-; reflexivity).
-  rewrite typed_outcome_e_conv.
-  destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-              (conversion_operand_ref_tot_view idx er ts x Hv)) as [opf| | ];
-    [ destruct (convert_const _ (ef_const_status opf)) as [tc|];
-      [ intro H; injection H as <-; reflexivity | intro H; discriminate H ]
-    | intro H; discriminate H | intro H; discriminate H ].
-Qed.
-
-Lemma typed_outcome_ok_const {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) f :
-  typed_outcome idx er = EOOk f -> const_info (expr_ref_view er) = Some (ef_const_status f).
-Proof.
-  unfold typed_outcome. intro H.
-  exact (typed_outcome_e_const_ok idx (expr_ref_view er) er (expr_ref_view_eq er) f H).
-Qed.
-Lemma typed_outcome_notok_const {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) :
-  (forall f, typed_outcome idx er <> EOOk f) -> const_info (expr_ref_view er) = None.
-Proof.
-  unfold typed_outcome. intro H.
-  exact (typed_outcome_e_const_none idx (expr_ref_view er) er (expr_ref_view_eq er) H).
-Qed.
-
-(* THE OUTCOME PROJECTS THE DECLARATIVE FACT: a success stores exactly the occurrence's [occ_expr_fact]; a
-   non-success has no fact — so the projection to [prog_expr_facts] is faithful. *)
-Lemma typed_outcome_expr_fact_ok {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) f :
-  typed_outcome idx er = EOOk f ->
-  occ_expr_fact (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some f.
-Proof.
-  intro H.
-  pose proof (typed_outcome_ok_const idx er f H) as Hci.
-  pose proof (typed_outcome_e_use_res idx er (expr_ref_view er) (expr_ref_view_eq er) f H) as Hu.
-  unfold occ_expr_fact. rewrite (expr_ref_view_eq er), Hci. f_equal.
-  pose proof (use_resolved_of_ci_eq (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
-                (expr_ref_view er) (ef_const_status f) (expr_ref_view_eq er) Hci) as Heq.
-  unfold typed_outcome_role in Hu.
-  destruct f as [cs ur]; cbn [ef_const_status ef_use_resolved] in *. subst ur. rewrite Heq. reflexivity.
-Qed.
-Lemma typed_outcome_expr_fact_none {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) :
-  (forall f, typed_outcome idx er <> EOOk f) ->
-  occ_expr_fact (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = None.
-Proof.
-  intro H. pose proof (typed_outcome_notok_const idx er H) as Hc.
-  unfold occ_expr_fact. rewrite (expr_ref_view_eq er), Hc. reflexivity.
-Qed.
-
-(* THE INVALID-CONVERSION OUTCOME CARRIES EXACT EVIDENCE: an [EOConvFail] means the primary is the conversion's
-   own ExprRef, its stored target ref is the ref minted through the index, the reported target is the source
-   name's resolution, the reported status is the operand's exact [const_info], and [convert_const] genuinely
-   rejects it — so the diagnostic PROJECTS the stored refs (no re-mint, no second [convert_const]). *)
-Lemma typed_outcome_convfail {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) er2 tr2 opr2 t ci :
-  typed_outcome idx er = EOConvFail er2 tr2 opr2 t ci ->
-  er2 = er /\ convert_const t ci = None
-  /\ (exists ts x, expr_ref_view er = EConvert ts x
-        /\ t = predeclared_type ts /\ const_info x = Some ci
-        /\ conversion_target_ref idx er = Some tr2).
-Proof.
-  unfold typed_outcome. generalize (expr_ref_view_eq er).
-  destruct (expr_ref_view er) as [ b | n | n0 | s | d | dc | ts x ] eqn:Ev; intro Hv;
-    try (cbn [typed_outcome_e]; intro H; discriminate H).
-  rewrite typed_outcome_e_conv.
-  rewrite (typed_outcome_target_type idx er ts x Hv).
-  destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-              (conversion_operand_ref_tot_view idx er ts x Hv)) as [opf| | ] eqn:Hoo;
-    [ | intro H; discriminate H | intro H; discriminate H ].
-  pose proof (typed_outcome_e_const_ok idx x (conversion_operand_ref_tot idx er ts x Hv)
-                (conversion_operand_ref_tot_view idx er ts x Hv) opf Hoo) as Hopc.
-  destruct (convert_const (predeclared_type ts) (ef_const_status opf)) as [tc|] eqn:Ecv;
-    [ intro H; discriminate H | ].
-  intro H. injection H as He2 Htr2 Hopr2 Ht Hci. subst er2 t ci.
-  destruct (conversion_target_ref_of_view idx er ts x Hv) as [tr0 [Hc [_ [_ _]]]].
-  split; [ reflexivity | split; [ exact Ecv | exists ts, x; split; [ reflexivity | ] ] ].
-  split; [ reflexivity | split; [ exact Hopc | ] ].
-  rewrite Hc. f_equal.
-  rewrite (conversion_target_ref_tot_eq idx er ts x Hv tr0 Hc) in Htr2. exact Htr2.
-Qed.
-
-(* THE BLOCKED-BY-CHILD OUTCOME: an [EOChildFail] means the occurrence is a conversion whose OPERAND failed
-   ([const_info] of the operand view is [None]) — so its own [const_info] is [None] too (no local failure). *)
-Lemma typed_outcome_childfail {p} (idx : GoIndex.Snap.SyntaxIndex p) (er : GoIndex.ExprRef p) :
-  typed_outcome idx er = EOChildFail ->
-  exists ts x, expr_ref_view er = EConvert ts x /\ const_info x = None.
-Proof.
-  unfold typed_outcome. generalize (expr_ref_view_eq er).
-  destruct (expr_ref_view er) as [ b | n | n0 | s | d | dc | ts x ] eqn:Ev; intro Hv;
-    try (cbn [typed_outcome_e]; intro H; discriminate H).
-  rewrite typed_outcome_e_conv.
-  rewrite (typed_outcome_target_type idx er ts x Hv).
-  destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x Hv) x
-              (conversion_operand_ref_tot_view idx er ts x Hv)) as [opf| | ] eqn:Hoo.
-  - destruct (convert_const (predeclared_type ts) (ef_const_status opf)) as [tc|];
-      intro H; discriminate H.
-  - intro H. exists ts, x. split; [ reflexivity |].
-    apply (typed_outcome_e_const_none idx x (conversion_operand_ref_tot idx er ts x Hv)
-             (conversion_operand_ref_tot_view idx er ts x Hv)).
-    intros f Hf; rewrite Hf in Hoo; discriminate Hoo.
-  - intro H. exists ts, x. split; [ reflexivity |].
-    apply (typed_outcome_e_const_none idx x (conversion_operand_ref_tot idx er ts x Hv)
-             (conversion_operand_ref_tot_view idx er ts x Hv)).
-    intros f Hf; rewrite Hf in Hoo; discriminate Hoo.
-Qed.
-
-(* ---- the ONE outcome authority as a map: fold the retained visit, keying each occurrence's typed outcome by
-   its NodeKey.  A conversion's outcome is [typed_outcome] (the structural recursion above) — the live path reads
-   its typed refs + the once-built [prog_type_name_facts], never raw NodeKey arithmetic or a second visit. ---- *)
-Definition add_typed_outcome {p} (idx : GoIndex.Snap.SyntaxIndex p)
-    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
-    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : GoIndex.NodeKeyMapBase.t (ExprOutcome p) :=
-  match GoIndex.as_expr idx (fst ro) with
-  | Some er => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (fst ro)) (typed_outcome idx er) m
-  | None    => m
-  end.
-
-Definition prog_outcomes {p} (idx : GoIndex.Snap.SyntaxIndex p) : GoIndex.NodeKeyMapBase.t (ExprOutcome p) :=
-  fold_right (add_typed_outcome idx) (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)) (prog_visit p).
-
-Lemma typed_outcome_fold_find {p} (idx : GoIndex.Snap.SyntaxIndex p)
-    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) :
-  NoDup (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) l) ->
-  forall r occ er, In (r, occ) l -> GoIndex.as_expr idx r = Some er ->
-    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
-      (fold_right (add_typed_outcome idx) (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)) l)
-    = Some (typed_outcome idx er).
-Proof.
-  induction l as [|[r0 occ0] rest IH]; intros Hnd r occ er Hin Hae; [destruct Hin|].
-  cbn [map fst] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd'].
-  cbn [fold_right]. destruct Hin as [Heq|Hin].
-  - injection Heq as Hr Ho; subst r0 occ0.
-    unfold add_typed_outcome; cbn [fst snd]. rewrite Hae, GoIndex.nodekeymap_add_eq. reflexivity.
-  - unfold add_typed_outcome; cbn [fst snd]. destruct (GoIndex.as_expr idx r0) as [er0|] eqn:Ea0.
-    + rewrite GoIndex.nodekeymap_add_neq; [ exact (IH Hnd' r occ er Hin Hae) |].
-      intro Hk. apply Hni. apply in_map_iff. exists (r, occ). split; [cbn [fst]; congruence | exact Hin].
-    + exact (IH Hnd' r occ er Hin Hae).
-Qed.
-
-Lemma prog_outcomes_find {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ er :
-  In (r, occ) (prog_visit p) -> GoIndex.as_expr idx r = Some er ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_outcomes idx) = Some (typed_outcome idx er).
-Proof.
-  intros Hin Hae. unfold prog_outcomes.
-  exact (typed_outcome_fold_find idx (prog_visit p) (prog_visit_key_nodup p) r occ er Hin Hae).
 Qed.
 
 (* ---- the production expression-fact map = a PROJECTION of the ONE outcome authority: fold the visit stream,
@@ -2705,41 +2389,9 @@ Proof.
   apply H; left; reflexivity.
 Qed.
 
-(* on the visit stream, the projection step reading the ONE [prog_outcomes] authority agrees with the
-   [add_occ_fact] specification: the stored [EOOk] fact of an occurrence is EXACTLY its [occ_expr_fact]
-   ([typed_outcome] projects to [occ_expr_fact]); a non-success occurrence contributes no fact. *)
-Lemma add_occ_fact_om_eq (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p)
-    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) (m : GoIndex.NodeKeyMapBase.t ExprFact) :
-  In ro (prog_visit p) -> add_occ_fact_om (prog_outcomes idx) ro m = add_occ_fact ro m.
-Proof.
-  intro Hin. destruct ro as [r occ]. unfold add_occ_fact_om, add_occ_fact. cbn [snd fst].
-  destruct (GoIndex.view_expr occ) as [e|] eqn:Hv;
-    [| rewrite (occ_expr_fact_none_nonexpr occ Hv); reflexivity].
-  destruct (prog_visit_as_expr p idx r occ e Hin Hv) as [er [Hae Her]].
-  rewrite (prog_outcomes_find idx r occ er Hin Hae).
-  pose proof (prog_visit_occ_is_source p r occ Hin) as Hocc.
-  destruct (typed_outcome idx er) as [f|er2 tr2 opr2 t ci| ] eqn:Hto.
-  - pose proof (typed_outcome_expr_fact_ok idx er f Hto) as Hbr.
-    rewrite Her, <- Hocc in Hbr. rewrite Hbr. reflexivity.
-  - pose proof (typed_outcome_expr_fact_none idx er) as Hbr.
-    rewrite Her, <- Hocc in Hbr. rewrite Hbr by (intros ff Hff; rewrite Hff in Hto; discriminate Hto). reflexivity.
-  - pose proof (typed_outcome_expr_fact_none idx er) as Hbr.
-    rewrite Her, <- Hocc in Hbr. rewrite Hbr by (intros ff Hff; rewrite Hff in Hto; discriminate Hto). reflexivity.
-Qed.
-
 Lemma prog_expr_facts_eq_spec (p : GoProgram) :
   prog_expr_facts p = fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
 Proof. reflexivity. Qed.
-
-(** the outcome PROJECTION equals the source-determined specification: folding [add_occ_fact_om] over the ONE
-    [prog_outcomes] authority yields exactly [prog_expr_facts p].  [elaborate_indexed] uses THIS to expose the
-    projected map with the source-determined domain/exactness proofs. *)
-Lemma outcome_facts_eq_spec (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
-  fold_right (add_occ_fact_om (prog_outcomes idx)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p)
-  = prog_expr_facts p.
-Proof.
-  unfold prog_expr_facts. apply fold_ext_in. intros ro m Hin. apply add_occ_fact_om_eq; exact Hin.
-Qed.
 
 (** PROGRAM-LEVEL FACT EXACTNESS: the fact at a program-visited ref's key is EXACTLY that occurrence's fact
     (the single-pass map agrees with the [occ_expr_fact] specification). *)
@@ -2777,24 +2429,6 @@ Proof.
   destruct (fold_add_occ_fact_domain (prog_visit p) k f Hf) as [[r occ] [Hin [Hk Hfe]]].
   exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
 Qed.
-
-(** the OUTCOME-PROJECTED fact map (what [elaborate_indexed] builds by folding [add_occ_fact_om] over the ONE
-    [prog_outcomes] authority) inherits the source-determined domain + exactness of [prog_expr_facts] via
-    [outcome_facts_eq_spec] — so the sealed [ExprFactTable] is the projection, with source-determined proofs. *)
-Lemma outcome_expr_facts_find (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p)
-    (r : GoIndex.Snap.NodeRef p) occ :
-  In (r, occ) (prog_visit p) ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r)
-    (fold_right (add_occ_fact_om (prog_outcomes idx)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p))
-  = occ_expr_fact occ.
-Proof. intro Hin. rewrite (outcome_facts_eq_spec p idx). exact (prog_expr_facts_find p r occ Hin). Qed.
-
-Lemma outcome_expr_facts_domain (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) k f :
-  GoIndex.NodeKeyMapBase.find k
-    (fold_right (add_occ_fact_om (prog_outcomes idx)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p)) = Some f ->
-  exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
-    /\ GoIndex.Snap.node_ref_key r = k /\ occ_expr_fact occ = Some f.
-Proof. rewrite (outcome_facts_eq_spec p idx). exact (prog_expr_facts_domain p k f). Qed.
 
 (* ---- the SAME facts bridge over the CANONICAL bottom-up outcome map [prog_outcomes_c ip] (the retained-table
    accumulator).  The projection step reading the stored outcome agrees with [add_occ_fact], so the fold projects
@@ -3632,6 +3266,18 @@ Proof.
   unfold expr_diags. apply flat_map_ext_in. intros roc Hin. apply occ_expr_diags_sm_eq_c.
   rewrite <- (annotate_program_fst idx). exact (in_map fst _ _ Hin).
 Qed.
+
+(** ★§3.8 ONE OUTCOME TABLE FOR BOTH PROJECTIONS: the production expression FACTS and the conversion
+    DIAGNOSTICS are BOTH projections of the SAME bottom-up outcome map [prog_outcomes_c idx] (the accumulator
+    over the [prog_tnft] table object) — the facts fold and [expr_diags] name the IDENTICAL object (object
+    identity, visible in both left-hand sides), each proved equal to its declarative specification.  This is what
+    [elaborate_indexed] relies on: it binds [outcomes := prog_outcomes_c idx] ONCE and feeds it to both. *)
+Theorem facts_and_diags_share_outcomes {p} (idx : GoIndex.Snap.SyntaxIndex p) :
+  fold_right (add_occ_fact_om (prog_outcomes_c idx)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p)
+    = prog_expr_facts p
+  /\ expr_diags idx
+    = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
+Proof. split; [ exact (outcome_facts_eq_spec_c idx) | exact (expr_diags_eq_spec idx) ]. Qed.
 
 (** THE NESTED SCAR: every [outer_context] ref of an invalid-conversion diagnostic in the
     whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary — a real
@@ -7569,66 +7215,6 @@ Theorem predeclared_all_sixteen :
   /\ predeclared_type (GoAST.tsyn GoNames.TNrune)       = TInteger IInt32.
 Proof. repeat split; reflexivity. Qed.
 
-(** ★§5.1 PRODUCTION FACT CONSUMPTION ON THE TYPED-REF PATH: for a LIVE conversion occurrence, (1) the ONE
-    outcome authority [prog_outcomes] holds its [typed_outcome] at the conversion's key; and (2) that outcome is
-    computed by reading its target type through the RETAINED target [TypeNameRef] ([conversion_target_ref] +
-    [tnfact_at] = [predeclared_type] of the source name) and its operand's status through the RETAINED operand
-    [ExprRef] ([conversion_operand_ref]), combined by ONE [GoTypes.convert_const] — yielding the GoTypes success
-    ([CITyped (predeclared_type ts) tc]) or the EXACT invalid-conversion evidence CARRYING the conversion/target/
-    operand refs ([EOConvFail er tr opr (predeclared_type ts) (operand status)]).  There is no raw NodeKey
-    arithmetic and no second [convert_const]; the operand status is exactly the operand view's [const_info]. *)
-Theorem prog_conv_outcome_consumes {p} (idx : GoIndex.Snap.SyntaxIndex p)
-    (r : GoIndex.Snap.NodeRef p) occ er ts x :
-  In (r, occ) (prog_visit p) -> GoIndex.as_expr idx r = Some er -> GoIndex.view_expr occ = Some (EConvert ts x) ->
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_outcomes idx) = Some (typed_outcome idx er)
-  /\ exists opr tr,
-       conversion_operand_ref idx er = Some opr /\ conversion_target_ref idx er = Some tr
-       /\ tnf_type (tnfact_at p tr) = predeclared_type ts
-       /\ typed_outcome idx er =
-            match const_info x with
-            | Some ci_op =>
-                match convert_const (predeclared_type ts) ci_op with
-                | Some tc => EOOk (mkExprFact (CITyped (predeclared_type ts) tc)
-                                     (use_resolved_of_ci (typed_outcome_role er) (CITyped (predeclared_type ts) tc)))
-                | None    => EOConvFail er tr opr (predeclared_type ts) ci_op
-                end
-            | None => EOChildFail
-            end.
-Proof.
-  intros Hin Hae Hv.
-  assert (Her : GoIndex.erase_ref er = r) by exact (GoIndex.erase_as_kind idx r GoIndex.KExpression er Hae).
-  assert (Hocc : occ = GoIndex.Snap.source_occurrence_of_ref r) by exact (prog_visit_occ_is_source p r occ Hin).
-  assert (Hview : GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) = Some (EConvert ts x))
-    by (rewrite Her, <- Hocc; exact Hv).
-  assert (Hev : expr_ref_view er = EConvert ts x).
-  { pose proof (expr_ref_view_eq er) as HE. rewrite Hview in HE. injection HE as HE. symmetry; exact HE. }
-  split; [ exact (prog_outcomes_find idx r occ er Hin Hae) |].
-  destruct (conversion_target_ref_of_view idx er ts x Hview) as [tr [Htr [_ [_ Hsyn]]]].
-  destruct (conversion_operand_ref_of_view idx er ts x Hview) as [opr [Hopr [_ [_ _]]]].
-  exists opr, tr. split; [ exact Hopr | split; [ exact Htr | split ]].
-  - rewrite (tnfact_at_resolves p tr ts Hsyn). reflexivity.
-  - unfold typed_outcome. generalize (expr_ref_view_eq er). rewrite Hev. intro P.
-    rewrite typed_outcome_e_conv. rewrite (typed_outcome_target_type idx er ts x P).
-    destruct (typed_outcome_e idx (conversion_operand_ref_tot idx er ts x P) x
-                (conversion_operand_ref_tot_view idx er ts x P)) as [opf| | ] eqn:Hsc.
-    + rewrite (typed_outcome_e_const_ok idx x (conversion_operand_ref_tot idx er ts x P)
-                 (conversion_operand_ref_tot_view idx er ts x P) opf Hsc).
-      cbv iota.
-      rewrite (conversion_operand_ref_tot_eq idx er ts x P opr Hopr),
-              (conversion_target_ref_tot_eq idx er ts x P tr Htr).
-      destruct (convert_const (predeclared_type ts) (ef_const_status opf)) as [tc|]; reflexivity.
-    + assert (Hne : forall f, typed_outcome_e idx (conversion_operand_ref_tot idx er ts x P) x
-                      (conversion_operand_ref_tot_view idx er ts x P) <> EOOk f)
-        by (intros f Hf; rewrite Hf in Hsc; discriminate Hsc).
-      rewrite (typed_outcome_e_const_none idx x (conversion_operand_ref_tot idx er ts x P)
-                 (conversion_operand_ref_tot_view idx er ts x P) Hne). cbv iota. reflexivity.
-    + assert (Hne : forall f, typed_outcome_e idx (conversion_operand_ref_tot idx er ts x P) x
-                      (conversion_operand_ref_tot_view idx er ts x P) <> EOOk f)
-        by (intros f Hf; rewrite Hf in Hsc; discriminate Hsc).
-      rewrite (typed_outcome_e_const_none idx x (conversion_operand_ref_tot idx er ts x P)
-                 (conversion_operand_ref_tot_view idx er ts x P) Hne). cbv iota. reflexivity.
-Qed.
-
 (** ★§5.3 REPEATED EQUAL NAMES AT DISTINCT OCCURRENCES: two conversions to the SAME source name ([uint8] here)
     at DISTINCT occurrences (distinct keys) obtain, THROUGH the retained index, TWO distinct target
     [TypeNameRef]s (distinct NodeKeys — occurrence identity, not name identity), yet their recovered source
@@ -8929,7 +8515,11 @@ Theorem two_uint8_distinct_target_refs :
     /\ conversion_target_ref (GoIndex.indexed_syntax (GoIndex.index_program two_uint8_program)) er2 = Some tr2
     /\ GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr1) <> GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr2)
     /\ GoIndex.type_name_ref_syntax tr1 = GoIndex.type_name_ref_syntax tr2
-    /\ tnfact_at two_uint8_program tr1 = tnfact_at two_uint8_program tr2.
+    (* the two facts are EQUAL when queried through the SEALED [prog_tnft] TABLE OBJECT — the SAME object
+       [elaborate] seals into [ef_type_name_facts] ([elaborate_ok_seals_tnfacts]) and [prog_outcomes_c] consumes —
+       NOT the raw recomputing query. *)
+    /\ type_name_fact_at_table (@prog_tnft two_uint8_program) tr1
+       = type_name_fact_at_table (@prog_tnft two_uint8_program) tr2.
 Proof.
   destruct (GoIndex.source_occurrence_at two_uint8_src 5) as [occ1|] eqn:Eo1; [| vm_compute in Eo1; discriminate Eo1].
   destruct (GoIndex.source_occurrence_at two_uint8_src 8) as [occ2|] eqn:Eo2; [| vm_compute in Eo2; discriminate Eo2].
@@ -8941,8 +8531,8 @@ Proof.
   split; [ exact Hc1 | split; [ exact Hc2 | split; [ | split ] ] ].
   - rewrite Hk1, Hk2. intro Hbad. apply (f_equal GoIndex.nk_local) in Hbad. vm_compute in Hbad. discriminate Hbad.
   - rewrite Hs1, Hs2. reflexivity.
-  - rewrite (tnfact_at_resolves two_uint8_program tr1 _ Hs1),
-            (tnfact_at_resolves two_uint8_program tr2 _ Hs2). reflexivity.
+  - rewrite (type_name_fact_at_table_resolves (@prog_tnft two_uint8_program) tr1 _ Hs1),
+            (type_name_fact_at_table_resolves (@prog_tnft two_uint8_program) tr2 _ Hs2). reflexivity.
 Qed.
 
 (** SINGLE-FAILURE SCARS: each concrete rejected program yields EXACTLY ONE diagnostic with
