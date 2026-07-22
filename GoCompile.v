@@ -3539,17 +3539,41 @@ Proof.
   rewrite <- (annotate_program_fst (ci_idx input)). exact (in_map fst _ _ Hin).
 Qed.
 
-(** ★§3.8 ONE OUTCOME TABLE FOR BOTH PROJECTIONS: the production expression FACTS and the conversion
-    DIAGNOSTICS are BOTH projections of the SAME bottom-up outcome map [prog_outcomes_c idx] (the accumulator
-    over the [prog_tnft] table object) — the facts fold and [expr_diags] name the IDENTICAL object (object
-    identity, visible in both left-hand sides), each proved equal to its declarative specification.  This is what
-    [elaborate_indexed] relies on: it binds [outcomes := prog_outcomes_c idx] ONCE and feeds it to both. *)
-Theorem facts_and_diags_share_outcomes {p} (idx : GoIndex.Snap.SyntaxIndex p) :
-  fold_right (add_occ_fact_om (prog_outcomes_c idx)) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p)
-    = prog_expr_facts p
-  /\ expr_diags idx
-    = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
-Proof. split; [ exact (outcome_facts_eq_spec_c idx) | exact (expr_diags_eq_spec idx) ]. Qed.
+(** ═══ §8 THE ONE EXPRESSION PHASE ═══ a transient object bundling the retained [TypeNameFactTable] and the
+    proof-carrying [ExprOutcomeTable] (built from the SAME [CompilationInput]).  [elaborate] builds ONE of these;
+    its table is queried, its outcomes are queried TOTALLY, its FACTS and its DIAGNOSTICS both project the SAME
+    [ep_ot] object — NOT two extensional equalities to a global map. *)
+Record ExpressionPhase {p} (input : CompilationInput p) : Type := mkExpressionPhase {
+  ep_tnft : TypeNameFactTable p ;
+  ep_ot   : ExprOutcomeTable input ep_tnft
+}.
+Arguments mkExpressionPhase {p input} _ _.
+Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.
+
+Definition build_expression_phase {p} (input : CompilationInput p) : ExpressionPhase input :=
+  let tnft := build_type_name_fact_table input in
+  mkExpressionPhase tnft (build_outcome_table input tnft).
+
+Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input)
+  : GoIndex.NodeKeyMapBase.t ExprFact := phase_expr_facts input (ep_tnft ph) (ep_ot ph).
+Definition ep_diags {p} {input : CompilationInput p} (ph : ExpressionPhase input)
+  : list (DiagnosticReason p) := phase_expr_diags input (ep_tnft ph) (ep_ot ph).
+
+(** ★§8/§10.6 THE ONE PHASE DRIVES BOTH PROJECTIONS: the sealed FACTS and the DIAGNOSTICS are BOTH projections
+    of the SAME retained [ep_ot ph] outcome table inside ONE [ExpressionPhase] — each proved equal to its
+    declarative specification, but SOURCED from the one object (not a conjunction over a global raw map). *)
+Theorem facts_and_diags_share_phase {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
+  ep_facts ph = prog_expr_facts p
+  /\ ep_diags ph = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
+Proof.
+  split; [ exact (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph))
+         | exact (phase_expr_diags_eq_spec input (ep_tnft ph) (ep_ot ph)) ].
+Qed.
+
+(* the phase diagnostics EQUAL the spec [expr_diags] (for the decision infrastructure). *)
+Lemma ep_diags_eq_expr_diags {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
+  ep_diags ph = expr_diags (ci_idx input).
+Proof. rewrite (proj2 (facts_and_diags_share_phase input ph)), (expr_diags_eq_spec (ci_idx input)). reflexivity. Qed.
 
 (** THE NESTED SCAR: every [outer_context] ref of an invalid-conversion diagnostic in the
     whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary — a real

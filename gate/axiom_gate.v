@@ -338,7 +338,7 @@ Print Assumptions GoCompile.conversion_target_ref_conv.
    into a successful ElaborationFacts IS [prog_tnft] — the SAME object [prog_outcomes_c] consumes (definitional
    identity, not extensional map equality; no rebuild after the decision). *)
 Print Assumptions GoCompile.occ_expr_diags_sm_eq_c.
-Print Assumptions GoCompile.facts_and_diags_share_outcomes.
+Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
