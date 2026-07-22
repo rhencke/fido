@@ -348,6 +348,9 @@ Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
    ElaborationFacts IS the retained [ep_eft] of the phase actually built (not a fresh table whose map merely
    equals the projection). *)
 Print Assumptions GoCompile.elaborate_ok_seals_facts.
+(* §5/§2.9 the sealed type-name table has RETAINED-INPUT PROVENANCE: it IS build_type_name_fact_table of the
+   phase's own CompilationInput (no ExpressionPhase can carry a foreign table — [ep_tnft_prov]). *)
+Print Assumptions GoCompile.elaborate_ok_seals_tnfacts_from_input.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
    property AND its CONCRETE non-hypothetical instance on a real compiled two-[uint8] program (the two occurrences

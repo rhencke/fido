@@ -3463,15 +3463,20 @@ Qed.
 Record ExpressionPhase {p} (input : CompilationInput p) : Type := mkExpressionPhase {
   ep_tnft : TypeNameFactTable p ;
   ep_ot   : ExprOutcomeTable input ep_tnft ;
-  ep_eft  : ExprFactTable p (ci_ip input)       (* §9/§2.8 the RETAINED proof-backed fact object, sealed by identity *)
+  ep_eft  : ExprFactTable p (ci_ip input) ;      (* §9/§2.8 the RETAINED proof-backed fact object, sealed by identity *)
+  ep_tnft_prov : ep_tnft = build_type_name_fact_table input
+    (* §5/§2.9 RETAINED-INPUT PROVENANCE: the phase's type-name table is not an arbitrary [TypeNameFactTable p] —
+       it IS the exact object built from THIS phase's [CompilationInput] (whose map is the fold over [ci_visit
+       input], [build_tnft_map]).  No ExpressionPhase can be constructed with a foreign table. *)
 }.
-Arguments mkExpressionPhase {p input} _ _ _.
+Arguments mkExpressionPhase {p input} _ _ _ _.
 Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.  Arguments ep_eft {p input} _.
+Arguments ep_tnft_prov {p input} _.
 
 Definition build_expression_phase {p} (input : CompilationInput p) : ExpressionPhase input :=
   let tnft := build_type_name_fact_table input in
   let ot   := build_outcome_table input tnft in
-  mkExpressionPhase tnft ot (build_expr_fact_table input tnft ot).
+  mkExpressionPhase tnft ot (build_expr_fact_table input tnft ot) eq_refl.
 
 (* the phase's fact projection (= the retained [ep_eft] object's map for the built phase, definitionally). *)
 Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input)
@@ -7688,6 +7693,18 @@ Proof.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - intro H. injection H as <-. reflexivity.
   - discriminate.
+Qed.
+
+(** §5/§2.9 the sealed type-name table has RETAINED-INPUT PROVENANCE: it IS the exact
+    [build_type_name_fact_table] of the phase's own [CompilationInput] (composing the object-identity seal with
+    the phase's [ep_tnft_prov]) — not merely some [TypeNameFactTable p]. *)
+Corollary elaborate_ok_seals_tnfacts_from_input (p : GoProgram) facts :
+  pe_result (elaborate p) = ElaborationOK facts ->
+  ef_type_name_facts facts
+  = build_type_name_fact_table (build_compilation_input p (GoIndex.index_program p)).
+Proof.
+  intro H. rewrite (elaborate_ok_seals_tnfacts p facts H).
+  exact (ep_tnft_prov (build_expression_phase (build_compilation_input p (GoIndex.index_program p)))).
 Qed.
 
 (** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([GoCompile] =
