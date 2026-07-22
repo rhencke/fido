@@ -39,13 +39,68 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-**CURRENT: retained-phase and scope-ledger repair 4 COMPLETE — frozen candidate, pending Rob's HUMAN
-Implementation Review** (authority `.review/C4_IMPLEMENTATION_REPAIR_4.md`, token
-`C4-retained-phase-scope-ledger-repair-4`; clean baseline `af2fc87`). Repair 3 (`af2fc87`)
+**CURRENT: typed-work / direct-cause / scope-decision repair 5 ACTIVE from clean baseline `9d4aff5`** (authority
+`.review/C4_IMPLEMENTATION_REPAIR_5.md`, token `C4-typed-work-direct-cause-scope-repair-5`). The repair-4
+candidate `9d4aff5` was the **FIFTH BLOCKING**: repair 4 built the right NAMES but not the right BEHAVIOR — the
+abstractions are named, the required behavior is missing. Repair 4 results to KEEP (per §0): one `CompilationInput`
+value; type-name facts built from the retained input; one proof-carrying `ExprOutcomeTable` value; one
+`ExpressionPhase` value; operand read from the processed suffix; total type-name query consuming the passed table;
+retained index threaded through conversion child proofs; `EOConvFail`/`DRInvalidConversion` retain refs;
+use-context from the computed `ConstInfo`; the recomputing raw-map root deleted; two-uint8 reaches real
+`ElaborationFacts`; source-target diagnostics + byte/rune alias differential correct; no C5; `life.md` boundary
+acceptable. **Fifth-review blocking classes (§2 of the repair-5 directive) — the weak boundaries to REPLACE (not
+paper over):**
+
+- **2.1** NO typed expression-work domain: the "typed work interface" is `self_mem (ci_visit input)` (raw
+  `NodeRef*SourceOccurrence` + membership); fact/diag/context projections still call optional
+  `as_expr (ci_idx input) r`. Exact `ExprRef`/view/role/children are not one shared production value.
+- **2.2** fact projection `add_work_fact` keeps a fail-open `as_expr = None ⇒ m` branch (impossible ≠ removed).
+- **2.3** diagnostic `occ_work_diags` (`None ⇒ []`) and `annotate_encl` (`None ⇒` don't push a conversion) keep
+  fail-open branches that can suppress the primary diagnostic / an outer context.
+- **2.4** `ExprOutcomeTable` is complete but NOT exact-domain: `outcomes_ok` allows extra/foreign keys; no
+  no-extras / one-entry-per-work-item / wrong-kind exclusion.
+- **2.5** the carried `outcome_convfail_ev` is SOURCE-SPEC evidence (`local_conv_failure` + refs), not the
+  production cause (stored target fact, stored operand outcome/status, exact `convert_const` rejection); no
+  child-cause; no success relation.
+- **2.6** `phase_convfail_cause` RECONSTRUCTS the cause (opens `outcome_convfail_ev`, `local_conv_failure_char`,
+  recursive `const_info`, contradiction) — it does not PROJECT a cause carried by the table. Its comment is false.
+- **2.7** no direct SUCCESS-cause or CHILD-cause theorem exists (only the reconstructed failure one).
+- **2.8** `ExpressionPhase` does not retain the `ExprFactTable` OBJECT it seals — `ep_facts` is a raw map;
+  `elaborate` builds a fresh `mkExprFactTable`; `elaborate_ok_seals_facts` proves only map equality. The
+  object-identity claim is FALSE.
+- **2.9** `TypeNameFactTable` is indexed only by `p`; its proofs are over `prog_visit p`, not the retained input —
+  no input-indexed provenance at the type/proof boundary.
+- **2.10** the deep "phase" fixtures call `erased_report`/`prog_expr_facts` (the declarative SPEC), not the phase.
+- **2.11** `ci_visit` is DERIVED (`concat ci_blocks`) but comments/status call it a STORED value (false).
+- **2.12** scope ledger incomplete: omits the bounded DecimalFloat literal box (`|coeff|<10^40`, `|exp10|≤4096`).
+- **2.13** SR-006 gives a FALSE reason for the file-name grammar (rejects `foo_bar.go`/`Foo.go`, not only
+  ignored/reserved files); "matches go build" is false for restrictions go build does not impose.
+- **2.14** SR-005 understates the ModulePath exclusion (lowercase-only, no hyphen, first-segment dot, dot shape,
+  reserved names, …), not just `/vN`/gopkg.in.
+- **2.15** the ledger SELF-APPROVES: SR-002..008 marked REVIEWED/ACCEPTED by the model. Must be PROPOSED /
+  PREVIOUSLY AUTHORIZED (with citation) / ACCEPTED (only after Rob).
+- **2.16** ADR-0001 defensible but not accepted as written (adequacy = differential target not kernel theorem;
+  widening not necessarily additive; C5 reopens it; qualify "no consumer" vs planned C5 uintptr).
+- **2.17** permanent prose + gate comments overclaim (typed work / no fail-open / exact domain / projected cause /
+  object identity / phase fixtures / complete ledger / reviewed decisions).
+- **2.18** TODO completion was NAME-based, not behavioral (§16 fixes the criteria for repair 5).
+
+**Repair-5 required model (§3–§10):** ONE retained `CompilationInput` (store `ci_visit`, §2.11); ONE exact
+proof-backed `ExprWork` domain consumed by all downstream (no optional `as_expr` below the work builder); a direct
+`OutcomeCause` relation carried by an EXACT-DOMAIN `ExprOutcomeTable` (no extras, one entry per work item,
+foreign-key-uninhabitable); direct success/failure/child cause theorems from the carried relation; a retained
+proof-backed `ExprFactTable` object sealed by OBJECT IDENTITY; an input-indexed `TypeNameFactTable`; total
+annotated diagnostics; real phase fixtures; and an honest PROPOSED scope ledger + ADR set. **STOP on completion:
+pending Rob's HUMAN Implementation Review; automatic Codex DISABLED; C5 FORBIDDEN.**
+
+---
+
+**PRIOR — repair 4 (`af2fc87`→candidate `9d4aff5`), now the FIFTH BLOCKING.** Repair 3 (`af2fc87`)
 made real progress (one bottom-up fold; operand read from the processed suffix; a table-level total query;
 `EOConvFail`/`DRInvalidConversion` retain refs; use-resolution from the computed `ConstInfo`; fake `EConvert`
 leaf removed; alias differential complete; `life.md` character-only) but was **architecturally wrong**: still
-"proof BESIDE the path." The fourth-review blocking classes (§2 of the directive) — ALL ADDRESSED in repair 4:
+"proof BESIDE the path." The fourth-review blocking classes (§2 of the repair-4 directive), whose repair-4
+resolutions were NAME-based (behaviorally re-opened by repair-5 §2 above):
 
 - **2.1** the retained `blocks`/`visit` in `elaborate_indexed` are IGNORED by the semantic builders — `prog_tnft`
   and `prog_outcomes_c` each hide their own `prog_visit p`; no `CompilationInput` value exists; equal list values
