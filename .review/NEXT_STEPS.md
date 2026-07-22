@@ -14,7 +14,12 @@
 - **First blocked C4 candidate:** `89b8e54634e7012612a51990756ad29a579c1b0f`.
 - **Second blocked C4 candidate:** `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca`.
 - **Third blocked C4 candidate:** `806ce87373e29b6980e5c3d9d274ffa86580449b`.
-- **Fourth blocked C4 candidate / current repair baseline:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
+- **Fourth blocked C4 candidate / repair-4 baseline:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
+- **New candidate head:** this `review(final): C4 — freeze retained-phase candidate` freeze commit (git HEAD of
+  `main`; the retained-phase repair-4 candidate). Repair-4 candidate is COMPLETE.
+- **Full human review range:** `8c9212a..<this freeze head>` (from the original C4 baseline).
+- **Full repair range:** `89b8e54..<this freeze head>` (from the first blocked candidate).
+- **Repair-4 range:** `af2fc87..<this freeze head>` (from the fourth-blocked / repair-4 baseline).
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_4.md`.
 - **Human repair authorization token:** `C4-retained-phase-scope-ledger-repair-4`.
 - **State:** C4 Implementation Review — retained-phase + scope-ledger repair 4 COMPLETE; frozen candidate

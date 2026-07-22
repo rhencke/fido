@@ -91,6 +91,12 @@ ledger `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` (PROPOSED). GR
 (prove axiom-free + e2e + working-tree byte-compare) + `make regenerate` (no drift). §10.1–10.7 each gated
 axiom-free.
 
+**Candidate head:** this `review(final): C4 — freeze retained-phase candidate` freeze commit is the new C4
+candidate head (git HEAD of `main`). Baselines — original C4 `8c9212a`; first blocked `89b8e54`; second blocked
+`1c4a7de`; third blocked `806ce87`; fourth blocked / repair-4 baseline `af2fc87`. Ranges — full human review
+`8c9212a..<this freeze head>`; full repair `89b8e54..<this freeze head>`; repair-4 `af2fc87..<this freeze head>`.
+Human C4 Implementation Review PENDING; ADR-0001 PROPOSED pending Rob.
+
 **STOP: frozen candidate pending Rob's HUMAN Implementation Review; automatic Codex DISABLED (do NOT request or
 run Codex); C5 FORBIDDEN.**
 
