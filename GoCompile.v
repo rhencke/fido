@@ -2413,6 +2413,81 @@ Qed.
 Lemma fold_right_map {A B C} (f : B -> C -> C) (g : A -> B) (init : C) (l : list A) :
   fold_right f init (map g l) = fold_right (fun x => f (g x)) init l.
 Proof. induction l as [|a l IH]; [reflexivity | cbn [map fold_right]; rewrite IH; reflexivity]. Qed.
+
+(** ═══ §4 THE EXACT TYPED WORK DOMAIN ═══ one proof-backed expression-work item per LIVE expression occurrence.
+    Each [ExprWork] CARRIES its exact [ExprRef], source view, and the membership/view/as_expr/erase proofs — so
+    every downstream consumer (facts, outcomes, diagnostics, context annotation) reads [ew_expr_ref] directly and
+    NEVER calls an optional [as_expr] with a fail-open [None] branch.  The work builder is the SINGLE place that
+    inspects a raw occurrence and decides expression-ness. *)
+Record ExprWork {p} (input : CompilationInput p) : Type := mkExprWork {
+  ew_node_ref   : GoIndex.Snap.NodeRef p ;
+  ew_occurrence : GoIndex.SourceOccurrence ;
+  ew_expr_ref   : GoIndex.ExprRef p ;
+  ew_expr       : GoExpr ;
+  ew_in_visit      : In (ew_node_ref, ew_occurrence) (ci_visit input) ;
+  ew_view_exact    : GoIndex.view_expr ew_occurrence = Some ew_expr ;
+  ew_as_expr_exact : GoIndex.as_expr (ci_idx input) ew_node_ref = Some ew_expr_ref ;
+  ew_erase_exact   : GoIndex.erase_ref ew_expr_ref = ew_node_ref
+}.
+Arguments mkExprWork {p input} _ _ _ _ _ _ _ _.
+Arguments ew_node_ref {p input} _.  Arguments ew_occurrence {p input} _.
+Arguments ew_expr_ref {p input} _.  Arguments ew_expr {p input} _.
+Arguments ew_in_visit {p input} _.  Arguments ew_view_exact {p input} _.
+Arguments ew_as_expr_exact {p input} _.  Arguments ew_erase_exact {p input} _.
+
+(* the work item's role, DERIVED from its exact ExprRef (not a stored duplicate). *)
+Definition ew_role {p} {input : CompilationInput p} (w : ExprWork input) : GoIndex.NodeRole :=
+  expr_ref_role (ew_expr_ref w).
+
+(* whole-visit membership transports to [prog_visit] membership through the retained coherence [ci_visit_ok]. *)
+Definition ci_in_prog {p} {input : CompilationInput p} {ro} (H : In ro (ci_visit input)) : In ro (prog_visit p) :=
+  eq_ind (ci_visit input) (fun L => In ro L) H (prog_visit p) (ci_visit_ok input).
+
+(* build the exact work enumeration from a sublist [l] of the retained visit, CARRYING (like [build_outcomes])
+   the fold-relation as an INTERNAL property: because each [ExprWork] carries a [view_expr occ]-dependent proof,
+   the builder's step cannot be reduced by any external tactic — so the fold relation is proven DURING
+   construction (where [destruct (view_expr occ) eqn] works) and travels in the sig.  The carried property: for
+   ANY per-work step [fw] that agrees with a per-occurrence step [fo] on every work item, where [fo] is a no-op on
+   non-expression occurrences, folding [fw] over the work list EQUALS folding [fo] over [l].  This is what lets
+   the fact/diagnostic projections consume the work domain (each item carrying its [ExprRef]) yet equal the source
+   specification — with NO optional [as_expr] below the work builder. *)
+Definition build_work_sig {p} (input : CompilationInput p) :
+  forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)),
+    (forall ro, In ro l -> In ro (ci_visit input)) ->
+    { w : list (ExprWork input) |
+        forall B (fw : ExprWork input -> B -> B)
+               (fo : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> B -> B) (init : B),
+          (forall (wi : ExprWork input) b, fw wi b = fo (ew_node_ref wi, ew_occurrence wi) b) ->
+          (forall r occ b, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None -> fo (r, occ) b = b) ->
+          fold_right fw init w = fold_right fo init l }.
+Proof.
+  induction l as [| [r occ] rest IH]; intro H.
+  - exists nil. intros. reflexivity.
+  - assert (Hin : In (r, occ) (ci_visit input)) by (apply H; left; reflexivity).
+    destruct (IH (fun ro Hro => H ro (or_intror Hro))) as [wrest Hrest].
+    destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
+    + assert (Hinp : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
+      destruct (prog_visit_expr_ref (ci_idx input) r occ e Hinp Hv) as [er [Hae Her]].
+      exists (mkExprWork r occ er e Hin Hv Hae Her :: wrest).
+      intros B fw fo init Hagree Hskip.
+      cbn [fold_right]. rewrite (Hrest B fw fo init Hagree Hskip).
+      rewrite (Hagree (mkExprWork r occ er e Hin Hv Hae Her) (fold_right fo init rest)).
+      cbn [ew_node_ref ew_occurrence]. reflexivity.
+    + exists wrest. intros B fw fo init Hagree Hskip.
+      cbn [fold_right]. rewrite (Hrest B fw fo init Hagree Hskip).
+      rewrite (Hskip r occ (fold_right fo init rest) Hin Hv). reflexivity.
+Defined.
+
+Definition prog_work {p} (input : CompilationInput p) : list (ExprWork input) :=
+  proj1_sig (build_work_sig input (ci_visit input) (fun ro H => H)).
+
+Definition prog_work_fold {p} (input : CompilationInput p) {B}
+    (fw : ExprWork input -> B -> B)
+    (fo : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> B -> B) (init : B)
+    (Hagree : forall (wi : ExprWork input) b, fw wi b = fo (ew_node_ref wi, ew_occurrence wi) b)
+    (Hskip : forall r occ b, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None -> fo (r, occ) b = b) :
+  fold_right fw init (prog_work input) = fold_right fo init (ci_visit input) :=
+  proj2_sig (build_work_sig input (ci_visit input) (fun ro H => H)) B fw fo init Hagree Hskip.
 Fixpoint self_mem {A} (l : list A) : list { a : A | In a l } :=
   match l with
   | nil => nil
@@ -2434,48 +2509,35 @@ Proof.
   apply fold_ext_in. intros [a H] b _. cbn [proj1_sig]. exact (Hfg a H b).
 Qed.
 
-(** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ for each visited occurrence, the ref is minted inline ([as_expr],
-    total for an expression — the None arm is only a non-expression occurrence, which is never a work item) and
+(** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
-    its exact fact; every other outcome contributes nothing; a MISSING outcome is NOT a case. *)
-Definition add_work_fact {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
-    (ot : ExprOutcomeTable input tnft) (am : { ro | In ro (ci_visit input) })
+    its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
+    optional [as_expr] and NO missing-ref/missing-outcome case — the projection consumes the typed work domain. *)
+Definition work_fact {p} {input : CompilationInput p} {tnft : TypeNameFactTable p}
+    (ot : ExprOutcomeTable input tnft) (w : ExprWork input)
     (m : GoIndex.NodeKeyMapBase.t ExprFact) : GoIndex.NodeKeyMapBase.t ExprFact :=
-  match am with
-  | exist _ (r, _) _ =>
-      match GoIndex.as_expr (ci_idx input) r with
-      | Some er => match total_outcome_at ot er with
-                   | EOOk f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) f m
-                   | _ => m
-                   end
-      | None => m
-      end
+  match total_outcome_at ot (ew_expr_ref w) with
+  | EOOk f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) f m
+  | _ => m
   end.
 Definition phase_expr_facts {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft) : GoIndex.NodeKeyMapBase.t ExprFact :=
-  fold_right (add_work_fact input tnft ot) (GoIndex.NodeKeyMapBase.empty ExprFact) (self_mem (ci_visit input)).
+  fold_right (work_fact ot) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_work input).
 
-(* the total projection step at a visited occurrence EQUALS the [add_occ_fact] specification (the total outcome
-   query MATCHES [occ_expr_fact] — [total_outcome_at_matches] + [outcome_matches_proj]).  The inline [as_expr]
-   is proven total: [None] arises EXACTLY for a non-expression (which has no fact). *)
-Lemma add_work_fact_eq {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
-    (ot : ExprOutcomeTable input tnft) (r : GoIndex.Snap.NodeRef p) occ (Hin : In (r, occ) (ci_visit input)) m :
-  add_work_fact input tnft ot (exist _ (r, occ) Hin) m = add_occ_fact (r, occ) m.
+(* the WORK-item projection step EQUALS the [add_occ_fact] specification at the work's occurrence — the total
+   outcome query at the work's OWN [ExprRef] MATCHES [occ_expr_fact] ([total_outcome_at_matches] discharged from
+   the work item's own carried proofs; [outcome_matches_proj]).  No [as_expr], no case split on a missing ref. *)
+Lemma work_fact_eq {p} {input : CompilationInput p} {tnft : TypeNameFactTable p}
+    (ot : ExprOutcomeTable input tnft) (w : ExprWork input) m :
+  work_fact ot w m = add_occ_fact (ew_node_ref w, ew_occurrence w) m.
 Proof.
-  cbn [add_work_fact]. unfold add_occ_fact. cbn [snd fst].
-  assert (Hprog : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
-  assert (Hsrc : occ = GoIndex.Snap.source_occurrence_of_ref r) by exact (prog_visit_occ_is_source p r occ Hprog).
-  destruct (GoIndex.as_expr (ci_idx input) r) as [er|] eqn:Hae.
-  - assert (Her : GoIndex.erase_ref er = r)
-      by exact (GoIndex.erase_as_kind (ci_idx input) r GoIndex.KExpression er Hae).
-    assert (Hv : GoIndex.view_expr occ = Some (expr_ref_view er)) by (rewrite Hsrc, <- Her; exact (expr_ref_view_eq er)).
-    pose proof (total_outcome_at_matches ot r occ er (expr_ref_view er) Hprog Hv Hae Her) as Hm.
-    pose proof (outcome_matches_proj (ci_idx input) r occ (total_outcome_at ot er) Hm) as Hpf.
-    destruct (total_outcome_at ot er) as [f|c1 c2 c3 c4 c5| ]; cbn [outcome_proj_fact] in Hpf; rewrite Hpf; reflexivity.
-  - assert (Hvn : GoIndex.view_expr occ = None).
-    { destruct (GoIndex.view_expr occ) as [e|] eqn:Hv; [| reflexivity]. exfalso.
-      destruct (prog_visit_as_expr p (ci_idx input) r occ e Hprog Hv) as [er [Hae' _]]. rewrite Hae' in Hae. discriminate Hae. }
-    rewrite (occ_expr_fact_none_nonexpr occ Hvn). reflexivity.
+  unfold work_fact, add_occ_fact. cbn [fst snd].
+  pose proof (total_outcome_at_matches ot (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) (ew_expr w)
+                (ci_in_prog (ew_in_visit w)) (ew_view_exact w) (ew_as_expr_exact w) (ew_erase_exact w)) as Hm.
+  pose proof (outcome_matches_proj (ci_idx input) (ew_node_ref w) (ew_occurrence w)
+                (total_outcome_at ot (ew_expr_ref w)) Hm) as Hpf.
+  destruct (total_outcome_at ot (ew_expr_ref w)) as [f|c1 c2 c3 c4 c5| ];
+    cbn [outcome_proj_fact] in Hpf; rewrite Hpf; reflexivity.
 Qed.
 
 (** the source-determined expression-fact map (the SPECIFICATION): each visited occurrence's [occ_expr_fact]
@@ -2491,8 +2553,14 @@ Lemma phase_expr_facts_eq_spec {p} (input : CompilationInput p) (tnft : TypeName
     (ot : ExprOutcomeTable input tnft) :
   phase_expr_facts input tnft ot = prog_expr_facts p.
 Proof.
-  unfold phase_expr_facts, prog_expr_facts. rewrite <- (ci_visit_ok input).
-  apply fold_self_mem_ext. intros [r occ] H b. exact (add_work_fact_eq input tnft ot r occ H b).
+  assert (Hskip : forall r occ b, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None ->
+                    add_occ_fact (r, occ) b = b).
+  { intros r occ b _ Hvn. unfold add_occ_fact. cbn [fst snd].
+    rewrite (occ_expr_fact_none_nonexpr occ Hvn). reflexivity. }
+  unfold phase_expr_facts, prog_expr_facts.
+  rewrite (prog_work_fold input (work_fact ot) add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact)
+             (fun w b => work_fact_eq ot w b) Hskip).
+  rewrite (ci_visit_ok input). reflexivity.
 Qed.
 
 Lemma prog_expr_facts_eq_spec (p : GoProgram) :
