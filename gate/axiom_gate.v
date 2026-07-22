@@ -312,9 +312,12 @@ Print Assumptions GoCompile.eot_no_foreign_key.
 Print Assumptions GoCompile.eot_domain_iff_work.
 Print Assumptions GoCompile.eot_nonexpr_absent.
 (* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
-   fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
+   fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs).  §8/§2.3 the diagnostic
+   is projected over the exact TYPED WORK ([awork_diags], keyed by the work's own [ew_expr_ref] — NO [as_expr]
+   with a fail-open [None] branch); [awork_diags_eq] is its agreement with the source spec at the work's own
+   occurrence. *)
 Print Assumptions GoCompile.phase_expr_facts_eq_spec.
-Print Assumptions GoCompile.occ_work_diags_eq_spec.
+Print Assumptions GoCompile.awork_diags_eq.
 Print Assumptions GoCompile.phase_expr_diags_eq_spec.
 Print Assumptions GoCompile.expr_diags_eq_spec.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second

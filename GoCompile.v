@@ -3367,6 +3367,27 @@ Fixpoint annotate_encl {p} (idx : GoIndex.Snap.SyntaxIndex p)
       (ro, map fst open) :: annotate_encl idx stack' rest
   end.
 
+(* the enclosing-conversion stack still OPEN at [ro] — the entries whose subtree contains [ro]'s local.  Named so
+   the annotation's cons step can be stated (and the typed-work annotation shares the EXACT same open set). *)
+Definition estack_open {p} (idx : GoIndex.Snap.SyntaxIndex p)
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)
+    (stack : list (GoIndex.ExprRef p * positive)) : list (GoIndex.ExprRef p * positive) :=
+  filter (fun e => Pos.leb (GoIndex.Snap.node_ref_local (fst ro)) (snd e)) stack.
+
+(* the annotation's cons step made explicit (definitional): pop to [estack_open], record it as the context, then
+   push a conversion occurrence's own [ExprRef].  Lets the typed-work annotation match the raw annotation step. *)
+Lemma annotate_encl_cons {p} (idx : GoIndex.Snap.SyntaxIndex p) stack ro rest :
+  annotate_encl idx stack (ro :: rest)
+  = (ro, map fst (estack_open idx ro stack))
+    :: annotate_encl idx
+         (match GoIndex.as_expr idx (fst ro) with
+          | Some er => if is_conversion_occ (snd ro)
+                       then (er, GoIndex.Snap.node_subtree_end idx (fst ro)) :: estack_open idx ro stack
+                       else estack_open idx ro stack
+          | None => estack_open idx ro stack
+          end) rest.
+Proof. reflexivity. Qed.
+
 Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.
 Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
@@ -3743,12 +3764,13 @@ Proof.
                            | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
-(* ---- the diagnostic step ([occ_work_diags], below): PROJECTS each occurrence's stored outcome from the ONE
-   retained [ExprOutcomeTable] via the TOTAL [total_outcome_at] query.  A local invalid conversion reads its
-   own [EOConvFail], emitting the diagnostic from the STORED conversion/target refs + resolved target + operand
-   status ALREADY computed by the outcome fold — NEVER re-minting the target ref, never a second [convert_const]
-   or resolver call.  A default failure reads its own [EOOk] fact's status.  Proved to agree with the
-   [occ_expr_diags] specification. ---- *)
+(* ---- the diagnostic step ([awork_diags], below): PROJECTS each TYPED WORK item's stored outcome from the ONE
+   retained [ExprOutcomeTable] via the TOTAL [total_outcome_at] query, keyed by the work's OWN carried
+   [ew_expr_ref] — there is NO [as_expr] call and NO fail-open [None] branch (§8/§2.3).  A local invalid
+   conversion reads its own [EOConvFail], emitting the diagnostic from the STORED conversion/target refs +
+   resolved target + operand status ALREADY computed by the outcome fold — NEVER re-minting the target ref, never
+   a second [convert_const] or resolver call.  A default failure reads its own [EOOk] fact's status.  Proved to
+   agree with the [occ_expr_diags] specification ([awork_diags_eq]). ---- *)
 
 Lemma local_conv_failure_const_none e t ci : local_conv_failure e = Some (t, ci) -> const_info e = None.
 Proof.
@@ -3779,10 +3801,11 @@ Lemma expr_diags_eq_spec {p} (idx : GoIndex.Snap.SyntaxIndex p) :
   expr_diags idx = flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
 Proof. reflexivity. Qed.
 
-(** ═══ §9.2 THE TOTAL DIAGNOSTIC PROJECTION ═══ for each annotated occurrence the ref is minted inline and its
-    stored outcome queried TOTALLY: an [EOConvFail] emits [DRInvalidConversion] from its STORED refs + evidence;
-    an [EOOk] at a println use performs default reporting from its STORED fact; an [EOChildFail] emits no local
-    reason; every other [EOOk] none.  No optional [conv_failure]/[arg_default] map lookup, no fail-open. *)
+(** ═══ §9.2 THE TOTAL DIAGNOSTIC PROJECTION ═══ for each TYPED WORK item the ref is the work's OWN carried
+    [ew_expr_ref] (never minted from a fail-open [as_expr]) and its stored outcome is queried TOTALLY: an
+    [EOConvFail] emits [DRInvalidConversion] from its STORED refs + evidence; an [EOOk] at a println use performs
+    default reporting from its STORED fact; an [EOChildFail] emits no local reason; every other [EOOk] none.  No
+    optional [conv_failure]/[arg_default] map lookup, no [as_expr] [None] branch, no fail-open. *)
 Definition work_default_failure (occ : GoIndex.SourceOccurrence) (f : ExprFact) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
   | GoIndex.RPrintlnArg _ =>
@@ -3803,71 +3826,188 @@ Proof.
   exfalso. pose proof (local_conv_failure_const_none e t' ci' Elc) as Hcn. rewrite Hci in Hcn. discriminate Hcn.
 Qed.
 
-Definition occ_work_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+(* the SPECIFICATION diagnostic on an occurrence whose index ref + view are KNOWN (from a typed work item),
+   reduced to its [local_conv_failure] dispatch — the bridge the typed-work diagnostic matches against. *)
+Lemma occ_expr_diags_of_ref {p} (idx : GoIndex.Snap.SyntaxIndex p) (c : list (GoIndex.ExprRef p))
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
+  GoIndex.as_expr idx r = Some er -> GoIndex.view_expr occ = Some e ->
+  occ_expr_diags idx c (r, occ)
+  = match local_conv_failure e with
+    | Some (t, ci) =>
+        match conversion_target_ref idx er with
+        | Some tr => match conversion_operand_ref idx er with
+                     | Some opr => [ DRInvalidConversion er tr opr c t ci ]
+                     | None => [] end
+        | None => [] end
+    | None => match arg_default_failure occ e with
+              | Some (cst, dt) => [ DRDefaultNotRepresentable er cst dt ]
+              | None => [] end
+    end.
+Proof. intros Hae Hv. unfold occ_expr_diags. cbn [fst snd]. rewrite Hae, Hv. reflexivity. Qed.
+
+(* the TOTAL diagnostic projection consuming ONE typed work item + its outer context: the ref is the work's
+   ALREADY-CARRIED [ew_expr_ref] (NO [as_expr] call, NO fail-open [None]); its stored outcome is queried TOTALLY.
+   A local invalid conversion emits its STORED refs; a println-arg default reads its STORED fact; a blocked child
+   and every other success emit nothing (§8/§2.3). *)
+Definition awork_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft)
-    (roc : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) * list (GoIndex.ExprRef p))
+    (aw : ExprWork input * list (GoIndex.ExprRef p))
   : list (DiagnosticReason p) :=
-  match GoIndex.as_expr (ci_idx input) (fst (fst roc)) with
-  | None => []
-  | Some er =>
-      match total_outcome_at ot er with
-      | EOConvFail er2 tr2 opr2 t ci => [ DRInvalidConversion er2 tr2 opr2 (snd roc) t ci ]
-      | EOOk f =>
-          match work_default_failure (snd (fst roc)) f with
-          | Some (c, dt) => [ DRDefaultNotRepresentable er c dt ]
-          | None => []
-          end
-      | EOChildFail => []
+  match total_outcome_at ot (ew_expr_ref (fst aw)) with
+  | EOConvFail er2 tr2 opr2 t ci => [ DRInvalidConversion er2 tr2 opr2 (snd aw) t ci ]
+  | EOOk f =>
+      match work_default_failure (ew_occurrence (fst aw)) f with
+      | Some (c, dt) => [ DRDefaultNotRepresentable (ew_expr_ref (fst aw)) c dt ]
+      | None => []
       end
+  | EOChildFail => []
   end.
 
-Lemma occ_work_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
-    (ot : ExprOutcomeTable input tnft) roc :
-  In (fst roc) (prog_visit p) ->
-  occ_work_diags input tnft ot roc = occ_expr_diags (ci_idx input) (snd roc) (fst roc).
+(* the typed-work diagnostic AGREES with the source specification at the work's own occurrence — discharged from
+   the work item's OWN carried proofs ([total_outcome_at_matches]); no [as_expr], no membership side-condition. *)
+Lemma awork_diags_eq {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) (w : ExprWork input) (c : list (GoIndex.ExprRef p)) :
+  awork_diags input tnft ot (w, c)
+  = occ_expr_diags (ci_idx input) c (ew_node_ref w, ew_occurrence w).
 Proof.
-  intro Hin. destruct roc as [[r occ] ctx]. cbn [fst snd] in Hin |- *.
-  unfold occ_work_diags, occ_expr_diags. cbn [fst snd].
-  destruct (GoIndex.as_expr (ci_idx input) r) as [er|] eqn:Hae; [| reflexivity].
-  assert (Her : GoIndex.erase_ref er = r) by exact (GoIndex.erase_as_kind (ci_idx input) r GoIndex.KExpression er Hae).
-  assert (Hv : GoIndex.view_expr occ = Some (expr_ref_view er))
-    by (rewrite (prog_visit_occ_is_source p r occ Hin), <- Her; exact (expr_ref_view_eq er)).
-  rewrite Hv.
-  pose proof (total_outcome_at_matches ot r occ er (expr_ref_view er) Hin Hv Hae Her) as Hm.
-  destruct (total_outcome_at ot er) as [f|er2 tr2 opr2 t ci| ]; cbn [outcome_matches] in Hm.
-  - (* EOOk f : has a fact => not a local failure; default from the stored fact = the source default failure *)
-    assert (Hcf : const_info (expr_ref_view er) = Some (ef_const_status f)).
-    { unfold occ_expr_fact in Hm. rewrite Hv in Hm.
-      destruct (const_info (expr_ref_view er)) as [ce|] eqn:Ece; [| discriminate Hm]. injection Hm as Hf0. rewrite <- Hf0. reflexivity. }
-    rewrite (local_conv_failure_none_of_const (expr_ref_view er) (ef_const_status f) Hcf).
-    rewrite (work_default_failure_eq occ (expr_ref_view er) f Hcf). reflexivity.
-  - (* EOConvFail : the stored evidence IS the spec diagnostic *)
-    destruct Hm as [_ [Hae2 [[e' [Hv' Hlcf]] [Htr2 Hopr2]]]].
-    rewrite Hae in Hae2. injection Hae2 as He2. subst er2.
-    rewrite Hv in Hv'. injection Hv' as He'. subst e'.
+  rewrite (occ_expr_diags_of_ref (ci_idx input) c (ew_node_ref w) (ew_occurrence w)
+             (ew_expr_ref w) (ew_expr w) (ew_as_expr_exact w) (ew_view_exact w)).
+  unfold awork_diags. cbn [fst snd].
+  pose proof (total_outcome_at_matches ot (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) (ew_expr w)
+                (ci_in_prog (ew_in_visit w)) (ew_view_exact w) (ew_as_expr_exact w) (ew_erase_exact w)) as Hm.
+  destruct (total_outcome_at ot (ew_expr_ref w)) as [f|er2 tr2 opr2 t ci| ]; cbn [outcome_matches] in Hm.
+  - assert (Hcf : const_info (ew_expr w) = Some (ef_const_status f)).
+    { unfold occ_expr_fact in Hm. rewrite (ew_view_exact w) in Hm.
+      destruct (const_info (ew_expr w)) as [ce|] eqn:Ece; [| discriminate Hm]. injection Hm as Hf0. rewrite <- Hf0. reflexivity. }
+    rewrite (local_conv_failure_none_of_const (ew_expr w) (ef_const_status f) Hcf).
+    rewrite (work_default_failure_eq (ew_occurrence w) (ew_expr w) f Hcf). reflexivity.
+  - destruct Hm as [_ [Hae2 [[e' [Hv' Hlcf]] [Htr2 Hopr2]]]].
+    rewrite (ew_as_expr_exact w) in Hae2. injection Hae2 as He2. subst er2.
+    rewrite (ew_view_exact w) in Hv'. injection Hv' as He'. subst e'.
     rewrite Hlcf, Htr2, Hopr2. reflexivity.
-  - (* EOChildFail : no local failure and no fact => no reason *)
-    destruct Hm as [Hnf [e' [Hv' Hlcf]]]. rewrite Hv in Hv'. injection Hv' as He'. subst e'.
+  - destruct Hm as [Hnf [e' [Hv' Hlcf]]]. rewrite (ew_view_exact w) in Hv'. injection Hv' as He'. subst e'.
     rewrite Hlcf. unfold arg_default_failure.
-    assert (Hcn : const_info (expr_ref_view er) = None).
-    { unfold occ_expr_fact in Hnf. rewrite Hv in Hnf.
-      destruct (const_info (expr_ref_view er)) as [ce|] eqn:Ece; [discriminate Hnf | reflexivity]. }
-    destruct (GoIndex.occurrence_role occ); try reflexivity. rewrite Hcn. reflexivity.
+    assert (Hcn : const_info (ew_expr w) = None).
+    { unfold occ_expr_fact in Hnf. rewrite (ew_view_exact w) in Hnf.
+      destruct (const_info (ew_expr w)) as [ce|] eqn:Ece; [discriminate Hnf | reflexivity]. }
+    destruct (GoIndex.occurrence_role (ew_occurrence w)); try reflexivity. rewrite Hcn. reflexivity.
 Qed.
+
+(* the source spec is EMPTY on a non-expression occurrence (its own view says so) — the fact the typed-work
+   annotation uses to justify emitting NOTHING for skipped occurrences (no fail-open, source-determined). *)
+Lemma occ_expr_diags_nonexpr {p} (idx : GoIndex.Snap.SyntaxIndex p) c
+    (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
+  GoIndex.view_expr (snd ro) = None -> occ_expr_diags idx c ro = [].
+Proof.
+  intro Hv. unfold occ_expr_diags. destruct (GoIndex.as_expr idx (fst ro)) as [er|]; [ rewrite Hv | ]; reflexivity.
+Qed.
+
+(** ═══ §8 THE TYPED-WORK ANNOTATION ═══ the enclosing-conversion context built over the exact WORK stream (a
+    per-block sublist of the retained visit): each expression occurrence is minted as an [ExprWork] carrying its
+    own [ExprRef], and a conversion pushes THAT already-carried ref — NEVER an [as_expr] call with a fail-open
+    [None] branch (§2.3).  The carried property ties the typed-work diagnostic fold EXACTLY to the raw
+    [annotate_encl] fold: for any per-work step [d] and per-occurrence step [dr] that agree on work items and
+    where [dr] is empty on non-expression occurrences, folding [d] over the work annotation EQUALS folding [dr]
+    over [annotate_encl].  (The context/pop is identical to [annotate_encl] — a non-expression occurrence still
+    pops the stack and emits nothing.)  Like [build_outcomes], the property is carried in the sig because each
+    [ExprWork] traps a [view_expr]-dependent proof no external tactic can reduce. *)
+Definition build_awork {p} (input : CompilationInput p) :
+  forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+         (stack : list (GoIndex.ExprRef p * positive)),
+    (forall ro, In ro l -> In ro (ci_visit input)) ->
+    { aw : list (ExprWork input * list (GoIndex.ExprRef p)) |
+        forall (X : Type) (d : (ExprWork input * list (GoIndex.ExprRef p)) -> list X)
+               (dr : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> list (GoIndex.ExprRef p) -> list X),
+          (forall w c, d (w, c) = dr (ew_node_ref w, ew_occurrence w) c) ->
+          (forall ro c, In ro l -> GoIndex.view_expr (snd ro) = None -> dr ro c = []) ->
+          flat_map d aw
+          = flat_map (fun rc => dr (fst rc) (snd rc)) (annotate_encl (ci_idx input) stack l) }.
+Proof.
+  induction l as [| ro rest IH]; intros stack Hsub.
+  - exists nil. intros X d dr Hagree Hempty. reflexivity.
+  - destruct ro as [r occ].
+    pose (open := estack_open (ci_idx input) (r, occ) stack).
+    assert (Hin : In (r, occ) (ci_visit input)) by (apply Hsub; left; reflexivity).
+    destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
+    + assert (Hinp : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
+      destruct (prog_visit_expr_ref (ci_idx input) r occ e Hinp Hv) as [er [Hae Her]].
+      pose (w := mkExprWork (input:=input) r occ er e Hin Hv Hae Her).
+      pose (stack' := if is_conversion_occ occ
+                      then (er, GoIndex.Snap.node_subtree_end (ci_idx input) r) :: open
+                      else open).
+      destruct (IH stack' (fun ro' H => Hsub ro' (or_intror H))) as [awrest Hrest].
+      exists ((w, map fst open) :: awrest).
+      intros X d dr Hagree Hempty.
+      rewrite (annotate_encl_cons (ci_idx input) stack (r, occ) rest).
+      cbn [fst snd]. rewrite Hae. cbn [flat_map fst snd].
+      rewrite (Hagree w (map fst open)).
+      rewrite (Hrest X d dr Hagree (fun ro' c Hin' Hv' => Hempty ro' c (or_intror Hin') Hv')).
+      reflexivity.
+    + destruct (IH open (fun ro' H => Hsub ro' (or_intror H))) as [awrest Hrest].
+      exists awrest.
+      intros X d dr Hagree Hempty.
+      rewrite (annotate_encl_cons (ci_idx input) stack (r, occ) rest).
+      cbn [fst snd].
+      assert (Hnc : is_conversion_occ occ = false) by (unfold is_conversion_occ; rewrite Hv; reflexivity).
+      cbn [flat_map fst snd].
+      rewrite (Hempty (r, occ) (map fst (estack_open (ci_idx input) (r, occ) stack)) (or_introl eq_refl) Hv).
+      cbn [app].
+      destruct (GoIndex.as_expr (ci_idx input) r) as [er0|] eqn:Hae0;
+        [ rewrite Hnc | ];
+        exact (Hrest X d dr Hagree (fun ro' c Hin' Hv' => Hempty ro' c (or_intror Hin') Hv')).
+Defined.
+
+(* fold the typed-work annotation over the per-block streams (stack reset per block), carrying the same fold
+   equivalence to the block-wise [annotate_encl]. *)
+Definition build_awork_blocks {p} (input : CompilationInput p) :
+  forall (blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))),
+    (forall ro, In ro (concat blocks) -> In ro (ci_visit input)) ->
+    { aw : list (ExprWork input * list (GoIndex.ExprRef p)) |
+        forall (X : Type) (d : (ExprWork input * list (GoIndex.ExprRef p)) -> list X)
+               (dr : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> list (GoIndex.ExprRef p) -> list X),
+          (forall w c, d (w, c) = dr (ew_node_ref w, ew_occurrence w) c) ->
+          (forall ro c, In ro (concat blocks) -> GoIndex.view_expr (snd ro) = None -> dr ro c = []) ->
+          flat_map d aw
+          = flat_map (fun rc => dr (fst rc) (snd rc)) (flat_map (annotate_encl (ci_idx input) []) blocks) }.
+Proof.
+  induction blocks as [| blk rest IH]; intros Hsub.
+  - exists nil. intros X d dr Hagree Hempty. reflexivity.
+  - destruct (build_awork input blk []
+                (fun ro H => Hsub ro (in_or_app blk (concat rest) ro (or_introl H)))) as [awblk Hblk].
+    destruct (IH (fun ro H => Hsub ro (in_or_app blk (concat rest) ro (or_intror H)))) as [awrest Hrest].
+    exists (awblk ++ awrest).
+    intros X d dr Hagree Hempty.
+    cbn [flat_map]. rewrite flat_map_app, flat_map_app.
+    rewrite (Hblk X d dr Hagree
+               (fun ro c Hin Hv => Hempty ro c (in_or_app blk (concat rest) ro (or_introl Hin)) Hv)).
+    rewrite (Hrest X d dr Hagree
+               (fun ro c Hin Hv => Hempty ro c (in_or_app blk (concat rest) ro (or_intror Hin)) Hv)).
+    reflexivity.
+Defined.
+
+(* the whole-program block membership: every occurrence of a block is in the retained visit ([ci_visit_blocks]). *)
+Lemma ci_concat_blocks_sub {p} (input : CompilationInput p) :
+  forall ro, In ro (concat (ci_blocks input)) -> In ro (ci_visit input).
+Proof. intros ro H. rewrite (ci_visit_blocks input). exact H. Qed.
 
 Definition phase_expr_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft) : list (DiagnosticReason p) :=
-  flat_map (occ_work_diags input tnft ot) (flat_map (annotate_encl (ci_idx input) []) (ci_blocks input)).
+  flat_map (awork_diags input tnft ot)
+           (proj1_sig (build_awork_blocks input (ci_blocks input) (ci_concat_blocks_sub input))).
 
 Lemma phase_expr_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft) :
   phase_expr_diags input tnft ot
   = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
 Proof.
-  unfold phase_expr_diags. rewrite (ci_blocks_ok input).
-  change (flat_map (annotate_encl (ci_idx input) []) (prog_blocks p)) with (annotate_program (ci_idx input)).
-  apply flat_map_ext_in. intros roc Hin. apply occ_work_diags_eq_spec.
-  rewrite <- (annotate_program_fst (ci_idx input)). exact (in_map fst _ _ Hin).
+  unfold phase_expr_diags.
+  rewrite (proj2_sig (build_awork_blocks input (ci_blocks input) (ci_concat_blocks_sub input))
+             (DiagnosticReason p)
+             (awork_diags input tnft ot)
+             (fun ro c => occ_expr_diags (ci_idx input) c ro)
+             (fun w c => awork_diags_eq input tnft ot w c)
+             (fun ro c _ Hv => occ_expr_diags_nonexpr (ci_idx input) c ro Hv)).
+  unfold annotate_program. rewrite (ci_blocks_ok input). reflexivity.
 Qed.
 
 (** ═══ §8 THE ONE EXPRESSION PHASE ═══ a transient object bundling the retained [TypeNameFactTable] and the
