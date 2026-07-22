@@ -303,6 +303,14 @@ Print Assumptions GoCompile.phase_childfail_cause.
    every [OutcomeCause] entry satisfies [outcome_matches] (structural induction on the occurrence view).  This is
    what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
 Print Assumptions GoCompile.outcomes_caused_matches.
+(* §7 the outcome table's domain is EXACTLY the [ExprWork] key set: every work item has an entry
+   ([eot_work_present]); every present key is a work item's key ([eot_no_foreign_key]); the biconditional
+   ([eot_domain_iff_work]) — so a table with the required entries plus any extra key is UNINHABITABLE; and a
+   visited NON-expression occurrence has NO entry ([eot_nonexpr_absent], wrong-kind exclusion). *)
+Print Assumptions GoCompile.eot_work_present.
+Print Assumptions GoCompile.eot_no_foreign_key.
+Print Assumptions GoCompile.eot_domain_iff_work.
+Print Assumptions GoCompile.eot_nonexpr_absent.
 (* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
    fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
 Print Assumptions GoCompile.phase_expr_facts_eq_spec.

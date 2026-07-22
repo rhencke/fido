@@ -2169,51 +2169,57 @@ Definition outcomes_caused {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNa
 (* the EXACT-DOMAIN invariant (§7): the stored map has NO key beyond the visited occurrences' keys — every
    present key is some visited occurrence's node key.  (This is also what supplies the fold's freshness
    [find (node_ref_key r) m_rest = None] from the visit-level [suffix_head_key_fresh].) *)
-Definition outcome_dom_ok {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+(* §7 the EXACT-DOMAIN invariant: every present key is the node key of a visited EXPRESSION occurrence (a Some
+   view) — NOT merely some visited occurrence.  This is what excludes a WRONG-KIND (visited non-expression) key
+   and a FOREIGN (unvisited) key, and — with coverage ([outcomes_caused_covers]) — ties the table's domain
+   EXACTLY to the [ExprWork] enumeration. *)
+Definition outcome_dom_exact {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
     (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : Prop :=
   forall k, GoIndex.NodeKeyMapBase.find k m <> None ->
-    exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) l /\ GoIndex.Snap.node_ref_key r = k.
+    exists (r : GoIndex.Snap.NodeRef p) occ e,
+      In (r, occ) l /\ GoIndex.Snap.node_ref_key r = k /\ GoIndex.view_expr occ = Some e.
 
-Lemma outcome_dom_ok_empty {p} :
-  outcome_dom_ok (@nil (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)).
+Lemma outcome_dom_exact_empty {p} :
+  outcome_dom_exact (@nil (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)).
 Proof. intros k Hk. exfalso. apply Hk. apply GoIndex.NodeKeyMapFacts.empty_o. Qed.
 
-Lemma outcome_dom_ok_skip {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+Lemma outcome_dom_exact_skip {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
     (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest :
-  outcome_dom_ok rest m_rest -> outcome_dom_ok ((r, occ) :: rest) m_rest.
+  outcome_dom_exact rest m_rest -> outcome_dom_exact ((r, occ) :: rest) m_rest.
 Proof.
-  intros Hdom k Hk. destruct (Hdom k Hk) as [r0 [occ0 [Hin0 Hk0]]].
-  exists r0, occ0. split; [right; exact Hin0 | exact Hk0].
+  intros Hdom k Hk. destruct (Hdom k Hk) as [r0 [occ0 [e0 [Hin0 [Hk0 Hv0]]]]].
+  exists r0, occ0, e0. split; [right; exact Hin0 | split; [ exact Hk0 | exact Hv0 ] ].
 Qed.
 
-Lemma outcome_dom_ok_add {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
-    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest (v : ExprOutcome p) :
-  outcome_dom_ok rest m_rest ->
-  outcome_dom_ok ((r, occ) :: rest) (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest).
+Lemma outcome_dom_exact_add {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
+    (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest (v : ExprOutcome p) e
+    (Hv : GoIndex.view_expr occ = Some e) :
+  outcome_dom_exact rest m_rest ->
+  outcome_dom_exact ((r, occ) :: rest) (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest).
 Proof.
   intros Hdom k Hk.
   assert (HIn : GoIndex.NodeKeyMapBase.In k
                   (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest))
     by (rewrite GoIndex.NodeKeyMapFacts.in_find_iff; exact Hk).
   apply GoIndex.NodeKeyMapFacts.add_in_iff in HIn. destruct HIn as [Heq | HIn0].
-  - exists r, occ. split; [left; reflexivity | exact Heq].
+  - exists r, occ, e. split; [left; reflexivity | split; [ exact Heq | exact Hv ] ].
   - assert (Hkm : GoIndex.NodeKeyMapBase.find k m_rest <> None)
       by (rewrite <- GoIndex.NodeKeyMapFacts.in_find_iff; exact HIn0).
-    destruct (Hdom k Hkm) as [r0 [occ0 [Hin0 Hk0]]].
-    exists r0, occ0. split; [right; exact Hin0 | exact Hk0].
+    destruct (Hdom k Hkm) as [r0 [occ0 [e0 [Hin0 [Hk0 Hv0]]]]].
+    exists r0, occ0, e0. split; [right; exact Hin0 | split; [ exact Hk0 | exact Hv0 ] ].
 Qed.
 
 (* the FRESH-KEY fact the fold needs: a suffix head's key is absent from the accumulator (its domain is the
    tail's visited keys, and the head key is fresh by [suffix_head_key_fresh]). *)
 Lemma outcome_dom_head_fresh {p} (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
     (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m_rest :
-  outcome_dom_ok rest m_rest ->
+  outcome_dom_exact rest m_rest ->
   ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest) ->
   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m_rest = None.
 Proof.
   intros Hdom Hnd. destruct (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m_rest) as [w|] eqn:E;
     [exfalso | reflexivity].
-  destruct (Hdom (GoIndex.Snap.node_ref_key r) (ltac:(rewrite E; discriminate))) as [r1 [occ1 [Hin1 Hk1]]].
+  destruct (Hdom (GoIndex.Snap.node_ref_key r) (ltac:(rewrite E; discriminate))) as [r1 [occ1 [e1 [Hin1 [Hk1 _]]]]].
   apply Hnd. rewrite <- Hk1. apply in_map_iff. exists (r1, occ1). split; [reflexivity | exact Hin1].
 Qed.
 
@@ -2231,7 +2237,7 @@ Qed.
 Lemma outcomes_caused_add {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
     (r : GoIndex.Snap.NodeRef p) (occ : GoIndex.SourceOccurrence)
     (rest : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) e m_rest (v : ExprOutcome p) :
-  outcomes_caused idx tnft rest m_rest -> outcome_dom_ok rest m_rest ->
+  outcomes_caused idx tnft rest m_rest -> outcome_dom_exact rest m_rest ->
   ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest) ->
   GoIndex.view_expr occ = Some e ->
   OutcomeCause idx tnft (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest) r occ v ->
@@ -2378,12 +2384,12 @@ Definition build_outcomes {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNam
   forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)),
     (exists pre, prog_visit p = pre ++ l) ->
     { m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)
-      | outcomes_caused idx tnft l m /\ outcome_dom_ok l m }.
+      | outcomes_caused idx tnft l m /\ outcome_dom_exact l m }.
 Proof.
   induction l as [| [r occ] rest IH]; intro Hsuf.
   - exists (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)). split.
     + intros r0 occ0 e0 Hin0 _. destruct Hin0.
-    + apply outcome_dom_ok_empty.
+    + apply outcome_dom_exact_empty.
   - assert (Hsuf_rest : exists pre, prog_visit p = pre ++ rest).
     { destruct Hsuf as [pre Hpre]. exists (pre ++ [(r, occ)]). rewrite <- app_assoc. exact Hpre. }
     destruct (IH Hsuf_rest) as [m_rest [Hcaused_rest Hdom_rest]].
@@ -2400,7 +2406,7 @@ Proof.
            [ eapply outcomes_caused_add;
                [ exact Hcaused_rest | exact Hdom_rest | exact Hnd | exact Hv
                | eapply leaf_outcome_cause; [exact Hae | exact Her | exact Hv | reflexivity | reflexivity ] ]
-           | apply outcome_dom_ok_add; exact Hdom_rest ].
+           | eapply outcome_dom_exact_add; [ exact Hv | exact Hdom_rest ] ].
       (* the conversion occurrence: mint target + operand refs, read the operand's outcome, one [convert_const] *)
       assert (Hview : GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
                         = Some (EConvert ts x)) by (rewrite Her, <- Hocc; exact Hv).
@@ -2433,11 +2439,11 @@ Proof.
         eapply conv_outcome_cause; [ exact Hae | exact Her | exact Hv | exact Htr_ref | exact Hopr_ref | ].
         rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Hne_opr; symmetry; exact Hbad).
         exact (from_some_some _ Hpres).
-      * (* outcome_dom_ok: no key beyond the visited occurrences *)
-        apply outcome_dom_ok_add; exact Hdom_rest.
+      * (* outcome_dom_exact: no key beyond the visited EXPRESSION occurrences *)
+        eapply outcome_dom_exact_add; [ exact Hv | exact Hdom_rest ].
     + exists m_rest. split.
       * exact (outcomes_caused_skip idx tnft r occ rest m_rest Hcaused_rest Hv).
-      * exact (outcome_dom_ok_skip r occ rest m_rest Hdom_rest).
+      * exact (outcome_dom_exact_skip r occ rest m_rest Hdom_rest).
 Defined.
 
 
@@ -2519,7 +2525,9 @@ Record ExprOutcomeTable {p} (input : CompilationInput p) (tnft : TypeNameFactTab
   mkExprOutcomeTable {
     eot_map : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
     eot_caused : outcomes_caused (ci_idx input) tnft (ci_visit input) eot_map ;  (* §6 the DIRECT cause carried *)
-    eot_dom : outcome_dom_ok (ci_visit input) eot_map                            (* §7 no extra key *)
+    eot_dom : outcome_dom_exact (ci_visit input) eot_map              (* §7 EXACT domain: every key is a visited
+                                                                          EXPRESSION occurrence (no extra/foreign/
+                                                                          wrong-kind key) *)
   }.
 Arguments mkExprOutcomeTable {p input tnft} _ _ _.
 Arguments eot_map {p input tnft} _.
@@ -2722,6 +2730,62 @@ Definition ew_role {p} {input : CompilationInput p} (w : ExprWork input) : GoInd
 (* whole-visit membership transports to [prog_visit] membership through the retained coherence [ci_visit_ok]. *)
 Definition ci_in_prog {p} {input : CompilationInput p} {ro} (H : In ro (ci_visit input)) : In ro (prog_visit p) :=
   eq_ind (ci_visit input) (fun L => In ro L) H (prog_visit p) (ci_visit_ok input).
+
+(** ═══ §7 THE EXACT-DOMAIN LAW ═══ the proof-carrying outcome table's domain is EXACTLY the [ExprWork] key set:
+    every work item has an entry (coverage from the carried cause), and every present key is some work item's key
+    (from the carried EXACT domain).  So a table carrying the required entries PLUS any extra key is
+    UNINHABITABLE, and no wrong-kind (visited non-expression) or foreign (unvisited) key can appear (§2.4). *)
+
+(* ONE stored entry per work item (existence): every [ExprWork]'s key is present — the carried cause covers every
+   visited expression occurrence, and each work item IS a visited expression occurrence. *)
+Lemma eot_work_present {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (w : ExprWork input) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (eot_map ot) <> None.
+Proof.
+  exact (outcomes_caused_covers (ci_idx input) tnft (ci_visit input) (eot_map ot) (eot_caused ot)
+           (ew_node_ref w) (ew_occurrence w) (ew_expr w) (ew_in_visit w) (ew_view_exact w)).
+Qed.
+
+(* NO extra/foreign/wrong-kind key: every present key is some [ExprWork]'s node key — reconstructed as a genuine
+   work item from the carried exact domain (the key's occurrence has a Some view). *)
+Lemma eot_no_foreign_key {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft) k :
+  GoIndex.NodeKeyMapBase.find k (eot_map ot) <> None ->
+  exists w : ExprWork input, GoIndex.Snap.node_ref_key (ew_node_ref w) = k.
+Proof.
+  intros Hk.
+  destruct (eot_dom ot k Hk) as [r [occ [e [Hin [Hk0 Hv]]]]].
+  destruct (prog_visit_expr_ref (ci_idx input) r occ e (ci_in_prog Hin) Hv) as [er [Hae Her]].
+  exists (mkExprWork r occ er e Hin Hv Hae Her). exact Hk0.
+Qed.
+
+(* the EXACT-DOMAIN biconditional: a key is in the outcome table IFF an [ExprWork] has that key. *)
+Lemma eot_domain_iff_work {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft) k :
+  GoIndex.NodeKeyMapBase.find k (eot_map ot) <> None
+  <-> exists w : ExprWork input, GoIndex.Snap.node_ref_key (ew_node_ref w) = k.
+Proof.
+  split.
+  - exact (eot_no_foreign_key ot k).
+  - intros [w Hw]. rewrite <- Hw. exact (eot_work_present ot w).
+Qed.
+
+(* WRONG-KIND exclusion (explicit): a visited NON-expression occurrence ([view_expr = None]) has NO table entry —
+   its key cannot appear, so a statement/file/type occurrence is never mistaken for an expression outcome. *)
+Lemma eot_nonexpr_absent {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (eot_map ot) = None.
+Proof.
+  intros Hin Hv.
+  destruct (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (eot_map ot)) as [w|] eqn:E;
+    [exfalso | reflexivity].
+  destruct (eot_dom ot (GoIndex.Snap.node_ref_key r) (ltac:(rewrite E; discriminate)))
+    as [r' [occ' [e' [Hin' [Hk' Hv']]]]].
+  assert (Hrr : r' = r) by (apply GoIndex.Snap.node_ref_key_inj; exact Hk'). subst r'.
+  assert (Hoc : occ' = occ).
+  { rewrite (prog_visit_occ_is_source p r occ' (ci_in_prog Hin')),
+            (prog_visit_occ_is_source p r occ (ci_in_prog Hin)). reflexivity. }
+  subst occ'. rewrite Hv in Hv'. discriminate Hv'.
+Qed.
 
 (* build the exact work enumeration from a sublist [l] of the retained visit, CARRYING (like [build_outcomes])
    the fold-relation as an INTERNAL property: because each [ExprWork] carries a [view_expr occ]-dependent proof,
