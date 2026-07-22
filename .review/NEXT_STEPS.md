@@ -5,7 +5,8 @@
   sealed) → proof-carrying `ExprOutcomeTable` (the proof stays on the path; total queries return `ExprOutcome`,
   not option) → ONE `ExpressionPhase` whose table and outcomes are queried totally and whose facts + diagnostics
   are TOTAL projections (no fail-open); PLUS the repository's first `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`
-  ledger and `ADR-0001-PINNED-64-BIT-TARGET`. ACTIVE.
+  ledger and `ADR-0001-PINNED-64-BIT-TARGET`. COMPLETE — frozen candidate, pending Rob's HUMAN Implementation
+  Review.
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
@@ -16,7 +17,9 @@
 - **Fourth blocked C4 candidate / current repair baseline:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_4.md`.
 - **Human repair authorization token:** `C4-retained-phase-scope-ledger-repair-4`.
-- **State:** C4 Implementation Review BLOCKING; retained-phase repair active.
+- **State:** C4 Implementation Review — retained-phase + scope-ledger repair 4 COMPLETE; frozen candidate
+  pending Rob's HUMAN Implementation Review. `make check` + `make regenerate` GREEN; §10.1–10.7 gated
+  axiom-free; scope ledger + ADR-0001 (PROPOSED) written.
 - **Scope governance (newly authorized):** the `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` ledger +
   `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md` are authorized as review-governance work under this repair
   (a newly authorized review requirement, NOT a weakening of the binding C4 contract). ADR-0001 status:

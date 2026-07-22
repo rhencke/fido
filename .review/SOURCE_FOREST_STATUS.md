@@ -39,12 +39,13 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-**CURRENT: retained-phase and scope-ledger repair 4 ACTIVE from clean baseline `af2fc87`** (authority
-`.review/C4_IMPLEMENTATION_REPAIR_4.md`, token `C4-retained-phase-scope-ledger-repair-4`). Repair 3 (`af2fc87`)
+**CURRENT: retained-phase and scope-ledger repair 4 COMPLETE — frozen candidate, pending Rob's HUMAN
+Implementation Review** (authority `.review/C4_IMPLEMENTATION_REPAIR_4.md`, token
+`C4-retained-phase-scope-ledger-repair-4`; clean baseline `af2fc87`). Repair 3 (`af2fc87`)
 made real progress (one bottom-up fold; operand read from the processed suffix; a table-level total query;
 `EOConvFail`/`DRInvalidConversion` retain refs; use-resolution from the computed `ConstInfo`; fake `EConvert`
-leaf removed; alias differential complete; `life.md` character-only) but is **architecturally wrong**: it is still
-"proof BESIDE the path." The fourth-review blocking classes (§2 of the directive):
+leaf removed; alias differential complete; `life.md` character-only) but was **architecturally wrong**: still
+"proof BESIDE the path." The fourth-review blocking classes (§2 of the directive) — ALL ADDRESSED in repair 4:
 
 - **2.1** the retained `blocks`/`visit` in `elaborate_indexed` are IGNORED by the semantic builders — `prog_tnft`
   and `prog_outcomes_c` each hide their own `prog_visit p`; no `CompilationInput` value exists; equal list values
@@ -72,13 +73,33 @@ leaf removed; alias differential complete; `life.md` character-only) but is **ar
 - **2.12** the unsupported/restricted-scope decisions are undocumented — no reviewed ledger; the 64-bit target is
   the first required full decision record (ADR-0001).
 
+**Repair-4 resolution (how each class was closed):** 2.1/2.7 — ONE `CompilationInput` (`ci_ip`/`ci_blocks`/
+`ci_blocks_ok`/`ci_visit_ok`) built by `build_compilation_input`, consumed by the whole phase; a typed work layer
+via the retained `ExprOutcomeTable`. 2.2/2.6 — the PROOF-CARRYING `ExprOutcomeTable` (map + `eot_ok`
+completeness proof travels with the value) and ONE `ExpressionPhase` (`ep_tnft`+`ep_ot`), facts and diagnostics
+both projecting the SAME `ep_ot` by object identity (`facts_and_diags_share_phase`). 2.3/2.4 — TOTAL projections:
+`phase_expr_facts` and `phase_expr_diags` read `total_outcome_at` (returns `ExprOutcome`, never a fail-open
+`find`); no `as_expr None ⇒ []`. 2.5 — direct cause `phase_convfail_cause` (target = sealed table query, operand
+`EOOk opf`, `ci = ef_const_status opf`, `convert_const = None`), not `local_conv_failure`. 2.8 — the retained
+`idx` threaded through `prog_visit_operand`/`prog_visit_type_name`/`operand_closed`/`operand_covered`; no
+`index_program` in the live phase closure; global `prog_tnft` deleted, `TypeNameFactTable` built from the input
+and sealed (`elaborate_ok_seals_tnfacts`; `ExprFactTable` sealed by `elaborate_ok_seals_facts`). 2.9 —
+`two_uint8_distinct_target_refs` queries `ef_type_name_facts` from an actual successful `elaborate`
+(`two_uint8_compiles`). 2.10 — deep-nested phase fixtures (`deep_nested_no_diags` / `deep_fail_one_diag`).
+2.11 — prose corrected across NEXT_STEPS/STATUS/ARCHITECTURE/PROGRESS/GoCompile+gate comments. 2.12 — scope
+ledger `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` (PROPOSED). GREEN: `make check`
+(prove axiom-free + e2e + working-tree byte-compare) + `make regenerate` (no drift). §10.1–10.7 each gated
+axiom-free.
+
+**STOP: frozen candidate pending Rob's HUMAN Implementation Review; automatic Codex DISABLED (do NOT request or
+run Codex); C5 FORBIDDEN.**
+
 **Required (§3–§10):** ONE retained `CompilationInput` (index + blocks + visit + provenance proofs) built once,
 consumed by every production builder (none may call `prog_visit`/`prog_blocks`/`binding_visit`/`Snap.visit_file`/
 `index_program`); ONE typed WORK layer; a `TypeNameFactTable` built from the exact input, passed in and SEALED
 (delete production use of global `prog_tnft`); a PROOF-CARRYING `ExprOutcomeTable` that stays on the path with a
 TOTAL query returning `ExprOutcome` (not option); direct conversion-cause evidence (not `local_conv_failure`); ONE
-`ExpressionPhase`; TOTAL fact + diagnostic projections (no fail-open); the scope ledger + ADR-0001. **STOP on
-completion: pending Rob's HUMAN Implementation Review; automatic Codex DISABLED; C5 FORBIDDEN.**
+`ExpressionPhase`; TOTAL fact + diagnostic projections (no fail-open); the scope ledger + ADR-0001.
 
 Goal (unchanged): replace the three family-specific conversion constructors
 (`EIntConvert`/`EFloatConvert`/`EComplexConvert`) with one source-shaped `EConvert TypeSyntax GoExpr`; resolve
