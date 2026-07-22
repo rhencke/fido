@@ -3210,6 +3210,57 @@ Proof.
   unfold total_outcome_at. rewrite (from_some_eq _ (eot_at_not_none ot opr) (EOOk opf) Hfind). reflexivity.
 Qed.
 
+(* §6 EXACTNESS-BRIDGE SUPPORT — inversion of the carried cause by the OCCURRENCE'S VIEW shape (not by the
+   outcome shape), the form the structural induction needs.  A LEAF view forces [OCLeaf]; a conversion view
+   forces one of the three conversion causes and exposes [out = conv_outcome tnft er tr opr operand_out] with the
+   operand's stored outcome. *)
+Lemma OutcomeCause_leaf_view_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ e out :
+  GoIndex.view_expr occ = Some e -> expr_child e = None ->
+  OutcomeCause idx tnft prior r occ out ->
+  exists (er : GoIndex.ExprRef p) ci,
+    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
+    /\ const_info e = Some ci /\ out = leaf_outcome er ci.
+Proof.
+  intros Hv Hleaf HC.
+  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
+                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
+  - rewrite Hv in Hvw. injection Hvw as He0. subst e0.
+    exists er, ci. split; [ exact Ha | split; [ exact Her | split; [ exact Hci | reflexivity ] ] ].
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+Qed.
+
+Lemma OutcomeCause_conv_shape {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ ts x out :
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  OutcomeCause idx tnft prior r occ out ->
+  exists (er : GoIndex.ExprRef p) (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) operand_out,
+    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
+    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some operand_out
+    /\ out = conv_outcome tnft er tr opr operand_out.
+Proof.
+  intros Hview HC.
+  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
+                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
+  - exfalso. rewrite Hview in Hvw. injection Hvw as He0. subst e0. discriminate Hch.
+  - exists er, tr, opr, (EOOk opf).
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. rewrite Hcv. reflexivity.
+  - exists er, tr, opr, (EOOk opf).
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. rewrite Hcv. reflexivity.
+  - exists er, tr, opr, oout.
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. destruct oout; [ destruct Hfail | reflexivity | reflexivity ].
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
