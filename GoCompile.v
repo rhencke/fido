@@ -878,15 +878,17 @@ Proof.
   - apply GoAST.file_bindings_nodup_keys.
 Qed.
 
-(* [prog_expr_facts] is the source-determined SPECIFICATION ([add_occ_fact] per node); [elaborate_indexed]
-   BUILDS the fact map as a PROJECTION of the ONE expression-outcome authority [prog_outcomes] (extract each
-   occurrence's [EOOk] fact — no per-occurrence [const_info] rescan), proved EQUAL to this specification by
-   [outcome_facts_eq_spec]. *)
+(* [prog_expr_facts] is the source-determined SPECIFICATION ([add_occ_fact] per node); the production fact map
+   [phase_expr_facts] is a TOTAL PROJECTION of the retained [ExprOutcomeTable] (extract each occurrence's [EOOk]
+   fact via [total_outcome_at] — no per-occurrence [const_info] rescan), proved EQUAL to this specification by
+   [phase_expr_facts_eq_spec]. *)
 
 
-(* the ONE expression-outcome map ([prog_outcomes_c]) is the bottom-up accumulator (built below) folding the
-   delivered visit stream and CONSUMING the [prog_tnft] table object; every production expression fact AND every
-   conversion diagnostic PROJECTS this single authority, never a second [const_info]/[convert_const] pass. *)
+(* the ONE expression-outcome authority is the proof-carrying [ExprOutcomeTable] ([build_outcome_table] wrapping
+   the bottom-up [build_outcomes] fold over the retained [CompilationInput]'s visit, paired with its
+   completeness proof [eot_ok]) and CONSUMING the once-built [TypeNameFactTable] object; every production
+   expression fact AND every conversion diagnostic PROJECTS this single table by the TOTAL [total_outcome_at]
+   query, never a second [const_info]/[convert_const] pass and never a fail-open [find]. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its TYPE-NAME occurrence at [Pos.succ me] and its
    operand occurrence at [Pos.succ (Pos.succ me)] (the two-child conversion layout: target type name, then
@@ -3239,11 +3241,12 @@ Proof.
                            | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
-(* ---- the SINGLE-PASS diagnostic step: PROJECTS each occurrence's stored outcome from the ONE
-   [prog_outcomes] authority.  A local invalid conversion reads its own [EOConvFail], emitting the diagnostic
-   from the STORED conversion/target refs + resolved target + operand status ALREADY computed by the outcome
-   recursion — NEVER re-minting the target ref, never a second [convert_const] or resolver call.  A default
-   failure reads its own [EOOk] fact's status.  Proved to agree with the [occ_expr_diags] specification. ---- *)
+(* ---- the diagnostic step ([occ_work_diags], below): PROJECTS each occurrence's stored outcome from the ONE
+   retained [ExprOutcomeTable] via the TOTAL [total_outcome_at] query.  A local invalid conversion reads its
+   own [EOConvFail], emitting the diagnostic from the STORED conversion/target refs + resolved target + operand
+   status ALREADY computed by the outcome fold — NEVER re-minting the target ref, never a second [convert_const]
+   or resolver call.  A default failure reads its own [EOOk] fact's status.  Proved to agree with the
+   [occ_expr_diags] specification. ---- *)
 
 Lemma local_conv_failure_const_none e t ci : local_conv_failure e = Some (t, ci) -> const_info e = None.
 Proof.
@@ -3260,10 +3263,10 @@ Proof.
   cbn [flat_map]. rewrite (H a (or_introl eq_refl)), IH by (intros a' Ha'; apply H; right; exact Ha'). reflexivity.
 Qed.
 
-(* the production expression diagnostics: the SINGLE-PASS outcome projection over the ONE-PASS annotated stream —
+(* the production expression diagnostics: the TOTAL outcome projection over the ONE-PASS annotated stream —
    each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its outcome is
-   read from the ONE [prog_outcomes] authority; a local invalid conversion emits its STORED refs (no re-mint),
-   no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
+   read from the ONE retained [ExprOutcomeTable] (via [total_outcome_at]); a local invalid conversion emits its
+   STORED refs (no re-mint), no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
 (* the SPECIFICATION expression-diagnostic report: the declarative per-occurrence [occ_expr_diags] over the
    one-pass annotated stream.  The PRODUCTION report is [phase_expr_diags] (the TOTAL projection of the retained
    [ExprOutcomeTable]), proved equal to THIS ([phase_expr_diags_eq_spec] / [ep_diags_eq_expr_diags]). *)

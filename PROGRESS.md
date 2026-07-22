@@ -88,16 +88,21 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — three
 successive candidates were BLOCKING at human Implementation Review; the authorized
-`C4-retained-table-bottom-up-repair-3` is applied: the production expression path is the PROOF-CARRYING BOTTOM-UP
-ACCUMULATOR `prog_outcomes_c` — a `fold_right` over the retained source-order visit that CONSUMES the once-built
-`prog_tnft` TABLE OBJECT, queries the table at each conversion's retained target ref (TOTAL, no fallback), reads
-its operand's ALREADY-COMPUTED outcome from the processed suffix (TOTAL `from_some`, no fallback), and calls
-`convert_const` ONCE per conversion; the FACTS and the DIAGNOSTICS both project that SAME accumulator
-(`facts_and_diags_share_outcomes`), the `EOConvFail` outcome carries the exact conversion / target / operand refs
-(the operand ref a field of `DRInvalidConversion`, projected without re-mint), and the SAME `prog_tnft` object is
-sealed into `ElaborationFacts` by object identity; full pinned-Go accept/reject alias matrix.  Frozen for Rob's
-human Implementation Review (the current authority chain is in `.review/NEXT_STEPS.md`). Live status:
-`.review/SOURCE_FOREST_STATUS.md`.
+`C4-retained-phase-scope-ledger-repair-4` is applied: the production expression path is ONE `ExpressionPhase`
+built from ONE retained `CompilationInput` — the PROOF-CARRYING `ExprOutcomeTable` (`build_outcome_table`
+wrapping the `build_outcomes` `fold_right` over the retained source-order visit with its completeness proof)
+CONSUMING the once-built `TypeNameFactTable` object, querying the table at each conversion's retained target ref
+(the TOTAL `total_outcome_at` / `type_name_fact_at_table`, no fallback), reading its operand's ALREADY-COMPUTED
+outcome from the processed suffix (TOTAL `from_some`, no fallback), and calling `convert_const` ONCE per
+conversion (no `index_program` reconstruction in the phase closure); the TOTAL fact projection and the TOTAL
+diagnostic projection both read that SAME `ExprOutcomeTable` inside the one phase
+(`facts_and_diags_share_phase`, object identity — no fail-open `find`), the `EOConvFail` outcome carries the
+exact conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`, projected without
+re-mint) with its cause read directly off the phase (`phase_convfail_cause`), and the phase's `TypeNameFactTable`
+and `ExprFactTable` are sealed into `ElaborationFacts` by object identity (`elaborate_ok_seals_tnfacts` /
+`elaborate_ok_seals_facts`); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
+Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
+`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`). Live status: `.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization; C5 and later remain FORBIDDEN.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
