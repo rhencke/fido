@@ -384,6 +384,10 @@ Print Assumptions GoCompile.two_uint8_distinct_target_refs.
 Print Assumptions GoCompile.deep_nested_compiles.
 Print Assumptions GoCompile.deep_nested_no_diags.
 Print Assumptions GoCompile.deep_fail_one_diag.
+(* §12/§2.10 REAL PHASE fixtures: query [build_expression_phase]'s own [ep_diags] projection — a deep valid chain
+   projects EMPTY, a deep inner failure REPORTS (non-empty, not suppressed). *)
+Print Assumptions GoCompile.deep_nested_phase_no_diags.
+Print Assumptions GoCompile.deep_fail_phase_reports.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)

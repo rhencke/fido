@@ -9271,7 +9271,9 @@ Proof.
   - unfold fresh_build_preflight_ok. vm_compute. reflexivity.
   - exact (proj1 (source_spec_valid_b_iff deep_nested_program) deep_nested_valid).
 Qed.
-(* the phase's TOTAL diagnostic projection over the whole valid deep tree is empty — no fail-open. *)
+(* SPECIFICATION fixture (the source-determined erased report): the whole valid deep tree's erased diagnostics
+   are empty.  This queries [erased_report] (the SPEC), NOT the retained phase — the phase query is the separate
+   [deep_nested_phase_no_diags] below (§2.10). *)
 Theorem deep_nested_no_diags :
   erased_report deep_nested_program (GoIndex.Snap.index_program deep_nested_program) = [].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
@@ -9282,11 +9284,45 @@ Definition deep_fail_program : GoProgram :=
                           (EConvert (GoAST.tsyn GoNames.TNint32)
                             (EConvert (GoAST.tsyn GoNames.TNint16)
                               (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)))) ] ] ].
-(* EXACTLY ONE diagnostic: the innermost int8(300) overflow, anchored at its own node with its stored operand
-   ref; the three enclosing conversions are blocked-by-child (no second reason, no per-ancestor re-report). *)
+(* SPECIFICATION fixture: EXACTLY ONE erased diagnostic — the innermost int8(300) overflow, anchored at its own
+   node with its stored operand ref; the three enclosing conversions are blocked-by-child (no second reason, no
+   per-ancestor re-report).  Queries [erased_report] (the SPEC); the phase query is [deep_fail_phase_reports]. *)
 Theorem deep_fail_one_diag :
   length (erased_report deep_fail_program (GoIndex.Snap.index_program deep_fail_program)) = 1%nat.
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
+
+(** ═══ ★§12 REAL PHASE FIXTURES ═══ these construct [build_compilation_input] + [build_expression_phase] and
+    query the RETAINED PHASE's OWN diagnostic projection [ep_diags] (the typed-work [awork_diags] over the phase's
+    [ep_ot]) — NOT the erased specification report.  The [erased_report] fixtures above are the SPECIFICATION
+    fixtures (renamed per §2.10); these exercise the production phase object [build_expression_phase] builds. *)
+
+(* PHASE query — deep valid 4-conversion chain: the built phase's TOTAL diagnostic projection is EMPTY (every
+   occurrence resolves EOOk; no fail-open).  Reduced through the phase→spec equality to the SOURCE [program_typedb]
+   (so it needs no snapshot [vm_compute]).  The retained [ExprFactTable] the phase seals is [ep_eft] by object
+   identity ([elaborate_ok_seals_facts]). *)
+Theorem deep_nested_phase_no_diags :
+  ep_diags (build_expression_phase
+              (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))) = [].
+Proof.
+  rewrite ep_diags_eq_expr_diags.
+  apply (proj2 (expr_diags_empty_iff
+                  (ci_idx (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))).
+  vm_compute. reflexivity.
+Qed.
+
+(* PHASE query — deep inner failure: the built phase REPORTS the failure (its projection is NON-empty; the fail
+   is NOT suppressed — the §2.3 fail-open would have dropped it).  The innermost [int8(300)] is the sole EOConvFail
+   and the three enclosing conversions are EOChildFail; the SPEC fixture [deep_fail_one_diag] pins the exact
+   count = 1, and the phase projection equals that spec by [elaborate_phase_raw_eq]. *)
+Theorem deep_fail_phase_reports :
+  ep_diags (build_expression_phase
+              (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))) <> [].
+Proof.
+  rewrite ep_diags_eq_expr_diags. intro Hnil.
+  pose proof (proj1 (expr_diags_empty_iff
+                  (ci_idx (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))) Hnil) as Htyped.
+  vm_compute in Htyped. discriminate Htyped.
+Qed.
 
 (* ---- ★§5.3 CONCRETE-SNAPSHOT PLUMBING: on a REAL compiled program, the retained index mints a REAL [ExprRef]
    for a source conversion occurrence — the occurrence hypotheses of [conversion_target_ref_conv] are DISCHARGED
