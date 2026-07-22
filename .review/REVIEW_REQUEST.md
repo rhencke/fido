@@ -4,8 +4,8 @@ state: closed
 review: Implementation Review
 confirmation: no
 confirmation_used: no
-human_override: C4-retained-table-bottom-up-repair-3
-result: third BLOCKING result repaired (retained-table bottom-up candidate frozen); new human C4 Implementation Review pending
+human_override: C4-retained-phase-scope-ledger-repair-4
+result: BLOCKING at af2fc87; retained-phase and scope-ledger repair 4 active
 
 contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
 contract_sha256: 9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4
