@@ -1428,7 +1428,8 @@ Definition operand_key {p} (r : GoIndex.Snap.NodeRef p) : GoIndex.NodeKey :=
 
 (* the operand of a visited conversion is ITSELF a visited occurrence whose key is [operand_key] and whose view is the
    operand expression (minted through the index from its exact local id). *)
-Lemma prog_visit_operand (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ e x :
+Lemma prog_visit_operand (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p)
+    (r : GoIndex.Snap.NodeRef p) occ e x :
   In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
   exists r', In (r', GoIndex.Snap.source_occurrence_of_ref r') (prog_visit p)
     /\ GoIndex.Snap.node_ref_key r' = operand_key r
@@ -1453,12 +1454,12 @@ Proof.
   pose proof (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) as Hpath.
   assert (Hfind' : GoAST.find_file (GoIndex.Snap.file_ref_path fr) (prog_files p) = Some (GoIndex.Snap.file_ref_source fr))
     by (rewrite Hpath; exact Hfind).
-  destruct (GoIndex.Snap.ref_of_key_source p (GoIndex.indexed_syntax (GoIndex.index_program p))
+  destruct (GoIndex.Snap.ref_of_key_source p idx
               (GoIndex.Snap.file_ref_path fr) (GoIndex.Snap.file_ref_source fr)
               (Pos.succ (Pos.succ (GoIndex.Snap.node_ref_local r))) Hfind' Hvalid) as [r' [Hrok [Hrlocal Hrsrc]]].
   exists r'.
   assert (Hkey : GoIndex.Snap.node_ref_key r' = operand_key r).
-  { pose proof (GoIndex.Snap.ref_of_key_sound p (GoIndex.indexed_syntax (GoIndex.index_program p)) _ r' Hrok) as Hk.
+  { pose proof (GoIndex.Snap.ref_of_key_sound p idx _ r' Hrok) as Hk.
     rewrite Hk. unfold operand_key. rewrite GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file]. rewrite Hfile. reflexivity. }
   assert (Hsor : GoIndex.Snap.source_occurrence_of_ref r' = occ').
   { pose proof (GoIndex.Snap.source_occ_of_ref_eq r') as Hso'.
@@ -1487,7 +1488,8 @@ Qed.
 
 (* the target type-name of a visited conversion is ITSELF a visited occurrence whose key is [type_name_key] and
    whose [view_typename] is the exact source [TypeSyntax] (minted through the index from its exact local id). *)
-Lemma prog_visit_type_name (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ ts x :
+Lemma prog_visit_type_name (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p)
+    (r : GoIndex.Snap.NodeRef p) occ ts x :
   In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
   exists r', In (r', GoIndex.Snap.source_occurrence_of_ref r') (prog_visit p)
     /\ GoIndex.Snap.node_ref_key r' = type_name_key r
@@ -1514,12 +1516,12 @@ Proof.
   pose proof (GoIndex.Snap.file_of_path_sound p (fst b) fr Ef) as Hpath.
   assert (Hfind' : GoAST.find_file (GoIndex.Snap.file_ref_path fr) (prog_files p) = Some (GoIndex.Snap.file_ref_source fr))
     by (rewrite Hpath; exact Hfind).
-  destruct (GoIndex.Snap.ref_of_key_source p (GoIndex.indexed_syntax (GoIndex.index_program p))
+  destruct (GoIndex.Snap.ref_of_key_source p idx
               (GoIndex.Snap.file_ref_path fr) (GoIndex.Snap.file_ref_source fr)
               (Pos.succ (GoIndex.Snap.node_ref_local r)) Hfind' Hvalid) as [r' [Hrok [Hrlocal Hrsrc]]].
   exists r'.
   assert (Hkey : GoIndex.Snap.node_ref_key r' = type_name_key r).
-  { pose proof (GoIndex.Snap.ref_of_key_sound p (GoIndex.indexed_syntax (GoIndex.index_program p)) _ r' Hrok) as Hk.
+  { pose proof (GoIndex.Snap.ref_of_key_sound p idx _ r' Hrok) as Hk.
     rewrite Hk. unfold type_name_key. rewrite GoIndex.Snap.node_ref_key_eq. cbn [GoIndex.nk_file]. rewrite Hfile. reflexivity. }
   assert (Hsor : GoIndex.Snap.source_occurrence_of_ref r' = occ').
   { pose proof (GoIndex.Snap.source_occ_of_ref_eq r') as Hso'.
@@ -1556,7 +1558,7 @@ Lemma conversion_target_ref_conv {p} (idx : GoIndex.Snap.SyntaxIndex p)
 Proof.
   intros Hin Hv Hae.
   pose proof (GoIndex.erase_as_kind idx r GoIndex.KExpression er Hae) as Her.
-  destruct (prog_visit_type_name p r occ ts x Hin Hv) as [r' [Hin' [Hkey [Hvts Hrole]]]].
+  destruct (prog_visit_type_name p idx r occ ts x Hin Hv) as [r' [Hin' [Hkey [Hvts Hrole]]]].
   assert (Hkind : GoIndex.Snap.node_kind idx r' = GoIndex.KTypeName).
   { rewrite (GoIndex.Snap.node_kind_matches_source p idx r'). exact (GoIndex.view_typename_kind _ ts Hvts). }
   destruct (GoIndex.as_kind_complete idx r' GoIndex.KTypeName Hkind) as [tr [Hastr Hetr]].
@@ -1592,7 +1594,7 @@ Lemma conversion_operand_ref_conv {p} (idx : GoIndex.Snap.SyntaxIndex p)
 Proof.
   intros Hin Hv Hae.
   pose proof (GoIndex.erase_as_kind idx r GoIndex.KExpression er Hae) as Her.
-  destruct (prog_visit_operand p r occ (EConvert ts x) x Hin Hv eq_refl) as [r' [Hin' [Hkey [Hvx Hrole]]]].
+  destruct (prog_visit_operand p idx r occ (EConvert ts x) x Hin Hv eq_refl) as [r' [Hin' [Hkey [Hvx Hrole]]]].
   assert (Hkind : GoIndex.Snap.node_kind idx r' = GoIndex.KExpression).
   { rewrite (GoIndex.Snap.node_kind_matches_source p idx r'). exact (GoIndex.view_expr_kind _ x Hvx). }
   destruct (GoIndex.as_kind_complete idx r' GoIndex.KExpression Hkind) as [opr [Haopr Heopr]].
@@ -1792,17 +1794,6 @@ Lemma prog_type_name_facts_find (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ
   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (prog_type_name_facts p) = occ_type_name_fact occ.
 Proof. intro Hin. apply tn_fold_facts_find; [ apply prog_visit_key_nodup | exact Hin ]. Qed.
 
-(* the retained type-name fact map find at a conversion's [type_name_key] is EXACTLY its resolved target
-   ([predeclared_type ts]) — the production path reads THIS, never re-resolving. *)
-Lemma prog_type_name_facts_find_conv (p : GoProgram) (r : GoIndex.Snap.NodeRef p) occ ts x :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some (EConvert ts x) ->
-  GoIndex.NodeKeyMapBase.find (type_name_key r) (prog_type_name_facts p) = Some (mkTypeNameFact (predeclared_type ts)).
-Proof.
-  intros Hin Hv. destruct (prog_visit_type_name p r occ ts x Hin Hv) as [r' [Hin' [Hkey [Hvts _]]]].
-  rewrite <- Hkey, (prog_type_name_facts_find p r' _ Hin').
-  exact (occ_type_name_fact_some _ ts Hvts).
-Qed.
-
 Lemma prog_type_name_facts_domain (p : GoProgram) k f :
   GoIndex.NodeKeyMapBase.find k (prog_type_name_facts p) = Some f ->
   exists (r : GoIndex.Snap.NodeRef p) occ, In (r, occ) (prog_visit p)
@@ -1910,14 +1901,14 @@ Proof.
   apply in_map_iff. exists (r, occ). split; [reflexivity | exact Hbad].
 Qed.
 
-Lemma prog_visit_operand_closed (p : GoProgram) :
+Lemma prog_visit_operand_closed (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) :
   forall l1 r occ l2, prog_visit p = l1 ++ (r, occ) :: l2 ->
     forall e x, GoIndex.view_expr occ = Some e -> expr_child e = Some x ->
     exists r' occ', GoIndex.Snap.node_ref_key r' = operand_key r /\ GoIndex.view_expr occ' = Some x /\ In (r', occ') l2.
 Proof.
   intros l1 r occ l2 Hsplit e x Hv Hc.
   assert (Hin_ro : In (r, occ) (prog_visit p)) by (rewrite Hsplit; apply in_or_app; right; left; reflexivity).
-  destruct (prog_visit_operand p r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey [Hvx _]]]].
+  destruct (prog_visit_operand p idx r occ e x Hin_ro Hv Hc) as [r' [Hin'p [Hkey [Hvx _]]]].
   exists r', (GoIndex.Snap.source_occurrence_of_ref r'). split; [exact Hkey | split; [exact Hvx |]].
   pose proof Hin_ro as Hb0. rewrite prog_visit_flat_map in Hb0. apply in_flat_map in Hb0. destruct Hb0 as [b [Hb Hrb]].
   unfold binding_visit in Hrb. destruct (GoIndex.Snap.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
@@ -1999,14 +1990,14 @@ Definition outcome_covers {p} (l : list (GoIndex.Snap.NodeRef p * GoIndex.Source
     GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m <> None.
 
 (* a conversion's operand entry is present in a suffix-complete accumulator (operand-closure + covers). *)
-Lemma operand_covered (p : GoProgram) l1 r occ l2 ts x
+Lemma operand_covered (p : GoProgram) (idx : GoIndex.Snap.SyntaxIndex p) l1 r occ l2 ts x
     (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) :
   prog_visit p = l1 ++ (r, occ) :: l2 -> GoIndex.view_expr occ = Some (EConvert ts x) ->
   outcome_covers l2 m ->
   GoIndex.NodeKeyMapBase.find (operand_key r) m <> None.
 Proof.
   intros Hsplit Hv Hcov.
-  destruct (prog_visit_operand_closed p l1 r occ l2 Hsplit (EConvert ts x) x Hv eq_refl)
+  destruct (prog_visit_operand_closed p idx l1 r occ l2 Hsplit (EConvert ts x) x Hv eq_refl)
     as [r' [occ' [Hkey [Hvx Hin']]]].
   rewrite <- Hkey. exact (Hcov r' occ' x Hin' Hvx).
 Qed.
@@ -2189,7 +2180,7 @@ Lemma outcomes_ok_operand_present {p} (idx : GoIndex.Snap.SyntaxIndex p) l1 (r :
   outcomes_ok idx l2 m -> GoIndex.NodeKeyMapBase.find (operand_key r) m <> None.
 Proof.
   intros Hsplit Hv Hok.
-  exact (operand_covered p l1 r occ l2 ts x m Hsplit Hv (outcomes_ok_covers idx l2 m Hok)).
+  exact (operand_covered p idx l1 r occ l2 ts x m Hsplit Hv (outcomes_ok_covers idx l2 m Hok)).
 Qed.
 
 (* the head of a suffix of the visit stream has a FRESH key (distinct from every tail key), by the visit's
@@ -2271,7 +2262,7 @@ Proof.
       apply (outcomes_ok_add idx r occ rest (EConvert ts x) m_rest _ Hok_rest Hnd Hv).
       (* the stored conversion outcome matches: the operand's outcome is the tail entry proven by [Hok_rest] *)
       destruct Hsuf as [pre Hpre].
-      destruct (prog_visit_operand_closed p pre r occ rest Hpre (EConvert ts x) x Hv eq_refl)
+      destruct (prog_visit_operand_closed p idx pre r occ rest Hpre (EConvert ts x) x Hv eq_refl)
         as [r' [occ' [Hkey' [Hvx' Hin']]]].
       destruct (Hok_rest r' occ' x Hin' Hvx') as [out' [Hf' Hpf']].
       assert (Hoo : from_some (GoIndex.NodeKeyMapBase.find
