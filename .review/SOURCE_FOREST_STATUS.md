@@ -11,13 +11,16 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - First blocked candidate: `89b8e54634e7012612a51990756ad29a579c1b0f` (C4 Implementation Review BLOCKING).
-- Second blocked candidate / repair-2 baseline: `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca` (second BLOCKING).
+- Second blocked candidate: `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca` (second BLOCKING).
+- Third blocked code candidate: `806ce87373e29b6980e5c3d9d274ffa86580449b` (third BLOCKING — recursive/recomputing root).
+- Repair-3 baseline (current clean main): `1b38b68c104bc987744ececc36e771d8977bdbf2`.
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
-  repair 2 `C4-typed-reference-single-path-repair-2` (ACTIVE).
-- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_2.md` (repair 1 `.review/C4_IMPLEMENTATION_REPAIR_1.md`
-  superseded — deleted in the first repair-2 implementation commit; git history is its archive).
+  repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3` (ACTIVE).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_3.md` (repairs 1 and 2 superseded — repair 1
+  deleted in the first repair-2 implementation commit; repair 2 deleted in the first repair-3 implementation
+  commit; git history is their archive).
 - Automatic Codex review: DISABLED. The directive is the accepted human Contract Review; on repair completion
-  the candidate is frozen (`review(final): C4 — freeze single-path typed-reference candidate`) and reported for
+  the candidate is frozen (`review(final): C4 — freeze retained-table bottom-up candidate`) and reported for
   Rob's human Implementation Review — no Codex review is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
@@ -39,114 +42,46 @@ facts; render from the source spelling; and delete the old path in the same chec
 names (the fourteen existing numeric names plus the `byte`→`uint8` and `rune`→`int32` source aliases); no new
 semantic types.  No C5 work (no `uintptr`, no rune literals/constants).
 
-- **`1c4a7de` (repair-1 candidate) was a SECOND C4 Implementation Review BLOCKING; production-root repair 2
-  `C4-typed-reference-single-path-repair-2` (authority `.review/C4_IMPLEMENTATION_REPAIR_2.md`) is COMPLETE —
-  candidate frozen (`review(final): C4 — freeze single-path typed-reference candidate`), pending Rob's human
-  Implementation Review.** The live production expression pass now runs on ONE typed route: `typed_outcome`
-  (`typed_outcome_e`) is a STRUCTURAL recursion on the conversion's operand VIEW that mints its target
-  `TypeNameRef` + operand `ExprRef` through the retained index, reads the resolved target from the once-built
-  `prog_type_name_facts` via the TOTAL `tnfact_at` query, descends into the retained operand `ExprRef`, and calls
-  `convert_const` ONCE — no raw NodeKey arithmetic, no second visit, no second `const_info`/`convert_const`.
-  `EOConvFail` CARRIES the exact conversion / target / operand refs; diagnostics PROJECT them (no re-mint). The
-  fact map is a projection of this ONE `prog_outcomes` authority; the sealed type-name map IS the consumed map.
-  Verification GREEN: `make prove` (402/402 axiom-free + whole-theory audit + self-tests A–E), `make e2e`
-  (pinned-Go `go build ./...` + goldens), `make check` (working-tree bytes byte-identical), `make regenerate`.
-  How each ORIGINAL blocking class was addressed:
-  - **2.1 CLOSED** — use-context resolution now comes from the just-computed `ConstInfo` via `use_resolved_of_ci`
-    (§3.5); no `occ_use_resolved`/`resolve_expr_const`/recursive-`const_info` second route on the live path.
-  - **2.2 CLOSED** — the live step obtains the conversion `ExprRef` + target `TypeNameRef` + operand `ExprRef`
-    (`conversion_target_ref`/`conversion_operand_ref`); no raw `find (type_name_key …)`/`find (operand_key …)`.
-  - **2.3 CLOSED** — `elaborate_indexed` builds `tnfacts`/`outcomes`/`facts` from the ONE let-bound `visit`; no
-    second `prog_visit`.
-  - **2.4 CLOSED** — the type-name query is TOTAL (`tnfact_at`, `from_some` of a `<>None` proof); the operand
-    outcome is the STRUCTURAL recursion (no map-miss → `EOChildFail`); no fake `leaf_ci (CBool false)` for a
-    conversion (`typed_outcome_e` dispatches `EConvert` separately).
-  - **2.5 CLOSED** — `EOConvFail er tr opr t ci` carries the exact refs; `conv_failure_om`/`occ_expr_diags_sm`
-    project them into `DRInvalidConversion` (no `conversion_target_ref` re-mint).
-  - **2.6 CLOSED** — the gated theorems are restated over the typed path: `prog_conv_outcome_consumes` (typed-ref
-    consumption), `typed_outcome_convfail` (exact stored evidence), `outcome_facts_eq_spec`, `prog_outcomes_find`,
-    `tnfact_at_resolves`, `elaborate_ok_seals_tnfacts`.
-  - **2.7 CLOSED** — a CONCRETE compiled two-`uint8` snapshot `two_uint8_distinct_target_refs` mints + queries
-    BOTH real target `TypeNameRef`s (distinct keys, equal syntax, equal facts) with the occurrences DISCHARGED
-    from the source (`program_expr_ref_at`/`program_conv_target_ref`/`valid_localb_of_source`), not assumed.
-  - **2.8 CLOSED** — the false one-visit/one-convert prose and the "NO source syntax" erased-report comment are
-    corrected in `GoCompile.v` + `ARCHITECTURE.md`; `NEXT_STEPS.md` reflects the frozen candidate.
-  New §6 fixtures: `nested_use_single_resolution` (single use-resolution at the use site), `inner_fail_one_inner_no_outer`
-  (locally-failing inner → one inner diagnostic, no outer).
+- **`806ce87` (repair-2 candidate) was a THIRD C4 Implementation Review BLOCKING; retained-table bottom-up repair 3
+  `C4-retained-table-bottom-up-repair-3` (authority `.review/C4_IMPLEMENTATION_REPAIR_3.md`) is ACTIVE from clean
+  main `1b38b68`.** Repair 2 moved typed refs into `typed_outcome` and fixed the hidden use-resolution rescan, but
+  it did NOT implement the required production model. Two decisive faults: (a) production does not CONSUME the
+  `TypeNameFactTable` object built from the retained visit — `typed_outcome_e` calls `tnfact_at p tr` →
+  `prog_type_name_facts p`, re-folding `prog_visit p` for every conversion (equivalent recomputation sold as
+  retained authority; `elaborate_ok_seals_tnfacts` proves only extensional EQUALITY, not object consumption); and
+  (b) the outcome map is filled by STRUCTURAL RECURSION on each expression subtree, then `add_typed_outcome` folds
+  `typed_outcome` over every occurrence — so a nested conversion is evaluated once per ancestor AND again at its own
+  entry, several `convert_const` calls per occurrence. "One convert_const per conversion" was false. Blocking
+  classes (repair-3 §2):
+  - **2.1** the once-built `TypeNameFactTable` is beside production; `tnfact_at`/`prog_type_name_facts` recompute.
+  - **2.2** the outcome map is not a bottom-up authority — recursive re-evaluation, not one accumulator reading the
+    already-computed operand outcome; multiple `convert_const` per occurrence.
+  - **2.3** no proof-carrying typed WORK stream; `add_typed_outcome` does `as_expr … = None ⇒ skip` on the live path.
+  - **2.4** `occ_expr_diags_sm` has fail-open `as_expr … = None ⇒ []` structural branches.
+  - **2.5** `conv_failure_om` discards the stored operand ref (`_opr`); `DRInvalidConversion` has no operand-ref field;
+    diagnostic soundness returns to `local_conv_failure` + recursive `const_info` (a source spec theorem, not production).
+  - **2.6** `prog_conv_outcome_consumes` is stated over `prog_outcomes`/`tnfact_at`/recursive `const_info` — it proves
+    the rejected recursive helper, not the retained-table/bottom-up path; gate comments repeat the false claims.
+  - **2.7** `two_uint8_distinct_target_refs` queries `tnfact_at` (raw recomputing), not a SEALED `TypeNameFactTable`.
+  - **2.8** `leaf_ci` keeps the fake `EConvert ⇒ CIUntyped (CBool false)` semantic case.
+  - **2.9** false authority/prose claims (one route / consumed+sealed / one convert_const / already-computed operand /
+    `tnfact_at` reads the local map / `life.md` "fixed C4 by putting typed_outcome on the path").
+  - **2.10** `CLAUDE.md`'s "no review gate governs `life.md`" is incompatible with a frozen-candidate process — a
+    tracked file cannot self-exempt from review/freeze.
 
-- **(SUPERSEDED — the original repair-2 blocking classes, retained for the archive.)** The green tree was not
-  the true contract: the live production expression pass ran on raw NodeKey arithmetic + a hidden second
-  semantic route (typed refs/retained facts proved BESIDE the path). Blocking classes:
-  - **2.1** production `outcome_step` fills `ef_use_resolved` via `occ_use_resolved` → `resolve_expr_const` →
-    recursive `const_info` → a SECOND `convert_const` per nested conversion — "one convert_const per conversion"
-    is false. Use-context resolution must come from the just-computed ConstInfo.
-  - **2.2** typed refs (`conversion_target_ref`) are NOT on the live path — the conversion branch reads raw
-    `find (type_name_key …)` / `find (operand_key …)`, no index arg, no ExprRef/TypeNameRef/operand-ExprRef value.
-  - **2.3** `tnfacts := prog_type_name_facts p` re-folds `prog_visit p` = `concat (prog_blocks p)` — a SECOND
-    visit after the retained one; build from the let-bound `visit`.
-  - **2.4** impossible structural failures become semantic values (missing fact → EOChildFail; ref-None → [];
-    `leaf_ci` fake `CBool false` for EConvert) — eliminate via a total proof-backed function / `False_rect`.
-  - **2.5** `EOConvFail` stores only GoType+ConstInfo; the diagnostic re-mints the target ref — the outcome must
-    CARRY the exact conversion/target/operand refs + facts; diagnostics PROJECT them.
-  - **2.6** the gated theorems (`prog_conv_outcome_consumes`/`elaborate_ok_seals_tnfacts`/`occ_expr_diags_conv_sound`)
-    prove the raw-key path, not the typed-ref path — replace them.
-  - **2.7** `repeated_name_distinct_refs` is CONDITIONAL (assumes the two occurrences) — need a CONCRETE compiled
-    two-`uint8` snapshot minting+querying both real refs.
-  - **2.8** false current prose/comments (one-visit/one-convert claims, "NO source syntax", NEXT_STEPS placeholders).
+  **Required model (repair-3 §3):** ONE proof-backed retained `CompilationInput` (index + blocks/visit + proofs),
+  consumed by every production builder (no hidden `prog_visit`/`prog_blocks`/`index_program`); ONE proof-backed typed
+  WORK stream (each conversion work item carries conversion/target/operand `ExprRef`s + view/child/order/recovery/
+  suffix proofs; minting is TOTAL for a Some-expression view); ONE exact `TypeNameFactTable` object with a table-level
+  total query, PASSED INTO the outcome builder and SEALED by identity (delete raw `tnfact_at`); ONE proof-carrying
+  bottom-up outcome accumulator (`fold_right` over the source-order work stream, operand in the processed suffix, ONE
+  `convert_const` per conversion, missing-operand impossible by proof, `EOChildFail` only for a real non-success);
+  use-resolution from the computed `ConstInfo`; `EOConvFail` carrying exact evidence; diagnostics a TOTAL projection
+  (prefer adding `operand_ref` to `DRInvalidConversion`); ONE phase object proving facts + diagnostics project the
+  SAME outcome table; the declarative spec (`const_info`/`local_conv_failure`) stays out of the production path.
 
-  Kept from repair 1 (do not reopen without need): `DiagnosticReason` retains a `TypeNameRef`; erased reports
-  retain source-target syntax; byte/uint8 & rune/int32 erased differ; the pinned-Go accept+reject alias matrix;
-  the deleted family-specific renderer helpers; the improved architecture prose. Superseded landed inventory:
-  - **(repair-1) 2.5** — ARCHITECTURE.md GoAST/GoCompile/GoRender rows + master-plan C4.4 updated to the live
-    `EConvert`/consumed-facts/source-spelling reality; the dead `integer_keyword`/`float_keyword`/`complex_keyword`
-    helpers + their GoRender ASCII lemmas/examples + gate entries DELETED.
-  - **2.6 CLOSED** — this candidate is the `review(final): C4 — freeze retained-fact repair candidate` freeze.
-
-  New/strengthened surfaces (gated): §3.3 `conversion_target_ref_conv` (target ref minted through the retained
-  index: KTypeName, the exact RConversionTarget child, recovering the raw source `TypeSyntax`); §5.1
-  `prog_conv_outcome_consumes` + `elaborate_ok_seals_tnfacts`; §5.2 `predeclared_all_sixteen` (one closed
-  conjunction, all 16 mappings); §5.3 `repeated_name_distinct_refs` (two same-name occurrences → distinct refs,
-  equal syntax, equal facts — replaces the tautological `scar_repeated_uint8`); §4 `occ_expr_diags_conv_sound` +
-  the byte/uint8 & rune/int32 erase-differ fixtures + matching uint8/int32 accept/reject scars.
-
-  The parts NOT reopened (good): the proof-carrying `IdentifierSyntax`, the closed sixteen-name `TypeName`,
-  `SupportedTypeName`, one raw `EConvert`, `KTypeName`/`TypeNameRef`/the target-operand layout, the predeclared
-  mapping, source-spelling rendering, byte/rune identity + alias mapping, byte-identical generated bytes, no C5.
-
-  Landed inventory (from the first candidate, retained + repaired):
-  - `GoNames.v` — the source-name foundation (proof-carrying `IdentifierSyntax`; the closed sixteen-name
-    `TypeName` + `SupportedTypeName` — retained identifier + symbol + classify-match proof; `tn_spelling` /
-    `classify` inverse; `byte`/`uint8` + `rune`/`int32` source-distinctness).
-  - `GoAST` — ONE `EConvert TypeSyntax GoExpr` (`TypeSyntax = TSName (TNUnqualified SupportedTypeName)`); the
-    three family-specific constructors DELETED.
-  - `GoIndex` — `KTypeName` occurrence kind + `ViewTypeName` + the two-child conversion (type-name at
-    `Pos.succ me`, operand at `Pos.succ (Pos.succ me)`); `TypeNameRef` (= `NodeRefOf KTypeName`) +
-    `type_name_ref_syntax`; all occ / navigation / walk / sound / complete proofs migrated.
-  - `GoTypes` — `const_info … ProgramTyped` wrapped in a `Section` parameterized by a total resolver
-    `rt : TypeSyntax -> GoType`; `ProgramTyped` stays THE type authority; no source-name→`GoType` table here.
-  - `GoCompile` — the `predeclared_type` resolver (the §7 sixteen-name table); the sealed occurrence-keyed
-    `TypeNameFactTable` (fact = the resolved `GoType` only, keyed by `NodeKey`, retained in
-    `ElaborationFacts`/`CompilableProgram`); the total `type_name_fact_at` query proved to PROJECT the sealed
-    table = `predeclared_type` of the source name recovered through the ref; `byte`/`uint8` (`rune`/`int32`)
-    distinct source syntax, equal facts; the §12 alias scars + representative fixtures + intrinsic-domain
-    exclusion.
-  - `GoSafe` / `GoRender` — evaluation + source-spelling rendering (`render_type_syntax = render_stn`); the
-    determinism theorem `render_const_info_denotes_functional` re-proved over the sixteen source spellings;
-    `byte`/`rune` render distinct text.
-  - e2e — every conversion fixture migrated to `EConvert` (canonical `main.go` BYTE-IDENTICAL); a DISPOSABLE
-    `WitnessAlias.v` byte/rune pinned-Go differential (`byte(255)`/`rune(65)` accepted by Go, prints `255 65`).
-- Candidate SHA: the `review(final): C4` freeze commit. Original C4 baseline `8c9212a`; blocked candidate
-  baseline `89b8e54`; full human-review range `8c9212a..<freeze>`; repair range `89b8e54..<freeze>`.
-- Gate: 397/397 axiom-free (baseline 386 + the C4 surfaces; the repair removed the 8 dead-keyword gate entries
-  and added the §3.3/§4/§5.1/§5.2/§5.3 consumption/all-sixteen/repeated-name/erase-differ surfaces).
-- Verification GREEN: `make prove` (397/397 axiom-free + whole-theory audit + self-tests A-E), `make e2e`
-  (pinned-Go `go build ./...` + the full byte/rune/uint8/int32 accept+reject alias matrix + goldens),
-  `make check` (working-tree generated bytes byte-identical), `make regenerate`, `make regen-guard`.
-- The §9 design point is RESOLVED, not deferred: the production path now READS the retained type-name fact +
-  operand fact (the once-built map, sealed unchanged), never an inline `predeclared_type` on the production path
-  (the resolver stays only in the map construction / declarative spec / GoSafe·GoRender proof statements).
-- Human C4 Implementation Review: PENDING (no Codex — automatic review disabled; the directive is the accepted
-  human Contract Review). `REVIEW_REQUEST` stays closed; freeze reported to Rob for his human review.
+  Repair-2 landed inventory + prior repair history is preserved in git; `.review/C4_IMPLEMENTATION_REPAIR_2.md` is
+  deleted in the first repair-3 implementation commit (its archive is git history).
 
 ## Standing decisions
 
