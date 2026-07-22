@@ -2453,6 +2453,89 @@ Proof.
   rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hm.
 Qed.
 
+(** ═══ §4 THE TYPED WORK INTERFACE ═══ minting a visited expression occurrence's [ExprRef] is TOTAL (never an
+    [as_expr = None] skip): a Some-view occurrence's ref cannot be [None].  [total_outcome_at] over this ref is
+    the shared phase-indexed total query the fact + diagnostic projections both use. *)
+Lemma from_some_some {A} (o : option A) (H : o <> None) : o = Some (from_some o H).
+Proof. destruct o as [a|]; [reflexivity | exfalso; apply H; reflexivity]. Qed.
+
+(* the membership-carrying enumeration of a list: each element paired with a proof it belongs to the whole list;
+   [fold_self_mem_ext] folds it as if folding the list, when the step is proof-irrelevant on the membership. *)
+Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
+  (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
+Proof.
+  induction l as [|a l IH]; intro H; [reflexivity|].
+  cbn [fold_right]. rewrite IH by (intros a' b Ha'; apply H; right; exact Ha').
+  apply H; left; reflexivity.
+Qed.
+Lemma fold_right_map {A B C} (f : B -> C -> C) (g : A -> B) (init : C) (l : list A) :
+  fold_right f init (map g l) = fold_right (fun x => f (g x)) init l.
+Proof. induction l as [|a l IH]; [reflexivity | cbn [map fold_right]; rewrite IH; reflexivity]. Qed.
+Fixpoint self_mem {A} (l : list A) : list { a : A | In a l } :=
+  match l with
+  | nil => nil
+  | a :: rest => exist _ a (or_introl eq_refl)
+                 :: map (fun s => exist (fun x => In x (a :: rest)) (proj1_sig s) (or_intror (proj2_sig s)))
+                        (self_mem rest)
+  end.
+Lemma fold_self_mem_proj {A B} (l : list A) (g : A -> B -> B) (init : B) :
+  fold_right (fun s => g (proj1_sig s)) init (self_mem l) = fold_right g init l.
+Proof.
+  induction l as [|a rest IH]; [reflexivity|].
+  cbn [self_mem fold_right]. rewrite fold_right_map. cbn [proj1_sig]. rewrite IH. reflexivity.
+Qed.
+Lemma fold_self_mem_ext {A B} (l : list A) (f : { a : A | In a l } -> B -> B) (g : A -> B -> B) (init : B) :
+  (forall a (H : In a l) b, f (exist _ a H) b = g a b) ->
+  fold_right f init (self_mem l) = fold_right g init l.
+Proof.
+  intro Hfg. rewrite <- (fold_self_mem_proj l g init).
+  apply fold_ext_in. intros [a H] b _. cbn [proj1_sig]. exact (Hfg a H b).
+Qed.
+
+(** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ for each visited occurrence, the ref is minted inline ([as_expr],
+    total for an expression — the None arm is only a non-expression occurrence, which is never a work item) and
+    its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
+    its exact fact; every other outcome contributes nothing; a MISSING outcome is NOT a case. *)
+Definition add_work_fact {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) (am : { ro | In ro (ci_visit input) })
+    (m : GoIndex.NodeKeyMapBase.t ExprFact) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  match am with
+  | exist _ (r, _) _ =>
+      match GoIndex.as_expr (ci_idx input) r with
+      | Some er => match total_outcome_at ot er with
+                   | EOOk f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) f m
+                   | _ => m
+                   end
+      | None => m
+      end
+  end.
+Definition phase_expr_facts {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  fold_right (add_work_fact input tnft ot) (GoIndex.NodeKeyMapBase.empty ExprFact) (self_mem (ci_visit input)).
+
+(* the total projection step at a visited occurrence EQUALS the [add_occ_fact] specification (the total outcome
+   query MATCHES [occ_expr_fact] — [total_outcome_at_matches] + [outcome_matches_proj]).  The inline [as_expr]
+   is proven total: [None] arises EXACTLY for a non-expression (which has no fact). *)
+Lemma add_work_fact_eq {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) (r : GoIndex.Snap.NodeRef p) occ (Hin : In (r, occ) (ci_visit input)) m :
+  add_work_fact input tnft ot (exist _ (r, occ) Hin) m = add_occ_fact (r, occ) m.
+Proof.
+  cbn [add_work_fact]. unfold add_occ_fact. cbn [snd fst].
+  assert (Hprog : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
+  assert (Hsrc : occ = GoIndex.Snap.source_occurrence_of_ref r) by exact (prog_visit_occ_is_source p r occ Hprog).
+  destruct (GoIndex.as_expr (ci_idx input) r) as [er|] eqn:Hae.
+  - assert (Her : GoIndex.erase_ref er = r)
+      by exact (GoIndex.erase_as_kind (ci_idx input) r GoIndex.KExpression er Hae).
+    assert (Hv : GoIndex.view_expr occ = Some (expr_ref_view er)) by (rewrite Hsrc, <- Her; exact (expr_ref_view_eq er)).
+    pose proof (total_outcome_at_matches ot r occ er (expr_ref_view er) Hprog Hv Hae Her) as Hm.
+    pose proof (outcome_matches_proj (ci_idx input) r occ (total_outcome_at ot er) Hm) as Hpf.
+    destruct (total_outcome_at ot er) as [f|c1 c2 c3 c4 c5| ]; cbn [outcome_proj_fact] in Hpf; rewrite Hpf; reflexivity.
+  - assert (Hvn : GoIndex.view_expr occ = None).
+    { destruct (GoIndex.view_expr occ) as [e|] eqn:Hv; [| reflexivity]. exfalso.
+      destruct (prog_visit_as_expr p (ci_idx input) r occ e Hprog Hv) as [er [Hae' _]]. rewrite Hae' in Hae. discriminate Hae. }
+    rewrite (occ_expr_fact_none_nonexpr occ Hvn). reflexivity.
+Qed.
+
 (* ---- the production expression-fact map = a PROJECTION of the ONE outcome authority: fold the visit stream,
    keying each occurrence's SUCCESS fact by its NodeKey, reading the stored [EOOk] outcome (O(1), never a
    [const_info] rescan).  Its per-node fact is EXACTLY the specification [occ_expr_fact]. ---- *)
@@ -2476,12 +2559,15 @@ Definition add_occ_fact_om {p} (omap : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
 Definition prog_expr_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprFact :=
   fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
 
-Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
-  (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
+(** ═══ §9.1 THE TOTAL FACT PROJECTION EQUALS THE SPECIFICATION ═══ folding the total per-occurrence outcome
+    query over the retained visit yields EXACTLY [prog_expr_facts p] — so the [ExprFactTable] built from the
+    proof-carrying [ExprOutcomeTable] inherits the source-determined domain + exactness, with NO fail-open. *)
+Lemma phase_expr_facts_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ExprOutcomeTable input tnft) :
+  phase_expr_facts input tnft ot = prog_expr_facts p.
 Proof.
-  induction l as [|a l IH]; intro H; [reflexivity|].
-  cbn [fold_right]. rewrite IH by (intros a' b Ha'; apply H; right; exact Ha').
-  apply H; left; reflexivity.
+  unfold phase_expr_facts, prog_expr_facts. rewrite <- (ci_visit_ok input).
+  apply fold_self_mem_ext. intros [r occ] H b. exact (add_work_fact_eq input tnft ot r occ H b).
 Qed.
 
 Lemma prog_expr_facts_eq_spec (p : GoProgram) :
