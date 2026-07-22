@@ -2614,6 +2614,23 @@ Proof.
   rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hm.
 Qed.
 
+(* the TOTAL query PROJECTS the carried DIRECT CAUSE ([eot_caused]): the outcome the table returns at [er] is
+   [OutcomeCause]-justified against the table's own map — the cause TRAVELS with the outcome, never reconstructed
+   (§2.6).  The operand lookups in the returned [OutcomeCause] read [eot_map ot] (the table's own accumulator). *)
+Lemma total_outcome_at_caused {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  OutcomeCause (ci_idx input) tnft (eot_map ot) r occ (total_outcome_at ot er).
+Proof.
+  intros Hin Hv Hae Her.
+  assert (Hin' : In (r, occ) (ci_visit input)) by (rewrite (ci_visit_ok input); exact Hin).
+  destruct (eot_caused ot r occ e Hin' Hv) as [out [Hf Hc]].
+  rewrite <- Her in Hf.
+  unfold total_outcome_at.
+  rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hc.
+Qed.
+
 (** ═══ §4 THE TYPED WORK INTERFACE ═══ minting a visited expression occurrence's [ExprRef] is TOTAL (never an
     [as_expr = None] skip): a Some-view occurrence's ref cannot be [None].  [total_outcome_at] over this ref is
     the shared phase-indexed total query the fact + diagnostic projections both use. *)
@@ -3056,14 +3073,35 @@ Proof.
      exists x; cbn [conv_targets]; rewrite Ex; split; [reflexivity | split; [reflexivity | exact Ec]]).
 Qed.
 
+(* INVERSION of the carried cause at an [EOConvFail]: the ONLY [OutcomeCause] constructor producing an
+   [EOConvFail] is [OCConvFail], so the direct-cause fields (own ref, retained target/operand refs, table-query
+   target, operand success outcome in [prior], rejecting [convert_const]) are READ OFF the carried relation —
+   no [local_conv_failure], no source reconstruction. *)
+Lemma OutcomeCause_EOConvFail_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ
+    (er2 : GoIndex.ExprRef p) (tr2 : GoIndex.TypeNameRef p) (opr2 : GoIndex.ExprRef p) t ci :
+  OutcomeCause idx tnft prior r occ (EOConvFail er2 tr2 opr2 t ci) ->
+  GoIndex.as_expr idx r = Some er2
+  /\ conversion_target_ref idx er2 = Some tr2
+  /\ conversion_operand_ref idx er2 = Some opr2
+  /\ t = tnf_type (type_name_fact_at_table tnft tr2)
+  /\ (exists opf, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr2)) prior
+                   = Some (EOOk opf) /\ ci = ef_const_status opf)
+  /\ convert_const t ci = None.
+Proof.
+  intro HC. inversion HC; subst.
+  repeat split; try eassumption; try reflexivity.
+  eexists; split; [ eassumption | reflexivity ].
+Qed.
+
 (** ═══ §7 THE DIRECT CONVERSION-FAILURE CAUSE ═══ a stored [EOConvFail] does NOT reduce to a re-run of the
-    source-spec [local_conv_failure]/[const_info]: its cause is read DIRECTLY off the retained phase.  For any
-    visited conversion occurrence whose TOTAL outcome is [EOConvFail], the reported refs ARE the occurrence's
-    OWN retained conversion target/operand refs; the reported target type IS the SEALED [TypeNameFactTable]'s
-    stored fact at that target ref (never a fresh resolver call); the operand's OWN total outcome is a SUCCESS
-    [EOOk opf] whose [ef_const_status] IS the reported [ci] (never a fresh [const_info] scan); and
-    [convert_const] genuinely REJECTS that status at that resolved target.  The whole causal chain is a query
-    of the ONE retained phase. *)
+    source-spec [local_conv_failure]/[const_info]: its cause is a PROJECTION of the carried [OutcomeCause]
+    ([total_outcome_at_caused] + [OutcomeCause_EOConvFail_inv]).  For any visited conversion occurrence whose
+    TOTAL outcome is [EOConvFail], the reported refs ARE the occurrence's OWN retained conversion target/operand
+    refs; the reported target type IS the SEALED [TypeNameFactTable]'s stored fact at that target ref (never a
+    fresh resolver call); the operand's OWN total outcome is a SUCCESS [EOOk opf] whose [ef_const_status] IS the
+    reported [ci] (never a fresh [const_info] scan); and [convert_const] genuinely REJECTS that status at that
+    resolved target.  The whole causal chain is READ OFF the ONE retained phase, not reconstructed. *)
 Lemma phase_convfail_cause {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
     (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e
     (er2 : GoIndex.ExprRef p) (tr2 : GoIndex.TypeNameRef p) (opr2 : GoIndex.ExprRef p) t ci :
@@ -3078,48 +3116,22 @@ Lemma phase_convfail_cause {p} {input : CompilationInput p} {tnft} (ot : ExprOut
   /\ convert_const t ci = None.
 Proof.
   intros Hin Hv Hae Her Hcf.
-  pose proof (total_outcome_at_matches ot r occ er e Hin Hv Hae Her) as Hm.
-  rewrite Hcf in Hm. cbn [outcome_matches] in Hm.
-  destruct Hm as [_ Hev]. unfold outcome_convfail_ev in Hev.
-  destruct Hev as [Ha2 [[e' [Hve' Hlc]] [Htr2 Hopr2]]].
+  pose proof (total_outcome_at_caused ot r occ er e Hin Hv Hae Her) as HC.
+  rewrite Hcf in HC.
+  destruct (OutcomeCause_EOConvFail_inv (ci_idx input) tnft (eot_map ot) r occ er2 tr2 opr2 t ci HC)
+    as [Ha2 [Htr2 [Hopr2 [Ht [ [opf [Hfind Hcieq]] Hcv ]]]]].
   (* er2 = er: both are [as_expr (ci_idx input) r] *)
-  rewrite Hae in Ha2. injection Ha2 as He2. subst er2.
-  (* e' = e (same view) *)
-  rewrite Hv in Hve'. injection Hve' as He'e. subst e'.
-  (* characterise the local failure and expose the source syntax [ts] *)
-  destruct (local_conv_failure_char e t ci Hlc) as [x0 [Hct [Hcix Hcv]]].
-  destruct e as [ b|n1|n2|s| df | dcx | ts x1 ]; cbn [conv_targets] in Hct; try discriminate Hct.
-  injection Hct as Ht Hx. subst t. subst x1.
-  (* target ref + [type_name_ref_syntax tr2 = Some ts] via [conversion_target_ref_conv] *)
-  destruct (conversion_target_ref_conv (ci_idx input) r occ er ts x0 Hin Hv Hae)
-    as [tr [Htrc [_ [_ Htsyn]]]].
-  rewrite Htr2 in Htrc. injection Htrc as Htreq. subst tr.
-  (* operand ref + operand-occurrence view via [conversion_operand_ref_conv] *)
-  destruct (conversion_operand_ref_conv (ci_idx input) r occ er ts x0 Hin Hv Hae)
-    as [opr [Hoprc [_ [_ Hoprv]]]].
-  rewrite Hopr2 in Hoprc. injection Hoprc as Hopreq. subst opr.
+  assert (Her2 : er2 = er) by (rewrite Hae in Ha2; injection Ha2 as Hh; exact (eq_sym Hh)).
+  subst er2.
   split; [ reflexivity | ].
   split; [ exact Htr2 | ].
   split; [ exact Hopr2 | ].
+  split; [ exact Ht | ].
   split.
-  { (* t = tnf_type of the SEALED table's stored fact at tr2 *)
-    rewrite (type_name_fact_at_table_resolves tnft tr2 ts Htsyn). reflexivity. }
-  split.
-  { (* the operand's OWN total outcome is EOOk opf with ef_const_status opf = ci *)
-    pose proof (total_outcome_at_matches ot (GoIndex.erase_ref opr2)
-                  (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr2)) opr2 x0
-                  (noderef_in_prog_visit p (GoIndex.erase_ref opr2)) Hoprv
-                  (as_expr_erase (ci_idx input) opr2) eq_refl) as Hmop.
-    destruct (total_outcome_at ot opr2) as [opf| ? ? ? ? ? | ] eqn:Hoo;
-      cbn [outcome_matches] in Hmop.
-    - exists opf. split; [ reflexivity | ].
-      unfold occ_expr_fact in Hmop. rewrite Hoprv, Hcix in Hmop.
-      injection Hmop as Hopf. rewrite <- Hopf. reflexivity.
-    - exfalso. destruct Hmop as [Hnone _]. unfold occ_expr_fact in Hnone.
-      rewrite Hoprv, Hcix in Hnone. discriminate Hnone.
-    - exfalso. destruct Hmop as [Hnone _]. unfold occ_expr_fact in Hnone.
-      rewrite Hoprv, Hcix in Hnone. discriminate Hnone. }
-  (* convert_const genuinely rejects at the resolved target *)
+  { (* the operand's OWN total outcome is EOOk opf (the entry the cause read from [prior]) *)
+    exists opf. split; [ | exact Hcieq ].
+    unfold total_outcome_at.
+    rewrite (from_some_eq _ (eot_at_not_none ot opr2) (EOOk opf) Hfind). reflexivity. }
   exact Hcv.
 Qed.
 
