@@ -885,10 +885,12 @@ Qed.
 
 
 (* the ONE expression-outcome authority is the proof-carrying [ExprOutcomeTable] ([build_outcome_table] wrapping
-   the bottom-up [build_outcomes] fold over the retained [CompilationInput]'s visit, paired with its
-   completeness proof [eot_ok]) and CONSUMING the once-built [TypeNameFactTable] object; every production
-   expression fact AND every conversion diagnostic PROJECTS this single table by the TOTAL [total_outcome_at]
-   query, never a second [const_info]/[convert_const] pass and never a fail-open [find]. *)
+   the bottom-up [build_outcomes] fold over the retained [CompilationInput]'s visit, paired with the ONE carried
+   invariant — the DIRECT cause [eot_caused] with its exact domain [eot_dom]) and CONSUMING the once-built
+   [TypeNameFactTable] object; every production expression fact AND every conversion diagnostic PROJECTS this
+   single table by the TOTAL [total_outcome_at] query (coverage from the cause via [outcomes_caused_covers], the
+   source specification via the separate exactness theorem [outcomes_caused_matches]), never a second
+   [const_info]/[convert_const] pass and never a fail-open [find]. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its TYPE-NAME occurrence at [Pos.succ me] and its
    operand occurrence at [Pos.succ (Pos.succ me)] (the two-child conversion layout: target type name, then
@@ -2057,18 +2059,6 @@ Lemma outcome_matches_proj {p} (idx : GoIndex.Snap.SyntaxIndex p) r occ (out : E
   outcome_matches idx r occ out -> outcome_proj_fact out occ.
 Proof. destruct out as [f|? ? ? ? ?| ]; cbn [outcome_matches outcome_proj_fact]; intro H; [exact H | exact (proj1 H) | exact (proj1 H)]. Qed.
 
-Definition outcomes_ok {p} (idx : GoIndex.Snap.SyntaxIndex p)
-    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
-    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : Prop :=
-  forall r occ e, In (r, occ) l -> GoIndex.view_expr occ = Some e ->
-    exists out, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) m = Some out
-             /\ outcome_matches idx r occ out.
-
-Lemma outcomes_ok_covers {p} (idx : GoIndex.Snap.SyntaxIndex p)
-    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m :
-  outcomes_ok idx l m -> outcome_covers l m.
-Proof. intros H r occ e Hin Hv. destruct (H r occ e Hin Hv) as [out [Hf _]]. rewrite Hf. discriminate. Qed.
-
 (** ═══ §6 THE DIRECT OUTCOME-CAUSE RELATION ═══ the PRODUCTION cause of a stored outcome, read entirely off the
     retained phase: the table query at the retained target ref, the operand's ALREADY-COMPUTED outcome in the
     processed accumulator [prior], and ONE [convert_const] — NEVER [local_conv_failure], [conv_targets], a
@@ -2338,42 +2328,20 @@ Proof.
     + exists (EConvert ts x). split; [exact Hv | cbn [local_conv_failure]; rewrite Ecx; reflexivity].
 Qed.
 
-(* the fold step preserves the invariant: adding a matching outcome at a FRESH key keeps [outcomes_ok]. *)
-Lemma outcomes_ok_add {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ rest e
-    (m_rest : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (v : ExprOutcome p)
-    (Hok_rest : outcomes_ok idx rest m_rest)
-    (Hnd : ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest))
-    (Hv : GoIndex.view_expr occ = Some e)
-    (Hvproj : outcome_matches idx r occ v) :
-  outcomes_ok idx ((r, occ) :: rest) (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r) v m_rest).
-Proof.
-  intros r0 occ0 e0 Hin0 Hv0. destruct Hin0 as [Heq | Hin0].
-  - injection Heq as Hr0 Ho0. subst r0 occ0. exists v. split; [ apply GoIndex.nodekeymap_add_eq | exact Hvproj ].
-  - destruct (Hok_rest r0 occ0 e0 Hin0 Hv0) as [out [Hf Hpf]]. exists out. split; [| exact Hpf].
-    rewrite GoIndex.nodekeymap_add_neq;
-      [ exact Hf
-      | intro Hbad; apply Hnd; rewrite Hbad; apply in_map_iff; exists (r0, occ0); split; [reflexivity | exact Hin0] ].
-Qed.
+(* coverage from the CAUSE invariant (the operand-present fact the fold needs, now sourced from [outcomes_caused]
+   so [build_outcomes] need not carry [outcomes_ok]). *)
+Lemma outcomes_caused_covers {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) m :
+  outcomes_caused idx tnft l m -> outcome_covers l m.
+Proof. intros H r occ e Hin Hv. destruct (H r occ e Hin Hv) as [out [Hf _]]. rewrite Hf. discriminate. Qed.
 
-(* a non-expression head keeps the tail's invariant (it contributes no entry). *)
-Lemma outcomes_ok_skip {p} (idx : GoIndex.Snap.SyntaxIndex p) (r : GoIndex.Snap.NodeRef p) occ rest
-    (m_rest : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
-    (Hok_rest : outcomes_ok idx rest m_rest) (Hv : GoIndex.view_expr occ = None) :
-  outcomes_ok idx ((r, occ) :: rest) m_rest.
-Proof.
-  intros r0 occ0 e0 Hin0 Hv0. destruct Hin0 as [Heq | Hin0].
-  - injection Heq as Hr0 Ho0. subst occ0. rewrite Hv in Hv0. discriminate Hv0.
-  - exact (Hok_rest r0 occ0 e0 Hin0 Hv0).
-Qed.
-
-(* the operand entry of a conversion head is present in an ok suffix accumulator. *)
-Lemma outcomes_ok_operand_present {p} (idx : GoIndex.Snap.SyntaxIndex p) l1 (r : GoIndex.Snap.NodeRef p) occ l2 ts x
-    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) :
+Lemma outcomes_caused_operand_present {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    l1 (r : GoIndex.Snap.NodeRef p) occ l2 ts x (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) :
   prog_visit p = l1 ++ (r, occ) :: l2 -> GoIndex.view_expr occ = Some (EConvert ts x) ->
-  outcomes_ok idx l2 m -> GoIndex.NodeKeyMapBase.find (operand_key r) m <> None.
+  outcomes_caused idx tnft l2 m -> GoIndex.NodeKeyMapBase.find (operand_key r) m <> None.
 Proof.
   intros Hsplit Hv Hok.
-  exact (operand_covered p idx l1 r occ l2 ts x m Hsplit Hv (outcomes_ok_covers idx l2 m Hok)).
+  exact (operand_covered p idx l1 r occ l2 ts x m Hsplit Hv (outcomes_caused_covers idx tnft l2 m Hok)).
 Qed.
 
 (* the head of a suffix of the visit stream has a FRESH key (distinct from every tail key), by the visit's
@@ -2410,16 +2378,15 @@ Definition build_outcomes {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNam
   forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)),
     (exists pre, prog_visit p = pre ++ l) ->
     { m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)
-      | outcomes_ok idx l m /\ outcomes_caused idx tnft l m /\ outcome_dom_ok l m }.
+      | outcomes_caused idx tnft l m /\ outcome_dom_ok l m }.
 Proof.
   induction l as [| [r occ] rest IH]; intro Hsuf.
-  - exists (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)). split; [ | split ].
-    + intros r0 occ0 e0 Hin0 _. destruct Hin0.
+  - exists (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)). split.
     + intros r0 occ0 e0 Hin0 _. destruct Hin0.
     + apply outcome_dom_ok_empty.
   - assert (Hsuf_rest : exists pre, prog_visit p = pre ++ rest).
     { destruct Hsuf as [pre Hpre]. exists (pre ++ [(r, occ)]). rewrite <- app_assoc. exact Hpre. }
-    destruct (IH Hsuf_rest) as [m_rest [Hok_rest [Hcaused_rest Hdom_rest]]].
+    destruct (IH Hsuf_rest) as [m_rest [Hcaused_rest Hdom_rest]].
     assert (Hin : In (r, occ) (prog_visit p))
       by (destruct Hsuf as [pre Hpre]; rewrite Hpre; apply in_or_app; right; left; reflexivity).
     assert (Hnd : ~ In (GoIndex.Snap.node_ref_key r) (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) rest)).
@@ -2427,15 +2394,10 @@ Proof.
     destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
     + destruct (prog_visit_expr_ref idx r occ e Hin Hv) as [er [Hae Her]].
       assert (Hocc : occ = GoIndex.Snap.source_occurrence_of_ref r) by exact (prog_visit_occ_is_source p r occ Hin).
-      assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
-        by (unfold expr_ref_role; rewrite Her, Hocc; reflexivity).
       destruct e as [ b|nn|n0|s|dd|dc| ts x ].
-      (* the six leaf occurrences: store the untyped fact + its DIRECT cause [OCLeaf]. *)
-      1-6: eexists; split; [ | split ];
-           [ eapply outcomes_ok_add;
-               [ exact Hok_rest | exact Hnd | exact Hv
-               | eapply (leaf_stored_matches idx r er occ); [exact Hv | exact Hrole | reflexivity] ]
-           | eapply outcomes_caused_add;
+      (* the six leaf occurrences: store the untyped fact's DIRECT cause [OCLeaf] + exact domain. *)
+      1-6: eexists; split;
+           [ eapply outcomes_caused_add;
                [ exact Hcaused_rest | exact Hdom_rest | exact Hnd | exact Hv
                | eapply leaf_outcome_cause; [exact Hae | exact Her | exact Hv | reflexivity | reflexivity ] ]
            | apply outcome_dom_ok_add; exact Hdom_rest ].
@@ -2456,7 +2418,7 @@ Proof.
         rewrite Hk, Her. reflexivity. }
       assert (Hpres : GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) m_rest <> None).
       { destruct Hsuf as [pre Hpre]. rewrite Hkopr.
-        exact (outcomes_ok_operand_present idx pre r occ rest ts x m_rest Hpre Hv Hok_rest). }
+        exact (outcomes_caused_operand_present idx tnft pre r occ rest ts x m_rest Hpre Hv Hcaused_rest). }
       assert (Hne_opr : GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr) <> GoIndex.Snap.node_ref_key r).
       { destruct Hsuf as [pre Hpre].
         destruct (prog_visit_operand_closed p idx pre r occ rest Hpre (EConvert ts x) x Hv eq_refl)
@@ -2465,20 +2427,7 @@ Proof.
       exists (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key r)
                 (conv_outcome tnft er tr opr (from_some (GoIndex.NodeKeyMapBase.find
                    (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) m_rest) Hpres)) m_rest).
-      split; [ | split ].
-      * (* outcomes_ok: the stored conversion outcome matches its occurrence (operand entry from [Hok_rest]) *)
-        apply (outcomes_ok_add idx r occ rest (EConvert ts x) m_rest _ Hok_rest Hnd Hv).
-        destruct Hsuf as [pre Hpre].
-        destruct (prog_visit_operand_closed p idx pre r occ rest Hpre (EConvert ts x) x Hv eq_refl)
-          as [r' [occ' [Hkey' [Hvx' Hin']]]].
-        destruct (Hok_rest r' occ' x Hin' Hvx') as [out' [Hf' Hpf']].
-        assert (Hoo : from_some (GoIndex.NodeKeyMapBase.find
-                         (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) m_rest) Hpres = out')
-          by (apply from_some_eq; rewrite Hkopr, <- Hkey'; exact Hf').
-        rewrite Hoo.
-        exact (conv_stored_matches idx tnft r er opr tr occ occ' ts x Hae Hv Hrole
-                 (conv_target_table_type idx tnft er ts x Hview) Htr_ref Hopr_ref out'
-                 (outcome_matches_proj idx r' occ' out' Hpf') Hvx').
+      split.
       * (* outcomes_caused: the stored conversion outcome is DIRECTLY caused off the table + operand outcome *)
         eapply outcomes_caused_add; [ exact Hcaused_rest | exact Hdom_rest | exact Hnd | exact Hv | ].
         eapply conv_outcome_cause; [ exact Hae | exact Her | exact Hv | exact Htr_ref | exact Hopr_ref | ].
@@ -2486,8 +2435,7 @@ Proof.
         exact (from_some_some _ Hpres).
       * (* outcome_dom_ok: no key beyond the visited occurrences *)
         apply outcome_dom_ok_add; exact Hdom_rest.
-    + exists m_rest. split; [ | split ].
-      * exact (outcomes_ok_skip idx r occ rest m_rest Hok_rest Hv).
+    + exists m_rest. split.
       * exact (outcomes_caused_skip idx tnft r occ rest m_rest Hcaused_rest Hv).
       * exact (outcome_dom_ok_skip r occ rest m_rest Hdom_rest).
 Defined.
@@ -2561,26 +2509,27 @@ Lemma build_tnft_map {p} (input : CompilationInput p) :
   tnft_map (build_type_name_fact_table input) = prog_type_name_facts p.
 Proof. exact (tn_input_map_eq input). Qed.
 
-(** ═══ §6 THE PROOF-CARRYING OUTCOME TABLE ═══ the outcome map PAIRED with its completeness/match proof over the
-    retained visit — the proof STAYS on the production path.  [total_outcome_at] returns an [ExprOutcome] (NOT an
-    option): a missing entry is eliminated by [eot_ok], so facts and diagnostics never see a fail-open [None]. *)
+(** ═══ §6 THE PROOF-CARRYING OUTCOME TABLE ═══ the outcome map PAIRED with the ONE carried invariant — the DIRECT
+    cause [outcomes_caused] (with its exact domain [outcome_dom]) — over the retained visit; the proof STAYS on the
+    production path.  [total_outcome_at] returns an [ExprOutcome] (NOT an option): a missing entry is eliminated by
+    the cause's coverage ([outcomes_caused_covers]), so facts and diagnostics never see a fail-open [None].  The
+    index-free source specification [outcome_matches] is REACHED from the carried cause by the separate exactness
+    theorem [outcomes_caused_matches], never carried a second time (§6 "the table carries ONLY [OutcomeCause]"). *)
 Record ExprOutcomeTable {p} (input : CompilationInput p) (tnft : TypeNameFactTable p) : Type :=
   mkExprOutcomeTable {
     eot_map : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
-    eot_ok  : outcomes_ok (ci_idx input) (ci_visit input) eot_map ;
     eot_caused : outcomes_caused (ci_idx input) tnft (ci_visit input) eot_map ;  (* §6 the DIRECT cause carried *)
     eot_dom : outcome_dom_ok (ci_visit input) eot_map                            (* §7 no extra key *)
   }.
-Arguments mkExprOutcomeTable {p input tnft} _ _ _ _.
-Arguments eot_map {p input tnft} _.  Arguments eot_ok {p input tnft} _.
+Arguments mkExprOutcomeTable {p input tnft} _ _ _.
+Arguments eot_map {p input tnft} _.
 Arguments eot_caused {p input tnft} _.  Arguments eot_dom {p input tnft} _.
 
 Definition build_outcome_table {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
   : ExprOutcomeTable input tnft :=
   let bo := build_outcomes (ci_idx input) tnft (ci_visit input)
               (ex_intro _ (@nil (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) (eq_sym (ci_visit_ok input))) in
-  mkExprOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo))
-                     (proj1 (proj2 (proj2_sig bo))) (proj2 (proj2 (proj2_sig bo))).
+  mkExprOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo)) (proj2 (proj2_sig bo)).
 
 (* the TOTAL outcome query: for any [ExprRef], its stored outcome — [from_some] of the table's own completeness
    proof (the None branch is [False_rect], never a semantic default). *)
@@ -2590,29 +2539,14 @@ Lemma eot_at_not_none {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeT
 Proof.
   assert (Hin : In (GoIndex.erase_ref er, GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er)) (ci_visit input)).
   { rewrite (ci_visit_ok input). apply noderef_in_prog_visit. }
-  destruct (eot_ok ot (GoIndex.erase_ref er) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
-              (expr_ref_view er) Hin (expr_ref_view_eq er)) as [out [Hf _]].
-  rewrite Hf. discriminate.
+  exact (outcomes_caused_covers (ci_idx input) tnft (ci_visit input) (eot_map ot) (eot_caused ot)
+           (GoIndex.erase_ref er) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref er))
+           (expr_ref_view er) Hin (expr_ref_view_eq er)).
 Qed.
 Definition total_outcome_at {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
     (er : GoIndex.ExprRef p) : ExprOutcome p :=
   from_some (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref er)) (eot_map ot))
             (eot_at_not_none ot er).
-
-(* the TOTAL query MATCHES the occurrence — the direct table→production interface (no raw option, no [find]). *)
-Lemma total_outcome_at_matches {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
-    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
-  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
-  outcome_matches (ci_idx input) r occ (total_outcome_at ot er).
-Proof.
-  intros Hin Hv Hae Her.
-  assert (Hin' : In (r, occ) (ci_visit input)) by (rewrite (ci_visit_ok input); exact Hin).
-  destruct (eot_ok ot r occ e Hin' Hv) as [out [Hf Hm]].
-  rewrite <- Her in Hf.
-  unfold total_outcome_at.
-  rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hm.
-Qed.
 
 (* the TOTAL query PROJECTS the carried DIRECT CAUSE ([eot_caused]): the outcome the table returns at [er] is
    [OutcomeCause]-justified against the table's own map — the cause TRAVELS with the outcome, never reconstructed
@@ -2629,6 +2563,118 @@ Proof.
   rewrite <- Her in Hf.
   unfold total_outcome_at.
   rewrite (from_some_eq _ (eot_at_not_none ot er) out Hf). exact Hc.
+Qed.
+
+(* §6 EXACTNESS-BRIDGE SUPPORT — inversion of the carried cause by the OCCURRENCE'S VIEW shape (not by the
+   outcome shape), the form the structural induction needs.  A LEAF view forces [OCLeaf]; a conversion view
+   forces one of the three conversion causes and exposes [out = conv_outcome tnft er tr opr operand_out] with the
+   operand's stored outcome. *)
+Lemma OutcomeCause_leaf_view_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ e out :
+  GoIndex.view_expr occ = Some e -> expr_child e = None ->
+  OutcomeCause idx tnft prior r occ out ->
+  exists (er : GoIndex.ExprRef p) ci,
+    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
+    /\ const_info e = Some ci /\ out = leaf_outcome er ci.
+Proof.
+  intros Hv Hleaf HC.
+  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
+                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
+  - rewrite Hv in Hvw. injection Hvw as He0. subst e0.
+    exists er, ci. split; [ exact Ha | split; [ exact Her | split; [ exact Hci | reflexivity ] ] ].
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
+Qed.
+
+Lemma OutcomeCause_conv_shape {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ ts x out :
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  OutcomeCause idx tnft prior r occ out ->
+  exists (er : GoIndex.ExprRef p) (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) operand_out,
+    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
+    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some operand_out
+    /\ out = conv_outcome tnft er tr opr operand_out.
+Proof.
+  intros Hview HC.
+  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
+                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
+                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
+  - exfalso. rewrite Hview in Hvw. injection Hvw as He0. subst e0. discriminate Hch.
+  - exists er, tr, opr, (EOOk opf).
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. rewrite Hcv. reflexivity.
+  - exists er, tr, opr, (EOOk opf).
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. rewrite Hcv. reflexivity.
+  - exists er, tr, opr, oout.
+    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
+    unfold conv_outcome. destruct oout; [ destruct Hfail | reflexivity | reflexivity ].
+Qed.
+
+(** ═══ §6 THE SEPARATE EXACTNESS THEOREM ═══ the carried DIRECT cause AGREES with the index-free source
+    specification: every [OutcomeCause] entry satisfies [outcome_matches].  Proven by structural induction on the
+    occurrence's VIEW (a conversion's operand [x] is a strict subterm of [EConvert ts x], so the operand's
+    [outcome_matches] is the IH; the operand's fact status comes from the IH, NOT a fresh source scan).  This is
+    what lets the outcome table carry ONLY [OutcomeCause] while the fact/diagnostic projections still reach the
+    source specification. *)
+Lemma outcomes_caused_matches {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
+    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
+    (Hcaused : outcomes_caused idx tnft (prog_visit p) m) :
+  forall e (r : GoIndex.Snap.NodeRef p) occ out,
+    In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+    OutcomeCause idx tnft m r occ out -> outcome_matches idx r occ out.
+Proof.
+  intros e; induction e as [ b|nn|n0|s|dd|dc| ts x IHx ]; intros r occ out Hin Hv HC.
+  1-6: (destruct (OutcomeCause_leaf_view_inv idx tnft m r occ _ out Hv (ltac:(reflexivity)) HC)
+          as [er [ci [Ha [Her [Hci Hout]]]]]; subst out;
+        assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
+          by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity);
+        exact (leaf_stored_matches idx r er occ _ ci Hv Hrole Hci)).
+  destruct (OutcomeCause_conv_shape idx tnft m r occ ts x out Hv HC)
+    as [er [tr [opr [operand_out [Ha [Her [Htr [Hopr [Hfind Hout]]]]]]]]].
+  subst out.
+  destruct (conversion_operand_ref_conv idx r occ er ts x Hin Hv Ha) as [opr0 [Hoprc [_ [_ Hoprv]]]].
+  rewrite Hopr in Hoprc. injection Hoprc as Hopreq. subst opr0.
+  destruct (Hcaused (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) x
+              (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv) as [oout [Hfop HCop]].
+  rewrite Hfind in Hfop. injection Hfop as Hoo. subst oout.
+  pose proof (IHx (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr))
+                operand_out (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv HCop) as Hopm.
+  assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
+    by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity).
+  destruct (conversion_target_ref_conv idx r occ er ts x Hin Hv Ha) as [tr0 [Htrc [_ [_ Htsyn]]]].
+  rewrite Htr in Htrc. injection Htrc as Htreq. subst tr0.
+  assert (Htnf : tnf_type (type_name_fact_at_table tnft tr) = predeclared_type ts)
+    by (rewrite (type_name_fact_at_table_resolves tnft tr ts Htsyn); reflexivity).
+  exact (conv_stored_matches idx tnft r er opr tr occ
+           (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) ts x
+           Ha Hv Hrole Htnf Htr Hopr operand_out
+           (outcome_matches_proj idx (GoIndex.erase_ref opr)
+              (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) operand_out Hopm)
+           Hoprv).
+Qed.
+
+(* the TOTAL query MATCHES the occurrence — the direct table→production interface (no raw option, no [find]).  The
+   index-free source specification is REACHED from the carried DIRECT cause by the separate exactness theorem
+   [outcomes_caused_matches] (§6): the table carries ONLY [OutcomeCause], and [outcome_matches] is DERIVED, not a
+   second carried invariant. *)
+Lemma total_outcome_at_matches {p} {input : CompilationInput p} {tnft} (ot : ExprOutcomeTable input tnft)
+    (r : GoIndex.Snap.NodeRef p) occ (er : GoIndex.ExprRef p) e :
+  In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
+  GoIndex.as_expr (ci_idx input) r = Some er -> GoIndex.erase_ref er = r ->
+  outcome_matches (ci_idx input) r occ (total_outcome_at ot er).
+Proof.
+  intros Hin Hv Hae Her.
+  pose proof (total_outcome_at_caused ot r occ er e Hin Hv Hae Her) as HC.
+  assert (Hcaused_pv : outcomes_caused (ci_idx input) tnft (prog_visit p) (eot_map ot))
+    by (rewrite <- (ci_visit_ok input); exact (eot_caused ot)).
+  exact (outcomes_caused_matches (ci_idx input) tnft (eot_map ot) Hcaused_pv
+           e r occ (total_outcome_at ot er) Hin Hv HC).
 Qed.
 
 (** ═══ §4 THE TYPED WORK INTERFACE ═══ minting a visited expression occurrence's [ExprRef] is TOTAL (never an
@@ -3208,100 +3254,6 @@ Proof.
   assert (Her0 : er0 = er) by (rewrite Hae in Ha; injection Ha as Hh; exact (eq_sym Hh)). subst er0.
   exists tr, opr, opf, tc. split; [ exact Htr | ]. split; [ exact Hopr | ]. split; [ | split; [ exact Hcv | exact Hfeq ] ].
   unfold total_outcome_at. rewrite (from_some_eq _ (eot_at_not_none ot opr) (EOOk opf) Hfind). reflexivity.
-Qed.
-
-(* §6 EXACTNESS-BRIDGE SUPPORT — inversion of the carried cause by the OCCURRENCE'S VIEW shape (not by the
-   outcome shape), the form the structural induction needs.  A LEAF view forces [OCLeaf]; a conversion view
-   forces one of the three conversion causes and exposes [out = conv_outcome tnft er tr opr operand_out] with the
-   operand's stored outcome. *)
-Lemma OutcomeCause_leaf_view_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ e out :
-  GoIndex.view_expr occ = Some e -> expr_child e = None ->
-  OutcomeCause idx tnft prior r occ out ->
-  exists (er : GoIndex.ExprRef p) ci,
-    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
-    /\ const_info e = Some ci /\ out = leaf_outcome er ci.
-Proof.
-  intros Hv Hleaf HC.
-  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
-                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
-                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
-                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
-  - rewrite Hv in Hvw. injection Hvw as He0. subst e0.
-    exists er, ci. split; [ exact Ha | split; [ exact Her | split; [ exact Hci | reflexivity ] ] ].
-  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
-  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
-  - exfalso. rewrite Hv in Hvw. injection Hvw as He0. subst e. discriminate Hleaf.
-Qed.
-
-Lemma OutcomeCause_conv_shape {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ ts x out :
-  GoIndex.view_expr occ = Some (EConvert ts x) ->
-  OutcomeCause idx tnft prior r occ out ->
-  exists (er : GoIndex.ExprRef p) (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) operand_out,
-    GoIndex.as_expr idx r = Some er /\ GoIndex.erase_ref er = r
-    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some operand_out
-    /\ out = conv_outcome tnft er tr opr operand_out.
-Proof.
-  intros Hview HC.
-  destruct HC as [ er e0 ci Ha Her Hvw Hch Hci
-                 | er ts0 x0 tr opr opf tc Ha Her Hvw Htr Hopr Hfind Hcv
-                 | er ts0 x0 tr opr opf Ha Her Hvw Htr Hopr Hfind Hcv
-                 | er ts0 x0 tr opr oout Ha Her Hvw Htr Hopr Hfind Hfail ].
-  - exfalso. rewrite Hview in Hvw. injection Hvw as He0. subst e0. discriminate Hch.
-  - exists er, tr, opr, (EOOk opf).
-    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
-    unfold conv_outcome. rewrite Hcv. reflexivity.
-  - exists er, tr, opr, (EOOk opf).
-    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
-    unfold conv_outcome. rewrite Hcv. reflexivity.
-  - exists er, tr, opr, oout.
-    split; [ exact Ha | split; [ exact Her | split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | ] ] ] ] ].
-    unfold conv_outcome. destruct oout; [ destruct Hfail | reflexivity | reflexivity ].
-Qed.
-
-(** ═══ §6 THE SEPARATE EXACTNESS THEOREM ═══ the carried DIRECT cause AGREES with the index-free source
-    specification: every [OutcomeCause] entry satisfies [outcome_matches].  Proven by structural induction on the
-    occurrence's VIEW (a conversion's operand [x] is a strict subterm of [EConvert ts x], so the operand's
-    [outcome_matches] is the IH; the operand's fact status comes from the IH, NOT a fresh source scan).  This is
-    what lets the outcome table carry ONLY [OutcomeCause] while the fact/diagnostic projections still reach the
-    source specification. *)
-Lemma outcomes_caused_matches {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p))
-    (Hcaused : outcomes_caused idx tnft (prog_visit p) m) :
-  forall e (r : GoIndex.Snap.NodeRef p) occ out,
-    In (r, occ) (prog_visit p) -> GoIndex.view_expr occ = Some e ->
-    OutcomeCause idx tnft m r occ out -> outcome_matches idx r occ out.
-Proof.
-  intros e; induction e as [ b|nn|n0|s|dd|dc| ts x IHx ]; intros r occ out Hin Hv HC.
-  1-6: (destruct (OutcomeCause_leaf_view_inv idx tnft m r occ _ out Hv (ltac:(reflexivity)) HC)
-          as [er [ci [Ha [Her [Hci Hout]]]]]; subst out;
-        assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
-          by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity);
-        exact (leaf_stored_matches idx r er occ _ ci Hv Hrole Hci)).
-  destruct (OutcomeCause_conv_shape idx tnft m r occ ts x out Hv HC)
-    as [er [tr [opr [operand_out [Ha [Her [Htr [Hopr [Hfind Hout]]]]]]]]].
-  subst out.
-  destruct (conversion_operand_ref_conv idx r occ er ts x Hin Hv Ha) as [opr0 [Hoprc [_ [_ Hoprv]]]].
-  rewrite Hopr in Hoprc. injection Hoprc as Hopreq. subst opr0.
-  destruct (Hcaused (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) x
-              (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv) as [oout [Hfop HCop]].
-  rewrite Hfind in Hfop. injection Hfop as Hoo. subst oout.
-  pose proof (IHx (GoIndex.erase_ref opr) (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr))
-                operand_out (noderef_in_prog_visit p (GoIndex.erase_ref opr)) Hoprv HCop) as Hopm.
-  assert (Hrole : GoIndex.occurrence_role occ = expr_ref_role er)
-    by (unfold expr_ref_role; rewrite Her, (prog_visit_occ_is_source p r occ Hin); reflexivity).
-  destruct (conversion_target_ref_conv idx r occ er ts x Hin Hv Ha) as [tr0 [Htrc [_ [_ Htsyn]]]].
-  rewrite Htr in Htrc. injection Htrc as Htreq. subst tr0.
-  assert (Htnf : tnf_type (type_name_fact_at_table tnft tr) = predeclared_type ts)
-    by (rewrite (type_name_fact_at_table_resolves tnft tr ts Htsyn); reflexivity).
-  exact (conv_stored_matches idx tnft r er opr tr occ
-           (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) ts x
-           Ha Hv Hrole Htnf Htr Hopr operand_out
-           (outcome_matches_proj idx (GoIndex.erase_ref opr)
-              (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) operand_out Hopm)
-           Hoprv).
 Qed.
 
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)

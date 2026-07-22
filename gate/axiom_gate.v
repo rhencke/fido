@@ -299,6 +299,10 @@ Print Assumptions GoCompile.total_outcome_at_caused.
 Print Assumptions GoCompile.phase_convfail_cause.
 Print Assumptions GoCompile.phase_convok_cause.
 Print Assumptions GoCompile.phase_childfail_cause.
+(* §6 the SEPARATE exactness theorem: the carried DIRECT cause AGREES with the index-free source specification —
+   every [OutcomeCause] entry satisfies [outcome_matches] (structural induction on the occurrence view).  This is
+   what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
+Print Assumptions GoCompile.outcomes_caused_matches.
 (* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
    fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs). *)
 Print Assumptions GoCompile.phase_expr_facts_eq_spec.
