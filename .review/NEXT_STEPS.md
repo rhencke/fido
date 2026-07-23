@@ -1,15 +1,18 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **single retained work-domain repair 6**. Replace the remaining split structural root:
-  build ONE retained typed-work domain object (`ExprWorkForest`) — built once from the retained input, carrying
-  conversion-work refinement and exact domain/NoDup/one-per-expression laws — and have the outcome fold, the
-  outcome table, the annotation forest, facts, and diagnostics ALL consume that ONE retained object (no second
-  work discovery, no reminting of conversion refs). Retain work / annotated work / outcome table / fact table /
-  diagnostics in ONE intrinsic `ExpressionPhase` with dependent provenance so a foreign component is
-  unrepresentable. Delete `build_outcomes` (raw), `build_work_sig`, `prog_work`, `prog_work_fold`, `build_awork`,
-  `build_awork_blocks`, and the `exists w : ExprWork` domain form. PLUS: correct the scope-decision records
-  (ADR-0002 REJECTED AS WRITTEN and rewritten; remove REVIEWED from PROPOSED ledger classes; SR-009 = UNRESOLVED
-  EXISTING RESTRICTION).
+- **Active checkpoint:** C4 **exact retained work-object repair 7**. Replace the remaining canonical-recomputation
+  root: `prog_forest`/`prog_forest_blocks`/`prog_forest_awork` are pure canonical FUNCTIONS re-evaluated by every
+  phase builder from `input` (each `proj1_sig` of a sigma whose proof is discarded and re-recovered later via a
+  separate `proj2_sig`); `ep_work` is stored but consumed by nothing. Build ONE proof-carrying `ExprWorkForest`
+  object (stored `ewf_blocks`/`ewf_items` + `= concat` + exact fwd/rev domain + key-NoDup + per-file/flat order +
+  operand-in-suffix), a `WorkMember` membership handle, and a `ConversionWork` view carrying the exact operand
+  `WorkMember` + suffix proof; index the outcome table by the FOREST OBJECT (`ForestOutcomeTable forest tnft`),
+  do the live operand lookup by member/ref (NOT raw `operand_key`, no `conversion_*_ref` in the semantic step),
+  retain an `AnnotatedExprWorkForest`, forest/ot-indexed facts + diagnostics, and make `ExpressionPhase` a
+  DEPENDENT CHAIN (`ep_ot : ForestOutcomeTable ep_work ep_tnft`, …) with NO provenance-equality fields. Update the
+  deep fixtures to query retained `WorkMember`s from `ep_work`. PLUS §13: correct the scope-ledger wording so
+  `GoCompile == go build` reads as an EXTERNAL adequacy target (kernel-proved internal judgment soundness/
+  completeness vs. differential evidence against pinned `cmd/go`), not an "EXACT" property (SR-001/SR-002).
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
@@ -19,18 +22,16 @@
 - **Third blocked C4 candidate:** `806ce87373e29b6980e5c3d9d274ffa86580449b`.
 - **Fourth blocked C4 candidate:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
 - **Fifth blocked C4 candidate:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
-- **Sixth blocked C4 candidate / repair-6 baseline:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
-- **Seventh C4 candidate (repair 6 APPLIED, frozen):** the `review(final): C4 — freeze single retained
-  work-domain candidate` commit at repository HEAD (repair-6 implementation range `3b4f40e..HEAD`). An earlier
-  freeze `3a92d22` is SUPERSEDED by this head (a post-freeze completeness fix — every deep_nested conversion
-  proven EOOk + a concrete `ep_eft` seal — required a new freeze head).
-- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_6.md`.
-- **Human repair authorization token:** `C4-single-retained-work-domain-repair-6`.
-- **State:** C4 single retained work-domain repair 6 APPLIED and frozen; **pending Rob's HUMAN Implementation
-  Review**. `make check` + `make regenerate` no-drift + staged pre-commit hook GREEN; gate 428/428 axiom-free.
-- **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition (the corrected linux/amd64/
-  Go-1.23 decision is defensible and ready for human acceptance, subject to its automatic C5 reopening rule).
-  **ADR-0002 is REJECTED AS WRITTEN — open decision; no numeric implementation change authorized** (per §12/§13.2).
-  Every PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.
+- **Sixth blocked C4 candidate:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
+- **Seventh blocked C4 candidate / repair-7 baseline:** `3a92d22820705f55093c0e2b3ff18a0f8ad7f4dc`.
+  (A superseding freeze `c23a7c9` — a repair-6 post-freeze completeness fix — sits on top of `3a92d22` and carries
+  the identical architectural defect; repair 7 proceeds from current HEAD forward, no history rewrite, and the
+  repair-7 range is measured `3a92d22..final` per the directive.)
+- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_7.md`.
+- **Human repair authorization token:** `C4-exact-retained-work-object-repair-7`.
+- **State:** C4 Implementation Review BLOCKING; exact retained work-object repair 7 active.
+- **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition. **ADR-0002 is REJECTED AS
+  WRITTEN / OPEN — no numeric implementation change authorized.** SR-009 = UNRESOLVED EXISTING RESTRICTION. Every
+  PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.
 - **Automatic Codex review:** DISABLED (do NOT request or run a Codex review).
 - **C5 is FORBIDDEN** until explicit Rob authorization.

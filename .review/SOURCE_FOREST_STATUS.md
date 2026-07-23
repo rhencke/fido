@@ -13,21 +13,30 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 - First blocked candidate: `89b8e54634e7012612a51990756ad29a579c1b0f` (C4 Implementation Review BLOCKING).
 - Second blocked candidate: `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca` (second BLOCKING).
 - Third blocked code candidate: `806ce87373e29b6980e5c3d9d274ffa86580449b` (third BLOCKING — recursive/recomputing root).
-- Fourth blocked candidate / repair-4 baseline (current clean main): `af2fc87e7726a4fc68bb9480c53cf64faa83717b`
+- Fourth blocked candidate / repair-4 baseline: `af2fc87e7726a4fc68bb9480c53cf64faa83717b`
   (fourth BLOCKING — proof-carrying accumulator projected down to a raw map, fail-open projections, retained visit
   ignored by the semantic builders).
+- Fifth blocked candidate: `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022` (fifth BLOCKING — named-not-behavioral).
+- Sixth blocked candidate: `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598` (sixth BLOCKING — three independent work
+  discoveries related only by equality theorems).
+- Seventh blocked candidate / repair-7 baseline: `3a92d22820705f55093c0e2b3ff18a0f8ad7f4dc` (seventh BLOCKING —
+  still no ONE proof-carrying `ExprWorkForest` object passed through production; `prog_forest*` are canonical
+  functions recomputed per phase and `ep_work` is stored-but-unconsumed). A superseding freeze `c23a7c9` (a
+  repair-6 post-freeze completeness fix) sits on top of `3a92d22` with the identical defect; repair 7 proceeds
+  from HEAD forward (no history rewrite), range measured `3a92d22..final`.
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
   repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3`;
   repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`;
-  repair 6 `C4-single-retained-work-domain-repair-6` (ACTIVE — see C4 implementation state).
-- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_6.md` (repairs 1–5 superseded — each deleted in the
+  repair 6 `C4-single-retained-work-domain-repair-6`; repair 7 `C4-exact-retained-work-object-repair-7`
+  (ACTIVE — see C4 implementation state).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_7.md` (repairs 1–6 superseded — each deleted in the
   first implementation commit of the next repair; git history is their archive). The scope ledger
   (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` (PROPOSED) + `ADR-0002-BOUNDED-
   DECIMALFLOAT-DOMAIN` (REJECTED AS WRITTEN — open) are authorized as review governance under this repair (no
   disposition ACCEPTED; a model does not certify its own trade-offs; PROPOSED entries carry neutral
   classifications, no REVIEWED).
 - Automatic Codex review: DISABLED. This directive is Rob's later explicit authorization; on repair completion
-  the candidate is frozen with EXACTLY ONE `review(final): C4 — freeze single retained work-domain candidate` and
+  the candidate is frozen with EXACTLY ONE `review(final): C4 — freeze exact retained work-object candidate` and
   reported for Rob's human Implementation Review — no Codex review is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
@@ -42,19 +51,36 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-**CURRENT: single retained work-domain repair 6 ACTIVE from clean baseline `3b4f40e`** (authority
-`.review/C4_IMPLEMENTATION_REPAIR_6.md`, token `C4-single-retained-work-domain-repair-6`). The repair-5 candidate
-`3b4f40e` was the **SIXTH BLOCKING**: the foundational defect is that there is still **no ONE retained typed-work
-domain object** — work discovery happens independently in THREE places (`build_outcomes` folds raw `ci_visit`;
-`prog_work`/`build_work_sig` builds a separate `ExprWork` list for facts; `build_awork`/`build_awork_blocks`
-re-inspect raw occurrences for diagnostics/contexts), related only by extensional equality theorems. Same class of
-defect as before: equivalent structural reconstruction sold as one authority. **Repair 6 must DELETE the split and
-build ONE retained `ExprWorkForest`** (conversion-work refinement + exact domain/reverse-domain/NoDup/one-per-
-expression laws, built once from the retained input) that the outcome fold, the outcome table, the annotation
-forest, facts, and diagnostics all consume — retained in ONE intrinsic `ExpressionPhase` with dependent provenance
-so a foreign component is unrepresentable.
+**CURRENT: exact retained work-object repair 7 ACTIVE from baseline `3a92d22`** (authority
+`.review/C4_IMPLEMENTATION_REPAIR_7.md`, token `C4-exact-retained-work-object-repair-7`). The repair-6 candidate
+`3a92d22` (and its superseding freeze `c23a7c9`) was the **SEVENTH BLOCKING**: repair 6 closed the three-way work
+split, but there is still **no ONE proof-carrying `ExprWorkForest` object passed through production**. `prog_forest`
+= `concat (prog_forest_blocks input)` and `prog_forest_blocks` = `proj1_sig (build_forest_blocks …)` — the sigma's
+proof is DISCARDED and re-recovered later via a separate `proj2_sig`; each phase builder re-evaluates the canonical
+function on `input`, and `ep_work` is stored but consumed by NOTHING. Same prohibited architecture at one final
+layer: evidence exists, the evidence-bearing object is discarded, raw data is recomputed through a canonical
+helper, equality theorems later claim shared provenance.
 
-### Repair 6 APPLIED — frozen for human Implementation Review
+**Repair 7 blocking classes (§2 of the repair-7 directive):** 2.1 no `ExprWorkForest` record retaining blocks +
+flat + `=concat` + fwd/rev domain + NoDup + one-per-expr + order + operand-in-suffix (proof discarded via
+`proj1_sig`, re-recovered via `proj2_sig`); 2.2 `build_expression_phase` recomputes canonical work per builder
+(`prog_forest`/`prog_forest_awork` called again) rather than passing one value; `ep_work`/`ep_awork` unconsumed;
+2.3 `ForestOutcomeTable input tnft` indexed by input, not by the exact forest object; 2.4 live operand lookup
+still uses raw `operand_key`, ref justified afterward; 2.5 `ConvRefinement` lacks roles/direct-child/order/operand
+view/exact operand work-item/suffix membership (reconstructed later from `conversion_*_ref_conv` +
+`prog_forest_operand_in_tail`); 2.6 `prog_forest_awork` is another `proj1_sig` raw projection, diagnostics consume
+a fresh call not `ep_awork`; 2.7 `ExpressionPhase` stores equal results + provenance equalities, not a dependent
+causal chain (`ep_ot` not indexed by `ep_work`, `ep_eft` not by `ep_work`+`ep_ot`, …); 2.8 `ep_work` is
+stored-but-dead as an authority; 2.9 `OutcomeCause` indexed by raw node/occ + raw prior map, not the exact
+work/suffix identities; 2.10 `total_forest_outcome_at` accepts any constructible `ExprWork`, not a retained
+membership witness; fixtures query a `program_work_at`-constructed value; 2.11 scope ledger still calls
+`GoCompile == go build` an EXACT property (SR-001/SR-002) rather than an external adequacy target; 2.12 prose
+overstates the retained-object implementation. **Required replacement: ONE proof-carrying `ExprWorkForest` +
+`WorkMember` + `ConversionWork` view; `ForestOutcomeTable forest tnft`; operand lookup by member/ref;
+`AnnotatedExprWorkForest`; forest/ot-indexed facts + diagnostics; `ExpressionPhase` a DEPENDENT CHAIN with no
+provenance-equality fields; fixtures querying retained members; scope-ledger adequacy wording corrected.**
+
+### Repair 6 APPLIED — the SEVENTH BLOCKED candidate (historical)
 
 The single retained work-domain repair is applied and frozen. **Seventh C4 candidate: the `review(final): C4 —
 freeze single retained work-domain candidate` commit at repository HEAD** (repair-6 implementation range
