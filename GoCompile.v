@@ -2882,6 +2882,65 @@ Definition prog_work_fold {p} (input : CompilationInput p) {B}
     (Hskip : forall r occ b, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None -> fo (r, occ) b = b) :
   fold_right fw init (prog_work input) = fold_right fo init (ci_visit input) :=
   proj2_sig (build_work_sig input (ci_visit input) (fun ro H => H)) B fw fo init Hagree Hskip.
+
+(** ═══ §4/§2.2/§2.5 THE ONE RETAINED TYPED-WORK FOREST ═══ the exact expression-work items of the retained
+    visit, built ONCE (the SINGLE work discovery), carrying the one invariant that pins order + both domains: the
+    item pair-projection EQUALS the visit filtered to its expression occurrences.  Outcomes, facts, and the
+    annotation all CONSUME this ONE object (no second discovery, no [exists w] domain form). *)
+Definition occ_is_expr {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) : bool :=
+  match GoIndex.view_expr (snd ro) with Some _ => true | None => false end.
+Lemma occ_is_expr_true {p} (r : GoIndex.Snap.NodeRef p) occ e :
+  GoIndex.view_expr occ = Some e -> occ_is_expr (r, occ) = true.
+Proof. intro H. unfold occ_is_expr. cbn [snd]. rewrite H. reflexivity. Qed.
+Lemma occ_is_expr_false {p} (r : GoIndex.Snap.NodeRef p) occ :
+  GoIndex.view_expr occ = None -> occ_is_expr (r, occ) = false.
+Proof. intro H. unfold occ_is_expr. cbn [snd]. rewrite H. reflexivity. Qed.
+
+Definition build_forest_sig {p} (input : CompilationInput p) :
+  forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)),
+    (forall ro, In ro l -> In ro (ci_visit input)) ->
+    { items : list (ExprWork input) |
+        map (fun w => (ew_node_ref w, ew_occurrence w)) items = filter occ_is_expr l }.
+Proof.
+  induction l as [| [r occ] rest IH]; intro Hsub.
+  - exists nil. reflexivity.
+  - assert (Hin : In (r, occ) (ci_visit input)) by (apply Hsub; left; reflexivity).
+    destruct (IH (fun ro Hro => Hsub ro (or_intror Hro))) as [items_rest Hrest].
+    destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
+    + assert (Hinp : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
+      destruct (prog_visit_expr_ref (ci_idx input) r occ e Hinp Hv) as [er [Hae Her]].
+      exists (mkExprWork r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae) :: items_rest).
+      cbn [map filter ew_node_ref ew_occurrence]. rewrite (occ_is_expr_true r occ e Hv), Hrest. reflexivity.
+    + exists items_rest.
+      cbn [filter]. rewrite (occ_is_expr_false r occ Hv). exact Hrest.
+Defined.
+
+Definition prog_forest {p} (input : CompilationInput p) : list (ExprWork input) :=
+  proj1_sig (build_forest_sig input (ci_visit input) (fun ro H => H)).
+Definition prog_forest_filter {p} (input : CompilationInput p) :
+  map (fun w => (ew_node_ref w, ew_occurrence w)) (prog_forest input) = filter occ_is_expr (ci_visit input) :=
+  proj2_sig (build_forest_sig input (ci_visit input) (fun ro H => H)).
+
+(* REVERSE domain: every retained work item is a visited occurrence (§4). *)
+Lemma prog_forest_sound {p} (input : CompilationInput p) (w : ExprWork input) :
+  In w (prog_forest input) -> In (ew_node_ref w, ew_occurrence w) (ci_visit input).
+Proof.
+  intro Hw. pose proof (in_map (fun w => (ew_node_ref w, ew_occurrence w)) _ _ Hw) as Hp.
+  rewrite prog_forest_filter in Hp. apply filter_In in Hp. exact (proj1 Hp).
+Qed.
+
+(* FORWARD domain: every visited EXPRESSION occurrence has a retained work item (§4). *)
+Lemma prog_forest_complete {p} (input : CompilationInput p) (nr : GoIndex.Snap.NodeRef p) occ e :
+  In (nr, occ) (ci_visit input) -> GoIndex.view_expr occ = Some e ->
+  exists w, In w (prog_forest input) /\ ew_node_ref w = nr /\ ew_occurrence w = occ.
+Proof.
+  intros Hin Hv.
+  assert (Hf : In (nr, occ) (filter occ_is_expr (ci_visit input))).
+  { apply filter_In. split; [exact Hin | unfold occ_is_expr; cbn [snd]; rewrite Hv; reflexivity]. }
+  rewrite <- prog_forest_filter in Hf. apply in_map_iff in Hf. destruct Hf as [w [Hpair Hinw]].
+  injection Hpair as Hnr Hocc. exists w. split; [exact Hinw | split; [exact Hnr | exact Hocc]].
+Qed.
+
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
     its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
