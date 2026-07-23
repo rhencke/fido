@@ -4520,6 +4520,77 @@ Proof.
     reflexivity.
 Defined.
 
+(** ═══ §9.2/§2.3 THE DIAGNOSTIC PROJECTION OVER THE RETAINED WORK ═══ each annotated RETAINED work item's
+    diagnostic is read TOTALLY off the forest outcome table via [total_forest_outcome_at] — keyed by the item's
+    OWN [ew_expr_ref], NO [as_expr], NO fail-open.  Proved EQUAL to the source spec [expr_diags] over the SAME
+    retained annotation ([build_forest_awork_blocks]). *)
+Definition forest_awork_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) (aw : ExprWork input * list (GoIndex.ExprRef p))
+  : list (DiagnosticReason p) :=
+  match total_forest_outcome_at ot (fst aw) with
+  | EOConvFail er2 tr2 opr2 t ci => [ DRInvalidConversion er2 tr2 opr2 (snd aw) t ci ]
+  | EOOk f =>
+      match work_default_failure (ew_occurrence (fst aw)) f with
+      | Some (c, dt) => [ DRDefaultNotRepresentable (ew_expr_ref (fst aw)) c dt ]
+      | None => []
+      end
+  | EOChildFail => []
+  end.
+
+Lemma forest_awork_diags_eq {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) (w : ExprWork input) (c : list (GoIndex.ExprRef p)) :
+  forest_awork_diags input tnft ot (w, c)
+  = occ_expr_diags (ci_idx input) c (ew_node_ref w, ew_occurrence w).
+Proof.
+  rewrite (occ_expr_diags_of_ref (ci_idx input) c (ew_node_ref w) (ew_occurrence w)
+             (ew_expr_ref w) (ew_expr w) (ew_as_expr_exact w) (ew_view_exact w)).
+  unfold forest_awork_diags. cbn [fst snd].
+  pose proof (total_forest_outcome_at_matches ot w) as Hm.
+  destruct (total_forest_outcome_at ot w) as [f|er2 tr2 opr2 t ci| ]; cbn [outcome_matches] in Hm.
+  - assert (Hcf : const_info (ew_expr w) = Some (ef_const_status f)).
+    { unfold occ_expr_fact in Hm. rewrite (ew_view_exact w) in Hm.
+      destruct (const_info (ew_expr w)) as [ce|] eqn:Ece; [| discriminate Hm]. injection Hm as Hf0. rewrite <- Hf0. reflexivity. }
+    rewrite (local_conv_failure_none_of_const (ew_expr w) (ef_const_status f) Hcf).
+    rewrite (work_default_failure_eq (ew_occurrence w) (ew_expr w) f Hcf). reflexivity.
+  - destruct Hm as [_ [Hae2 [[e' [Hv' Hlcf]] [Htr2 Hopr2]]]].
+    rewrite (ew_as_expr_exact w) in Hae2. injection Hae2 as He2. subst er2.
+    rewrite (ew_view_exact w) in Hv'. injection Hv' as He'. subst e'.
+    rewrite Hlcf, Htr2, Hopr2. reflexivity.
+  - destruct Hm as [Hnf [e' [Hv' Hlcf]]]. rewrite (ew_view_exact w) in Hv'. injection Hv' as He'. subst e'.
+    rewrite Hlcf. unfold arg_default_failure.
+    assert (Hcn : const_info (ew_expr w) = None).
+    { unfold occ_expr_fact in Hnf. rewrite (ew_view_exact w) in Hnf.
+      destruct (const_info (ew_expr w)) as [ce|] eqn:Ece; [discriminate Hnf | reflexivity]. }
+    destruct (GoIndex.occurrence_role (ew_occurrence w)); try reflexivity. rewrite Hcn. reflexivity.
+Qed.
+
+Definition prog_forest_blocks_filter {p} (input : CompilationInput p) :
+  map (map (fun w => (ew_node_ref w, ew_occurrence w))) (prog_forest_blocks input)
+  = map (filter occ_is_expr) (ci_blocks input) :=
+  proj2_sig (build_forest_blocks input (ci_blocks input) (ci_visit_of_concat input)).
+
+Definition forest_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) : list (DiagnosticReason p) :=
+  flat_map (forest_awork_diags input tnft ot)
+           (proj1_sig (build_forest_awork_blocks input (ci_blocks input)
+                         (prog_forest_blocks input) (prog_forest_blocks_filter input))).
+
+Lemma forest_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) :
+  forest_diags input tnft ot
+  = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
+Proof.
+  unfold forest_diags.
+  rewrite (proj2_sig (build_forest_awork_blocks input (ci_blocks input)
+                        (prog_forest_blocks input) (prog_forest_blocks_filter input))
+             (DiagnosticReason p)
+             (forest_awork_diags input tnft ot)
+             (fun ro c => occ_expr_diags (ci_idx input) c ro)
+             (fun w c => forest_awork_diags_eq input tnft ot w c)
+             (fun ro c _ Hv => occ_expr_diags_nonexpr (ci_idx input) c ro Hv)).
+  unfold annotate_program. rewrite (ci_blocks_ok input). reflexivity.
+Qed.
+
 Definition phase_expr_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft) : list (DiagnosticReason p) :=
   flat_map (awork_diags input tnft ot)
