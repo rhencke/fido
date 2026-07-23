@@ -1,15 +1,15 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 typed-work / direct-cause / scope-decision **repair 5**. Replace the WEAK BOUNDARIES
-  repair 4 named but did not satisfy: build ONE exact proof-backed typed **ExprWork** domain (downstream facts,
-  outcomes, diagnostics, and context annotation consume it — NO optional `as_expr` below the work builder); a
-  direct **OutcomeCause** relation carried by the table (NOT reconstructed from `local_conv_failure`/`const_info`);
-  an **exact-domain** `ExprOutcomeTable` (no extra/foreign keys, one entry per work item); a retained proof-backed
-  **ExprFactTable** object sealed into `ElaborationFacts` by OBJECT IDENTITY (`ef_expr_facts facts = ep_eft phase`,
-  not map equality); an **input-indexed** `TypeNameFactTable`; total annotated diagnostics; and REAL phase fixtures
-  that query `ep_ot`/`ep_eft`/`ep_diags` (not `erased_report`/`prog_expr_facts`). PLUS: repair the scope ledger and
-  ADR proposals honestly (DecimalFloat bound entry + ADR; FilePath split; ModulePath full enumeration; all
-  PROPOSED unless exact prior human authority).
+- **Active checkpoint:** C4 **single retained work-domain repair 6**. Replace the remaining split structural root:
+  build ONE retained typed-work domain object (`ExprWorkForest`) — built once from the retained input, carrying
+  conversion-work refinement and exact domain/NoDup/one-per-expression laws — and have the outcome fold, the
+  outcome table, the annotation forest, facts, and diagnostics ALL consume that ONE retained object (no second
+  work discovery, no reminting of conversion refs). Retain work / annotated work / outcome table / fact table /
+  diagnostics in ONE intrinsic `ExpressionPhase` with dependent provenance so a foreign component is
+  unrepresentable. Delete `build_outcomes` (raw), `build_work_sig`, `prog_work`, `prog_work_fold`, `build_awork`,
+  `build_awork_blocks`, and the `exists w : ExprWork` domain form. PLUS: correct the scope-decision records
+  (ADR-0002 REJECTED AS WRITTEN and rewritten; remove REVIEWED from PROPOSED ledger classes; SR-009 = UNRESOLVED
+  EXISTING RESTRICTION).
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
@@ -18,20 +18,14 @@
 - **Second blocked C4 candidate:** `1c4a7de8e9e265b929a3ba9ce1c8fb1317ca98ca`.
 - **Third blocked C4 candidate:** `806ce87373e29b6980e5c3d9d274ffa86580449b`.
 - **Fourth blocked C4 candidate:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
-- **Fifth blocked C4 candidate / current repair baseline:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
-  (HEAD `842fd2d` is `9d4aff5` plus a doc-only status commit; the code baseline is exactly `9d4aff5`.)
-- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_5.md`.
-- **Human repair authorization token:** `C4-typed-work-direct-cause-scope-repair-5`.
-- **State:** C4 Implementation Review repair-5 candidate **FROZEN** (this commit is the freeze head), pending
-  Rob's **HUMAN** Implementation Review. All 18 blocking classes (§2.1–§2.18) are closed behaviorally, each backed
-  by a gated zero-axiom theorem: exact typed **ExprWork** domain (facts/outcomes/diagnostics consume it — no
-  `as_expr` in production); the DIRECT **OutcomeCause** as the SOLE carried outcome invariant (`eot_caused`;
-  source spec reached by the separate `outcomes_caused_matches`); **exact-domain** table (`eot_domain_iff_work` —
-  extras uninhabitable); typed-work diagnostics (`awork_diags`, no fail-open); object-identity `ExprFactTable`
-  seal; input-provenance `TypeNameFactTable`; real phase fixtures. `make prove`/`e2e`/`check`/`regenerate` GREEN,
-  no generated-byte drift. **STOP** — no further repair or re-request without an explicit later `human_override`.
-- **Scope decisions:** ADR-0001 and every new scope-ledger disposition remain **PROPOSED pending Rob** (unless an
-  exact prior human authority/contract is cited). A model must not certify its own trade-offs.
-- **Automatic Codex review:** DISABLED (do NOT request or run a Codex review; this directive is Rob's later
-  explicit authorization).
+- **Fifth blocked C4 candidate:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
+- **Sixth blocked C4 candidate / current repair baseline:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
+- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_6.md`.
+- **Human repair authorization token:** `C4-single-retained-work-domain-repair-6`.
+- **State:** C4 Implementation Review BLOCKING; single retained work-domain repair 6 active.
+- **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition (the corrected linux/amd64/
+  Go-1.23 decision is defensible and ready for human acceptance, subject to its automatic C5 reopening rule).
+  **ADR-0002 is REJECTED AS WRITTEN — open decision; no numeric implementation change authorized** (per §12/§13.2).
+  Every PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.
+- **Automatic Codex review:** DISABLED (do NOT request or run a Codex review).
 - **C5 is FORBIDDEN** until explicit Rob authorization.

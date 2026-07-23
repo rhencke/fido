@@ -18,16 +18,17 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
   ignored by the semantic builders).
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
   repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3`;
-  repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`
-  (FROZEN — see C4 implementation state).
-- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_5.md` (repairs 1–4 superseded — each deleted in the
+  repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`;
+  repair 6 `C4-single-retained-work-domain-repair-6` (ACTIVE — see C4 implementation state).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_6.md` (repairs 1–5 superseded — each deleted in the
   first implementation commit of the next repair; git history is their archive). The scope ledger
-  (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` + `ADR-0002-BOUNDED-
-  DECIMALFLOAT-DOMAIN` are authorized as review governance under this repair (all dispositions PROPOSED pending
-  Rob — a model does not certify its own trade-offs).
+  (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` (PROPOSED) + `ADR-0002-BOUNDED-
+  DECIMALFLOAT-DOMAIN` (REJECTED AS WRITTEN — open) are authorized as review governance under this repair (no
+  disposition ACCEPTED; a model does not certify its own trade-offs; PROPOSED entries carry neutral
+  classifications, no REVIEWED).
 - Automatic Codex review: DISABLED. This directive is Rob's later explicit authorization; on repair completion
-  the candidate is frozen (`review(final): C4 — freeze typed-work direct-cause candidate`) and reported for Rob's
-  human Implementation Review — no Codex review is requested or run.
+  the candidate is frozen with EXACTLY ONE `review(final): C4 — freeze single retained work-domain candidate` and
+  reported for Rob's human Implementation Review — no Codex review is requested or run.
 - C5 and every later checkpoint remain forbidden.
 
 ## Completed checkpoints
@@ -41,19 +42,37 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 
 ## C4 implementation state
 
-**CURRENT: typed-work / direct-cause / scope-decision repair 5 FROZEN from clean baseline `9d4aff5`** (authority
-`.review/C4_IMPLEMENTATION_REPAIR_5.md`, token `C4-typed-work-direct-cause-scope-repair-5`). The repair-4
-candidate `9d4aff5` was the **FIFTH BLOCKING**: repair 4 built the right NAMES but not the right BEHAVIOR — the
-abstractions were named, the required behavior missing. **Repair 5 REPLACED each named-not-behavioral boundary
-with a gated zero-axiom theorem** and is now FROZEN pending Rob's HUMAN Implementation Review: exact typed
-`ExprWork` domain (facts/outcomes/diagnostics consume it — no `as_expr` in production); the DIRECT `OutcomeCause`
-as the SOLE carried outcome invariant (`eot_caused`; source spec reached only by the SEPARATE
-`outcomes_caused_matches`); exact-domain table (`eot_domain_iff_work` — extras uninhabitable, `eot_nonexpr_absent`);
-typed-work diagnostics (`awork_diags`, no fail-open); object-identity `ExprFactTable` seal; input-provenance
-`TypeNameFactTable`; real phase fixtures (`deep_nested_phase_no_diags`/`deep_fail_phase_reports`); honest PROPOSED
-scope ledger + ADR-0001/0002. `make prove`/`e2e`/`check`/`regenerate`/`regen-guard` GREEN, no generated-byte drift.
-STOP — no further repair or re-request without an explicit later `human_override`. (The §2 blocking classes below
-are the historical record of the findings repair 5 closed.) Repair 4 results to KEEP (per §0): one `CompilationInput`
+**CURRENT: single retained work-domain repair 6 ACTIVE from clean baseline `3b4f40e`** (authority
+`.review/C4_IMPLEMENTATION_REPAIR_6.md`, token `C4-single-retained-work-domain-repair-6`). The repair-5 candidate
+`3b4f40e` was the **SIXTH BLOCKING**: the foundational defect is that there is still **no ONE retained typed-work
+domain object** — work discovery happens independently in THREE places (`build_outcomes` folds raw `ci_visit`;
+`prog_work`/`build_work_sig` builds a separate `ExprWork` list for facts; `build_awork`/`build_awork_blocks`
+re-inspect raw occurrences for diagnostics/contexts), related only by extensional equality theorems. Same class of
+defect as before: equivalent structural reconstruction sold as one authority. **Repair 6 must DELETE the split and
+build ONE retained `ExprWorkForest`** (conversion-work refinement + exact domain/reverse-domain/NoDup/one-per-
+expression laws, built once from the retained input) that the outcome fold, the outcome table, the annotation
+forest, facts, and diagnostics all consume — retained in ONE intrinsic `ExpressionPhase` with dependent provenance
+so a foreign component is unrepresentable.
+
+**Repair-6 blocking classes (§2 of the repair-6 directive):** 2.1 CompilationInput computes the visit from a
+SECOND `prog_blocks` call (two independent `prog_blocks p` terms); 2.2 three independent work builders, not one;
+2.3 outcomes fold raw `NodeRef*SourceOccurrence`, not `ExprWork`; 2.4 no retained conversion-work refinement
+(build_outcomes reminting target/operand refs); 2.5 `prog_work` a raw projected list with the proof beside it; 2.6
+`build_awork` rebuilds work rather than annotating the retained forest; 2.7 `ExpressionPhase` retains no work /
+annotated work / diagnostics; 2.8 `ep_eft` not intrinsically tied to `ep_ot`; 2.9 `eot_domain_iff_work` quantifies
+over any constructible `ExprWork`, not one retained enumeration; 2.10 `OutcomeCause` carries no exact work item /
+processed-suffix witness; 2.11 annotated work carries no context proof in its data; 2.12 phase fixtures prove less
+than claimed (only `ep_diags = []` / `<> []` via rewrite to the spec); 2.13 permanent prose overclaims one work
+domain; 2.14 stale NEXT_STEPS HEAD; 2.15 multiple `review(final)` commits; 2.16 ADR-0002 factually wrong —
+REJECTED AS WRITTEN; 2.17 PROPOSED ledger entries still classified REVIEWED; 2.18 no completed behavioral TODO
+evidence table. (Repair-5 results to KEEP per §0 are recorded below; the §2 list further below is the historical
+record of the repair-5 findings.)
+
+**Repair 5 (SUPERSEDED, prior frozen candidate `3b4f40e`, now the sixth blocked):** replaced each
+named-not-behavioral boundary with a gated zero-axiom theorem — exact typed `ExprWork` domain (no `as_expr` in
+production); DIRECT `OutcomeCause` the SOLE carried outcome invariant (`eot_caused`); exact-domain table
+(`eot_domain_iff_work`); typed-work diagnostics (`awork_diags`); object-identity `ExprFactTable` seal;
+input-provenance `TypeNameFactTable`; real phase fixtures. Detail is in git. Repair 4 results to KEEP (per §0): one `CompilationInput`
 value; type-name facts built from the retained input; one proof-carrying `ExprOutcomeTable` value; one
 `ExpressionPhase` value; operand read from the processed suffix; total type-name query consuming the passed table;
 retained index threaded through conversion child proofs; `EOConvFail`/`DRInvalidConversion` retain refs;
