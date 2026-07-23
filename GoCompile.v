@@ -3189,6 +3189,69 @@ Proof.
   apply fold_ext_in. intros; apply Hagree.
 Qed.
 
+(* the carried cause, re-expressed over the whole retained visit (every visited expression occurrence is a forest
+   pair), so the repair-5 exactness bridge [outcomes_caused_matches] applies to the forest table. *)
+Lemma fot_caused_visit {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft) :
+  outcomes_caused (ci_idx input) tnft (prog_visit p) (fot_map ot).
+Proof.
+  intros r occ e Hin Hv.
+  assert (Hinf : In (r, occ) (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input))).
+  { rewrite prog_forest_filter. apply filter_In.
+    split; [rewrite (ci_visit_ok input); exact Hin | exact (occ_is_expr_true r occ e Hv)]. }
+  exact (fot_caused ot r occ e Hinf Hv).
+Qed.
+
+(* the TOTAL query PROJECTS the carried DIRECT cause at the work item. *)
+Lemma total_forest_outcome_at_caused {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) :
+  OutcomeCause (ci_idx input) tnft (fot_map ot) (ew_node_ref w) (ew_occurrence w) (total_forest_outcome_at ot w).
+Proof.
+  destruct (fot_caused_visit ot (ew_node_ref w) (ew_occurrence w) (ew_expr w)
+              (ci_in_prog (ew_in_visit w)) (ew_view_exact w)) as [out [Hf Hc]].
+  unfold total_forest_outcome_at. rewrite (from_some_eq _ (fot_at_not_none ot w) out Hf). exact Hc.
+Qed.
+
+(* the TOTAL query MATCHES the source specification at the work's own occurrence (§11.5), via the carried cause +
+   the repair-5 exactness bridge. *)
+Lemma total_forest_outcome_at_matches {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) :
+  outcome_matches (ci_idx input) (ew_node_ref w) (ew_occurrence w) (total_forest_outcome_at ot w).
+Proof.
+  exact (outcomes_caused_matches (ci_idx input) tnft (fot_map ot) (fot_caused_visit ot)
+           (ew_expr w) (ew_node_ref w) (ew_occurrence w) (total_forest_outcome_at ot w)
+           (ci_in_prog (ew_in_visit w)) (ew_view_exact w) (total_forest_outcome_at_caused ot w)).
+Qed.
+
+(** ═══ §9/§2.7 THE FACT PROJECTION OVER THE RETAINED FOREST ═══ folds the ONE retained forest via the TOTAL
+    outcome query: an [EOOk] contributes its exact fact keyed by the work's own node key; any other outcome
+    contributes nothing.  Proved EQUAL to the source specification [prog_expr_facts] over the SAME retained work
+    order ([prog_forest_fold]) — no second discovery, no fail-open. *)
+Definition forest_fact_step {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) (m : GoIndex.NodeKeyMapBase.t ExprFact) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  match total_forest_outcome_at ot w with
+  | EOOk f => GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) f m
+  | _ => m
+  end.
+Definition forest_facts {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) : GoIndex.NodeKeyMapBase.t ExprFact :=
+  fold_right (forest_fact_step ot) (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_forest input).
+
+Lemma add_occ_fact_nonexpr {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) m :
+  GoIndex.view_expr (snd ro) = None -> add_occ_fact ro m = m.
+Proof. intro H. unfold add_occ_fact. rewrite (occ_expr_fact_none_nonexpr (snd ro) H). reflexivity. Qed.
+
+Lemma forest_fact_step_eq {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) m :
+  forest_fact_step ot w m = add_occ_fact (ew_node_ref w, ew_occurrence w) m.
+Proof.
+  unfold forest_fact_step, add_occ_fact. cbn [fst snd].
+  pose proof (total_forest_outcome_at_matches ot w) as Hm.
+  pose proof (outcome_matches_proj (ci_idx input) (ew_node_ref w) (ew_occurrence w)
+                (total_forest_outcome_at ot w) Hm) as Hpf.
+  destruct (total_forest_outcome_at ot w) as [f|c1 c2 c3 c4 c5| ];
+    cbn [outcome_proj_fact] in Hpf; rewrite Hpf; reflexivity.
+Qed.
+
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
     its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
@@ -3225,6 +3288,18 @@ Qed.
     [ExprOutcomeTable]), proved EQUAL to this specification by [phase_expr_facts_eq_spec]. *)
 Definition prog_expr_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprFact :=
   fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
+
+(* §9/§2.7 the forest fact projection EQUALS the source specification, over the SAME retained work order. *)
+Lemma forest_facts_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) :
+  forest_facts input tnft ot = prog_expr_facts p.
+Proof.
+  unfold forest_facts.
+  rewrite (prog_forest_fold input (forest_fact_step ot) (@add_occ_fact p)
+             (GoIndex.NodeKeyMapBase.empty ExprFact) (forest_fact_step_eq ot)
+             (fun ro b _ Hvnone => add_occ_fact_nonexpr ro b Hvnone)).
+  unfold prog_expr_facts. rewrite (ci_visit_ok input). reflexivity.
+Qed.
 
 (** ═══ §9.1 THE TOTAL FACT PROJECTION EQUALS THE SPECIFICATION ═══ folding the total per-occurrence outcome
     query over the retained visit yields EXACTLY [prog_expr_facts p] — so the [ExprFactTable] built from the
