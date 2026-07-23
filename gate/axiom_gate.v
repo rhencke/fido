@@ -309,6 +309,13 @@ Print Assumptions GoCompile.total_forest_outcome_at_caused.
 Print Assumptions GoCompile.phase_convfail_cause.
 Print Assumptions GoCompile.phase_convok_cause.
 Print Assumptions GoCompile.phase_childfail_cause.
+(* §6/§2.9 the FOREST/WORK-INDEXED direct cause: the production cause form retains the exact [ConversionWork] (with
+   its exact operand [WorkMember] [cw_operand_work] and processed-suffix order [cw_target_before_op]) and reads the
+   operand outcome THROUGH that exact member via [total_forest_outcome_at] — success, local rejection, and blocked
+   child, each carrying the exact work identities, not a raw re-derived key lookup. *)
+Print Assumptions GoCompile.phase_convok_work_cause.
+Print Assumptions GoCompile.phase_convfail_work_cause.
+Print Assumptions GoCompile.phase_childfail_work_cause.
 (* §6 the SEPARATE exactness theorem: the carried DIRECT cause AGREES with the index-free source specification —
    every [OutcomeCause] entry satisfies [outcome_matches] (structural induction on the occurrence view).  This is
    what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
@@ -386,9 +393,9 @@ Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
 (* §8.1/§8.2/§9 THE DEPENDENT OBJECT CHAIN: the fact table is a [ForestExprFactTable] indexed by the exact
    forest/outcome table, carrying a proof its map IS the EOOk projection ([feft_is_facts]); the diagnostics are an
-   [ExpressionDiagnostics] indexed by the exact annotated members/outcome table, carrying a proof its list IS the
-   projection ([ed_is_diags]).  A foreign equal-map table / equal list is UNREPRESENTABLE — the dependent types
-   encode the chain, not a provenance equality. *)
+   [ExpressionDiagnostics] indexed by the exact retained [AnnotatedExprWorkForest] object and outcome table,
+   carrying a proof its list IS the projection ([ed_is_diags]).  A foreign equal-map table / equal list is
+   UNREPRESENTABLE — the dependent types encode the chain, not a provenance equality. *)
 Print Assumptions GoCompile.feft_is_facts.
 Print Assumptions GoCompile.ed_is_diags.
 (* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the ExprFactTable OBJECT sealed into a successful

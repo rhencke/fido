@@ -879,13 +879,13 @@ Proof.
 Qed.
 
 (* [prog_expr_facts] is the source-determined SPECIFICATION ([add_occ_fact] per node); the production fact map
-   [forest_facts] is a TOTAL PROJECTION of the ONE retained work forest [prog_forest] over the proof-carrying
-   [ForestOutcomeTable] (extract each work item's [EOOk] fact via [total_forest_outcome_at] — no per-occurrence
-   [const_info] rescan), proved EQUAL to this specification by [forest_facts_eq_spec]. *)
+   [forest_facts] is a TOTAL PROJECTION of the ONE retained work forest object's [ewf_items] over the proof-
+   carrying [ForestOutcomeTable] (extract each work item's [EOOk] fact via [total_forest_outcome_at] — no per-
+   occurrence [const_info] rescan), proved EQUAL to this specification by [forest_facts_eq_spec]. *)
 
 
 (* the ONE expression-outcome authority is the proof-carrying [ForestOutcomeTable] ([build_forest_outcome_table]
-   folding the retained work forest [prog_forest], paired with the ONE carried invariant — the DIRECT cause
+   folding the retained work forest object's [ewf_items], paired with the ONE carried invariant — the DIRECT cause
    [fot_caused] with its exact domain [fot_dom]) and CONSUMING the once-built [TypeNameFactTable] object; every
    production expression fact AND every conversion diagnostic PROJECTS this single table by the TOTAL
    [total_forest_outcome_at] query keyed by the WORK item (coverage from the cause via [outcomes_caused_covers],
@@ -2549,7 +2549,7 @@ Qed.
     [as_expr = None] skip): a Some-view occurrence's ref cannot be [None]. *)
 
 (* two fold steps that agree on every MEMBER of the list produce the same fold — the extensionality the retained
-   forest fold equivalence ([prog_forest_fold]) is discharged with. *)
+   forest fold equivalences ([forest_facts_eq_spec] / [expression_diagnostics_eq_spec]) are discharged with. *)
 Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
   (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
 Proof.
@@ -2776,7 +2776,7 @@ Proof.
 Qed.
 
 (* splitting the retained forest object at a member induces the matching visit split (order correspondence),
-   DERIVED from the stored fields ([ewf_items_exact] + [ewf_pairs_nodup]) — no [prog_forest] re-call. *)
+   DERIVED from the stored fields ([ewf_items_exact] + [ewf_pairs_nodup]) — no [build_expr_work_forest] re-call. *)
 Lemma ewf_split {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     ipre (w : ExprWork input) irest :
   ewf_items forest = ipre ++ w :: irest ->
@@ -2946,12 +2946,13 @@ Proof.
   - unfold type_name_key, operand_key. cbn [GoIndex.nk_local]. apply Pos.lt_succ_diag_r.
 Defined.
 
-(** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of [prog_forest] (the
-    ONE retained work order) into the outcome map, CARRYING the direct cause + exact domain over the item
-    pair-projection.  Every item is an expression (no skip case).  A leaf stores its [OCLeaf] cause; a CONVERSION
-    reads its CARRIED refs from [ew_conv] (NEVER reminting [conversion_target_ref[_tot]]/[_operand_]) and reads its
-    operand's ALREADY-COMPUTED outcome from the processed forest tail (the operand item is in the tail by
-    [prog_forest_operand_in_tail]; its outcome is covered by [outcomes_caused_covers]).  ONE [convert_const]. *)
+(** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of the retained work
+    forest object's [ewf_items] (the ONE retained work order) into the outcome map, CARRYING the direct cause +
+    exact domain over the item pair-projection.  Every item is an expression (no skip case).  A leaf stores its
+    [OCLeaf] cause; a CONVERSION reads its CARRIED refs from [ew_conv] (NEVER reminting
+    [conversion_target_ref[_tot]]/[_operand_]) and reads its operand's ALREADY-COMPUTED outcome from the processed
+    forest tail (the operand item is in the tail by [ewf_operand_in_tail]; its outcome is covered by
+    [outcomes_caused_covers]).  ONE [convert_const]. *)
 Definition build_outcomes_forest {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) :
   forall (items : list (ExprWork input)),
@@ -3023,7 +3024,7 @@ Proof.
 Defined.
 
 (** ═══ §7/§2.9 THE FOREST-INDEXED OUTCOME TABLE ═══ the outcome map PAIRED with the direct cause + exact domain
-    over the ONE retained work forest's pair-projection.  Its domain is EXACTLY the retained [prog_forest] key set
+    over the ONE retained work forest's pair-projection.  Its domain is EXACTLY the retained [ewf_items] key set
     ([fot_domain_iff_forest] — MEMBERSHIP in the retained enumeration, NOT an [exists w] over arbitrary
     constructible work), and the TOTAL query is defined only for a RETAINED forest member (no raw [find] option). *)
 Record ForestOutcomeTable {p} {input : CompilationInput p} (forest : ExprWorkForest input)
@@ -3046,7 +3047,7 @@ Definition build_forest_outcome_table {p} {input : CompilationInput p} (forest :
   mkForestOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo)) (proj2 (proj2_sig bo)).
 
 (* §2.10 a RETAINED member's key is present — its pair is in the forest projection, covered by the carried cause.
-   No [prog_forest_complete] equal-key search over an arbitrary [ExprWork]: membership is the hypothesis. *)
+   No equal-key search over an arbitrary [ExprWork]: membership in [ewf_items] is the hypothesis. *)
 Lemma fot_present {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
     (ot : ForestOutcomeTable forest tnft) (w : ExprWork input) (Hin : In w (ewf_items forest)) :
   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot) <> None.
@@ -3682,6 +3683,95 @@ Proof.
   split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | split; [ exact Hcv | exact Hfeq ] ] ] ].
 Qed.
 
+(** ═══ §6/§2.9 THE FOREST/WORK-INDEXED DIRECT CAUSE ═══ the PRODUCTION cause form, indexed by the exact retained
+    [ConversionWork] (which carries the exact operand [WorkMember] [cw_operand_work] AND the processed-suffix order
+    [cw_target_before_op]).  The operand outcome is read THROUGH that exact operand member via
+    [total_forest_outcome_at] — NOT a raw [find] at a re-derived key.  So each cause retains the exact conversion
+    work, the exact operand work, the suffix relation, and a lookup performed through that operand work item.  The
+    source-spec bridge stays a SEPARATE theorem ([outcomes_caused_matches]). *)
+Lemma total_forest_outcome_at_find {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) v :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref (proj1_sig wm))) (fot_map ot) = Some v ->
+  total_forest_outcome_at ot wm = v.
+Proof. intro Hf. unfold total_forest_outcome_at. apply from_some_eq. exact Hf. Qed.
+
+(* CONVERSION SUCCESS: the operand's outcome — read through the exact operand [WorkMember] — is [EOOk opf], and
+   ONE [convert_const] at the carried target built the stored fact. *)
+Lemma phase_convok_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
+    (cwk : ConversionWork forest (proj1_sig wm) ts x) f :
+  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
+  total_forest_outcome_at ot wm = EOOk f ->
+  exists opf tc,
+       total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf
+    /\ convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) tc)
+             (use_resolved_of_ci (expr_ref_role (ew_expr_ref (proj1_sig wm)))
+                (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) tc)).
+Proof.
+  intros Hview Hcf.
+  destruct (phase_convok_cause ot wm ts x f Hview Hcf)
+    as [tr [opr [opf [tc [Htr [Hopr [Hfind [Hcv Hfeq]]]]]]]].
+  assert (Htreq : tr = cw_target_ref cwk).
+  { rewrite (cw_target_ref_eq cwk) in Htr. injection Htr as HH. exact (eq_sym HH). }
+  subst tr.
+  assert (Hopreq : opr = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
+  { rewrite (cw_operand_ref_eq cwk) in Hopr. injection Hopr as HH. exact (eq_sym HH). }
+  exists opf, tc.
+  assert (Hopf : total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf).
+  { apply total_forest_outcome_at_find.
+    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
+  split; [ exact Hopf | split; [ exact Hcv | exact Hfeq ] ].
+Qed.
+
+(* CONVERSION LOCAL FAILURE: the operand's outcome (through the exact operand member) is [EOOk opf], and ONE
+   [convert_const] at the carried target REJECTED it — the [EOConvFail] fields are exactly those refs. *)
+Lemma phase_convfail_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
+    (cwk : ConversionWork forest (proj1_sig wm) ts x) er2 tr2 opr2 t ci :
+  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
+  total_forest_outcome_at ot wm = EOConvFail er2 tr2 opr2 t ci ->
+  exists opf,
+       total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf
+    /\ tr2 = cw_target_ref cwk
+    /\ opr2 = ew_expr_ref (proj1_sig (cw_operand_work cwk))
+    /\ t = tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))
+    /\ ci = ef_const_status opf
+    /\ convert_const t ci = None.
+Proof.
+  intros Hview Hcf.
+  destruct (phase_convfail_cause ot wm er2 tr2 opr2 t ci Hcf)
+    as [Her2 [Htr2 [Hopr2 [Ht [ [opf [Hfind Hcieq]] Hcv ]]]]].
+  assert (Htreq : tr2 = cw_target_ref cwk).
+  { rewrite (cw_target_ref_eq cwk) in Htr2. injection Htr2 as HH. exact (eq_sym HH). }
+  assert (Hopreq : opr2 = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
+  { rewrite (cw_operand_ref_eq cwk) in Hopr2. injection Hopr2 as HH. exact (eq_sym HH). }
+  exists opf.
+  assert (Hopf : total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf).
+  { apply total_forest_outcome_at_find.
+    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
+  split; [ exact Hopf | ]. split; [ exact Htreq | ]. split; [ exact Hopreq | ].
+  split; [ rewrite Ht, Htreq; reflexivity | ]. split; [ exact Hcieq | exact Hcv ].
+Qed.
+
+(* CHILD FAILURE: the operand's outcome (through the exact operand member) is itself a FAILURE. *)
+Lemma phase_childfail_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
+    (cwk : ConversionWork forest (proj1_sig wm) ts x) :
+  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
+  total_forest_outcome_at ot wm = EOChildFail ->
+  outcome_is_fail (total_forest_outcome_at ot (cw_operand_work cwk)).
+Proof.
+  intros Hview Hcf.
+  destruct (phase_childfail_cause ot wm Hcf) as [opr [oout [Hopr [Hfind Hfail]]]].
+  assert (Hopreq : opr = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
+  { rewrite (cw_operand_ref_eq cwk) in Hopr. injection Hopr as HH. exact (eq_sym HH). }
+  assert (Hoo : total_forest_outcome_at ot (cw_operand_work cwk) = oout).
+  { apply total_forest_outcome_at_find.
+    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
+  rewrite Hoo. exact Hfail.
+Qed.
+
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : GoIndex.SourceOccurrence) (e : GoExpr) : option (GoConst * GoType) :=
   match GoIndex.occurrence_role occ with
@@ -4154,8 +4244,9 @@ Qed.
    read from the ONE retained [ForestOutcomeTable] (via [total_forest_outcome_at]); a local invalid conversion
    emits its STORED refs (no re-mint), no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
 (* the SPECIFICATION expression-diagnostic report: the declarative per-occurrence [occ_expr_diags] over the
-   one-pass annotated stream.  The PRODUCTION report is [forest_diags] (the TOTAL projection of the retained work
-   forest over the [ForestOutcomeTable]), proved equal to THIS ([forest_diags_eq_spec] / [ep_diags_eq_expr_diags]). *)
+   one-pass annotated stream.  The PRODUCTION report is the retained [ExpressionDiagnostics] object's list (the
+   TOTAL projection of the retained annotated work object over the [ForestOutcomeTable]), proved equal to THIS
+   ([expression_diagnostics_eq_spec] / [ep_diags_eq_expr_diags]). *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
 

@@ -26,16 +26,21 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   digest-pinned `golang:1.23-alpine` image, rendered `go.mod` language `1.23`. 32-bit targets, other
   architectures (arm64, …), and other operating systems are not a validation target and their `int`/`uint`
   word size is not modeled.
-- **Exact reason:** a single pinned deployment/validation target lets `GoCompile == go build` be an EXACT,
-  differentially-tested claim against one real toolchain, and lets `int`/`uint` be concrete 64-bit types
+- **Exact reason:** a single pinned deployment/validation target lets the external adequacy TARGET
+  `GoCompile == go build` be differentially tested against one real toolchain, and lets `int`/`uint` be concrete 64-bit types
   (type-distinct from `int64`/`uint64`) with complete value/render/proof surfaces — instead of a
   target-parametric width abstraction threaded through every numeric proof before it earns its keep.
 - **Why difficulty is not the reason:** target-parametric `int`/`uint` semantics are a *cross-cutting*
   abstraction (a target descriptor in every constant, conversion, value, and render proof) whose only current
   consumer would be a portability claim Fido does not yet make. The restriction is a deliberate theorem-domain
   boundary, not avoidance — see ADR-0001 for the full option analysis.
-- **Benefit obtained:** concrete 64-bit `Ints`; an exact one-target differential for `GoCompile`; no
-  premature target-config abstraction; a reproducible pinned e2e.
+- **Benefit obtained:** concrete 64-bit `Ints`; a one-target differential ATTACKING the `GoCompile` external
+  adequacy target (never proving it); no premature target-config abstraction; a reproducible pinned e2e.
+- **Three distinct claims (do not conflate):** (i) the FORMAL `GoCompile` judgment matches Fido's checker is
+  KERNEL-PROVED exact (`go_compile_ok_valid` + `go_compile_complete`, `elaborate_ok_iff_GoCompile`); (ii) that
+  the accepted programs are accepted by real `cmd/go` (`GoCompile == go build`) is an EXTERNAL ADEQUACY TARGET,
+  not a Rocq theorem; (iii) the pinned differential + e2e are EVIDENCE attacking target (ii) on one toolchain —
+  they do not prove it universally.
 - **Valid Go / environments lost:** building/running the generated module on 32-bit or non-amd64/non-linux
   targets is outside the validated envelope (the generated Go is not architecture-specific, but no claim is
   made about it there).
@@ -43,8 +48,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   header (platform pinned linux/amd64); `Dockerfile` go-e2e stage (`GOOS=linux GOARCH=amd64`, explicit
   `[ "$goos" = linux ]` / `[ "$goarch" = amd64 ]` guards); digest-pinned `golang:1.23-alpine`; the e2e
   boundary witnesses.
-- **Guarantees relying on it:** `Ints` width theorems; the `GoCompile == go build` differential; the
-  rendered `go.mod` language pin.
+- **Guarantees relying on it:** `Ints` width theorems (kernel-proved); the `GoCompile == go build` adequacy
+  target and its one-target differential EVIDENCE; the rendered `go.mod` language pin.
 - **Reconsideration triggers:** a request to support 32-bit, arm64, or another OS; any portable-Go public
   claim; `uintptr`/pointer/layout work needing a richer target model; a toolchain/target image change; a
   proof benefit from a target descriptor that exceeds its cost.
@@ -61,10 +66,11 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   ceilings). Paths and module paths are modeled at ARBITRARY length with NO magic numeric cap; an over-long
   path is not rejected by the grammar, the model, or the sink.
 - **Exact reason:** these limits are platform-specific and not part of the Go-source/`cmd/go` semantic
-  domain. `GoCompile == go build` is exact for the semantic and `cmd/go` package/output LOGIC (types, one
-  main per package, directory collision) and deliberately EXCLUDES platform fs limits. An over-long path
-  fails LOUDLY at the OS boundary (printing/materialization → `ENAMETOOLONG`), never as a silent narrowing in
-  the grammar.
+  domain. The `GoCompile == go build` external adequacy TARGET scopes to the semantic and `cmd/go`
+  package/output LOGIC (types, one main per package, directory collision) and deliberately EXCLUDES platform fs
+  limits; whether the formal judgment matches real `cmd/go` on that scope is an adequacy goal attacked by the
+  differential, NOT a Rocq theorem. An over-long path fails LOUDLY at the OS boundary
+  (printing/materialization → `ENAMETOOLONG`), never as a silent narrowing in the grammar.
 - **Why difficulty is not the reason:** a numeric length cap would be *easy* to add — it is rejected because a
   magic cap in a validity/grammar predicate is a HACK that models the wrong domain (a platform limit, not a
   language fact); correctness does not depend on it.
@@ -74,8 +80,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   once a real filesystem's limit is exceeded (that is the OS's to signal).
 - **Enforcement points:** `FilePath.v` and `ModulePath.v` (explicit "ARBITRARY LENGTH — no length cap"
   headers); the OCaml materializer/sink surface OS errors fail-loud rather than pre-checking limits.
-- **Guarantees relying on it:** the exactness scope of `GoCompile == go build` (semantic + cmd/go logic, not
-  platform fs limits).
+- **Guarantees relying on it:** the scope of the `GoCompile == go build` external adequacy target (semantic +
+  cmd/go logic, not platform fs limits) — a differential-evidence target, not a kernel exactness theorem.
 - **Reconsideration triggers:** a decision to model a specific deployment filesystem's limits as a
   correctness property (not currently in scope).
 - **Linked:** `ARCHITECTURE.md`; memory note `no-magic-numeric-caps`.
