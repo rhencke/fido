@@ -3101,6 +3101,57 @@ Proof.
     + eapply outcome_dom_exact_add; [ exact Hv | exact Hdom_rest ].
 Defined.
 
+(** ═══ §7/§2.9 THE FOREST-INDEXED OUTCOME TABLE ═══ the outcome map PAIRED with the direct cause + exact domain
+    over the ONE retained work forest's pair-projection.  Its domain is EXACTLY the retained [prog_forest] key set
+    ([fot_domain_iff_forest] — MEMBERSHIP in the retained enumeration, NOT an [exists w] over arbitrary
+    constructible work), and the TOTAL query is defined only for a RETAINED forest member (no raw [find] option). *)
+Record ForestOutcomeTable {p} (input : CompilationInput p) (tnft : TypeNameFactTable p) : Type :=
+  mkForestOutcomeTable {
+    fot_map : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
+    fot_caused : outcomes_caused (ci_idx input) tnft
+                   (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input)) fot_map ;
+    fot_dom : outcome_dom_exact
+                (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input)) fot_map
+  }.
+Arguments mkForestOutcomeTable {p input tnft} _ _ _.
+Arguments fot_map {p input tnft} _.  Arguments fot_caused {p input tnft} _.  Arguments fot_dom {p input tnft} _.
+
+Definition build_forest_outcome_table {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+  : ForestOutcomeTable input tnft :=
+  let bo := build_outcomes_forest input tnft (prog_forest input)
+              (ex_intro _ (@nil (ExprWork input)) eq_refl) in
+  mkForestOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo)) (proj2 (proj2_sig bo)).
+
+(* every RETAINED forest work item has an entry (coverage from the carried cause). *)
+Lemma fot_at_not_none {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) (Hw : In w (prog_forest input)) :
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot) <> None.
+Proof.
+  exact (outcomes_caused_covers (ci_idx input) tnft
+           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input)) (fot_map ot) (fot_caused ot)
+           (ew_node_ref w) (ew_occurrence w) (ew_expr w)
+           (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input) w Hw) (ew_view_exact w)).
+Qed.
+
+(* the TOTAL outcome query by a RETAINED work item — [from_some], never a raw option. *)
+Definition total_forest_outcome_at {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
+    (w : ExprWork input) (Hw : In w (prog_forest input)) : ExprOutcome p :=
+  from_some (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot))
+            (fot_at_not_none ot w Hw).
+
+(* §2.9 the EXACT domain: a key is in the table IFF a RETAINED forest work item has that key (membership in the
+   retained enumeration, not an [exists w] over any constructible work). *)
+Lemma fot_domain_iff_forest {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft) k :
+  GoIndex.NodeKeyMapBase.find k (fot_map ot) <> None
+  <-> exists w, In w (prog_forest input) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k.
+Proof.
+  split.
+  - intro Hk. destruct (fot_dom ot k Hk) as [r [occ [e [Hin [Hkey Hv]]]]].
+    apply in_map_iff in Hin. destruct Hin as [w [Hpair Hinw]].
+    injection Hpair as Hnr Hocc. exists w. split; [exact Hinw | rewrite Hnr; exact Hkey].
+  - intros [w [Hinw Hkey]]. rewrite <- Hkey. exact (fot_at_not_none ot w Hinw).
+Qed.
+
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
     its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
