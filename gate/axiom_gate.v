@@ -312,11 +312,11 @@ Print Assumptions GoCompile.phase_childfail_cause.
    what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
 Print Assumptions GoCompile.outcomes_caused_matches.
 (* §7/§2.9 the forest outcome table's domain is EXACTLY the RETAINED work forest's key set: every work item has an
-   entry ([fot_at_not_none]); the biconditional is over MEMBERSHIP in the retained enumeration [prog_forest]
+   entry ([fot_present]); the biconditional is over MEMBERSHIP in the retained enumeration [ewf_items]
    ([fot_domain_iff_forest], NOT an [exists w] over any constructible [ExprWork]) — so a table with the required
    entries plus any extra key is UNINHABITABLE; and a visited NON-expression occurrence has NO entry
    ([fot_nonexpr_absent], wrong-kind exclusion). *)
-Print Assumptions GoCompile.fot_at_not_none.
+Print Assumptions GoCompile.fot_present.
 Print Assumptions GoCompile.fot_domain_iff_forest.
 Print Assumptions GoCompile.fot_nonexpr_absent.
 (* §9 the TOTAL fact + diagnostic projections of the ONE forest outcome table EQUAL the declarative specification
