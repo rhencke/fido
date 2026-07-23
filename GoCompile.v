@@ -4699,6 +4699,30 @@ Definition build_expression_phase {p} (input : CompilationInput p) : ExpressionP
   let diag  := build_expression_diagnostics awork ot in
   mkExpressionPhase work tnft ot awork eft diag.
 
+(** §11.2/§11.5 NO-RECONSTRUCTION SHARED OBJECT FLOW: each phase component IS the builder applied to the phase's
+    OWN prior objects — proven by DEFINITIONAL equality of the concrete [build_expression_phase] (which let-binds
+    ONE [build_expr_work_forest input] and PASSES that exact object forward; the sub-builders take [forest]/the
+    prior objects as PARAMETERS, so none recomputes the work forest).  [ep_ot] consumed [ep_work]+[ep_tnft];
+    [ep_awork] consumed [ep_work]; [ep_eft] consumed [ep_work]+[ep_ot]; [ep_diag] consumed [ep_awork]+[ep_ot].
+    So the ONLY production work-discovery call is the single let in [build_expression_phase]; the outcome table,
+    annotation, fact table, and diagnostics are all TYPED by (and here shown definitionally equal to the builder
+    over) that exact retained object — never a re-run of [build_expr_work_forest]/[build_forest_blocks]. *)
+Lemma phase_ot_consumes_work {p} (input : CompilationInput p) :
+  ep_ot (build_expression_phase input)
+  = build_forest_outcome_table (ep_work (build_expression_phase input)) (ep_tnft (build_expression_phase input)).
+Proof. reflexivity. Qed.
+Lemma phase_awork_consumes_work {p} (input : CompilationInput p) :
+  ep_awork (build_expression_phase input) = build_annotated_work_forest (ep_work (build_expression_phase input)).
+Proof. reflexivity. Qed.
+Lemma phase_eft_consumes_work_ot {p} (input : CompilationInput p) :
+  ep_eft (build_expression_phase input)
+  = build_forest_expr_fact_table (ep_work (build_expression_phase input)) (ep_ot (build_expression_phase input)).
+Proof. reflexivity. Qed.
+Lemma phase_diag_consumes_awork_ot {p} (input : CompilationInput p) :
+  ep_diag (build_expression_phase input)
+  = build_expression_diagnostics (ep_awork (build_expression_phase input)) (ep_ot (build_expression_phase input)).
+Proof. reflexivity. Qed.
+
 (* §2.8 the phase's fact projection IS the retained [ep_eft] object's map — never a separately recomputed value. *)
 Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input)
   : GoIndex.NodeKeyMapBase.t ExprFact := eft_map (feft_table (ep_eft ph)).
@@ -10260,6 +10284,48 @@ Proof.
   exists wm, tr2, opr2, t, ci, opf.
   split; [exact He | split; [exact Hout | split; [exact Htr2 | split; [exact Hopr2
     | split; [exact Hfind | split; [exact Hcieq | exact Hcv]]]]]].
+Qed.
+
+(* §12/§6 — the innermost int8(300) convfail's OPERAND, read THROUGH the exact retained operand [WorkMember]
+   [cw_operand_work] of its [ConversionWork] view, is [EOOk]; and the [EOConvFail] NAMES that exact operand ref.
+   The operand cause points to the exact retained operand member, not a raw re-derived key. *)
+Theorem deep_fail_innermost_operand_member :
+  let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
+  let ot := ep_ot (build_expression_phase input) in
+  exists (wm : WorkMember (ep_work (build_expression_phase input)))
+         (cwk : ConversionWork (ep_work (build_expression_phase input)) (proj1_sig wm)
+                  (GoAST.tsyn GoNames.TNint8) (EInt 300)) opf t,
+       ew_expr (proj1_sig wm) = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)
+    /\ total_forest_outcome_at ot wm
+         = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref cwk)
+             (ew_expr_ref (proj1_sig (cw_operand_work cwk))) t (ef_const_status opf)
+    /\ total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf.
+Proof.
+  cbn zeta.
+  destruct (GoIndex.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+  destruct (program_member_at deep_fail_program (mkFP "main.go" eq_refl) deep_fail_src 11 occ
+              (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)) ltac:(vm_compute; reflexivity) Eo
+              ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He _]]].
+  assert (Hview : GoIndex.view_expr (ew_occurrence (proj1_sig wm))
+                  = Some (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))).
+  { rewrite (ew_view_exact (proj1_sig wm)), He. reflexivity. }
+  pose (cwk := build_conversion_work
+                 (ep_work (build_expression_phase
+                    (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+                 (proj1_sig wm) (GoAST.tsyn GoNames.TNint8) (EInt 300) Hview).
+  destruct (total_forest_outcome_convfail_shape
+              (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+              wm (GoAST.tsyn GoNames.TNint8) (EInt 300) Hview)
+    as [er2 [tr2 [opr2 [t [ci Hout]]]]].
+  { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
+  { vm_compute; discriminate. }
+  destruct (phase_convfail_work_cause _ wm (GoAST.tsyn GoNames.TNint8) (EInt 300) cwk er2 tr2 opr2 t ci Hview Hout)
+    as [opf [Hopf [Htreq [Hopreq [_ [Hcieq _]]]]]].
+  destruct (phase_convfail_cause _ wm er2 tr2 opr2 t ci Hout) as [Her2 _]. subst er2.
+  exists wm, cwk, opf, t.
+  split; [ exact He | split ].
+  - rewrite Hout, Htreq, Hopreq, Hcieq. reflexivity.
+  - exact Hopf.
 Qed.
 
 (* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each EOChildFail (blocked by the inner fail;

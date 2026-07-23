@@ -398,6 +398,15 @@ Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
    UNREPRESENTABLE — the dependent types encode the chain, not a provenance equality. *)
 Print Assumptions GoCompile.feft_is_facts.
 Print Assumptions GoCompile.ed_is_diags.
+(* §11.2/§11.5 NO-RECONSTRUCTION SHARED OBJECT FLOW: each phase component IS the builder applied to the phase's OWN
+   prior objects (definitional equality of the concrete [build_expression_phase] — one work-discovery let, passed
+   forward; the sub-builders are forest/object-parameterized, so none re-runs [build_expr_work_forest]).  [ep_ot]
+   consumed [ep_work]+[ep_tnft]; [ep_awork] consumed [ep_work]; [ep_eft] consumed [ep_work]+[ep_ot]; [ep_diag]
+   consumed [ep_awork]+[ep_ot]. *)
+Print Assumptions GoCompile.phase_ot_consumes_work.
+Print Assumptions GoCompile.phase_awork_consumes_work.
+Print Assumptions GoCompile.phase_eft_consumes_work_ot.
+Print Assumptions GoCompile.phase_diag_consumes_awork_ot.
 (* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the ExprFactTable OBJECT sealed into a successful
    ElaborationFacts IS [feft_table (ep_eft)] of the phase actually built (not a fresh table whose map merely
    equals the projection). *)
@@ -429,6 +438,10 @@ Print Assumptions GoCompile.deep_fail_phase_reports.
    conversions + leaf all resolve EOOk; the retained work forest has EXACTLY 5 items; and the production table
    admits NO foreign key and NO wrong-kind (non-expression) key ([ep_work]/[ep_ot], not the specification). *)
 Print Assumptions GoCompile.deep_fail_innermost_convfail.
+(* §12/§6 the innermost convfail's operand — read THROUGH the exact retained operand [WorkMember] [cw_operand_work]
+   of its [ConversionWork] view — is [EOOk], and the [EOConvFail] names that exact operand ref (operand cause =
+   exact retained operand member, not a raw re-derived key). *)
+Print Assumptions GoCompile.deep_fail_innermost_operand_member.
 Print Assumptions GoCompile.deep_fail_outer_childfail.
 Print Assumptions GoCompile.deep_fail_exactly_one_diag.
 Print Assumptions GoCompile.deep_nested_all_ok.

@@ -86,35 +86,45 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — six
+Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — seven
 successive candidates were BLOCKING at human Implementation Review; the authorized
-`C4-single-retained-work-domain-repair-6` is applied: the production expression path is ONE `ExpressionPhase`
-built from ONE retained `CompilationInput` and driven by ONE retained work forest — `prog_forest` (the
-`ExprWork` items of the retained visit, each carrying its own `ExprRef` + a total `ConvRefinement` of its
-conversion target/operand refs; built ONCE, `map ew_pair prog_forest = filter occ_is_expr (ci_visit)` pinning
-order + forward/reverse domain (`prog_forest_complete`/`prog_forest_sound`) + key-NoDup (`prog_forest_nodup`)),
-which the outcome fold, the facts, the annotation, and the diagnostics ALL consume (no second work discovery,
-no reminted conversion ref).  The PROOF-CARRYING `ForestOutcomeTable` (`build_forest_outcome_table` folding
-`prog_forest` with the ONE carried invariant — the DIRECT cause `fot_caused` (`OutcomeCause`) plus its EXACT
-domain `fot_dom` = membership in the retained enumeration (`fot_domain_iff_forest`, non-expression key absent
-`fot_nonexpr_absent`); the source spec reached from the cause by the SEPARATE `outcomes_caused_matches`)
-CONSUMES the once-built `TypeNameFactTable` object, querying the table at each conversion's retained target ref
-(the TOTAL `total_forest_outcome_at` / `type_name_fact_at_table`, no fallback), reading its operand's
-ALREADY-COMPUTED outcome from the processed suffix (`prog_forest_operand_in_tail`; TOTAL `from_some`, no
-fallback), and calling `convert_const` ONCE per conversion (no `index_program` reconstruction in the phase
-closure); the TOTAL fact projection (`forest_facts`) and the TOTAL diagnostic projection (`forest_diags` via
-`forest_awork_diags` over the retained annotated forest `prog_forest_awork`, keyed by each work's OWN
-`ew_expr_ref`, NO `as_expr` and NO fail-open `None` branch) both read that SAME `ForestOutcomeTable` inside the
-one phase, which RETAINS the whole flow as objects with dependent provenance (`ep_work`/`ep_ot`/`ep_eft`/
-`ep_awork`/`ep_diags` each tied to the canonical build — a foreign component is UNREPRESENTABLE; `ep_facts =
-eft_map ep_eft`; `facts_and_diags_share_phase`, object identity — no fail-open `find`), the `EOConvFail` outcome
-carries the exact conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`,
-projected without re-mint) with its cause a PROJECTION of the carried `OutcomeCause` keyed by the WORK item
-(`phase_convfail_cause`, with `phase_convok_cause`/`phase_childfail_cause`), and the phase's `TypeNameFactTable`
-and `ExprFactTable` are sealed into `ElaborationFacts` by object identity (`elaborate_ok_seals_tnfacts` /
-`elaborate_ok_seals_facts`); direct production-object phase fixtures query `total_forest_outcome_at` at REAL work
-items (innermost `EOConvFail` with exact operand cause, outer `EOChildFail`, valid-chain `EOOk`, exact forest
-count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
+`C4-exact-retained-work-object-repair-7` is applied: the production expression path is ONE `ExpressionPhase`
+built from ONE retained `CompilationInput` and driven by ONE proof-carrying retained work forest OBJECT — the
+`ExprWorkForest` record (`build_expr_work_forest`; its stored `ewf_blocks`/`ewf_items` with `ewf_items = concat
+ewf_blocks`, forward/reverse domain (`ewf_forward`/`ewf_reverse`) + key-NoDup (`ewf_keys_nodup`) + order +
+operand-in-suffix (`ewf_operand_in_tail`) all carried as FIELDS; `build_forest_blocks` PRIVATE inside, its proof
+returned INTO the record — no `proj1_sig` discard), each item an `ExprWork` carrying its own `ExprRef` + a total
+`ConversionWork` view (exact operand `WorkMember` + processed-suffix order), which the outcome fold, the facts,
+the annotation, and the diagnostics ALL consume by RECEIVING the exact object as a parameter (no second work
+discovery, no reminted conversion ref).  The PROOF-CARRYING `ForestOutcomeTable forest tnft`
+(`build_forest_outcome_table` folding `ewf_items` with the ONE carried invariant — the DIRECT cause `fot_caused`
+(`OutcomeCause`) plus its EXACT domain `fot_dom` = membership in `ewf_items` (`fot_domain_iff_forest`,
+non-expression key absent `fot_nonexpr_absent`); the source spec reached from the cause by the SEPARATE
+`outcomes_caused_matches`) CONSUMES the once-built `TypeNameFactTable` object, querying the table at each
+conversion's retained target ref (the TOTAL `total_forest_outcome_at` / `type_name_fact_at_table`, no fallback),
+reading its operand's ALREADY-COMPUTED outcome from the processed suffix (`ewf_operand_in_tail`; TOTAL
+`from_some`, no fallback), and calling `convert_const` ONCE per conversion (no `index_program` reconstruction in
+the phase closure); the TOTAL fact projection (`forest_facts`) and the TOTAL diagnostic projection (the retained
+`ExpressionDiagnostics` object's stored list via `forest_awork_diags` over the retained `AnnotatedExprWorkForest`
+OBJECT `build_annotated_work_forest` — members ARE `ewf_items` in order (`aewf_members`), `aewf_diag_fold` ties
+them to the one-pass `annotate_program` so diagnostics CONSUME the object (no `proj1_sig` discard, no
+re-annotation), plus context soundness/same-file/nearest-first/nodup; keyed by each work's OWN `ew_expr_ref`, NO
+`as_expr` and NO fail-open `None` branch) both read that SAME `ForestOutcomeTable` inside the one phase, which
+RETAINS the whole flow as a DEPENDENT CHAIN of objects — `ep_ot : ForestOutcomeTable ep_work ep_tnft`, `ep_awork
+: AnnotatedExprWorkForest ep_work`, `ep_eft : ForestExprFactTable ep_work ep_ot`, `ep_diag :
+ExpressionDiagnostics ep_awork ep_ot` — each TYPED by the exact prior object it consumes, NO provenance-equality
+field (the causal chain is the dependent types, shown definitionally by `phase_ot_consumes_work` etc.), so a
+foreign component is UNREPRESENTABLE by type mismatch (`ep_facts = eft_map (feft_table ep_eft)`;
+`facts_and_diags_share_phase`, object identity — no fail-open `find`); the `EOConvFail` outcome carries the exact
+conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`, projected without re-mint)
+with its cause a PROJECTION of the carried `OutcomeCause` keyed by the WORK item (`phase_convfail_cause` /
+`phase_convok_cause` / `phase_childfail_cause`, plus the FOREST/WORK-INDEXED `phase_*_work_cause` carrying the
+exact `ConversionWork` + operand `WorkMember` + suffix and reading the operand outcome THROUGH that exact
+member), and the phase's `TypeNameFactTable` and `ExprFactTable` are sealed into `ElaborationFacts` by object
+identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); direct production-object phase fixtures
+query `total_forest_outcome_at` at REAL `WorkMember`s from `ep_work` (innermost `EOConvFail` whose operand cause
+is the exact retained operand member `deep_fail_innermost_operand_member`, outer `EOChildFail`, valid-chain
+`EOOk`, exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
 Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
 `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN). Live
 status: `.review/SOURCE_FOREST_STATUS.md`.
