@@ -2946,6 +2946,246 @@ Proof.
   - unfold type_name_key, operand_key. cbn [GoIndex.nk_local]. apply Pos.lt_succ_diag_r.
 Defined.
 
+(** ═══ §3/§4/§5 (REPAIR 8) THE MEMBER/SUFFIX-INDEXED CAUSAL OUTCOME CORE ═══ **)
+
+(* two retained forest members with the same key are equal (key-uniqueness from [ewf_keys_nodup]). *)
+Lemma ewf_key_inj {p} {input : CompilationInput p} (forest : ExprWorkForest input) (a b : ExprWork input) :
+  In a (ewf_items forest) -> In b (ewf_items forest) ->
+  GoIndex.Snap.node_ref_key (ew_node_ref a) = GoIndex.Snap.node_ref_key (ew_node_ref b) -> a = b.
+Proof.
+  intros Ha Hb Hk.
+  pose proof (ewf_keys_nodup forest) as Hnd.
+  (* a and b appear in [ewf_items]; the mapped keys are NoDup, so equal keys force equal positions/elements *)
+  revert Hnd Ha Hb. generalize (ewf_items forest) as l. induction l as [|c l IH]; intros Hnd Ha Hb; [destruct Ha|].
+  cbn [map] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd].
+  destruct Ha as [Hac | Ha]; destruct Hb as [Hbc | Hb].
+  - rewrite <- Hac, <- Hbc. reflexivity.
+  - exfalso. apply Hnotin. rewrite Hac, Hk.
+    apply in_map_iff. exists b. split; [reflexivity | exact Hb].
+  - exfalso. apply Hnotin. rewrite Hbc, <- Hk.
+    apply in_map_iff. exists a. split; [reflexivity | exact Ha].
+  - exact (IH Hnd Ha Hb).
+Qed.
+
+(* §3 a SUFFIX MEMBER: an exact retained [WorkMember] of the ONE forest, PROVED to be in the exact suffix list
+   the accumulator processes.  No equal-key arbitrary [ExprWork] can substitute (the member is the retained one). *)
+Definition SuffixMember {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (items : list (ExprWork input)) : Type :=
+  { wm : WorkMember forest | In (proj1_sig wm) items }.
+Definition sm_work {p} {input : CompilationInput p} {forest : ExprWorkForest input} {items}
+    (sm : SuffixMember forest items) : ExprWork input := proj1_sig (proj1_sig sm).
+Definition sm_key {p} {input : CompilationInput p} {forest : ExprWorkForest input} {items}
+    (sm : SuffixMember forest items) : GoIndex.NodeKey :=
+  GoIndex.Snap.node_ref_key (ew_node_ref (sm_work sm)).
+
+(* §3 a CONVERSION STEP: the exact current member, its exact [ConversionWork] view, and the operand returned as a
+   SuffixMember of the exact CURRENT REST list — the semantic interface the fold consumes for a conversion head. *)
+Record ConversionStep {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (current : ExprWork input) (rest : list (ExprWork input)) (ts : GoAST.TypeSyntax) (x : GoExpr) : Type :=
+  mkConversionStep {
+    cs_current        : WorkMember forest ;
+    cs_current_exact  : proj1_sig cs_current = current ;
+    cs_conversion     : ConversionWork forest current ts x ;
+    cs_operand_suffix : SuffixMember forest rest ;
+    cs_operand_exact  : proj1_sig (proj1_sig cs_operand_suffix) = proj1_sig (cw_operand_work cs_conversion)
+  }.
+Arguments mkConversionStep {p input forest current rest ts x} _ _ _ _ _.
+Arguments cs_current {p input forest current rest ts x} _.
+Arguments cs_current_exact {p input forest current rest ts x} _.
+Arguments cs_conversion {p input forest current rest ts x} _.
+Arguments cs_operand_suffix {p input forest current rest ts x} _.
+Arguments cs_operand_exact {p input forest current rest ts x} _.
+
+(* build the ConversionStep for a conversion head [w] of a suffix [w :: rest]: the operand [WorkMember] from
+   [build_conversion_work] IS in [rest] (its key = [operand_key], and [ewf_operand_in_tail] puts the operand in
+   the tail; key-uniqueness identifies them).  No raw operand key lives here — only the retained member. *)
+Definition build_conversion_step {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (w : ExprWork input) (rest : list (ExprWork input)) ts x
+    (Hin_w : In w (ewf_items forest))
+    (Hsplit : exists ipre, ewf_items forest = ipre ++ w :: rest)
+    (Hview : GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x))
+  : ConversionStep forest w rest ts x.
+Proof.
+  pose (cwk := build_conversion_work forest w ts x Hview).
+  (* the operand member is ALREADY in Type ([cw_operand_work cwk]); only [In … rest] is needed — a Prop, so the
+     Prop-[exists] destructs of [Hsplit]/[ewf_operand_in_tail] stay inside this Prop assert (no Prop→Type elim). *)
+  assert (Hopin_rest : In (proj1_sig (cw_operand_work cwk)) rest).
+  { destruct Hsplit as [ipre Hpre].
+    destruct (ewf_operand_in_tail forest ipre w rest ts x Hpre Hview) as [w' [Hinw' Hkeyw']].
+    assert (Hopin : In (proj1_sig (cw_operand_work cwk)) (ewf_items forest))
+      by exact (proj2_sig (cw_operand_work cwk)).
+    assert (Hw'_in : In w' (ewf_items forest))
+      by (rewrite Hpre; apply in_or_app; right; right; exact Hinw').
+    assert (Hsame : proj1_sig (cw_operand_work cwk) = w').
+    { apply (ewf_key_inj forest _ _ Hopin Hw'_in).
+      rewrite (cw_operand_key cwk), Hkeyw'. reflexivity. }
+    rewrite Hsame. exact Hinw'. }
+  exact (mkConversionStep (exist _ w Hin_w) eq_refl cwk (exist _ (cw_operand_work cwk) Hopin_rest) eq_refl).
+Defined.
+
+(* §4 the PROOF-CARRYING OUTCOME ACCUMULATOR over the exact suffix [items]: the map, a coverage proof making the
+   TYPED total query [oa_total] TOTAL for every [SuffixMember] (a missing outcome is unrepresentable — no raw
+   option escapes), and the exact domain. *)
+Record OutcomeAccumulator {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) (items : list (ExprWork input)) : Type :=
+  mkOutcomeAccumulator {
+    oa_map    : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
+    oa_covers : forall w, In w items ->
+                  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) oa_map <> None ;
+    oa_domain : outcome_dom_exact (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) items) oa_map
+  }.
+Arguments mkOutcomeAccumulator {p input forest tnft items} _ _ _.
+Arguments oa_map {p input forest tnft items} _.
+Arguments oa_covers {p input forest tnft items} _.
+Arguments oa_domain {p input forest tnft items} _.
+
+(* the TOTAL suffix-member query: [from_some] of the map find, TOTAL by [oa_covers] — the semantic interface the
+   conversion fold queries THROUGH the operand member (never a raw [find]/[from_some] in the fold branch). *)
+Definition oa_total {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft} {items}
+    (acc : OutcomeAccumulator forest tnft items) (sm : SuffixMember forest items) : ExprOutcome p :=
+  from_some (GoIndex.NodeKeyMapBase.find (sm_key sm) (oa_map acc))
+            (oa_covers acc (sm_work sm) (proj2_sig sm)).
+
+(* §5 the MEMBER/SUFFIX-INDEXED DIRECT CAUSE for a head [current] inserted onto the [rest] accumulator [acc_rest]:
+   a leaf constant, or a conversion whose operand outcome is read THROUGH the exact operand [SuffixMember] via
+   [oa_total acc_rest] (NOT a raw find), then ONE [convert_const].  Indexed by [acc_rest] so the query is against
+   the exact prior accumulator. *)
+Inductive StepCause {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) (current : ExprWork input) (rest : list (ExprWork input))
+    (acc_rest : OutcomeAccumulator forest tnft rest) : ExprOutcome p -> Type :=
+| SCLeaf : forall ci,
+    expr_child (ew_expr current) = None -> const_info (ew_expr current) = Some ci ->
+    StepCause forest tnft current rest acc_rest (leaf_outcome (ew_expr_ref current) ci)
+| SCConvOk : forall ts x (step : ConversionStep forest current rest ts x) opf tc,
+    proj1_sig (cs_current step) = current ->
+    ew_expr current = EConvert ts x ->
+    oa_total acc_rest (cs_operand_suffix step) = EOOk opf ->
+    convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+      (ef_const_status opf) = Some tc ->
+    StepCause forest tnft current rest acc_rest
+      (EOOk (mkExprFact
+               (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc)
+               (use_resolved_of_ci (expr_ref_role (ew_expr_ref current))
+                  (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc))))
+| SCConvFail : forall ts x (step : ConversionStep forest current rest ts x) opf,
+    proj1_sig (cs_current step) = current ->
+    ew_expr current = EConvert ts x ->
+    oa_total acc_rest (cs_operand_suffix step) = EOOk opf ->
+    convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+      (ef_const_status opf) = None ->
+    StepCause forest tnft current rest acc_rest
+      (EOConvFail (ew_expr_ref current) (cw_target_ref (cs_conversion step))
+         (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+         (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) (ef_const_status opf))
+| SCChildFail : forall ts x (step : ConversionStep forest current rest ts x),
+    proj1_sig (cs_current step) = current ->
+    ew_expr current = EConvert ts x ->
+    outcome_is_fail (oa_total acc_rest (cs_operand_suffix step)) ->
+    StepCause forest tnft current rest acc_rest EOChildFail.
+Arguments SCLeaf {p input forest tnft current rest acc_rest} _ _ _.
+Arguments SCConvOk {p input forest tnft current rest acc_rest} _ _ _ _ _ _ _ _ _.
+Arguments SCConvFail {p input forest tnft current rest acc_rest} _ _ _ _ _ _ _ _.
+Arguments SCChildFail {p input forest tnft current rest acc_rest} _ _ _ _ _ _.
+
+(* §6 the FINAL member cause: the exact suffix split [items = prefix ++ current :: rest], the exact prior
+   accumulator for [rest], and the exact [StepCause] used when [current] was inserted. *)
+Definition FinalMemberCause {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) (items : list (ExprWork input))
+    (sm : SuffixMember forest items) (o : ExprOutcome p) : Type :=
+  { rest : list (ExprWork input) &
+  { acc_rest : OutcomeAccumulator forest tnft rest &
+    ((exists prefix, items = prefix ++ sm_work sm :: rest)
+     * StepCause forest tnft (sm_work sm) rest acc_rest o)%type } }.
+
+(* §4/§5/§7 THE MEMBER/SUFFIX-INDEXED CAUSAL FOLD: builds the [OutcomeAccumulator] over the exact suffix [items]
+   AND, for every retained member, its [FinalMemberCause] — the exact suffix split + the exact prior accumulator +
+   the exact [StepCause] used at insertion.  A CONVERSION head builds ONE [ConversionStep] and reads its operand's
+   outcome THROUGH the exact operand [SuffixMember] via [oa_total acc_rest] (NEVER a raw [find]/[from_some] in this
+   branch), then ONE [convert_const].  The cause is TRUE BY CONSTRUCTION — no post-hoc translation. *)
+Definition build_outcome_accumulator {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) :
+  forall (items : list (ExprWork input)),
+    (exists ipre, ewf_items forest = ipre ++ items) ->
+    { acc : OutcomeAccumulator forest tnft items &
+        forall sm : SuffixMember forest items, FinalMemberCause forest tnft items sm (oa_total acc sm) }.
+Proof.
+  induction items as [| w rest IH]; intro Hsuf.
+  - assert (Hcov0 : forall w0, In w0 (@nil (ExprWork input)) ->
+              GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w0))
+                (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)) <> None)
+      by (intros w0 Hin0; destruct Hin0).
+    exists (mkOutcomeAccumulator (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)) Hcov0 outcome_dom_exact_empty).
+    intro sm. destruct (proj2_sig sm).
+  - assert (Hsuf_rest : exists ipre, ewf_items forest = ipre ++ rest).
+    { destruct Hsuf as [ipre Hpre]. exists (ipre ++ [w]). rewrite <- app_assoc. exact Hpre. }
+    destruct (IH Hsuf_rest) as [acc_rest causes_rest].
+    assert (Hin_w : In w (ewf_items forest)).
+    { destruct Hsuf as [ipre Hpre]. rewrite Hpre. apply in_or_app; right; left; reflexivity. }
+    pose proof (ew_view_exact w) as Hvx.
+    (* the head's outcome + its DIRECT StepCause (operand read through the member) *)
+    assert (Hstep : { o : ExprOutcome p & StepCause forest tnft w rest acc_rest o }).
+    { destruct (ew_expr w) as [b|nn|n0|s|dd|dc|ts x] eqn:He.
+      1-6: (assert (Hleaf : expr_child (ew_expr w) = None) by (rewrite He; reflexivity);
+            eexists; exact (SCLeaf (leaf_const (ew_expr w) Hleaf) Hleaf (leaf_const_status (ew_expr w) Hleaf))).
+      (* the conversion head *)
+      assert (Hview : GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x))
+        by (rewrite (ew_view_exact w), He; reflexivity).
+      pose (step := build_conversion_step forest w rest ts x Hin_w Hsuf Hview).
+      destruct (oa_total acc_rest (cs_operand_suffix step)) as [opf|er2 tr2 opr2 t2 ci2|] eqn:Hop.
+      + destruct (convert_const
+                    (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+                    (ef_const_status opf)) as [tc|] eqn:Hconv.
+        * eexists. exact (SCConvOk ts x step opf tc (cs_current_exact step) He Hop Hconv).
+        * eexists. exact (SCConvFail ts x step opf (cs_current_exact step) He Hop Hconv).
+      + eexists. refine (SCChildFail ts x step (cs_current_exact step) He _). rewrite Hop; exact I.
+      + eexists. refine (SCChildFail ts x step (cs_current_exact step) He _). rewrite Hop; exact I. }
+    destruct Hstep as [o stepc].
+    (* the extended map + its coverage and exact domain, as NAMED proofs, so the accumulator is one named value *)
+    assert (Hcovers : forall w0, In w0 (w :: rest) ->
+              GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w0))
+                (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) o (oa_map acc_rest))
+              <> None).
+    { intros w0 Hin0.
+      destruct (thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (ew_node_ref w0))
+                  (GoIndex.Snap.node_ref_key (ew_node_ref w))) as [Heq|Hne].
+      - rewrite Heq, GoIndex.nodekeymap_add_eq. discriminate.
+      - rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Hne; symmetry; exact Hbad).
+        destruct Hin0 as [Hw0w | Hin0].
+        + exfalso. apply Hne. rewrite Hw0w. reflexivity.
+        + exact (oa_covers acc_rest w0 Hin0). }
+    assert (Hdomain : outcome_dom_exact (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (w :: rest))
+              (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) o (oa_map acc_rest))).
+    { cbn [map]. eapply outcome_dom_exact_add; [ exact Hvx | exact (oa_domain acc_rest) ]. }
+    pose (macc := mkOutcomeAccumulator
+              (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) o (oa_map acc_rest))
+              Hcovers Hdomain : OutcomeAccumulator forest tnft (w :: rest)).
+    exists macc. intro sm.
+    destruct (thm8_nodekey_eq_dec (sm_key sm) (GoIndex.Snap.node_ref_key (ew_node_ref w))) as [Hhead | Htail].
+    + (* HEAD: this member is [w] *)
+      assert (Hsw : sm_work sm = w)
+        by exact (ewf_key_inj forest _ _ (proj2_sig (proj1_sig sm)) Hin_w Hhead).
+      assert (Ho : oa_total macc sm = o).
+      { unfold oa_total. apply from_some_eq. unfold macc; cbn [oa_map].
+        rewrite Hhead, GoIndex.nodekeymap_add_eq. reflexivity. }
+      exists rest, acc_rest. split.
+      * exists (@nil (ExprWork input)). cbn [app]. rewrite Hsw. reflexivity.
+      * rewrite Ho, Hsw. exact stepc.
+    + (* TAIL: this member is in [rest] *)
+      assert (Hin_rest : In (sm_work sm) rest).
+      { destruct (proj2_sig sm) as [Hwsw | Hin];
+          [ exfalso; apply Htail; unfold sm_key, sm_work; rewrite <- Hwsw; reflexivity | exact Hin ]. }
+      pose (sm' := exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm) Hin_rest : SuffixMember forest rest).
+      assert (Hoo : oa_total macc sm = oa_total acc_rest sm').
+      { unfold oa_total at 1. apply from_some_eq. unfold macc; cbn [oa_map].
+        rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Htail; symmetry; exact Hbad).
+        exact (from_some_some (GoIndex.NodeKeyMapBase.find (sm_key sm') (oa_map acc_rest))
+                 (oa_covers acc_rest (sm_work sm') (proj2_sig sm'))). }
+      destruct (causes_rest sm') as [rest'' [acc'' [ Hex stepc'' ]]].
+      exists rest'', acc''. split.
+      * destruct Hex as [prefix'' Hsplit'']. exists (w :: prefix''). exact (f_equal (cons w) Hsplit'').
+      * rewrite Hoo. exact stepc''.
+Defined.
+
 (** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of the retained work
     forest object's [ewf_items] (the ONE retained work order) into the outcome map, CARRYING the direct cause +
     exact domain over the item pair-projection.  Every item is an expression (no skip case).  A leaf stores its
