@@ -1,23 +1,26 @@
-# Unsupported and Restricted Scope — reviewed ledger
+# Unsupported and Restricted Scope — scope-decision ledger
 
-**Current-only.** This is a reviewed ledger of every scope restriction that is live in tracked prose *right
+**Current-only.** This is a ledger of every scope restriction that is live in tracked prose *right
 now* — not a history dump. When a restriction is lifted, its entry is deleted (git holds the history); when a
 new explicit exclusion is introduced, an entry is added in the SAME checkpoint. Every "unsupported / out of
 scope / excluded / unrepresentable frontier / threat-or-build-or-platform restriction" in current tracked
 prose must map to exactly one entry here — no restriction may live only in a code comment.
 
-Classifications: REVIEWED TARGET RESTRICTION · REVIEWED MODEL EXCLUSION · REVIEWED THREAT-MODEL EXCLUSION ·
-REVIEWED BUILD-ENVIRONMENT RESTRICTION · TEMPORARY FEATURE FRONTIER · REJECTED DESIGN.
+**Classification vs approval are SEPARATE.** The *classification* is a neutral description of the KIND of
+restriction; it never asserts that Rob has accepted it. The *approval state* is a distinct field (`PROPOSED`
+until Rob explicitly accepts, then `ACCEPTED`). Neutral classes:
+TARGET RESTRICTION · MODEL EXCLUSION · THREAT-MODEL EXCLUSION · BUILD-ENVIRONMENT RESTRICTION ·
+TEMPORARY FEATURE FRONTIER · REJECTED DESIGN · UNRESOLVED EXISTING RESTRICTION.
 
 Rules: "hard" or "not implemented" is never a permanent rationale; a temporary frontier must name the
-foundation/checkpoint that removes it; a target/model/threat restriction must carry a reviewed rationale; a
-future holistic review may reopen every entry.
+foundation/checkpoint that removes it; a target/model/threat restriction must carry a documented rationale; a
+future holistic review may reopen every entry. No entry is marked ACCEPTED until Rob explicitly accepts it.
 
 ---
 
 ## SR-001 — Pinned linux/amd64 64-bit validation target
 
-- **Classification:** REVIEWED TARGET RESTRICTION.
+- **Classification:** TARGET RESTRICTION.
 - **Exact excluded case:** the certified semantics fix `int`/`uint` to 64-bit ranges (`Ints`), and the
   operational end-to-end validation runs on exactly one target: `GOOS=linux`, `GOARCH=amd64`, the
   digest-pinned `golang:1.23-alpine` image, rendered `go.mod` language `1.23`. 32-bit targets, other
@@ -53,7 +56,7 @@ future holistic review may reopen every entry.
 
 ## SR-002 — Platform filesystem / resource limits not modeled
 
-- **Classification:** REVIEWED MODEL EXCLUSION.
+- **Classification:** MODEL EXCLUSION.
 - **Exact excluded case:** operating-system path/name/space limits (`NAME_MAX`, `PATH_MAX`, inode/disk/memory
   ceilings). Paths and module paths are modeled at ARBITRARY length with NO magic numeric cap; an over-long
   path is not rejected by the grammar, the model, or the sink.
@@ -82,7 +85,7 @@ future holistic review may reopen every entry.
 
 ## SR-003 — Cooperating-developer / local-verifier-tamper threat boundary
 
-- **Classification:** REVIEWED THREAT-MODEL EXCLUSION.
+- **Classification:** THREAT-MODEL EXCLUSION.
 - **Exact excluded case:** the publication-safety machinery (pre-commit hook, `make check`, the
   validate-before-publish Docker DAG) gives reasonable assurance against ACCIDENTAL stale/unbuilt generated
   output for a COOPERATING developer. It does NOT attempt to resist a DELIBERATE local bypass — extracting a
@@ -113,7 +116,7 @@ future holistic review may reopen every entry.
 
 ## SR-004 — Host Rocq / build environment unsupported (buildx-only)
 
-- **Classification:** REVIEWED BUILD-ENVIRONMENT RESTRICTION.
+- **Classification:** BUILD-ENVIRONMENT RESTRICTION.
 - **Exact excluded case:** proving/building on a developer's host Rocq/OCaml install is not supported. All
   verification runs through pinned Docker buildx (`make check`/`prove`/`e2e`).
 - **Exact reason:** a pinned container is the only reproducible, version-exact toolchain; a host install
@@ -136,7 +139,7 @@ future holistic review may reopen every entry.
 
 ## SR-005 — Module-path grammar exclusions (the FULL narrowing, not just `/vN`)
 
-- **Classification:** REVIEWED MODEL EXCLUSION.
+- **Classification:** MODEL EXCLUSION.
 - **Correction (this repair):** SR-005 previously discussed only `/vN` major-version suffixes and `gopkg.in`
   forms. The canonical `ModulePath` grammar excludes much more. Full enumeration of what it excludes:
   - lowercase-only segments (`[a-z][a-z0-9.]*`) — rejects uppercase (`github.com/User/Repo`);
@@ -178,7 +181,7 @@ future holistic review may reopen every entry.
 
 ## SR-006 — Source-file naming restrictions (TWO distinct decisions)
 
-- **Classification:** REVIEWED MODEL EXCLUSION.
+- **Classification:** MODEL EXCLUSION.
 - **Correction (this repair):** SR-006 previously claimed the restriction "exists to match `go build`
   file-selection logic exactly" and listed only ignored/reserved files as lost. That is FALSE and incomplete.
   `FilePath.component_ok` allows only a lowercase first character and lowercase letters/digits thereafter, so
@@ -278,7 +281,9 @@ future holistic review may reopen every entry.
 
 ## SR-009 — Bounded DecimalFloat literal domain (`|coeff| < 10^40`, `|exp10| ≤ 4096`)
 
-- **Classification:** REVIEWED MODEL EXCLUSION.
+- **Classification:** UNRESOLVED EXISTING RESTRICTION. (This is a pre-existing `Floats.v` bound whose
+  necessity is unresolved — it is NOT a settled model exclusion; the ADR that would resolve it is rejected as
+  written, so the restriction stands unexplained pending a correct decision, not accepted.)
 - **Exact excluded case:** the `DecimalFloat` literal domain is a bounded box — a canonical `coeff·10^exp10`
   with `decimal_max_coeff = 10^40` (at most 40 significant digits, `|coeff| < 10^40`) and
   `decimal_max_exp = 4096` (`-4096 ≤ exp10 ≤ 4096`). A source float literal outside this box (more than 40
@@ -302,9 +307,12 @@ future holistic review may reopen every entry.
   round-trip over the bounded domain.
 - **Reconsideration triggers:** any real float literal beyond the box; a decision to match Go's float-constant
   bound exactly; a proof/round-trip that needs a larger domain.
-- **Decision record:** a proposed **ADR-0002** (bounded DecimalFloat domain) records the exact forms lost, why
-  fixture coverage is not a sufficient reason, the actual proof/computation/toolchain need for a bound, and the
-  alternatives (unbounded canonical syntax / toolchain-minimum bound / larger experimentally-pinned box /
-  retain-as-subset). The numeric model is NOT changed in this C4 repair.
-- **Approval state:** PROPOSED — pending Rob (a material magic-cap exclusion surfaced by this review; needs
-  ADR-0002). Date: 2026-07-22.
+- **Decision record:** **ADR-0002** (bounded DecimalFloat domain) is **REJECTED AS WRITTEN** — its earlier draft
+  conflated lexical/source representability, untyped-constant representability, accepted current-fragment
+  programs, and finite F32/F64 conversion, and wrongly claimed a bound is *required* for finite data and
+  decidable equality (arbitrary Rocq `Z` coefficients/exponents are already finite with decidable equality; a
+  bound may only aid proof evaluation / resource limits / performance, and those costs must be measured, not
+  assumed). The rewritten ADR-0002 separates those four notions and states the bound as an OPEN design decision.
+  No float implementation change is authorized by this C4 repair.
+- **Approval state:** PROPOSED — the restriction stands unresolved; ADR-0002 is rejected as written and the
+  decision is OPEN pending Rob. Date: 2026-07-22.

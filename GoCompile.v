@@ -879,17 +879,17 @@ Proof.
 Qed.
 
 (* [prog_expr_facts] is the source-determined SPECIFICATION ([add_occ_fact] per node); the production fact map
-   [phase_expr_facts] is a TOTAL PROJECTION of the retained [ExprOutcomeTable] (extract each occurrence's [EOOk]
-   fact via [total_outcome_at] — no per-occurrence [const_info] rescan), proved EQUAL to this specification by
-   [phase_expr_facts_eq_spec]. *)
+   [forest_facts] is a TOTAL PROJECTION of the ONE retained work forest [prog_forest] over the proof-carrying
+   [ForestOutcomeTable] (extract each work item's [EOOk] fact via [total_forest_outcome_at] — no per-occurrence
+   [const_info] rescan), proved EQUAL to this specification by [forest_facts_eq_spec]. *)
 
 
-(* the ONE expression-outcome authority is the proof-carrying [ExprOutcomeTable] ([build_outcome_table] wrapping
-   the bottom-up [build_outcomes] fold over the retained [CompilationInput]'s visit, paired with the ONE carried
-   invariant — the DIRECT cause [eot_caused] with its exact domain [eot_dom]) and CONSUMING the once-built
-   [TypeNameFactTable] object; every production expression fact AND every conversion diagnostic PROJECTS this
-   single table by the TOTAL [total_outcome_at] query (coverage from the cause via [outcomes_caused_covers], the
-   source specification via the separate exactness theorem [outcomes_caused_matches]), never a second
+(* the ONE expression-outcome authority is the proof-carrying [ForestOutcomeTable] ([build_forest_outcome_table]
+   folding the retained work forest [prog_forest], paired with the ONE carried invariant — the DIRECT cause
+   [fot_caused] with its exact domain [fot_dom]) and CONSUMING the once-built [TypeNameFactTable] object; every
+   production expression fact AND every conversion diagnostic PROJECTS this single table by the TOTAL
+   [total_forest_outcome_at] query keyed by the WORK item (coverage from the cause via [outcomes_caused_covers],
+   the source specification via the separate exactness theorem [outcomes_caused_matches]), never a second
    [const_info]/[convert_const] pass and never a fail-open [find]. *)
 
 (* ---- OPERAND ADJACENCY: a conversion occurrence at [me] has its TYPE-NAME occurrence at [Pos.succ me] and its
@@ -2022,7 +2022,7 @@ Definition local_conv_failure (e : GoExpr) : option (GoType * ConstInfo) :=
   end.
 
 (** ---- §3.4/§3.6 THE STORED OUTCOME'S PROJECTION INVARIANT.  The accumulator invariant carried by
-    [build_outcomes]: every visited expression occurrence has a stored outcome that MATCHES the occurrence —
+    [build_outcomes_forest]: every retained work item has a stored outcome that MATCHES the occurrence —
     an EOOk fact is EXACTLY [occ_expr_fact]; an [EOConvFail] carries the occurrence's OWN ExprRef, its retained
     target/operand refs, and a genuine [local_conv_failure] (its convert_const-rejects evidence); a non-EOOk
     outcome has no fact.  Discharged IN PLACE at each fold step (leaf / conversion), so the whole projection —
@@ -2193,8 +2193,8 @@ Qed.
 
 (* the CARRIED-CAUSE accumulator invariant: every visited expression occurrence has a stored outcome that is
    DIRECTLY CAUSED off the retained phase ([OutcomeCause] against the FINAL map), NOT a source-spec witness.
-   This is what the [ExprOutcomeTable] carries (replacing the [outcome_convfail_ev]-based [outcome_matches] as the
-   causal invariant); the bridge to the source specification is a separate exactness theorem. *)
+   This is what the [ForestOutcomeTable] carries (replacing the [outcome_convfail_ev]-based [outcome_matches] as
+   the causal invariant); the bridge to the source specification is a separate exactness theorem. *)
 Definition outcomes_caused {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
     (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
     (m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) : Prop :=
@@ -3032,6 +3032,53 @@ Proof.
            (ci_in_prog (ew_in_visit w)) (ew_view_exact w) (total_forest_outcome_at_caused ot w)).
 Qed.
 
+(** §12 FORWARD OUTCOME SHAPE — the total outcome of a work item is DETERMINED by its occurrence's local shape,
+    read off [total_forest_outcome_at_matches] (no fail-open branch).  These three drive the §12 phase fixtures:
+    an occurrence whose fact SUCCEEDS is [EOOk] with that exact fact; a conversion whose OWN step locally fails is
+    [EOConvFail]; a conversion whose own step does NOT locally fail but whose fact is absent (a blocked child) is
+    [EOChildFail]. *)
+Lemma total_forest_outcome_ok_of_fact {p} {input : CompilationInput p} {tnft}
+    (ot : ForestOutcomeTable input tnft) (w : ExprWork input) f :
+  occ_expr_fact (ew_occurrence w) = Some f -> total_forest_outcome_at ot w = EOOk f.
+Proof.
+  intro Hf. pose proof (total_forest_outcome_at_matches ot w) as Hm.
+  destruct (total_forest_outcome_at ot w) as [f'| er2 tr2 opr2 t ci |]; cbn [outcome_matches] in Hm.
+  - rewrite Hf in Hm. injection Hm as Hm. rewrite Hm. reflexivity.
+  - destruct Hm as [Hnone _]. rewrite Hf in Hnone. discriminate.
+  - destruct Hm as [Hnone _]. rewrite Hf in Hnone. discriminate.
+Qed.
+
+Lemma total_forest_outcome_convfail_shape {p} {input : CompilationInput p} {tnft}
+    (ot : ForestOutcomeTable input tnft) (w : ExprWork input) ts x :
+  GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x) ->
+  occ_expr_fact (ew_occurrence w) = None ->
+  local_conv_failure (EConvert ts x) <> None ->
+  exists er2 tr2 opr2 t ci, total_forest_outcome_at ot w = EOConvFail er2 tr2 opr2 t ci.
+Proof.
+  intros Hview Hnf Hlcf. pose proof (total_forest_outcome_at_matches ot w) as Hm.
+  destruct (total_forest_outcome_at ot w) as [f| er2 tr2 opr2 t ci |]; cbn [outcome_matches] in Hm.
+  - rewrite Hnf in Hm. discriminate.
+  - exists er2, tr2, opr2, t, ci. reflexivity.
+  - destruct Hm as [_ [e [Hve Hlcfe]]]. rewrite Hview in Hve. injection Hve as He. subst e.
+    destruct (Hlcf Hlcfe).
+Qed.
+
+Lemma total_forest_outcome_childfail_shape {p} {input : CompilationInput p} {tnft}
+    (ot : ForestOutcomeTable input tnft) (w : ExprWork input) ts x :
+  GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x) ->
+  occ_expr_fact (ew_occurrence w) = None ->
+  local_conv_failure (EConvert ts x) = None ->
+  total_forest_outcome_at ot w = EOChildFail.
+Proof.
+  intros Hview Hnf Hlcf. pose proof (total_forest_outcome_at_matches ot w) as Hm.
+  destruct (total_forest_outcome_at ot w) as [f| er2 tr2 opr2 t ci |];
+    cbn [outcome_matches outcome_convfail_ev] in Hm.
+  - rewrite Hnf in Hm. discriminate.
+  - destruct Hm as [_ [_ [[e [Hve Hlcfe]] _]]]. rewrite Hview in Hve. injection Hve as He. subst e.
+    rewrite Hlcf in Hlcfe. discriminate.
+  - reflexivity.
+Qed.
+
 (** ═══ §9/§2.7 THE FACT PROJECTION OVER THE RETAINED FOREST ═══ folds the ONE retained forest via the TOTAL
     outcome query: an [EOOk] contributes its exact fact keyed by the work's own node key; any other outcome
     contributes nothing.  Proved EQUAL to the source specification [prog_expr_facts] over the SAME retained work
@@ -3063,8 +3110,8 @@ Proof.
 Qed.
 
 (** the source-determined expression-fact map (the SPECIFICATION): each visited occurrence's [occ_expr_fact]
-    keyed by its NodeKey.  The PRODUCTION fact map is [phase_expr_facts] (the TOTAL projection of the retained
-    [ExprOutcomeTable]), proved EQUAL to this specification by [phase_expr_facts_eq_spec]. *)
+    keyed by its NodeKey.  The PRODUCTION fact map is [forest_facts] (the TOTAL projection of the retained work
+    forest over the [ForestOutcomeTable]), proved EQUAL to this specification by [forest_facts_eq_spec]. *)
 Definition prog_expr_facts (p : GoProgram) : GoIndex.NodeKeyMapBase.t ExprFact :=
   fold_right add_occ_fact (GoIndex.NodeKeyMapBase.empty ExprFact) (prog_visit p).
 
@@ -3360,8 +3407,8 @@ Qed.
 
 (** ═══ §7 THE DIRECT CONVERSION-FAILURE CAUSE ═══ a stored [EOConvFail] does NOT reduce to a re-run of the
     source-spec [local_conv_failure]/[const_info]: its cause is a PROJECTION of the carried [OutcomeCause]
-    ([total_outcome_at_caused] + [OutcomeCause_EOConvFail_inv]).  For any visited conversion occurrence whose
-    TOTAL outcome is [EOConvFail], the reported refs ARE the occurrence's OWN retained conversion target/operand
+    ([total_forest_outcome_at_caused] + [OutcomeCause_EOConvFail_inv]).  For any retained work item whose
+    TOTAL outcome is [EOConvFail], the reported refs ARE the work's OWN retained conversion target/operand
     refs; the reported target type IS the SEALED [TypeNameFactTable]'s stored fact at that target ref (never a
     fresh resolver call); the operand's OWN total outcome is a SUCCESS [EOOk opf] whose [ef_const_status] IS the
     reported [ci] (never a fresh [const_info] scan); and [convert_const] genuinely REJECTS that status at that
@@ -3910,13 +3957,13 @@ Proof.
                            | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
-(* ---- the diagnostic step ([awork_diags], below): PROJECTS each TYPED WORK item's stored outcome from the ONE
-   retained [ExprOutcomeTable] via the TOTAL [total_outcome_at] query, keyed by the work's OWN carried
-   [ew_expr_ref] — there is NO [as_expr] call and NO fail-open [None] branch (§8/§2.3).  A local invalid
+(* ---- the diagnostic step ([forest_awork_diags], below): PROJECTS each RETAINED WORK item's stored outcome from
+   the ONE retained [ForestOutcomeTable] via the TOTAL [total_forest_outcome_at] query, keyed by the work's OWN
+   carried [ew_expr_ref] — there is NO [as_expr] call and NO fail-open [None] branch (§8/§2.3).  A local invalid
    conversion reads its own [EOConvFail], emitting the diagnostic from the STORED conversion/target refs +
    resolved target + operand status ALREADY computed by the outcome fold — NEVER re-minting the target ref, never
    a second [convert_const] or resolver call.  A default failure reads its own [EOOk] fact's status.  Proved to
-   agree with the [occ_expr_diags] specification ([awork_diags_eq]). ---- *)
+   agree with the [occ_expr_diags] specification ([forest_awork_diags_eq]). ---- *)
 
 Lemma local_conv_failure_const_none e t ci : local_conv_failure e = Some (t, ci) -> const_info e = None.
 Proof.
@@ -3934,12 +3981,12 @@ Proof.
 Qed.
 
 (* the production expression diagnostics: the TOTAL outcome projection over the ONE-PASS annotated stream —
-   each occurrence's enclosing-conversion context [snd roc] is DELIVERED by [annotate_program], its outcome is
-   read from the ONE retained [ExprOutcomeTable] (via [total_outcome_at]); a local invalid conversion emits its
-   STORED refs (no re-mint), no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
+   each work item's enclosing-conversion context is DELIVERED by the retained annotation, its outcome is
+   read from the ONE retained [ForestOutcomeTable] (via [total_forest_outcome_at]); a local invalid conversion
+   emits its STORED refs (no re-mint), no per-diagnostic [visit_file]/[node_at], no second [convert_const]. *)
 (* the SPECIFICATION expression-diagnostic report: the declarative per-occurrence [occ_expr_diags] over the
-   one-pass annotated stream.  The PRODUCTION report is [phase_expr_diags] (the TOTAL projection of the retained
-   [ExprOutcomeTable]), proved equal to THIS ([phase_expr_diags_eq_spec] / [ep_diags_eq_expr_diags]). *)
+   one-pass annotated stream.  The PRODUCTION report is [forest_diags] (the TOTAL projection of the retained work
+   forest over the [ForestOutcomeTable]), proved equal to THIS ([forest_diags_eq_spec] / [ep_diags_eq_expr_diags]). *)
 Definition expr_diags {p} (idx : GoIndex.Snap.SyntaxIndex p) : list (DiagnosticReason p) :=
   flat_map (fun roc => occ_expr_diags idx (snd roc) (fst roc)) (annotate_program idx).
 
@@ -8410,7 +8457,7 @@ Definition elaborate (p : GoProgram) : ProgramElaboration p :=
 
 (** ★§5/§3.8 THE SEALED TABLE IS THE CONSTRUCTED-AND-CONSUMED TABLE (OBJECT IDENTITY): the type-name-fact table
     sealed into a successful [ElaborationFacts] IS [ep_tnft] of the ExpressionPhase actually built in the retained
-    phase — the SAME object the [ExprOutcomeTable] ([ep_ot phase]) was built consuming and the total facts +
+    phase — the SAME object the [ForestOutcomeTable] ([ep_ot phase]) was built consuming and the total facts +
     diagnostics both project.  This quantifies over the table object CONSTRUCTED in the phase, not a global helper. *)
 Theorem elaborate_ok_seals_tnfacts (p : GoProgram) facts :
   pe_result (elaborate p) = ElaborationOK facts ->
@@ -9481,9 +9528,11 @@ Theorem deep_fail_one_diag :
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ═══ ★§12 REAL PHASE FIXTURES ═══ these construct [build_compilation_input] + [build_expression_phase] and
-    query the RETAINED PHASE's OWN diagnostic projection [ep_diags] (the typed-work [awork_diags] over the phase's
-    [ep_ot]) — NOT the erased specification report.  The [erased_report] fixtures above are the SPECIFICATION
-    fixtures (renamed per §2.10); these exercise the production phase object [build_expression_phase] builds. *)
+    query the RETAINED PHASE's OWN diagnostic projection [ep_diags] (the retained-work [forest_awork_diags] over
+    the phase's [ep_ot]) — NOT the erased specification report.  The [erased_report] fixtures above are the
+    SPECIFICATION fixtures (renamed per §2.10); these exercise the production phase [build_expression_phase] builds.
+    The DIRECT production-object queries (§12 block below, [deep_fail_innermost_convfail] etc.) go further: they
+    query [total_forest_outcome_at] on the phase's own table at REAL work items, not via a spec rewrite. *)
 
 (* PHASE query — deep valid 4-conversion chain: the built phase's TOTAL diagnostic projection is EMPTY (every
    occurrence resolves EOOk; no fail-open).  Reduced through the phase→spec equality to the SOURCE [program_typedb]
@@ -9568,6 +9617,29 @@ Proof.
   rewrite Hktr. unfold type_name_key. rewrite Hkey. cbn [GoIndex.nk_file]. rewrite Hlocal. reflexivity.
 Qed.
 
+(** §12 CONCRETE-SNAPSHOT WORK ITEM: a real source expression occurrence yields a real retained [ExprWork] of the
+    program's [CompilationInput] — carrying that occurrence, its expression, and its NodeKey — so a §12 phase
+    fixture can query [total_forest_outcome_at] on the PRODUCTION work item, not a spec proxy. *)
+Lemma program_work_at (p : GoProgram) (path : FilePath) (f : GoSourceFile) (local : positive) occ e :
+  find_file path (prog_files p) = Some f ->
+  GoIndex.source_occurrence_at f local = Some occ ->
+  GoIndex.view_expr occ = Some e ->
+  exists (w : ExprWork (build_compilation_input p (GoIndex.index_program p))),
+    ew_occurrence w = occ /\ ew_expr w = e
+    /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = GoIndex.mkKey path local.
+Proof.
+  intros Hfind Hsrc Hview.
+  destruct (program_expr_ref_at p path f local occ e Hfind Hsrc Hview) as [r [er [Hin [Hae Hkey]]]].
+  set (input := build_compilation_input p (GoIndex.index_program p)) in *.
+  assert (Hin' : In (r, occ) (ci_visit input)) by (rewrite (ci_visit_ok input); exact Hin).
+  assert (Hae' : GoIndex.as_expr (ci_idx input) r = Some er) by exact Hae.
+  assert (Her : GoIndex.erase_ref er = r)
+    by exact (GoIndex.erase_as_kind (ci_idx input) r GoIndex.KExpression er Hae').
+  exists (mkExprWork (input:=input) r occ er e Hin' Hview Hae' Her
+            (build_ew_conv input r occ er e Hin' Hview Hae')).
+  cbn [ew_occurrence ew_expr ew_node_ref]. split; [reflexivity | split; [reflexivity | exact Hkey]].
+Qed.
+
 (** ★§5.3 THE CONCRETE TWO-[uint8] SNAPSHOT: a REAL compiled program with TWO [uint8(...)] conversions at
     DISTINCT println arguments.  The retained index mints TWO real target [TypeNameRef]s at DISTINCT NodeKeys
     (occurrence identity — NOT name identity: the same closed source symbol at two occurrences), yet their
@@ -9630,6 +9702,223 @@ Proof.
   - rewrite Hs1, Hs2. reflexivity.
   - rewrite (type_name_fact_at_resolves facts tr1 _ Hs1),
             (type_name_fact_at_resolves facts tr2 _ Hs2). reflexivity.
+Qed.
+
+(** ═══ ★§12 DIRECT PRODUCTION-OBJECT PHASE QUERIES ═══ these do NOT rewrite to [expr_diags]/[program_typedb];
+    they build a REAL [ExprWork] of the deep program's retained [CompilationInput] (via [program_work_at]) and
+    query [total_forest_outcome_at] on the phase's OWN [ForestOutcomeTable] ([ep_ot]) at that exact work item.
+    The deep chain's nodes (probed): conversions at locals 5/7/9/11 (int64/int32/int16/int8), leaf int at 13. *)
+(* filtering a mapped list counts the same as filtering the pre-image by the composed predicate — used to move a
+   snapshot-visit expression count onto the SOURCE-computable [keyed_visit] (whose NodeRefs are erased to keys). *)
+Lemma filter_map_length {A B} (q : B -> bool) (g : A -> B) (l : list A) :
+  length (filter q (map g l)) = length (filter (fun x => q (g x)) l).
+Proof.
+  induction l as [|a l IH]; [reflexivity|]. cbn [map filter].
+  destruct (q (g a)); cbn [length]; rewrite IH; reflexivity.
+Qed.
+
+Definition deep_nested_src : GoSourceFile := main_source
+  [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint64)
+                        (EConvert (GoAST.tsyn GoNames.TNint32)
+                          (EConvert (GoAST.tsyn GoNames.TNint16)
+                            (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) ] ] ].
+Definition deep_fail_src : GoSourceFile := main_source
+  [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNint64)
+                        (EConvert (GoAST.tsyn GoNames.TNint32)
+                          (EConvert (GoAST.tsyn GoNames.TNint16)
+                            (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)))) ] ] ].
+
+(* §12.2 helper — a deep_fail conversion whose OWN step does not locally fail but whose fact is absent (a blocked
+   child) is EOChildFail on the production table. *)
+Lemma deep_fail_childfail_at (local : positive) ts x occ :
+  GoIndex.source_occurrence_at deep_fail_src local = Some occ ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  occ_expr_fact occ = None ->
+  local_conv_failure (EConvert ts x) = None ->
+  exists (w : ExprWork (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))),
+    ew_expr w = EConvert ts x
+    /\ total_forest_outcome_at
+         (ep_ot (build_expression_phase
+                   (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))) w
+       = EOChildFail.
+Proof.
+  intros Hsrc Hview Hnf Hlcf.
+  destruct (program_work_at deep_fail_program (mkFP "main.go" eq_refl) deep_fail_src local occ (EConvert ts x)
+              ltac:(vm_compute; reflexivity) Hsrc Hview) as [w [Hocc [He _]]].
+  exists w. split; [exact He | ].
+  apply (total_forest_outcome_childfail_shape _ w ts x);
+    [ rewrite Hocc; exact Hview | rewrite Hocc; exact Hnf | exact Hlcf ].
+Qed.
+
+(* §12.1 helper — a deep_nested occurrence whose fact SUCCEEDS is EOOk on the production table. *)
+Lemma deep_nested_ok_at (local : positive) e occ :
+  GoIndex.source_occurrence_at deep_nested_src local = Some occ ->
+  GoIndex.view_expr occ = Some e ->
+  (exists f, occ_expr_fact occ = Some f) ->
+  exists (w : ExprWork (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))) f,
+    ew_expr w = e
+    /\ total_forest_outcome_at
+         (ep_ot (build_expression_phase
+                   (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) w
+       = EOOk f.
+Proof.
+  intros Hsrc Hview [f Hf].
+  destruct (program_work_at deep_nested_program (mkFP "main.go" eq_refl) deep_nested_src local occ e
+              ltac:(vm_compute; reflexivity) Hsrc Hview) as [w [Hocc [He _]]].
+  exists w, f. split; [exact He | ].
+  apply total_forest_outcome_ok_of_fact. rewrite Hocc. exact Hf.
+Qed.
+
+(* §12.2 — deep_fail INNERMOST int8(300): the sole EOConvFail on the production table; its refs are the work's OWN
+   carried refs and its DIRECT cause reads the operand's stored EOOk fact (the leaf's success), NOT a rescan. *)
+Theorem deep_fail_innermost_convfail :
+  let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
+  let ot := ep_ot (build_expression_phase input) in
+  exists (w : ExprWork input) tr2 opr2 t ci opf,
+    ew_expr w = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)
+    /\ total_forest_outcome_at ot w = EOConvFail (ew_expr_ref w) tr2 opr2 t ci
+    /\ conversion_target_ref (ci_idx input) (ew_expr_ref w) = Some tr2
+    /\ conversion_operand_ref (ci_idx input) (ew_expr_ref w) = Some opr2
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr2)) (fot_map ot)
+         = Some (EOOk opf)
+    /\ ci = ef_const_status opf
+    /\ convert_const t ci = None.
+Proof.
+  cbn zeta.
+  destruct (GoIndex.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+  destruct (program_work_at deep_fail_program (mkFP "main.go" eq_refl) deep_fail_src 11 occ
+              (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)) ltac:(vm_compute; reflexivity) Eo
+              ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [w [Hocc [He _]]].
+  destruct (total_forest_outcome_convfail_shape
+              (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+              w (GoAST.tsyn GoNames.TNint8) (EInt 300))
+    as [er2 [tr2 [opr2 [t [ci Hout]]]]].
+  { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
+  { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
+  { vm_compute; discriminate. }
+  destruct (phase_convfail_cause _ w er2 tr2 opr2 t ci Hout)
+    as [Her2 [Htr2 [Hopr2 [_ [[opf [Hfind Hcieq]] Hcv]]]]].
+  subst er2.
+  exists w, tr2, opr2, t, ci, opf.
+  split; [exact He | split; [exact Hout | split; [exact Htr2 | split; [exact Hopr2
+    | split; [exact Hfind | split; [exact Hcieq | exact Hcv]]]]]].
+Qed.
+
+(* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each EOChildFail (blocked by the inner fail;
+   no outer reason).  Direct production-table queries at the exact work items. *)
+Theorem deep_fail_outer_childfail :
+  let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
+  let ot := ep_ot (build_expression_phase input) in
+  (exists (w : ExprWork input),
+     ew_expr w = EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))
+     /\ total_forest_outcome_at ot w = EOChildFail)
+  /\ (exists (w : ExprWork input),
+     ew_expr w = EConvert (GoAST.tsyn GoNames.TNint32)
+                   (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)))
+     /\ total_forest_outcome_at ot w = EOChildFail)
+  /\ (exists (w : ExprWork input),
+     ew_expr w = EConvert (GoAST.tsyn GoNames.TNint64)
+                   (EConvert (GoAST.tsyn GoNames.TNint32)
+                     (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))))
+     /\ total_forest_outcome_at ot w = EOChildFail).
+Proof.
+  cbn zeta.
+  split; [ | split ].
+  - destruct (GoIndex.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_fail_childfail_at 9 (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_fail_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_fail_childfail_at 7 (GoAST.tsyn GoNames.TNint32)
+             (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_fail_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_fail_childfail_at 5 (GoAST.tsyn GoNames.TNint64)
+             (EConvert (GoAST.tsyn GoNames.TNint32)
+               (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute; reflexivity ].
+Qed.
+
+(* §12.2 — the STORED diagnostic list of the deep_fail phase is EXACTLY ONE reason (not merely nonempty). *)
+Theorem deep_fail_exactly_one_diag :
+  length (ep_diags (build_expression_phase
+              (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))) = 1%nat.
+Proof.
+  (* the snapshot visit carries opaque validity proofs and does not [vm_compute]; bridge the retained-phase
+     diagnostic count to the SOURCE-computable erased report (§11.7 spec bridge), which reduces. *)
+  rewrite ep_diags_eq_expr_diags.
+  set (idx0 := ci_idx (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))).
+  assert (Hpkg : pkg_diags idx0 = []) by (apply (proj2 (pkg_diags_empty_iff idx0)); vm_compute; reflexivity).
+  assert (Hexpr : expr_diags idx0 ++ pkg_diags idx0 = expr_diags idx0) by (rewrite Hpkg; apply app_nil_r).
+  pose proof (f_equal (@length _) (erased_src_diags_eq idx0)) as H.
+  rewrite Hexpr, map_length in H. rewrite H. vm_compute. reflexivity.
+Qed.
+
+(* §12.1 — deep_nested: EACH conversion (int64/int32/int16/int8) and the leaf int resolve EOOk on the production
+   table (no fail-open anywhere in the valid tree). *)
+Theorem deep_nested_all_ok :
+  let input := build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program) in
+  let ot := ep_ot (build_expression_phase input) in
+  (exists (w : ExprWork input) f, ew_expr w = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)
+     /\ total_forest_outcome_at ot w = EOOk f)
+  /\ (exists (w : ExprWork input) f, ew_expr w = EInt 5 /\ total_forest_outcome_at ot w = EOOk f)
+  /\ (exists (w : ExprWork input) f,
+        ew_expr w = EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))
+        /\ total_forest_outcome_at ot w = EOOk f).
+Proof.
+  cbn zeta.
+  split; [ | split ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 11 (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 13) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 13 (EInt 5) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 9 (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+Qed.
+
+(* §12.1 — the retained work forest of the deep_nested phase has EXACTLY 5 items (4 conversions + 1 leaf). *)
+Theorem deep_nested_work_count :
+  length (ep_work (build_expression_phase
+              (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) = 5%nat.
+Proof.
+  set (input := build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)).
+  rewrite (ep_work_prov (build_expression_phase input)).
+  rewrite <- (map_length (fun w => (ew_node_ref w, ew_occurrence w)) (prog_forest input)).
+  rewrite (prog_forest_filter input), (ci_visit_ok input).
+  (* the snapshot visit does not [vm_compute]; count the expression occurrences on the SOURCE-computable
+     [keyed_visit] (= [source_keyed_visit], NodeRefs erased to keys), whose occurrences are the visit's own. *)
+  transitivity (length (filter (fun ko : GoIndex.NodeKey * GoIndex.SourceOccurrence =>
+                  match GoIndex.view_expr (snd ko) with Some _ => true | None => false end)
+                  (keyed_visit deep_nested_program))).
+  - unfold keyed_visit. rewrite filter_map_length. reflexivity.
+  - rewrite keyed_visit_source. vm_compute. reflexivity.
+Qed.
+
+(* §12.4 — the production phase's outcome table admits NO foreign key (every present key is a RETAINED work item's
+   key) and NO wrong-kind key (a visited non-expression occurrence is absent) — over [ep_work]/[ep_ot], NOT a spec. *)
+Theorem phase_domain_exact (p : GoProgram) :
+  let input := build_compilation_input p (GoIndex.index_program p) in
+  let ph := build_expression_phase input in
+  (forall k, GoIndex.NodeKeyMapBase.find k (fot_map (ep_ot ph)) <> None ->
+     exists w, In w (ep_work ph) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k)
+  /\ (forall r occ, In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None ->
+       GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (fot_map (ep_ot ph)) = None).
+Proof.
+  cbn zeta. split.
+  - intros k Hk. destruct (proj1 (fot_domain_iff_forest (ep_ot _) k) Hk) as [w [Hin Hkey]].
+    exists w. split; [ rewrite (ep_work_prov _); exact Hin | exact Hkey ].
+  - intros r occ Hin Hv. exact (fot_nonexpr_absent (ep_ot _) r occ Hin Hv).
 Qed.
 
 (** SINGLE-FAILURE SCARS: each concrete rejected program yields EXACTLY ONE diagnostic with

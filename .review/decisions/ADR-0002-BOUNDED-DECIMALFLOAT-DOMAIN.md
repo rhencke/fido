@@ -1,9 +1,12 @@
 # ADR-0002 — Bounded DecimalFloat literal domain
 
-- **Status:** PROPOSED — pending Rob. (Not accepted until Rob accepts it. The numeric model is NOT changed by
-  the C4 repair that raised this; this ADR only records the decision to be made.)
+- **Status:** **REJECTED AS WRITTEN, then rewritten; the decision is OPEN.** The earlier draft was factually
+  and conceptually wrong (see "What the earlier draft got wrong"); it is not accepted, and nothing here sets it
+  accepted. The numeric model is NOT changed by the C4 repair that raised this — no float implementation change
+  is authorized. This ADR only records an OPEN decision for Rob.
 - **Date:** 2026-07-22.
-- **Scope ledger link:** `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` SR-009.
+- **Scope ledger link:** `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` SR-009 (classification: UNRESOLVED
+  EXISTING RESTRICTION).
 - **Source:** `Floats.v` (`decimal_max_coeff`, `decimal_max_exp`, the `DecimalFloat` canonicality/bound predicates).
 
 ## The restriction, stated directly
@@ -12,70 +15,86 @@ Fido's `DecimalFloat` literal domain is a bounded box: a canonical `coeff·10^ex
 `decimal_max_coeff = 10^40` (`|coeff| < 10^40`, at most 40 significant digits) and `decimal_max_exp = 4096`
 (`-4096 ≤ exp10 ≤ 4096`). A source float literal outside this box is UNREPRESENTABLE in the AST.
 
-## Exact source forms lost
+## What the earlier draft got wrong (why it is REJECTED AS WRITTEN)
 
-- Float literals with **more than 40 significant digits** (Go parses and rounds arbitrarily long digit
-  strings before applying its own constant bound).
-- Float literals with **decimal exponent magnitude beyond ±4096** (e.g. `1e5000` — Go's float-constant
-  overflow bound is far larger, ~1e400+ in magnitude with a much larger internal precision budget).
+1. It claimed that **all** exponent-magnitude forms beyond ±4096 — including `1e5000` — are Go-valid programs
+   the pinned toolchain **accepts and rounds** to an F32/F64 value. That is false in the represented use
+   contexts. In today's fragment a float literal appears only as a `println` argument, i.e. either a
+   **defaulted** untyped constant or an operand of an **F32/F64 conversion**. In both of those contexts `1e5000`
+   **overflows the target float type and is REJECTED by `go build`** — it is not accepted-and-rounded. Only a
+   literal whose *value* lands within finite F32/F64 range (which a huge exponent like `e5000` does not) is
+   accepted and rounded.
+2. It conflated four distinct notions that must be kept separate (below).
+3. It claimed a bound is **required** for finite data and decidable equality. That is false: arbitrary Rocq `Z`
+   coefficients and exponents are already finite values with decidable equality, and a canonical decimal built
+   on them is canonical and round-trippable without any magnitude cap.
 
-These are Go-VALID literals the pinned toolchain would accept (and round to an F32/F64 value); Fido cannot hold
-them in the AST.
+## The four notions this decision must keep separate
 
-## Why current fixture coverage is not a sufficient reason
+- **(a) Lexical / source representability.** What the Go *lexer* will read as a float literal token. Go accepts
+  very long digit strings and large exponents lexically (the token is well-formed); this is independent of
+  whether the resulting constant is usable.
+- **(b) Untyped-constant representability.** Whether Go retains the value as an untyped constant. Go's untyped
+  float constants carry a large but finite precision budget; an *unused* untyped package-level constant with a
+  huge magnitude can be parsed and retained. **Current Fido has no such declaration form** — there is no
+  untyped-constant declaration in the fragment, so this context does not arise for us today.
+- **(c) Accepted current-fragment programs.** What actually compiles in *today's* fragment: a float literal is
+  a `println` argument — a defaulted untyped constant or an F32/F64 conversion operand. Here a huge-magnitude
+  literal (`1e5000`) **overflows and is rejected**; a literal near a finite magnitude but with a very long
+  significand is **accepted and rounded**.
+- **(d) Finite F32/F64 conversion.** The rounding of a finite decimal to a `spec_float` at its format. This is
+  defined for any finite decimal regardless of the cap; the cap does not enable it.
 
-`Floats.v` records the caps were "chosen to cover every F32/F64 overflow (~e39/e309) and underflow (~e-330)
-fixture WITH MARGIN." That is a FIXTURE-COVERAGE rationale: the bound is sized to the tests we happen to have,
-not to a language fact or a toolchain limit. A restriction justified only by "covers our current fixtures" is
-exactly the kind of magic bound a hostile review must flag — it is not faithful-or-fail-loud, it is a
-convenient subset.
+The forms *actually lost* by the `10^40`/`4096` box are therefore, precisely: **(a)/(b)-representable literals
+whose value is finite in F32/F64 but whose significand exceeds 40 significant digits or whose exponent exceeds
+±4096** — e.g. a 60-significant-digit literal near a representable magnitude, which Go would round but Fido
+cannot hold. A huge-exponent literal like `1e5000` is NOT a lost Go-valid program in the current fragment
+(context (c) rejects it); it is lost only in the hypothetical (b) untyped-constant context, which the fragment
+does not yet have.
 
-## The actual need for *a* bound (what genuinely requires one)
+## Is a bound required? (No — separate necessity from convenience)
 
-- **Canonicality/decidability:** `DecimalFloat` is intrinsically canonical (nonzero coefficient not divisible
-  by ten) with decidable equality and a bounded-computation round-trip (`decode(render d) = Some d`). A bound
-  makes the coefficient/exponent finite data with simple `Z` comparisons.
-- **Rounding to F32/F64:** the value must round once to a `spec_float` at its format; the rounding is defined
-  for any finite decimal, so it does not itself require *this* bound — a larger or toolchain-matched bound
-  would still round.
-So a bound aids canonicality/proof simplicity, but the SPECIFIC `10^40`/`4096` values are not forced by any
-proof — only by fixture coverage.
+- **Canonicality / decidability do NOT require a bound.** A canonical decimal `coeff·10^exp` over arbitrary
+  Rocq `Z` (nonzero coefficient not divisible by ten) is already finite data with decidable equality and a
+  bounded-computation render/decode round-trip. Removing the cap does not break canonicality or decidability.
+- **What a bound *might* buy** (each a cost/benefit to be **measured**, not assumed): faster proof-term
+  evaluation (`vm_compute` over smaller `Z`), a resource-limit guard against pathological literals, or
+  implementation-performance headroom. None of these is established here; they are candidate justifications
+  that require measurement before they can support the specific `10^40`/`4096` values.
+- The current `Floats.v` rationale ("chosen to cover every F32/F64 overflow/underflow fixture WITH MARGIN") is a
+  **fixture-coverage** rationale — sized to the tests we happen to have, not to a language fact, a toolchain
+  limit, or a measured proof/resource cost. That is exactly the kind of magic bound a hostile review flags.
 
 ## Alternatives considered
 
-1. **Unbounded canonical decimal syntax** — represent any finite decimal `coeff·10^exp` (arbitrary-precision
-   `Z`), canonical (no trailing-zero coefficient). Pro: faithful to Go's parser; con: unbounded data in the
-   AST, and the rounding/round-trip proofs must handle arbitrary magnitudes.
-2. **Toolchain/implementation-minimum bound** — set the box to Go's actual float-constant precision/exponent
-   bounds (match `cmd/compile`'s constant handling). Pro: faithful to the pinned toolchain; con: those bounds
-   are large and version-specific (ties into ADR-0001's pinned target).
+1. **Unbounded canonical decimal syntax** — any finite `coeff·10^exp` over arbitrary-precision `Z`, canonical.
+   Pro: faithful to Go's lexer/constant handling; canonicality + decidable equality hold with no cap. Con:
+   unbounded data in the AST; rounding/round-trip proofs and proof-term evaluation must handle arbitrary
+   magnitudes (a *measured* proof-evaluation cost, not a correctness obstacle).
+2. **Toolchain/implementation-matched bound** — set the box to Go's actual untyped-float-constant precision /
+   exponent budget. Pro: faithful to the pinned toolchain for context (b) if/when it arises. Con: large and
+   version-specific (ties into ADR-0001's pinned target).
 3. **A larger, experimentally-pinned box** — raise the caps to a value validated by a differential experiment
-   (Fido literal ↔ Go literal) with margin over any realistic F32/F64 source. Pro: cheap, covers more; con:
-   still a magic bound, just a bigger one.
-4. **Retain the current box as a deliberate language subset** — keep `10^40`/`4096`, but justify it as an
-   intentional minimal float subset (like the admitted-fragment frontier), with an explicit reconsideration
-   trigger. Pro: no model change; con: excludes Go-valid literals with a fixture-shaped bound.
+   with margin over any realistic finite-F32/F64 source. Pro: cheap, covers more real literals. Con: still a
+   magic bound, just larger.
+4. **Retain the current box as a deliberate language subset** — keep `10^40`/`4096`, justified as an
+   intentional minimal float subset with an explicit reconsideration trigger. Pro: no model change. Con:
+   excludes finite-valued Go literals with a fixture-shaped bound.
 
-## Guarantees the bound enables
+## Experiments/measurements to run before accepting
 
-- `DecimalFloat` canonicality + bound proofs; decidable equality; the exact float render/decode round-trip over
-  the bounded domain; finite-data float literals.
-
-## Enforcement
-
-- `Floats.v`: `decimal_max_coeff = 10^40`, `decimal_max_exp = 4096`, the canonicality + bound predicates on
-  `DecimalFloat`; `ARCHITECTURE.md` GoAST row (`|coeff|<10^40`, `|exp|≤4096`).
-
-## Experiments to run before accepting
-
-- A differential experiment: for float literals near/over the box, compare Fido's representability + rounded
-  value against the pinned Go toolchain, to size a faithful bound (alternative 2/3).
+- A **differential experiment**: for float literals with long significands and for near-box exponents, compare
+  Fido representability + rounded value against the pinned Go toolchain *in the fragment's actual contexts*
+  (defaulted arg; F32/F64 conversion), to size a faithful bound (alternatives 2/3) — and confirm the (c)
+  overflow-rejection behaviour for huge exponents.
+- A **proof-evaluation measurement**: quantify the `vm_compute`/`Qed` cost of the unbounded canonical domain
+  (alternative 1), so any bound is justified by a measured cost, not by fixture coverage.
 
 ## Reconsideration triggers
 
-- Any real source float literal beyond the box that must be represented.
-- A decision to match Go's float-constant bound exactly.
-- A proof/round-trip that needs a larger domain.
+- Any real source float literal with a finite F32/F64 value that must be represented but exceeds the box.
+- Introduction of an untyped-constant declaration form (context (b)) into the fragment.
+- A measured proof-evaluation or resource cost that a bound demonstrably mitigates.
 - C5 or later numeric work touching float precision.
 
 Do not set status ACCEPTED. Rob decides after review; the numeric model stays as-is until then.

@@ -396,6 +396,18 @@ Print Assumptions GoCompile.deep_fail_one_diag.
    projects EMPTY, a deep inner failure REPORTS (non-empty, not suppressed). *)
 Print Assumptions GoCompile.deep_nested_phase_no_diags.
 Print Assumptions GoCompile.deep_fail_phase_reports.
+(* §12 DIRECT PRODUCTION-OBJECT phase queries (NOT spec rewrites): a REAL [ExprWork] of the deep program's
+   retained input is built and [total_forest_outcome_at] is queried on the phase's OWN [ep_ot] — the innermost
+   int8(300) is the sole EOConvFail whose DIRECT cause reads the operand's stored EOOk (exact refs, no rescan);
+   each enclosing conversion is EOChildFail; the stored diagnostic list is EXACTLY ONE; the valid deep chain's
+   conversions + leaf all resolve EOOk; the retained work forest has EXACTLY 5 items; and the production table
+   admits NO foreign key and NO wrong-kind (non-expression) key ([ep_work]/[ep_ot], not the specification). *)
+Print Assumptions GoCompile.deep_fail_innermost_convfail.
+Print Assumptions GoCompile.deep_fail_outer_childfail.
+Print Assumptions GoCompile.deep_fail_exactly_one_diag.
+Print Assumptions GoCompile.deep_nested_all_ok.
+Print Assumptions GoCompile.deep_nested_work_count.
+Print Assumptions GoCompile.phase_domain_exact.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)
