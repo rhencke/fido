@@ -2709,11 +2709,28 @@ Lemma fold_right_map {A B C} (f : B -> C -> C) (g : A -> B) (init : C) (l : list
   fold_right f init (map g l) = fold_right (fun x => f (g x)) init l.
 Proof. induction l as [|a l IH]; [reflexivity | cbn [map fold_right]; rewrite IH; reflexivity]. Qed.
 
+(** §5/§2.4 THE CONVERSION-WORK REFINEMENT carried by every work item: for a CONVERSION expression the item
+    CARRIES its target [TypeNameRef], its operand [ExprRef], and the index facts (conversion_target_ref /
+    type_name_ref_syntax / conversion_operand_ref) — so a semantic step reads the refs from work and NEVER
+    remints them via [conversion_target_ref[_tot]]/[conversion_operand_ref[_tot]].  For a leaf
+    expression it is trivially [unit].  (Dependent on the item's own expression — the "ExprWork plus total
+    conversion refinement" option of §5.) *)
+Definition ConvRefinement {p} (input : CompilationInput p) (er : GoIndex.ExprRef p) (e : GoExpr) : Type :=
+  match e with
+  | EConvert ts x =>
+      { tr : GoIndex.TypeNameRef p & { opr : GoIndex.ExprRef p |
+          conversion_target_ref (ci_idx input) er = Some tr
+          /\ GoIndex.type_name_ref_syntax tr = Some ts
+          /\ conversion_operand_ref (ci_idx input) er = Some opr } }
+  | _ => unit
+  end.
+
 (** ═══ §4 THE EXACT TYPED WORK DOMAIN ═══ one proof-backed expression-work item per LIVE expression occurrence.
-    Each [ExprWork] CARRIES its exact [ExprRef], source view, and the membership/view/as_expr/erase proofs — so
-    every downstream consumer (facts, outcomes, diagnostics, context annotation) reads [ew_expr_ref] directly and
-    NEVER calls an optional [as_expr] with a fail-open [None] branch.  The work builder is the SINGLE place that
-    inspects a raw occurrence and decides expression-ness. *)
+    Each [ExprWork] CARRIES its exact [ExprRef], source view, the membership/view/as_expr/erase proofs, AND its
+    conversion refinement ([ew_conv]) — so every downstream consumer (facts, outcomes, diagnostics, context
+    annotation) reads [ew_expr_ref]/the carried conversion refs directly and NEVER calls an optional [as_expr]
+    with a fail-open [None] branch nor remints a conversion's target/operand ref.  The work builder is the SINGLE
+    place that inspects a raw occurrence and decides expression-ness. *)
 Record ExprWork {p} (input : CompilationInput p) : Type := mkExprWork {
   ew_node_ref   : GoIndex.Snap.NodeRef p ;
   ew_occurrence : GoIndex.SourceOccurrence ;
@@ -2722,13 +2739,15 @@ Record ExprWork {p} (input : CompilationInput p) : Type := mkExprWork {
   ew_in_visit      : In (ew_node_ref, ew_occurrence) (ci_visit input) ;
   ew_view_exact    : GoIndex.view_expr ew_occurrence = Some ew_expr ;
   ew_as_expr_exact : GoIndex.as_expr (ci_idx input) ew_node_ref = Some ew_expr_ref ;
-  ew_erase_exact   : GoIndex.erase_ref ew_expr_ref = ew_node_ref
+  ew_erase_exact   : GoIndex.erase_ref ew_expr_ref = ew_node_ref ;
+  ew_conv          : ConvRefinement input ew_expr_ref ew_expr
 }.
-Arguments mkExprWork {p input} _ _ _ _ _ _ _ _.
+Arguments mkExprWork {p input} _ _ _ _ _ _ _ _ _.
 Arguments ew_node_ref {p input} _.  Arguments ew_occurrence {p input} _.
 Arguments ew_expr_ref {p input} _.  Arguments ew_expr {p input} _.
 Arguments ew_in_visit {p input} _.  Arguments ew_view_exact {p input} _.
 Arguments ew_as_expr_exact {p input} _.  Arguments ew_erase_exact {p input} _.
+Arguments ew_conv {p input} _.
 
 (* the work item's role, DERIVED from its exact ExprRef (not a stored duplicate). *)
 Definition ew_role {p} {input : CompilationInput p} (w : ExprWork input) : GoIndex.NodeRole :=
@@ -2737,6 +2756,30 @@ Definition ew_role {p} {input : CompilationInput p} (w : ExprWork input) : GoInd
 (* whole-visit membership transports to [prog_visit] membership through the retained coherence [ci_visit_ok]. *)
 Definition ci_in_prog {p} {input : CompilationInput p} {ro} (H : In ro (ci_visit input)) : In ro (prog_visit p) :=
   eq_ind (ci_visit input) (fun L => In ro L) H (prog_visit p) (ci_visit_ok input).
+
+(* §5/§2.4 build the conversion refinement for one work item ONCE, from the occurrence's own proofs: a leaf is
+   trivial; a conversion mints its target/operand refs via the index facts ([conversion_target_ref_conv] /
+   [conversion_operand_ref_conv]) — the SINGLE place these refs are computed, so no later semantic step remints. *)
+Definition build_ew_conv {p} (input : CompilationInput p) (nr : GoIndex.Snap.NodeRef p)
+    (occ : GoIndex.SourceOccurrence) (er : GoIndex.ExprRef p) (e : GoExpr)
+    (Hin : In (nr, occ) (ci_visit input)) (Hview : GoIndex.view_expr occ = Some e)
+    (Hae : GoIndex.as_expr (ci_idx input) nr = Some er) : ConvRefinement input er e.
+Proof.
+  destruct e as [ b|nn|n0|s|dd|dc| ts x ]; try exact tt.
+  (* the refs are DATA (options), matched directly; the [_conv] lemmas discharge the impossible [None] cases and
+     the source-recovery [Htsyn] in Prop (no Prop -> Type elimination). *)
+  destruct (conversion_target_ref (ci_idx input) er) as [tr|] eqn:Htr;
+    [ | exfalso; destruct (conversion_target_ref_conv (ci_idx input) nr occ er ts x (ci_in_prog Hin) Hview Hae)
+          as [tr0 [Htr0 _]]; rewrite Htr in Htr0; discriminate Htr0 ].
+  destruct (conversion_operand_ref (ci_idx input) er) as [opr|] eqn:Hopr;
+    [ | exfalso; destruct (conversion_operand_ref_conv (ci_idx input) nr occ er ts x (ci_in_prog Hin) Hview Hae)
+          as [opr0 [Hopr0 _]]; rewrite Hopr in Hopr0; discriminate Hopr0 ].
+  assert (Htsyn : GoIndex.type_name_ref_syntax tr = Some ts).
+  { destruct (conversion_target_ref_conv (ci_idx input) nr occ er ts x (ci_in_prog Hin) Hview Hae)
+      as [tr0 [Htr0 [_ [_ Hts0]]]].
+    rewrite Htr in Htr0. injection Htr0 as Htreq. subst tr0. exact Hts0. }
+  exact (existT _ tr (exist _ opr (conj Htr (conj Htsyn Hopr)))).
+Defined.
 
 (** ═══ §7 THE EXACT-DOMAIN LAW ═══ the proof-carrying outcome table's domain is EXACTLY the [ExprWork] key set:
     every work item has an entry (coverage from the carried cause), and every present key is some work item's key
@@ -2762,7 +2805,7 @@ Proof.
   intros Hk.
   destruct (eot_dom ot k Hk) as [r [occ [e [Hin [Hk0 Hv]]]]].
   destruct (prog_visit_expr_ref (ci_idx input) r occ e (ci_in_prog Hin) Hv) as [er [Hae Her]].
-  exists (mkExprWork r occ er e Hin Hv Hae Her). exact Hk0.
+  exists (mkExprWork r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae)). exact Hk0.
 Qed.
 
 (* the EXACT-DOMAIN biconditional: a key is in the outcome table IFF an [ExprWork] has that key. *)
@@ -2819,10 +2862,10 @@ Proof.
     destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
     + assert (Hinp : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
       destruct (prog_visit_expr_ref (ci_idx input) r occ e Hinp Hv) as [er [Hae Her]].
-      exists (mkExprWork r occ er e Hin Hv Hae Her :: wrest).
+      exists (mkExprWork r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae) :: wrest).
       intros B fw fo init Hagree Hskip.
       cbn [fold_right]. rewrite (Hrest B fw fo init Hagree Hskip).
-      rewrite (Hagree (mkExprWork r occ er e Hin Hv Hae Her) (fold_right fo init rest)).
+      rewrite (Hagree (mkExprWork r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae)) (fold_right fo init rest)).
       cbn [ew_node_ref ew_occurrence]. reflexivity.
     + exists wrest. intros B fw fo init Hagree Hskip.
       cbn [fold_right]. rewrite (Hrest B fw fo init Hagree Hskip).
@@ -3917,7 +3960,7 @@ Proof.
     destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
     + assert (Hinp : In (r, occ) (prog_visit p)) by (rewrite <- (ci_visit_ok input); exact Hin).
       destruct (prog_visit_expr_ref (ci_idx input) r occ e Hinp Hv) as [er [Hae Her]].
-      pose (w := mkExprWork (input:=input) r occ er e Hin Hv Hae Her).
+      pose (w := mkExprWork (input:=input) r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae)).
       pose (stack' := if is_conversion_occ occ
                       then (er, GoIndex.Snap.node_subtree_end (ci_idx input) r) :: open
                       else open).
