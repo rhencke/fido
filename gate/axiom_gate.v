@@ -289,8 +289,10 @@ Print Assumptions GoCompile.prog_expr_facts_eq_spec.
    ([total_forest_outcome_at_matches]); the resolved-target query is the table's stored fact
    ([type_name_fact_at_table_resolves]); and a stored conversion FAILURE's cause is read DIRECTLY off the
    retained forest table, keyed by the WORK member — its refs are the work's own carried refs, the target type is
-   the sealed table's stored fact, the operand's own outcome is a success whose status IS the reported one, and
-   [convert_const] genuinely rejects ([phase_convfail_cause]). *)
+   the sealed table's stored fact, the operand's outcome is read THROUGH the exact operand [SuffixMember]
+   ([oa_total acc_rest]) as a success whose status IS the reported one, and [convert_const] genuinely rejects
+   ([total_forest_outcome_cause] retaining the member/suffix-indexed [StepCause], inverted by
+   [StepCause_convfail_inv]). *)
 Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
@@ -300,7 +302,6 @@ Print Assumptions GoCompile.ewf_reverse.
 Print Assumptions GoCompile.ewf_forward.
 Print Assumptions GoCompile.ewf_keys_nodup.
 Print Assumptions GoCompile.ewf_operand_in_tail.
-Print Assumptions GoCompile.total_forest_outcome_at_matches.
 (* §6/§2.9 (REPAIR 8) the forest outcome table CARRIES the RETAINED member/suffix-indexed cause:
    [total_forest_outcome_cause] returns, for each member, its exact insertion [FinalMemberCause] — the exact suffix
    split [ewf_items = prefix ++ current :: rest], the exact prior [OutcomeAccumulator] for [rest], and the exact
