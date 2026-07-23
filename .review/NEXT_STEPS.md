@@ -19,10 +19,13 @@
 - **Third blocked C4 candidate:** `806ce87373e29b6980e5c3d9d274ffa86580449b`.
 - **Fourth blocked C4 candidate:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
 - **Fifth blocked C4 candidate:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
-- **Sixth blocked C4 candidate / current repair baseline:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
+- **Sixth blocked C4 candidate / repair-6 baseline:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
+- **Seventh C4 candidate (repair 6 APPLIED, frozen):** the `review(final): C4 — freeze single retained
+  work-domain candidate` commit at repository HEAD (repair-6 implementation range `3b4f40e..HEAD`).
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_6.md`.
 - **Human repair authorization token:** `C4-single-retained-work-domain-repair-6`.
-- **State:** C4 Implementation Review BLOCKING; single retained work-domain repair 6 active.
+- **State:** C4 single retained work-domain repair 6 APPLIED and frozen; **pending Rob's HUMAN Implementation
+  Review**. `make check` + `make regenerate` no-drift + staged pre-commit hook GREEN; gate 428/428 axiom-free.
 - **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition (the corrected linux/amd64/
   Go-1.23 decision is defensible and ready for human acceptance, subject to its automatic C5 reopening rule).
   **ADR-0002 is REJECTED AS WRITTEN — open decision; no numeric implementation change authorized** (per §12/§13.2).

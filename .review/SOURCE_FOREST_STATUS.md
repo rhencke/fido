@@ -54,6 +54,43 @@ expression laws, built once from the retained input) that the outcome fold, the 
 forest, facts, and diagnostics all consume — retained in ONE intrinsic `ExpressionPhase` with dependent provenance
 so a foreign component is unrepresentable.
 
+### Repair 6 APPLIED — frozen for human Implementation Review
+
+The single retained work-domain repair is applied and frozen. **Seventh C4 candidate: the `review(final): C4 —
+freeze single retained work-domain candidate` commit carrying this file** (repair-6 implementation range
+`3b4f40e..HEAD`; sixth blocked candidate `3b4f40e`). Status: **pending Rob's HUMAN Implementation Review**;
+automatic Codex is DISABLED (not requested/run); ADR-0001 PROPOSED; ADR-0002 REJECTED AS WRITTEN (rewritten,
+open); C5 and every later checkpoint remain FORBIDDEN. GREEN: `make check` (pinned-Rocq prove — gate 428/428
+axiom-free + whole-theory audit + self-tests A–E — pinned-Go e2e, and the working-tree generated-byte compare),
+`make regenerate` no-drift, and the staged pre-commit hook.
+
+The defect is closed: work discovery no longer happens in three places. There is ONE retained work forest
+`prog_forest` (built once from the retained `CompilationInput`), and the outcome fold, the outcome table, the
+facts, the annotation, and the diagnostics ALL consume it; the whole flow is retained in ONE intrinsic
+`ExpressionPhase` whose components are each tied by a dependent provenance field to the canonical build, so a
+foreign component is unrepresentable. The raw/second-discovery roots are DELETED.
+
+**§2.18 completed behavioral evidence table** — production symbol · behavioral condition · load-bearing theorem ·
+deleted old path · production-object fixture:
+
+| Production symbol | Behavioral condition | Theorem(s) | Deleted old path | Fixture |
+|---|---|---|---|---|
+| `build_compilation_input` | ONE traversal — blocks computed once, visit = `concat blocks` | `ci_visit_of_concat`, `ci_blocks`/`ci_visit` by construction (`eq_refl`) | the 2nd `prog_blocks p` term | — |
+| `prog_forest` (the ONE work forest) | one item per live expression; forward + reverse domain; key-NoDup; conversion operand in processed suffix | `prog_forest_filter`, `prog_forest_complete`, `prog_forest_sound`, `prog_forest_nodup`, `prog_forest_operand_in_tail` | `prog_work`, `build_work_sig`, `prog_work_fold` | `deep_nested_work_count` (=5) |
+| `ExprWork.ew_conv : ConvRefinement` | conversion work carries its target/operand refs + source recovery in the DATA | `build_ew_conv` (dependent field) | reminted refs inside `build_outcomes` | — |
+| `build_outcomes_forest` / `ForestOutcomeTable` | outcomes fold the retained forest; the DIRECT cause is indexed by the work item | `total_forest_outcome_at_caused`, `total_forest_outcome_at_matches`, `outcomes_caused_matches` | `build_outcomes` (raw), `build_outcome_table`, `total_outcome_at` | `deep_fail_innermost_convfail` |
+| `fot_domain_iff_forest` / `fot_nonexpr_absent` | domain = membership in the retained enumeration `prog_forest` (not `∃ w`); no foreign / wrong-kind key | `fot_domain_iff_forest`, `fot_at_not_none`, `fot_nonexpr_absent` | `eot_domain_iff_work` (the `∃ w : ExprWork` form) | `phase_domain_exact` |
+| `phase_convfail_cause` / `phase_convok_cause` / `phase_childfail_cause` | a stored `EOConvFail`/`EOChildFail`/`EOOk` cause is read off the forest table by work item; operand's own EOOk fact | the three cause theorems (keyed by `ExprWork`) | the same, keyed by raw `r`/`occ` over `ExprOutcomeTable` | `deep_fail_innermost_convfail`, `deep_fail_outer_childfail` |
+| `forest_facts` | fact projection folds the retained forest; EQUALS the source spec | `forest_facts_eq_spec` | `phase_expr_facts`, `work_fact`, `build_expr_fact_table` | `deep_nested_all_ok` |
+| `prog_forest_awork` / `forest_awork_diags` / `forest_diags` | diagnostics fold the retained annotated forest; EQUALS the source spec | `forest_awork_diags_eq`, `forest_diags_eq_spec` | `build_awork`, `build_awork_blocks`, `awork_diags`, `phase_expr_diags`, `ci_concat_blocks_sub` | `deep_fail_exactly_one_diag` (len 1) |
+| `ExpressionPhase` (`ep_work`/`ep_tnft`/`ep_ot`/`ep_eft`/`ep_awork`/`ep_diags` + `ep_*_prov`) | retains the whole flow; `ep_facts = eft_map ep_eft`; a foreign component is unrepresentable | `facts_and_diags_share_phase`, `ep_diags_eq_expr_diags`, the provenance fields | the `ep_tnft`-only phase; `ep_facts` recomputation | `deep_nested_all_ok`, `deep_nested_work_count` |
+| `elaborate` seals `ep_tnft`/`ep_eft` | object identity — the sealed tables ARE the phase's retained objects | `elaborate_ok_seals_tnfacts`, `elaborate_ok_seals_facts`, `elaborate_ok_seals_tnfacts_from_input` | — | `two_uint8_distinct_target_refs` |
+
+Residue evidence: `grep` of every deleted name (`build_outcomes`/`ExprOutcomeTable`/`total_outcome_at`/`eot_*`/
+`build_work_sig`/`prog_work`/`prog_work_fold`/`phase_expr_facts`/`phase_expr_diags`/`awork_diags`/`build_awork`/
+`build_outcome_table`) in `GoCompile.v` code = 0; the readable Print-Assumptions gate is 428/428 closed and the
+whole-certified-theory `Fido Audit Assumptions` confirms zero project assumptions.
+
 **Repair-6 blocking classes (§2 of the repair-6 directive):** 2.1 CompilationInput computes the visit from a
 SECOND `prog_blocks` call (two independent `prog_blocks p` terms); 2.2 three independent work builders, not one;
 2.3 outcomes fold raw `NodeRef*SourceOccurrence`, not `ExprWork`; 2.4 no retained conversion-work refinement
