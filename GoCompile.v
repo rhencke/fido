@@ -9859,20 +9859,44 @@ Proof.
   rewrite Hexpr, map_length in H. rewrite H. vm_compute. reflexivity.
 Qed.
 
-(* §12.1 — deep_nested: EACH conversion (int64/int32/int16/int8) and the leaf int resolve EOOk on the production
-   table (no fail-open anywhere in the valid tree). *)
+(* §12.1 — deep_nested: EVERY conversion of the chain (int64@5, int32@7, int16@9, int8@11) AND the leaf int@13
+   resolve EOOk on the production table — all five retained work items, no fail-open anywhere in the valid tree. *)
 Theorem deep_nested_all_ok :
   let input := build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program) in
   let ot := ep_ot (build_expression_phase input) in
-  (exists (w : ExprWork input) f, ew_expr w = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)
+  (exists (w : ExprWork input) f,
+     ew_expr w = EConvert (GoAST.tsyn GoNames.TNint64)
+                   (EConvert (GoAST.tsyn GoNames.TNint32)
+                     (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))))
      /\ total_forest_outcome_at ot w = EOOk f)
-  /\ (exists (w : ExprWork input) f, ew_expr w = EInt 5 /\ total_forest_outcome_at ot w = EOOk f)
+  /\ (exists (w : ExprWork input) f,
+        ew_expr w = EConvert (GoAST.tsyn GoNames.TNint32)
+                      (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))
+        /\ total_forest_outcome_at ot w = EOOk f)
   /\ (exists (w : ExprWork input) f,
         ew_expr w = EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))
-        /\ total_forest_outcome_at ot w = EOOk f).
+        /\ total_forest_outcome_at ot w = EOOk f)
+  /\ (exists (w : ExprWork input) f, ew_expr w = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)
+        /\ total_forest_outcome_at ot w = EOOk f)
+  /\ (exists (w : ExprWork input) f, ew_expr w = EInt 5 /\ total_forest_outcome_at ot w = EOOk f).
 Proof.
   cbn zeta.
-  split; [ | split ].
+  split; [ | split; [ | split; [ | split ] ] ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 5 (EConvert (GoAST.tsyn GoNames.TNint64)
+             (EConvert (GoAST.tsyn GoNames.TNint32)
+               (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 7 (EConvert (GoAST.tsyn GoNames.TNint32)
+             (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_ok_at 9 (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (GoIndex.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
     apply (deep_nested_ok_at 11 (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
@@ -9881,10 +9905,19 @@ Proof.
     apply (deep_nested_ok_at 13 (EInt 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-  - destruct (GoIndex.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 9 (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))) occ Eo);
-      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
-      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+Qed.
+
+(* §12.1 — the valid deep chain ELABORATES successfully and the sealed ExprFactTable IS the phase's retained
+   [ep_eft] object (object identity, not a rebuilt map) — the success-projection seal on a concrete program. *)
+Theorem deep_nested_seals_eft :
+  exists facts,
+    pe_result (elaborate deep_nested_program) = ElaborationOK facts
+    /\ ef_expr_facts facts
+       = ep_eft (build_expression_phase
+                   (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))).
+Proof.
+  destruct (proj2 (elaborate_ok_iff_GoCompile deep_nested_program) deep_nested_compiles) as [facts Hfacts].
+  exists facts. split; [ exact Hfacts | exact (elaborate_ok_seals_facts deep_nested_program facts Hfacts) ].
 Qed.
 
 (* §12.1 — the retained work forest of the deep_nested phase has EXACTLY 5 items (4 conversions + 1 leaf). *)

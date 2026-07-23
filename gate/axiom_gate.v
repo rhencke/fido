@@ -406,6 +406,7 @@ Print Assumptions GoCompile.deep_fail_innermost_convfail.
 Print Assumptions GoCompile.deep_fail_outer_childfail.
 Print Assumptions GoCompile.deep_fail_exactly_one_diag.
 Print Assumptions GoCompile.deep_nested_all_ok.
+Print Assumptions GoCompile.deep_nested_seals_eft.
 Print Assumptions GoCompile.deep_nested_work_count.
 Print Assumptions GoCompile.phase_domain_exact.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
