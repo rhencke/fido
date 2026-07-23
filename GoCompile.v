@@ -4435,6 +4435,91 @@ Lemma ci_concat_blocks_sub {p} (input : CompilationInput p) :
   forall ro, In ro (concat (ci_blocks input)) -> In ro (ci_visit input).
 Proof. intros ro H. rewrite (ci_visit_blocks input). exact H. Qed.
 
+(** ═══ §8/§2.11 THE RETAINED-WORK ANNOTATION ═══ annotate the RETAINED forest items with their enclosing-
+    conversion context by a ZIP fold: fold the raw block (matching [annotate_encl]'s pop/push over ALL
+    occurrences) while CONSUMING the retained forest items as a cursor — at an expression the head retained item
+    is used (its OWN [ew_expr_ref] pushed for a conversion, NO remint), at a non-expression the item stream is
+    untouched.  The carried property ties the annotation to [annotate_encl] over the raw block (like the raw
+    build, but with the ONE retained forest's items), so the diagnostic projection consumes the retained work. *)
+Definition build_forest_awork {p} (input : CompilationInput p) :
+  forall (l : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))
+         (fitems : list (ExprWork input)) (stack : list (GoIndex.ExprRef p * positive)),
+    map (fun w => (ew_node_ref w, ew_occurrence w)) fitems = filter occ_is_expr l ->
+    { aw : list (ExprWork input * list (GoIndex.ExprRef p)) |
+        forall (X : Type) (d : (ExprWork input * list (GoIndex.ExprRef p)) -> list X)
+               (dr : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> list (GoIndex.ExprRef p) -> list X),
+          (forall w c, d (w, c) = dr (ew_node_ref w, ew_occurrence w) c) ->
+          (forall ro c, In ro l -> GoIndex.view_expr (snd ro) = None -> dr ro c = []) ->
+          flat_map d aw
+          = flat_map (fun rc => dr (fst rc) (snd rc)) (annotate_encl (ci_idx input) stack l) }.
+Proof.
+  induction l as [| [r occ] rest IH]; intros fitems stack Hfil.
+  - exists nil. intros X d dr Hagree Hempty. reflexivity.
+  - pose (open := estack_open (ci_idx input) (r, occ) stack).
+    destruct (GoIndex.view_expr occ) as [e|] eqn:Hv.
+    + destruct fitems as [| w frest].
+      * exfalso. cbn [filter] in Hfil. rewrite (occ_is_expr_true r occ e Hv) in Hfil. discriminate Hfil.
+      * cbn [map filter] in Hfil. rewrite (occ_is_expr_true r occ e Hv) in Hfil.
+        injection Hfil as Hnr Hocc Hfrest.
+        assert (Hae : GoIndex.as_expr (ci_idx input) r = Some (ew_expr_ref w))
+          by (rewrite <- Hnr; exact (ew_as_expr_exact w)).
+        pose (stack' := if is_conversion_occ occ
+                        then (ew_expr_ref w, GoIndex.Snap.node_subtree_end (ci_idx input) r) :: open
+                        else open).
+        destruct (IH frest stack' Hfrest) as [awrest Hrest].
+        exists ((w, map fst open) :: awrest).
+        intros X d dr Hagree Hempty.
+        rewrite (annotate_encl_cons (ci_idx input) stack (r, occ) rest).
+        cbn [fst snd]. rewrite Hae. cbn [flat_map fst snd].
+        rewrite (Hagree w (map fst open)), Hnr, Hocc.
+        rewrite (Hrest X d dr Hagree (fun ro' c Hin' Hv' => Hempty ro' c (or_intror Hin') Hv')).
+        reflexivity.
+    + destruct (IH fitems open
+                  (ltac:(cbn [filter] in Hfil; rewrite (occ_is_expr_false r occ Hv) in Hfil; exact Hfil)))
+        as [awrest Hrest].
+      exists awrest.
+      intros X d dr Hagree Hempty.
+      rewrite (annotate_encl_cons (ci_idx input) stack (r, occ) rest).
+      cbn [fst snd].
+      assert (Hnc : is_conversion_occ occ = false) by (unfold is_conversion_occ; rewrite Hv; reflexivity).
+      cbn [flat_map fst snd].
+      rewrite (Hempty (r, occ) (map fst (estack_open (ci_idx input) (r, occ) stack)) (or_introl eq_refl) Hv).
+      cbn [app].
+      destruct (GoIndex.as_expr (ci_idx input) r) as [er0|] eqn:Hae0;
+        [ rewrite Hnc | ];
+        exact (Hrest X d dr Hagree (fun ro' c Hin' Hv' => Hempty ro' c (or_intror Hin') Hv')).
+Defined.
+
+(* fold the retained-work annotation over the per-block forest (stack reset per block), carrying the same
+   equivalence to the block-wise [annotate_encl]; consumes the RETAINED [prog_forest_blocks]. *)
+Definition build_forest_awork_blocks {p} (input : CompilationInput p) :
+  forall (blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)))
+         (fbs : list (list (ExprWork input))),
+    map (map (fun w => (ew_node_ref w, ew_occurrence w))) fbs = map (filter occ_is_expr) blocks ->
+    { aw : list (ExprWork input * list (GoIndex.ExprRef p)) |
+        forall (X : Type) (d : (ExprWork input * list (GoIndex.ExprRef p)) -> list X)
+               (dr : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> list (GoIndex.ExprRef p) -> list X),
+          (forall w c, d (w, c) = dr (ew_node_ref w, ew_occurrence w) c) ->
+          (forall ro c, In ro (concat blocks) -> GoIndex.view_expr (snd ro) = None -> dr ro c = []) ->
+          flat_map d aw
+          = flat_map (fun rc => dr (fst rc) (snd rc)) (flat_map (annotate_encl (ci_idx input) []) blocks) }.
+Proof.
+  induction blocks as [| blk rest IH]; intros fbs Hfil.
+  - exists nil. intros X d dr Hagree Hempty. reflexivity.
+  - destruct fbs as [| fblk fbrest]; [cbn [map] in Hfil; discriminate Hfil |].
+    cbn [map] in Hfil. injection Hfil as Hblk Hrestfil.
+    destruct (build_forest_awork input blk fblk [] Hblk) as [awblk Hblkeq].
+    destruct (IH fbrest Hrestfil) as [awrest Hrest].
+    exists (awblk ++ awrest).
+    intros X d dr Hagree Hempty.
+    cbn [flat_map]. rewrite flat_map_app, flat_map_app.
+    rewrite (Hblkeq X d dr Hagree
+               (fun ro c Hin Hv => Hempty ro c (in_or_app blk (concat rest) ro (or_introl Hin)) Hv)).
+    rewrite (Hrest X d dr Hagree
+               (fun ro c Hin Hv => Hempty ro c (in_or_app blk (concat rest) ro (or_intror Hin)) Hv)).
+    reflexivity.
+Defined.
+
 Definition phase_expr_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ExprOutcomeTable input tnft) : list (DiagnosticReason p) :=
   flat_map (awork_diags input tnft ot)
