@@ -2951,6 +2951,29 @@ Proof.
   rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
 Qed.
 
+(* filtering preserves the NoDup of a projection [map g]. *)
+Lemma nodup_map_filter {A B} (g : A -> B) (f : A -> bool) (L : list A) :
+  NoDup (map g L) -> NoDup (map g (filter f L)).
+Proof.
+  induction L as [|a L IH]; [cbn; intro; constructor|].
+  cbn [map]. intro H. apply NoDup_cons_iff in H. destruct H as [Hni Hnd].
+  cbn [filter]. destruct (f a) eqn:Ef.
+  - cbn [map]. apply NoDup_cons_iff. split; [| exact (IH Hnd)].
+    intro Hin. apply Hni. apply in_map_iff in Hin. destruct Hin as [a' [Hg Ha']].
+    apply filter_In in Ha'. apply in_map_iff. exists a'. split; [exact Hg | exact (proj1 Ha')].
+  - exact (IH Hnd).
+Qed.
+
+(* the retained forest's item KEYS are NoDup (the unique-key law over [map node_ref_key ew_node_ref]). *)
+Lemma prog_forest_nodup {p} (input : CompilationInput p) :
+  NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (prog_forest input)).
+Proof.
+  replace (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (prog_forest input))
+    with (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (filter occ_is_expr (ci_visit input)))
+    by (rewrite <- prog_forest_filter, map_map; reflexivity).
+  apply nodup_map_filter. rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
+Qed.
+
 (* splitting the retained forest at a work item induces the matching split of the retained visit at that item's
    occurrence: the forest tail's pair-projection is the visit tail filtered to expressions.  The load-bearing
    ORDER correspondence (the forest is visit-ordered), proven by the unique split at the NoDup pair. *)
@@ -3005,6 +3028,78 @@ Proof.
   rewrite <- Hirest_eq in Hinf. apply in_map_iff in Hinf. destruct Hinf as [w' [Hpair Hinw']].
   injection Hpair as Hnr' Hocc'. exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hkey'].
 Qed.
+
+(** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of [prog_forest] (the
+    ONE retained work order) into the outcome map, CARRYING the direct cause + exact domain over the item
+    pair-projection.  Every item is an expression (no skip case).  A leaf stores its [OCLeaf] cause; a CONVERSION
+    reads its CARRIED refs from [ew_conv] (NEVER reminting [conversion_target_ref[_tot]]/[_operand_]) and reads its
+    operand's ALREADY-COMPUTED outcome from the processed forest tail (the operand item is in the tail by
+    [prog_forest_operand_in_tail]; its outcome is covered by [outcomes_caused_covers]).  ONE [convert_const]. *)
+Definition build_outcomes_forest {p} (input : CompilationInput p) (tnft : TypeNameFactTable p) :
+  forall (items : list (ExprWork input)),
+    (exists ipre, prog_forest input = ipre ++ items) ->
+    { m : GoIndex.NodeKeyMapBase.t (ExprOutcome p)
+      | outcomes_caused (ci_idx input) tnft (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) items) m
+        /\ outcome_dom_exact (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) items) m }.
+Proof.
+  induction items as [| w rest IH]; intro Hsuf.
+  - exists (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)). split.
+    + intros r0 occ0 e0 Hin0 _. destruct Hin0.
+    + apply outcome_dom_exact_empty.
+  - assert (Hsuf_rest : exists ipre, prog_forest input = ipre ++ rest).
+    { destruct Hsuf as [ipre Hpre]. exists (ipre ++ [w]). rewrite <- app_assoc. exact Hpre. }
+    destruct (IH Hsuf_rest) as [m_rest [Hcaused_rest Hdom_rest]].
+    cbn [map].
+    pose proof (ew_view_exact w) as Hv.
+    pose proof (ew_as_expr_exact w) as Hae.
+    pose proof (ew_erase_exact w) as Her.
+    pose proof (ew_conv w) as Hcv.
+    (* freshness of this item's key over the processed forest tail (from the forest's key-NoDup + the split) *)
+    assert (Hnd : ~ In (GoIndex.Snap.node_ref_key (ew_node_ref w))
+                    (map (fun ro => GoIndex.Snap.node_ref_key (fst ro))
+                       (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) rest))).
+    { destruct Hsuf as [ipre Hpre]. pose proof (prog_forest_nodup input) as Hnd0.
+      rewrite Hpre, map_app in Hnd0. cbn [map] in Hnd0. apply NoDup_remove_2 in Hnd0.
+      rewrite map_map. cbn [fst]. intro Hbad. apply Hnd0. apply in_or_app; right; exact Hbad. }
+    destruct (ew_expr w) as [ b|nn|n0|s|dd|dc| ts x ] eqn:He.
+    (* six leaf occurrences *)
+    1-6: eexists; split;
+         [ eapply outcomes_caused_add;
+             [ exact Hcaused_rest | exact Hdom_rest | exact Hnd | exact Hv
+             | eapply leaf_outcome_cause; [exact Hae | exact Her | exact Hv | reflexivity | reflexivity ] ]
+         | eapply outcome_dom_exact_add; [ exact Hv | exact Hdom_rest ] ].
+    (* the conversion item: read carried refs from [ew_conv]; operand outcome from the processed tail *)
+    cbn [ConvRefinement] in Hcv. destruct Hcv as [tr [opr [Htr_ref [Htsyn Hopr_ref]]]].
+    (* the operand witness is destructed INSIDE the Prop asserts (never eliminating the Prop [ex] into the [sig]
+       Type goal): [Hpres] (operand outcome present) and [Hne_opr] (operand key distinct from this item's key). *)
+    assert (Hpres : GoIndex.NodeKeyMapBase.find (operand_key (ew_node_ref w)) m_rest <> None).
+    { destruct Hsuf as [ipre Hpre].
+      destruct (prog_forest_operand_in_tail input ipre w rest ts x Hpre Hv) as [w' [Hinw' Hkeyw']].
+      rewrite <- Hkeyw'.
+      exact (outcomes_caused_covers (ci_idx input) tnft
+               (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) rest) m_rest Hcaused_rest
+               (ew_node_ref w') (ew_occurrence w') (ew_expr w')
+               (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) rest w' Hinw') (ew_view_exact w')). }
+    assert (Hne_opr : operand_key (ew_node_ref w) <> GoIndex.Snap.node_ref_key (ew_node_ref w)).
+    { destruct Hsuf as [ipre Hpre].
+      destruct (prog_forest_operand_in_tail input ipre w rest ts x Hpre Hv) as [w' [Hinw' Hkeyw']].
+      intro Hbad. apply Hnd. rewrite <- Hbad, <- Hkeyw'.
+      apply in_map_iff. exists (ew_node_ref w', ew_occurrence w'). split; [reflexivity |].
+      apply in_map_iff. exists w'. split; [reflexivity | exact Hinw']. }
+    exists (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w))
+              (conv_outcome tnft (ew_expr_ref w) tr opr
+                 (from_some (GoIndex.NodeKeyMapBase.find (operand_key (ew_node_ref w)) m_rest) Hpres)) m_rest).
+    split.
+    + eapply outcomes_caused_add; [ exact Hcaused_rest | exact Hdom_rest | exact Hnd | exact Hv | ].
+      eapply conv_outcome_cause; [ exact Hae | exact Her | exact Hv | exact Htr_ref | exact Hopr_ref | ].
+      assert (Hkopr : GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr) = operand_key (ew_node_ref w)).
+      { destruct (conversion_operand_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                    (ci_in_prog (ew_in_visit w)) Hv Hae) as [opr0 [Hopr0 [Hk0 _]]].
+        rewrite Hopr_ref in Hopr0. injection Hopr0 as Hopreq. subst opr0. exact Hk0. }
+      rewrite Hkopr. rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Hne_opr; symmetry; exact Hbad).
+      exact (from_some_some _ Hpres).
+    + eapply outcome_dom_exact_add; [ exact Hv | exact Hdom_rest ].
+Defined.
 
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
