@@ -1,27 +1,23 @@
 # NEXT_STEPS — active authority pointer
 
-- **STATUS (repair 7 COMPLETE — pending Rob's HUMAN Implementation Review):** the C4 exact retained work-object
-  repair-7 candidate is COMPLETE and FROZEN at this freeze commit (`review(final): C4 — freeze exact retained
-  work-object candidate`). Original C4 baseline `8c9212a`; seven blocked candidates ending at `3a92d22`
-  (repair-7 baseline); full human review range `8c9212a..<this freeze commit>`; full repair range
-  `89b8e54..<this freeze commit>`; repair-7 range `3a92d22..<this freeze commit>`. Human C4 Implementation Review
-  PENDING; ADR-0001 PROPOSED; ADR-0002 REJECTED AS WRITTEN / OPEN; automatic Codex review DISABLED (do NOT
-  request/run Codex); C5 and every later checkpoint FORBIDDEN. Verification GREEN: `make prove` (readable gate
-  443/443 axiom-free + whole-theory audit + self-tests A–E), `make e2e`, `make check` (working-tree generated
-  byte-compare — no drift), `make regenerate` (no drift), `make regen-guard`, and the staged pre-commit hook.
-- **The repair-7 task (now delivered):** replaced the remaining canonical-recomputation
-  root: `prog_forest`/`prog_forest_blocks`/`prog_forest_awork` were pure canonical FUNCTIONS re-evaluated by every
-  phase builder from `input` (each `proj1_sig` of a sigma whose proof is discarded and re-recovered later via a
-  separate `proj2_sig`); `ep_work` is stored but consumed by nothing. Build ONE proof-carrying `ExprWorkForest`
-  object (stored `ewf_blocks`/`ewf_items` + `= concat` + exact fwd/rev domain + key-NoDup + per-file/flat order +
-  operand-in-suffix), a `WorkMember` membership handle, and a `ConversionWork` view carrying the exact operand
-  `WorkMember` + suffix proof; index the outcome table by the FOREST OBJECT (`ForestOutcomeTable forest tnft`),
-  do the live operand lookup by member/ref (NOT raw `operand_key`, no `conversion_*_ref` in the semantic step),
-  retain an `AnnotatedExprWorkForest`, forest/ot-indexed facts + diagnostics, and make `ExpressionPhase` a
-  DEPENDENT CHAIN (`ep_ot : ForestOutcomeTable ep_work ep_tnft`, …) with NO provenance-equality fields. Update the
-  deep fixtures to query retained `WorkMember`s from `ep_work`. PLUS §13: correct the scope-ledger wording so
-  `GoCompile == go build` reads as an EXTERNAL adequacy target (kernel-proved internal judgment soundness/
-  completeness vs. differential evidence against pinned `cmd/go`), not an "EXACT" property (SR-001/SR-002).
+- **Active checkpoint:** C4 **member-indexed causal outcome repair 8**. Repair 7 closed the broad
+  retained-object-flow defects (KEEP them). The ONE remaining defect is narrow and load-bearing: the final table
+  carries the OLD raw-map `OutcomeCause`, not a cause indexed by the exact conversion `WorkMember`, processed
+  suffix, exact operand `WorkMember`, and exact suffix accumulator. `build_outcomes_forest` proves an operand
+  exists in the processed tail, then DISCARDS that member and does a raw map `find` by the operand `ExprRef`
+  key; `phase_*_work_cause` rebuild `ConversionWork` and translate the raw cause afterward — reconstruction, not
+  a projection of a cause the fold retained. REQUIRED (repair-8 directive §3–§7): a `SuffixMember forest items`
+  handle + a total `ConversionStep forest current rest ts x` (carrying `cs_conversion : ConversionWork` +
+  `cs_operand_suffix : SuffixMember forest rest` + `cs_operand_exact`); a proof-carrying `OutcomeAccumulator`/
+  `OutcomeTrace` indexed by the exact suffix (`oa_total : forall sm : SuffixMember forest items, ExprOutcome`,
+  member/suffix-indexed `oa_causes`) whose conversion cons-step consumes ONE `ConversionStep` and queries the
+  REST accumulator THROUGH `cs_operand_suffix` (NO raw `find`, NO `from_some` on a raw lookup, NO `operand_key`
+  live, NO re-run of `ewf_operand_in_tail`, NO `conversion_*_ref` calls, NO post-hoc `ConversionWork`); a
+  member/suffix-indexed direct cause (delete/replace the raw `OutcomeCause`); `ForestOutcomeTable` retaining the
+  exact insertion cause with a `total_forest_outcome_cause` returning a `FinalMemberCause` carrying the exact
+  `ewf_items = prefix ++ current :: rest` split + the suffix accumulator/step cause. KEEP the phase chain,
+  objects, domains, sealing, alias/render/byte results, and scope-ledger wording. Reprove the projections.
+  **Post-C4 trim: FORBIDDEN until C4 is accepted.**
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
@@ -32,15 +28,16 @@
 - **Fourth blocked C4 candidate:** `af2fc87e7726a4fc68bb9480c53cf64faa83717b`.
 - **Fifth blocked C4 candidate:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
 - **Sixth blocked C4 candidate:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
-- **Seventh blocked C4 candidate / repair-7 baseline:** `3a92d22820705f55093c0e2b3ff18a0f8ad7f4dc`.
-  (A superseding freeze `c23a7c9` — a repair-6 post-freeze completeness fix — sits on top of `3a92d22` and carries
-  the identical architectural defect; repair 7 proceeds from current HEAD forward, no history rewrite, and the
-  repair-7 range is measured `3a92d22..final` per the directive.)
-- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_7.md`.
-- **Human repair authorization token:** `C4-exact-retained-work-object-repair-7`.
-- **State:** C4 Implementation Review BLOCKING; exact retained work-object repair 7 active.
+- **Seventh blocked C4 candidate:** `3a92d22820705f55093c0e2b3ff18a0f8ad7f4dc`.
+- **Eighth blocked C4 candidate / repair-8 baseline:** `91e8dbbcd24fc7df678e6b3d68eabb13b686efa1`
+  (the repair-7 freeze; eighth BLOCKING — the final table's causal outcome is still the raw-map cause).
+- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_8.md`.
+- **Human repair authorization token:** `C4-member-indexed-causal-outcome-repair-8`.
+- **State:** C4 Implementation Review BLOCKING; member-indexed causal outcome repair 8 active.
 - **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition. **ADR-0002 is REJECTED AS
   WRITTEN / OPEN — no numeric implementation change authorized.** SR-009 = UNRESOLVED EXISTING RESTRICTION. Every
   PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.
 - **Automatic Codex review:** DISABLED (do NOT request or run a Codex review).
 - **C5 is FORBIDDEN** until explicit Rob authorization.
+- **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted (a separate ruthless trim checkpoint
+  follows human C4 acceptance).
