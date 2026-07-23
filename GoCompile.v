@@ -2915,11 +2915,45 @@ Proof.
       cbn [filter]. rewrite (occ_is_expr_false r occ Hv). exact Hrest.
 Defined.
 
+Lemma map_concat_eq {A B} (f : A -> B) (ls : list (list A)) :
+  map f (concat ls) = concat (map (map f) ls).
+Proof. induction ls as [|a ls IH]; [reflexivity | cbn [concat map]; rewrite map_app, IH; reflexivity]. Qed.
+Lemma filter_concat_eq {A} (g : A -> bool) (ls : list (list A)) :
+  filter g (concat ls) = concat (map (filter g) ls).
+Proof. induction ls as [|a ls IH]; [reflexivity | cbn [concat map]; rewrite filter_app, IH; reflexivity]. Qed.
+
+(* whole-program block membership: every occurrence of a block is in the retained visit. *)
+Definition ci_visit_of_concat {p} (input : CompilationInput p) ro
+    (H : In ro (concat (ci_blocks input))) : In ro (ci_visit input) :=
+  eq_ind_r (fun L => In ro L) H (ci_visit_blocks input).
+
+(* the PER-BLOCK forest (§4 [ewf_blocks]): the exact expression-work items of each retained block, built ONCE. *)
+Definition build_forest_blocks {p} (input : CompilationInput p) :
+  forall (blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence))),
+    (forall ro, In ro (concat blocks) -> In ro (ci_visit input)) ->
+    { bs : list (list (ExprWork input)) |
+        map (map (fun w => (ew_node_ref w, ew_occurrence w))) bs = map (filter occ_is_expr) blocks }.
+Proof.
+  induction blocks as [| blk rest IH]; intro Hsub.
+  - exists nil. reflexivity.
+  - destruct (build_forest_sig input blk
+                (fun ro H => Hsub ro (in_or_app blk (concat rest) ro (or_introl H)))) as [items Hitems].
+    destruct (IH (fun ro H => Hsub ro (in_or_app blk (concat rest) ro (or_intror H)))) as [bsrest Hrest].
+    exists (items :: bsrest). cbn [map]. rewrite Hitems, Hrest. reflexivity.
+Defined.
+
+Definition prog_forest_blocks {p} (input : CompilationInput p) : list (list (ExprWork input)) :=
+  proj1_sig (build_forest_blocks input (ci_blocks input) (ci_visit_of_concat input)).
+(* the ONE retained work forest = the per-block items flattened ([ewf_items = concat ewf_blocks], §4). *)
 Definition prog_forest {p} (input : CompilationInput p) : list (ExprWork input) :=
-  proj1_sig (build_forest_sig input (ci_visit input) (fun ro H => H)).
-Definition prog_forest_filter {p} (input : CompilationInput p) :
-  map (fun w => (ew_node_ref w, ew_occurrence w)) (prog_forest input) = filter occ_is_expr (ci_visit input) :=
-  proj2_sig (build_forest_sig input (ci_visit input) (fun ro H => H)).
+  concat (prog_forest_blocks input).
+Lemma prog_forest_filter {p} (input : CompilationInput p) :
+  map (fun w => (ew_node_ref w, ew_occurrence w)) (prog_forest input) = filter occ_is_expr (ci_visit input).
+Proof.
+  unfold prog_forest, prog_forest_blocks. rewrite map_concat_eq.
+  rewrite (proj2_sig (build_forest_blocks input (ci_blocks input) (ci_visit_of_concat input))).
+  rewrite <- filter_concat_eq, <- (ci_visit_blocks input). reflexivity.
+Qed.
 
 (* REVERSE domain: every retained work item is a visited occurrence (§4). *)
 Lemma prog_forest_sound {p} (input : CompilationInput p) (w : ExprWork input) :
