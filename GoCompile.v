@@ -2941,6 +2941,71 @@ Proof.
   injection Hpair as Hnr Hocc. exists w. split; [exact Hinw | split; [exact Hnr | exact Hocc]].
 Qed.
 
+(* the retained forest's item pairs are NoDup (unique keys), inherited from the visit's key-NoDup through the
+   filter (§4/§2.9 — the unique-key law of the ONE work domain). *)
+Lemma prog_forest_pairs_nodup {p} (input : CompilationInput p) :
+  NoDup (map (fun w => (ew_node_ref w, ew_occurrence w)) (prog_forest input)).
+Proof.
+  rewrite prog_forest_filter. apply NoDup_filter.
+  apply (NoDup_map_inv (fun ro => GoIndex.Snap.node_ref_key (fst ro))).
+  rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
+Qed.
+
+(* splitting the retained forest at a work item induces the matching split of the retained visit at that item's
+   occurrence: the forest tail's pair-projection is the visit tail filtered to expressions.  The load-bearing
+   ORDER correspondence (the forest is visit-ordered), proven by the unique split at the NoDup pair. *)
+Lemma prog_forest_split {p} (input : CompilationInput p) ipre (w : ExprWork input) irest :
+  prog_forest input = ipre ++ w :: irest ->
+  exists vpre vrest,
+    ci_visit input = vpre ++ (ew_node_ref w, ew_occurrence w) :: vrest
+    /\ map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest = filter occ_is_expr vrest.
+Proof.
+  intro Hsplit.
+  assert (Hwp : In (ew_node_ref w, ew_occurrence w) (filter occ_is_expr (ci_visit input))).
+  { rewrite <- prog_forest_filter, Hsplit, map_app. cbn [map]. apply in_or_app; right; left; reflexivity. }
+  destruct (proj1 (filter_In _ _ _) Hwp) as [Hwin _].
+  apply in_split in Hwin. destruct Hwin as [vpre [vrest Hvsplit]].
+  exists vpre, vrest. split; [exact Hvsplit |].
+  assert (Hfil : filter occ_is_expr (ci_visit input)
+                 = filter occ_is_expr vpre ++ (ew_node_ref w, ew_occurrence w) :: filter occ_is_expr vrest).
+  { rewrite Hvsplit, filter_app. cbn [filter].
+    rewrite (occ_is_expr_true (ew_node_ref w) (ew_occurrence w) (ew_expr w) (ew_view_exact w)). reflexivity. }
+  assert (Hfor : filter occ_is_expr (ci_visit input)
+                 = map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) ipre
+                   ++ (ew_node_ref w, ew_occurrence w) :: map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest).
+  { rewrite <- prog_forest_filter, Hsplit, map_app. cbn [map]. reflexivity. }
+  pose proof prog_forest_pairs_nodup input as Hnd1. rewrite Hsplit, map_app in Hnd1. cbn [map] in Hnd1.
+  pose proof prog_forest_pairs_nodup input as Hnd2. rewrite prog_forest_filter, Hfil in Hnd2.
+  apply (split_unique (ew_node_ref w, ew_occurrence w)
+           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) ipre)
+           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest)
+           (filter occ_is_expr vpre) (filter occ_is_expr vrest)).
+  - rewrite <- Hfor. exact Hfil.
+  - intro Hbad. apply (NoDup_remove_2 _ _ _ Hnd1). apply in_or_app; left; exact Hbad.
+  - intro Hbad. apply (NoDup_remove_2 _ _ _ Hnd2). apply in_or_app; left; exact Hbad.
+Qed.
+
+(* a conversion work item's OPERAND item is in the forest TAIL (the already-processed suffix of a bottom-up fold):
+   the operand occurrence is later in the visit ([prog_visit_operand_closed]) and the forest is visit-ordered
+   ([prog_forest_split]), so its item follows.  This is the §2.10 processed-suffix witness, over the retained
+   forest — NOT lifted to a final map. *)
+Lemma prog_forest_operand_in_tail {p} (input : CompilationInput p) ipre (w : ExprWork input) irest ts x :
+  prog_forest input = ipre ++ w :: irest ->
+  GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x) ->
+  exists w', In w' irest /\ GoIndex.Snap.node_ref_key (ew_node_ref w') = operand_key (ew_node_ref w).
+Proof.
+  intros Hsplit Hwv.
+  destruct (prog_forest_split input ipre w irest Hsplit) as [vpre [vrest [Hvsplit Hirest_eq]]].
+  assert (Hpv : prog_visit p = vpre ++ (ew_node_ref w, ew_occurrence w) :: vrest)
+    by (rewrite <- (ci_visit_ok input); exact Hvsplit).
+  destruct (prog_visit_operand_closed p (ci_idx input) vpre (ew_node_ref w) (ew_occurrence w) vrest Hpv
+              (EConvert ts x) x Hwv eq_refl) as [r' [occ' [Hkey' [Hvx' Hin']]]].
+  assert (Hinf : In (r', occ') (filter occ_is_expr vrest)).
+  { apply filter_In. split; [exact Hin' | exact (occ_is_expr_true r' occ' x Hvx')]. }
+  rewrite <- Hirest_eq in Hinf. apply in_map_iff in Hinf. destruct Hinf as [w' [Hpair Hinw']].
+  injection Hpair as Hnr' Hocc'. exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hkey'].
+Qed.
+
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
     its stored outcome is queried TOTALLY ([total_outcome_at], never a raw [find] option): an [EOOk] contributes
     its exact fact keyed by the work's own node key; every other outcome contributes nothing.  There is NO
