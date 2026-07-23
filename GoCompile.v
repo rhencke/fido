@@ -2937,6 +2937,123 @@ Proof.
   injection Hpair as Hnr' Hocc'. exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hkey'].
 Qed.
 
+(** ═══ §4 RETAINED MEMBERSHIP + CONVERSION VIEW ═══ a [WorkMember] is a retained handle into the ONE work
+    forest; [forest_member_at] recovers the EXACT retained member with a given key by a decidable list search
+    (never a fresh proof-term variant — the key-NoDup makes it unique).  A [ConversionWork] is the total
+    conversion-work VIEW over a retained conversion member: it carries the exact operand [WorkMember], the carried
+    target/operand refs, both roles, the target syntax, the operand's raw expression, the exact child keys
+    (direct-child evidence) and the source order — so the semantic step consumes ONE proof-backed view and never
+    remints a ref nor uses raw [operand_key] as a live lookup. *)
+Definition WorkMember {p} {input : CompilationInput p} (forest : ExprWorkForest input) : Type :=
+  { w : ExprWork input | In w (ewf_items forest) }.
+
+(* recover the EXACT retained forest member with a given key (unique by [ewf_keys_nodup]) as DATA — a decidable
+   [List.find]; the existence hypothesis discharges only the impossible [None] branch (a Prop goal), so no Prop is
+   eliminated into the [sig].  This is how a conversion view names the exact operand member without a fresh copy. *)
+Definition forest_member_at {p} {input : CompilationInput p} (forest : ExprWorkForest input) (k : GoIndex.NodeKey)
+    (Hex : exists w, In w (ewf_items forest) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k)
+  : { w : ExprWork input | In w (ewf_items forest) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k }.
+Proof.
+  destruct (List.find (fun w => GoIndex.nodekey_eqb (GoIndex.Snap.node_ref_key (ew_node_ref w)) k)
+                      (ewf_items forest)) as [w0|] eqn:Eo.
+  - apply List.find_some in Eo. destruct Eo as [Hin Hkeyb]. cbn beta in Hkeyb. exists w0.
+    split; [exact Hin | apply (proj1 (GoIndex.thm8_nodekey_eqb_spec _ _)); exact Hkeyb].
+  - exfalso. destruct Hex as [w [Hin Hkey]].
+    pose proof (List.find_none _ _ Eo w Hin) as Hfn. cbn beta in Hfn.
+    assert (Ht : GoIndex.nodekey_eqb (GoIndex.Snap.node_ref_key (ew_node_ref w)) k = true)
+      by (apply (proj2 (GoIndex.thm8_nodekey_eqb_spec _ _)); exact Hkey).
+    rewrite Ht in Hfn. discriminate Hfn.
+Defined.
+
+Record ConversionWork {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (w : ExprWork input) (ts : TypeSyntax) (x : GoExpr) : Type := mkConversionWork {
+  cw_target_ref   : GoIndex.TypeNameRef p ;
+  cw_operand_work : WorkMember forest ;
+  cw_target_ref_eq  : conversion_target_ref (ci_idx input) (ew_expr_ref w) = Some cw_target_ref ;
+  cw_operand_ref_eq : conversion_operand_ref (ci_idx input) (ew_expr_ref w)
+                      = Some (ew_expr_ref (proj1_sig cw_operand_work)) ;
+  cw_target_syntax  : GoIndex.type_name_ref_syntax cw_target_ref = Some ts ;
+  cw_target_role    : GoIndex.occurrence_role
+                        (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref cw_target_ref))
+                      = GoIndex.RConversionTarget ;
+  cw_operand_role   : GoIndex.occurrence_role (ew_occurrence (proj1_sig cw_operand_work))
+                      = GoIndex.RConversionOperand ;
+  cw_operand_expr   : ew_expr (proj1_sig cw_operand_work) = x ;
+  cw_target_key     : GoIndex.Snap.node_ref_key (GoIndex.erase_ref cw_target_ref) = type_name_key (ew_node_ref w) ;
+  cw_operand_key    : GoIndex.Snap.node_ref_key (ew_node_ref (proj1_sig cw_operand_work))
+                      = operand_key (ew_node_ref w) ;
+  cw_target_before_op : Pos.lt (GoIndex.nk_local (type_name_key (ew_node_ref w)))
+                               (GoIndex.nk_local (operand_key (ew_node_ref w)))
+}.
+Arguments mkConversionWork {p input forest w ts x} _ _ _ _ _ _ _ _ _ _ _.
+Arguments cw_target_ref {p input forest w ts x} _.  Arguments cw_operand_work {p input forest w ts x} _.
+Arguments cw_target_ref_eq {p input forest w ts x} _.  Arguments cw_operand_ref_eq {p input forest w ts x} _.
+Arguments cw_target_syntax {p input forest w ts x} _.  Arguments cw_target_role {p input forest w ts x} _.
+Arguments cw_operand_role {p input forest w ts x} _.  Arguments cw_operand_expr {p input forest w ts x} _.
+Arguments cw_target_key {p input forest w ts x} _.  Arguments cw_operand_key {p input forest w ts x} _.
+Arguments cw_target_before_op {p input forest w ts x} _.
+
+Definition build_conversion_work {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (w : ExprWork input) ts x (Hview : GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x))
+  : ConversionWork forest w ts x.
+Proof.
+  (* [ew_expr w = EConvert ts x], so [ew_conv w] is the conversion refinement carrying [tr]/[opr] as DATA. *)
+  assert (Hew : ew_expr w = EConvert ts x)
+    by (pose proof (ew_view_exact w) as Hv; rewrite Hview in Hv; injection Hv as He; exact (eq_sym He)).
+  pose proof (ew_conv w) as Hcv. rewrite Hew in Hcv. cbn [ConvRefinement] in Hcv.
+  destruct Hcv as [tr [opr [Htr_ref [Htsyn Hopr_ref]]]].
+  (* the operand ref's occurrence facts (roles/keys/view = x) are recovered in Prop, never eliminated into Type. *)
+  assert (Haexp : GoIndex.as_expr (ci_idx input) (ew_node_ref w) = Some (ew_expr_ref w)) by exact (ew_as_expr_exact w).
+  assert (Hinp : In (ew_node_ref w, ew_occurrence w) (prog_visit p)) by exact (ci_in_prog (ew_in_visit w)).
+  assert (Hopr_key : GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr) = operand_key (ew_node_ref w)).
+  { destruct (conversion_operand_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                Hinp Hview Haexp) as [opr0 [Hopr0 [Hk0 _]]].
+    rewrite Hopr_ref in Hopr0. injection Hopr0 as Ho; subst opr0. exact Hk0. }
+  assert (Hopr_view : GoIndex.view_expr (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) = Some x).
+  { destruct (conversion_operand_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                Hinp Hview Haexp) as [opr0 [Hopr0 [_ [_ Hview0]]]].
+    rewrite Hopr_ref in Hopr0. injection Hopr0 as Ho; subst opr0. exact Hview0. }
+  assert (Hopr_role : GoIndex.occurrence_role (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr))
+                      = GoIndex.RConversionOperand).
+  { destruct (conversion_operand_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                Hinp Hview Haexp) as [opr0 [Hopr0 [_ [Hrole0 _]]]].
+    rewrite Hopr_ref in Hopr0. injection Hopr0 as Ho; subst opr0. exact Hrole0. }
+  assert (Htr_key : GoIndex.Snap.node_ref_key (GoIndex.erase_ref tr) = type_name_key (ew_node_ref w)).
+  { destruct (conversion_target_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                Hinp Hview Haexp) as [tr0 [Htr0 [Hk0 _]]].
+    rewrite Htr_ref in Htr0. injection Htr0 as Ht; subst tr0. exact Hk0. }
+  assert (Htr_role : GoIndex.occurrence_role (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref tr))
+                     = GoIndex.RConversionTarget).
+  { destruct (conversion_target_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
+                Hinp Hview Haexp) as [tr0 [Htr0 [_ [Hrole0 _]]]].
+    rewrite Htr_ref in Htr0. injection Htr0 as Ht; subst tr0. exact Hrole0. }
+  (* the operand WorkMember, recovered from the forest as DATA (its Hex existence proof is Prop). *)
+  assert (Hopr_in : In (GoIndex.erase_ref opr,
+                        GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) (ci_visit input))
+    by (rewrite (ci_visit_ok input); exact (noderef_in_prog_visit p (GoIndex.erase_ref opr))).
+  assert (Hex : exists w', In w' (ewf_items forest)
+                  /\ GoIndex.Snap.node_ref_key (ew_node_ref w') = operand_key (ew_node_ref w)).
+  { destruct (ewf_forward forest (GoIndex.erase_ref opr)
+                (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) x Hopr_in Hopr_view)
+      as [w' [Hinw' [Hnr' _]]].
+    exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hopr_key]. }
+  destruct (forest_member_at forest (operand_key (ew_node_ref w)) Hex) as [wopr [Hwopr_in Hwopr_key]].
+  assert (Hnode : ew_node_ref wopr = GoIndex.erase_ref opr)
+    by (apply GoIndex.Snap.node_ref_key_inj; rewrite Hwopr_key; exact (eq_sym Hopr_key)).
+  assert (Hocc : ew_occurrence wopr = GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)).
+  { rewrite (prog_visit_occ_is_source p (ew_node_ref wopr) (ew_occurrence wopr) (ci_in_prog (ew_in_visit wopr))).
+    rewrite Hnode. reflexivity. }
+  assert (Href : ew_expr_ref wopr = opr).
+  { pose proof (ew_as_expr_exact wopr) as Hae2. rewrite Hnode in Hae2.
+    rewrite (as_expr_erase (ci_idx input) opr) in Hae2. injection Hae2 as He2. exact (eq_sym He2). }
+  assert (Hexpr : ew_expr wopr = x).
+  { pose proof (ew_view_exact wopr) as Hv2. rewrite Hocc, Hopr_view in Hv2. injection Hv2 as Hx. exact (eq_sym Hx). }
+  refine (mkConversionWork tr (exist _ wopr Hwopr_in) Htr_ref _ Htsyn Htr_role _ Hexpr Htr_key Hwopr_key _).
+  - cbn [proj1_sig]. rewrite Href. exact Hopr_ref.
+  - cbn [proj1_sig]. rewrite Hocc. exact Hopr_role.
+  - unfold type_name_key, operand_key. cbn [GoIndex.nk_local]. apply Pos.lt_succ_diag_r.
+Defined.
+
 (** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of [prog_forest] (the
     ONE retained work order) into the outcome map, CARRYING the direct cause + exact domain over the item
     pair-projection.  Every item is an expression (no skip case).  A leaf stores its [OCLeaf] cause; a CONVERSION
