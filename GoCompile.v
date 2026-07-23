@@ -4569,18 +4569,25 @@ Definition prog_forest_blocks_filter {p} (input : CompilationInput p) :
   = map (filter occ_is_expr) (ci_blocks input) :=
   proj2_sig (build_forest_blocks input (ci_blocks input) (ci_visit_of_concat input)).
 
+(** §8/§2.11 THE ONE RETAINED ANNOTATED WORK FOREST — the zip-fold ([build_forest_awork_blocks]) over the
+    retained per-block forest, reusing the EXACT [ExprWork] items and pairing each with its outer-context refs.
+    Built ONCE; retained in the phase as [ep_awork]; the diagnostic projection folds THESE items (never a
+    re-inspected raw occurrence stream). *)
+Definition prog_forest_awork {p} (input : CompilationInput p)
+  : list (ExprWork input * list (GoIndex.ExprRef p)) :=
+  proj1_sig (build_forest_awork_blocks input (ci_blocks input)
+               (prog_forest_blocks input) (prog_forest_blocks_filter input)).
+
 Definition forest_diags {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ForestOutcomeTable input tnft) : list (DiagnosticReason p) :=
-  flat_map (forest_awork_diags input tnft ot)
-           (proj1_sig (build_forest_awork_blocks input (ci_blocks input)
-                         (prog_forest_blocks input) (prog_forest_blocks_filter input))).
+  flat_map (forest_awork_diags input tnft ot) (prog_forest_awork input).
 
 Lemma forest_diags_eq_spec {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
     (ot : ForestOutcomeTable input tnft) :
   forest_diags input tnft ot
   = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
 Proof.
-  unfold forest_diags.
+  unfold forest_diags, prog_forest_awork.
   rewrite (proj2_sig (build_forest_awork_blocks input (ci_blocks input)
                         (prog_forest_blocks input) (prog_forest_blocks_filter input))
              (DiagnosticReason p)
@@ -4615,39 +4622,79 @@ Qed.
     proof-carrying [ExprOutcomeTable] (built from the SAME [CompilationInput]).  [elaborate] builds ONE of these;
     its table is queried, its outcomes are queried TOTALLY, its FACTS and its DIAGNOSTICS both project the SAME
     [ep_ot] object — NOT two extensional equalities to a global map. *)
+(** §9/§2.8 the proof-backed ExprFactTable OBJECT projected from the phase's [ForestOutcomeTable] — its map is
+    [forest_facts] (the TOTAL success projection over the RETAINED forest [prog_forest input], folded with
+    carried refs), carrying the source-determined domain + completeness against [prog_visit p] (via
+    [forest_facts_eq_spec] = [prog_expr_facts]).  ONE such object is retained in the phase ([ep_eft]) and later
+    stored into [ElaborationFacts] by OBJECT IDENTITY (§2.8), never rebuilt. *)
+Definition build_forest_expr_fact_table {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) : ExprFactTable p (ci_ip input).
+Proof.
+  refine (mkExprFactTable (forest_facts input tnft ot) _ _).
+  - intros k f Hf. rewrite (forest_facts_eq_spec input tnft ot) in Hf.
+    exact (prog_expr_facts_domain p k f Hf).
+  - intros r occ Hin. rewrite (forest_facts_eq_spec input tnft ot).
+    exact (prog_expr_facts_find p r occ Hin).
+Defined.
+Lemma build_forest_expr_fact_table_map {p} (input : CompilationInput p) (tnft : TypeNameFactTable p)
+    (ot : ForestOutcomeTable input tnft) :
+  eft_map (build_forest_expr_fact_table input tnft ot) = forest_facts input tnft ot.
+Proof. reflexivity. Qed.
+
+(** §10/§2.7/§2.8 THE ONE INTRINSIC EXPRESSION PHASE — retains the WHOLE work-domain flow as OBJECTS, each tied
+    by a dependent provenance field to the canonical build from THIS [CompilationInput], so a phase whose work
+    forest, outcome table, fact table, annotation, or diagnostics came from another object is UNREPRESENTABLE:
+      · [ep_work]  = the retained [prog_forest input] (the ONE work forest);
+      · [ep_ot]    = the [ForestOutcomeTable] built by folding THAT forest (§7, over [ep_tnft]);
+      · [ep_eft]   whose map IS [forest_facts] of [ep_ot] (§2.8 — facts tied to the outcome table, not recomputed);
+      · [ep_awork] = the retained annotated forest [prog_forest_awork input] (§8, exact reused items);
+      · [ep_diags] = the STORED diagnostic list, = [forest_diags] of [ep_ot] (§9/§2.7 — no rebuild per call);
+      · [ep_tnft]  = the type-name table built from THIS input (§2.9). *)
 Record ExpressionPhase {p} (input : CompilationInput p) : Type := mkExpressionPhase {
-  ep_tnft : TypeNameFactTable p ;
-  ep_ot   : ExprOutcomeTable input ep_tnft ;
-  ep_eft  : ExprFactTable p (ci_ip input) ;      (* §9/§2.8 the RETAINED proof-backed fact object, sealed by identity *)
-  ep_tnft_prov : ep_tnft = build_type_name_fact_table input
-    (* §5/§2.9 RETAINED-INPUT PROVENANCE: the phase's type-name table is not an arbitrary [TypeNameFactTable p] —
-       it IS the exact object built from THIS phase's [CompilationInput] (whose map is the fold over [ci_visit
-       input], [build_tnft_map]).  No ExpressionPhase can be constructed with a foreign table. *)
+  ep_work  : list (ExprWork input) ;
+  ep_tnft  : TypeNameFactTable p ;
+  ep_ot    : ForestOutcomeTable input ep_tnft ;
+  ep_eft   : ExprFactTable p (ci_ip input) ;
+  ep_awork : list (ExprWork input * list (GoIndex.ExprRef p)) ;
+  ep_diags : list (DiagnosticReason p) ;
+  ep_work_prov  : ep_work  = prog_forest input ;
+  ep_ot_prov    : ep_ot    = build_forest_outcome_table input ep_tnft ;
+  ep_eft_prov   : eft_map ep_eft = forest_facts input ep_tnft ep_ot ;
+  ep_awork_prov : ep_awork = prog_forest_awork input ;
+  ep_diag_prov  : ep_diags = forest_diags input ep_tnft ep_ot ;
+  ep_tnft_prov  : ep_tnft  = build_type_name_fact_table input
 }.
-Arguments mkExpressionPhase {p input} _ _ _ _.
-Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.  Arguments ep_eft {p input} _.
-Arguments ep_tnft_prov {p input} _.
+Arguments mkExpressionPhase {p input} _ _ _ _ _ _ _ _ _ _ _ _.
+Arguments ep_work {p input} _.  Arguments ep_tnft {p input} _.  Arguments ep_ot {p input} _.
+Arguments ep_eft {p input} _.  Arguments ep_awork {p input} _.  Arguments ep_diags {p input} _.
+Arguments ep_work_prov {p input} _.  Arguments ep_ot_prov {p input} _.  Arguments ep_eft_prov {p input} _.
+Arguments ep_awork_prov {p input} _.  Arguments ep_diag_prov {p input} _.  Arguments ep_tnft_prov {p input} _.
 
 Definition build_expression_phase {p} (input : CompilationInput p) : ExpressionPhase input :=
   let tnft := build_type_name_fact_table input in
-  let ot   := build_outcome_table input tnft in
-  mkExpressionPhase tnft ot (build_expr_fact_table input tnft ot) eq_refl.
+  let ot   := build_forest_outcome_table input tnft in
+  mkExpressionPhase
+    (prog_forest input) tnft ot
+    (build_forest_expr_fact_table input tnft ot)
+    (prog_forest_awork input)
+    (forest_diags input tnft ot)
+    eq_refl eq_refl eq_refl eq_refl eq_refl eq_refl.
 
-(* the phase's fact projection (= the retained [ep_eft] object's map for the built phase, definitionally). *)
+(* §2.8 the phase's fact projection IS the retained [ep_eft] object's map — never a separately recomputed value. *)
 Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input)
-  : GoIndex.NodeKeyMapBase.t ExprFact := phase_expr_facts input (ep_tnft ph) (ep_ot ph).
-Definition ep_diags {p} {input : CompilationInput p} (ph : ExpressionPhase input)
-  : list (DiagnosticReason p) := phase_expr_diags input (ep_tnft ph) (ep_ot ph).
+  : GoIndex.NodeKeyMapBase.t ExprFact := eft_map (ep_eft ph).
 
-(** ★§8/§10.6 THE ONE PHASE DRIVES BOTH PROJECTIONS: the sealed FACTS and the DIAGNOSTICS are BOTH projections
-    of the SAME retained [ep_ot ph] outcome table inside ONE [ExpressionPhase] — each proved equal to its
-    declarative specification, but SOURCED from the one object (not a conjunction over a global raw map). *)
+(** ★§9/§10 THE ONE PHASE DRIVES BOTH PROJECTIONS: the sealed FACTS ([ep_facts] = [eft_map ep_eft]) and the
+    STORED DIAGNOSTICS ([ep_diags]) are BOTH tied to the SAME retained [ep_ot ph] outcome table (via
+    [ep_eft_prov] / [ep_diag_prov]) inside ONE [ExpressionPhase] — each then proved equal to its declarative
+    specification, but SOURCED from the one object (§11.7: spec equality is NOT the sharing evidence). *)
 Theorem facts_and_diags_share_phase {p} (input : CompilationInput p) (ph : ExpressionPhase input) :
   ep_facts ph = prog_expr_facts p
   /\ ep_diags ph = flat_map (fun roc => occ_expr_diags (ci_idx input) (snd roc) (fst roc)) (annotate_program (ci_idx input)).
 Proof.
-  split; [ exact (phase_expr_facts_eq_spec input (ep_tnft ph) (ep_ot ph))
-         | exact (phase_expr_diags_eq_spec input (ep_tnft ph) (ep_ot ph)) ].
+  split.
+  - unfold ep_facts. rewrite (ep_eft_prov ph). exact (forest_facts_eq_spec input (ep_tnft ph) (ep_ot ph)).
+  - rewrite (ep_diag_prov ph). exact (forest_diags_eq_spec input (ep_tnft ph) (ep_ot ph)).
 Qed.
 
 (* the phase diagnostics EQUAL the spec [expr_diags] (for the decision infrastructure). *)
