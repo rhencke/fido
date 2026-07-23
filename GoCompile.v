@@ -2059,6 +2059,42 @@ Lemma outcome_matches_proj {p} (idx : GoIndex.Snap.SyntaxIndex p) r occ (out : E
   outcome_matches idx r occ out -> outcome_proj_fact out occ.
 Proof. destruct out as [f|? ? ? ? ?| ]; cbn [outcome_matches outcome_proj_fact]; intro H; [exact H | exact (proj1 H) | exact (proj1 H)]. Qed.
 
+(** ═══ §3 THE RETAINED COMPILATION INPUT ═══ derived evidence over the ONE [GoProgram]: the retained index, the
+    per-file visit BLOCKS, and their flattened visit — held as STORED VALUES with a source-provenance proof that
+    they are the exact traversal of the snapshot.  [elaborate] builds this ONCE; every production C4 builder
+    consumes THIS object (its stored [ci_blocks]/[ci_visit]/[ci_idx]), never re-invoking [prog_blocks]/[prog_visit]/
+    [index_program].  Specification theorems compare the stored values to the canonical helpers by [ci_blocks_ok].
+    (Placed BEFORE the outcome layer so the ONE retained work forest — built from this input — precedes and is
+    CONSUMED by outcome construction, §4/§6.) *)
+Record CompilationInput (p : GoProgram) : Type := mkCompilationInput {
+  ci_ip     : GoIndex.IndexedProgram p ;
+  ci_blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) ;
+  ci_visit  : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) ;   (* STORED once, consumed by every builder *)
+  ci_blocks_ok    : ci_blocks = prog_blocks p ;   (* PROVENANCE (spec): the stored blocks ARE the snapshot's *)
+  ci_visit_blocks : ci_visit  = concat ci_blocks  (* COHERENCE: the stored visit IS its blocks' flattening *)
+}.
+Arguments mkCompilationInput {p} _ _ _ _ _.
+Arguments ci_ip {p} _.  Arguments ci_blocks {p} _.  Arguments ci_visit {p} _.
+Arguments ci_blocks_ok {p} _.  Arguments ci_visit_blocks {p} _.
+
+Definition ci_idx {p} (input : CompilationInput p) : GoIndex.Snap.SyntaxIndex p :=
+  GoIndex.indexed_syntax (ci_ip input).
+
+(* the STORED visit IS the snapshot's canonical [prog_visit] (spec equality via the two coherence proofs; the DATA
+   is the retained field, not a re-flattening). *)
+Lemma ci_visit_ok {p} (input : CompilationInput p) : ci_visit input = prog_visit p.
+Proof. unfold prog_visit. rewrite (ci_visit_blocks input), (ci_blocks_ok input). reflexivity. Qed.
+
+(* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p]/[prog_visit p] (elaborate is not
+   a builder "called by elaborate" — it is elaborate).  Everything downstream consumes the stored fields. *)
+(* §3/§2.1 ONE actual traversal: the file-visit blocks are computed ONCE (the [let]-bound [blocks]) and the visit
+   is their [concat] — there is NO second [prog_blocks]/[prog_visit] DATA producer.  [ci_blocks = prog_blocks p]
+   and [ci_visit = concat blocks] hold definitionally (eq_refl); the spec identity [ci_visit = prog_visit p] is
+   [ci_visit_ok]. *)
+Definition build_compilation_input (p : GoProgram) (ip : GoIndex.IndexedProgram p) : CompilationInput p :=
+  let blocks := prog_blocks p in
+  mkCompilationInput ip blocks (concat blocks) eq_refl eq_refl.
+
 (** ═══ §6 THE DIRECT OUTCOME-CAUSE RELATION ═══ the PRODUCTION cause of a stored outcome, read entirely off the
     retained phase: the table query at the retained target ref, the operand's ALREADY-COMPUTED outcome in the
     processed accumulator [prior], and ONE [convert_const] — NEVER [local_conv_failure], [conv_targets], a
@@ -2465,40 +2501,6 @@ Proof.
   assert (E : expr_ref_view_opt er = Some e) by exact Hv.
   unfold expr_ref_view. rewrite (from_some_eq _ (expr_ref_view_not_none er) e E). exact Hv.
 Qed.
-
-(** ═══ §3 THE RETAINED COMPILATION INPUT ═══ derived evidence over the ONE [GoProgram]: the retained index, the
-    per-file visit BLOCKS, and their flattened visit — held as STORED VALUES with a source-provenance proof that
-    they are the exact traversal of the snapshot.  [elaborate] builds this ONCE; every production C4 builder
-    consumes THIS object (its stored [ci_blocks]/[ci_visit]/[ci_idx]), never re-invoking [prog_blocks]/[prog_visit]/
-    [index_program].  Specification theorems compare the stored values to the canonical helpers by [ci_blocks_ok]. *)
-Record CompilationInput (p : GoProgram) : Type := mkCompilationInput {
-  ci_ip     : GoIndex.IndexedProgram p ;
-  ci_blocks : list (list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence)) ;
-  ci_visit  : list (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) ;   (* STORED once, consumed by every builder *)
-  ci_blocks_ok    : ci_blocks = prog_blocks p ;   (* PROVENANCE (spec): the stored blocks ARE the snapshot's *)
-  ci_visit_blocks : ci_visit  = concat ci_blocks  (* COHERENCE: the stored visit IS its blocks' flattening *)
-}.
-Arguments mkCompilationInput {p} _ _ _ _ _.
-Arguments ci_ip {p} _.  Arguments ci_blocks {p} _.  Arguments ci_visit {p} _.
-Arguments ci_blocks_ok {p} _.  Arguments ci_visit_blocks {p} _.
-
-Definition ci_idx {p} (input : CompilationInput p) : GoIndex.Snap.SyntaxIndex p :=
-  GoIndex.indexed_syntax (ci_ip input).
-
-(* the STORED visit IS the snapshot's canonical [prog_visit] (spec equality via the two coherence proofs; the DATA
-   is the retained field, not a re-flattening). *)
-Lemma ci_visit_ok {p} (input : CompilationInput p) : ci_visit input = prog_visit p.
-Proof. unfold prog_visit. rewrite (ci_visit_blocks input), (ci_blocks_ok input). reflexivity. Qed.
-
-(* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p]/[prog_visit p] (elaborate is not
-   a builder "called by elaborate" — it is elaborate).  Everything downstream consumes the stored fields. *)
-(* §3/§2.1 ONE actual traversal: the file-visit blocks are computed ONCE (the [let]-bound [blocks]) and the visit
-   is their [concat] — there is NO second [prog_blocks]/[prog_visit] DATA producer.  [ci_blocks = prog_blocks p]
-   and [ci_visit = concat blocks] hold definitionally (eq_refl); the spec identity [ci_visit = prog_visit p] is
-   [ci_visit_ok]. *)
-Definition build_compilation_input (p : GoProgram) (ip : GoIndex.IndexedProgram p) : CompilationInput p :=
-  let blocks := prog_blocks p in
-  mkCompilationInput ip blocks (concat blocks) eq_refl eq_refl.
 
 (** ═══ §5 THE RETAINED-INPUT TYPE-NAME FACT TABLE ═══ built from the exact retained [ci_visit input] (the DATA is
     the stored visit); its domain/completeness proofs transport the canonical [prog_type_name_facts] exactness via
