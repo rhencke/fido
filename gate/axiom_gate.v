@@ -280,24 +280,26 @@ Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
 (* §3/§4/§5/§6 the retained-phase production path: the ONE [CompilationInput] retains the visit as a STORED value
    that IS the snapshot's traversal ([ci_visit_ok]); the [TypeNameFactTable] is built from THAT retained visit
-   ([build_tnft_map]); the ONE retained work forest [prog_forest] is built ONCE and pins order + BOTH domains
-   ([prog_forest_sound] reverse-complete / [prog_forest_complete] forward / [prog_forest_nodup] key-nodup) with a
-   conversion's operand item in the PROCESSED suffix ([prog_forest_operand_in_tail]); the PROOF-CARRYING
+   ([build_tnft_map]); the ONE proof-carrying [ExprWorkForest] OBJECT is built ONCE and RETAINS in its fields the
+   exact pair-projection ([ewf_items_exact]), BOTH domains ([ewf_reverse] reverse / [ewf_forward] forward), the
+   key-NoDup ([ewf_keys_nodup]), with a conversion's operand MEMBER in the PROCESSED suffix
+   ([ewf_operand_in_tail]) — no [proj1_sig] discards its proof; the PROOF-CARRYING FOREST-INDEXED
    [ForestOutcomeTable] pairs the outcome map with its completeness proof so the query is TOTAL —
-   [total_forest_outcome_at] returns an [ExprOutcome], not an option, and MATCHES the occurrence
+   [total_forest_outcome_at] CONSUMES a retained [WorkMember] and MATCHES the occurrence
    ([total_forest_outcome_at_matches]); the resolved-target query is the table's stored fact
    ([type_name_fact_at_table_resolves]); and a stored conversion FAILURE's cause is read DIRECTLY off the
-   retained forest table, keyed by the WORK item — its refs are the work's own carried refs, the target type is
+   retained forest table, keyed by the WORK member — its refs are the work's own carried refs, the target type is
    the sealed table's stored fact, the operand's own outcome is a success whose status IS the reported one, and
    [convert_const] genuinely rejects ([phase_convfail_cause]). *)
 Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
 Print Assumptions GoCompile.build_tnft_map.
-Print Assumptions GoCompile.prog_forest_sound.
-Print Assumptions GoCompile.prog_forest_complete.
-Print Assumptions GoCompile.prog_forest_nodup.
-Print Assumptions GoCompile.prog_forest_operand_in_tail.
+Print Assumptions GoCompile.ewf_items_exact.
+Print Assumptions GoCompile.ewf_reverse.
+Print Assumptions GoCompile.ewf_forward.
+Print Assumptions GoCompile.ewf_keys_nodup.
+Print Assumptions GoCompile.ewf_operand_in_tail.
 Print Assumptions GoCompile.total_forest_outcome_at_matches.
 (* §6/§7 the forest outcome table CARRIES the DIRECT cause: the total query BY WORK ITEM projects the carried
    [OutcomeCause] ([total_forest_outcome_at_caused]); the three DIRECT cause theorems (conversion success / local
@@ -326,8 +328,17 @@ Print Assumptions GoCompile.fot_nonexpr_absent.
    source spec at the work's own occurrence. *)
 Print Assumptions GoCompile.forest_facts_eq_spec.
 Print Assumptions GoCompile.forest_awork_diags_eq.
-Print Assumptions GoCompile.forest_diags_eq_spec.
+Print Assumptions GoCompile.expression_diagnostics_eq_spec.
 Print Assumptions GoCompile.expr_diags_eq_spec.
+(* §7 THE ONE RETAINED ANNOTATED WORK OBJECT: [build_annotated_work_forest] constructs an
+   [AnnotatedExprWorkForest] carrying (all field proofs axiom-free) the exact-members equality, the
+   [annotate_program] fold-equivalence, and the four context-soundness properties; [aewf_align_eq] is the
+   occurrence/context alignment derived from the object's OWN carried fold (no rebuild); and
+   [annotated_forest_erased_source] is the [aewf_spec_exact] surface — the erased annotation reproduces the
+   EXPRESSION projection of the snapshot-independent [annotate_source]. *)
+Print Assumptions GoCompile.build_annotated_work_forest.
+Print Assumptions GoCompile.aewf_align_eq.
+Print Assumptions GoCompile.annotated_forest_erased_source.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
    per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
    length is the package's main count, on a valid program every bucket is a singleton (the one canonical
@@ -373,12 +384,20 @@ Print Assumptions GoCompile.conversion_operand_ref_conv.
    ([elaborate_ok_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions GoCompile.facts_and_diags_share_phase.
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
+(* §8.1/§8.2/§9 THE DEPENDENT OBJECT CHAIN: the fact table is a [ForestExprFactTable] indexed by the exact
+   forest/outcome table, carrying a proof its map IS the EOOk projection ([feft_is_facts]); the diagnostics are an
+   [ExpressionDiagnostics] indexed by the exact annotated members/outcome table, carrying a proof its list IS the
+   projection ([ed_is_diags]).  A foreign equal-map table / equal list is UNREPRESENTABLE — the dependent types
+   encode the chain, not a provenance equality. *)
+Print Assumptions GoCompile.feft_is_facts.
+Print Assumptions GoCompile.ed_is_diags.
 (* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the ExprFactTable OBJECT sealed into a successful
-   ElaborationFacts IS the retained [ep_eft] of the phase actually built (not a fresh table whose map merely
+   ElaborationFacts IS [feft_table (ep_eft)] of the phase actually built (not a fresh table whose map merely
    equals the projection). *)
 Print Assumptions GoCompile.elaborate_ok_seals_facts.
 (* §5/§2.9 the sealed type-name table has RETAINED-INPUT PROVENANCE: it IS build_type_name_fact_table of the
-   phase's own CompilationInput (no ExpressionPhase can carry a foreign table — [ep_tnft_prov]). *)
+   phase's own CompilationInput — the phase's [ep_tnft] is DEFINITIONALLY that builder (no stored provenance
+   equality; the concrete [build_expression_phase] let-binds it). *)
 Print Assumptions GoCompile.elaborate_ok_seals_tnfacts_from_input.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
