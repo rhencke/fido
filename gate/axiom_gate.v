@@ -278,24 +278,32 @@ Print Assumptions GoCompile.visit_file_key_nodup.
 Print Assumptions GoCompile.prog_visit_key_nodup.
 Print Assumptions GoCompile.prog_expr_facts_find.
 Print Assumptions GoCompile.prog_expr_facts_eq_spec.
-(* §3/§5/§6 the retained-phase production path: the ONE [CompilationInput] retains the visit as a STORED value
+(* §3/§4/§5/§6 the retained-phase production path: the ONE [CompilationInput] retains the visit as a STORED value
    that IS the snapshot's traversal ([ci_visit_ok]); the [TypeNameFactTable] is built from THAT retained visit
-   ([build_tnft_map]); the PROOF-CARRYING [ExprOutcomeTable] pairs the outcome map with its completeness proof so
-   the query is TOTAL — [total_outcome_at] returns an [ExprOutcome], not an option, and MATCHES the occurrence
-   ([total_outcome_at_matches]); the resolved-target query is the table's stored fact
+   ([build_tnft_map]); the ONE retained work forest [prog_forest] is built ONCE and pins order + BOTH domains
+   ([prog_forest_sound] reverse-complete / [prog_forest_complete] forward / [prog_forest_nodup] key-nodup) with a
+   conversion's operand item in the PROCESSED suffix ([prog_forest_operand_in_tail]); the PROOF-CARRYING
+   [ForestOutcomeTable] pairs the outcome map with its completeness proof so the query is TOTAL —
+   [total_forest_outcome_at] returns an [ExprOutcome], not an option, and MATCHES the occurrence
+   ([total_forest_outcome_at_matches]); the resolved-target query is the table's stored fact
    ([type_name_fact_at_table_resolves]); and a stored conversion FAILURE's cause is read DIRECTLY off the
-   retained phase — its refs are the occurrence's own retained refs, the target type is the sealed table's
-   stored fact, the operand's own outcome is a success whose status IS the reported one, and [convert_const]
-   genuinely rejects ([phase_convfail_cause]). *)
+   retained forest table, keyed by the WORK item — its refs are the work's own carried refs, the target type is
+   the sealed table's stored fact, the operand's own outcome is a success whose status IS the reported one, and
+   [convert_const] genuinely rejects ([phase_convfail_cause]). *)
 Print Assumptions GoCompile.occs_file_operand.
 Print Assumptions GoCompile.ci_visit_ok.
 Print Assumptions GoCompile.type_name_fact_at_table_resolves.
 Print Assumptions GoCompile.build_tnft_map.
-Print Assumptions GoCompile.total_outcome_at_matches.
-(* §6 the outcome table CARRIES the DIRECT cause: the total query projects the carried [OutcomeCause]
-   ([total_outcome_at_caused]); the three DIRECT cause theorems (conversion success / local rejection / blocked
-   child) are PROJECTIONS of that carried relation — NOT reconstructed from [local_conv_failure]/[const_info]. *)
-Print Assumptions GoCompile.total_outcome_at_caused.
+Print Assumptions GoCompile.prog_forest_sound.
+Print Assumptions GoCompile.prog_forest_complete.
+Print Assumptions GoCompile.prog_forest_nodup.
+Print Assumptions GoCompile.prog_forest_operand_in_tail.
+Print Assumptions GoCompile.total_forest_outcome_at_matches.
+(* §6/§7 the forest outcome table CARRIES the DIRECT cause: the total query BY WORK ITEM projects the carried
+   [OutcomeCause] ([total_forest_outcome_at_caused]); the three DIRECT cause theorems (conversion success / local
+   rejection / blocked child) are PROJECTIONS of that carried relation, keyed by the work item — NOT reconstructed
+   from [local_conv_failure]/[const_info]. *)
+Print Assumptions GoCompile.total_forest_outcome_at_caused.
 Print Assumptions GoCompile.phase_convfail_cause.
 Print Assumptions GoCompile.phase_convok_cause.
 Print Assumptions GoCompile.phase_childfail_cause.
@@ -303,22 +311,22 @@ Print Assumptions GoCompile.phase_childfail_cause.
    every [OutcomeCause] entry satisfies [outcome_matches] (structural induction on the occurrence view).  This is
    what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
 Print Assumptions GoCompile.outcomes_caused_matches.
-(* §7 the outcome table's domain is EXACTLY the [ExprWork] key set: every work item has an entry
-   ([eot_work_present]); every present key is a work item's key ([eot_no_foreign_key]); the biconditional
-   ([eot_domain_iff_work]) — so a table with the required entries plus any extra key is UNINHABITABLE; and a
-   visited NON-expression occurrence has NO entry ([eot_nonexpr_absent], wrong-kind exclusion). *)
-Print Assumptions GoCompile.eot_work_present.
-Print Assumptions GoCompile.eot_no_foreign_key.
-Print Assumptions GoCompile.eot_domain_iff_work.
-Print Assumptions GoCompile.eot_nonexpr_absent.
-(* §9 the TOTAL fact + diagnostic projections of the ONE outcome table EQUAL the declarative specification (no
-   fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs).  §8/§2.3 the diagnostic
-   is projected over the exact TYPED WORK ([awork_diags], keyed by the work's own [ew_expr_ref] — NO [as_expr]
-   with a fail-open [None] branch); [awork_diags_eq] is its agreement with the source spec at the work's own
-   occurrence. *)
-Print Assumptions GoCompile.phase_expr_facts_eq_spec.
-Print Assumptions GoCompile.awork_diags_eq.
-Print Assumptions GoCompile.phase_expr_diags_eq_spec.
+(* §7/§2.9 the forest outcome table's domain is EXACTLY the RETAINED work forest's key set: every work item has an
+   entry ([fot_at_not_none]); the biconditional is over MEMBERSHIP in the retained enumeration [prog_forest]
+   ([fot_domain_iff_forest], NOT an [exists w] over any constructible [ExprWork]) — so a table with the required
+   entries plus any extra key is UNINHABITABLE; and a visited NON-expression occurrence has NO entry
+   ([fot_nonexpr_absent], wrong-kind exclusion). *)
+Print Assumptions GoCompile.fot_at_not_none.
+Print Assumptions GoCompile.fot_domain_iff_forest.
+Print Assumptions GoCompile.fot_nonexpr_absent.
+(* §9 the TOTAL fact + diagnostic projections of the ONE forest outcome table EQUAL the declarative specification
+   (no fail-open: a missing outcome is never a case; the diagnostic emits the STORED refs).  §8/§2.3 the
+   diagnostic is projected over the exact RETAINED annotated work ([forest_awork_diags], keyed by the work's own
+   [ew_expr_ref] — NO [as_expr] with a fail-open [None] branch); [forest_awork_diags_eq] is its agreement with the
+   source spec at the work's own occurrence. *)
+Print Assumptions GoCompile.forest_facts_eq_spec.
+Print Assumptions GoCompile.forest_awork_diags_eq.
+Print Assumptions GoCompile.forest_diags_eq_spec.
 Print Assumptions GoCompile.expr_diags_eq_spec.
 (* package main-ref buckets built as ONE fold over the DELIVERED visit stream (no second
    per-file traversal): the whole-program buckets have the represented-package domain, each present bucket's
