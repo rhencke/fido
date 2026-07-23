@@ -1,7 +1,16 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **exact retained work-object repair 7**. Replace the remaining canonical-recomputation
-  root: `prog_forest`/`prog_forest_blocks`/`prog_forest_awork` are pure canonical FUNCTIONS re-evaluated by every
+- **STATUS (repair 7 COMPLETE — pending Rob's HUMAN Implementation Review):** the C4 exact retained work-object
+  repair-7 candidate is COMPLETE and FROZEN at this freeze commit (`review(final): C4 — freeze exact retained
+  work-object candidate`). Original C4 baseline `8c9212a`; seven blocked candidates ending at `3a92d22`
+  (repair-7 baseline); full human review range `8c9212a..<this freeze commit>`; full repair range
+  `89b8e54..<this freeze commit>`; repair-7 range `3a92d22..<this freeze commit>`. Human C4 Implementation Review
+  PENDING; ADR-0001 PROPOSED; ADR-0002 REJECTED AS WRITTEN / OPEN; automatic Codex review DISABLED (do NOT
+  request/run Codex); C5 and every later checkpoint FORBIDDEN. Verification GREEN: `make prove` (readable gate
+  443/443 axiom-free + whole-theory audit + self-tests A–E), `make e2e`, `make check` (working-tree generated
+  byte-compare — no drift), `make regenerate` (no drift), `make regen-guard`, and the staged pre-commit hook.
+- **The repair-7 task (now delivered):** replaced the remaining canonical-recomputation
+  root: `prog_forest`/`prog_forest_blocks`/`prog_forest_awork` were pure canonical FUNCTIONS re-evaluated by every
   phase builder from `input` (each `proj1_sig` of a sigma whose proof is discarded and re-recovered later via a
   separate `proj2_sig`); `ep_work` is stored but consumed by nothing. Build ONE proof-carrying `ExprWorkForest`
   object (stored `ewf_blocks`/`ewf_items` + `= concat` + exact fwd/rev domain + key-NoDup + per-file/flat order +
