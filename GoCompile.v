@@ -3122,22 +3122,26 @@ Definition build_forest_outcome_table {p} (input : CompilationInput p) (tnft : T
               (ex_intro _ (@nil (ExprWork input)) eq_refl) in
   mkForestOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo)) (proj2 (proj2_sig bo)).
 
-(* every RETAINED forest work item has an entry (coverage from the carried cause). *)
+(* every work item has an entry — TOTAL, no membership hypothesis: any [ExprWork]'s occurrence has a retained
+   forest item ([prog_forest_complete]) with the SAME key, which the carried cause covers. *)
 Lemma fot_at_not_none {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
-    (w : ExprWork input) (Hw : In w (prog_forest input)) :
+    (w : ExprWork input) :
   GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot) <> None.
 Proof.
+  destruct (prog_forest_complete input (ew_node_ref w) (ew_occurrence w) (ew_expr w)
+              (ew_in_visit w) (ew_view_exact w)) as [w' [Hinw' [Hnr _]]].
+  rewrite <- Hnr.
   exact (outcomes_caused_covers (ci_idx input) tnft
            (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input)) (fot_map ot) (fot_caused ot)
-           (ew_node_ref w) (ew_occurrence w) (ew_expr w)
-           (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input) w Hw) (ew_view_exact w)).
+           (ew_node_ref w') (ew_occurrence w') (ew_expr w')
+           (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (prog_forest input) w' Hinw') (ew_view_exact w')).
 Qed.
 
-(* the TOTAL outcome query by a RETAINED work item — [from_some], never a raw option. *)
+(* the TOTAL outcome query by work item — [from_some], never a raw option. *)
 Definition total_forest_outcome_at {p} {input : CompilationInput p} {tnft} (ot : ForestOutcomeTable input tnft)
-    (w : ExprWork input) (Hw : In w (prog_forest input)) : ExprOutcome p :=
+    (w : ExprWork input) : ExprOutcome p :=
   from_some (GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot))
-            (fot_at_not_none ot w Hw).
+            (fot_at_not_none ot w).
 
 (* §2.9 the EXACT domain: a key is in the table IFF a RETAINED forest work item has that key (membership in the
    retained enumeration, not an [exists w] over any constructible work). *)
@@ -3149,7 +3153,40 @@ Proof.
   - intro Hk. destruct (fot_dom ot k Hk) as [r [occ [e [Hin [Hkey Hv]]]]].
     apply in_map_iff in Hin. destruct Hin as [w [Hpair Hinw]].
     injection Hpair as Hnr Hocc. exists w. split; [exact Hinw | rewrite Hnr; exact Hkey].
-  - intros [w [Hinw Hkey]]. rewrite <- Hkey. exact (fot_at_not_none ot w Hinw).
+  - intros [w [Hinw Hkey]]. rewrite <- Hkey. exact (fot_at_not_none ot w).
+Qed.
+
+(* a per-element step that is a no-op on the filtered-OUT elements folds the same over [l] and [filter f l]. *)
+Lemma fold_right_filter_skip {A B} (fo : A -> B -> B) (f : A -> bool) (init : B) (l : list A) :
+  (forall a b, In a l -> f a = false -> fo a b = b) ->
+  fold_right fo init l = fold_right fo init (filter f l).
+Proof.
+  induction l as [|a l IH]; intro Hskip; [reflexivity|].
+  cbn [filter]. destruct (f a) eqn:Ef.
+  - cbn [fold_right]. rewrite (IH (fun a' b Ha' => Hskip a' b (or_intror Ha'))). reflexivity.
+  - cbn [fold_right]. rewrite (Hskip a (fold_right fo init l) (or_introl eq_refl) Ef).
+    exact (IH (fun a' b Ha' => Hskip a' b (or_intror Ha'))).
+Qed.
+
+Lemma occ_is_expr_false_view {p} (ro : GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) :
+  occ_is_expr ro = false -> GoIndex.view_expr (snd ro) = None.
+Proof. unfold occ_is_expr. destruct (GoIndex.view_expr (snd ro)); [discriminate | reflexivity]. Qed.
+
+(** §9/§2.3 fold-equivalence: folding a per-WORK step [fw] over the ONE retained forest EQUALS folding a
+    per-occurrence step [fo] over the retained visit, when they AGREE on work items and [fo] is a no-op on
+    non-expression occurrences.  This is how facts + diagnostics consume the retained forest yet equal the source
+    specification — over the SAME retained work order, no second discovery. *)
+Lemma prog_forest_fold {p} (input : CompilationInput p) {B}
+    (fw : ExprWork input -> B -> B)
+    (fo : (GoIndex.Snap.NodeRef p * GoIndex.SourceOccurrence) -> B -> B) (init : B)
+    (Hagree : forall w b, fw w b = fo (ew_node_ref w, ew_occurrence w) b)
+    (Hskip : forall ro b, In ro (ci_visit input) -> GoIndex.view_expr (snd ro) = None -> fo ro b = b) :
+  fold_right fw init (prog_forest input) = fold_right fo init (ci_visit input).
+Proof.
+  rewrite (fold_right_filter_skip fo occ_is_expr init (ci_visit input)
+             (fun ro b Hin Hf => Hskip ro b Hin (occ_is_expr_false_view ro Hf))).
+  rewrite <- prog_forest_filter, fold_right_map.
+  apply fold_ext_in. intros; apply Hagree.
 Qed.
 
 (** ═══ §9.1 THE TOTAL FACT PROJECTION ═══ each EXACT [ExprWork] item carries its own [ExprRef] ([ew_expr_ref]);
