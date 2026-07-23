@@ -2818,6 +2818,125 @@ Proof.
   injection Hpair as Hnr' Hocc'. exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hkey'].
 Qed.
 
+(** ═══ §3 THE ONE PROOF-CARRYING WORK FOREST OBJECT ═══ a RECORD that RETAINS TOGETHER the per-file work blocks,
+    the flattened item list, the flat = concat relation, and the two exact pair-projection proofs (blocks and
+    items filtered to expressions).  Built ONCE by [build_expr_work_forest], which calls [build_forest_blocks]
+    exactly once and puts its sigma proof INTO the fields — no [proj1_sig] discards the proof, and no later
+    builder re-calls [build_forest_blocks]/[build_forest_sig].  The reverse domain, forward domain, and key-NoDup
+    are RETAINED fields (not re-recovered); [ewf_split]/[ewf_operand_in_tail] are laws DERIVED from these fields,
+    never from a second construction.  This is a proof-backed VIEW over the one AST, not a second AST. *)
+Record ExprWorkForest {p} (input : CompilationInput p) : Type := mkExprWorkForest {
+  ewf_blocks : list (list (ExprWork input)) ;
+  ewf_items  : list (ExprWork input) ;
+  ewf_flat   : ewf_items = concat ewf_blocks ;
+  ewf_blocks_exact :
+    map (map (fun w => (ew_node_ref w, ew_occurrence w))) ewf_blocks
+    = map (filter occ_is_expr) (ci_blocks input) ;
+  ewf_items_exact :
+    map (fun w => (ew_node_ref w, ew_occurrence w)) ewf_items
+    = filter occ_is_expr (ci_visit input) ;
+  ewf_keys_nodup :
+    NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) ewf_items) ;
+  ewf_reverse :
+    forall w, In w ewf_items -> In (ew_node_ref w, ew_occurrence w) (ci_visit input) ;
+  ewf_forward :
+    forall nr occ e, In (nr, occ) (ci_visit input) -> GoIndex.view_expr occ = Some e ->
+      exists w, In w ewf_items /\ ew_node_ref w = nr /\ ew_occurrence w = occ
+}.
+Arguments mkExprWorkForest {p input} _ _ _ _ _ _ _ _.
+Arguments ewf_blocks {p input} _.  Arguments ewf_items {p input} _.  Arguments ewf_flat {p input} _.
+Arguments ewf_blocks_exact {p input} _.  Arguments ewf_items_exact {p input} _.
+Arguments ewf_keys_nodup {p input} _.  Arguments ewf_reverse {p input} _.  Arguments ewf_forward {p input} _.
+
+(* the ONE work-discovery call: [build_forest_blocks] is invoked EXACTLY here, and its proof is stored into the
+   forest object's fields.  No production authority projects a raw list from a sigma and discards its proof. *)
+Definition build_expr_work_forest {p} (input : CompilationInput p) : ExprWorkForest input.
+Proof.
+  destruct (build_forest_blocks input (ci_blocks input) (ci_visit_of_concat input)) as [bs Hbs].
+  assert (Hitems : map (fun w => (ew_node_ref w, ew_occurrence w)) (concat bs)
+                   = filter occ_is_expr (ci_visit input)).
+  { rewrite map_concat_eq, Hbs, <- filter_concat_eq, <- (ci_visit_blocks input). reflexivity. }
+  refine (mkExprWorkForest bs (concat bs) eq_refl Hbs Hitems _ _ _).
+  - (* ewf_keys_nodup *)
+    replace (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (concat bs))
+      with (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (filter occ_is_expr (ci_visit input)))
+      by (rewrite <- Hitems, map_map; reflexivity).
+    apply nodup_map_filter. rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
+  - (* ewf_reverse *)
+    intros w Hw. pose proof (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) _ _ Hw) as Hp.
+    rewrite Hitems in Hp. apply filter_In in Hp. exact (proj1 Hp).
+  - (* ewf_forward *)
+    intros nr occ e Hin Hv.
+    assert (Hf : In (nr, occ) (filter occ_is_expr (ci_visit input))).
+    { apply filter_In. split; [exact Hin | unfold occ_is_expr; cbn [snd]; rewrite Hv; reflexivity]. }
+    rewrite <- Hitems in Hf. apply in_map_iff in Hf. destruct Hf as [w [Hpair Hinw]].
+    injection Hpair as Hnr Hocc. exists w. split; [exact Hinw | split; [exact Hnr | exact Hocc]].
+Defined.
+
+(* the retained forest's item pairs are NoDup — DERIVED from the stored [ewf_items_exact] field, never a second
+   construction. *)
+Lemma ewf_pairs_nodup {p} {input : CompilationInput p} (forest : ExprWorkForest input) :
+  NoDup (map (fun w => (ew_node_ref w, ew_occurrence w)) (ewf_items forest)).
+Proof.
+  rewrite (ewf_items_exact forest). apply NoDup_filter.
+  apply (NoDup_map_inv (fun ro => GoIndex.Snap.node_ref_key (fst ro))).
+  rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
+Qed.
+
+(* splitting the retained forest object at a member induces the matching visit split (order correspondence),
+   DERIVED from the stored fields ([ewf_items_exact] + [ewf_pairs_nodup]) — no [prog_forest] re-call. *)
+Lemma ewf_split {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    ipre (w : ExprWork input) irest :
+  ewf_items forest = ipre ++ w :: irest ->
+  exists vpre vrest,
+    ci_visit input = vpre ++ (ew_node_ref w, ew_occurrence w) :: vrest
+    /\ map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest = filter occ_is_expr vrest.
+Proof.
+  intro Hsplit.
+  assert (Hwp : In (ew_node_ref w, ew_occurrence w) (filter occ_is_expr (ci_visit input))).
+  { rewrite <- (ewf_items_exact forest), Hsplit, map_app. cbn [map]. apply in_or_app; right; left; reflexivity. }
+  destruct (proj1 (filter_In _ _ _) Hwp) as [Hwin _].
+  apply in_split in Hwin. destruct Hwin as [vpre [vrest Hvsplit]].
+  exists vpre, vrest. split; [exact Hvsplit |].
+  assert (Hfil : filter occ_is_expr (ci_visit input)
+                 = filter occ_is_expr vpre ++ (ew_node_ref w, ew_occurrence w) :: filter occ_is_expr vrest).
+  { rewrite Hvsplit, filter_app. cbn [filter].
+    rewrite (occ_is_expr_true (ew_node_ref w) (ew_occurrence w) (ew_expr w) (ew_view_exact w)). reflexivity. }
+  assert (Hfor : filter occ_is_expr (ci_visit input)
+                 = map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) ipre
+                   ++ (ew_node_ref w, ew_occurrence w) :: map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest).
+  { rewrite <- (ewf_items_exact forest), Hsplit, map_app. cbn [map]. reflexivity. }
+  pose proof (ewf_pairs_nodup forest) as Hnd1. rewrite Hsplit, map_app in Hnd1. cbn [map] in Hnd1.
+  pose proof (ewf_pairs_nodup forest) as Hnd2. rewrite (ewf_items_exact forest), Hfil in Hnd2.
+  apply (split_unique (ew_node_ref w, ew_occurrence w)
+           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) ipre)
+           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) irest)
+           (filter occ_is_expr vpre) (filter occ_is_expr vrest)).
+  - rewrite <- Hfor. exact Hfil.
+  - intro Hbad. apply (NoDup_remove_2 _ _ _ Hnd1). apply in_or_app; left; exact Hbad.
+  - intro Hbad. apply (NoDup_remove_2 _ _ _ Hnd2). apply in_or_app; left; exact Hbad.
+Qed.
+
+(* a conversion member's OPERAND member is in the retained forest TAIL (the processed suffix): DERIVED from
+   [ewf_split] over the retained object. §2.10 processed-suffix witness. *)
+Lemma ewf_operand_in_tail {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    ipre (w : ExprWork input) irest ts x :
+  ewf_items forest = ipre ++ w :: irest ->
+  GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x) ->
+  exists w', In w' irest /\ GoIndex.Snap.node_ref_key (ew_node_ref w') = operand_key (ew_node_ref w).
+Proof.
+  intros Hsplit Hwv.
+  destruct (ewf_split forest ipre w irest Hsplit) as [vpre [vrest [Hvsplit Hirest_eq]]].
+  assert (Hpv : prog_visit p = vpre ++ (ew_node_ref w, ew_occurrence w) :: vrest)
+    by (rewrite <- (ci_visit_ok input); exact Hvsplit).
+  destruct (prog_visit_operand_closed p (ci_idx input) vpre (ew_node_ref w) (ew_occurrence w) vrest Hpv
+              (EConvert ts x) x Hwv eq_refl) as [r' [occ' [Hkey' [Hvx' Hin']]]].
+  assert (Hinf : In (r', occ') (filter occ_is_expr vrest)).
+  { apply filter_In. split; [exact Hin' | exact (occ_is_expr_true r' occ' x Hvx')]. }
+  rewrite <- Hirest_eq in Hinf. apply in_map_iff in Hinf. destruct Hinf as [w' [Hpair Hinw']].
+  injection Hpair as Hnr' Hocc'. exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hkey'].
+Qed.
+
 (** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of [prog_forest] (the
     ONE retained work order) into the outcome map, CARRYING the direct cause + exact domain over the item
     pair-projection.  Every item is an expression (no skip case).  A leaf stores its [OCLeaf] cause; a CONVERSION
