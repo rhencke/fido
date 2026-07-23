@@ -2492,8 +2492,13 @@ Proof. unfold prog_visit. rewrite (ci_visit_blocks input), (ci_blocks_ok input).
 
 (* elaborate builds the ONE input value; this is the SOLE call to [prog_blocks p]/[prog_visit p] (elaborate is not
    a builder "called by elaborate" — it is elaborate).  Everything downstream consumes the stored fields. *)
+(* §3/§2.1 ONE actual traversal: the file-visit blocks are computed ONCE (the [let]-bound [blocks]) and the visit
+   is their [concat] — there is NO second [prog_blocks]/[prog_visit] DATA producer.  [ci_blocks = prog_blocks p]
+   and [ci_visit = concat blocks] hold definitionally (eq_refl); the spec identity [ci_visit = prog_visit p] is
+   [ci_visit_ok]. *)
 Definition build_compilation_input (p : GoProgram) (ip : GoIndex.IndexedProgram p) : CompilationInput p :=
-  mkCompilationInput ip (prog_blocks p) (prog_visit p) eq_refl eq_refl.
+  let blocks := prog_blocks p in
+  mkCompilationInput ip blocks (concat blocks) eq_refl eq_refl.
 
 (** ═══ §5 THE RETAINED-INPUT TYPE-NAME FACT TABLE ═══ built from the exact retained [ci_visit input] (the DATA is
     the stored visit); its domain/completeness proofs transport the canonical [prog_type_name_facts] exactness via
