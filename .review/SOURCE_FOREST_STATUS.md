@@ -23,8 +23,12 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
   no ONE proof-carrying `ExprWorkForest` object passed through production; `prog_forest*` recomputed per phase,
   `ep_work` stored-but-unconsumed).
 - Eighth blocked candidate / repair-8 baseline: `91e8dbbcd24fc7df678e6b3d68eabb13b686efa1` (the repair-7 freeze;
-  eighth BLOCKING — the final table's causal outcome is still the raw-map `OutcomeCause`; the semantic fold
-  discards the exact operand member and does a raw map `find`; `phase_*_work_cause` reconstruct the cause afterward).
+  eighth BLOCKING — the final table's causal outcome was the raw-map `OutcomeCause`; the semantic fold discarded
+  the exact operand member and did a raw map `find`; `phase_*_work_cause` reconstructed the cause afterward).
+- **Repair-8 candidate: COMPLETE — frozen at the `review(final): C4 — freeze member-indexed causal outcome
+  candidate` commit (repository HEAD); human C4 Implementation Review pending.** Full human review range
+  `8c9212a..`<freeze>; full repair range `89b8e54..`<freeze>; repair-8 range `91e8dbb..`<freeze>. All eight
+  blocked candidates ended at `91e8dbb`.
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
   repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3`;
   repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`;
@@ -41,10 +45,18 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
   and reported for Rob's human Implementation Review — no Codex review is requested or run.
 - C5, every later checkpoint, and the post-C4 trim remain forbidden (the trim until C4 acceptance).
 
-## Repair 8 — blocking classes (member-indexed causal outcome)
+## Repair 8 — blocking classes (member-indexed causal outcome) — RESOLVED (candidate complete)
 
-The eighth C4 Implementation Review is BLOCKING at `91e8dbb`. Repair 7's retained-object flow is CORRECT and
-kept; the one remaining defect is the causal/outcome-fold root beneath `ForestOutcomeTable`:
+The eighth C4 Implementation Review was BLOCKING at `91e8dbb`. Repair 7's retained-object flow is CORRECT and
+kept; the one remaining defect — the causal/outcome-fold root beneath `ForestOutcomeTable` — is REPAIRED. Each
+blocking class below is CLOSED by the re-rooted fold: the production cause is now the member/suffix-indexed
+`StepCause` carried by `build_outcome_accumulator` (over `SuffixMember`/`ConversionStep`/`OutcomeAccumulator`),
+retained on `ForestOutcomeTable` as `fot_causes` and queried by `total_forest_outcome_cause` →
+`FinalMemberCause`; the conversion cons-step queries the operand THROUGH `cs_operand_suffix` via `oa_total
+acc_rest` with ONE `convert_const` (no raw `find`/`from_some`/`operand_key`/post-hoc `ConversionWork`); the raw
+`OutcomeCause`/`outcomes_caused`/`build_outcomes_forest`/`phase_*_cause`/`phase_*_work_cause` root is DELETED;
+the direct fixture `deep_fail_innermost_convfail` projects the retained cause (operand `EOOk` through the exact
+operand `SuffixMember`); prose is corrected. The original blocking classes (for the record):
 
 - **2.1** `build_outcomes_forest` never consumes `ConversionWork` — its conversion branch destructs the smaller
   `ew_conv`, gets raw refs, and does a raw map lookup; `build_conversion_work` is used only in a later fixture.
@@ -151,7 +163,33 @@ theorem · deleted old path · production-object fixture:
 Residue evidence: `grep` of every deleted name (`build_outcomes`/`ExprOutcomeTable`/`total_outcome_at`/`eot_*`/
 `build_work_sig`/`prog_work`/`prog_work_fold`/`phase_expr_facts`/`phase_expr_diags`/`awork_diags`/`build_awork`/
 `build_outcome_table`) in `GoCompile.v` code = 0; the readable Print-Assumptions gate is 428/428 closed and the
-whole-certified-theory `Fido Audit Assumptions` confirms zero project assumptions.
+whole-certified-theory `Fido Audit Assumptions` confirms zero project assumptions. (Gate count later 442/442 after
+repair 8.)
+
+**Repair 8 SUPERSEDES the repair-7 causal/outcome rows above.** The repair-7 table's `build_forest_outcome_table`
+and `forest/work-indexed direct cause` rows named `total_forest_outcome_at_caused`, `outcomes_caused_matches`,
+`phase_convfail_work_cause`/`phase_convok_work_cause`/`phase_childfail_work_cause`, and the fixture
+`deep_fail_innermost_operand_member` — all DELETED. The final table carried the raw-map `OutcomeCause` and the
+work-indexed cause was a POST-HOC translation. Repair 8 re-roots the fold on a member/suffix-indexed cause carried
+BY CONSTRUCTION; the other repair-7 rows (`ExprWorkForest`, `WorkMember`, domain, annotation, facts/diagnostics,
+dependent-chain, sealing) are unchanged and kept.
+
+**§2.18 completed behavioral evidence table (repair 8)** — production symbol · behavioral condition · load-bearing
+theorem · deleted old path · production-object fixture:
+
+| Production symbol | Behavioral condition | Theorem(s) | Deleted old path | Fixture |
+|---|---|---|---|---|
+| `SuffixMember forest items` + `ConversionStep forest current rest ts x` + `build_conversion_step` | the conversion's operand is carried as an EXACT member of the processed tail (`cs_operand_suffix : SuffixMember forest rest`, `cs_operand_exact`), never re-found | `ConversionStep` fields, `build_conversion_step` | raw `operand_key`/`from_some (find … m_rest)` operand lookup | `deep_fail_innermost_convfail` |
+| `OutcomeAccumulator forest tnft items` + `oa_total` + `build_outcome_accumulator` | proof-carrying (`oa_covers`/`oa_domain`); `oa_total` TOTAL on `SuffixMember`; the conversion cons-step queries the REST accumulator THROUGH `cs_operand_suffix` via `oa_total acc_rest`, ONE `convert_const`, no raw `find`/`operand_key`/post-hoc `ConversionWork` | `build_outcome_accumulator` (carries `FinalMemberCause` + `outcome_matches` per member) | `build_outcomes_forest` (raw fold, discarded operand member) | `deep_nested_all_ok` |
+| `StepCause` (`SCLeaf`/`SCConvOk`/`SCConvFail`/`SCChildFail`) | member/suffix-indexed DIRECT cause built INTO the fold; each conversion case reads the operand outcome THROUGH `cs_operand_suffix` via `oa_total acc_rest` | `StepCause_convfail_inv`, `StepCause_childfail_inv`, `StepCause_ok_conv_inv` (axiom-free inversions) | raw `OutcomeCause` + `leaf_outcome_cause`/`conv_outcome_cause`/`OutcomeCause_add_fresh`/`OutcomeCause_*_inv` | `deep_fail_innermost_convfail`, `deep_fail_outer_childfail` |
+| `ForestOutcomeTable` (`fot_acc`/`fot_causes`/`fot_match`) + `total_forest_outcome_cause` | the table RETAINS each member's exact insertion cause; `total_forest_outcome_cause` returns its `FinalMemberCause` (exact `ewf_items = prefix ++ current :: rest` split + prior `OutcomeAccumulator` + `StepCause`); source spec is the SEPARATE per-member `fot_match` | `total_forest_outcome_cause`, `total_forest_outcome_at_matches`, `stepcause_matches` | `fot_caused` (raw `outcomes_caused`), `total_forest_outcome_at_caused`, `outcomes_caused_matches`, `phase_*_cause`, `phase_*_work_cause` | `deep_fail_innermost_convfail`, `deep_nested_all_ok`, `two_uint8_distinct_target_refs` |
+
+Residue evidence (repair 8): `git grep` of every deleted name (`OutcomeCause`/`outcomes_caused`/
+`build_outcomes_forest`/`fot_caused`/`phase_*_cause`/`phase_*_work_cause`/`total_forest_outcome_at_caused`/
+`deep_fail_innermost_operand_member`/`operand_covered`/`outcome_covers`/`suffix_head_key_fresh`) in `GoCompile.v` +
+`gate` + charter/progress = 0; no `from_some` of a raw operand lookup in production; readable gate 442/442 closed,
+whole-theory `Fido Audit Assumptions` zero project assumptions, self-tests A–E, working-tree generated bytes
+byte-match, `make regenerate` no-drift, `make regen-guard` DAG edge load-bearing.
 
 **Repair-6 blocking classes (§2 of the repair-6 directive):** 2.1 CompilationInput computes the visit from a
 SECOND `prog_blocks` call (two independent `prog_blocks p` terms); 2.2 three independent work builders, not one;
