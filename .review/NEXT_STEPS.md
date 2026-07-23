@@ -21,7 +21,9 @@
 - **Fifth blocked C4 candidate:** `9d4aff5d94d9aac293ff7fb98a7d9fdd59159022`.
 - **Sixth blocked C4 candidate / repair-6 baseline:** `3b4f40e1f14c501fd76333ec8a8cd3e582ed1598`.
 - **Seventh C4 candidate (repair 6 APPLIED, frozen):** the `review(final): C4 — freeze single retained
-  work-domain candidate` commit at repository HEAD (repair-6 implementation range `3b4f40e..HEAD`).
+  work-domain candidate` commit at repository HEAD (repair-6 implementation range `3b4f40e..HEAD`). An earlier
+  freeze `3a92d22` is SUPERSEDED by this head (a post-freeze completeness fix — every deep_nested conversion
+  proven EOOk + a concrete `ep_eft` seal — required a new freeze head).
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_6.md`.
 - **Human repair authorization token:** `C4-single-retained-work-domain-repair-6`.
 - **State:** C4 single retained work-domain repair 6 APPLIED and frozen; **pending Rob's HUMAN Implementation

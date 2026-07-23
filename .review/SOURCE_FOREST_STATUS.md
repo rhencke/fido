@@ -57,8 +57,11 @@ so a foreign component is unrepresentable.
 ### Repair 6 APPLIED — frozen for human Implementation Review
 
 The single retained work-domain repair is applied and frozen. **Seventh C4 candidate: the `review(final): C4 —
-freeze single retained work-domain candidate` commit carrying this file** (repair-6 implementation range
-`3b4f40e..HEAD`; sixth blocked candidate `3b4f40e`). Status: **pending Rob's HUMAN Implementation Review**;
+freeze single retained work-domain candidate` commit at repository HEAD** (repair-6 implementation range
+`3b4f40e..HEAD`; sixth blocked candidate `3b4f40e`). An earlier freeze `3a92d22` is SUPERSEDED by this head: after
+it, `deep_nested_all_ok` was completed to prove EVERY conversion of the chain EOOk (not a 3-of-5 subset) and a
+concrete `deep_nested_seals_eft` was added, so a new freeze head was created per the freeze rule (git holds the
+superseded freeze). Status: **pending Rob's HUMAN Implementation Review**;
 automatic Codex is DISABLED (not requested/run); ADR-0001 PROPOSED; ADR-0002 REJECTED AS WRITTEN (rewritten,
 open); C5 and every later checkpoint remain FORBIDDEN. GREEN: `make check` (pinned-Rocq prove — gate 428/428
 axiom-free + whole-theory audit + self-tests A–E — pinned-Go e2e, and the working-tree generated-byte compare),
