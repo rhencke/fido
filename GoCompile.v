@@ -3052,7 +3052,7 @@ Definition oa_total {p} {input : CompilationInput p} {forest : ExprWorkForest in
    the exact prior accumulator. *)
 Inductive StepCause {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) (current : ExprWork input) (rest : list (ExprWork input))
-    (acc_rest : OutcomeAccumulator forest tnft rest) : ExprOutcome p -> Type :=
+    (acc_rest : OutcomeAccumulator forest tnft rest) : ExprOutcome p -> Prop :=
 | SCLeaf : forall ci,
     expr_child (ew_expr current) = None -> const_info (ew_expr current) = Some ci ->
     StepCause forest tnft current rest acc_rest (leaf_outcome (ew_expr_ref current) ci)
@@ -3097,6 +3097,94 @@ Definition FinalMemberCause {p} {input : CompilationInput p} (forest : ExprWorkF
     ((exists prefix, items = prefix ++ sm_work sm :: rest)
      * StepCause forest tnft (sm_work sm) rest acc_rest o)%type } }.
 
+(* a retained member's occurrence role IS its ExprRef's role (both read the member's own source occurrence). *)
+Lemma ew_occ_role {p} {input : CompilationInput p} (w : ExprWork input) :
+  GoIndex.occurrence_role (ew_occurrence w) = expr_ref_role (ew_expr_ref w).
+Proof.
+  unfold expr_ref_role. rewrite (ew_erase_exact w),
+    (prog_visit_occ_is_source p (ew_node_ref w) (ew_occurrence w) (ci_in_prog (ew_in_visit w))). reflexivity.
+Qed.
+
+(* a conversion step's outcome (in [conv_outcome] form over its operand's outcome) MATCHES the source spec, GIVEN
+   the operand's own outcome matches (via [conv_stored_matches] over the operand's projected fact). *)
+Lemma conv_step_matches {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (current : ExprWork input) (rest : list (ExprWork input))
+    (acc_rest : OutcomeAccumulator forest tnft rest) ts x (step : ConversionStep forest current rest ts x)
+    (He : ew_expr current = EConvert ts x)
+    (Hops : forall sm_op : SuffixMember forest rest,
+       outcome_matches (ci_idx input) (ew_node_ref (sm_work sm_op)) (ew_occurrence (sm_work sm_op))
+         (oa_total acc_rest sm_op)) :
+  outcome_matches (ci_idx input) (ew_node_ref current) (ew_occurrence current)
+    (conv_outcome tnft (ew_expr_ref current) (cw_target_ref (cs_conversion step))
+       (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+       (oa_total acc_rest (cs_operand_suffix step))).
+Proof.
+  pose proof (Hops (cs_operand_suffix step)) as Hopm.
+  unfold sm_work in Hopm. rewrite (cs_operand_exact step) in Hopm.
+  assert (Hoprv : GoIndex.view_expr (ew_occurrence (proj1_sig (cw_operand_work (cs_conversion step)))) = Some x)
+    by (rewrite (ew_view_exact (proj1_sig (cw_operand_work (cs_conversion step)))),
+          (cw_operand_expr (cs_conversion step)); reflexivity).
+  assert (Htnf : tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))) = predeclared_type ts)
+    by (rewrite (type_name_fact_at_table_resolves tnft (cw_target_ref (cs_conversion step)) ts
+                   (cw_target_syntax (cs_conversion step))); reflexivity).
+  exact (conv_stored_matches (ci_idx input) tnft (ew_node_ref current) (ew_expr_ref current)
+           (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) (cw_target_ref (cs_conversion step))
+           (ew_occurrence current) (ew_occurrence (proj1_sig (cw_operand_work (cs_conversion step)))) ts x
+           (ew_as_expr_exact current)
+           (ltac:(rewrite (ew_view_exact current), He; reflexivity))
+           (ew_occ_role current) Htnf
+           (cw_target_ref_eq (cs_conversion step)) (cw_operand_ref_eq (cs_conversion step))
+           (oa_total acc_rest (cs_operand_suffix step))
+           (outcome_matches_proj (ci_idx input) (ew_node_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+              (ew_occurrence (proj1_sig (cw_operand_work (cs_conversion step))))
+              (oa_total acc_rest (cs_operand_suffix step)) Hopm)
+           Hoprv).
+Qed.
+
+(** ═══ §9.5 THE SEPARATE SPEC BRIDGE ═══ a member's [StepCause] AGREES with the index-free source specification
+    [outcome_matches], GIVEN every rest member's outcome matches (the operand's match on [acc_rest] — supplied by
+    the fold's own recursion, so this is NOT the production cause but a separate exactness theorem). *)
+Lemma stepcause_matches {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (current : ExprWork input) (rest : list (ExprWork input))
+    (acc_rest : OutcomeAccumulator forest tnft rest) o :
+  StepCause forest tnft current rest acc_rest o ->
+  (forall sm_op : SuffixMember forest rest,
+     outcome_matches (ci_idx input) (ew_node_ref (sm_work sm_op)) (ew_occurrence (sm_work sm_op))
+       (oa_total acc_rest sm_op)) ->
+  outcome_matches (ci_idx input) (ew_node_ref current) (ew_occurrence current) o.
+Proof.
+  intros Hsc Hops. destruct Hsc as [ ci Hnone Hconst
+                                   | ts x step opf tc Hcur He Hop Hconv
+                                   | ts x step opf Hcur He Hop Hconv
+                                   | ts x step Hcur He Hfail ].
+  - exact (leaf_stored_matches (ci_idx input) (ew_node_ref current) (ew_expr_ref current)
+             (ew_occurrence current) (ew_expr current) ci (ew_view_exact current)
+             (ew_occ_role current) Hconst).
+  - (* SCConvOk: the index EQUALS [conv_outcome] over the operand (EOOk opf) with a succeeding convert_const *)
+    enough (Hm : outcome_matches (ci_idx input) (ew_node_ref current) (ew_occurrence current)
+                   (conv_outcome tnft (ew_expr_ref current) (cw_target_ref (cs_conversion step))
+                      (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+                      (oa_total acc_rest (cs_operand_suffix step)))).
+    { revert Hm. rewrite Hop. cbn [conv_outcome]. rewrite Hconv. exact (fun H => H). }
+    apply conv_step_matches; assumption.
+  - (* SCConvFail *)
+    enough (Hm : outcome_matches (ci_idx input) (ew_node_ref current) (ew_occurrence current)
+                   (conv_outcome tnft (ew_expr_ref current) (cw_target_ref (cs_conversion step))
+                      (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+                      (oa_total acc_rest (cs_operand_suffix step)))).
+    { revert Hm. rewrite Hop. cbn [conv_outcome]. rewrite Hconv. exact (fun H => H). }
+    apply conv_step_matches; assumption.
+  - (* SCChildFail: operand failed, so [conv_outcome] is [EOChildFail] *)
+    enough (Hm : outcome_matches (ci_idx input) (ew_node_ref current) (ew_occurrence current)
+                   (conv_outcome tnft (ew_expr_ref current) (cw_target_ref (cs_conversion step))
+                      (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step))))
+                      (oa_total acc_rest (cs_operand_suffix step)))).
+    { revert Hm. unfold conv_outcome.
+      destruct (oa_total acc_rest (cs_operand_suffix step)) as [opf| | ];
+        [ cbn [outcome_is_fail] in Hfail; destruct Hfail | exact (fun H => H) | exact (fun H => H) ]. }
+    apply conv_step_matches; assumption.
+Qed.
+
 (* §4/§5/§7 THE MEMBER/SUFFIX-INDEXED CAUSAL FOLD: builds the [OutcomeAccumulator] over the exact suffix [items]
    AND, for every retained member, its [FinalMemberCause] — the exact suffix split + the exact prior accumulator +
    the exact [StepCause] used at insertion.  A CONVERSION head builds ONE [ConversionStep] and reads its operand's
@@ -3107,7 +3195,10 @@ Definition build_outcome_accumulator {p} {input : CompilationInput p} (forest : 
   forall (items : list (ExprWork input)),
     (exists ipre, ewf_items forest = ipre ++ items) ->
     { acc : OutcomeAccumulator forest tnft items &
-        forall sm : SuffixMember forest items, FinalMemberCause forest tnft items sm (oa_total acc sm) }.
+        forall sm : SuffixMember forest items,
+          (FinalMemberCause forest tnft items sm (oa_total acc sm)
+           * outcome_matches (ci_idx input) (ew_node_ref (sm_work sm)) (ew_occurrence (sm_work sm))
+               (oa_total acc sm))%type }.
 Proof.
   induction items as [| w rest IH]; intro Hsuf.
   - assert (Hcov0 : forall w0, In w0 (@nil (ExprWork input)) ->
@@ -3167,9 +3258,14 @@ Proof.
       assert (Ho : oa_total macc sm = o).
       { unfold oa_total. apply from_some_eq. unfold macc; cbn [oa_map].
         rewrite Hhead, GoIndex.nodekeymap_add_eq. reflexivity. }
-      exists rest, acc_rest. split.
-      * exists (@nil (ExprWork input)). cbn [app]. rewrite Hsw. reflexivity.
-      * rewrite Ho, Hsw. exact stepc.
+      split.
+      -- (* the retained cause *)
+         exists rest, acc_rest. split.
+         ++ exists (@nil (ExprWork input)). cbn [app]. rewrite Hsw. reflexivity.
+         ++ rewrite Ho, Hsw. exact stepc.
+      -- (* the source-spec match, from the head StepCause + the operands' matches on [acc_rest] *)
+         rewrite Ho, Hsw.
+         exact (stepcause_matches w rest acc_rest o stepc (fun sm_op => snd (causes_rest sm_op))).
     + (* TAIL: this member is in [rest] *)
       assert (Hin_rest : In (sm_work sm) rest).
       { destruct (proj2_sig sm) as [Hwsw | Hin];
@@ -3180,11 +3276,17 @@ Proof.
         rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Htail; symmetry; exact Hbad).
         exact (from_some_some (GoIndex.NodeKeyMapBase.find (sm_key sm') (oa_map acc_rest))
                  (oa_covers acc_rest (sm_work sm') (proj2_sig sm'))). }
-      destruct (causes_rest sm') as [rest'' [acc'' [ Hex stepc'' ]]].
-      exists rest'', acc''. split.
-      * destruct Hex as [prefix'' Hsplit'']. exists (w :: prefix''). exact (f_equal (cons w) Hsplit'').
-      * rewrite Hoo. exact stepc''.
+      destruct (causes_rest sm') as [ Hfmc Hmatch ].
+      split.
+      -- (* the retained cause, lifted from the tail *)
+         destruct Hfmc as [rest'' [acc'' [ Hex stepc'' ]]].
+         exists rest'', acc''. split.
+         ++ destruct Hex as [prefix'' Hsplit'']. exists (w :: prefix''). exact (f_equal (cons w) Hsplit'').
+         ++ rewrite Hoo. exact stepc''.
+      -- (* the source-spec match, inherited from the tail *)
+         rewrite Hoo. exact Hmatch.
 Defined.
+
 
 (** ═══ §6/§2.3/§2.10 THE OUTCOME FOLD OVER THE RETAINED WORK FOREST ═══ folds a suffix of the retained work
     forest object's [ewf_items] (the ONE retained work order) into the outcome map, CARRYING the direct cause +
@@ -3267,36 +3369,49 @@ Defined.
     over the ONE retained work forest's pair-projection.  Its domain is EXACTLY the retained [ewf_items] key set
     ([fot_domain_iff_forest] — MEMBERSHIP in the retained enumeration, NOT an [exists w] over arbitrary
     constructible work), and the TOTAL query is defined only for a RETAINED forest member (no raw [find] option). *)
+(* a retained [WorkMember] IS a [SuffixMember] of the whole [ewf_items] (its own membership proof). *)
+Definition wm_suffix {p} {input : CompilationInput p} {forest : ExprWorkForest input} (wm : WorkMember forest)
+  : SuffixMember forest (ewf_items forest) := exist _ wm (proj2_sig wm).
+
+(* §6/§2.9 THE FOREST-INDEXED OUTCOME TABLE carries the ONE retained proof-carrying [OutcomeAccumulator] over the
+   forest's [ewf_items], the per-member RETAINED cause ([fot_causes]: for each member, its exact suffix split +
+   prior accumulator + [StepCause]), and the per-member source-spec match ([fot_match], the SEPARATE §9.5 bridge). *)
 Record ForestOutcomeTable {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) : Type :=
   mkForestOutcomeTable {
-    fot_map : GoIndex.NodeKeyMapBase.t (ExprOutcome p) ;
-    fot_caused : outcomes_caused (ci_idx input) tnft
-                   (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest)) fot_map ;
-    fot_dom : outcome_dom_exact
-                (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest)) fot_map
+    fot_acc : OutcomeAccumulator forest tnft (ewf_items forest) ;
+    fot_causes : forall wm : WorkMember forest,
+      FinalMemberCause forest tnft (ewf_items forest) (wm_suffix wm) (oa_total fot_acc (wm_suffix wm)) ;
+    fot_match : forall wm : WorkMember forest,
+      outcome_matches (ci_idx input) (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
+        (oa_total fot_acc (wm_suffix wm))
   }.
 Arguments mkForestOutcomeTable {p input forest tnft} _ _ _.
-Arguments fot_map {p input forest tnft} _.
-Arguments fot_caused {p input forest tnft} _.  Arguments fot_dom {p input forest tnft} _.
+Arguments fot_acc {p input forest tnft} _.  Arguments fot_causes {p input forest tnft} _.
+Arguments fot_match {p input forest tnft} _.
+
+(* the underlying map + exact domain, projected from the retained accumulator (preserving the downstream interface —
+   [total_forest_outcome_at]/[fot_domain_iff_forest]/[fot_nonexpr_absent] read these). *)
+Definition fot_map {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) : GoIndex.NodeKeyMapBase.t (ExprOutcome p) := oa_map (fot_acc ot).
+Definition fot_dom {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) :
+    outcome_dom_exact (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest)) (fot_map ot) :=
+  oa_domain (fot_acc ot).
 
 Definition build_forest_outcome_table {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) : ForestOutcomeTable forest tnft :=
-  let bo := build_outcomes_forest forest tnft (ewf_items forest)
+  let bc := build_outcome_accumulator forest tnft (ewf_items forest)
               (ex_intro _ (@nil (ExprWork input)) eq_refl) in
-  mkForestOutcomeTable (proj1_sig bo) (proj1 (proj2_sig bo)) (proj2 (proj2_sig bo)).
+  mkForestOutcomeTable (projT1 bc)
+    (fun wm => fst (projT2 bc (wm_suffix wm))) (fun wm => snd (projT2 bc (wm_suffix wm))).
 
-(* §2.10 a RETAINED member's key is present — its pair is in the forest projection, covered by the carried cause.
+(* §2.10 a RETAINED member's key is present — its pair is in the forest projection, covered by the accumulator.
    No equal-key search over an arbitrary [ExprWork]: membership in [ewf_items] is the hypothesis. *)
-Lemma fot_present {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (w : ExprWork input) (Hin : In w (ewf_items forest)) :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot) <> None.
-Proof.
-  exact (outcomes_caused_covers (ci_idx input) tnft
-           (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest)) (fot_map ot) (fot_caused ot)
-           (ew_node_ref w) (ew_occurrence w) (ew_expr w)
-           (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest) w Hin) (ew_view_exact w)).
-Qed.
+Definition fot_present {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (w : ExprWork input) (Hin : In w (ewf_items forest))
+  : GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (fot_map ot) <> None :=
+  oa_covers (fot_acc ot) w Hin.
 
 (* §2.10 the TOTAL outcome query CONSUMES a retained [WorkMember] — [from_some], never a raw option, and never an
    arbitrary constructible [ExprWork]. *)
@@ -3374,43 +3489,87 @@ Proof.
   apply fold_ext_in. intros; apply Hagree.
 Qed.
 
-(* the carried cause, re-expressed over the whole retained visit (every visited expression occurrence is a forest
-   pair), so the repair-5 exactness bridge [outcomes_caused_matches] applies to the forest table. *)
-Lemma fot_caused_visit {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) :
-  outcomes_caused (ci_idx input) tnft (prog_visit p) (fot_map ot).
-Proof.
-  intros r occ e Hin Hv.
-  assert (Hinf : In (r, occ) (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (ewf_items forest))).
-  { rewrite (ewf_items_exact forest). apply filter_In.
-    split; [rewrite (ci_visit_ok input); exact Hin | exact (occ_is_expr_true r occ e Hv)]. }
-  exact (fot_caused ot r occ e Hinf Hv).
-Qed.
-
-(* §6/§2.9 the TOTAL query PROJECTS the carried DIRECT cause at the retained MEMBER's work. *)
-Lemma total_forest_outcome_at_caused {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) :
-  OutcomeCause (ci_idx input) tnft (fot_map ot)
-    (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm)) (total_forest_outcome_at ot wm).
-Proof.
-  destruct (fot_caused_visit ot (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
-              (ew_expr (proj1_sig wm)) (ci_in_prog (ew_in_visit (proj1_sig wm)))
-              (ew_view_exact (proj1_sig wm))) as [out [Hf Hc]].
-  unfold total_forest_outcome_at.
-  rewrite (from_some_eq _ (fot_present ot (proj1_sig wm) (proj2_sig wm)) out Hf). exact Hc.
-Qed.
-
-(* the TOTAL query MATCHES the source specification at the member's own occurrence (§11.5), via the carried cause +
-   the repair-5 exactness bridge. *)
+(* §11.5 the TOTAL query MATCHES the source specification at the member's own occurrence — the retained per-member
+   spec bridge [fot_match] (proved by construction alongside the fold via [stepcause_matches], SEPARATE from the
+   direct cause; NOT production-cause evidence). *)
 Lemma total_forest_outcome_at_matches {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
     (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) :
   outcome_matches (ci_idx input) (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
     (total_forest_outcome_at ot wm).
+Proof. exact (fot_match ot wm). Qed.
+
+(** §6/§2.9 the TOTAL query's RETAINED DIRECT CAUSE: for each member, the exact insertion [FinalMemberCause] — the
+    exact suffix split [ewf_items = prefix ++ current :: rest], the exact prior [OutcomeAccumulator] for [rest],
+    and the exact [StepCause] used at insertion (which reads the operand outcome THROUGH the exact operand
+    [SuffixMember] via [oa_total acc_rest]).  This IS the production cause the fold retained — no reconstruction. *)
+Definition total_forest_outcome_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest)
+  : FinalMemberCause forest tnft (ewf_items forest) (wm_suffix wm) (total_forest_outcome_at ot wm) :=
+  fot_causes ot wm.
+
+(** §5/§9.3 the RETAINED direct cause, PROJECTED by inverting the member's [StepCause] (axiom-free — the outcome
+    index selects the constructor; NO dependent-destruction axiom).  These are the production cause forms: they
+    carry the exact [ConversionStep] and read the operand outcome THROUGH the exact operand [SuffixMember] via
+    [oa_total acc_rest], NOT a raw re-derived key. *)
+Lemma StepCause_convfail_inv {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (current : ExprWork input) (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest)
+    er2 tr2 opr2 t ci :
+  StepCause forest tnft current rest acc_rest (EOConvFail er2 tr2 opr2 t ci) ->
+  exists ts x (step : ConversionStep forest current rest ts x) opf,
+       ew_expr current = EConvert ts x
+    /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ er2 = ew_expr_ref current
+    /\ tr2 = cw_target_ref (cs_conversion step)
+    /\ opr2 = ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))
+    /\ t = tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))
+    /\ ci = ef_const_status opf
+    /\ convert_const t ci = None.
 Proof.
-  exact (outcomes_caused_matches (ci_idx input) tnft (fot_map ot) (fot_caused_visit ot)
-           (ew_expr (proj1_sig wm)) (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
-           (total_forest_outcome_at ot wm) (ci_in_prog (ew_in_visit (proj1_sig wm)))
-           (ew_view_exact (proj1_sig wm)) (total_forest_outcome_at_caused ot wm)).
+  intro Hsc. remember (EOConvFail er2 tr2 opr2 t ci) as ov eqn:Hov.
+  destruct Hsc as [ ci0 Hnone Hconst | ts x step opf tc Hcur He Hop Hconv
+                  | ts x step opf Hcur He Hop Hconv | ts x step Hcur He Hfail ];
+    try discriminate Hov.
+  injection Hov as Her2 Htr2 Hopr2 Ht Hci. subst.
+  exists ts, x, step, opf.
+  repeat split; (assumption || reflexivity).
+Qed.
+
+Lemma StepCause_childfail_inv {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (current : ExprWork input) (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest) :
+  StepCause forest tnft current rest acc_rest EOChildFail ->
+  exists ts x (step : ConversionStep forest current rest ts x),
+       ew_expr current = EConvert ts x
+    /\ outcome_is_fail (oa_total acc_rest (cs_operand_suffix step)).
+Proof.
+  intro Hsc. remember EOChildFail as ov eqn:Hov.
+  destruct Hsc as [ ci0 Hnone Hconst | ts x step opf tc Hcur He Hop Hconv
+                  | ts x step opf Hcur He Hop Hconv | ts x step Hcur He Hfail ];
+    try discriminate Hov.
+  exists ts, x, step. split; assumption.
+Qed.
+
+Lemma StepCause_ok_conv_inv {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (current : ExprWork input) (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest)
+    ts0 x0 f :
+  ew_expr current = EConvert ts0 x0 ->
+  StepCause forest tnft current rest acc_rest (EOOk f) ->
+  exists ts x (step : ConversionStep forest current rest ts x) opf tc,
+       oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+         (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc)
+             (use_resolved_of_ci (expr_ref_role (ew_expr_ref current))
+                (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc)).
+Proof.
+  intros Hconvcur Hsc. remember (EOOk f) as ov eqn:Hov.
+  destruct Hsc as [ ci0 Hnone Hconst | ts x step opf tc Hcur He Hop Hconv
+                  | ts x step opf Hcur He Hop Hconv | ts x step Hcur He Hfail ];
+    try discriminate Hov.
+  - (* SCLeaf: leaf_outcome = EOOk, but [current] is a conversion (has a child) — contradiction *)
+    exfalso. rewrite Hconvcur in Hnone. cbn [expr_child] in Hnone. discriminate Hnone.
+  - (* SCConvOk *)
+    injection Hov as Hf. exists ts, x, step, opf, tc.
+    split; [ exact Hop | split; [ exact Hconv | exact (eq_sym Hf) ] ].
 Qed.
 
 (** §12 FORWARD OUTCOME SHAPE — the total outcome of a work item is DETERMINED by its occurrence's local shape,
@@ -3791,225 +3950,6 @@ Proof.
     (destruct (const_info x) as [ci'|] eqn:Ex; [| discriminate H];
      destruct (convert_const _ ci') as [c'|] eqn:Ec; [ discriminate H | injection H as Ht Hc; subst ];
      exists x; cbn [conv_targets]; rewrite Ex; split; [reflexivity | split; [reflexivity | exact Ec]]).
-Qed.
-
-(* INVERSION of the carried cause at an [EOConvFail]: the ONLY [OutcomeCause] constructor producing an
-   [EOConvFail] is [OCConvFail], so the direct-cause fields (own ref, retained target/operand refs, table-query
-   target, operand success outcome in [prior], rejecting [convert_const]) are READ OFF the carried relation —
-   no [local_conv_failure], no source reconstruction. *)
-Lemma OutcomeCause_EOConvFail_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ
-    (er2 : GoIndex.ExprRef p) (tr2 : GoIndex.TypeNameRef p) (opr2 : GoIndex.ExprRef p) t ci :
-  OutcomeCause idx tnft prior r occ (EOConvFail er2 tr2 opr2 t ci) ->
-  GoIndex.as_expr idx r = Some er2
-  /\ conversion_target_ref idx er2 = Some tr2
-  /\ conversion_operand_ref idx er2 = Some opr2
-  /\ t = tnf_type (type_name_fact_at_table tnft tr2)
-  /\ (exists opf, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr2)) prior
-                   = Some (EOOk opf) /\ ci = ef_const_status opf)
-  /\ convert_const t ci = None.
-Proof.
-  intro HC. inversion HC; subst.
-  repeat split; try eassumption; try reflexivity.
-  eexists; split; [ eassumption | reflexivity ].
-Qed.
-
-(** ═══ §7 THE DIRECT CONVERSION-FAILURE CAUSE ═══ a stored [EOConvFail] does NOT reduce to a re-run of the
-    source-spec [local_conv_failure]/[const_info]: its cause is a PROJECTION of the carried [OutcomeCause]
-    ([total_forest_outcome_at_caused] + [OutcomeCause_EOConvFail_inv]).  For any retained work item whose
-    TOTAL outcome is [EOConvFail], the reported refs ARE the work's OWN retained conversion target/operand
-    refs; the reported target type IS the SEALED [TypeNameFactTable]'s stored fact at that target ref (never a
-    fresh resolver call); the operand's OWN total outcome is a SUCCESS [EOOk opf] whose [ef_const_status] IS the
-    reported [ci] (never a fresh [const_info] scan); and [convert_const] genuinely REJECTS that status at that
-    resolved target.  The whole causal chain is READ OFF the ONE retained phase, not reconstructed. *)
-Lemma phase_convfail_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest)
-    (er2 : GoIndex.ExprRef p) (tr2 : GoIndex.TypeNameRef p) (opr2 : GoIndex.ExprRef p) t ci :
-  total_forest_outcome_at ot wm = EOConvFail er2 tr2 opr2 t ci ->
-     er2 = ew_expr_ref (proj1_sig wm)
-  /\ conversion_target_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some tr2
-  /\ conversion_operand_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some opr2
-  /\ t = tnf_type (type_name_fact_at_table tnft tr2)
-  /\ (exists opf, GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr2)) (fot_map ot)
-                    = Some (EOOk opf) /\ ci = ef_const_status opf)
-  /\ convert_const t ci = None.
-Proof.
-  intro Hcf.
-  pose proof (total_forest_outcome_at_caused ot wm) as HC. rewrite Hcf in HC.
-  destruct (OutcomeCause_EOConvFail_inv (ci_idx input) tnft (fot_map ot)
-              (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm)) er2 tr2 opr2 t ci HC)
-    as [Ha2 [Htr2 [Hopr2 [Ht [ [opf [Hfind Hcieq]] Hcv ]]]]].
-  assert (Her2 : er2 = ew_expr_ref (proj1_sig wm))
-    by (rewrite (ew_as_expr_exact (proj1_sig wm)) in Ha2; injection Ha2 as Hh; exact (eq_sym Hh)).
-  subst er2.
-  split; [ reflexivity | ]. split; [ exact Htr2 | ]. split; [ exact Hopr2 | ]. split; [ exact Ht | ].
-  split; [ exists opf; split; [ exact Hfind | exact Hcieq ] | exact Hcv ].
-Qed.
-
-(* §7/§2.7 the DIRECT CHILD-FAILURE cause: the only [OutcomeCause] producing [EOChildFail] is [OCChildFail], so
-   a blocked conversion read its operand's ALREADY-STORED outcome and it is a genuine FAILURE. *)
-Lemma OutcomeCause_EOChildFail_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ :
-  OutcomeCause idx tnft prior r occ EOChildFail ->
-  exists (er : GoIndex.ExprRef p) ts x (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) oout,
-    GoIndex.as_expr idx r = Some er
-    /\ GoIndex.view_expr occ = Some (EConvert ts x)
-    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some oout
-    /\ outcome_is_fail oout.
-Proof. intro HC. inversion HC; subst. do 6 eexists. repeat split; eassumption. Qed.
-
-Lemma phase_childfail_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) :
-  total_forest_outcome_at ot wm = EOChildFail ->
-  exists (opr : GoIndex.ExprRef p) oout,
-    conversion_operand_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some opr
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) (fot_map ot) = Some oout
-    /\ outcome_is_fail oout.
-Proof.
-  intro Hcf.
-  pose proof (total_forest_outcome_at_caused ot wm) as HC. rewrite Hcf in HC.
-  destruct (OutcomeCause_EOChildFail_inv (ci_idx input) tnft (fot_map ot)
-              (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm)) HC)
-    as [er0 [ts [x [tr [opr [oout [Ha [_ [_ [Hopr [Hfind Hfail]]]]]]]]]]].
-  assert (Her0 : er0 = ew_expr_ref (proj1_sig wm))
-    by (rewrite (ew_as_expr_exact (proj1_sig wm)) in Ha; injection Ha as Hh; exact (eq_sym Hh)). subst er0.
-  exists opr, oout. split; [ exact Hopr | split; [ exact Hfind | exact Hfail ] ].
-Qed.
-
-(* §7/§2.7 the DIRECT CONVERSION-SUCCESS cause: a conversion occurrence (view = [EConvert]) whose outcome is
-   [EOOk f] is [OCConvOk] (never [OCLeaf] — a conversion has a child), so [f] was built from the table query +
-   the operand's EOOk fact + ONE succeeding [convert_const]. *)
-Lemma OutcomeCause_EOOk_conv_inv {p} (idx : GoIndex.Snap.SyntaxIndex p) (tnft : TypeNameFactTable p)
-    (prior : GoIndex.NodeKeyMapBase.t (ExprOutcome p)) (r : GoIndex.Snap.NodeRef p) occ f ts x :
-  GoIndex.view_expr occ = Some (EConvert ts x) ->
-  OutcomeCause idx tnft prior r occ (EOOk f) ->
-  exists (er : GoIndex.ExprRef p) (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf tc,
-    GoIndex.as_expr idx r = Some er
-    /\ conversion_target_ref idx er = Some tr /\ conversion_operand_ref idx er = Some opr
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) prior = Some (EOOk opf)
-    /\ convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = Some tc
-    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)
-             (use_resolved_of_ci (expr_ref_role er) (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)).
-Proof.
-  intros Hview HC. inversion HC; subst.
-  - exfalso.
-    match goal with Hvl : GoIndex.view_expr occ = Some ?e0, Hch : expr_child ?e0 = None |- _ =>
-      rewrite Hview in Hvl; injection Hvl as He0; subst e0; discriminate Hch end.
-  - do 5 eexists. repeat split; try eassumption; try reflexivity.
-Qed.
-
-Lemma phase_convok_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x f :
-  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
-  total_forest_outcome_at ot wm = EOOk f ->
-  exists (tr : GoIndex.TypeNameRef p) (opr : GoIndex.ExprRef p) opf tc,
-    conversion_target_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some tr
-    /\ conversion_operand_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some opr
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) (fot_map ot) = Some (EOOk opf)
-    /\ convert_const (tnf_type (type_name_fact_at_table tnft tr)) (ef_const_status opf) = Some tc
-    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)
-             (use_resolved_of_ci (expr_ref_role (ew_expr_ref (proj1_sig wm)))
-                (CITyped (tnf_type (type_name_fact_at_table tnft tr)) tc)).
-Proof.
-  intros Hview Hcf.
-  pose proof (total_forest_outcome_at_caused ot wm) as HC. rewrite Hcf in HC.
-  destruct (OutcomeCause_EOOk_conv_inv (ci_idx input) tnft (fot_map ot)
-              (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm)) f ts x Hview HC)
-    as [er0 [tr [opr [opf [tc [Ha [Htr [Hopr [Hfind [Hcv Hfeq]]]]]]]]]].
-  assert (Her0 : er0 = ew_expr_ref (proj1_sig wm))
-    by (rewrite (ew_as_expr_exact (proj1_sig wm)) in Ha; injection Ha as Hh; exact (eq_sym Hh)). subst er0.
-  exists tr, opr, opf, tc.
-  split; [ exact Htr | split; [ exact Hopr | split; [ exact Hfind | split; [ exact Hcv | exact Hfeq ] ] ] ].
-Qed.
-
-(** ═══ §6/§2.9 THE FOREST/WORK-INDEXED DIRECT CAUSE ═══ the PRODUCTION cause form, indexed by the exact retained
-    [ConversionWork] (which carries the exact operand [WorkMember] [cw_operand_work] AND the processed-suffix order
-    [cw_target_before_op]).  The operand outcome is read THROUGH that exact operand member via
-    [total_forest_outcome_at] — NOT a raw [find] at a re-derived key.  So each cause retains the exact conversion
-    work, the exact operand work, the suffix relation, and a lookup performed through that operand work item.  The
-    source-spec bridge stays a SEPARATE theorem ([outcomes_caused_matches]). *)
-Lemma total_forest_outcome_at_find {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) v :
-  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref (proj1_sig wm))) (fot_map ot) = Some v ->
-  total_forest_outcome_at ot wm = v.
-Proof. intro Hf. unfold total_forest_outcome_at. apply from_some_eq. exact Hf. Qed.
-
-(* CONVERSION SUCCESS: the operand's outcome — read through the exact operand [WorkMember] — is [EOOk opf], and
-   ONE [convert_const] at the carried target built the stored fact. *)
-Lemma phase_convok_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
-    (cwk : ConversionWork forest (proj1_sig wm) ts x) f :
-  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
-  total_forest_outcome_at ot wm = EOOk f ->
-  exists opf tc,
-       total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf
-    /\ convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) (ef_const_status opf) = Some tc
-    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) tc)
-             (use_resolved_of_ci (expr_ref_role (ew_expr_ref (proj1_sig wm)))
-                (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))) tc)).
-Proof.
-  intros Hview Hcf.
-  destruct (phase_convok_cause ot wm ts x f Hview Hcf)
-    as [tr [opr [opf [tc [Htr [Hopr [Hfind [Hcv Hfeq]]]]]]]].
-  assert (Htreq : tr = cw_target_ref cwk).
-  { rewrite (cw_target_ref_eq cwk) in Htr. injection Htr as HH. exact (eq_sym HH). }
-  subst tr.
-  assert (Hopreq : opr = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
-  { rewrite (cw_operand_ref_eq cwk) in Hopr. injection Hopr as HH. exact (eq_sym HH). }
-  exists opf, tc.
-  assert (Hopf : total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf).
-  { apply total_forest_outcome_at_find.
-    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
-  split; [ exact Hopf | split; [ exact Hcv | exact Hfeq ] ].
-Qed.
-
-(* CONVERSION LOCAL FAILURE: the operand's outcome (through the exact operand member) is [EOOk opf], and ONE
-   [convert_const] at the carried target REJECTED it — the [EOConvFail] fields are exactly those refs. *)
-Lemma phase_convfail_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
-    (cwk : ConversionWork forest (proj1_sig wm) ts x) er2 tr2 opr2 t ci :
-  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
-  total_forest_outcome_at ot wm = EOConvFail er2 tr2 opr2 t ci ->
-  exists opf,
-       total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf
-    /\ tr2 = cw_target_ref cwk
-    /\ opr2 = ew_expr_ref (proj1_sig (cw_operand_work cwk))
-    /\ t = tnf_type (type_name_fact_at_table tnft (cw_target_ref cwk))
-    /\ ci = ef_const_status opf
-    /\ convert_const t ci = None.
-Proof.
-  intros Hview Hcf.
-  destruct (phase_convfail_cause ot wm er2 tr2 opr2 t ci Hcf)
-    as [Her2 [Htr2 [Hopr2 [Ht [ [opf [Hfind Hcieq]] Hcv ]]]]].
-  assert (Htreq : tr2 = cw_target_ref cwk).
-  { rewrite (cw_target_ref_eq cwk) in Htr2. injection Htr2 as HH. exact (eq_sym HH). }
-  assert (Hopreq : opr2 = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
-  { rewrite (cw_operand_ref_eq cwk) in Hopr2. injection Hopr2 as HH. exact (eq_sym HH). }
-  exists opf.
-  assert (Hopf : total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf).
-  { apply total_forest_outcome_at_find.
-    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
-  split; [ exact Hopf | ]. split; [ exact Htreq | ]. split; [ exact Hopreq | ].
-  split; [ rewrite Ht, Htreq; reflexivity | ]. split; [ exact Hcieq | exact Hcv ].
-Qed.
-
-(* CHILD FAILURE: the operand's outcome (through the exact operand member) is itself a FAILURE. *)
-Lemma phase_childfail_work_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
-    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x
-    (cwk : ConversionWork forest (proj1_sig wm) ts x) :
-  GoIndex.view_expr (ew_occurrence (proj1_sig wm)) = Some (EConvert ts x) ->
-  total_forest_outcome_at ot wm = EOChildFail ->
-  outcome_is_fail (total_forest_outcome_at ot (cw_operand_work cwk)).
-Proof.
-  intros Hview Hcf.
-  destruct (phase_childfail_cause ot wm Hcf) as [opr [oout [Hopr [Hfind Hfail]]]].
-  assert (Hopreq : opr = ew_expr_ref (proj1_sig (cw_operand_work cwk))).
-  { rewrite (cw_operand_ref_eq cwk) in Hopr. injection Hopr as HH. exact (eq_sym HH). }
-  assert (Hoo : total_forest_outcome_at ot (cw_operand_work cwk) = oout).
-  { apply total_forest_outcome_at_find.
-    rewrite <- (ew_erase_exact (proj1_sig (cw_operand_work cwk))), <- Hopreq. exact Hfind. }
-  rewrite Hoo. exact Hfail.
 Qed.
 
 (** a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
@@ -10493,18 +10433,26 @@ Qed.
 
 (* §12.2 — deep_fail INNERMOST int8(300): the sole EOConvFail on the production table; its refs are the work's OWN
    carried refs and its DIRECT cause reads the operand's stored EOOk fact (the leaf's success), NOT a rescan. *)
+(* §12/§6 — the innermost int8(300) convfail projects its RETAINED cause from the corrected outcome table: the
+   member's [total_forest_outcome_cause] destructs to the exact insertion [StepCause], which (inverted) yields the
+   exact [ConversionStep], the operand outcome read THROUGH the exact operand [SuffixMember] via [oa_total acc_rest]
+   ([= EOOk opf]), ONE rejecting [convert_const], and an [EOConvFail] naming the exact operand ref.  No post-hoc
+   [ConversionWork] built after the table result — the cause is the one the fold retained. *)
 Theorem deep_fail_innermost_convfail :
   let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
   let ot := ep_ot (build_expression_phase input) in
-  exists (wm : WorkMember (ep_work (build_expression_phase input))) tr2 opr2 t ci opf,
-    ew_expr (proj1_sig wm) = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)
-    /\ total_forest_outcome_at ot wm = EOConvFail (ew_expr_ref (proj1_sig wm)) tr2 opr2 t ci
-    /\ conversion_target_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some tr2
-    /\ conversion_operand_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some opr2
-    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr2)) (fot_map ot)
-         = Some (EOOk opf)
-    /\ ci = ef_const_status opf
-    /\ convert_const t ci = None.
+  exists (wm : WorkMember (ep_work (build_expression_phase input)))
+         (rest : list (ExprWork input))
+         (acc_rest : OutcomeAccumulator (ep_work (build_expression_phase input))
+                       (ep_tnft (build_expression_phase input)) rest)
+         (step : ConversionStep (ep_work (build_expression_phase input)) (proj1_sig wm) rest
+                   (GoAST.tsyn GoNames.TNint8) (EInt 300)) opf t,
+       ew_expr (proj1_sig wm) = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)
+    /\ total_forest_outcome_at ot wm
+         = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
+             (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf)
+    /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ convert_const t (ef_const_status opf) = None.
 Proof.
   cbn zeta.
   destruct (GoIndex.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
@@ -10518,54 +10466,22 @@ Proof.
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { vm_compute; discriminate. }
-  destruct (phase_convfail_cause _ wm er2 tr2 opr2 t ci Hout)
-    as [Her2 [Htr2 [Hopr2 [_ [[opf [Hfind Hcieq]] Hcv]]]]].
-  subst er2.
-  exists wm, tr2, opr2, t, ci, opf.
-  split; [exact He | split; [exact Hout | split; [exact Htr2 | split; [exact Hopr2
-    | split; [exact Hfind | split; [exact Hcieq | exact Hcv]]]]]].
-Qed.
-
-(* §12/§6 — the innermost int8(300) convfail's OPERAND, read THROUGH the exact retained operand [WorkMember]
-   [cw_operand_work] of its [ConversionWork] view, is [EOOk]; and the [EOConvFail] NAMES that exact operand ref.
-   The operand cause points to the exact retained operand member, not a raw re-derived key. *)
-Theorem deep_fail_innermost_operand_member :
-  let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
-  let ot := ep_ot (build_expression_phase input) in
-  exists (wm : WorkMember (ep_work (build_expression_phase input)))
-         (cwk : ConversionWork (ep_work (build_expression_phase input)) (proj1_sig wm)
-                  (GoAST.tsyn GoNames.TNint8) (EInt 300)) opf t,
-       ew_expr (proj1_sig wm) = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)
-    /\ total_forest_outcome_at ot wm
-         = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref cwk)
-             (ew_expr_ref (proj1_sig (cw_operand_work cwk))) t (ef_const_status opf)
-    /\ total_forest_outcome_at ot (cw_operand_work cwk) = EOOk opf.
-Proof.
-  cbn zeta.
-  destruct (GoIndex.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-  destruct (program_member_at deep_fail_program (mkFP "main.go" eq_refl) deep_fail_src 11 occ
-              (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300)) ltac:(vm_compute; reflexivity) Eo
-              ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He _]]].
-  assert (Hview : GoIndex.view_expr (ew_occurrence (proj1_sig wm))
-                  = Some (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))).
-  { rewrite (ew_view_exact (proj1_sig wm)), He. reflexivity. }
-  pose (cwk := build_conversion_work
-                 (ep_work (build_expression_phase
-                    (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
-                 (proj1_sig wm) (GoAST.tsyn GoNames.TNint8) (EInt 300) Hview).
-  destruct (total_forest_outcome_convfail_shape
-              (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
-              wm (GoAST.tsyn GoNames.TNint8) (EInt 300) Hview)
-    as [er2 [tr2 [opr2 [t [ci Hout]]]]].
-  { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
-  { vm_compute; discriminate. }
-  destruct (phase_convfail_work_cause _ wm (GoAST.tsyn GoNames.TNint8) (EInt 300) cwk er2 tr2 opr2 t ci Hview Hout)
-    as [opf [Hopf [Htreq [Hopreq [_ [Hcieq _]]]]]].
-  destruct (phase_convfail_cause _ wm er2 tr2 opr2 t ci Hout) as [Her2 _]. subst er2.
-  exists wm, cwk, opf, t.
-  split; [ exact He | split ].
-  - rewrite Hout, Htreq, Hopreq, Hcieq. reflexivity.
-  - exact Hopf.
+  pose proof (total_forest_outcome_cause
+                (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+                wm) as Hcause.
+  rewrite Hout in Hcause.
+  destruct Hcause as [rest [acc_rest [Hsplit stepc]]].
+  destruct (StepCause_convfail_inv _ rest acc_rest er2 tr2 opr2 t ci stepc)
+    as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her2 [Htr2 [Hopr2 [_ [Hci Hcv]]]]]]]]]]].
+  (* the innermost conversion is exactly int8(300); [current] is definitionally [proj1_sig wm], so
+     rewrite the goal side and close by conversion (He's [ew_expr (proj1_sig wm)] unifies with [ew_expr current]) *)
+  assert (Heq : EConvert ts0 x0 = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))
+    by (rewrite <- Hstep_e; exact He).
+  injection Heq as Hts0 Hx0. subst ts0 x0.
+  exists wm, rest, acc_rest, step, opf, t.
+  split; [ exact He | split; [ | split; [ exact Hopf | ] ] ].
+  - rewrite Hout, Her2, Htr2, Hopr2, Hci. reflexivity.
+  - rewrite <- Hci. exact Hcv.
 Qed.
 
 (* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each EOChildFail (blocked by the inner fail;

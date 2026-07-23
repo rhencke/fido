@@ -301,25 +301,26 @@ Print Assumptions GoCompile.ewf_forward.
 Print Assumptions GoCompile.ewf_keys_nodup.
 Print Assumptions GoCompile.ewf_operand_in_tail.
 Print Assumptions GoCompile.total_forest_outcome_at_matches.
-(* §6/§7 the forest outcome table CARRIES the DIRECT cause: the total query BY WORK ITEM projects the carried
-   [OutcomeCause] ([total_forest_outcome_at_caused]); the three DIRECT cause theorems (conversion success / local
-   rejection / blocked child) are PROJECTIONS of that carried relation, keyed by the work item — NOT reconstructed
-   from [local_conv_failure]/[const_info]. *)
-Print Assumptions GoCompile.total_forest_outcome_at_caused.
-Print Assumptions GoCompile.phase_convfail_cause.
-Print Assumptions GoCompile.phase_convok_cause.
-Print Assumptions GoCompile.phase_childfail_cause.
-(* §6/§2.9 the FOREST/WORK-INDEXED direct cause: the production cause form retains the exact [ConversionWork] (with
-   its exact operand [WorkMember] [cw_operand_work] and processed-suffix order [cw_target_before_op]) and reads the
-   operand outcome THROUGH that exact member via [total_forest_outcome_at] — success, local rejection, and blocked
-   child, each carrying the exact work identities, not a raw re-derived key lookup. *)
-Print Assumptions GoCompile.phase_convok_work_cause.
-Print Assumptions GoCompile.phase_convfail_work_cause.
-Print Assumptions GoCompile.phase_childfail_work_cause.
-(* §6 the SEPARATE exactness theorem: the carried DIRECT cause AGREES with the index-free source specification —
-   every [OutcomeCause] entry satisfies [outcome_matches] (structural induction on the occurrence view).  This is
-   what lets the outcome table carry ONLY the cause while the fact/diagnostic projections still reach the spec. *)
-Print Assumptions GoCompile.outcomes_caused_matches.
+(* §6/§2.9 (REPAIR 8) the forest outcome table CARRIES the RETAINED member/suffix-indexed cause:
+   [total_forest_outcome_cause] returns, for each member, its exact insertion [FinalMemberCause] — the exact suffix
+   split [ewf_items = prefix ++ current :: rest], the exact prior [OutcomeAccumulator] for [rest], and the exact
+   [StepCause] used at insertion (built into the fold by construction).  The direct cause is PROJECTED by inverting
+   that [StepCause] (axiom-free): local rejection / blocked child / conversion success, each reading the operand
+   outcome THROUGH the exact operand [SuffixMember] via [oa_total acc_rest] — NOT a raw re-derived key lookup, NOT a
+   post-hoc reconstruction.  The build ([build_outcome_accumulator]/[build_conversion_step]/[build_forest_outcome_
+   table]) is axiom-free. *)
+Print Assumptions GoCompile.total_forest_outcome_cause.
+Print Assumptions GoCompile.StepCause_convfail_inv.
+Print Assumptions GoCompile.StepCause_childfail_inv.
+Print Assumptions GoCompile.StepCause_ok_conv_inv.
+Print Assumptions GoCompile.build_outcome_accumulator.
+Print Assumptions GoCompile.build_conversion_step.
+Print Assumptions GoCompile.build_forest_outcome_table.
+(* §9.5 the SEPARATE spec bridge (NOT production-cause evidence): a member's [StepCause] AGREES with the index-free
+   source specification [outcome_matches] given the operands' matches ([stepcause_matches], by construction in the
+   fold); the total query at a retained member matches its own occurrence ([total_forest_outcome_at_matches]). *)
+Print Assumptions GoCompile.stepcause_matches.
+Print Assumptions GoCompile.total_forest_outcome_at_matches.
 (* §7/§2.9 the forest outcome table's domain is EXACTLY the RETAINED work forest's key set: every work item has an
    entry ([fot_present]); the biconditional is over MEMBERSHIP in the retained enumeration [ewf_items]
    ([fot_domain_iff_forest], NOT an [exists w] over any constructible [ExprWork]) — so a table with the required
@@ -437,11 +438,11 @@ Print Assumptions GoCompile.deep_fail_phase_reports.
    each enclosing conversion is EOChildFail; the stored diagnostic list is EXACTLY ONE; the valid deep chain's
    conversions + leaf all resolve EOOk; the retained work forest has EXACTLY 5 items; and the production table
    admits NO foreign key and NO wrong-kind (non-expression) key ([ep_work]/[ep_ot], not the specification). *)
+(* §12/§6 the innermost convfail PROJECTS its RETAINED cause from the corrected outcome table: the member's
+   [total_forest_outcome_cause] destructs to the exact insertion [StepCause], inverted to the exact [ConversionStep]
+   whose operand outcome — read THROUGH the exact operand [SuffixMember] via [oa_total acc_rest] — is [EOOk opf],
+   with ONE rejecting [convert_const] and an [EOConvFail] naming that exact operand ref. *)
 Print Assumptions GoCompile.deep_fail_innermost_convfail.
-(* §12/§6 the innermost convfail's operand — read THROUGH the exact retained operand [WorkMember] [cw_operand_work]
-   of its [ConversionWork] view — is [EOOk], and the [EOConvFail] names that exact operand ref (operand cause =
-   exact retained operand member, not a raw re-derived key). *)
-Print Assumptions GoCompile.deep_fail_innermost_operand_member.
 Print Assumptions GoCompile.deep_fail_outer_childfail.
 Print Assumptions GoCompile.deep_fail_exactly_one_diag.
 Print Assumptions GoCompile.deep_nested_all_ok.
