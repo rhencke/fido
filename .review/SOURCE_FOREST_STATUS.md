@@ -47,12 +47,25 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
   and reported for Rob's human Implementation Review — no Codex review is requested or run.
 - C5, every later checkpoint, and the post-C4 trim remain forbidden (the trim until C4 acceptance).
 
-## Repair 9 — blocking classes (final-to-tail causal closure) — ACTIVE at `a2a5b46`
+## Repair 9 — blocking classes (final-to-tail causal closure) — RESOLVED (candidate complete)
 
-Repair 8 correctly repaired the live semantic step (KEEP it). The one remaining defect is the final RETENTION
-boundary: the fold computes each member from the actual tail `OutcomeAccumulator`, but the final table retains no
-causal structure proving that the existential `acc_rest` inside `FinalMemberCause` IS the actual tail of
-`fot_acc`.
+The ninth C4 Implementation Review was BLOCKING at `a2a5b46`. Repair 8's live semantic step is CORRECT and kept;
+the remaining defect — the final RETENTION boundary — is REPAIRED by an INTRINSIC causal object. Each blocking
+class below is CLOSED: `ForestOutcomeTable` = `fot_acc` + `fot_trace : OutcomeTrace … fot_acc` (the accumulator
+paired with the trace that built it, so accumulator and causal predecessor chain are NOT freely pairable);
+`build_forest_outcome_table` folds `build_outcome_trace` (ONE causal object); `total_forest_outcome_cause`
+PROJECTS the trace (`trace_retained_cause`) to each member's `RetainedMemberCause` carrying the AUTHENTICATED tail
+accumulator + `StepCause` + tail-to-final QUERY PRESERVATION; `final_operand_outcome` closes a conversion's operand
+into the final table; direct fixtures `deep_fail_innermost_convfail`/`deep_fail_outer_operands_final_fail`/
+`deep_nested_chain_operands_final_ok` prove closure into the final table; the old `build_outcome_accumulator` +
+`FinalMemberCause` are deleted; prose corrected; gate 446/446. Frozen at the `review(final): C4 — freeze causally
+closed outcome-trace candidate` commit (repository HEAD); human C4 Implementation Review pending. Full human review
+range `8c9212a..`<freeze>; full repair range `89b8e54..`<freeze>; repair-9 range `a2a5b46..`<freeze>. The original
+blocking classes (for the record):
+
+Repair 8 correctly repaired the live semantic step. The remaining defect was the final RETENTION boundary: the
+fold computed each member from the actual tail `OutcomeAccumulator`, but the final table retained no causal
+structure proving that the existential `acc_rest` inside `FinalMemberCause` was the actual tail of `fot_acc`.
 
 - **2.1** `OutcomeAccumulator` carries no causal predecessor (no exact tail accumulator, current member,
   `StepCause`, or recursive trace); `build_outcome_accumulator` returns the causes as a SEPARATE dependent
