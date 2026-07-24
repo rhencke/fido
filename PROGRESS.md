@@ -135,9 +135,13 @@ and `ExprFactTable` are sealed into `ElaborationFacts` by object
 identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); direct production-object phase fixtures
 query `total_forest_outcome_at` at REAL `WorkMember`s from `ep_work` and project the retained cause with FINAL-TO-TAIL
 CLOSURE (innermost `EOConvFail` whose retained cause reads the operand's `EOOk` through the exact operand `SuffixMember`
-AND closes it into the final table `deep_fail_innermost_convfail`; the outer `EOChildFail` operands are failures in the
-final table `deep_fail_outer_operands_final_fail`; the valid-chain conversions' operands are `EOOk` in the final table
-`deep_nested_chain_operands_final_ok`; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
+AND closes it into the final table `deep_fail_innermost_convfail`, CONNECTED to the exact stored `DRInvalidConversion`
+diagnostic `deep_fail_innermost_diag`; the outer `EOChildFail` operands are failures in the final table
+`deep_fail_outer_operands_final_fail`; the valid-chain conversions' operands are `EOOk` in the final table
+`deep_nested_chain_operands_final_ok`; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.
+The universal acceptance evidence (`retained_convsuccess_closure` / `retained_childfail_closure` +no-local-reason /
+`retained_convfail_diag` / `outcome_trace_unique_step`) is gated in the readable assumption gate (repair 10 — evidence
+closeout only; the production architecture is unchanged and pending Rob's human C4 Implementation Review).  Frozen for Rob's human Implementation
 Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
 `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN). Live
 status: `.review/SOURCE_FOREST_STATUS.md`.

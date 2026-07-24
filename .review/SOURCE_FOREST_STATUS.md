@@ -29,11 +29,18 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
   Review.
 - C5, every later checkpoint, and the post-C4 trim remain forbidden (the trim until C4 acceptance).
 
-## Repair 10 — evidence and status closeout — ACTIVE at `a8a4472`
+## Repair 10 — evidence and status closeout — CANDIDATE COMPLETE (awaiting human review)
 
 **§0 human disposition: the production architecture PASSES the causal-path review; NO new production-path defect
-found; the repair-9 architecture is RETAINED.** The candidate is BLOCKING only on acceptance-evidence and
-current-status exactness (a narrow evidence/prose closeout, not an architecture redesign):
+found; the repair-9 architecture is RETAINED.** The candidate was BLOCKING only on acceptance-evidence and
+current-status exactness (a narrow evidence/prose closeout, not an architecture redesign) — all now CLOSED: the
+final-to-tail closure fixtures + the exact `EOConvFail`→`DRInvalidConversion` diagnostic theorem
+(`deep_fail_innermost_diag`) + the universal closures (`retained_convsuccess_closure` /
+`retained_childfail_closure` +no-local-reason / `retained_convfail_diag`) + the unique-trace-insertion theorem
+(`outcome_trace_unique_step`) are proved and NAMED in the readable assumption gate (456/456), and this ledger is a
+compact current record. Frozen at the `review(final): C4 — freeze exact acceptance-evidence candidate` commit
+(repository HEAD); human C4 Implementation Review pending; full human review range `8c9212a..`<freeze>; full repair
+range `89b8e54..`<freeze>; repair-10 range `a8a4472..`<freeze>. The original blocking classes (for the record):
 
 - **2.1** the new final-to-tail closure fixtures (`deep_fail_childfail_closure_at`, `deep_nested_ok_closure_at`,
   `deep_fail_outer_operands_final_fail`, `deep_nested_chain_operands_final_ok`) are NOT in the readable assumption

@@ -1,6 +1,7 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **evidence and status closeout repair 10.** The repair-9 production architecture
+- **Active checkpoint:** C4 **evidence and status closeout repair 10 — CANDIDATE COMPLETE, awaiting Rob's human
+  C4 Implementation Review.** The repair-9 production architecture
   PASSES the causal-path review — **no new production-path defect was found; the repair-9 architecture (intrinsic
   `OutcomeTrace` indexed by `fot_acc`; `total_forest_outcome_cause` projected from the retained trace; tail-to-
   final query preservation; `final_operand_outcome`; one dependent `ExpressionPhase` chain; exact sealing;
@@ -39,8 +40,13 @@
 - **Human repair authorization token:** `C4-evidence-status-closeout-repair-10`.
 - **Production architecture disposition:** no new production-path defect found; the repair-9 architecture is
   RETAINED (this repair changes evidence/gate/status only, not the production root).
-- **State:** C4 Implementation Review BLOCKING; **evidence/status closeout repair 10 active** (all ten blocked
-  candidates end at `a8a4472`, the current repair baseline).
+- **Repair-10 candidate head:** the `review(final): C4 — freeze exact acceptance-evidence candidate` freeze
+  commit (repository HEAD).
+- **Full human C4 Implementation Review range:** `8c9212a..`<freeze> (original C4 baseline → candidate head).
+- **Full repair range:** `89b8e54..`<freeze>.
+- **Repair-10 range:** `a8a44723..`<freeze>.
+- **State:** C4 Implementation Review — **evidence/status closeout repair 10 candidate COMPLETE; all ten blocked
+  candidates ended at `a8a4472`; human C4 Implementation Review pending.**
 - **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition. **ADR-0002 is REJECTED AS
   WRITTEN / OPEN — no numeric implementation change authorized.** SR-009 = UNRESOLVED EXISTING RESTRICTION. Every
   PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.
