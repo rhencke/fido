@@ -19,43 +19,39 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
   `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- **Blocked C4 candidates (all twelve):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) · `af2fc87` (4) ·
+- **Blocked C4 candidates (all thirteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) · `af2fc87` (4) ·
   `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) · `3ecf32e` (11) ·
-  `48c0b31beb547326b058748a4d38c6cc41013009` (12 — **the current repair-12 baseline**).
-- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_12.md`**, human authorization token
-  `C4-final-identity-collection-audit-closeout-repair-12`. Repairs 1–11 are superseded (each deleted in the first
-  implementation commit of the next repair; git history is their archive).
-- **C4 disposition: NOT accepted at `48c0b31`. Repair 12 (exact success identity + collection-audit closeout)
-  candidate COMPLETE and FROZEN at this freeze commit; the twelfth BLOCKING result is repaired and a NEW human C4
-  Implementation Review is pending.** The production architecture continues to PASS the causal-path review (no new
-  production-path defect; no production change made). Commit `37c9597` (`review(accept): C4 — accept exact source-type
-  conversion foundation`) is a **SUPERSEDED documentation-only acceptance closeout** — based on the withdrawn GREEN
-  disposition, it did NOT repair the two defects and does not accept C4. Ranges: full human C4 review
-  `8c9212a..`this freeze commit; full repair `89b8e54..`this freeze commit; repair-12 `48c0b31..`this freeze commit.
-  Automatic Codex review is DISABLED.
+  `48c0b31` (12) · `af7d5d3e23c26850887c4fb178dad5f29c616385` (13 — **the current repair-13 baseline**).
+- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_13.md`**, human authorization token
+  `C4-standard-work-member-index-repair-13`. Repairs 1–12 are superseded (each deleted in the first implementation
+  commit of the next repair; git history is their archive).
+- **C4 disposition: NOT accepted at `af7d5d3`. Repair 13 (exact standard work-member index) is ACTIVE.** Commit
+  `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) is a **SUPERSEDED
+  documentation-only acceptance closeout** — based on the withdrawn GREEN disposition, it does not accept C4 and is
+  not an implementation candidate. Ranges: full human C4 review `8c9212a..`the repair-13 freeze commit; full repair
+  `89b8e54..`the repair-13 freeze commit; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..`the repair-13
+  freeze commit.** Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
-## Repair 12 — exact success identity and collection-audit closeout — COMPLETE and FROZEN (baseline `48c0b31`)
+## Repair 13 — exact standard work-member index — ACTIVE (baseline `af7d5d3`)
 
-**The production architecture PASSES the causal-path review; NO new production-path defect; no production change was
-made.** A narrow theorem-statement, gate-comment, collection-audit, and authority-prose closeout of two exact defects,
-now complete:
+**The defect.** `ExprWorkForest.ewf_items` is a legitimate ordered per-file-order list, but it is ALSO used as a
+production `NodeKey` identity lookup table. `forest_member_at` searches it with `List.find` on `nodekey_eqb`, using
+the carried `ewf_keys_nodup` field as its uniqueness mechanism, and it sits in the live semantic path
+`build_outcome_trace → build_conversion_step → build_conversion_work → forest_member_at` — once per conversion. That
+is the `list + NoDup` keyed-table shape the binding collection law forbids: identity-keyed roles must use a mature
+finite map. The scan survives proof erasure and makes a nested conversion chain's operand lookup avoidably
+quadratic. The previous collection audit's "no `List.find` for identity/membership storage", "`NoDup` is never a
+carried uniqueness field standing in for a map", and "every identity-keyed collection has a mature standard
+backing" rows were therefore FALSE.
 
-- **2.1–2.3 (success identity)** the conversion-success theorem family now exposes source-step identity. Root:
-  `StepCause_ok_conv_inv` returns the `ConversionStep` at the EXACT source `ts0`/`x0` supplied — it inverts `SCConvOk`
-  (whose own `ew_expr current = EConvert ts x` is injected against the premise `ew_expr current = EConvert ts0 x0`)
-  and substitutes, so no existential source-type distinction survives. `retained_convsuccess_closure` and
-  `nested_success_bundle` return `step : ConversionStep ... ts x` (no existential `ts0`/`x0`);
-  `deep_nested_convsuccess_at` / `deep_nested_chain_success_evidence` expose the exact source `ConversionStep` for
-  each of the four valid conversions; the gate comments quote the source-step identity.
-- **2.4–2.6 (collection audit)** `.review/COLLECTION_AUDIT.md` is rewritten around the current objects:
-  `ExprWorkForest`/`AnnotatedExprWorkForest` (ordered retained `list` views), `OutcomeAccumulator.oa_map` /
-  `ForestOutcomeTable.fot_acc` (the standard `NodeKeyMapBase` FMapAVL identity map, one entry per key, NO list bucket,
-  no overwrite), `OutcomeTrace` (intrinsic causal inductive), `ForestExprFactTable`/`ExprFactTable` (the EOOk
-  projection), and the separate `TypeNameFactTable`; the current source form is `DMain body`. A full symbol-existence
-  pass confirms every current token exists, and the deleted `prog_conv_outcomes` / `TFun` (and old `FMap.v` /
-  radix `NodeTable`) names are labeled rejected/historical, not current.
+**The required repair.** Replace the hidden list-key authority with an exact standard-map-backed work-member index
+(`GoIndex.NodeKeyMapBase`, built ONCE from the already-retained `ewf_items`, tied to that exact list by dependent
+typing and exact bidirectional laws, no silent overwrite, no fallback, no second work discovery), and replace
+`forest_member_at` with a total map-backed member query threaded through `build_conversion_work` /
+`build_conversion_step`. The ordered list stays the source-order authority; the map is the derived identity index,
+not a second source or semantic authority. Repair 12's exact source-step identity results are RETAINED unchanged.
 
 ## Current implementation architecture (RETAINED)
 
@@ -90,15 +86,17 @@ projections (`deep_nested_ok_closure_at`, `deep_fail_outer_operands_final_fail`,
 
 ## Current verification state
 
-`make prove` — readable Print-Assumptions gate axiom-free (458/458 surfaces closed) + whole-theory `Fido Audit
-Assumptions` + self-tests A–E; `make e2e` (materialize + pinned-Go `go build ./...` + goldens + sink + full alias
-matrix); `make check` working-tree generated bytes byte-match the pristine build; `make regenerate` no drift;
-`make regen-guard` DAG edge load-bearing; `git diff --check` clean. The repair-12 freeze commit will be the candidate
-head; the exact readable-gate count and SHA are given in the final report.
+At the repair-13 baseline `af7d5d3`: `make prove` — readable Print-Assumptions gate axiom-free (458/458 surfaces
+closed) + whole-theory `Fido Audit Assumptions` + self-tests A–E; `make e2e` (materialize + pinned-Go
+`go build ./...` + goldens + sink + full alias matrix); `make check` working-tree generated bytes byte-match the
+pristine build; `make regenerate` no drift; `make regen-guard` DAG edge load-bearing; `git diff --check` clean.
+Those commands were green at `af7d5d3` and did NOT catch the collection-role defect — green commands do not replace
+inspection of the actual lookup path. The repair-13 freeze commit and its exact readable-gate count are reported
+when repair 13 completes.
 
 ## Scope
 
 ADR-0001-PINNED-64-BIT-TARGET **PROPOSED**; ADR-0002-BOUNDED-DECIMALFLOAT-DOMAIN **REJECTED AS WRITTEN / OPEN**;
 SR-009 **UNRESOLVED EXISTING RESTRICTION**; every `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` entry PROPOSED with
-a neutral classification unless Rob explicitly accepts it. No numeric-model or scope change in repair 11; the
-DecimalFloat decision work is not begun.
+a neutral classification unless Rob explicitly accepts it. No numeric-model or scope change in repair 12 or repair
+13; the DecimalFloat decision work is not begun.
