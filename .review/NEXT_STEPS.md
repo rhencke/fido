@@ -5,20 +5,20 @@
   `CompilationInput`, `ExprWorkForest`, `WorkMember`/`SuffixMember`, `ConversionWork`/`ConversionStep`,
   `OutcomeAccumulator`, `StepCause`, the intrinsic `OutcomeTrace`, `ForestOutcomeTable`, the final-to-tail
   query-preservation path, the dependent `ExpressionPhase` chain, fact/diagnostic projection, exact sealing,
-  rendering/aliases/generated output) — **no production change is authorized in this repair.** Repair 10's
+  rendering/aliases/generated output) — **no production change was made in this repair.** Repair 10's
   acceptance evidence (the final-to-tail closure fixtures, the universal closures, the stored-diagnostic
-  connection, the unique-trace theorem) is present and gated. The candidate is blocked by this repair-11 review
-  only because some public theorem STATEMENTS and active-authority PROSE are not yet exact — a narrow closeout, not
-  an architecture change. The repair-11 findings: (2.5) `deep_nested_ok_closure_at`'s statement returns only the
-  operand tail/final `EOOk` + query equality while its proof (and the gate comment) claim the exact
-  `ConversionStep`/target fact/`convert_const` success — the accepted concrete valid-chain success theorem must
-  STATE the full `retained_convsuccess_closure` evidence; (2.6) `deep_fail_innermost_diag` must additionally state
-  `t = tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))` and the retained
-  annotated member/context pair that supplied `outer`; (2.1–2.4/2.7/2.8) the authority/status/progress/
-  architecture prose and gate comments must describe the CURRENT candidate (not repair 7/9/unresolved repair-10
-  tasks), the C4/C5 alias timing must be corrected (byte/rune source aliases are C4, not "next"), gate comments
-  must match the exact printed statements, and the range wording must use "this freeze commit" (no literal
-  `<freeze>`). **Post-C4 trim: FORBIDDEN until C4 is accepted.**
+  connection, the unique-trace theorem) is present and gated. This repair-11 closeout is **COMPLETE and FROZEN** at
+  this freeze commit (the final exact acceptance candidate); the public theorem STATEMENTS and active-authority PROSE
+  are now exact. Addressed: (2.5) the accepted concrete valid-chain success theorem now STATES the full
+  `retained_convsuccess_closure` evidence (`deep_nested_convsuccess_at` proving `nested_success_bundle`, and
+  `deep_nested_chain_success_evidence` over all four conversions), and `deep_nested_ok_closure_at` is relabeled the
+  operand-closure-only corollary; (2.6) `deep_fail_innermost_diag` now STATES `t = tnf_type (type_name_fact_at_table
+  (ep_tnft phase) (cw_target_ref (cs_conversion step)))` and the retained annotated member/context pair (`In (wma,
+  outer) (aewf_items (ep_awork phase))` ∧ `proj1_sig wma = proj1_sig wm`) that supplied `outer`; (2.1–2.4/2.7/2.8) the
+  authority/status/progress/architecture prose and gate comments now describe the CURRENT candidate, the C4/C5 alias
+  timing is corrected (byte/rune source aliases are C4; uintptr + rune constants/literals are C5, which reopens
+  ADR-0001), the gate comments match the exact printed statements, and range wording names this freeze commit.
+  **Post-C4 trim: FORBIDDEN until C4 is accepted.**
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
@@ -28,13 +28,14 @@
   `3ecf32e3f7b9514070a1025b73231f541990e93c` (11 — the repair-10 freeze; **the current repair-11 baseline**).
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_11.md`.
 - **Human repair authorization token:** `C4-final-evidence-authority-closeout-repair-11`.
-- **Production architecture disposition:** accepted for this repair; NO production change authorized (this repair
-  changes theorem statements, gate comments, and authority prose only).
+- **Production architecture disposition:** accepted for this repair; NO production change was made (this repair
+  changed theorem statements, gate comments, and authority prose only).
 - **Candidate ranges (this freeze commit is the repair-11 candidate head; the report gives the exact SHA):** full
   human C4 Implementation Review range `8c9212a..`this freeze commit; full repair range `89b8e54..`this freeze
   commit; repair-11 range `3ecf32e3..`this freeze commit.
-- **State:** C4 Implementation Review BLOCKING; **final evidence/authority closeout repair 11 active** (all eleven
-  blocked candidates end at `3ecf32e3`, the current repair baseline).
+- **State:** C4 Implementation Review — **final evidence/authority closeout repair 11 COMPLETE and FROZEN** at this
+  freeze commit (the final exact acceptance candidate); **pending Rob's human Implementation Review.** All eleven prior
+  blocked candidates ended at `3ecf32e3` (the repair-11 baseline); this freeze is the new candidate head.
 - **Scope decisions:** ADR-0001 remains **PROPOSED** pending explicit Rob disposition. **ADR-0002 is REJECTED AS
   WRITTEN / OPEN — no numeric implementation change authorized.** SR-009 = UNRESOLVED EXISTING RESTRICTION. Every
   PROPOSED ledger entry uses a NEUTRAL classification (no REVIEWED) until Rob accepts.

@@ -25,28 +25,30 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_11.md`**, human authorization token
   `C4-final-evidence-authority-closeout-repair-11`. Repairs 1–10 are superseded (each deleted in the first
   implementation commit of the next repair; git history is their archive).
-- **C4 disposition: pending Rob's human Implementation Review — NOT accepted.** Automatic Codex review is DISABLED
-  (not requested or run). On completion the candidate is frozen with EXACTLY ONE
-  `review(final): C4 — freeze final exact acceptance candidate` and reported for that human review.
+- **C4 disposition: repair 11 COMPLETE and FROZEN at this freeze commit (the final exact acceptance candidate);
+  pending Rob's human Implementation Review — NOT accepted.** Automatic Codex review is DISABLED (not requested or
+  run). The candidate is frozen with EXACTLY ONE `review(final): C4 — freeze final exact acceptance candidate` and
+  reported for that human review.
 - C5 (= `uintptr` + rune constants/literals, which reopens ADR-0001), every later checkpoint, and the post-C4
   trim remain forbidden (the trim precedes C5 and both are gated on C4 acceptance).
 
-## Repair 11 — final evidence and authority closeout — ACTIVE at `3ecf32e3`
+## Repair 11 — final evidence and authority closeout — COMPLETE and FROZEN (baseline `3ecf32e3`)
 
 **The production architecture continues to PASS review; NO new production-path defect; the repair-9 + repair-10
-architecture/evidence is RETAINED and no production change is authorized.** A narrow theorem-statement, gate-comment,
-and authority-prose closeout (NOT an architecture repair):
+architecture/evidence is RETAINED and no production change was made.** A narrow theorem-statement, gate-comment,
+and authority-prose closeout (NOT an architecture repair), now complete:
 
-- **2.5** the accepted concrete valid-chain success theorem must STATE the full success evidence its proof obtains
+- **2.5** the accepted concrete valid-chain success theorem now STATES the full success evidence its proof obtains
   (exact `ConversionStep`, target fact query, tail = final = `EOOk opf`, one `convert_const` success, exact current
-  final `ExprFact`), not a reduced operand-closure projection.
-- **2.6** the concrete diagnostic theorem must additionally STATE `t = tnf_type (type_name_fact_at_table (ep_tnft
-  phase) (cw_target_ref (cs_conversion step)))` and the exact retained annotated member/context pair that supplied
-  `outer`.
-- **2.1–2.4/2.7/2.8** the authority / status / progress / architecture prose and gate comments must describe the
-  CURRENT candidate (present tense = current code + current review state only), the C4/C5 alias timing must be
-  corrected, gate comments must match the exact printed statements, and range wording must use "this freeze commit"
-  (no literal placeholder).
+  final `ExprFact`): `deep_nested_convsuccess_at` (proving `nested_success_bundle`) + `deep_nested_chain_success_evidence`
+  over all four conversions; `deep_nested_ok_closure_at` is relabeled the operand-closure-only corollary.
+- **2.6** the concrete diagnostic theorem `deep_fail_innermost_diag` now additionally STATES `t = tnf_type
+  (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))` and the exact retained annotated
+  member/context pair (`retained_convfail_diag` returns `wma` with `In (wma, outer) (aewf_items aw)` ∧
+  `proj1_sig wma = proj1_sig wm`) that supplied `outer`.
+- **2.1–2.4/2.7/2.8** the authority / status / progress / architecture prose and gate comments now describe the
+  CURRENT candidate (present tense = current code + current review state only), the C4/C5 alias timing is corrected,
+  gate comments match the exact printed statements, and range wording names this freeze commit.
 
 ## Current implementation architecture (RETAINED)
 
@@ -66,20 +68,24 @@ differential results and the canonical generated Go bytes unchanged; no C5.
 ## Current acceptance evidence (theorem / gate surfaces)
 
 Universal (over any retained table/member): `retained_convsuccess_closure` / `retained_childfail_closure`
-(+no-local-reason) / `retained_convfail_diag` / `outcome_trace_unique_step` (+`trace_currents_eq`). Concrete
-(over the deep programs): the exact valid-chain success evidence (four conversions), the exact
-`EOConvFail`→`DRInvalidConversion` diagnostic theorem, the outer child-failure closure, `deep_fail_exactly_one_diag`,
-the exact work count, wrong-kind/foreign exclusion, fact-table sealing, and the two-`uint8` retained-fact fixture —
-all NAMED in the readable assumption gate; the weaker shape aggregates (`deep_nested_all_ok`, etc.) are labeled
-corollaries.
+(+no-local-reason) / `retained_convfail_diag` (returns the exact retained annotated member/context pair) /
+`outcome_trace_unique_step` (+`trace_currents_eq`). Concrete (over the deep programs): the exact valid-chain success
+bundle `deep_nested_convsuccess_at` (proving `nested_success_bundle`) instantiated on all four conversions
+(`deep_nested_chain_success_evidence`); the exact `EOConvFail`→`DRInvalidConversion` diagnostic theorem
+`deep_fail_innermost_diag` (stating `t = tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref
+(cs_conversion step)))`, the annotated member, and the stored singleton); the outer child-failure closure
+`deep_fail_childfail_closure_at`, `deep_fail_exactly_one_diag`, the exact work count, wrong-kind/foreign exclusion,
+fact-table sealing, and the two-`uint8` retained-fact fixture — all NAMED in the readable assumption gate; the weaker
+projections (`deep_nested_ok_closure_at`, `deep_fail_outer_operands_final_fail`, `deep_nested_chain_operands_final_ok`,
+`deep_nested_all_ok`) are labeled corollaries.
 
 ## Current verification state
 
-`make prove` — readable Print-Assumptions gate axiom-free + whole-theory `Fido Audit Assumptions` + self-tests
-A–E; `make e2e` (materialize + pinned-Go `go build ./...` + goldens + sink + full alias matrix); `make check`
-working-tree generated bytes byte-match the pristine build; `make regenerate` no drift; `make regen-guard` DAG edge
-load-bearing; `git diff --check` clean. The repair-11 freeze commit records the final exact gate count and is the
-candidate head; the final report gives its exact SHA.
+`make prove` — readable Print-Assumptions gate axiom-free (458/458 surfaces closed) + whole-theory `Fido Audit
+Assumptions` + self-tests A–E; `make e2e` (materialize + pinned-Go `go build ./...` + goldens + sink + full alias
+matrix); `make check` working-tree generated bytes byte-match the pristine build; `make regenerate` no drift;
+`make regen-guard` DAG edge load-bearing; `git diff --check` clean. The repair-11 freeze commit is the candidate
+head; the final report gives its exact SHA.
 
 ## Scope
 
