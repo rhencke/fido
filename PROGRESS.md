@@ -86,10 +86,11 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — ELEVEN
-successive candidates have been BLOCKING at human Implementation Review (the current repair-11 baseline is the
-repair-10 freeze `3ecf32e`, and repair 11 is a theorem-statement/gate-comment/authority-prose closeout, not an
-architecture change). The production expression path is ONE `ExpressionPhase`
+Rob; **C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — HUMAN
+IMPLEMENTATION REVIEW GREEN, ACCEPTED by Rob at `48c0b31`** after eleven candidates blocked at human Implementation
+Review (all ended at the repair-10 freeze `3ecf32e`; the twelfth freeze `48c0b31`, from the repair-11
+theorem-statement/gate-comment/authority-prose closeout, is the accepted foundation — no production change). The
+production expression path is ONE `ExpressionPhase`
 built from ONE retained `CompilationInput` and driven by ONE proof-carrying retained work forest OBJECT — the
 `ExprWorkForest` record (`build_expr_work_forest`; its stored `ewf_blocks`/`ewf_items` with `ewf_items = concat
 ewf_blocks`, forward/reverse domain (`ewf_forward`/`ewf_reverse`) + key-NoDup (`ewf_keys_nodup`) + order +
@@ -146,12 +147,15 @@ concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evi
 success bundle for all four valid conversions; `deep_fail_innermost_diag`, stating the exact target fact query `t =
 tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))`, the exact retained annotated
 member, and the stored singleton) are gated in the readable assumption gate (repair 11 — a theorem-statement,
-gate-comment, and authority-prose closeout only; the production architecture is unchanged and pending Rob's human C4
-Implementation Review).  Frozen for Rob's human Implementation
-Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
-`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN). Live
-status: `.review/SOURCE_FOREST_STATUS.md`.
-Each checkpoint is activated ONLY by explicit Rob authorization; C5 and later remain FORBIDDEN.
+gate-comment, and authority-prose closeout only; the production architecture is unchanged). **ACCEPTED by Rob at
+`48c0b31` (C4 Human Implementation Review GREEN)** — no remaining production-path, provenance, theorem-surface,
+diagnostic, gate, rendering, generated-output, or current-authority defect. The authority chain is in
+`.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002`
+REJECTED-AS-WRITTEN/OPEN (unchanged by the acceptance — separate human disposition recommended). Live status:
+`.review/SOURCE_FOREST_STATUS.md`.
+Each checkpoint is activated ONLY by explicit Rob authorization. The next authorized activity is a SEPARATE post-C4
+foundation consolidation / ruthless trim checkpoint (its own contract + human review; no C5 feature may enter the
+trim); C5 and later remain FORBIDDEN until then.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 

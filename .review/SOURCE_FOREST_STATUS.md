@@ -25,18 +25,22 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_11.md`**, human authorization token
   `C4-final-evidence-authority-closeout-repair-11`. Repairs 1–10 are superseded (each deleted in the first
   implementation commit of the next repair; git history is their archive).
-- **C4 disposition: repair 11 COMPLETE and FROZEN at this freeze commit (the final exact acceptance candidate);
-  pending Rob's human Implementation Review — NOT accepted.** Automatic Codex review is DISABLED (not requested or
-  run). The candidate is frozen with EXACTLY ONE `review(final): C4 — freeze final exact acceptance candidate` and
-  reported for that human review.
-- C5 (= `uintptr` + rune constants/literals, which reopens ADR-0001), every later checkpoint, and the post-C4
-  trim remain forbidden (the trim precedes C5 and both are gated on C4 acceptance).
+- **C4 disposition: HUMAN IMPLEMENTATION REVIEW GREEN — C4 ACCEPTED by Rob at
+  `48c0b31beb547326b058748a4d38c6cc41013009`** (`review(final): C4 — freeze final exact acceptance candidate`). No
+  remaining production-path, provenance, theorem-surface, diagnostic, gate, rendering, generated-output, or
+  current-authority defect was found. Automatic Codex review remained DISABLED throughout. Repair 11 (final evidence
+  and authority closeout) is COMPLETE.
+- The next authorized activity is a SEPARATE **post-C4 foundation consolidation / ruthless trim** checkpoint
+  (deletion + abstraction consolidation without changing C4's accepted guarantees; explicit identification of
+  unresolved foundation-scope decisions), which requires its OWN explicit contract and human review. **No C5 feature
+  may enter the trim.** C5 (= `uintptr` + rune constants/literals, which reopens ADR-0001) and every later checkpoint
+  remain FORBIDDEN until the trim is separately reviewed and accepted and Rob authorizes C5.
 
-## Repair 11 — final evidence and authority closeout — COMPLETE and FROZEN (baseline `3ecf32e3`)
+## Repair 11 — final evidence and authority closeout — COMPLETE; C4 ACCEPTED at `48c0b31` (baseline `3ecf32e3`)
 
-**The production architecture continues to PASS review; NO new production-path defect; the repair-9 + repair-10
+**The production architecture PASSED review; NO new production-path defect; the repair-9 + repair-10
 architecture/evidence is RETAINED and no production change was made.** A narrow theorem-statement, gate-comment,
-and authority-prose closeout (NOT an architecture repair), now complete:
+and authority-prose closeout (NOT an architecture repair), delivered and now ACCEPTED as part of the C4 foundation:
 
 - **2.5** the accepted concrete valid-chain success theorem now STATES the full success evidence its proof obtains
   (exact `ConversionStep`, target fact query, tail = final = `EOOk opf`, one `convert_const` success, exact current
