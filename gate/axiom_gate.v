@@ -308,8 +308,10 @@ Print Assumptions GoCompile.ewf_operand_in_tail.
    pairable).  [total_forest_outcome_cause] PROJECTS the trace ([trace_retained_cause]) to each member's exact
    insertion [RetainedMemberCause] — the exact suffix split, the AUTHENTICATED tail [OutcomeAccumulator], the
    [StepCause] producing the FINAL outcome, and the tail-to-final QUERY PRESERVATION.  The direct cause is projected
-   by inverting the [StepCause] (axiom-free); [final_operand_outcome] specializes preservation to a conversion's
-   operand, proving its FINAL-table query EQUALS its retained tail query — the final-to-tail closure. *)
+   by inverting the [StepCause] (axiom-free) — [StepCause_ok_conv_inv] returns the [ConversionStep] at the EXACT
+   SOURCE [ts0]/[x0] supplied (the SCConvOk constructor's own [ew_expr current = EConvert ts x] is injected against
+   the premise, so no existential source-type distinction survives); [final_operand_outcome] specializes preservation
+   to a conversion's operand, proving its FINAL-table query EQUALS its retained tail query — the final-to-tail closure. *)
 Print Assumptions GoCompile.total_forest_outcome_cause.
 Print Assumptions GoCompile.final_operand_outcome.
 Print Assumptions GoCompile.retained_conversion_closure.
@@ -321,9 +323,10 @@ Print Assumptions GoCompile.trace_retained_cause.
 Print Assumptions GoCompile.trace_match.
 Print Assumptions GoCompile.build_conversion_step.
 Print Assumptions GoCompile.build_forest_outcome_table.
-(* §4/§5 (REPAIR 10) the UNIVERSAL acceptance theorems over ANY retained table/member: the direct conversion-success
-   closure ([retained_convsuccess_closure] — exact ConversionStep + target fact + operand SuffixMember + tail =
-   final = EOOk opf + one convert_const success + exact current fact), the direct child-failure closure +
+(* §4/§5 (REPAIR 10; §3 REPAIR 12) the UNIVERSAL acceptance theorems over ANY retained table/member: the direct
+   conversion-success closure ([retained_convsuccess_closure] — the [ConversionStep] for the EXACT SOURCE [ts]/[x]
+   (no existential ts0/x0) + target fact + operand SuffixMember + tail = final = EOOk opf + one convert_const success
+   + exact current fact), the direct child-failure closure +
    no-local-reason ([retained_childfail_closure] — operand fails in tail AND final, current EOChildFail, current
    member emits no diagnostic), the stored-diagnostic connection ([retained_convfail_diag] — the exact
    DRInvalidConversion over the STORED EOConvFail fields is a member of the projected list, read via
@@ -468,12 +471,14 @@ Print Assumptions GoCompile.deep_nested_all_ok.
 Print Assumptions GoCompile.deep_nested_seals_eft.
 Print Assumptions GoCompile.deep_nested_work_count.
 Print Assumptions GoCompile.phase_domain_exact.
-(* §3/§4 (REPAIR 11) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC evidence, gated as the accepted public
-   surfaces — each accepted theorem STATES exactly the evidence its proof obtains:
+(* §3/§4 (REPAIR 11; source-step identity §3 REPAIR 12) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
+   evidence, gated as the accepted public surfaces — each accepted theorem STATES exactly the evidence its proof
+   obtains:
    - the exact per-occurrence valid-chain SUCCESS bundle ([deep_nested_convsuccess_at], proving [nested_success_bundle]:
-     current EConvert view + current final EOOk f + exact ConversionStep + operand SuffixMember + tail = final =
-     EOOk opf + tail=final query equality + ONE convert_const success on the exact target fact + f the exact current
-     ExprFact), and its instantiation on ALL FOUR valid conversions ([deep_nested_chain_success_evidence]);
+     current EConvert view + current final EOOk f + the [ConversionStep] for the EXACT SOURCE [ts]/[x] of the bundle
+     (no existential ts0/x0) + operand SuffixMember + tail = final = EOOk opf + tail=final query equality + ONE
+     convert_const success on the exact target fact + f the exact current ExprFact), and its instantiation on ALL FOUR
+     valid conversions ([deep_nested_chain_success_evidence]);
    - the innermost convfail's retained cause CONNECTED to the exact stored [DRInvalidConversion]
      ([deep_fail_innermost_diag] — same fields, t = the exact predeclared-context target fact query
      [tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))], the exact retained

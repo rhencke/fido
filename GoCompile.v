@@ -3373,7 +3373,10 @@ Lemma StepCause_ok_conv_inv {p} {input : CompilationInput p} {forest : ExprWorkF
     ts0 x0 f :
   ew_expr current = EConvert ts0 x0 ->
   StepCause forest tnft current rest acc_rest (EOOk f) ->
-  exists ts x (step : ConversionStep forest current rest ts x) opf tc,
+  (* the returned step is the ConversionStep for the EXACT SOURCE parameters [ts0]/[x0] supplied: the SCConvOk
+     constructor's own [ew_expr current = EConvert ts x] is injected against the premise to identify ts/x with
+     ts0/x0, so no existential source-type distinction survives. *)
+  exists (step : ConversionStep forest current rest ts0 x0) opf tc,
        oa_total acc_rest (cs_operand_suffix step) = EOOk opf
     /\ convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
          (ef_const_status opf) = Some tc
@@ -3387,8 +3390,10 @@ Proof.
     try discriminate Hov.
   - (* SCLeaf: leaf_outcome = EOOk, but [current] is a conversion (has a child) — contradiction *)
     exfalso. rewrite Hconvcur in Hnone. cbn [expr_child] in Hnone. discriminate Hnone.
-  - (* SCConvOk *)
-    injection Hov as Hf. exists ts, x, step, opf, tc.
+  - (* SCConvOk: identify the constructor's ts/x with the source ts0/x0 by EConvert injectivity *)
+    assert (Hid : EConvert ts x = EConvert ts0 x0) by (rewrite <- He; exact Hconvcur).
+    injection Hid as Hts Hx. subst ts0 x0.
+    injection Hov as Hf. exists step, opf, tc.
     split; [ exact Hop | split; [ exact Hconv | exact (eq_sym Hf) ] ].
 Qed.
 
@@ -4800,8 +4805,9 @@ Lemma retained_convsuccess_closure {p} {input : CompilationInput p} {forest : Ex
     (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x f :
   ew_expr (proj1_sig wm) = EConvert ts x ->
   total_forest_outcome_at ot wm = EOOk f ->
-  exists (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest) ts0 x0
-         (step : ConversionStep forest (proj1_sig wm) rest ts0 x0) opf tc,
+  (* the returned [step] is the ConversionStep for the EXACT SOURCE [ts]/[x] (no existential ts0/x0) *)
+  exists (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest)
+         (step : ConversionStep forest (proj1_sig wm) rest ts x) opf tc,
        oa_total acc_rest (cs_operand_suffix step) = EOOk opf
     /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
     /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = oa_total acc_rest (cs_operand_suffix step)
@@ -4815,9 +4821,9 @@ Proof.
   destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hok in stepc.
   destruct (StepCause_ok_conv_inv _ rest acc_rest ts x f He stepc)
-    as [ts0 [x0 [step [opf [tc [Hopf [Hconv Hf]]]]]]].
+    as [step [opf [tc [Hopf [Hconv Hf]]]]].
   pose proof (Hclose (cs_operand_suffix step)) as Hcl.
-  exists rest, acc_rest, ts0, x0, step, opf, tc.
+  exists rest, acc_rest, step, opf, tc.
   split; [ exact Hopf | split; [ | split; [ exact Hcl | split; [ exact Hconv | exact Hf ] ] ] ].
   transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hcl | exact Hopf ].
 Qed.
@@ -10693,9 +10699,9 @@ Proof.
               wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hok in stepc.
   destruct (StepCause_ok_conv_inv _ rest acc_rest ts x f He stepc)
-    as [ts0 [x0 [step [opf [tc [Hopf [Hconv Hf]]]]]]].
+    as [step [opf [tc [Hopf [Hconv Hf]]]]].
   pose proof (Hclose (cs_operand_suffix step)) as Hcl.
-  exists wm, rest, acc_rest, ts0, x0, step, opf.
+  exists wm, rest, acc_rest, ts, x, step, opf.
   split; [ exact He | split; [ exact Hopf | split; [ | exact Hcl ] ] ].
   transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hcl | exact Hopf ].
 Qed.
@@ -10717,10 +10723,10 @@ Definition nested_success_bundle (ts : GoAST.TypeSyntax) (x : GoExpr) : Prop :=
                        (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
                        (ep_tnft (build_expression_phase
                          (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) rest)
-         ts0 x0
+         (* the step is the ConversionStep for the EXACT SOURCE [ts]/[x] of this bundle (no existential ts0/x0) *)
          (step : ConversionStep (ep_work (build_expression_phase
                    (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
-                   (proj1_sig wm) rest ts0 x0) opf f tc,
+                   (proj1_sig wm) rest ts x) opf f tc,
        ew_expr (proj1_sig wm) = EConvert ts x
     /\ total_forest_outcome_at (ep_ot (build_expression_phase
          (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) wm = EOOk f
@@ -10755,9 +10761,9 @@ Proof.
   destruct (retained_convsuccess_closure
               (ep_ot (build_expression_phase (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
               wm ts x f He Hok)
-    as [rest [acc_rest [ts0 [x0 [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]]]].
+    as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
   unfold nested_success_bundle.
-  exists wm, rest, acc_rest, ts0, x0, step, opf, f, tc.
+  exists wm, rest, acc_rest, step, opf, f, tc.
   repeat split; try assumption.
 Qed.
 

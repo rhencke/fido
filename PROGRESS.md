@@ -86,10 +86,10 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; **C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — HUMAN
-IMPLEMENTATION REVIEW GREEN, ACCEPTED by Rob at `48c0b31`** after eleven candidates blocked at human Implementation
-Review (all ended at the repair-10 freeze `3ecf32e`; the twelfth freeze `48c0b31`, from the repair-11
-theorem-statement/gate-comment/authority-prose closeout, is the accepted foundation — no production change). The
+Rob; **C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — NOT yet
+accepted; BLOCKING at `48c0b31`, exact success-identity and collection-audit closeout repair 12 active** (twelve
+candidates have blocked at human Implementation Review; the withdrawn GREEN disposition and its documentation-only
+acceptance commit `37c9597` are superseded — C4 is not human-accepted until Rob accepts it). The
 production expression path is ONE `ExpressionPhase`
 built from ONE retained `CompilationInput` and driven by ONE proof-carrying retained work forest OBJECT — the
 `ExprWorkForest` record (`build_expr_work_forest`; its stored `ewf_blocks`/`ewf_items` with `ewf_items = concat
@@ -144,18 +144,16 @@ diagnostic `deep_fail_innermost_diag`; the outer `EOChildFail` operands are fail
 The universal acceptance evidence (`retained_convsuccess_closure` / `retained_childfail_closure` +no-local-reason /
 `retained_convfail_diag` returning the exact retained annotated member / `outcome_trace_unique_step`) AND the exact
 concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evidence`, stating the full per-conversion
-success bundle for all four valid conversions; `deep_fail_innermost_diag`, stating the exact target fact query `t =
+success bundle for all four valid conversions — with the returned `ConversionStep` at the EXACT SOURCE `ts`/`x`
+identity, no existential `ts0`/`x0` (repair 12); `deep_fail_innermost_diag`, stating the exact target fact query `t =
 tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))`, the exact retained annotated
-member, and the stored singleton) are gated in the readable assumption gate (repair 11 — a theorem-statement,
-gate-comment, and authority-prose closeout only; the production architecture is unchanged). **ACCEPTED by Rob at
-`48c0b31` (C4 Human Implementation Review GREEN)** — no remaining production-path, provenance, theorem-surface,
-diagnostic, gate, rendering, generated-output, or current-authority defect. The authority chain is in
-`.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002`
-REJECTED-AS-WRITTEN/OPEN (unchanged by the acceptance — separate human disposition recommended). Live status:
-`.review/SOURCE_FOREST_STATUS.md`.
-Each checkpoint is activated ONLY by explicit Rob authorization. The next authorized activity is a SEPARATE post-C4
-foundation consolidation / ruthless trim checkpoint (its own contract + human review; no C5 feature may enter the
-trim); C5 and later remain FORBIDDEN until then.
+member, and the stored singleton) are gated in the readable assumption gate. **C4 is NOT yet human-accepted — BLOCKING
+at `48c0b31`, exact success-identity and collection-audit closeout repair 12 active** (the withdrawn GREEN disposition
+and its documentation-only acceptance commit `37c9597` are superseded; no production change is authorized). The
+authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
+PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.
+Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= `uintptr` + rune constants/literals) and the
+separate post-C4 foundation consolidation / ruthless trim remain FORBIDDEN until C4 is accepted.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
