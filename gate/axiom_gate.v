@@ -302,19 +302,22 @@ Print Assumptions GoCompile.ewf_reverse.
 Print Assumptions GoCompile.ewf_forward.
 Print Assumptions GoCompile.ewf_keys_nodup.
 Print Assumptions GoCompile.ewf_operand_in_tail.
-(* §6/§2.9 (REPAIR 8) the forest outcome table CARRIES the RETAINED member/suffix-indexed cause:
-   [total_forest_outcome_cause] returns, for each member, its exact insertion [FinalMemberCause] — the exact suffix
-   split [ewf_items = prefix ++ current :: rest], the exact prior [OutcomeAccumulator] for [rest], and the exact
-   [StepCause] used at insertion (built into the fold by construction).  The direct cause is PROJECTED by inverting
-   that [StepCause] (axiom-free): local rejection / blocked child / conversion success, each reading the operand
-   outcome THROUGH the exact operand [SuffixMember] via [oa_total acc_rest] — NOT a raw re-derived key lookup, NOT a
-   post-hoc reconstruction.  The build ([build_outcome_accumulator]/[build_conversion_step]/[build_forest_outcome_
-   table]) is axiom-free. *)
+(* §3/§6 (REPAIR 9) the forest outcome table IS THE INTRINSIC CAUSAL OBJECT: [build_forest_outcome_table] folds the
+   [OutcomeTrace] whose cons node RETAINS the exact tail trace + tail accumulator + head member + [StepCause] over
+   the EXACT tail ([build_outcome_trace]); the table pairs [fot_acc] with [fot_trace] INDEXED by it (not freely
+   pairable).  [total_forest_outcome_cause] PROJECTS the trace ([trace_retained_cause]) to each member's exact
+   insertion [RetainedMemberCause] — the exact suffix split, the AUTHENTICATED tail [OutcomeAccumulator], the
+   [StepCause] producing the FINAL outcome, and the tail-to-final QUERY PRESERVATION.  The direct cause is projected
+   by inverting the [StepCause] (axiom-free); [final_operand_outcome] specializes preservation to a conversion's
+   operand, proving its FINAL-table query EQUALS its retained tail query — the final-to-tail closure. *)
 Print Assumptions GoCompile.total_forest_outcome_cause.
+Print Assumptions GoCompile.final_operand_outcome.
 Print Assumptions GoCompile.StepCause_convfail_inv.
 Print Assumptions GoCompile.StepCause_childfail_inv.
 Print Assumptions GoCompile.StepCause_ok_conv_inv.
-Print Assumptions GoCompile.build_outcome_accumulator.
+Print Assumptions GoCompile.build_outcome_trace.
+Print Assumptions GoCompile.trace_retained_cause.
+Print Assumptions GoCompile.trace_match.
 Print Assumptions GoCompile.build_conversion_step.
 Print Assumptions GoCompile.build_forest_outcome_table.
 (* §9.5 the SEPARATE spec bridge (NOT production-cause evidence): a member's [StepCause] AGREES with the index-free

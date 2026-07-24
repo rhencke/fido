@@ -1669,6 +1669,10 @@ Lemma from_some_eq {A} (o : option A) (H : o <> None) (a : A) : o = Some a -> fr
 Proof. intro Heq. subst o. reflexivity. Qed.
 Lemma from_some_some {A} (o : option A) (H : o <> None) : o = Some (from_some o H).
 Proof. destruct o as [a|]; [reflexivity | exfalso; apply H; reflexivity]. Qed.
+(* [from_some] depends only on the option, NOT on the [<> None] witness (the witness only fills the impossible
+   [None] branch), so two proofs of non-emptiness give the same projection. *)
+Lemma from_some_pi {A} (o : option A) (H1 H2 : o <> None) : from_some o H1 = from_some o H2.
+Proof. destruct o as [a|]; [reflexivity | destruct (H1 eq_refl)]. Qed.
 
 (* §3.2 the TOTAL typed conversion children on the live path: given the ref's source view IS a conversion, the
    target/operand refs are obtained THROUGH the retained index with NO [None] fallback (the impossible branch is
@@ -2898,6 +2902,259 @@ Proof.
     apply conv_step_matches; assumption.
 Qed.
 
+(* ═══ §3/§4 THE EXTENSION PRIMITIVE + THE INTRINSIC CAUSAL TRACE ═══ the fold's ONE causal object.  [extend_acc]
+   is the SINGLE accumulator step (add the head's outcome at its own key); [OutcomeTrace] indexes the accumulator
+   and RETAINS, at each cons node, the exact tail trace + exact tail accumulator + exact head member + exact
+   [StepCause] over that exact tail — so the final table's accumulator IS the extension of the exact retained
+   tails, not a freely-pairable value.  A missing operand tail is unrepresentable. *)
+
+(* the EMPTY accumulator (the trace base). *)
+Definition empty_acc {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+  : OutcomeAccumulator forest tnft [].
+Proof.
+  refine (mkOutcomeAccumulator (items := @nil (ExprWork input))
+            (GoIndex.NodeKeyMapBase.empty (ExprOutcome p)) _ outcome_dom_exact_empty).
+  intros w0 Hin0. destruct Hin0.
+Defined.
+
+(* the coverage of the extended map: [add] never removes a key, so every member of [current :: rest] is still
+   present (the head at its own key; a tail member either equals the head key — still present — or is covered by
+   [acc_rest]).  No freshness needed for coverage. *)
+Lemma extend_covers {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {rest : list (ExprWork input)} (acc_rest : OutcomeAccumulator forest tnft rest)
+    (current : ExprWork input) (o : ExprOutcome p) :
+  forall w, In w (current :: rest) ->
+    GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w))
+      (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref current)) o (oa_map acc_rest)) <> None.
+Proof.
+  intros w0 Hin0.
+  destruct (thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (ew_node_ref w0))
+              (GoIndex.Snap.node_ref_key (ew_node_ref current))) as [Heq|Hne].
+  - rewrite Heq, GoIndex.nodekeymap_add_eq. discriminate.
+  - rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Hne; symmetry; exact Hbad).
+    destruct Hin0 as [Hcur | Hin0].
+    + exfalso. apply Hne. rewrite Hcur. reflexivity.
+    + exact (oa_covers acc_rest w0 Hin0).
+Qed.
+
+(* the exact domain of the extended map (via [outcome_dom_exact_add] with the head's own [ew_view_exact]). *)
+Lemma extend_domain {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {rest : list (ExprWork input)} (acc_rest : OutcomeAccumulator forest tnft rest)
+    (current : ExprWork input) (o : ExprOutcome p) :
+  outcome_dom_exact (map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) (current :: rest))
+    (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref current)) o (oa_map acc_rest)).
+Proof.
+  cbn [map]. eapply outcome_dom_exact_add; [ exact (ew_view_exact current) | exact (oa_domain acc_rest) ].
+Qed.
+
+(* the SINGLE accumulator step: extend [acc_rest] with the head [current]'s outcome [o] at [current]'s own key. *)
+Definition extend_acc {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {rest : list (ExprWork input)} (acc_rest : OutcomeAccumulator forest tnft rest)
+    (current : ExprWork input) (o : ExprOutcome p)
+  : OutcomeAccumulator forest tnft (current :: rest) :=
+  mkOutcomeAccumulator
+    (GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref current)) o (oa_map acc_rest))
+    (extend_covers acc_rest current o)
+    (extend_domain acc_rest current o).
+
+(* lift a [SuffixMember] of [rest] to a [SuffixMember] of [current :: rest] (the SAME retained member). *)
+Definition sm_lift_cons {p} {input : CompilationInput p} {forest : ExprWorkForest input}
+    {rest : list (ExprWork input)} (current : ExprWork input) (sm : SuffixMember forest rest)
+  : SuffixMember forest (current :: rest) :=
+  exist _ (proj1_sig sm) (or_intror (proj2_sig sm)).
+
+(* [oa_total] depends only on the retained [WorkMember]'s key, NOT on the [In items] witness — so the same member
+   has ONE outcome regardless of how its membership was proven (used to bridge different lift witnesses). *)
+Lemma oa_total_irrel {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {items : list (ExprWork input)} (acc : OutcomeAccumulator forest tnft items)
+    (wm : WorkMember forest) (H1 H2 : In (proj1_sig wm) items) :
+  oa_total acc (exist _ wm H1) = oa_total acc (exist _ wm H2).
+Proof. unfold oa_total. apply from_some_pi. Qed.
+
+(* the HEAD query: at a member whose key IS the extended head's key, the extended accumulator returns exactly [o]. *)
+Lemma extend_here_query {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {rest : list (ExprWork input)} (acc_rest : OutcomeAccumulator forest tnft rest)
+    (current : ExprWork input) (o : ExprOutcome p) (sm : SuffixMember forest (current :: rest)) :
+  sm_key sm = GoIndex.Snap.node_ref_key (ew_node_ref current) ->
+  oa_total (extend_acc acc_rest current o) sm = o.
+Proof.
+  intro Hk. unfold oa_total. apply from_some_eq.
+  unfold extend_acc; cbn [oa_map]. rewrite Hk. apply GoIndex.nodekeymap_add_eq.
+Qed.
+
+(* the TAIL query PRESERVATION (one step): extending by a FRESH head leaves every tail member's outcome unchanged. *)
+Lemma extend_tail_query {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {rest : list (ExprWork input)} (acc_rest : OutcomeAccumulator forest tnft rest)
+    (current : ExprWork input) (o : ExprOutcome p)
+    (Hfresh : ~ In (GoIndex.Snap.node_ref_key (ew_node_ref current))
+                   (map (fun w0 => GoIndex.Snap.node_ref_key (ew_node_ref w0)) rest))
+    (sm : SuffixMember forest rest) :
+  oa_total (extend_acc acc_rest current o) (sm_lift_cons current sm) = oa_total acc_rest sm.
+Proof.
+  assert (Hne : sm_key sm <> GoIndex.Snap.node_ref_key (ew_node_ref current)).
+  { intro Hbad. apply Hfresh. rewrite <- Hbad. apply in_map_iff.
+    exists (sm_work sm). split; [reflexivity | exact (proj2_sig sm)]. }
+  unfold oa_total at 1. apply from_some_eq.
+  unfold extend_acc; cbn [oa_map].
+  rewrite GoIndex.nodekeymap_add_neq by (intro Hbad; apply Hne; symmetry; exact Hbad).
+  exact (from_some_some (GoIndex.NodeKeyMapBase.find (sm_key sm) (oa_map acc_rest))
+           (oa_covers acc_rest (sm_work sm) (proj2_sig sm))).
+Qed.
+
+(* §3 THE INTRINSIC CAUSAL TRACE, indexed by the accumulator it builds: each [TraceCons] retains the exact tail
+   trace + exact tail accumulator + exact head member + head-freshness + the [StepCause] over the EXACT tail. *)
+Inductive OutcomeTrace {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p)
+  : forall (items : list (ExprWork input)), OutcomeAccumulator forest tnft items -> Type :=
+| TraceNil : OutcomeTrace forest tnft [] empty_acc
+| TraceCons : forall (current : ExprWork input) (rest : list (ExprWork input))
+                (acc_rest : OutcomeAccumulator forest tnft rest) (o : ExprOutcome p),
+              In current (ewf_items forest) ->
+              ~ In (GoIndex.Snap.node_ref_key (ew_node_ref current))
+                   (map (fun w0 => GoIndex.Snap.node_ref_key (ew_node_ref w0)) rest) ->
+              OutcomeTrace forest tnft rest acc_rest ->
+              StepCause forest tnft current rest acc_rest o ->
+              OutcomeTrace forest tnft (current :: rest) (extend_acc acc_rest current o).
+Arguments TraceNil {p input forest tnft}.
+Arguments TraceCons {p input forest tnft} _ _ _ _ _ _ _ _.
+
+(* §5 THE RETAINED MEMBER CAUSE, indexed by the FINAL accumulator [acc]: the exact suffix split, the exact tail
+   accumulator [acc_rest], the [StepCause] producing THIS member's FINAL outcome ([oa_total acc sm]), and — the
+   final-to-tail closure — a proof that EVERY tail member's outcome is preserved into the final accumulator. *)
+Definition RetainedMemberCause {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) (items : list (ExprWork input))
+    (acc : OutcomeAccumulator forest tnft items) (sm : SuffixMember forest items) : Type :=
+  { rest : list (ExprWork input) &
+  { acc_rest : OutcomeAccumulator forest tnft rest &
+    ( ( (exists prefix, items = prefix ++ sm_work sm :: rest)
+        * StepCause forest tnft (sm_work sm) rest acc_rest (oa_total acc sm) )
+      * (forall (sm2 : SuffixMember forest rest) (Hlift : In (sm_work sm2) items),
+           oa_total acc_rest sm2 = oa_total acc (exist _ (proj1_sig sm2) Hlift)) )%type } }.
+
+(* §8.2/§8.3 project, for every retained member, its exact insertion cause AND the tail-to-final query
+   preservation — by induction on the retained trace (head via [extend_here_query]/[extend_tail_query], tail via
+   the IH lifted one extension step). *)
+Lemma trace_retained_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft} :
+  forall items acc (t : OutcomeTrace forest tnft items acc) (sm : SuffixMember forest items),
+    RetainedMemberCause forest tnft items acc sm.
+Proof.
+  intros items acc t.
+  induction t as [ | current rest acc_rest o Hin_c Hfresh tail IH sc ]; intro sm.
+  - destruct (proj2_sig sm).
+  - destruct (thm8_nodekey_eq_dec (sm_key sm) (GoIndex.Snap.node_ref_key (ew_node_ref current)))
+      as [Hhead | Htail].
+    + (* HEAD: this member IS [current] *)
+      assert (Hsw : sm_work sm = current)
+        by (apply (ewf_key_inj forest (sm_work sm) current (proj2_sig (proj1_sig sm)) Hin_c); exact Hhead).
+      assert (Ho : oa_total (extend_acc acc_rest current o) sm = o)
+        by (apply extend_here_query; exact Hhead).
+      exists rest, acc_rest. split; [ split | ].
+      * exists (@nil (ExprWork input)). cbn [app]. rewrite Hsw. reflexivity.
+      * rewrite Ho, Hsw. exact sc.
+      * intros sm2 Hlift.
+        rewrite (oa_total_irrel (extend_acc acc_rest current o) (proj1_sig sm2) Hlift
+                   (or_intror (proj2_sig sm2))).
+        symmetry. exact (extend_tail_query acc_rest current o Hfresh sm2).
+    + (* TAIL: this member is in [rest] *)
+      assert (Hin_rest : In (sm_work sm) rest).
+      { destruct (proj2_sig sm) as [Hcur | Hin].
+        - exfalso. apply Htail. unfold sm_key. do 2 f_equal. exact (eq_sym Hcur).
+        - exact Hin. }
+      pose (sm' := exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm) Hin_rest
+             : SuffixMember forest rest).
+      destruct (IH sm') as [rest_w [acc_rest_w [[Hsplit_w sc_w] Hpreserve_w]]].
+      assert (Hq : oa_total (extend_acc acc_rest current o) sm = oa_total acc_rest sm').
+      { rewrite <- (extend_tail_query acc_rest current o Hfresh sm'). apply oa_total_irrel. }
+      exists rest_w, acc_rest_w. split; [ split | ].
+      * destruct Hsplit_w as [prefix_w Hpre_w].
+        exists (current :: prefix_w). cbn [app]. f_equal. exact Hpre_w.
+      * rewrite Hq. exact sc_w.
+      * intros sm2 Hlift2.
+        assert (Hlift_rest : In (sm_work sm2) rest).
+        { destruct Hsplit_w as [prefix_w Hpre_w]. rewrite Hpre_w.
+          apply in_or_app. right. right. exact (proj2_sig sm2). }
+        transitivity (oa_total acc_rest
+                        (exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm2) Hlift_rest)).
+        -- exact (Hpreserve_w sm2 Hlift_rest).
+        -- transitivity (oa_total (extend_acc acc_rest current o)
+                           (sm_lift_cons current
+                              (exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm2) Hlift_rest))).
+           ++ symmetry. exact (extend_tail_query acc_rest current o Hfresh
+                                 (exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm2) Hlift_rest)).
+           ++ apply oa_total_irrel.
+Qed.
+
+(* §8.8 the SOURCE-SPEC MATCH for every retained member, by induction on the trace (the sub-trace's IH supplies
+   the operand matches [stepcause_matches] needs).  A SEPARATE bridge — NOT causal-retention evidence. *)
+Lemma trace_match {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft} :
+  forall items acc (t : OutcomeTrace forest tnft items acc) (sm : SuffixMember forest items),
+    outcome_matches (ci_idx input) (ew_node_ref (sm_work sm)) (ew_occurrence (sm_work sm)) (oa_total acc sm).
+Proof.
+  intros items acc t.
+  induction t as [ | current rest acc_rest o Hin_c Hfresh tail IH sc ]; intro sm.
+  - destruct (proj2_sig sm).
+  - destruct (thm8_nodekey_eq_dec (sm_key sm) (GoIndex.Snap.node_ref_key (ew_node_ref current)))
+      as [Hhead | Htail].
+    + assert (Hsw : sm_work sm = current)
+        by (apply (ewf_key_inj forest (sm_work sm) current (proj2_sig (proj1_sig sm)) Hin_c); exact Hhead).
+      assert (Ho : oa_total (extend_acc acc_rest current o) sm = o)
+        by (apply extend_here_query; exact Hhead).
+      rewrite Ho, Hsw. exact (stepcause_matches current rest acc_rest o sc IH).
+    + assert (Hin_rest : In (sm_work sm) rest).
+      { destruct (proj2_sig sm) as [Hcur | Hin].
+        - exfalso. apply Htail. unfold sm_key. do 2 f_equal. exact (eq_sym Hcur).
+        - exact Hin. }
+      pose (sm' := exist (fun wm => In (proj1_sig wm) rest) (proj1_sig sm) Hin_rest
+             : SuffixMember forest rest).
+      assert (Hq : oa_total (extend_acc acc_rest current o) sm = oa_total acc_rest sm')
+        by (rewrite <- (extend_tail_query acc_rest current o Hfresh sm'); apply oa_total_irrel).
+      rewrite Hq. exact (IH sm').
+Qed.
+
+(* §4/§7 THE FOLD builds the ONE causal object: the [OutcomeTrace] over the exact suffix [items] (paired with the
+   accumulator it indexes).  A CONVERSION head builds ONE [ConversionStep] and reads its operand's outcome THROUGH
+   the exact operand [SuffixMember] via [oa_total acc_rest] (NEVER a raw [find]/[from_some] in this branch), then
+   ONE [convert_const].  The cons node RETAINS the exact tail trace, so the final accumulator IS the extension of
+   the exact retained tails — the cause is TRUE BY CONSTRUCTION, not a freely-pairable value. *)
+Definition build_outcome_trace {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (tnft : TypeNameFactTable p) :
+  forall (items : list (ExprWork input)),
+    (exists ipre, ewf_items forest = ipre ++ items) ->
+    { acc : OutcomeAccumulator forest tnft items & OutcomeTrace forest tnft items acc }.
+Proof.
+  induction items as [| w rest IH]; intro Hsuf.
+  - exists empty_acc. exact TraceNil.
+  - assert (Hsuf_rest : exists ipre, ewf_items forest = ipre ++ rest).
+    { destruct Hsuf as [ipre Hpre]. exists (ipre ++ [w]). rewrite <- app_assoc. exact Hpre. }
+    destruct (IH Hsuf_rest) as [acc_rest tail].
+    assert (Hin_w : In w (ewf_items forest)).
+    { destruct Hsuf as [ipre Hpre]. rewrite Hpre. apply in_or_app; right; left; reflexivity. }
+    assert (Hnd : ~ In (GoIndex.Snap.node_ref_key (ew_node_ref w))
+                    (map (fun w0 => GoIndex.Snap.node_ref_key (ew_node_ref w0)) rest)).
+    { destruct Hsuf as [ipre Hpre]. pose proof (ewf_keys_nodup forest) as Hnd0.
+      rewrite Hpre, map_app in Hnd0. cbn [map] in Hnd0. apply NoDup_remove_2 in Hnd0.
+      intro Hbad. apply Hnd0. apply in_or_app; right; exact Hbad. }
+    pose proof (ew_view_exact w) as Hvx.
+    assert (Hstep : { o : ExprOutcome p & StepCause forest tnft w rest acc_rest o }).
+    { destruct (ew_expr w) as [b|nn|n0|s|dd|dc|ts x] eqn:He.
+      1-6: (assert (Hleaf : expr_child (ew_expr w) = None) by (rewrite He; reflexivity);
+            eexists; exact (SCLeaf (leaf_const (ew_expr w) Hleaf) Hleaf (leaf_const_status (ew_expr w) Hleaf))).
+      assert (Hview : GoIndex.view_expr (ew_occurrence w) = Some (EConvert ts x))
+        by (rewrite (ew_view_exact w), He; reflexivity).
+      pose (step := build_conversion_step forest w rest ts x Hin_w Hsuf Hview).
+      destruct (oa_total acc_rest (cs_operand_suffix step)) as [opf|er2 tr2 opr2 t2 ci2|] eqn:Hop.
+      + destruct (convert_const
+                    (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+                    (ef_const_status opf)) as [tc|] eqn:Hconv.
+        * eexists. exact (SCConvOk ts x step opf tc (cs_current_exact step) He Hop Hconv).
+        * eexists. exact (SCConvFail ts x step opf (cs_current_exact step) He Hop Hconv).
+      + eexists. refine (SCChildFail ts x step (cs_current_exact step) He _). rewrite Hop; exact I.
+      + eexists. refine (SCChildFail ts x step (cs_current_exact step) He _). rewrite Hop; exact I. }
+    destruct Hstep as [o sc].
+    exists (extend_acc acc_rest w o).
+    exact (TraceCons w rest acc_rest o Hin_w Hnd tail sc).
+Defined.
+
 (* §4/§5/§7 THE MEMBER/SUFFIX-INDEXED CAUSAL FOLD: builds the [OutcomeAccumulator] over the exact suffix [items]
    AND, for every retained member, its [FinalMemberCause] — the exact suffix split + the exact prior accumulator +
    the exact [StepCause] used at insertion.  A CONVERSION head builds ONE [ConversionStep] and reads its operand's
@@ -3009,22 +3266,20 @@ Defined.
 Definition wm_suffix {p} {input : CompilationInput p} {forest : ExprWorkForest input} (wm : WorkMember forest)
   : SuffixMember forest (ewf_items forest) := exist _ wm (proj2_sig wm).
 
-(* §6/§2.9 THE FOREST-INDEXED OUTCOME TABLE carries the ONE retained proof-carrying [OutcomeAccumulator] over the
-   forest's [ewf_items], the per-member RETAINED cause ([fot_causes]: for each member, its exact suffix split +
-   prior accumulator + [StepCause]), and the per-member source-spec match ([fot_match], the SEPARATE §9.5 bridge). *)
+(* §6/§3 THE FOREST-INDEXED OUTCOME TABLE is the ONE INTRINSIC CAUSAL OBJECT: the retained [OutcomeAccumulator]
+   over the forest's [ewf_items] PAIRED WITH the [OutcomeTrace] that BUILT it ([fot_trace] is INDEXED by [fot_acc],
+   so the accumulator and its causal predecessor chain are NOT freely pairable — a foreign rest accumulator that
+   merely reproduces a head outcome cannot be attached).  The per-member cause ([total_forest_outcome_cause]) and
+   the per-member source-spec match ([total_forest_outcome_at_matches]) are PROJECTIONS of the retained trace, each
+   carrying the tail-to-final query preservation; they are NOT stored freely-pairable fields. *)
 Record ForestOutcomeTable {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) : Type :=
   mkForestOutcomeTable {
     fot_acc : OutcomeAccumulator forest tnft (ewf_items forest) ;
-    fot_causes : forall wm : WorkMember forest,
-      FinalMemberCause forest tnft (ewf_items forest) (wm_suffix wm) (oa_total fot_acc (wm_suffix wm)) ;
-    fot_match : forall wm : WorkMember forest,
-      outcome_matches (ci_idx input) (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
-        (oa_total fot_acc (wm_suffix wm))
+    fot_trace : OutcomeTrace forest tnft (ewf_items forest) fot_acc
   }.
-Arguments mkForestOutcomeTable {p input forest tnft} _ _ _.
-Arguments fot_acc {p input forest tnft} _.  Arguments fot_causes {p input forest tnft} _.
-Arguments fot_match {p input forest tnft} _.
+Arguments mkForestOutcomeTable {p input forest tnft} _ _.
+Arguments fot_acc {p input forest tnft} _.  Arguments fot_trace {p input forest tnft} _.
 
 (* the underlying map + exact domain, projected from the retained accumulator (preserving the downstream interface —
    [total_forest_outcome_at]/[fot_domain_iff_forest]/[fot_nonexpr_absent] read these). *)
@@ -3037,10 +3292,9 @@ Definition fot_dom {p} {input : CompilationInput p} {forest : ExprWorkForest inp
 
 Definition build_forest_outcome_table {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (tnft : TypeNameFactTable p) : ForestOutcomeTable forest tnft :=
-  let bc := build_outcome_accumulator forest tnft (ewf_items forest)
+  let bt := build_outcome_trace forest tnft (ewf_items forest)
               (ex_intro _ (@nil (ExprWork input)) eq_refl) in
-  mkForestOutcomeTable (projT1 bc)
-    (fun wm => fst (projT2 bc (wm_suffix wm))) (fun wm => snd (projT2 bc (wm_suffix wm))).
+  mkForestOutcomeTable (projT1 bt) (projT2 bt).
 
 (* §2.10 a RETAINED member's key is present — its pair is in the forest projection, covered by the accumulator.
    No equal-key search over an arbitrary [ExprWork]: membership in [ewf_items] is the hypothesis. *)
@@ -3132,16 +3386,32 @@ Lemma total_forest_outcome_at_matches {p} {input : CompilationInput p} {forest :
     (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) :
   outcome_matches (ci_idx input) (ew_node_ref (proj1_sig wm)) (ew_occurrence (proj1_sig wm))
     (total_forest_outcome_at ot wm).
-Proof. exact (fot_match ot wm). Qed.
+Proof. exact (trace_match (ewf_items forest) (fot_acc ot) (fot_trace ot) (wm_suffix wm)). Qed.
 
-(** §6/§2.9 the TOTAL query's RETAINED DIRECT CAUSE: for each member, the exact insertion [FinalMemberCause] — the
-    exact suffix split [ewf_items = prefix ++ current :: rest], the exact prior [OutcomeAccumulator] for [rest],
-    and the exact [StepCause] used at insertion (which reads the operand outcome THROUGH the exact operand
-    [SuffixMember] via [oa_total acc_rest]).  This IS the production cause the fold retained — no reconstruction. *)
+(** §5/§6/§8.3 the TOTAL query's RETAINED DIRECT CAUSE, PROJECTED FROM THE RETAINED TRACE: for each member, its
+    exact insertion [RetainedMemberCause] — the exact suffix split [ewf_items = prefix ++ current :: rest], the
+    exact prior [OutcomeAccumulator] [acc_rest] (the AUTHENTICATED recursive tail of [fot_acc], not a freely-chosen
+    accumulator), the exact [StepCause] producing THIS member's FINAL outcome ([oa_total (fot_acc ot) …]), AND the
+    tail-to-final QUERY PRESERVATION.  This IS the cause the fold retained — [trace_retained_cause] reads it off the
+    retained trace, so no foreign tail accumulator can satisfy it. *)
 Definition total_forest_outcome_cause {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
     (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest)
-  : FinalMemberCause forest tnft (ewf_items forest) (wm_suffix wm) (total_forest_outcome_at ot wm) :=
-  fot_causes ot wm.
+  : RetainedMemberCause forest tnft (ewf_items forest) (fot_acc ot) (wm_suffix wm) :=
+  trace_retained_cause (ewf_items forest) (fot_acc ot) (fot_trace ot) (wm_suffix wm).
+
+(** §8.2/§8.4–§8.6 THE FINAL-TO-TAIL CLOSURE at a member: the retained cause's tail-query preservation, specialized
+    to any [SuffixMember] of the retained tail [rest], proves that member's outcome in the FINAL table EQUALS its
+    outcome in the retained tail accumulator [acc_rest].  Applied to a conversion's operand [SuffixMember], this
+    connects [StepCause]'s operand query ([oa_total acc_rest]) to the operand [WorkMember]'s FINAL-table query —
+    the closure the direct fixtures need. *)
+Lemma final_operand_outcome {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (rest : list (ExprWork input))
+    (acc_rest : OutcomeAccumulator forest tnft rest)
+    (Hpreserve : forall (sm2 : SuffixMember forest rest) (Hlift : In (sm_work sm2) (ewf_items forest)),
+       oa_total acc_rest sm2 = oa_total (fot_acc ot) (exist _ (proj1_sig sm2) Hlift))
+    (sm_op : SuffixMember forest rest) :
+  total_forest_outcome_at ot (proj1_sig sm_op) = oa_total acc_rest sm_op.
+Proof. symmetry. exact (Hpreserve sm_op (proj2_sig (proj1_sig sm_op))). Qed.
 
 (** §5/§9.3 the RETAINED direct cause, PROJECTED by inverting the member's [StepCause] (axiom-free — the outcome
     index selects the constructor; NO dependent-destruction axiom).  These are the production cause forms: they
@@ -10087,7 +10357,13 @@ Theorem deep_fail_innermost_convfail :
     /\ total_forest_outcome_at ot wm
          = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
              (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf)
+    (* the operand outcome read THROUGH the exact operand SuffixMember of the RETAINED tail accumulator *)
     /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    (* §9.1 CLOSURE: the SAME operand WorkMember carries that SAME EOOk in the FINAL table, and the two query
+       values are PROPOSITIONALLY EQUAL through the retained trace's tail-to-final preservation *)
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step))
+         = oa_total acc_rest (cs_operand_suffix step)
     /\ convert_const t (ef_const_status opf) = None.
 Proof.
   cbn zeta.
@@ -10102,21 +10378,31 @@ Proof.
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { vm_compute; discriminate. }
-  pose proof (total_forest_outcome_cause
-                (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
-                wm) as Hcause.
-  rewrite Hout in Hcause.
-  destruct Hcause as [rest [acc_rest [Hsplit stepc]]].
+  (* project the RETAINED cause off the trace: exact tail split, exact tail accumulator, StepCause producing the
+     FINAL outcome, AND the tail-to-final preservation [Hpreserve] *)
+  destruct (total_forest_outcome_cause
+              (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+              wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
+  (* [total_forest_outcome_at ot wm] is definitionally [oa_total (fot_acc ot) (wm_suffix wm)] (the StepCause's
+     index), so [Hout] rewrites the cause's outcome index directly *)
+  assert (Hidx : oa_total (fot_acc (ep_ot (build_expression_phase
+                     (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))))
+                   (wm_suffix wm) = EOConvFail er2 tr2 opr2 t ci) by exact Hout.
+  rewrite Hidx in stepc.
   destruct (StepCause_convfail_inv _ rest acc_rest er2 tr2 opr2 t ci stepc)
     as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her2 [Htr2 [Hopr2 [_ [Hci Hcv]]]]]]]]]]].
-  (* the innermost conversion is exactly int8(300); [current] is definitionally [proj1_sig wm], so
-     rewrite the goal side and close by conversion (He's [ew_expr (proj1_sig wm)] unifies with [ew_expr current]) *)
   assert (Heq : EConvert ts0 x0 = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))
     by (rewrite <- Hstep_e; exact He).
   injection Heq as Hts0 Hx0. subst ts0 x0.
+  (* the final-to-tail closure at the operand member: its FINAL-table query = its retained tail query *)
+  pose proof (final_operand_outcome
+                (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+                rest acc_rest Hpreserve (cs_operand_suffix step)) as Hclose.
   exists wm, rest, acc_rest, step, opf, t.
-  split; [ exact He | split; [ | split; [ exact Hopf | ] ] ].
+  split; [ exact He | split; [ | split; [ exact Hopf | split; [ | split ] ] ] ].
   - rewrite Hout, Her2, Htr2, Hopr2, Hci. reflexivity.
+  - transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hclose | exact Hopf ].
+  - exact Hclose.
   - rewrite <- Hci. exact Hcv.
 Qed.
 
