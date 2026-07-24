@@ -441,12 +441,14 @@ happen in a use context.
 ## Static Type Universe Arc
 
 The type universe grows in ONE reviewed order, each root landing COMPLETE with its static facts before the
-next begins: (1) integers; (2) floats; (3) complex; (4) `uintptr` and the predeclared aliases (`byte` =
-`uint8`, `rune` = `int32`); (5) unnamed structural types (arrays, slices, structs, pointers, function
-signatures, maps, channels); (6) type aliases, defined named types, and valid recursion; (7) method
-signatures and method sets as type-level facts; (8) non-generic value interfaces; (9) only THEN the
-operations that consume those roots. **Integers, floats, and complex are DONE; `uintptr` + the predeclared
-aliases are next (pending review sign-off).**
+next begins: (1) integers; (2) floats; (3) complex; (4) the predeclared source aliases (`byte` = `uint8`,
+`rune` = `int32`) as conversion SOURCE NAMES, then `uintptr` + exact rune constants/literals; (5) unnamed
+structural types (arrays, slices, structs, pointers, function signatures, maps, channels); (6) type aliases,
+defined named types, and valid recursion; (7) method signatures and method sets as type-level facts; (8)
+non-generic value interfaces; (9) only THEN the operations that consume those roots. **Integers, floats, and
+complex are DONE; the `byte`/`rune` source-alias RESOLUTION landed in C4 (distinct source syntax, equal
+resolved `GoType`); `uintptr` + exact rune constants/literals are the C5 phase (which reopens ADR-0001),
+pending review sign-off.**
 
 **Types before operations.** Each root adds only STATIC facts (identity, underlying type, canonical rendering,
 zero-value/nilability/comparability/map-key classification, recursive validity, assignability, constant

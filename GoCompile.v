@@ -4829,20 +4829,23 @@ Lemma retained_convfail_diag {p} {input : CompilationInput p} {forest : ExprWork
     (ot : ForestOutcomeTable forest tnft) (aw : AnnotatedExprWorkForest forest) (wm : WorkMember forest)
     er tr opr t ci :
   total_forest_outcome_at ot wm = EOConvFail er tr opr t ci ->
-  exists (outer : list (GoIndex.ExprRef p)),
-    In (DRInvalidConversion er tr opr outer t ci) (flat_map (forest_awork_diags ot) (aewf_items aw)).
+  exists (wma : WorkMember forest) (outer : list (GoIndex.ExprRef p)),
+       In (wma, outer) (aewf_items aw)
+    /\ proj1_sig wma = proj1_sig wm
+    /\ In (DRInvalidConversion er tr opr outer t ci) (flat_map (forest_awork_diags ot) (aewf_items aw)).
 Proof.
   intro Hcv.
   assert (Hin : In (proj1_sig wm) (map (fun x => proj1_sig (fst x)) (aewf_items aw))).
   { rewrite (aewf_members aw). exact (proj2_sig wm). }
   apply in_map_iff in Hin. destruct Hin as [x [Hx Hinx]].
   destruct x as [wmx cx]. cbn [fst snd] in Hx.
-  exists cx.
+  exists wmx, cx.
   assert (Hfx : total_forest_outcome_at ot wmx = EOConvFail er tr opr t ci).
   { transitivity (total_forest_outcome_at ot wm);
       [ exact (total_forest_outcome_at_congr ot wmx wm Hx) | exact Hcv ]. }
   assert (Hdiag : forest_awork_diags ot (wmx, cx) = [DRInvalidConversion er tr opr cx t ci]).
   { unfold forest_awork_diags. cbn [fst snd]. rewrite Hfx. reflexivity. }
+  split; [ exact Hinx | split; [ exact Hx | ] ].
   apply in_flat_map. exists (wmx, cx). split; [ exact Hinx | rewrite Hdiag; left; reflexivity ].
 Qed.
 
@@ -10401,7 +10404,10 @@ Theorem deep_fail_innermost_convfail :
     /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
     /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step))
          = oa_total acc_rest (cs_operand_suffix step)
-    /\ convert_const t (ef_const_status opf) = None.
+    /\ convert_const t (ef_const_status opf) = None
+    (* the resolved target type of the failing conversion IS the exact predeclared-context table query *)
+    /\ t = tnf_type (type_name_fact_at_table (ep_tnft (build_expression_phase input))
+                       (cw_target_ref (cs_conversion step))).
 Proof.
   cbn zeta.
   destruct (GoIndex.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
@@ -10427,7 +10433,7 @@ Proof.
                    (wm_suffix wm) = EOConvFail er2 tr2 opr2 t ci) by exact Hout.
   rewrite Hidx in stepc.
   destruct (StepCause_convfail_inv _ rest acc_rest er2 tr2 opr2 t ci stepc)
-    as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her2 [Htr2 [Hopr2 [_ [Hci Hcv]]]]]]]]]]].
+    as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her2 [Htr2 [Hopr2 [Ht [Hci Hcv]]]]]]]]]]].
   assert (Heq : EConvert ts0 x0 = EConvert (GoAST.tsyn GoNames.TNint8) (EInt 300))
     by (rewrite <- Hstep_e; exact He).
   injection Heq as Hts0 Hx0. subst ts0 x0.
@@ -10436,11 +10442,12 @@ Proof.
                 (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
                 rest acc_rest Hpreserve (cs_operand_suffix step)) as Hclose.
   exists wm, rest, acc_rest, step, opf, t.
-  split; [ exact He | split; [ | split; [ exact Hopf | split; [ | split ] ] ] ].
+  split; [ exact He | split; [ | split; [ exact Hopf | split; [ | split; [ | split ] ] ] ] ].
   - rewrite Hout, Her2, Htr2, Hopr2, Hci. reflexivity.
   - transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hclose | exact Hopf ].
   - exact Hclose.
   - rewrite <- Hci. exact Hcv.
+  - exact Ht.
 Qed.
 
 (* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each EOChildFail (blocked by the inner fail;
@@ -10512,28 +10519,35 @@ Theorem deep_fail_innermost_diag :
          (rest : list (ExprWork input))
          (acc_rest : OutcomeAccumulator (ep_work phase) (ep_tnft phase) rest)
          (step : ConversionStep (ep_work phase) (proj1_sig wm) rest (GoAST.tsyn GoNames.TNint8) (EInt 300))
-         opf t (outer : list (GoIndex.ExprRef deep_fail_program)),
+         opf t (wma : WorkMember (ep_work phase)) (outer : list (GoIndex.ExprRef deep_fail_program)),
        total_forest_outcome_at ot wm
          = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
              (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf)
+       (* the resolved target type of the diagnostic IS the exact predeclared-context table query for that ref *)
+    /\ t = tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))
     /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
     /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
     /\ convert_const t (ef_const_status opf) = None
+       (* the EXACT retained annotated member/context pair that supplied [outer]: a member of the annotated
+          forest whose underlying work item IS this failing conversion's *)
+    /\ In (wma, outer) (aewf_items (ep_awork phase))
+    /\ proj1_sig wma = proj1_sig wm
     /\ ep_diags phase =
          [ DRInvalidConversion (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
              (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) outer t (ef_const_status opf) ].
 Proof.
   cbn zeta.
   pose proof deep_fail_innermost_convfail as H. cbn zeta in H.
-  destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq Hcv]]]]]]]]]]].
+  destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq [Hcv Ht]]]]]]]]]]]].
   destruct (retained_convfail_diag
               (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
               (ep_awork (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
               wm (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
               (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf) Hout)
-    as [outer Hin].
-  exists wm, rest, acc_rest, step, opf, t, outer.
-  split; [ exact Hout | split; [ exact Hopf | split; [ exact Hfinal | split; [ exact Hcv | ] ] ] ].
+    as [wma [outer [Hinm [Hwma Hin]]]].
+  exists wm, rest, acc_rest, step, opf, t, wma, outer.
+  split; [ exact Hout | split; [ exact Ht | split; [ exact Hopf | split; [ exact Hfinal
+    | split; [ exact Hcv | split; [ exact Hinm | split; [ exact Hwma | ] ] ] ] ] ] ].
   assert (Hdiageq : ep_diags (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))
             = flat_map (forest_awork_diags (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))))
                 (aewf_items (ep_awork (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))))).
@@ -10643,10 +10657,11 @@ Proof.
   - intro c. unfold forest_awork_diags. cbn [fst snd]. rewrite Hcf. reflexivity.
 Qed.
 
-(* §9.3 the SUCCESS CLOSURE at a valid conversion occurrence: locate the member, project the RETAINED cause, invert
-   the conversion-success [StepCause] (ONE [convert_const] success), and read the operand's closure — the operand's
-   [EOOk opf] in the RETAINED tail accumulator is the SAME [EOOk opf] the FINAL table shows at the operand
-   [WorkMember]. *)
+(* §9.3 the OPERAND CLOSURE at a valid conversion occurrence: locate the member, project the RETAINED cause, and read
+   the operand's closure — the operand's [EOOk opf] in the RETAINED tail accumulator is the SAME [EOOk opf] the FINAL
+   table shows at the operand [WorkMember].  Its STATEMENT returns ONLY that operand tail/final [EOOk opf] + the
+   query equality; the exact current final [ExprFact], the target fact, and the ONE [convert_const] success (which the
+   proof also obtains) are NOT in this statement — that full evidence is [deep_nested_convsuccess_at] below. *)
 Lemma deep_nested_ok_closure_at (local : positive) ts x occ :
   GoIndex.source_occurrence_at deep_nested_src local = Some occ ->
   GoIndex.view_expr occ = Some (EConvert ts x) ->
@@ -10683,6 +10698,100 @@ Proof.
   exists wm, rest, acc_rest, ts0, x0, step, opf.
   split; [ exact He | split; [ exact Hopf | split; [ | exact Hcl ] ] ].
   transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hcl | exact Hopf ].
+Qed.
+(* NOTE ([deep_nested_ok_closure_at] is an OPERAND-CLOSURE-ONLY corollary): it exposes only the operand's
+   tail/final [EOOk opf] + query equality.  The EXACT accepted valid-chain success evidence — which additionally
+   STATES the exact [ConversionStep], the target fact query, the current final [EOOk f], the one [convert_const]
+   success, and the exact current [ExprFact] — is [deep_nested_convsuccess_at] / [deep_nested_chain_success_evidence]
+   below (repair 11: the accepted concrete theorem states everything its proof knows). *)
+
+(* §3 (REPAIR 11) the EXACT per-conversion valid-chain success bundle: the FULL [retained_convsuccess_closure]
+   evidence for one member — current [EConvert] view, current final [EOOk f], exact [ConversionStep], operand
+   [SuffixMember], tail [EOOk opf], final [EOOk opf], tail=final query equality, ONE [convert_const] success on the
+   exact target fact, and [f] the EXACT current final [ExprFact]. *)
+Definition nested_success_bundle (ts : GoAST.TypeSyntax) (x : GoExpr) : Prop :=
+  exists (wm : WorkMember (ep_work (build_expression_phase
+                  (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))))
+         (rest : list (ExprWork (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+         (acc_rest : OutcomeAccumulator (ep_work (build_expression_phase
+                       (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+                       (ep_tnft (build_expression_phase
+                         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) rest)
+         ts0 x0
+         (step : ConversionStep (ep_work (build_expression_phase
+                   (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+                   (proj1_sig wm) rest ts0 x0) opf f tc,
+       ew_expr (proj1_sig wm) = EConvert ts x
+    /\ total_forest_outcome_at (ep_ot (build_expression_phase
+         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))) wm = EOOk f
+    /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ total_forest_outcome_at (ep_ot (build_expression_phase
+         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+         (proj1_sig (cs_operand_suffix step)) = EOOk opf
+    /\ total_forest_outcome_at (ep_ot (build_expression_phase
+         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+         (proj1_sig (cs_operand_suffix step)) = oa_total acc_rest (cs_operand_suffix step)
+    /\ convert_const (tnf_type (type_name_fact_at_table (ep_tnft (build_expression_phase
+         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+         (cw_target_ref (cs_conversion step)))) (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table (ep_tnft (build_expression_phase
+         (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+         (cw_target_ref (cs_conversion step)))) tc)
+             (use_resolved_of_ci (expr_ref_role (ew_expr_ref (proj1_sig wm)))
+                (CITyped (tnf_type (type_name_fact_at_table (ep_tnft (build_expression_phase
+                   (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+                   (cw_target_ref (cs_conversion step)))) tc)).
+
+(* §3.2 the EXACT concrete helper: any valid deep_nested conversion occurrence instantiates the FULL bundle
+   (via [retained_convsuccess_closure] on the phase's OWN [ep_ot]).  No reduced projection. *)
+Lemma deep_nested_convsuccess_at (local : positive) ts x occ :
+  GoIndex.source_occurrence_at deep_nested_src local = Some occ ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  (exists f, occ_expr_fact occ = Some f) ->
+  nested_success_bundle ts x.
+Proof.
+  intros Hsrc Hview Hfact.
+  destruct (deep_nested_ok_at local (EConvert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
+  destruct (retained_convsuccess_closure
+              (ep_ot (build_expression_phase (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+              wm ts x f He Hok)
+    as [rest [acc_rest [ts0 [x0 [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]]]].
+  unfold nested_success_bundle.
+  exists wm, rest, acc_rest, ts0, x0, step, opf, f, tc.
+  repeat split; try assumption.
+Qed.
+
+(* §3.3 the EXACT concrete aggregate: ALL FOUR valid-chain conversions (int8/int16/int32/int64) instantiate the
+   FULL success bundle — each keeps its exact ConversionStep, target fact, operand member, tail/final equality,
+   convert_const result, and current final ExprFact.  [deep_nested_all_ok] remains a short shape corollary. *)
+Theorem deep_nested_chain_success_evidence :
+  nested_success_bundle (GoAST.tsyn GoNames.TNint8) (EInt 5)
+  /\ nested_success_bundle (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))
+  /\ nested_success_bundle (GoAST.tsyn GoNames.TNint32)
+       (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))
+  /\ nested_success_bundle (GoAST.tsyn GoNames.TNint64)
+       (EConvert (GoAST.tsyn GoNames.TNint32) (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))).
+Proof.
+  split; [ | split; [ | split ] ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_convsuccess_at 11 (GoAST.tsyn GoNames.TNint8) (EInt 5) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_convsuccess_at 9 (GoAST.tsyn GoNames.TNint16)
+             (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_convsuccess_at 7 (GoAST.tsyn GoNames.TNint32)
+             (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_convsuccess_at 5 (GoAST.tsyn GoNames.TNint64)
+             (EConvert (GoAST.tsyn GoNames.TNint32) (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
 Qed.
 
 (* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [EOChildFail], and its operand's

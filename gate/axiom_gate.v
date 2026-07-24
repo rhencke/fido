@@ -327,7 +327,8 @@ Print Assumptions GoCompile.build_forest_outcome_table.
    no-local-reason ([retained_childfail_closure] — operand fails in tail AND final, current EOChildFail, current
    member emits no diagnostic), the stored-diagnostic connection ([retained_convfail_diag] — the exact
    DRInvalidConversion over the STORED EOConvFail fields is a member of the projected list, read via
-   [forest_awork_diags] not [local_conv_failure]), and UNIQUE trace insertion per work member
+   [forest_awork_diags] not [local_conv_failure], returning the exact retained annotated member/context pair whose
+   underlying work item IS that member), and UNIQUE trace insertion per work member
    ([outcome_trace_unique_step] — the trace's insertion sequence IS ewf_items, each once, key-NoDup). *)
 Print Assumptions GoCompile.retained_convsuccess_closure.
 Print Assumptions GoCompile.retained_childfail_closure.
@@ -467,13 +468,24 @@ Print Assumptions GoCompile.deep_nested_all_ok.
 Print Assumptions GoCompile.deep_nested_seals_eft.
 Print Assumptions GoCompile.deep_nested_work_count.
 Print Assumptions GoCompile.phase_domain_exact.
-(* §3/§4/§5 (REPAIR 10) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC evidence, gated as the accepted public
-   surfaces: the innermost convfail's retained cause is CONNECTED to the exact stored [DRInvalidConversion]
-   ([deep_fail_innermost_diag] — [ep_diags] is EXACTLY that singleton, same fields, no second reason); the strong
-   per-occurrence closures ([deep_fail_childfail_closure_at]: exact ConversionStep + operand + tail=final failure
-   + current EOChildFail + no local reason; [deep_nested_ok_closure_at]: exact ConversionStep + operand + tail =
-   final = EOOk opf + convert_const success) are the ACCEPTED direct theorems; the concrete aggregates
-   ([deep_fail_outer_operands_final_fail], [deep_nested_chain_operands_final_ok]) are their corollaries. *)
+(* §3/§4 (REPAIR 11) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC evidence, gated as the accepted public
+   surfaces — each accepted theorem STATES exactly the evidence its proof obtains:
+   - the exact per-occurrence valid-chain SUCCESS bundle ([deep_nested_convsuccess_at], proving [nested_success_bundle]:
+     current EConvert view + current final EOOk f + exact ConversionStep + operand SuffixMember + tail = final =
+     EOOk opf + tail=final query equality + ONE convert_const success on the exact target fact + f the exact current
+     ExprFact), and its instantiation on ALL FOUR valid conversions ([deep_nested_chain_success_evidence]);
+   - the innermost convfail's retained cause CONNECTED to the exact stored [DRInvalidConversion]
+     ([deep_fail_innermost_diag] — same fields, t = the exact predeclared-context target fact query
+     [tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))], the exact retained
+     annotated member/context pair supplying [outer], and [ep_diags] EXACTLY that singleton, no second reason);
+   - the strong per-occurrence child-failure closure ([deep_fail_childfail_closure_at]: exact ConversionStep +
+     operand + tail=final failure + current EOChildFail + no local reason).
+   The weaker projections are labeled COROLLARIES: [deep_nested_ok_closure_at] states only the operand tail/final
+   EOOk + query equality (NO convert_const success / target fact / current fact); the concrete aggregates
+   [deep_fail_outer_operands_final_fail], [deep_nested_chain_operands_final_ok], [deep_nested_all_ok] state only the
+   outcome SHAPE. *)
+Print Assumptions GoCompile.deep_nested_convsuccess_at.
+Print Assumptions GoCompile.deep_nested_chain_success_evidence.
 Print Assumptions GoCompile.deep_fail_innermost_diag.
 Print Assumptions GoCompile.deep_fail_childfail_closure_at.
 Print Assumptions GoCompile.deep_nested_ok_closure_at.
