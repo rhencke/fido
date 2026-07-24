@@ -25,27 +25,66 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`; Git hi
 - Eighth blocked candidate / repair-8 baseline: `91e8dbbcd24fc7df678e6b3d68eabb13b686efa1` (the repair-7 freeze;
   eighth BLOCKING — the final table's causal outcome was the raw-map `OutcomeCause`; the semantic fold discarded
   the exact operand member and did a raw map `find`; `phase_*_work_cause` reconstructed the cause afterward).
-- **Repair-8 candidate: COMPLETE — frozen at the `review(final): C4 — freeze member-indexed causal outcome
-  candidate` commit (repository HEAD); human C4 Implementation Review pending.** Full human review range
-  `8c9212a..`<freeze>; full repair range `89b8e54..`<freeze>; repair-8 range `91e8dbb..`<freeze>. All eight
-  blocked candidates ended at `91e8dbb`.
+- Ninth blocked candidate / repair-9 baseline: `a2a5b46026cc658f41cb04f6d6cb30a29335671c` (the repair-8 freeze;
+  ninth BLOCKING — repair 8 correctly repaired the live semantic step, but the final table retains no
+  final-to-tail causal relation: the existential `acc_rest` inside `FinalMemberCause` is a POSSIBLE derivation,
+  not the authenticated recursive tail of `fot_acc`, so a foreign rest accumulator producing the same head
+  outcome still typechecks). All nine blocked candidates end at `a2a5b46`.
 - Human authorization: `C4-source-type-resolution-1`; repair 1 `C4-retained-facts-and-diagnostics-repair-1`;
   repair 2 `C4-typed-reference-single-path-repair-2`; repair 3 `C4-retained-table-bottom-up-repair-3`;
   repair 4 `C4-retained-phase-scope-ledger-repair-4`; repair 5 `C4-typed-work-direct-cause-scope-repair-5`;
   repair 6 `C4-single-retained-work-domain-repair-6`; repair 7 `C4-exact-retained-work-object-repair-7`;
-  repair 8 `C4-member-indexed-causal-outcome-repair-8` (ACTIVE — see the C4 implementation state + section 2).
-- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_8.md` (repairs 1–7 superseded — each deleted in the
+  repair 8 `C4-member-indexed-causal-outcome-repair-8`; repair 9
+  `C4-final-to-tail-causal-closure-repair-9` (ACTIVE — see section 2 below).
+- Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_9.md` (repairs 1–8 superseded — each deleted in the
   first implementation commit of the next repair; git history is their archive). The scope ledger
   (`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`) + `ADR-0001-PINNED-64-BIT-TARGET` (PROPOSED) + `ADR-0002-BOUNDED-
   DECIMALFLOAT-DOMAIN` (REJECTED AS WRITTEN — open) are authorized as review governance under this repair (no
   disposition ACCEPTED; a model does not certify its own trade-offs; PROPOSED entries carry neutral
   classifications, no REVIEWED).
 - Automatic Codex review: DISABLED. This directive is Rob's later explicit authorization; on repair completion
-  the candidate is frozen with EXACTLY ONE `review(final): C4 — freeze member-indexed causal outcome candidate`
+  the candidate is frozen with EXACTLY ONE `review(final): C4 — freeze causally closed outcome-trace candidate`
   and reported for Rob's human Implementation Review — no Codex review is requested or run.
 - C5, every later checkpoint, and the post-C4 trim remain forbidden (the trim until C4 acceptance).
 
-## Repair 8 — blocking classes (member-indexed causal outcome) — RESOLVED (candidate complete)
+## Repair 9 — blocking classes (final-to-tail causal closure) — ACTIVE at `a2a5b46`
+
+Repair 8 correctly repaired the live semantic step (KEEP it). The one remaining defect is the final RETENTION
+boundary: the fold computes each member from the actual tail `OutcomeAccumulator`, but the final table retains no
+causal structure proving that the existential `acc_rest` inside `FinalMemberCause` IS the actual tail of
+`fot_acc`.
+
+- **2.1** `OutcomeAccumulator` carries no causal predecessor (no exact tail accumulator, current member,
+  `StepCause`, or recursive trace); `build_outcome_accumulator` returns the causes as a SEPARATE dependent
+  function beside the accumulator, so the object alone does not retain how it was built.
+- **2.2** `FinalMemberCause` is not indexed by the final `OutcomeAccumulator`; its existential `acc_rest` has no
+  relation to `fot_acc`. The list split proves only that `rest` is the source suffix, not that `acc_rest` is the
+  causal tail of `fot_acc`.
+- **2.3** `ForestOutcomeTable` permits a FOREIGN causal witness: `fot_acc`/`fot_causes` may be paired with any
+  exact-domain rest accumulator that makes a `StepCause` produce the same head result (e.g. an `EOOk` operand
+  fact with equal `ConstInfo` but different `ef_use_resolved`; or any failing rest outcome for a child failure).
+- **2.4** the final query cannot connect the operand tail result to the final table: `StepCause_convfail_inv`
+  proves `oa_total acc_rest operand_suffix = EOOk opf` but NOT `total_forest_outcome_at ot operand_work = EOOk
+  opf`, and no retained field states extension preserves suffix-member queries into `fot_acc`.
+- **2.5** `total_forest_outcome_cause` projects `fot_causes`, so it returns a POSSIBLE derivation, not an
+  authenticated insertion trace; the "exact insertion cause" comments are not justified by the type.
+- **2.6** the actual tail relation is discarded during lifting: the head cause stores the actual `acc_rest`, but
+  the tail lifting uses a local `Hoo` query equality and then discards it; the retained cause accumulates no
+  relation from `acc_rest` to the final accumulator.
+- **2.7** `deep_fail_innermost_convfail` stops at the unlinked tail accumulator (`oa_total acc_rest operand_sm =
+  EOOk opf`) and never proves the same operand `WorkMember` has `EOOk opf` in the final table.
+- **2.8** `deep_fail_outer_childfail`/`deep_nested_all_ok` prove only final outcome shapes (via the source-spec
+  bridge / EOOk), never projecting `total_forest_outcome_cause` and connecting each tail operand result to the
+  final table.
+- **2.9** current prose/gate comments overclaim the final cause (exact insertion cause, exact prior accumulator,
+  exact retained operand outcome, foreign components unrepresentable) — false without a final-to-tail relation.
+
+Required (directive §3–§9): an intrinsic causal object (preferred `OutcomeTrace forest tnft items acc`, accumulator
+as INDEX, retaining the exact tail trace/accumulator/member/`StepCause`/freshness); `ForestOutcomeTable` = `fot_acc`
++ `fot_trace`; `total_forest_outcome_cause` PROJECTS the trace with tail-to-final query preservation; direct
+fixtures prove closure into the final table; foreign witnesses excluded. KEEP the repair-8 semantic branch.
+
+## Repair 8 — blocking classes (member-indexed causal outcome) — RESOLVED (repair-8 classes; candidate superseded by repair 9)
 
 The eighth C4 Implementation Review was BLOCKING at `91e8dbb`. Repair 7's retained-object flow is CORRECT and
 kept; the one remaining defect — the causal/outcome-fold root beneath `ForestOutcomeTable` — is REPAIRED. Each

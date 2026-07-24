@@ -4,8 +4,8 @@ state: closed
 review: Implementation Review
 confirmation: no
 confirmation_used: no
-human_override: C4-member-indexed-causal-outcome-repair-8
-result: eighth BLOCKING result repaired; new human C4 Implementation Review pending
+human_override: C4-final-to-tail-causal-closure-repair-9
+result: BLOCKING at a2a5b460; final-to-tail causal closure repair 9 active
 
 contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
 contract_sha256: 9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4
