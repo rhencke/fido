@@ -1676,6 +1676,10 @@ Proof. destruct o as [a|]; [reflexivity | exfalso; apply H; reflexivity]. Qed.
    [None] branch), so two proofs of non-emptiness give the same projection. *)
 Lemma from_some_pi {A} (o : option A) (H1 H2 : o <> None) : from_some o H1 = from_some o H2.
 Proof. destruct o as [a|]; [reflexivity | destruct (H1 eq_refl)]. Qed.
+(* equal options give equal projections (the witnesses are irrelevant). *)
+Lemma from_some_congr {A} (o1 o2 : option A) (H1 : o1 <> None) (H2 : o2 <> None) :
+  o1 = o2 -> from_some o1 H1 = from_some o2 H2.
+Proof. intro Ho. revert H2. rewrite <- Ho. intro H2. apply from_some_pi. Qed.
 
 (* §3.2 the TOTAL typed conversion children on the live path: given the ref's source view IS a conversion, the
    target/operand refs are obtained THROUGH the retained index with NO [None] fallback (the impossible branch is
@@ -4725,6 +4729,129 @@ Definition ep_facts {p} {input : CompilationInput p} (ph : ExpressionPhase input
 (* the phase's STORED diagnostic list IS the retained [ep_diag] object's list. *)
 Definition ep_diags {p} {input : CompilationInput p} (ph : ExpressionPhase input)
   : list (DiagnosticReason p) := ed_diags (ep_diag ph).
+
+(** ═══ REPAIR 10: UNIVERSAL ACCEPTANCE THEOREMS ═══ direct statements over ANY retained [ForestOutcomeTable] /
+    member, so the concrete deep fixtures are corollaries that instantiate them.  No production-root change. *)
+
+(* the total query depends only on the member's key: two members with the same [ExprWork] give the same outcome. *)
+Lemma total_forest_outcome_at_congr {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (w1 w2 : WorkMember forest) :
+  proj1_sig w1 = proj1_sig w2 -> total_forest_outcome_at ot w1 = total_forest_outcome_at ot w2.
+Proof. intro Heq. unfold total_forest_outcome_at. apply from_some_congr. rewrite Heq. reflexivity. Qed.
+
+(* §5 the retained trace's insertion sequence — the [current] of each [TraceCons], collected top-down. *)
+Fixpoint trace_currents {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    {items : list (ExprWork input)} {acc : OutcomeAccumulator forest tnft items}
+    (t : OutcomeTrace forest tnft items acc) : list (ExprWork input) :=
+  match t with
+  | TraceNil => []
+  | TraceCons current _ _ _ _ _ tail _ => current :: trace_currents tail
+  end.
+Lemma trace_currents_eq {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft} :
+  forall items acc (t : OutcomeTrace forest tnft items acc), trace_currents t = items.
+Proof.
+  intros items acc t. induction t as [ | current rest acc_rest o Hin Hfresh tail IH sc ]; [reflexivity |].
+  cbn [trace_currents]. rewrite IH. reflexivity.
+Qed.
+
+(* §5 UNIQUE TRACE INSERTION: over a trace of the whole [ewf_items], every retained member is the [current] of
+   exactly one [TraceCons] (the insertion sequence IS [ewf_items], each once, in order), and no two insertion
+   steps share a work key (the visit's key-[NoDup]). *)
+Lemma outcome_trace_unique_step {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (acc : OutcomeAccumulator forest tnft (ewf_items forest))
+    (t : OutcomeTrace forest tnft (ewf_items forest) acc) :
+  trace_currents t = ewf_items forest
+  /\ NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (trace_currents t)).
+Proof.
+  split.
+  - exact (trace_currents_eq (ewf_items forest) acc t).
+  - rewrite (trace_currents_eq (ewf_items forest) acc t). exact (ewf_keys_nodup forest).
+Qed.
+
+(* §4/§8.6 UNIVERSAL CHILD-FAILURE CLOSURE: any member whose FINAL outcome is [EOChildFail] has a retained cause
+   whose operand (the exact [SuffixMember]) FAILS in both the retained tail accumulator and the FINAL table, its
+   own final outcome is a failure, and it emits NO local diagnostic (any context) — [EOChildFail] projects []. *)
+Lemma retained_childfail_closure {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) :
+  total_forest_outcome_at ot wm = EOChildFail ->
+  exists ts x (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest)
+         (step : ConversionStep forest (proj1_sig wm) rest ts x),
+       ew_expr (proj1_sig wm) = EConvert ts x
+    /\ outcome_is_fail (oa_total acc_rest (cs_operand_suffix step))
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = oa_total acc_rest (cs_operand_suffix step)
+    /\ outcome_is_fail (total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)))
+    /\ (forall c, forest_awork_diags ot (wm, c) = []).
+Proof.
+  intro Hcf.
+  destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
+  rewrite Hcf in stepc.
+  destruct (StepCause_childfail_inv _ rest acc_rest stepc) as [ts [x [step [He Hfail]]]].
+  pose proof (Hclose (cs_operand_suffix step)) as Hcl.
+  exists ts, x, rest, acc_rest, step.
+  split; [ exact He | split; [ exact Hfail | split; [ exact Hcl | split ] ] ].
+  - rewrite Hcl. exact Hfail.
+  - intro c. unfold forest_awork_diags. cbn [fst snd]. rewrite Hcf. reflexivity.
+Qed.
+
+(* §5/§8.4 UNIVERSAL CONVERSION-SUCCESS CLOSURE: any conversion member whose FINAL outcome is [EOOk f] has a
+   retained cause with the exact [ConversionStep], the operand [SuffixMember] whose tail query = final query =
+   [EOOk opf], ONE succeeding [convert_const] on the sealed target fact, and [f] the EXACT current final fact. *)
+Lemma retained_convsuccess_closure {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (wm : WorkMember forest) ts x f :
+  ew_expr (proj1_sig wm) = EConvert ts x ->
+  total_forest_outcome_at ot wm = EOOk f ->
+  exists (rest : list (ExprWork input)) (acc_rest : OutcomeAccumulator forest tnft rest) ts0 x0
+         (step : ConversionStep forest (proj1_sig wm) rest ts0 x0) opf tc,
+       oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = oa_total acc_rest (cs_operand_suffix step)
+    /\ convert_const (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step))))
+         (ef_const_status opf) = Some tc
+    /\ f = mkExprFact (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc)
+             (use_resolved_of_ci (expr_ref_role (ew_expr_ref (proj1_sig wm)))
+                (CITyped (tnf_type (type_name_fact_at_table tnft (cw_target_ref (cs_conversion step)))) tc)).
+Proof.
+  intros He Hok.
+  destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
+  rewrite Hok in stepc.
+  destruct (StepCause_ok_conv_inv _ rest acc_rest ts x f He stepc)
+    as [ts0 [x0 [step [opf [tc [Hopf [Hconv Hf]]]]]]].
+  pose proof (Hclose (cs_operand_suffix step)) as Hcl.
+  exists rest, acc_rest, ts0, x0, step, opf, tc.
+  split; [ exact Hopf | split; [ | split; [ exact Hcl | split; [ exact Hconv | exact Hf ] ] ] ].
+  transitivity (oa_total acc_rest (cs_operand_suffix step)); [ exact Hcl | exact Hopf ].
+Qed.
+
+(* §3 the STORED DIAGNOSTIC of an [EOConvFail] member: [forest_awork_diags] reads the STORED outcome DIRECTLY
+   (not via [local_conv_failure]) and emits [DRInvalidConversion] over the SAME fields with the member's retained
+   annotation context [outer].  So the exact reason is a MEMBER of the projected diagnostic list. *)
+Lemma retained_convfail_diag {p} {input : CompilationInput p} {forest : ExprWorkForest input} {tnft}
+    (ot : ForestOutcomeTable forest tnft) (aw : AnnotatedExprWorkForest forest) (wm : WorkMember forest)
+    er tr opr t ci :
+  total_forest_outcome_at ot wm = EOConvFail er tr opr t ci ->
+  exists (outer : list (GoIndex.ExprRef p)),
+    In (DRInvalidConversion er tr opr outer t ci) (flat_map (forest_awork_diags ot) (aewf_items aw)).
+Proof.
+  intro Hcv.
+  assert (Hin : In (proj1_sig wm) (map (fun x => proj1_sig (fst x)) (aewf_items aw))).
+  { rewrite (aewf_members aw). exact (proj2_sig wm). }
+  apply in_map_iff in Hin. destruct Hin as [x [Hx Hinx]].
+  destruct x as [wmx cx]. cbn [fst snd] in Hx.
+  exists cx.
+  assert (Hfx : total_forest_outcome_at ot wmx = EOConvFail er tr opr t ci).
+  { transitivity (total_forest_outcome_at ot wm);
+      [ exact (total_forest_outcome_at_congr ot wmx wm Hx) | exact Hcv ]. }
+  assert (Hdiag : forest_awork_diags ot (wmx, cx) = [DRInvalidConversion er tr opr cx t ci]).
+  { unfold forest_awork_diags. cbn [fst snd]. rewrite Hfx. reflexivity. }
+  apply in_flat_map. exists (wmx, cx). split; [ exact Hinx | rewrite Hdiag; left; reflexivity ].
+Qed.
+
+(* a diagnostic list of length one containing an element IS that singleton. *)
+Lemma length_one_in_eq {A} (l : list A) (x : A) : length l = 1%nat -> In x l -> l = [x].
+Proof.
+  intros Hlen Hin. destruct l as [|a [|b l']]; try discriminate Hlen.
+  destruct Hin as [Hax | []]. rewrite Hax. reflexivity.
+Qed.
 
 (** ★§9/§10/§11.5 THE ONE PHASE DRIVES BOTH PROJECTIONS: the sealed FACTS ([ep_facts] = the map of the retained
     [ForestExprFactTable]) and the STORED DIAGNOSTICS ([ep_diags] = the retained [ExpressionDiagnostics] list) are
@@ -10371,6 +10498,52 @@ Proof.
   rewrite Hexpr, map_length in H. rewrite H. vm_compute. reflexivity.
 Qed.
 
+(* §3/§12.2 — the innermost int8(300) convfail's RETAINED cause is CONNECTED to the exact STORED diagnostic: the
+   phase's stored [ep_diags] is EXACTLY the singleton [DRInvalidConversion] whose primary/target/operand refs +
+   resolved target + operand status are the SAME fields the retained [EOConvFail] cause carries, with the member's
+   retained annotation context [outer].  The reason is read from the STORED outcome via [forest_awork_diags]
+   (repair-10 [retained_convfail_diag]), NOT re-derived by [local_conv_failure]; length one (there is no second
+   local reason).  The tail operand [EOOk opf] closes into the final table and [convert_const] rejects. *)
+Theorem deep_fail_innermost_diag :
+  let input := build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program) in
+  let phase := build_expression_phase input in
+  let ot := ep_ot phase in
+  exists (wm : WorkMember (ep_work phase))
+         (rest : list (ExprWork input))
+         (acc_rest : OutcomeAccumulator (ep_work phase) (ep_tnft phase) rest)
+         (step : ConversionStep (ep_work phase) (proj1_sig wm) rest (GoAST.tsyn GoNames.TNint8) (EInt 300))
+         opf t (outer : list (GoIndex.ExprRef deep_fail_program)),
+       total_forest_outcome_at ot wm
+         = EOConvFail (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
+             (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf)
+    /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ total_forest_outcome_at ot (proj1_sig (cs_operand_suffix step)) = EOOk opf
+    /\ convert_const t (ef_const_status opf) = None
+    /\ ep_diags phase =
+         [ DRInvalidConversion (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
+             (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) outer t (ef_const_status opf) ].
+Proof.
+  cbn zeta.
+  pose proof deep_fail_innermost_convfail as H. cbn zeta in H.
+  destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq Hcv]]]]]]]]]]].
+  destruct (retained_convfail_diag
+              (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+              (ep_awork (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
+              wm (ew_expr_ref (proj1_sig wm)) (cw_target_ref (cs_conversion step))
+              (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))) t (ef_const_status opf) Hout)
+    as [outer Hin].
+  exists wm, rest, acc_rest, step, opf, t, outer.
+  split; [ exact Hout | split; [ exact Hopf | split; [ exact Hfinal | split; [ exact Hcv | ] ] ] ].
+  assert (Hdiageq : ep_diags (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))
+            = flat_map (forest_awork_diags (ep_ot (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))))
+                (aewf_items (ep_awork (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))))).
+  { unfold ep_diags.
+    exact (ed_is_diags (ep_diag (build_expression_phase (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))). }
+  apply length_one_in_eq.
+  - exact deep_fail_exactly_one_diag.
+  - rewrite Hdiageq. exact Hin.
+Qed.
+
 (* §12.1 — deep_nested: EVERY conversion of the chain (int64@5, int32@7, int16@9, int8@11) AND the leaf int@13
    resolve EOOk on the production table — all five retained work items, no fail-open anywhere in the valid tree. *)
 Theorem deep_nested_all_ok :
@@ -10449,7 +10622,10 @@ Lemma deep_fail_childfail_closure_at (local : positive) ts x occ :
          (proj1_sig (cs_operand_suffix step)) = oa_total acc_rest (cs_operand_suffix step)
     /\ outcome_is_fail (total_forest_outcome_at (ep_ot (build_expression_phase
          (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program))))
-         (proj1_sig (cs_operand_suffix step))).
+         (proj1_sig (cs_operand_suffix step)))
+    (* §2.3/§4 NO LOCAL REASON: the current (outer) member emits no diagnostic — [EOChildFail] projects [] *)
+    /\ (forall c, forest_awork_diags (ep_ot (build_expression_phase
+         (build_compilation_input deep_fail_program (GoIndex.index_program deep_fail_program)))) (wm, c) = []).
 Proof.
   intros Hsrc Hview Hnf Hlcf.
   destruct (deep_fail_childfail_at local ts x occ Hsrc Hview Hnf Hlcf) as [wm [He Hcf]].
@@ -10462,8 +10638,9 @@ Proof.
   injection Heq as Hts Hx. subst ts' x'.
   pose proof (Hclose (cs_operand_suffix step)) as Hcl.
   exists wm, rest, acc_rest, step.
-  split; [ exact He | split; [ exact Hcf | split; [ exact Hfail | split; [ exact Hcl | ] ] ] ].
-  rewrite Hcl. exact Hfail.
+  split; [ exact He | split; [ exact Hcf | split; [ exact Hfail | split; [ exact Hcl | split ] ] ] ].
+  - rewrite Hcl. exact Hfail.
+  - intro c. unfold forest_awork_diags. cbn [fst snd]. rewrite Hcf. reflexivity.
 Qed.
 
 (* §9.3 the SUCCESS CLOSURE at a valid conversion occurrence: locate the member, project the RETAINED cause, invert
@@ -10536,7 +10713,7 @@ Proof.
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ Hopfail]]]]]]]].
+      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
     exists wm, (proj1_sig (cs_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
   - destruct (GoIndex.source_occurrence_at deep_fail_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
     destruct (deep_fail_childfail_closure_at 7 (GoAST.tsyn GoNames.TNint32)
@@ -10544,7 +10721,7 @@ Proof.
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ Hopfail]]]]]]]].
+      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
     exists wm, (proj1_sig (cs_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
   - destruct (GoIndex.source_occurrence_at deep_fail_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
     destruct (deep_fail_childfail_closure_at 5 (GoAST.tsyn GoNames.TNint64)
@@ -10553,7 +10730,7 @@ Proof.
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ Hopfail]]]]]]]].
+      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
     exists wm, (proj1_sig (cs_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
 Qed.
 

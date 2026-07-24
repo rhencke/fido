@@ -321,6 +321,19 @@ Print Assumptions GoCompile.trace_retained_cause.
 Print Assumptions GoCompile.trace_match.
 Print Assumptions GoCompile.build_conversion_step.
 Print Assumptions GoCompile.build_forest_outcome_table.
+(* §4/§5 (REPAIR 10) the UNIVERSAL acceptance theorems over ANY retained table/member: the direct conversion-success
+   closure ([retained_convsuccess_closure] — exact ConversionStep + target fact + operand SuffixMember + tail =
+   final = EOOk opf + one convert_const success + exact current fact), the direct child-failure closure +
+   no-local-reason ([retained_childfail_closure] — operand fails in tail AND final, current EOChildFail, current
+   member emits no diagnostic), the stored-diagnostic connection ([retained_convfail_diag] — the exact
+   DRInvalidConversion over the STORED EOConvFail fields is a member of the projected list, read via
+   [forest_awork_diags] not [local_conv_failure]), and UNIQUE trace insertion per work member
+   ([outcome_trace_unique_step] — the trace's insertion sequence IS ewf_items, each once, key-NoDup). *)
+Print Assumptions GoCompile.retained_convsuccess_closure.
+Print Assumptions GoCompile.retained_childfail_closure.
+Print Assumptions GoCompile.retained_convfail_diag.
+Print Assumptions GoCompile.outcome_trace_unique_step.
+Print Assumptions GoCompile.trace_currents_eq.
 (* §9.5 the SEPARATE spec bridge (NOT production-cause evidence): a member's [StepCause] AGREES with the index-free
    source specification [outcome_matches] given the operands' matches ([stepcause_matches], by construction in the
    fold); the total query at a retained member matches its own occurrence ([total_forest_outcome_at_matches]). *)
@@ -454,6 +467,18 @@ Print Assumptions GoCompile.deep_nested_all_ok.
 Print Assumptions GoCompile.deep_nested_seals_eft.
 Print Assumptions GoCompile.deep_nested_work_count.
 Print Assumptions GoCompile.phase_domain_exact.
+(* §3/§4/§5 (REPAIR 10) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC evidence, gated as the accepted public
+   surfaces: the innermost convfail's retained cause is CONNECTED to the exact stored [DRInvalidConversion]
+   ([deep_fail_innermost_diag] — [ep_diags] is EXACTLY that singleton, same fields, no second reason); the strong
+   per-occurrence closures ([deep_fail_childfail_closure_at]: exact ConversionStep + operand + tail=final failure
+   + current EOChildFail + no local reason; [deep_nested_ok_closure_at]: exact ConversionStep + operand + tail =
+   final = EOOk opf + convert_const success) are the ACCEPTED direct theorems; the concrete aggregates
+   ([deep_fail_outer_operands_final_fail], [deep_nested_chain_operands_final_ok]) are their corollaries. *)
+Print Assumptions GoCompile.deep_fail_innermost_diag.
+Print Assumptions GoCompile.deep_fail_childfail_closure_at.
+Print Assumptions GoCompile.deep_nested_ok_closure_at.
+Print Assumptions GoCompile.deep_fail_outer_operands_final_fail.
+Print Assumptions GoCompile.deep_nested_chain_operands_final_ok.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)
