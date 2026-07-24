@@ -25,35 +25,37 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_12.md`**, human authorization token
   `C4-final-identity-collection-audit-closeout-repair-12`. Repairs 1–11 are superseded (each deleted in the first
   implementation commit of the next repair; git history is their archive).
-- **C4 disposition: NOT accepted at `48c0b31` — BLOCKING for two exact closeout defects (repair 12 active).** The
-  production architecture continues to PASS the causal-path review (no new production-path defect; no production change
-  authorized). Commit `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) is a
-  **SUPERSEDED documentation-only acceptance closeout** — based on the withdrawn GREEN disposition, it did NOT repair
-  the two defects and does not accept C4. Automatic Codex review is DISABLED.
+- **C4 disposition: NOT accepted at `48c0b31`. Repair 12 (exact success identity + collection-audit closeout)
+  candidate COMPLETE and FROZEN at this freeze commit; the twelfth BLOCKING result is repaired and a NEW human C4
+  Implementation Review is pending.** The production architecture continues to PASS the causal-path review (no new
+  production-path defect; no production change made). Commit `37c9597` (`review(accept): C4 — accept exact source-type
+  conversion foundation`) is a **SUPERSEDED documentation-only acceptance closeout** — based on the withdrawn GREEN
+  disposition, it did NOT repair the two defects and does not accept C4. Ranges: full human C4 review
+  `8c9212a..`this freeze commit; full repair `89b8e54..`this freeze commit; repair-12 `48c0b31..`this freeze commit.
+  Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
-## Repair 12 — exact success identity and collection-audit closeout — ACTIVE at `48c0b31` (on head `37c9597`)
+## Repair 12 — exact success identity and collection-audit closeout — COMPLETE and FROZEN (baseline `48c0b31`)
 
-**The production architecture PASSES the causal-path review; NO new production-path defect; no production change is
-authorized.** A narrow theorem-statement, gate-comment, collection-audit, and authority-prose closeout of two exact
-defects:
+**The production architecture PASSES the causal-path review; NO new production-path defect; no production change was
+made.** A narrow theorem-statement, gate-comment, collection-audit, and authority-prose closeout of two exact defects,
+now complete:
 
-- **2.1–2.3 (success identity)** the accepted conversion-success theorem family returns an existential
-  `ConversionStep ... ts0 x0` with no stated `ts0 = ts` / `x0 = x`, so its public type does not justify calling the
-  step "the exact ConversionStep for the source conversion." Root: `StepCause_ok_conv_inv` inverts `SCConvOk` (which
-  carries `ew_expr current = EConvert ts x`) but re-existentially-quantifies fresh `ts x` instead of returning the
-  step at the supplied `ts0 x0`. Reaches `retained_convsuccess_closure`, `nested_success_bundle`,
-  `deep_nested_convsuccess_at`, `deep_nested_chain_success_evidence`, the gate comments, and the prose calling the
-  bundle exact.
-- **2.4–2.6 (collection audit)** `.review/COLLECTION_AUDIT.md` (a declared living current-state inventory) names the
-  DELETED `prog_conv_outcomes` authority, a nonexistent "bucket value prevents overwrite" behavior for `ExprOutcome`
-  storage, a stale combined outcome/expression-fact/type-name row, and the nonexistent `TFun` body. The current
-  objects are `ExprWorkForest`/`AnnotatedExprWorkForest` (ordered retained `list` views), `OutcomeAccumulator.oa_map`
-  (the standard `NodeKeyMapBase` FMapAVL identity map, one entry per key, no bucket), `OutcomeTrace` (intrinsic causal
-  inductive), `ForestOutcomeTable` (`fot_acc` + `fot_trace`), `ForestExprFactTable`/`ExprFactTable` (the EOOk
+- **2.1–2.3 (success identity)** the conversion-success theorem family now exposes source-step identity. Root:
+  `StepCause_ok_conv_inv` returns the `ConversionStep` at the EXACT source `ts0`/`x0` supplied — it inverts `SCConvOk`
+  (whose own `ew_expr current = EConvert ts x` is injected against the premise `ew_expr current = EConvert ts0 x0`)
+  and substitutes, so no existential source-type distinction survives. `retained_convsuccess_closure` and
+  `nested_success_bundle` return `step : ConversionStep ... ts x` (no existential `ts0`/`x0`);
+  `deep_nested_convsuccess_at` / `deep_nested_chain_success_evidence` expose the exact source `ConversionStep` for
+  each of the four valid conversions; the gate comments quote the source-step identity.
+- **2.4–2.6 (collection audit)** `.review/COLLECTION_AUDIT.md` is rewritten around the current objects:
+  `ExprWorkForest`/`AnnotatedExprWorkForest` (ordered retained `list` views), `OutcomeAccumulator.oa_map` /
+  `ForestOutcomeTable.fot_acc` (the standard `NodeKeyMapBase` FMapAVL identity map, one entry per key, NO list bucket,
+  no overwrite), `OutcomeTrace` (intrinsic causal inductive), `ForestExprFactTable`/`ExprFactTable` (the EOOk
   projection), and the separate `TypeNameFactTable`; the current source form is `DMain body`. A full symbol-existence
-  pass over every current token in the audit is required.
+  pass confirms every current token exists, and the deleted `prog_conv_outcomes` / `TFun` (and old `FMap.v` /
+  radix `NodeTable`) names are labeled rejected/historical, not current.
 
 ## Current implementation architecture (RETAINED)
 
@@ -74,10 +76,10 @@ differential results and the canonical generated Go bytes unchanged; no C5.
 
 Universal (over any retained table/member): `retained_convsuccess_closure` / `retained_childfail_closure`
 (+no-local-reason) / `retained_convfail_diag` (returns the exact retained annotated member/context pair) /
-`outcome_trace_unique_step` (+`trace_currents_eq`). Concrete (over the deep programs): the valid-chain success
+`outcome_trace_unique_step` (+`trace_currents_eq`). Concrete (over the deep programs): the exact valid-chain success
 bundle `deep_nested_convsuccess_at` (proving `nested_success_bundle`) instantiated on all four conversions
-(`deep_nested_chain_success_evidence`) — **repair 12 makes the returned `ConversionStep` carry the source `ts`/`x`
-identity (removing the existential `ts0`/`x0`), so the "exact ConversionStep" claim is justified by the public type**;
+(`deep_nested_chain_success_evidence`) — **the returned `ConversionStep` carries the source `ts`/`x` identity (no
+existential `ts0`/`x0`, repair 12), so the "exact ConversionStep" claim is justified by the public type**;
 the exact `EOConvFail`→`DRInvalidConversion` diagnostic theorem
 `deep_fail_innermost_diag` (stating `t = tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref
 (cs_conversion step)))`, the annotated member, and the stored singleton); the outer child-failure closure

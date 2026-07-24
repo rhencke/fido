@@ -1,16 +1,19 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **exact success identity and collection-audit closeout repair 12.** The production
-  architecture continues to PASS the causal-path review — **no new production-path defect was found, and no production
-  change is authorized** (this repair changes theorem statements/proofs, the readable gate, the collection audit, and
-  current-authority prose only). The candidate `48c0b31` is **BLOCKING** for two exact closeout defects: (2.1–2.3) the
-  accepted conversion-success theorem family (`StepCause_ok_conv_inv` → `retained_convsuccess_closure` →
-  `nested_success_bundle` → `deep_nested_convsuccess_at` / `deep_nested_chain_success_evidence`) returns an existential
-  `ConversionStep ... ts0 x0` with no stated `ts0 = ts` / `x0 = x`, so its public type does not justify calling the
-  returned step "the exact ConversionStep for the source conversion"; (2.4–2.6) `.review/COLLECTION_AUDIT.md` (a
-  declared living current-state inventory) still names the deleted `prog_conv_outcomes` authority, a nonexistent
-  "bucket value prevents overwrite" behavior for `ExprOutcome` storage, a stale combined outcome/fact/type-name row,
-  and the nonexistent `TFun` body as current syntax.
+- **Active checkpoint:** C4 **exact success identity and collection-audit closeout repair 12 — candidate COMPLETE
+  and FROZEN at this freeze commit; pending Rob's human C4 Implementation Review.** The production architecture
+  continues to PASS the causal-path review — **no new production-path defect, and no production change was made** (this
+  repair changed theorem statements/proofs, the readable gate, the collection audit, and current-authority prose
+  only). Both defects are addressed: (2.1–2.3) the conversion-success theorem family now exposes source-step identity
+  — `StepCause_ok_conv_inv` returns the `ConversionStep` at the EXACT source `ts0`/`x0` supplied (inverting `SCConvOk`
+  and injecting its own `ew_expr current = EConvert ts x` against the premise), `retained_convsuccess_closure` and
+  `nested_success_bundle` return `step : ConversionStep ... ts x` (no existential `ts0`/`x0`), and
+  `deep_nested_convsuccess_at` / `deep_nested_chain_success_evidence` expose the exact source `ConversionStep` for
+  each of the four valid conversions; (2.4–2.6) `.review/COLLECTION_AUDIT.md` is rewritten around the current objects
+  (`ExprWorkForest`/`AnnotatedExprWorkForest`, `OutcomeAccumulator.oa_map`/`ForestOutcomeTable.fot_acc`,
+  `OutcomeTrace`, `ForestExprFactTable`/`ExprFactTable`, the separate `TypeNameFactTable`, and `DMain body`), with a
+  symbol-existence pass confirming every current token exists and the deleted `prog_conv_outcomes` / `TFun` names are
+  labeled rejected/historical.
 - **Superseded current head:** commit `37c9597` (`review(accept): C4 — accept exact source-type conversion
   foundation`) is a **SUPERSEDED documentation-only acceptance closeout** — it was based on the withdrawn GREEN
   disposition and did NOT repair the two blocking defects above. C4 is **NOT accepted** at `48c0b31`. Repair 12 is
@@ -25,9 +28,16 @@
   `48c0b31beb547326b058748a4d38c6cc41013009` (12 — **the current repair-12 baseline**).
 - **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_12.md`.
 - **Human repair authorization token:** `C4-final-identity-collection-audit-closeout-repair-12`.
-- **State:** C4 Implementation Review **BLOCKING**; **exact success identity and collection-audit closeout 12 active.**
-- **Production architecture disposition:** no new production-path defect found; **no production change authorized**
-  (theorem statements/proofs, gate, collection audit, and authority prose only).
+- **Candidate ranges (this freeze commit is the repair-12 candidate head; the report gives the exact SHA):** full
+  human C4 Implementation Review range `8c9212a..`this freeze commit; full repair range `89b8e54..`this freeze commit;
+  repair-12 range `48c0b31..`this freeze commit.
+- **State:** C4 Implementation Review — **exact success identity and collection-audit closeout repair 12 COMPLETE and
+  FROZEN** at this freeze commit (the twelfth BLOCKING result repaired); **new human C4 Implementation Review pending.**
+  All twelve prior blocked candidates ended at `48c0b31` (the repair-12 baseline); this freeze is the new candidate
+  head.
+- **Production architecture disposition:** no new production-path defect found; **no production change made**
+  (theorem statements/proofs, gate, collection audit, and authority prose only). Exact source-step identity is now
+  exposed in the success theorem family; the collection audit is current and symbol-checked.
 - **Scope decisions:** ADR-0001 remains **PROPOSED**. **ADR-0002 is REJECTED AS WRITTEN / OPEN.** SR-009 =
   UNRESOLVED EXISTING RESTRICTION. Every PROPOSED ledger entry stays PROPOSED until Rob accepts.
 - **Automatic Codex review:** DISABLED (do NOT request or run a Codex review).
