@@ -302,6 +302,55 @@ Print Assumptions GoCompile.ewf_reverse.
 Print Assumptions GoCompile.ewf_forward.
 Print Assumptions GoCompile.ewf_keys_nodup.
 Print Assumptions GoCompile.ewf_operand_in_tail.
+(* §3/§4/§10 (REPAIR 13) THE EXACT STANDARD WORK-MEMBER INDEX — the retained ordered [ewf_items] list is the
+   SOURCE-ORDER authority ONLY; the IDENTITY role is a DERIVED index whose storage and lookup delegate ENTIRELY to
+   the pinned-stdlib [FMapAVL] map [GoIndex.NodeKeyMapBase].  NO keyed list scan — no [List.find], no [existsb]
+   membership test, no recursive key search — occurs anywhere in the work-member lookup path
+   ([build_outcome_trace] -> [build_conversion_step] -> [build_conversion_work] -> [forest_index_member_at] ->
+   [index_member_at] -> [NodeKeyMapBase.find]); the theory's one remaining [find] is [GoNames.classify], a
+   spelling CLASSIFICATION over the fixed closed sixteen-name descriptor enumeration with a proved inverse, not
+   stored keyed storage.  [ewf_keys_nodup] is a FACT about the ordered enumeration that LICENSES the index
+   build — never the lookup mechanism.
+   BUILD: [work_index_map] folds the ALREADY-BUILT item list once through the standard [add] (it takes the list,
+   so it cannot re-traverse [ci_visit] or re-run [build_forest_blocks]); [work_index_fresh] / [work_index_add_fresh]
+   prove every add writes a key the partial map does not yet hold, so the fold is OVERWRITE-FREE; [build_work_index]
+   is TOTAL with no option/fallback/empty-default precisely because the key-NoDup is a PROOF ARGUMENT — a
+   possibly-duplicated list cannot be handed to it.  [ewf_index] retains the index as a DEPENDENT field over the
+   forest's own [ewf_items], so a foreign map is not pairable with a forest.
+   EXACTNESS: [work_index_exact] / [ewi_exact] pin [find] to "the retained item with this key" in BOTH directions
+   (sound: every hit is a retained item at that key; complete: every retained item is found at its own key), so
+   every item has exactly one entry and every entry is exactly one item.  [ewi_domain] is the DERIVED domain
+   (never a stored second authority); [ewi_key_inj] derives from the standard map that two retained items with
+   equal keys ARE the same item — so duplicate work keys are impossible and no equal-key FRESH [ExprWork] can
+   substitute for a retained one ([ewf_key_inj] is now that theorem, not a hand-rolled NoDup list scan).
+   QUERY: [index_member_at] / [forest_index_member_at] are the TOTAL member queries — ONE
+   [NodeKeyMapBase.find], the impossible [None] branch discharged by a Prop existence hypothesis (no Prop
+   eliminated into the returned [sig], no fallback member).  [index_member_at_retained] /
+   [forest_index_member_at_retained]: the query at a retained member's own key returns THAT member;
+   [index_no_foreign] / [forest_index_no_foreign]: a key held by no retained item has no entry;
+   [index_nonexpr_absent]: a VISITED non-expression occurrence has no entry (wrong-kind exclusion).
+   CONVERSION PATH: [build_conversion_work] queries the index at the key of the operand [ExprRef] the work item
+   ALREADY CARRIES ([ew_conv]) — never a separately guessed source value — and returns the [ConversionWork] whose
+   [cw_operand_work] is that exact member with its exact ref / key / role / source-expression proofs;
+   [build_conversion_step] then places that SAME member in the processed suffix. *)
+Print Assumptions GoCompile.work_index_map.
+Print Assumptions GoCompile.work_index_fresh.
+Print Assumptions GoCompile.work_index_add_fresh.
+Print Assumptions GoCompile.work_index_exact.
+Print Assumptions GoCompile.build_work_index.
+Print Assumptions GoCompile.ewf_index.
+Print Assumptions GoCompile.ewi_exact.
+Print Assumptions GoCompile.ewi_domain.
+Print Assumptions GoCompile.ewi_key_inj.
+Print Assumptions GoCompile.ewf_key_inj.
+Print Assumptions GoCompile.index_member_at.
+Print Assumptions GoCompile.index_member_at_retained.
+Print Assumptions GoCompile.index_no_foreign.
+Print Assumptions GoCompile.index_nonexpr_absent.
+Print Assumptions GoCompile.forest_index_member_at.
+Print Assumptions GoCompile.forest_index_member_at_retained.
+Print Assumptions GoCompile.forest_index_no_foreign.
+Print Assumptions GoCompile.build_conversion_work.
 (* §3/§6 (REPAIR 9) the forest outcome table IS THE INTRINSIC CAUSAL OBJECT: [build_forest_outcome_table] folds the
    [OutcomeTrace] whose cons node RETAINS the exact tail trace + tail accumulator + head member + [StepCause] over
    the EXACT tail ([build_outcome_trace]); the table pairs [fot_acc] with [fot_trace] INDEXED by it (not freely
@@ -496,6 +545,19 @@ Print Assumptions GoCompile.deep_fail_childfail_closure_at.
 Print Assumptions GoCompile.deep_nested_ok_closure_at.
 Print Assumptions GoCompile.deep_fail_outer_operands_final_fail.
 Print Assumptions GoCompile.deep_nested_chain_operands_final_ok.
+(* §3/§4/§10 (REPAIR 13) the DIRECT WORK-INDEX fixtures over REAL programs:
+   - [deep_nested_index_at] / [deep_nested_chain_index_evidence] — on the four-deep chain, EACH conversion's
+     CARRIED operand [ExprRef] queries the retained standard-map index ([NodeKeyMapBase.find]) to the EXACT
+     retained operand member; that member IS the one the [ConversionStep] placed in the processed suffix
+     ([cs_operand_exact] + [In … rest]); and the operand/current outcomes remain the accepted [EOOk] values;
+   - [twin_expr_index_distinct] — the IDENTITY-DISTINCTION fixture: two occurrences carrying the LITERALLY SAME
+     source expression value ([uint8(7)] twice) are DISTINCT work items with DISTINCT NodeKeys and DISTINCT index
+     entries, each key answering with its OWN retained member.  Expression-value equality cannot conflate two
+     retained members — the index keys OCCURRENCE identity.  (Its type-name-layer counterpart is
+     [two_uint8_distinct_target_refs].) *)
+Print Assumptions GoCompile.deep_nested_index_at.
+Print Assumptions GoCompile.deep_nested_chain_index_evidence.
+Print Assumptions GoCompile.twin_expr_index_distinct.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, convert_const rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved GoType — erase DISTINGUISHABLY. *)

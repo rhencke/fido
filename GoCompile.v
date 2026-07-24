@@ -2434,6 +2434,159 @@ Proof.
   - exact (IH Hnd).
 Qed.
 
+(** ═══ §3/§10 THE EXACT STANDARD WORK-MEMBER INDEX ═══ the retained item list is the SOURCE-ORDER authority and
+    NOTHING ELSE — it is never keyed storage.  The IDENTITY role ("which retained work item carries this
+    [NodeKey]?") is served by a DERIVED index whose storage and lookup delegate ENTIRELY to the pinned-stdlib
+    [FMapAVL] map [GoIndex.NodeKeyMapBase]: Fido authors no tree, no bucket, and no find/mem/add algorithm here.
+    [work_index_map] folds the SAME already-retained list through the standard [add] (no second work discovery, no
+    re-traversal of [ci_visit]); [work_index_fresh] proves every one of those adds writes a key the partial map
+    does not yet hold, so the fold is OVERWRITE-FREE; [work_index_exact] pins the finished map to that exact list
+    in BOTH directions.  The record is INDEXED BY the item list, so a foreign map is not pairable with a forest,
+    and the builder DEMANDS the key-[NoDup] — a duplicate-keyed list has no index (indeed [ewi_exact] is
+    unsatisfiable for one: two distinct equal-key items would force [Some a = Some b], see [ewi_key_inj]).
+    [ewf_keys_nodup] is thus a FACT about the ordered enumeration that licenses the index build; it is not the
+    lookup mechanism.  No keyed list scan — no [List.find], no [existsb] membership test, no recursive key
+    search — occurs anywhere in the work-member lookup path
+    ([build_outcome_trace] -> [build_conversion_step] -> [build_conversion_work] -> [forest_index_member_at] ->
+    [index_member_at] -> [NodeKeyMapBase.find]).  (The theory's one remaining [find] is [GoNames.classify], a
+    spelling CLASSIFICATION over the fixed closed sixteen-name descriptor enumeration with a proved inverse —
+    no stored keyed table, no growth with program size.) *)
+
+(* the index map: the retained items folded ONCE through the standard [add] (head added outermost). *)
+Fixpoint work_index_map {p} {input : CompilationInput p} (items : list (ExprWork input))
+  : GoIndex.NodeKeyMapBase.t (ExprWork input) :=
+  match items with
+  | nil => GoIndex.NodeKeyMapBase.empty (ExprWork input)
+  | w :: rest =>
+      GoIndex.NodeKeyMapBase.add (GoIndex.Snap.node_ref_key (ew_node_ref w)) w (work_index_map rest)
+  end.
+
+(* FRESHNESS: a key absent from the item list is absent from its index.  Applied at each [cons] of the fold under
+   the key-[NoDup], this says every [add] writes a fresh key — the build never silently overwrites an entry. *)
+Lemma work_index_fresh {p} {input : CompilationInput p} (items : list (ExprWork input)) k :
+  ~ In k (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) items) ->
+  GoIndex.NodeKeyMapBase.find k (work_index_map items) = None.
+Proof.
+  induction items as [|w rest IH]; cbn [work_index_map map]; intro Hni.
+  - apply GoIndex.NodeKeyMapFacts.empty_o.
+  - assert (Hne : GoIndex.Snap.node_ref_key (ew_node_ref w) <> k)
+      by (intro Heq; apply Hni; left; exact Heq).
+    rewrite (GoIndex.nodekeymap_add_neq _ _ _ _ Hne).
+    apply IH. intro H. apply Hni. right. exact H.
+Qed.
+
+(* the per-step freshness the fold actually relies on, stated at the [cons] the builder takes. *)
+Lemma work_index_add_fresh {p} {input : CompilationInput p} (w : ExprWork input) (rest : list (ExprWork input)) :
+  NoDup (map (fun w0 => GoIndex.Snap.node_ref_key (ew_node_ref w0)) (w :: rest)) ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w)) (work_index_map rest) = None.
+Proof.
+  cbn [map]. intro Hnd. apply NoDup_cons_iff in Hnd. exact (work_index_fresh rest _ (proj1 Hnd)).
+Qed.
+
+(* EXACTNESS: the finished map's [find] is EXACTLY "the retained item with this key".  Sound (every hit is a
+   retained item at that key) and complete (every retained item is found at its own key). *)
+Lemma work_index_exact {p} {input : CompilationInput p} (items : list (ExprWork input)) :
+  NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) items) ->
+  forall k w,
+    GoIndex.NodeKeyMapBase.find k (work_index_map items) = Some w
+    <-> (In w items /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k).
+Proof.
+  induction items as [|w0 rest IH]; cbn [work_index_map map]; intro Hnd; intros k w.
+  - rewrite GoIndex.NodeKeyMapFacts.empty_o. split; [discriminate | intros [[] _]].
+  - apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd].
+    destruct (GoIndex.thm8_nodekey_eq_dec (GoIndex.Snap.node_ref_key (ew_node_ref w0)) k) as [Heq|Hne].
+    + rewrite <- Heq, GoIndex.nodekeymap_add_eq. split.
+      * intro H. injection H as Hw. subst w. split; [left; reflexivity | reflexivity].
+      * intros [Hin Hk]. destruct Hin as [Hw0 | Hin]; [rewrite Hw0; reflexivity |].
+        exfalso. apply Hni. rewrite <- Hk.
+        exact (in_map (fun w1 => GoIndex.Snap.node_ref_key (ew_node_ref w1)) rest w Hin).
+    + rewrite (GoIndex.nodekeymap_add_neq _ _ _ _ Hne). rewrite (IH Hnd k w). split.
+      * intros [Hin Hk]. split; [right; exact Hin | exact Hk].
+      * intros [Hin Hk]. destruct Hin as [Hw0 | Hin];
+          [exfalso; apply Hne; rewrite Hw0; exact Hk | split; [exact Hin | exact Hk]].
+Qed.
+
+(** the exact index OBJECT: the standard map plus the exact bidirectional map/list law, INDEXED BY the exact item
+    list it indexes.  [ewi_domain] and [ewi_key_inj] are DERIVED below — never stored, so there is no second
+    authority for the domain or for key uniqueness. *)
+Record ExprWorkIndex {p} {input : CompilationInput p} (items : list (ExprWork input)) : Type :=
+  mkExprWorkIndex {
+    ewi_map   : GoIndex.NodeKeyMapBase.t (ExprWork input) ;
+    ewi_exact : forall k w,
+      GoIndex.NodeKeyMapBase.find k ewi_map = Some w
+      <-> (In w items /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k)
+  }.
+Arguments mkExprWorkIndex {p input items} _ _.
+Arguments ewi_map {p input items} _.  Arguments ewi_exact {p input items} _.
+
+(* the ONE index build: from the ALREADY-RETAINED item list and its key-[NoDup].  Total (no option, no fallback,
+   no empty default) precisely BECAUSE the duplicate-free precondition is a proof argument — a possibly-duplicated
+   list cannot be handed to this builder at all. *)
+Definition build_work_index {p} {input : CompilationInput p} (items : list (ExprWork input))
+    (Hnd : NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) items)) : ExprWorkIndex items :=
+  mkExprWorkIndex (work_index_map items) (work_index_exact items Hnd).
+
+(* DERIVED domain: the index holds exactly the retained items' keys. *)
+Lemma ewi_domain {p} {input : CompilationInput p} {items : list (ExprWork input)}
+    (idx : ExprWorkIndex items) (k : GoIndex.NodeKey) :
+  GoIndex.NodeKeyMapBase.find k (ewi_map idx) <> None
+  <-> exists w, In w items /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k.
+Proof.
+  split.
+  - intro Hne. destruct (GoIndex.NodeKeyMapBase.find k (ewi_map idx)) as [w|] eqn:Eo;
+      [| exfalso; exact (Hne eq_refl)].
+    exists w. exact (proj1 (ewi_exact idx k w) Eo).
+  - intros [w [Hin Hk]].
+    rewrite (proj2 (ewi_exact idx k w) (conj Hin Hk)). discriminate.
+Qed.
+
+(* DERIVED uniqueness, straight from the standard map: two retained items with equal keys ARE the same item, so
+   no equal-key fresh [ExprWork] value can substitute for a retained one. *)
+Lemma ewi_key_inj {p} {input : CompilationInput p} {items : list (ExprWork input)}
+    (idx : ExprWorkIndex items) (a b : ExprWork input) :
+  In a items -> In b items ->
+  GoIndex.Snap.node_ref_key (ew_node_ref a) = GoIndex.Snap.node_ref_key (ew_node_ref b) -> a = b.
+Proof.
+  intros Ha Hb Hk.
+  pose proof (proj2 (ewi_exact idx (GoIndex.Snap.node_ref_key (ew_node_ref a)) a) (conj Ha eq_refl)) as Hfa.
+  pose proof (proj2 (ewi_exact idx (GoIndex.Snap.node_ref_key (ew_node_ref a)) b) (conj Hb (eq_sym Hk))) as Hfb.
+  rewrite Hfa in Hfb. injection Hfb as H. exact H.
+Qed.
+
+(* the TOTAL member query: ONE standard [find].  The [Some] branch reads the exact retained item and its key off
+   [ewi_exact]; the [None] branch is IMPOSSIBLE and is discharged by the Prop existence hypothesis (a Prop goal),
+   so no Prop is eliminated into the returned [sig].  There is no fallback item and no keyed list scan. *)
+Definition index_member_at {p} {input : CompilationInput p} {items : list (ExprWork input)}
+    (idx : ExprWorkIndex items) (k : GoIndex.NodeKey)
+    (Hex : exists w, In w items /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k)
+  : { w : ExprWork input | In w items /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k }.
+Proof.
+  destruct (GoIndex.NodeKeyMapBase.find k (ewi_map idx)) as [w0|] eqn:Eo.
+  - exists w0. exact (proj1 (ewi_exact idx k w0) Eo).
+  - exfalso. destruct Hex as [w [Hin Hkey]].
+    rewrite (proj2 (ewi_exact idx k w) (conj Hin Hkey)) in Eo. discriminate Eo.
+Defined.
+
+(* the query returns the very member it was asked about: at a RETAINED member's own key, the answer IS that
+   member.  (Uniqueness is the standard map's, via [ewi_key_inj].) *)
+Lemma index_member_at_retained {p} {input : CompilationInput p} {items : list (ExprWork input)}
+    (idx : ExprWorkIndex items) (w : ExprWork input) (Hin : In w items) Hex :
+  proj1_sig (index_member_at idx (GoIndex.Snap.node_ref_key (ew_node_ref w)) Hex) = w.
+Proof.
+  destruct (index_member_at idx (GoIndex.Snap.node_ref_key (ew_node_ref w)) Hex) as [w' [Hin' Hk']].
+  cbn [proj1_sig]. exact (ewi_key_inj idx w' w Hin' Hin Hk').
+Qed.
+
+(* a key held by NO retained item has no index entry: a foreign key is absent, never answered with a stand-in. *)
+Lemma index_no_foreign {p} {input : CompilationInput p} {items : list (ExprWork input)}
+    (idx : ExprWorkIndex items) (k : GoIndex.NodeKey) :
+  (forall w, In w items -> GoIndex.Snap.node_ref_key (ew_node_ref w) <> k) ->
+  GoIndex.NodeKeyMapBase.find k (ewi_map idx) = None.
+Proof.
+  intro Hno. destruct (GoIndex.NodeKeyMapBase.find k (ewi_map idx)) as [w|] eqn:Eo; [| reflexivity].
+  exfalso. destruct (proj1 (ewi_exact idx k w) Eo) as [Hin Hk]. exact (Hno w Hin Hk).
+Qed.
+
 (** ═══ §3 THE ONE PROOF-CARRYING WORK FOREST OBJECT ═══ a RECORD that RETAINS TOGETHER the per-file work blocks,
     the flattened item list, the flat = concat relation, and the two exact pair-projection proofs (blocks and
     items filtered to expressions).  Built ONCE by [build_expr_work_forest], which calls [build_forest_blocks]
@@ -2453,16 +2606,18 @@ Record ExprWorkForest {p} (input : CompilationInput p) : Type := mkExprWorkFores
     = filter occ_is_expr (ci_visit input) ;
   ewf_keys_nodup :
     NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) ewf_items) ;
+  ewf_index : ExprWorkIndex ewf_items ;
   ewf_reverse :
     forall w, In w ewf_items -> In (ew_node_ref w, ew_occurrence w) (ci_visit input) ;
   ewf_forward :
     forall nr occ e, In (nr, occ) (ci_visit input) -> GoIndex.view_expr occ = Some e ->
       exists w, In w ewf_items /\ ew_node_ref w = nr /\ ew_occurrence w = occ
 }.
-Arguments mkExprWorkForest {p input} _ _ _ _ _ _ _ _.
+Arguments mkExprWorkForest {p input} _ _ _ _ _ _ _ _ _.
 Arguments ewf_blocks {p input} _.  Arguments ewf_items {p input} _.  Arguments ewf_flat {p input} _.
 Arguments ewf_blocks_exact {p input} _.  Arguments ewf_items_exact {p input} _.
-Arguments ewf_keys_nodup {p input} _.  Arguments ewf_reverse {p input} _.  Arguments ewf_forward {p input} _.
+Arguments ewf_keys_nodup {p input} _.  Arguments ewf_index {p input} _.
+Arguments ewf_reverse {p input} _.  Arguments ewf_forward {p input} _.
 
 (* the ONE work-discovery call: [build_forest_blocks] is invoked EXACTLY here, and its proof is stored into the
    forest object's fields.  No production authority projects a raw list from a sigma and discards its proof. *)
@@ -2472,12 +2627,13 @@ Proof.
   assert (Hitems : map (fun w => (ew_node_ref w, ew_occurrence w)) (concat bs)
                    = filter occ_is_expr (ci_visit input)).
   { rewrite map_concat_eq, Hbs, <- filter_concat_eq, <- (ci_visit_blocks input). reflexivity. }
-  refine (mkExprWorkForest bs (concat bs) eq_refl Hbs Hitems _ _ _).
-  - (* ewf_keys_nodup *)
-    replace (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (concat bs))
+  assert (Hnd : NoDup (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (concat bs))).
+  { replace (map (fun w => GoIndex.Snap.node_ref_key (ew_node_ref w)) (concat bs))
       with (map (fun ro => GoIndex.Snap.node_ref_key (fst ro)) (filter occ_is_expr (ci_visit input)))
       by (rewrite <- Hitems, map_map; reflexivity).
-    apply nodup_map_filter. rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p).
+    apply nodup_map_filter. rewrite (ci_visit_ok input). exact (prog_visit_key_nodup p). }
+  (* the ONE index build, over the item list ALREADY built above — no second discovery, no re-traversal. *)
+  refine (mkExprWorkForest bs (concat bs) eq_refl Hbs Hitems Hnd (build_work_index (concat bs) Hnd) _ _).
   - (* ewf_reverse *)
     intros w Hw. pose proof (in_map (fun w0 => (ew_node_ref w0, ew_occurrence w0)) _ _ Hw) as Hp.
     rewrite Hitems in Hp. apply filter_In in Hp. exact (proj1 Hp).
@@ -2554,8 +2710,9 @@ Proof.
 Qed.
 
 (** ═══ §4 RETAINED MEMBERSHIP + CONVERSION VIEW ═══ a [WorkMember] is a retained handle into the ONE work
-    forest; [forest_member_at] recovers the EXACT retained member with a given key by a decidable list search
-    (never a fresh proof-term variant — the key-NoDup makes it unique).  A [ConversionWork] is the total
+    forest; [forest_index_member_at] recovers the EXACT retained member with a given key through the forest's
+    retained standard-map index — ONE [NodeKeyMapBase.find], never a keyed scan of the ordered item list, and
+    never a fresh proof-term variant (the standard map makes the answer unique).  A [ConversionWork] is the total
     conversion-work VIEW over a retained conversion member: it carries the exact operand [WorkMember], the carried
     target/operand refs, both roles, the target syntax, the operand's raw expression, the exact child keys
     (direct-child evidence) and the source order — so the semantic step consumes ONE proof-backed view and never
@@ -2563,23 +2720,44 @@ Qed.
 Definition WorkMember {p} {input : CompilationInput p} (forest : ExprWorkForest input) : Type :=
   { w : ExprWork input | In w (ewf_items forest) }.
 
-(* recover the EXACT retained forest member with a given key (unique by [ewf_keys_nodup]) as DATA — a decidable
-   [List.find]; the existence hypothesis discharges only the impossible [None] branch (a Prop goal), so no Prop is
-   eliminated into the [sig].  This is how a conversion view names the exact operand member without a fresh copy. *)
-Definition forest_member_at {p} {input : CompilationInput p} (forest : ExprWorkForest input) (k : GoIndex.NodeKey)
+(* recover the EXACT retained forest member with a given key as DATA, through the forest's OWN retained index —
+   the whole query is the standard [NodeKeyMapBase.find] (see [index_member_at]).  The ordered [ewf_items] list is
+   NOT consulted: it stays the source-order authority only.  This is how a conversion view names the exact operand
+   member without a fresh copy.  The conversion-specific exact operand query is [build_conversion_work] below,
+   whose [cw_operand_work] carries this member together with its exact ref/key/role/source-expression proofs. *)
+Definition forest_index_member_at {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (k : GoIndex.NodeKey)
     (Hex : exists w, In w (ewf_items forest) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k)
-  : { w : ExprWork input | In w (ewf_items forest) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k }.
+  : { w : ExprWork input | In w (ewf_items forest) /\ GoIndex.Snap.node_ref_key (ew_node_ref w) = k } :=
+  index_member_at (ewf_index forest) k Hex.
+
+(* the forest-level query returns the very retained member asked about. *)
+Lemma forest_index_member_at_retained {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (w : ExprWork input) (Hin : In w (ewf_items forest)) Hex :
+  proj1_sig (forest_index_member_at forest (GoIndex.Snap.node_ref_key (ew_node_ref w)) Hex) = w.
+Proof. exact (index_member_at_retained (ewf_index forest) w Hin Hex). Qed.
+
+(* a key held by no retained member is absent from the forest's index — no foreign key is ever answered. *)
+Lemma forest_index_no_foreign {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (k : GoIndex.NodeKey) :
+  (forall w, In w (ewf_items forest) -> GoIndex.Snap.node_ref_key (ew_node_ref w) <> k) ->
+  GoIndex.NodeKeyMapBase.find k (ewi_map (ewf_index forest)) = None.
+Proof. exact (index_no_foreign (ewf_index forest) k). Qed.
+
+(* WRONG-KIND exclusion at the index: a VISITED occurrence that is NOT an expression has no index entry — the
+   index's domain is the expression work, never every visited node. *)
+Lemma index_nonexpr_absent {p} {input : CompilationInput p} (forest : ExprWorkForest input)
+    (r : GoIndex.Snap.NodeRef p) occ :
+  In (r, occ) (ci_visit input) -> GoIndex.view_expr occ = None ->
+  GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key r) (ewi_map (ewf_index forest)) = None.
 Proof.
-  destruct (List.find (fun w => GoIndex.nodekey_eqb (GoIndex.Snap.node_ref_key (ew_node_ref w)) k)
-                      (ewf_items forest)) as [w0|] eqn:Eo.
-  - apply List.find_some in Eo. destruct Eo as [Hin Hkeyb]. cbn beta in Hkeyb. exists w0.
-    split; [exact Hin | apply (proj1 (GoIndex.thm8_nodekey_eqb_spec _ _)); exact Hkeyb].
-  - exfalso. destruct Hex as [w [Hin Hkey]].
-    pose proof (List.find_none _ _ Eo w Hin) as Hfn. cbn beta in Hfn.
-    assert (Ht : GoIndex.nodekey_eqb (GoIndex.Snap.node_ref_key (ew_node_ref w)) k = true)
-      by (apply (proj2 (GoIndex.thm8_nodekey_eqb_spec _ _)); exact Hkey).
-    rewrite Ht in Hfn. discriminate Hfn.
-Defined.
+  intros Hin Hv. apply forest_index_no_foreign. intros w Hinw Hk.
+  assert (Hrr : ew_node_ref w = r) by (apply GoIndex.Snap.node_ref_key_inj; exact Hk).
+  assert (Hoc : ew_occurrence w = occ).
+  { rewrite (prog_visit_occ_is_source p (ew_node_ref w) (ew_occurrence w) (ci_in_prog (ew_in_visit w))).
+    rewrite Hrr, (prog_visit_occ_is_source p r occ (ci_in_prog Hin)). reflexivity. }
+  pose proof (ew_view_exact w) as Hve. rewrite Hoc, Hv in Hve. discriminate Hve.
+Qed.
 
 Record ConversionWork {p} {input : CompilationInput p} (forest : ExprWorkForest input)
     (w : ExprWork input) (ts : TypeSyntax) (x : GoExpr) : Type := mkConversionWork {
@@ -2643,19 +2821,25 @@ Proof.
   { destruct (conversion_target_ref_conv (ci_idx input) (ew_node_ref w) (ew_occurrence w) (ew_expr_ref w) ts x
                 Hinp Hview Haexp) as [tr0 [Htr0 [_ [Hrole0 _]]]].
     rewrite Htr_ref in Htr0. injection Htr0 as Ht; subst tr0. exact Hrole0. }
-  (* the operand WorkMember, recovered from the forest as DATA (its Hex existence proof is Prop). *)
+  (* the operand WorkMember, recovered from the forest's retained standard-map index as DATA (its Hex existence
+     proof is Prop).  The query key is the key of the operand ref [opr] ALREADY CARRIED by [ew_conv] — never a
+     separately guessed source value; [Hopr_key] afterwards relates it to the derived [operand_key] field. *)
   assert (Hopr_in : In (GoIndex.erase_ref opr,
                         GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) (ci_visit input))
     by (rewrite (ci_visit_ok input); exact (noderef_in_prog_visit p (GoIndex.erase_ref opr))).
   assert (Hex : exists w', In w' (ewf_items forest)
-                  /\ GoIndex.Snap.node_ref_key (ew_node_ref w') = operand_key (ew_node_ref w)).
+                  /\ GoIndex.Snap.node_ref_key (ew_node_ref w')
+                     = GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)).
   { destruct (ewf_forward forest (GoIndex.erase_ref opr)
                 (GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)) x Hopr_in Hopr_view)
       as [w' [Hinw' [Hnr' _]]].
-    exists w'. split; [exact Hinw' | rewrite Hnr'; exact Hopr_key]. }
-  destruct (forest_member_at forest (operand_key (ew_node_ref w)) Hex) as [wopr [Hwopr_in Hwopr_key]].
+    exists w'. split; [exact Hinw' | rewrite Hnr'; reflexivity]. }
+  destruct (forest_index_member_at forest (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr)) Hex)
+    as [wopr [Hwopr_in Hwopr_ref_key]].
   assert (Hnode : ew_node_ref wopr = GoIndex.erase_ref opr)
-    by (apply GoIndex.Snap.node_ref_key_inj; rewrite Hwopr_key; exact (eq_sym Hopr_key)).
+    by (apply GoIndex.Snap.node_ref_key_inj; exact Hwopr_ref_key).
+  assert (Hwopr_key : GoIndex.Snap.node_ref_key (ew_node_ref wopr) = operand_key (ew_node_ref w))
+    by (rewrite Hwopr_ref_key; exact Hopr_key).
   assert (Hocc : ew_occurrence wopr = GoIndex.Snap.source_occurrence_of_ref (GoIndex.erase_ref opr)).
   { rewrite (prog_visit_occ_is_source p (ew_node_ref wopr) (ew_occurrence wopr) (ci_in_prog (ew_in_visit wopr))).
     rewrite Hnode. reflexivity. }
@@ -2672,24 +2856,12 @@ Defined.
 
 (** ═══ §3/§4/§5 (REPAIR 8) THE MEMBER/SUFFIX-INDEXED CAUSAL OUTCOME CORE ═══ **)
 
-(* two retained forest members with the same key are equal (key-uniqueness from [ewf_keys_nodup]). *)
+(* two retained forest members with the same key are equal — key-uniqueness read off the STANDARD MAP (via
+   [ewi_key_inj] over the forest's retained index), not a hand-rolled scan of the ordered list under NoDup. *)
 Lemma ewf_key_inj {p} {input : CompilationInput p} (forest : ExprWorkForest input) (a b : ExprWork input) :
   In a (ewf_items forest) -> In b (ewf_items forest) ->
   GoIndex.Snap.node_ref_key (ew_node_ref a) = GoIndex.Snap.node_ref_key (ew_node_ref b) -> a = b.
-Proof.
-  intros Ha Hb Hk.
-  pose proof (ewf_keys_nodup forest) as Hnd.
-  (* a and b appear in [ewf_items]; the mapped keys are NoDup, so equal keys force equal positions/elements *)
-  revert Hnd Ha Hb. generalize (ewf_items forest) as l. induction l as [|c l IH]; intros Hnd Ha Hb; [destruct Ha|].
-  cbn [map] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd].
-  destruct Ha as [Hac | Ha]; destruct Hb as [Hbc | Hb].
-  - rewrite <- Hac, <- Hbc. reflexivity.
-  - exfalso. apply Hnotin. rewrite Hac, Hk.
-    apply in_map_iff. exists b. split; [reflexivity | exact Hb].
-  - exfalso. apply Hnotin. rewrite Hbc, <- Hk.
-    apply in_map_iff. exists a. split; [reflexivity | exact Ha].
-  - exact (IH Hnd Ha Hb).
-Qed.
+Proof. exact (ewi_key_inj (ewf_index forest) a b). Qed.
 
 (* §3 a SUFFIX MEMBER: an exact retained [WorkMember] of the ONE forest, PROVED to be in the exact suffix list
    the accumulator processes.  No equal-key arbitrary [ExprWork] can substitute (the member is the retained one). *)
@@ -10798,6 +10970,156 @@ Proof.
              (EConvert (GoAST.tsyn GoNames.TNint32) (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+Qed.
+
+(* ---- §3/§4/§10 (REPAIR 13) THE DIRECT WORK-INDEX FIXTURES ---- (a) on the REAL four-deep chain, the operand
+   [ExprRef] each conversion CARRIES queries the retained STANDARD-MAP index (one [NodeKeyMapBase.find]) to the
+   EXACT retained operand member; that member IS the one the [ConversionStep] placed in the processed suffix; and
+   the accepted outcomes are unchanged.  (b) two SYNTACTICALLY EQUAL expression values at DISTINCT occurrences get
+   DISTINCT keys and DISTINCT index entries, each answering with its OWN retained member — value equality cannot
+   conflate them.  Together these exercise the production index end-to-end with no keyed list scan anywhere. *)
+
+(* (a) the per-conversion index bundle over [deep_nested_program]. *)
+Definition nested_index_bundle (ts : GoAST.TypeSyntax) (x : GoExpr) : Prop :=
+  let input := build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program) in
+  let phase := build_expression_phase input in
+  exists (wm : WorkMember (ep_work phase)) (rest : list (ExprWork input))
+         (acc_rest : OutcomeAccumulator (ep_work phase) (ep_tnft phase) rest)
+         (step : ConversionStep (ep_work phase) (proj1_sig wm) rest ts x)
+         (opr : GoIndex.ExprRef deep_nested_program) opf f,
+       ew_expr (proj1_sig wm) = EConvert ts x
+       (* the operand [ExprRef] the conversion CARRIES (no separately guessed source value) *)
+    /\ conversion_operand_ref (ci_idx input) (ew_expr_ref (proj1_sig wm)) = Some opr
+       (* the retained index answers THAT ref's key with the EXACT retained operand member *)
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (GoIndex.erase_ref opr))
+         (ewi_map (ewf_index (ep_work phase)))
+       = Some (proj1_sig (cw_operand_work (cs_conversion step)))
+       (* that exact member is the step's operand [SuffixMember], and it lies in the PROCESSED SUFFIX *)
+    /\ proj1_sig (proj1_sig (cs_operand_suffix step)) = proj1_sig (cw_operand_work (cs_conversion step))
+    /\ In (proj1_sig (cw_operand_work (cs_conversion step))) rest
+       (* and the accepted operand/current outcomes are unchanged *)
+    /\ oa_total acc_rest (cs_operand_suffix step) = EOOk opf
+    /\ total_forest_outcome_at (ep_ot phase) (proj1_sig (cs_operand_suffix step)) = EOOk opf
+    /\ total_forest_outcome_at (ep_ot phase) wm = EOOk f.
+
+Lemma deep_nested_index_at (local : positive) ts x occ :
+  GoIndex.source_occurrence_at deep_nested_src local = Some occ ->
+  GoIndex.view_expr occ = Some (EConvert ts x) ->
+  (exists f, occ_expr_fact occ = Some f) ->
+  nested_index_bundle ts x.
+Proof.
+  intros Hsrc Hview Hfact.
+  destruct (deep_nested_ok_at local (EConvert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
+  destruct (retained_convsuccess_closure
+              (ep_ot (build_expression_phase (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program))))
+              wm ts x f He Hok)
+    as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
+  unfold nested_index_bundle.
+  exists wm, rest, acc_rest, step,
+         (ew_expr_ref (proj1_sig (cw_operand_work (cs_conversion step)))), opf, f.
+  split; [exact He |].
+  split; [exact (cw_operand_ref_eq (cs_conversion step)) |].
+  split.
+  { rewrite (ew_erase_exact (proj1_sig (cw_operand_work (cs_conversion step)))).
+    exact (proj2 (ewi_exact (ewf_index (ep_work (build_expression_phase
+                    (build_compilation_input deep_nested_program (GoIndex.index_program deep_nested_program)))))
+                    _ (proj1_sig (cw_operand_work (cs_conversion step))))
+                 (conj (proj2_sig (cw_operand_work (cs_conversion step))) eq_refl)). }
+  split; [exact (cs_operand_exact step) |].
+  split.
+  { rewrite <- (cs_operand_exact step). exact (proj2_sig (cs_operand_suffix step)). }
+  split; [exact Hopf | split; [exact Hfinal | exact Hok]].
+Qed.
+
+(* all four valid-chain conversions recover their operand member THROUGH the standard-map index. *)
+Theorem deep_nested_chain_index_evidence :
+  nested_index_bundle (GoAST.tsyn GoNames.TNint8) (EInt 5)
+  /\ nested_index_bundle (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))
+  /\ nested_index_bundle (GoAST.tsyn GoNames.TNint32)
+       (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))
+  /\ nested_index_bundle (GoAST.tsyn GoNames.TNint64)
+       (EConvert (GoAST.tsyn GoNames.TNint32) (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))).
+Proof.
+  split; [ | split; [ | split ] ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_index_at 11 (GoAST.tsyn GoNames.TNint8) (EInt 5) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_index_at 9 (GoAST.tsyn GoNames.TNint16)
+             (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_index_at 7 (GoAST.tsyn GoNames.TNint32)
+             (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+  - destruct (GoIndex.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
+    apply (deep_nested_index_at 5 (GoAST.tsyn GoNames.TNint64)
+             (EConvert (GoAST.tsyn GoNames.TNint32) (EConvert (GoAST.tsyn GoNames.TNint16) (EConvert (GoAST.tsyn GoNames.TNint8) (EInt 5)))) occ Eo);
+      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
+      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
+Qed.
+
+(* (b) the IDENTITY-DISTINCTION fixture: TWO occurrences whose source expression values are LITERALLY THE SAME
+   term ([uint8(7)] twice).  They are DIFFERENT work items with DIFFERENT NodeKeys and DIFFERENT index entries,
+   and each key's query returns its OWN retained member — so the index keys OCCURRENCE identity, never expression
+   value.  (Its counterpart at the type-name layer is [two_uint8_distinct_target_refs].) *)
+Definition twin_expr_src : GoSourceFile :=
+  main_source [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)
+                                 ; EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7) ] ] ].
+Definition twin_expr_program : GoProgram := singleton_program c3_ms (mkFP "main.go" eq_refl)
+  [ DMain [ SPrintln [ EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)
+                     ; EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7) ] ] ].
+Example twin_expr_ok : source_spec_valid_b twin_expr_program = true. Proof. vm_compute. reflexivity. Qed.
+
+Theorem twin_expr_index_distinct :
+  let input := build_compilation_input twin_expr_program (GoIndex.index_program twin_expr_program) in
+  let forest := ep_work (build_expression_phase input) in
+  exists w1 w2 : ExprWork input,
+       In w1 (ewf_items forest) /\ In w2 (ewf_items forest)
+       (* the SAME source expression value at two occurrences *)
+    /\ ew_expr w1 = EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)
+    /\ ew_expr w2 = EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7)
+       (* yet DISTINCT occurrence keys, DISTINCT index entries, and DISTINCT work items *)
+    /\ GoIndex.Snap.node_ref_key (ew_node_ref w1) <> GoIndex.Snap.node_ref_key (ew_node_ref w2)
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w1))
+         (ewi_map (ewf_index forest)) = Some w1
+    /\ GoIndex.NodeKeyMapBase.find (GoIndex.Snap.node_ref_key (ew_node_ref w2))
+         (ewi_map (ewf_index forest)) = Some w2
+    /\ w1 <> w2.
+Proof.
+  destruct (GoIndex.source_occurrence_at twin_expr_src 5) as [occ1|] eqn:Eo1;
+    [| vm_compute in Eo1; discriminate Eo1].
+  destruct (GoIndex.source_occurrence_at twin_expr_src 8) as [occ2|] eqn:Eo2;
+    [| vm_compute in Eo2; discriminate Eo2].
+  destruct (program_member_at twin_expr_program (mkFP "main.go" eq_refl) twin_expr_src 5 occ1
+              (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7))
+              ltac:(vm_compute; reflexivity) Eo1
+              ltac:(vm_compute in Eo1; injection Eo1 as <-; vm_compute; reflexivity))
+    as [wm1 [Hocc1 [He1 Hk1]]].
+  destruct (program_member_at twin_expr_program (mkFP "main.go" eq_refl) twin_expr_src 8 occ2
+              (EConvert (GoAST.tsyn GoNames.TNuint8) (EInt 7))
+              ltac:(vm_compute; reflexivity) Eo2
+              ltac:(vm_compute in Eo2; injection Eo2 as <-; vm_compute; reflexivity))
+    as [wm2 [Hocc2 [He2 Hk2]]].
+  assert (Hkne : GoIndex.Snap.node_ref_key (ew_node_ref (proj1_sig wm1))
+                 <> GoIndex.Snap.node_ref_key (ew_node_ref (proj1_sig wm2))).
+  { rewrite Hk1, Hk2. intro H.
+    pose proof (f_equal GoIndex.nk_local H) as Hl. cbn [GoIndex.nk_local] in Hl. discriminate Hl. }
+  exists (proj1_sig wm1), (proj1_sig wm2).
+  split; [exact (proj2_sig wm1) | split; [exact (proj2_sig wm2) | split; [exact He1 | split; [exact He2 |]]]].
+  split; [exact Hkne |].
+  split.
+  { exact (proj2 (ewi_exact (ewf_index (ep_work (build_expression_phase
+                    (build_compilation_input twin_expr_program (GoIndex.index_program twin_expr_program)))))
+                    _ (proj1_sig wm1)) (conj (proj2_sig wm1) eq_refl)). }
+  split.
+  { exact (proj2 (ewi_exact (ewf_index (ep_work (build_expression_phase
+                    (build_compilation_input twin_expr_program (GoIndex.index_program twin_expr_program)))))
+                    _ (proj1_sig wm2)) (conj (proj2_sig wm2) eq_refl)). }
+  intro H. apply Hkne. rewrite H. reflexivity.
 Qed.
 
 (* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [EOChildFail], and its operand's

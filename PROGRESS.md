@@ -87,7 +87,7 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; **C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — NOT yet
-accepted; BLOCKING at `48c0b31`, exact success-identity and collection-audit closeout repair 12 active** (twelve
+accepted; BLOCKING at `af7d5d3`, exact standard work-member index repair 13 active** (thirteen
 candidates have blocked at human Implementation Review; the withdrawn GREEN disposition and its documentation-only
 acceptance commit `37c9597` are superseded — C4 is not human-accepted until Rob accepts it). The
 production expression path is ONE `ExpressionPhase`
@@ -95,7 +95,14 @@ built from ONE retained `CompilationInput` and driven by ONE proof-carrying reta
 `ExprWorkForest` record (`build_expr_work_forest`; its stored `ewf_blocks`/`ewf_items` with `ewf_items = concat
 ewf_blocks`, forward/reverse domain (`ewf_forward`/`ewf_reverse`) + key-NoDup (`ewf_keys_nodup`) + order +
 operand-in-suffix (`ewf_operand_in_tail`) all carried as FIELDS; `build_forest_blocks` PRIVATE inside, its proof
-returned INTO the record — no `proj1_sig` discard), each item an `ExprWork` carrying its own `ExprRef` + a total
+returned INTO the record — no `proj1_sig` discard).  The ordered item list carries the SOURCE ORDER and nothing
+else: the IDENTITY role is the SEPARATE carried field `ewf_index : ExprWorkIndex ewf_items` (repair 13) — a
+pinned-stdlib `NodeKeyMapBase` (`FMapAVL`) map built ONCE by `build_work_index` from the already-built list,
+TOTAL and overwrite-free because it DEMANDS `ewf_keys_nodup` as a proof argument, tied to that exact list by the
+bidirectional `ewi_exact` (so a foreign map is not pairable, and a duplicate-keyed list has no index), with
+`ewi_domain`/`ewi_key_inj` DERIVED.  `index_member_at`/`forest_index_member_at` are the TOTAL member queries —
+ONE `NodeKeyMapBase.find`; the deleted `forest_member_at` `List.find` scan of `ewf_items` is gone, and no keyed
+list scan remains in the work-member lookup path.  Each item is an `ExprWork` carrying its own `ExprRef` + a total
 `ConversionWork` view (exact operand `WorkMember` + target-before-operand SOURCE order `cw_target_before_op`,
 processed-suffix membership being the SEPARATE `ewf_operand_in_tail`), which the outcome fold, the facts,
 the annotation, and the diagnostics ALL consume by RECEIVING the exact object as a parameter (no second work
@@ -147,9 +154,12 @@ concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evi
 success bundle for all four valid conversions — with the returned `ConversionStep` at the EXACT SOURCE `ts`/`x`
 identity, no existential `ts0`/`x0` (repair 12); `deep_fail_innermost_diag`, stating the exact target fact query `t =
 tnf_type (type_name_fact_at_table (ep_tnft phase) (cw_target_ref (cs_conversion step)))`, the exact retained annotated
-member, and the stored singleton) are gated in the readable assumption gate. **C4 is NOT yet human-accepted — BLOCKING
-at `48c0b31`, exact success-identity and collection-audit closeout repair 12 active** (the withdrawn GREEN disposition
-and its documentation-only acceptance commit `37c9597` are superseded; no production change is authorized). The
+member, and the stored singleton) are gated in the readable assumption gate, together with the repair-13 work-index
+surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
+fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
+**C4 is NOT yet human-accepted — BLOCKING
+at `af7d5d3`, exact standard work-member index repair 13 active** (the withdrawn GREEN disposition
+and its documentation-only acceptance commit `37c9597` are superseded). The
 authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
 PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= `uintptr` + rune constants/literals) and the
