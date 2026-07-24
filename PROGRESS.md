@@ -98,12 +98,15 @@ returned INTO the record — no `proj1_sig` discard), each item an `ExprWork` ca
 processed-suffix membership being the SEPARATE `ewf_operand_in_tail`), which the outcome fold, the facts,
 the annotation, and the diagnostics ALL consume by RECEIVING the exact object as a parameter (no second work
 discovery, no reminted conversion ref).  The PROOF-CARRYING `ForestOutcomeTable forest tnft`
-(`build_forest_outcome_table` folding `ewf_items` into the proof-carrying `OutcomeAccumulator` `fot_acc` with the
-per-member RETAINED direct cause `fot_causes` — each member's exact suffix split `ewf_items = prefix ++ current ::
-rest` + prior `OutcomeAccumulator` for `rest` + the member/suffix-indexed `StepCause` reading the operand outcome
-THROUGH the exact operand `SuffixMember` via `oa_total acc_rest` — plus its EXACT domain `fot_dom` (`oa_domain`) =
-membership in `ewf_items` (`fot_domain_iff_forest`, non-expression key absent `fot_nonexpr_absent`); the source
-spec reached per member by the SEPARATE match `fot_match` (`stepcause_matches`)) CONSUMES the once-built
+(`build_forest_outcome_table` folding `ewf_items` into the INTRINSIC CAUSAL OBJECT — the proof-carrying
+`OutcomeAccumulator` `fot_acc` PAIRED WITH the `OutcomeTrace` `fot_trace` that BUILT it, indexed by `fot_acc` so
+the accumulator and its causal predecessor chain are NOT freely pairable; the per-member RETAINED cause is a
+PROJECTION of the trace `total_forest_outcome_cause` → each member's `RetainedMemberCause` (exact suffix split
+`ewf_items = prefix ++ current :: rest` + the AUTHENTICATED prior `OutcomeAccumulator` for `rest` + the
+member/suffix-indexed `StepCause` producing the FINAL outcome + the tail-to-final QUERY PRESERVATION) — plus its
+EXACT domain `fot_dom` (`oa_domain`) = membership in `ewf_items` (`fot_domain_iff_forest`, non-expression key
+absent `fot_nonexpr_absent`); the source spec reached per member by the SEPARATE match
+`total_forest_outcome_at_matches` (`trace_match`)) CONSUMES the once-built
 `TypeNameFactTable` object, querying the table at each conversion's retained target ref (the TOTAL
 `total_forest_outcome_at` / `type_name_fact_at_table`, no fallback), reading its operand's ALREADY-COMPUTED
 outcome THROUGH the exact operand `SuffixMember` of the processed tail (`cs_operand_suffix`, tail-membership
@@ -122,15 +125,19 @@ field (the causal chain is the dependent types, shown definitionally by `phase_o
 foreign component is UNREPRESENTABLE by type mismatch (`ep_facts = eft_map (feft_table ep_eft)`;
 `facts_and_diags_share_phase`, object identity — no fail-open `find`); the `EOConvFail` outcome carries the exact
 conversion / target / operand refs (the operand ref a field of `DRInvalidConversion`, projected without re-mint)
-with its cause the member/suffix-indexed `StepCause` the table RETAINS at insertion, read keyed by the WORK
-member (`total_forest_outcome_cause` returning each member's exact `FinalMemberCause` = suffix split + prior
-`OutcomeAccumulator` + `StepCause`; projected axiom-free by `StepCause_convfail_inv` / `StepCause_childfail_inv` /
+with its cause PROJECTED from the retained `OutcomeTrace` keyed by the WORK member (`total_forest_outcome_cause`
+returning each member's exact `RetainedMemberCause` = suffix split + the AUTHENTICATED tail `OutcomeAccumulator` +
+the `StepCause` producing the FINAL outcome + the tail-to-final query preservation, so a foreign tail accumulator
+cannot satisfy it; projected axiom-free by `StepCause_convfail_inv` / `StepCause_childfail_inv` /
 `StepCause_ok_conv_inv`, each reading the operand outcome THROUGH the exact operand `SuffixMember` via `oa_total
-acc_rest`), and the phase's `TypeNameFactTable` and `ExprFactTable` are sealed into `ElaborationFacts` by object
+acc_rest`; `final_operand_outcome` closes the operand into the final table), and the phase's `TypeNameFactTable`
+and `ExprFactTable` are sealed into `ElaborationFacts` by object
 identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); direct production-object phase fixtures
-query `total_forest_outcome_at` at REAL `WorkMember`s from `ep_work` (innermost `EOConvFail` whose retained cause
-projects the operand's `EOOk` THROUGH the exact operand `SuffixMember` `deep_fail_innermost_convfail`, outer `EOChildFail`, valid-chain
-`EOOk`, exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
+query `total_forest_outcome_at` at REAL `WorkMember`s from `ep_work` and project the retained cause with FINAL-TO-TAIL
+CLOSURE (innermost `EOConvFail` whose retained cause reads the operand's `EOOk` through the exact operand `SuffixMember`
+AND closes it into the final table `deep_fail_innermost_convfail`; the outer `EOChildFail` operands are failures in the
+final table `deep_fail_outer_operands_final_fail`; the valid-chain conversions' operands are `EOOk` in the final table
+`deep_nested_chain_operands_final_ok`; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.  Frozen for Rob's human Implementation
 Review (the current authority chain is in `.review/NEXT_STEPS.md`; scope in
 `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001` PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN). Live
 status: `.review/SOURCE_FOREST_STATUS.md`.

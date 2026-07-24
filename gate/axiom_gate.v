@@ -312,6 +312,7 @@ Print Assumptions GoCompile.ewf_operand_in_tail.
    operand, proving its FINAL-table query EQUALS its retained tail query — the final-to-tail closure. *)
 Print Assumptions GoCompile.total_forest_outcome_cause.
 Print Assumptions GoCompile.final_operand_outcome.
+Print Assumptions GoCompile.retained_conversion_closure.
 Print Assumptions GoCompile.StepCause_convfail_inv.
 Print Assumptions GoCompile.StepCause_childfail_inv.
 Print Assumptions GoCompile.StepCause_ok_conv_inv.
