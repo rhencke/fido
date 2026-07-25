@@ -1,6 +1,7 @@
 # C4 IMPLEMENTATION REPAIR 14 — INTRINSIC RETAINED ELABORATION
 
-**Status:** ACTIVE — implementation authority. Implementation has NOT begun.
+**Status:** IMPLEMENTED — candidate `3386c02`. Awaiting Rob's human C4 Implementation Review.
+**Implementation ran** on the current `main` head as authorized; no reset to `9d5246e`, no rebase, no force push.
 **Human repair authorization token:** `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`
 **Governing amendment:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE` (ACCEPTED) · Governance `D-22`
 **Automatic Codex review:** DISABLED · **C5:** FORBIDDEN · **Post-C4 trim:** FORBIDDEN until C4 is accepted.

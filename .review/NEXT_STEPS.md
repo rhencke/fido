@@ -1,7 +1,9 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — AUTHORIZED; implementation may begin.**
-  C4 is **BLOCKING** at implementation candidate `9d5246e`, the fourteenth blocked candidate.
+- **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — IMPLEMENTED; awaiting human review.**
+  The repair-14 candidate is `3386c023fe10df4ae433726044d61642f219309c` (the FIFTEENTH C4 implementation
+  candidate). C4 stays **BLOCKING** until Rob's new human C4 Implementation Review dispositions it; repair 14
+  closes the reviewer's finding but does not accept the checkpoint.
 - **Rob's authorization, 2026-07-25 (exact):** *Begin `.review/C4_IMPLEMENTATION_REPAIR_14.md` implementation on
   the current `main` head. Do not reset to `9d5246e`. Preserve all out-of-band changes already recorded in
   `.review/NEXT_STEPS.md`. C5 and the post-C4 trim remain forbidden.* Implementation begins only after the
@@ -43,8 +45,8 @@
 - **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
   `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
-  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) ·
-  `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` (14 — **the candidate under review**).
+  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) ·
+  `3386c023fe10df4ae433726044d61642f219309c` (15 — **the candidate under review**).
 - **Not candidates:** `37c9597` (superseded documentation-only acceptance closeout) and the out-of-band commits
   below. Repair 14 is implemented **on top of the current head**, never by resetting to `9d5246e`.
 - **Out-of-band commits since the blocked candidate** (all after `9d5246e`, none an implementation candidate):
@@ -66,11 +68,40 @@
   directions), `index_member_at` / `forest_index_member_at`, and zero production `List.find` key lookup. Repair 12:
   exact source-step identity — `StepCause_ok_conv_inv`, `retained_convsuccess_closure` and `nested_success_bundle`
   return the `ConversionStep` at the EXACT source `ts`/`x`, no existential.
-- **State:** repair-14 **AUTHORIZED; implementation not yet started.** The next act is the
-  work in `.review/C4_IMPLEMENTATION_REPAIR_14.md` §C2–C13: one `ElaborationCore` built once, the decision indexed
-  by that exact core, accepted/rejected results retaining it, `CompilableProgram` retaining the accepted core
-  behind an opaque constructor, `go_compile` passing the exact object through, and deletion of the
-  reconstruction root (`cp_prov` as provenance, the `elaborate_ok_seals_*` rebuilt-phase forms).
+- **State:** repair-14 **IMPLEMENTED and frozen at `3386c02`.** What landed, against
+  `.review/C4_IMPLEMENTATION_REPAIR_14.md` §C2–C13:
+  - **`ElaborationCore p`** — the retained `CompilationInput` plus the `ExpressionPhase` indexed by it. Because
+    the input retains `ci_ip` and the phase is indexed by the input, those two fields retain the WHOLE causal
+    chain: work forest, the repair-13 `ExprWorkIndex`, type-name facts, outcome table and trace, annotation,
+    fact tables, diagnostics. Built ONCE by `build_elaboration_core`.
+  - **`ElaborationDecision core`** — indexed BY that exact core, so an accepted decision cannot be about a
+    different elaboration than the one held. `ProgramElaboration` is now `(pe_core, pe_decision)`.
+  - **`CompilableProgram`** retains `cp_core` + `cp_nil` (the accepted evidence over THAT core). `cp_index`,
+    `cp_facts`, `cp_phase`, `cp_input`, `cp_work`, `cp_trace`, `cp_diags`, `cp_layout`, `cp_plan` are all
+    PROJECTIONS. `ElaborationFacts` survives as a constructed VIEW (`cp_facts = core_facts …`), which is
+    `OPEN_QUESTIONS` Q-06's recorded default (a) — taken, and Q-06 retired with this commit.
+  - **`outcome_of_elaboration` lost its `elaborate p = a` argument entirely**; `go_compile` passes the exact
+    object through. One reduction fact `go_compile_on_core` replaces the whole shape-lemma chain.
+  - **`SafeProgram` retains it too** — `sp_core`, `certify_retains_capability`, `certify_retains_core`.
+  - **Reconstruction root DELETED, not deprecated:** `cp_prov`, `compilable_prov`,
+    `compilable_index_retained`, `elaboration_ok_full`, `elaborate_ok_whole`, `elaborate_failed_whole`,
+    `elaborate_whole_failed_not_valid`, `go_compile_ok_shape`, `go_compile_failed_shape`, the four
+    `outcome_of_elaboration_*` shape lemmas, and the `elaborate_ok_seals_*` rebuilt-phase forms (replaced by
+    `core_seals_facts` / `core_seals_tnfacts` / `built_core_tnfacts_from_input`, all `reflexivity`).
+  - **Fixtures project instead of rebuild:** `deep_nested_seals_eft` reads its fact table off the capability;
+    `over_program_failure_carries_core_diags` reads the rejected diagnostics off the same core the decision
+    judged.
+  - **Retention theorems hold by `reflexivity`** — `compilable_retains_phase` / `_expr_facts` / `_tnfacts`.
+    That is the substance of the repair: when the object is retained, identity stops being an argument.
+  - **Verification:** `make check` green. Axiom-free gate **479 → 487** surfaces; whole-theory assumption audit
+    over constants + inductives + named; adversarial self-tests A–E; e2e whole-tree `go build ./...`; generated
+    module byte-identical (no generated byte changed). The pre-commit hook verified the STAGED snapshot.
+  - **Scope honoured:** `IndexedProgram` was NOT deleted (reviewer scope decision). It survives as the exact
+    wrapper `ec_ip`/`cp_index` project through, never a parallel semantic authority. Repair 13's results are
+    intact — `ExprWorkIndex`/`ewf_index` and zero production keyed list scan.
+  - **Not done, and not in scope:** the Governance `D-07` living-FCB Human Review Index generator (deferred
+    nonblocking task above) and any FCB regeneration, which is the reviewer's to author on acceptance. The FCB's
+    own boundary section still names `9d5246e`; that is authored text and I did not rewrite it.
 - **Scope decisions:** **ADR-0001 / SR-001 are ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25) — Go 1.23 on
   `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types; reopen at C16 or any
   earlier explicit request for another target or `uintptr`. `uintptr` stays OUT until a separate reviewed scope
@@ -81,8 +112,9 @@
 - **Open questions:** `.review/OPEN_QUESTIONS.md` — scoping calls and ambiguities raised from implementation
   that are neither a contract conflict nor a tracked human act. Each entry names its owner (reviewer or Rob),
   whether it blocks, and **the default I take if nobody answers**, so no question stalls the work silently. It
-  is not authority and overrides nothing. All five questions raised on `d2fad7f` were answered on 2026-07-25;
-  Q-02, Q-03 and Q-05 are recorded and removed here, and Q-01 and Q-04 are removed in the first repair-14
-  implementation commit that relies on them.
+  is not authority and overrides nothing. All five questions raised on `d2fad7f` were answered on 2026-07-25
+  and are removed. Q-06 (`ElaborationFacts` as a constructed view vs dissolved into projections) was taken at
+  its recorded default (a) and retired with the repair-14 freeze. Q-07 stands as an informational note about
+  scripted-edit discipline; it seeks no action.
 - **Automatic Codex review:** DISABLED.
 - **C5 is FORBIDDEN** until C4 is accepted. **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted.

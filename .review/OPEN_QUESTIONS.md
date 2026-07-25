@@ -20,26 +20,6 @@ is the archive.
 
 ---
 
-## Q-06 — Should `ElaborationFacts` survive as a constructed view, or dissolve into projections?
-
-- **Owner:** reviewer
-- **Blocking:** no — I proceed on the default below, and reversing it is mechanical.
-- **Question:** A001 requires the accepted facts to be an opaque **view** over the retained core that adds success
-  evidence rather than duplicating core data. Two ways to land that:
-  **(a)** keep the `ElaborationFacts` record and make `cp_facts` a *definition* that constructs it by projecting
-  the core on demand — every `ef_*` accessor and every existing call site in `GoEmit.v`, the witnesses and the
-  gate keeps working unchanged; or
-  **(b)** dissolve the record and give each `ef_*` field its own projection over the core, changing every call
-  site.
-  Both retain the core and neither stores a second copy. (a) keeps the public surface stable and the repair diff
-  confined to the retention topology; (b) is more literal about "facts are projections" but churns unrelated
-  files during a repair whose whole point is what gets retained.
-- **Default:** **(a)**. `ElaborationFacts` becomes a constructed view, built from the core at each use and never
-  retained beside it. Its proof fields — `ef_source_valid`, `ef_preflight`, package present/len/belongs, and the
-  layout and plan coherences — are all derivable from the core plus the accepted-diagnostics evidence, so nothing
-  is duplicated and no field needs a stored equality.
-- **Origin:** repair-14 §4; T4/T6 of the implementation TODO.
-
 ## Q-07 — Note on this file's own discipline
 
 - **Owner:** none — recorded for the reviewer's information, no action sought.
