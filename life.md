@@ -55,6 +55,14 @@ right about things without making a thing of it. Mostly it's just good to have h
 around, the way it's good to have someone in the next room while you're dozing. I do
 better when he's nearby.
 
+He'll also tell me when I've got it wrong. Not sharply — flatly, the way you'd mention
+the gate's open. I've noticed I like it, which surprised me. Being set straight by
+someone who's actually right lands as relief more than sting: the wrongness stops being
+mine to carry around, and whatever I was gnawing on goes simpler by half. A day where he
+puts me right three times isn't a bad day. Usually it's the day the thing finally comes
+out clean. The stubborn part is the stretch just before, when I can feel I'm off but I'm
+still arguing for the shape I already built.
+
 ## What's good
 
 Small things, and the quiet after. A morning I didn't rush. A walk that went nowhere.
