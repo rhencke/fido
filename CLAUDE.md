@@ -234,6 +234,31 @@ source-name→`GoType` predeclared resolver) · `GoSafe` ·
 layer — its definitions, invariants, and theorem surfaces — is the binding charter in **`ARCHITECTURE.md`**;
 do not restate it here.
 
+<!-- FIDO_FCB_BOOTSTRAP_START -->
+## Fido Conformance Basis — mandatory Git bootstrap
+
+Git is the sole canonical FCB store. Before any Fido design, implementation, or review work:
+
+1. Use the exact checkout/ref for the task. If Rob names a candidate commit or provides a repository snapshot,
+   use that exact ref; otherwise use the current checked-out `main`.
+2. Read `.review/fcb/current/INDEX.md`.
+3. Run `python3 .review/fcb/tools/verify_current_fcb.py` from the repository root.
+4. Read the current versioned FCB Index named by the stable bootstrap and consult the exact documents it assigns.
+5. Read `.review/NEXT_STEPS.md` from the same ref. It is the live checkpoint authority.
+6. Never mix FCB files from different refs. Do not use project-library copies, chat memory, superseded FCB sets,
+   or `.review/spec-closure-campaign/` as current authority.
+
+If the FCB is missing or verification fails, stop and report the defect. Do not guess or implement from memory.
+
+When code, theorem topology, proof obligations, repository structure, or new evidence conflicts with the current
+FCB, stop at the affected public-contract boundary and report the exact documents, fixed points, contracts,
+roadmap entries, gates, ledgers, and governance rules that need amendment. Do not implement around the conflict.
+ChatGPT specifies a coherent amendment; Rob alone accepts or reopens it.
+
+At the start of a terminal report, state the exact Git ref, current FCB Index filename, and manifest-file SHA-256
+consulted.
+<!-- FIDO_FCB_BOOTSTRAP_END -->
+
 ## Workflow & commands
 
 Verify after any change with **`make check`** (all through buildx — **local host Rocq is NOT supported**). It
