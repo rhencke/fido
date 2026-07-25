@@ -20,9 +20,15 @@ earlier revisions are retired from the working tree and live in Git history), th
 protocols and adjudications, the founding reviews, the FCB transformation instructions, and the campaign
 toolkit.
 
-`directives/`, `protocol/` and `reviews/` are **frozen and append-only** — byte-preserved evidence. Their
-version numbers are identity, not staleness: v12's supersedes chain cites each predecessor by full SHA-256
-inside the documents themselves, so the lineage remains self-describing without an external manifest.
+**What is here versus what is in history.** The working tree keeps ONE living representative of the directive
+and of the volley protocol, renamed to unversioned filenames and edited to remove name-versioning and
+documentation checksums. Those working-tree files are therefore **not** byte-preserved and **not** append-only.
+The exact earlier revisions — eleven directives and two protocols, with their original bytes, filenames and
+supersedes-by-hash chains intact — are retained in Git history and recoverable from it.
+
+`reviews/` and the dated volley briefs under `protocol/` are unchanged historical records. Their literal command
+transcripts are left exactly as written, hashes included: editing a recorded `sha256sum` transcript would
+falsify evidence of what actually ran.
 
 Nothing here is current authority. The live Fido Conformance Basis is `.review/fcb/current/`; the live
 checkpoint authority is `.review/NEXT_STEPS.md`; the code and its gated theorems are the sole implementation

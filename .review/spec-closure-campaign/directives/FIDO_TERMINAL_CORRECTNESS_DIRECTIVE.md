@@ -5,7 +5,7 @@
 **Repair authorization token:** `SPEC-CLOSURE-terminal-repair-2` (unchanged)
 **Version:** v12 — self-contained, sealing-only revision of v11. **This document alone is sufficient to execute and audit the repair. Earlier directives are provenance only, and no normative sentence below refers to any of them.**
 **Supersedes:** every earlier revision of this directive. Those revisions are retired from the working tree; Git history holds them, and no checksum chain is maintained.
-**Baseline:** `FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1_2026-07-23.zip`,.
+**Baseline:** the `FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1_2026-07-23.zip` package (an external artifact; not held by Git).
 **Provenance:** Authored by Claude (Fable 5, external adversarial reviewer). Return-volley round 11 by ChatGPT under Rob's direct amended-archive instruction: `REOPENS(D-15)` — v11 moved the fixed-point manifest to the late-governance phase but its inventory rule still allowed only the audit JSON, freeze record, and SHA manifest; `REGRESSION(D-06)` — v11 identified its frozen live directive as “v10” inside the read-only evidence rule; `NEW` — the provenance paragraph called the self-reference class both its fifth occurrence and a count of four; `NEW` — the newly required verifier checks were not part of a closed check-function inventory. All four are corrected here, and each defect class now has a linter or package-validator regression check. The D-15 defect is the self-reference bug class's **fifth** occurrence; the self-reference bug-class count is **five**. No architecture, language-semantics, latitude-policy, or toolchain-policy change is made.
 
 ---

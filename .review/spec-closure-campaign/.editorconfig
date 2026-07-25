@@ -3,9 +3,12 @@
 # Nested under the repository root config, which supplies charset, line endings and the rest.  `root` is
 # deliberately NOT set here so those defaults still apply.
 #
-# This tree is FROZEN evidence, not living documentation: `directives/`, `protocol/` and `reviews/` are
-# append-only, and the directive lineage cites each predecessor by exact SHA-256 *inside the documents*.
-# Reformatting any byte would falsify those self-describing references.  Nothing here may be reformatted.
+# This tree is the campaign's historical record.  `reviews/` and the dated volley briefs are unchanged
+# documents whose literal command transcripts must not be reformatted — editing a recorded `sha256sum` output
+# would falsify evidence of what ran.  The surviving directive and protocol were renamed and edited under Rob's
+# living-documentation mandate, so they are NOT byte-preserved; their exact earlier revisions live in Git
+# history.  Either way nothing here is reformatted: trailing spaces are Markdown hard line breaks and TSV
+# fields whose final value is intentionally empty.
 
 [*]
 trim_trailing_whitespace = false

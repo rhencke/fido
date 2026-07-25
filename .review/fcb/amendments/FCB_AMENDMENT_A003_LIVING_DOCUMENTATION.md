@@ -16,11 +16,17 @@ with Git itself: Git content-addresses every blob, and a commit pins the whole t
 justification — verifying a corpus that travelled out-of-band into model project libraries — was abolished by
 A002, which reduced those libraries to bootstrap shims.
 
-Documentation reaches a reviewer as a ZIP downloaded from GitHub. No external sidecar is possible for such an
-archive and none is needed: the ZIP format carries a CRC-32 per entry, so an archive that extracts without error
-has already validated its own contents. That is sufficient transport provenance. A second, hand-maintained layer
-of per-file SHA-256 hashes inside the archive adds no guarantee and imposes a regeneration duty on every
-documentation edit.
+Documentation reaches a reviewer as a ZIP downloaded from GitHub, so no external sidecar is possible. The
+honest split of what establishes what:
+
+- the exact Git ref, plus trusted access to the repository, establishes **source identity**;
+- Git object identity establishes **repository content identity**;
+- a ZIP's per-entry CRC-32 detects **accidental corruption** during transport or extraction — it does not
+  establish origin and does not protect against a deliberately substituted archive;
+- a user-supplied ZIP is a **claimed snapshot** until compared with its named Git ref.
+
+No sidecar or per-file documentation checksum is required, and a hand-maintained layer of per-file SHA-256
+hashes inside the archive adds no guarantee while imposing a regeneration duty on every documentation edit.
 
 The same reasoning retires version suffixes. A document's version is its blob hash; its history is the commit
 log; two states are compared by diffing two refs, or two extracted directories for a distributed ZIP. Encoding
@@ -61,19 +67,23 @@ it may not author, version, or self-accept documentation.
   exactly what Git history already holds (`git show 96aa8e0:…` recovers every byte). The working tree carries
   living documents; history carries superseded ones.
 - Deletes `.review/spec-closure-campaign/MANIFEST.sha256` and the per-file SHA-256 table in that tree's
-  `PROVENANCE.md`. **No documentation in this repository is checksummed.** That tree's `PROVENANCE.md` retains
-  only the hashes of the EXTERNAL packages the campaign arrived in — artifacts that never lived in the
-  repository, which Git therefore cannot cover, and whose recorded hashes are the only surviving record of what
-  was received.
+  `PROVENANCE.md`. Under Rob's fuller mandate — *stop checksumming docs and anything doc-related* — the external
+  package hashes were removed from that file as well. **No documentation in this repository is checksummed.**
+  What remains outside that rule is third-party toolchain evidence (pinned Go specification, memory model, gc
+  sources, distribution tarball), which pins artifacts Git does not hold, and literal command transcripts inside
+  dated historical records.
 
 ## Deliberately unchanged
 
 - `amendments/A001` and `A002` keep their recorded manifest hashes: those are historical statements of what was
   true when they were accepted, not live pointers.
-- `.review/spec-closure-campaign/**` keeps its versioned directive/protocol lineage. Those are not versions of
-  one living document: they are distinct artifacts of an adversarial volley process where the version number IS
-  the identity (v12's supersedes chain cites each predecessor by full SHA-256, and the protocol and provenance
-  table reference them by version). Renaming or collapsing them would break the record's internal references.
+- `.review/spec-closure-campaign/**` — **corrected.** An earlier draft of this amendment claimed the campaign's
+  versioned lineage was deliberately left unchanged. That is false and was superseded within the same session by
+  Rob's mandate that no documentation is versioned by name. The working tree now keeps ONE living representative
+  of the directive and of the volley protocol; the eleven earlier directives and two earlier protocols are
+  retired from the working tree and retained, byte-exact, in Git history. The surviving files were renamed and
+  edited, so they are not byte-preserved evidence and must not be described as such. The dated review and volley
+  briefs are unchanged, and their literal command transcripts stay as written.
 - Governance D-16's "SHA manifest" refers to the **terminal bundle's** manifest, a different artifact, and is
   untouched.
 - No Closure Ledger row, Latitude Ledger row, Acceptance Gate, fixed-point count, roadmap row assignment,
