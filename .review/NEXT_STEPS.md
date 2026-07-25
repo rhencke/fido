@@ -99,6 +99,14 @@
   - **Scope honoured:** `IndexedProgram` was NOT deleted (reviewer scope decision). It survives as the exact
     wrapper `ec_ip`/`cp_index` project through, never a parallel semantic authority. Repair 13's results are
     intact — `ExprWorkIndex`/`ewf_index` and zero production keyed list scan.
+  - **Known residue, disclosed not hidden (`OPEN_QUESTIONS.md` Q-08):** deleting the reconstruction root
+    orphaned seven pre-existing surfaces — `program_elaboration_eta`, `result_ok_b`, `semantic_ok_flag`,
+    `semantic_ok_flag_of_valid`, `elaboration_ok_sig`, `elaboration_result_cases`, `elaborate_failed_ds` — all
+    ungated and now consumer-free, since they existed only to build the whole-elaboration equation `cp_prov`
+    needed. Following the reviewer's `IndexedProgram` scope decision, they are KEPT and **proposed for the
+    post-C4 trim** rather than deleted inside repair 14. Separately, six surfaces I ADDED and never used
+    (`cp_work`, `cp_trace`, `cp_layout`, `cp_plan`, `cp_diags`, and the self-gated `pe_result_on_core`) await
+    the reviewer's or Rob's word before deletion, because removing them would move the frozen candidate.
   - **Not done, and not in scope:** the Governance `D-07` living-FCB Human Review Index generator (deferred
     nonblocking task above) and any FCB regeneration, which is the reviewer's to author on acceptance. The FCB's
     own boundary section still names `9d5246e`; that is authored text and I did not rewrite it.

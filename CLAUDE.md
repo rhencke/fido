@@ -307,6 +307,15 @@ complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS 
 `human_override` token. The stop hook runs a substantive review only when `.review/REVIEW_REQUEST.md` has
 `state: requested`; otherwise it returns `ALLOW` immediately.
 
+**Asking is not blocking — `.review/OPEN_QUESTIONS.md` is the standing question channel.** When implementation
+raises a scoping call or an ambiguity that is neither a contract conflict nor a tracked human act, record it
+there instead of guessing silently or stalling. Every entry names its owner (reviewer or Rob), whether it
+blocks, and **the default taken if nobody answers** — a question without a default is a blocker invented for
+yourself. It lives in Git at the exact ref, so a question travels with the repository instead of only with a
+chat. It is not authority and overrides nothing: nothing in it licenses work an authority forbids. A genuine
+conflict with a protected FCB contract still goes through the bootstrap stop rule; an open human act still
+belongs in the FCB Human Review Index; a request for a review is still `.review/REVIEW_REQUEST.md`.
+
 ## Files
 
 - **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`,
@@ -350,5 +359,5 @@ complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS 
 
 - **`ARCHITECTURE.md`** — ★ the binding charter (layers, responsibilities, the transport boundary, trust).
 - **`PROGRESS.md`** — the live status ledger. · **`PAINFUL_LESSONS.md`** — why rejected shapes must not
-  reappear. · **`.review/`** — the active checkpoint, review policy, and campaign status. · **`git log`** —
+  reappear. · **`.review/`** — the active checkpoint, review policy, open questions, and campaign status. · **`git log`** —
   the archive.
