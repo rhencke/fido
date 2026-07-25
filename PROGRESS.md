@@ -87,9 +87,12 @@ One authority per layer, over the ONE `GoProgram`; every layer axiom-free in the
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; **C4 (source type names, compiler resolution, unified `EConvert`, `byte`/`rune` source aliases) — NOT yet
-accepted; BLOCKING at `af7d5d3`, exact standard work-member index repair 13 active** (thirteen
-candidates have blocked at human Implementation Review; the withdrawn GREEN disposition and its documentation-only
-acceptance commit `37c9597` are superseded — C4 is not human-accepted until Rob accepts it). The
+accepted; BLOCKING at `9d5246e`, intrinsic retained elaboration repair 14 — authority installed, implementation
+not begun** (fourteen candidates have blocked at human Implementation Review; the withdrawn GREEN disposition and
+its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted until Rob accepts
+it). Repair 13's work index is retained and correct; the blocker moved OUTSIDE the expression phase, to the final
+static-capability boundary, where `CompilableProgram` keeps copied projections plus `cp_prov`, a Prop equality to
+RERUNNING `elaborate`, instead of retaining the exact causal elaboration object (FCB amendment A001 / D-22). The
 production expression path is ONE `ExpressionPhase`
 built from ONE retained `CompilationInput` and driven by ONE proof-carrying retained work forest OBJECT — the
 `ExprWorkForest` record (`build_expr_work_forest`; its stored `ewf_blocks`/`ewf_items` with `ewf_items = concat
@@ -158,8 +161,8 @@ member, and the stored singleton) are gated in the readable assumption gate, tog
 surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
 fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
 **C4 is NOT yet human-accepted — BLOCKING
-at `af7d5d3`, exact standard work-member index repair 13 active** (the withdrawn GREEN disposition
-and its documentation-only acceptance commit `37c9597` are superseded). The
+at `9d5246e`, intrinsic retained elaboration repair 14 active (authority installed; implementation not begun)**
+(the withdrawn GREEN disposition and its documentation-only acceptance commit `37c9597` are superseded). The
 authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
 PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.
 Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= `uintptr` + rune constants/literals) and the

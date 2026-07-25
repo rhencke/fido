@@ -19,23 +19,51 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
   `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- **Blocked C4 candidates (all thirteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) · `af2fc87` (4) ·
-  `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) · `3ecf32e` (11) ·
-  `48c0b31` (12) · `af7d5d3e23c26850887c4fb178dad5f29c616385` (13 — **the current repair-13 baseline**).
-- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_13.md`**, human authorization token
-  `C4-standard-work-member-index-repair-13`. Repairs 1–12 are superseded (each deleted in the first implementation
-  commit of the next repair; git history is their archive).
-- **C4 disposition: NOT accepted at `af7d5d3`. Repair 13 (exact standard work-member index) candidate COMPLETE and
-  FROZEN at this freeze commit; the thirteenth BLOCKING result is repaired and a NEW human C4 Implementation Review
-  is pending.** Commit `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) is a
-  **SUPERSEDED documentation-only acceptance closeout** — based on the withdrawn GREEN disposition, it does not
-  accept C4 and is not an implementation candidate. Ranges: full human C4 review `8c9212a..`this freeze commit; full
-  repair `89b8e54..`this freeze commit; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..`this freeze
-  commit.** Automatic Codex review is DISABLED.
+- **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
+  `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
+  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) ·
+  `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` (14 — **the candidate under review**).
+- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_14.md`**, human authorization token
+  `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under accepted FCB amendment A001 / Governance D-22.
+  Repair 13's authority file is retained until the first repair-14 implementation commit, per that directive.
+- **C4 disposition: NOT accepted at `9d5246e`. Repair 14 is the active authority; its implementation has NOT
+  begun.** Commit `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) remains a
+  **SUPERSEDED documentation-only acceptance closeout**, not an implementation candidate. The commits after
+  `9d5246e` are out-of-band (campaign persistence, bytecode hygiene, the generated-header change, the
+  Git-canonical/living FCB work, `.editorconfig` and `make fmt`); none is an implementation candidate, and repair
+  14 is implemented on top of the current head rather than by resetting. Ranges: full human C4 review
+  `8c9212a..`the repair-14 freeze; full repair `89b8e54..`the repair-14 freeze; **repair-12 `37c9597..af7d5d3`**;
+  **repair-13 `af7d5d3..9d5246e`**; **repair-14 the current head..**its freeze. Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
-## Repair 13 — exact standard work-member index — COMPLETE and FROZEN (baseline `af7d5d3`)
+## Repair 14 — intrinsic retained elaboration — AUTHORITY INSTALLED, implementation NOT begun
+
+**C4 is BLOCKING at `9d5246e`, the fourteenth blocked implementation candidate.** Authority:
+`.review/C4_IMPLEMENTATION_REPAIR_14.md`, token `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under
+accepted FCB amendment **A001** and Governance **D-22**.
+
+**The finding is outside the expression phase.** `elaborate_indexed` builds one exact causal chain
+(`CompilationInput` → `ExpressionPhase` → work forest + index → type-name facts → outcome table + trace →
+annotated forest → fact table → diagnostics) and then discards it. `ElaborationFacts` keeps selected
+projections; `CompilableProgram` keeps `cp_program`/`cp_index`/`cp_facts` plus
+`cp_prov : elaborate cp_program = mkProgramElaboration cp_index (ElaborationOK cp_facts)` — a Prop equality to
+**rerunning the elaborator**, erased at extraction, whose right-hand side contains only the already-stripped
+result. It is not the causal object and cannot project it, which is why the present "object identity" theorems
+rebuild the phase and prove the copies equal. That is the rejected provenance pattern at the final boundary:
+build the exact object, discard it, retain outputs, rerun the builder, use equality as provenance. Later
+`SafeProgram` proofs and user extensions would have to reconstruct what C4 already proved.
+
+**Required:** one `ElaborationCore` built once; the accept/reject decision indexed by that exact core; success
+and failure both retaining it; `CompilableProgram` retaining the accepted core behind an opaque constructor with
+every public query a projection; `go_compile` passing the exact object through; and deletion of the
+reconstruction root, including `cp_prov` as provenance and the `elaborate_ok_seals_*` rebuilt-phase forms. A
+canonical-rerun equality may survive only as a clearly labelled specification/determinism theorem.
+
+**Repair 12 and 13 results are retained unchanged** (see below). No implementation has been performed under this
+authority: only the authority file and the current-state documents were written.
+
+## Repair 13 — exact standard work-member index — landed at `9d5246e` (baseline `af7d5d3`)
 
 **The defect (real production code, now removed).** `ExprWorkForest.ewf_items` is a legitimate ordered
 per-file-order list, but it was ALSO used as a production `NodeKey` identity lookup table: `forest_member_at`
@@ -120,16 +148,19 @@ exclusion (`index_no_foreign`, `forest_index_no_foreign`, `index_nonexpr_absent`
 
 ## Current verification state
 
-At this repair-13 freeze commit: `make prove` — readable Print-Assumptions gate axiom-free (**479/479** surfaces
-closed, up from 458 at the `af7d5d3` baseline) + whole-theory `Fido Audit Assumptions` + self-tests A–E; `make e2e`
-(materialize + pinned-Go `go build ./...` + goldens + sink + full alias matrix); `make check` working-tree
-generated bytes byte-match the pristine build; `make regenerate` no drift; `make regen-guard` DAG edge
-load-bearing; `git diff --check` clean; the staged pre-commit verification ran on the exact freeze.
+At the blocked candidate `9d5246e` and at every commit since (each passed the full staged pre-commit
+verification): `make prove` — readable Print-Assumptions gate axiom-free (**479/479** surfaces closed, up from
+458 at `af7d5d3`) + whole-theory `Fido Audit Assumptions` + self-tests A–E; `make e2e` (materialize + pinned-Go
+`go build ./...` + goldens + sink + full alias matrix); `make check` working-tree generated bytes byte-match the
+pristine build; `make regenerate` no drift; `make regen-guard` DAG edge load-bearing; `git diff --check` clean.
+`make fmt` (added out-of-band) reports the tracked tree conforming to `.editorconfig`.
 
-⚠ Every one of those commands was ALSO green at `af7d5d3` and none of them caught the collection-role defect — a
-`List.find` keyed by `NodeKey` typechecks, proves, builds and emits identical bytes. Green commands do not replace
-inspection of the actual lookup path and the actual collection roles; that is why the collection audit now carries
-per-site inventories instead of summary claims.
+⚠ **Green commands did not catch either of the last two blockers.** A `List.find` keyed by `NodeKey` typechecks,
+proves, builds and emits identical bytes — that was repair 13. A `CompilableProgram` that keeps copied
+projections plus a Prop equality to rerunning the elaborator does likewise — that is the repair-14 blocker, and
+every command above is green at `9d5246e` today. Verification does not inspect constructor topology; only reading
+the actual retention shape does. That is why the collection audit carries per-site inventories, and why repair 14
+requires inspecting the publish boundary rather than trusting a passing gate.
 
 ## Scope
 

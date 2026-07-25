@@ -1,59 +1,63 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **exact standard work-member index repair 13 — candidate COMPLETE and FROZEN at this
-  freeze commit; pending Rob's human C4 Implementation Review.** The thirteenth BLOCKING result is repaired. The
-  defect was real production code: `ExprWorkForest.ewf_items` was documented as an ordered view that was not
-  identity storage, but `forest_member_at` searched it with `List.find` on `nodekey_eqb`, keyed by `NodeKey`, using
-  the carried `ewf_keys_nodup` field as its uniqueness mechanism — the forbidden `list + NoDup` keyed table — in the
-  live path `build_outcome_trace → build_conversion_step → build_conversion_work → forest_member_at`, once per
-  conversion, surviving proof erasure and rescanning the whole retained work list per lookup.
-- **The repair.** `forest_member_at` and its `List.find` are DELETED. The identity role is now a separate carried
-  field `ewf_index : ExprWorkIndex ewf_items`, backed ENTIRELY by the pinned-stdlib `GoIndex.NodeKeyMapBase`
-  (`FMapAVL`): built ONCE by `build_work_index` from the ALREADY-BUILT item list (no second work discovery, no
-  `ci_visit` re-traversal), OVERWRITE-FREE (`work_index_fresh` / `work_index_add_fresh` prove every `add` writes an
-  absent key), TOTAL with no option/fallback/empty-default because the key-`NoDup` is a PROOF ARGUMENT, and EXACT in
-  both directions (`work_index_exact` / `ewi_exact`). The record is INDEXED BY the item list and the field is
-  dependent, so a foreign map is not pairable with a forest; `ewi_domain` and `ewi_key_inj` are DERIVED, never
-  stored. `index_member_at` / `forest_index_member_at` are the TOTAL member queries — ONE `NodeKeyMapBase.find`,
-  no stand-in member; `index_no_foreign` / `index_nonexpr_absent` exclude foreign and wrong-kind keys.
-  `build_conversion_work` queries at the key of the operand `ExprRef` the item ALREADY CARRIES (`ew_conv`), not a
-  separately computed `operand_key`. The ordered `ewf_items` keeps its SOURCE-ORDER role only.
-- **Retained repair-12 results (unchanged):** `StepCause_ok_conv_inv` returns a `ConversionStep` indexed by the
-  EXACT source `TypeSyntax` and operand `GoExpr`; `retained_convsuccess_closure` and `nested_success_bundle`
-  preserve that exact source-step identity; all four deep valid conversions expose the exact source
-  `ConversionStep`.
-- **New direct fixtures:** `deep_nested_chain_index_evidence` (each of the four conversions recovers its exact
-  operand member THROUGH the index, in the processed suffix, with the accepted outcomes) and
-  `twin_expr_index_distinct` (two occurrences of the LITERALLY SAME expression value get distinct keys, distinct
-  index entries, and each returns its own retained member).
+- **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — AUTHORITY INSTALLED; implementation NOT
+  begun.** C4 is **BLOCKING** at implementation candidate `9d5246e`, the fourteenth blocked candidate.
+- **The finding (NEW, holistic review).** Repair 13 is correct and intact — one immutable source authority, one
+  retained `CompilationInput`, one proof-carrying `ExprWorkForest`, the exact standard-map-backed `ExprWorkIndex`,
+  no production `List.find` key lookup, exact member/step identity, one `OutcomeAccumulator` and intrinsic
+  `OutcomeTrace`, exact final-to-tail causal preservation. The blocker is **outside** that expression phase:
+  `elaborate_indexed` builds one exact causal chain and then **discards it**. `ElaborationFacts` retains selected
+  projections; `CompilableProgram` retains `cp_program`/`cp_index`/`cp_facts` plus
+  `cp_prov : elaborate cp_program = …` — a **Prop equality to rerunning the elaborator**, erased, whose right-hand
+  side holds only the already-stripped result. That is not the exact causal object and cannot project it, so the
+  current "object identity" theorems must *rebuild* the phase and prove the copies equal. Future `SafeProgram`
+  proofs and user extensions cannot consume the accepted C4 causal object; they must reconstruct it. No green
+  proof or test command can repair a constructor topology that does not retain the object.
+- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_14.md` (installed verbatim).
+- **Human repair authorization token:** `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`.
+- **Governing FCB amendment:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`, **ACCEPTED** — the opaque static
+  capability must RETAIN the exact successful whole-elaboration object by construction; public queries are
+  projections from it; equality to a canonical rerun is permitted only as a separate specification/determinism
+  theorem and is never the production provenance. Governance decision **D-22**: opacity restricts access, it never
+  authorizes discarding and later rebuilding.
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
 - **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
 - **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- **Blocked C4 candidates (all thirteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) · `af2fc87` (4) ·
-  `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) · `3ecf32e` (11) ·
-  `48c0b31` (12) · `af7d5d3e23c26850887c4fb178dad5f29c616385` (13 — **the repair-13 baseline**).
-- **Not a candidate:** commit `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) is a
-  **SUPERSEDED documentation-only acceptance closeout** based on the withdrawn GREEN disposition. It remains
-  superseded in history and is NOT counted as an implementation candidate.
-- **Repair authority:** `.review/C4_IMPLEMENTATION_REPAIR_13.md`.
-- **Human repair authorization token:** `C4-standard-work-member-index-repair-13`.
-- **Candidate ranges (this freeze commit is the repair-13 candidate head; the report gives the exact SHA):** full
-  human C4 Implementation Review range `8c9212a..`this freeze commit; full repair range `89b8e54..`this freeze
-  commit; **repair-12 range `37c9597..af7d5d3`** (repair 12 was implemented on top of `37c9597`); **repair-13 range
-  `af7d5d3..`this freeze commit.**
-- **State:** C4 Implementation Review — **exact standard work-member index repair 13 COMPLETE and FROZEN** at this
-  freeze commit (the thirteenth BLOCKING result repaired); **new human C4 Implementation Review pending.** All
-  thirteen prior blocked candidates ended at `af7d5d3` (the repair-13 baseline); this freeze is the new candidate
-  head. Readable gate 479/479 axiom-free; no production `List.find` key lookup remains.
-- **Scope decisions:** ADR-0001 remains **PROPOSED**. **ADR-0002 is REJECTED AS WRITTEN / OPEN.** SR-009 =
-  UNRESOLVED EXISTING RESTRICTION. Every PROPOSED ledger entry stays PROPOSED until Rob accepts. The DecimalFloat
-  decision work is not begun. No numeric-model or scope change was made in repair 13.
-- **Automatic Codex review:** DISABLED (do NOT request or run a Codex review).
-- **C5 is FORBIDDEN** until explicit Rob authorization (C5 = `uintptr` + rune constants/literals, which reopens
-  ADR-0001).
-- **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted (a separate ruthless trim checkpoint follows
-  human C4 acceptance). Noted for that trim, NOT done here: `GoIndex.nodekey_eqb` + `thm8_nodekey_eqb_spec` lost
-  their last caller when `forest_member_at` was deleted (`NodeKey_OT.eq_dec` goes through `thm8_nodekey_eq_dec`).
-  They remain a gated, axiom-free decidable-equality surface of the `NodeKey` domain in the C3-accepted `GoIndex`
-  layer; removing them is out of repair-13 scope.
+- **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
+  `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
+  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) ·
+  `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` (14 — **the candidate under review**).
+- **Not candidates:** `37c9597` (superseded documentation-only acceptance closeout) and the out-of-band commits
+  below. Repair 14 is implemented **on top of the current head**, never by resetting to `9d5246e`.
+- **Out-of-band commits since the blocked candidate** (all after `9d5246e`, none an implementation candidate):
+  `ece4c1d` campaign persistence · `5d25c42` campaign bytecode hygiene · **`4754a4a` generated-header change** ·
+  `96aa8e0` Git-canonical FCB · `e6acfac` `.editorconfig` · `e004e30` living documentation ·
+  `7963c6b` doc-checksum/name-version retirement + `make fmt`.
+  ⚠ **Two of those touched functional paths and the reviewer must know:** `4754a4a` changed the generated header
+  to `// fido was here.  woof woof.  do not edit.` — that is `GoRender.header`, the output-policy gate, the sink
+  test, a transport-rejection fixture, two Dockerfile checks, and **every generated byte** (7 files); it was made
+  at Rob's direct request and verified by full `make check`. `7963c6b` added the `fmt` Makefile target and
+  `tools/fmt-check.py` (2 files; no proof, gate, or generated-output change). Every other out-of-band commit is
+  documentation only. So the repair-14 base is **not** byte-identical to `9d5246e` on the functional side.
+- **Documentation basis:** the live Fido Conformance Basis is `.review/fcb/current/` (Git-canonical per **A002**,
+  living-document form per **A003** — no version suffixes, no checksum manifest; identity is
+  `git rev-parse HEAD:.review/fcb/current`). The FCB's own Human Review Index records `C4-REVIEW` as
+  **BLOCKED / AWAITING REPAIR-14 CANDIDATE**. Project libraries hold bootstrap shims only.
+- **Retained results — do NOT regress.** Repair 13: the exact standard work-member index (`ExprWorkIndex` /
+  `ewf_index`, built once, overwrite-free, total because the key-`NoDup` is a proof argument, exact in both
+  directions), `index_member_at` / `forest_index_member_at`, and zero production `List.find` key lookup. Repair 12:
+  exact source-step identity — `StepCause_ok_conv_inv`, `retained_convsuccess_closure` and `nested_success_bundle`
+  return the `ConversionStep` at the EXACT source `ts`/`x`, no existential.
+- **State:** repair-14 **authority installed; no implementation performed.** The next implementation act is the
+  work in `.review/C4_IMPLEMENTATION_REPAIR_14.md` §C2–C13: one `ElaborationCore` built once, the decision indexed
+  by that exact core, accepted/rejected results retaining it, `CompilableProgram` retaining the accepted core
+  behind an opaque constructor, `go_compile` passing the exact object through, and deletion of the
+  reconstruction root (`cp_prov` as provenance, the `elaborate_ok_seals_*` rebuilt-phase forms).
+- **Scope decisions:** ADR-0001 / SR-001 — the FCB records ADR-0001 as adopted for the current basis; this
+  repository still shows PROPOSED, and reconciling the two is an explicit repair-14 duty (§A4), not done here.
+  ADR-0002 remains REJECTED AS WRITTEN / OPEN. SR-009 remains an unresolved existing restriction. `LAT-X004` is
+  settled in the FCB as option (ii), the rounding-invariant accepted domain. No numeric-model or scope change was
+  made by this authority install.
+- **Automatic Codex review:** DISABLED.
+- **C5 is FORBIDDEN** until C4 is accepted. **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted.

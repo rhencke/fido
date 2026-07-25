@@ -334,7 +334,13 @@ complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS 
   origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate;
   `tools/generated-mode-gate.sh` — the index-authoritative exact-mode gate (hook only);
   `tools/staged-generated-compare.sh` — the SHARED byte/path compare (working tree for `make check`, exported
-  index for the hook).
+  index for the hook). `tools/fmt-check.py` — the `make fmt` whitespace/format report against `.editorconfig`
+  (property resolution delegated to the EditorConfig reference implementation; reports, never rewrites);
+  deliberately NOT a gate and NOT wired into `make check` or the hook, which stay code-level.
+- `.editorconfig` at the root, plus nested `.review/fcb/.editorconfig` and
+  `.review/spec-closure-campaign/.editorconfig` — the byte rules live WITH the documents they govern. Their
+  `trim_trailing_whitespace = false` entries are load-bearing: generated Go, reviewed goldens, tabular ledgers
+  whose trailing tab is a meaningful empty field, and Markdown hard line breaks.
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine
   `generated-module`/`sync`/`generated-artifact` stages. The hook is bypassable with `--no-verify` (a
   documented prototype-stage escape); it gives reasonable assurance against accidental stale generated output
