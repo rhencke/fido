@@ -1,0 +1,26 @@
+# FIDO probe environment — the COMPLETE allowed key set (T-9, directive v12). Unknown keys fail the audit.
+# kind	key	value
+env	GOOS	linux
+env	GOARCH	amd64
+env	GOAMD64	v1
+env	CGO_ENABLED	0
+env	GOFLAGS	
+env	GOPROXY	off
+env	GOTOOLCHAIN	local
+env	GOENV	off
+env	GOWORK	off
+env	GODEBUG	
+env	GOTRACEBACK	single
+env	LANG	C.UTF-8
+env	LC_ALL	C.UTF-8
+env	TZ	UTC
+env	PATH	{SANDBOX}/go/bin:/usr/bin:/bin
+env	GOROOT	{SANDBOX}/go
+env	HOME	{SANDBOX}/home
+env	TMPDIR	{SANDBOX}/tmp
+env	GOCACHE	{SANDBOX}/gocache
+env	GOMODCACHE	{SANDBOX}/gomodcache
+env	GOPATH	{SANDBOX}/gopath
+meta	umask	0022
+meta	sandbox_root	.review/spec-closure-campaign/evidence-sandbox
+meta	path_normalization	replace absolute sandbox root with {SANDBOX} in all captured output

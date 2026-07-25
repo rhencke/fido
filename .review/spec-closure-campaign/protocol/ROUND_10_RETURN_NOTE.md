@@ -1,0 +1,1 @@
+Round-10 return review (v10 hash-verified, three REOPENS): received in-conversation 2026-07-24; original bytes not retained by the transport layer — content summarized in the Adjudication Brief and reflected in v11's provenance.
