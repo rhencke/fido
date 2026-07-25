@@ -9204,6 +9204,69 @@ Lemma elaborate_diags_eq_elaboration (p : GoProgram) (ip : GoIndex.IndexedProgra
   = elaboration_diagnostics p idx.
 Proof. cbn zeta. rewrite (elaborate_phase_raw_eq p ip). exact (command_plan_diags_eq p ip). Qed.
 
+(** ═══ §2 (REPAIR 14) THE ONE INTRINSIC WHOLE-ELABORATION OBJECT ═══ the exact causal chain the elaboration
+    builds, RETAINED rather than discarded.  Two fields suffice, because the chain is already dependently
+    linked: [CompilationInput p] itself retains the [IndexedProgram] ([ci_ip]) and the visit, and
+    [ExpressionPhase] is INDEXED BY the input — so a phase built from a different input is not storable here,
+    and the phase in turn retains [ep_work] / [ep_tnft] / [ep_ot] (with its [OutcomeTrace]) / [ep_awork] /
+    [ep_eft] / [ep_diag], each dependent on its predecessor.  Everything else an elaboration computes — the
+    package buckets, the root layout, the build plan, the raw and command-ordered diagnostics — is a total
+    PROJECTION of these two and is defined below, never stored: nothing can drift out of sync, and no stored
+    equality stands in for a retained object (D-22 / FCB A001). *)
+Record ElaborationCore (p : GoProgram) : Type := mkElaborationCore {
+  ec_input : CompilationInput p ;
+  ec_phase : ExpressionPhase ec_input
+}.
+Arguments mkElaborationCore {p} _ _.
+Arguments ec_input {p} _.  Arguments ec_phase {p} _.
+
+(* the retained index and syntax index, projected — never reconstructed by [GoIndex.index_program]. *)
+Definition ec_ip {p} (core : ElaborationCore p) : GoIndex.IndexedProgram p := ci_ip (ec_input core).
+Definition ec_idx {p} (core : ElaborationCore p) : GoIndex.Snap.SyntaxIndex p := ci_idx (ec_input core).
+
+(* the package buckets of the core's retained index.  [ec_buckets_from_retained_visit] below PROVES this is the
+   fold over the core's OWN retained visit — so this is a projection of what the core already holds, never a
+   second occurrence discovery. *)
+Definition ec_buckets {p} (core : ElaborationCore p) : PM.t (list (GoIndex.DeclRef p)) :=
+  prog_package_refs (ec_idx core).
+
+Lemma ec_buckets_from_retained_visit {p} (core : ElaborationCore p) :
+  ec_buckets core = prog_package_refs_from_visit (ec_idx core) (ci_visit (ec_input core)).
+Proof. unfold ec_buckets, prog_package_refs. rewrite (ci_visit_ok (ec_input core)). reflexivity. Qed.
+
+Definition ec_layout {p} (core : ElaborationCore p) : PM.t FreshRootEntryKind := root_layout p.
+
+Definition ec_plan {p} (core : ElaborationCore p) : FreshBuildDisposition :=
+  fresh_build_plan_of (prog_module p) (map fst (PM.elements (ec_buckets core))) (ec_layout core).
+
+(* the raw diagnostics: the phase's OWN total projection ++ the bucket diagnostics of the core's own buckets. *)
+Definition ec_raw {p} (core : ElaborationCore p) : list (DiagnosticReason p) :=
+  ep_diags (ec_phase core)
+    ++ bucket_diags_elems (ec_buckets core) (bucket_key_present (ec_idx core))
+         (PM.elements (ec_buckets core)) (elements_all_mapsto (ec_buckets core)).
+
+(* the command-ordered diagnostics — the ONE accept/reject quantity. *)
+Definition ec_diags {p} (core : ElaborationCore p) : list (DiagnosticReason p) :=
+  command_diagnostics_of p (ec_plan core)
+    (bucket_flatten (node_keyed (ec_raw core)) ++ pkg_primary (ec_raw core)).
+
+(* the ONE core construction: the input once, the phase once from THAT exact input.  No other builder call. *)
+Definition build_elaboration_core (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ElaborationCore p :=
+  let input := build_compilation_input p ip in
+  mkElaborationCore input (build_expression_phase input).
+
+(* the built core's retained index IS the one it was built from (definitional — no transport). *)
+Lemma build_core_ip (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  ec_ip (build_elaboration_core p ip) = ip.
+Proof. reflexivity. Qed.
+
+(* the SPECIFICATION bridge (not provenance): the core's own diagnostics are the canonical
+   [elaboration_diagnostics] of the same program and index.  Used only to transport the accept/reject decision
+   to the source-level validity theorems; no object is recovered through it. *)
+Lemma ec_diags_eq_elaboration (p : GoProgram) (ip : GoIndex.IndexedProgram p) :
+  ec_diags (build_elaboration_core p ip) = elaboration_diagnostics p (GoIndex.indexed_syntax ip).
+Proof. exact (elaborate_diags_eq_elaboration p ip). Qed.
+
 Definition elaborate_indexed (p : GoProgram) (ip : GoIndex.IndexedProgram p) : ElaborationResult p ip :=
   let input   := build_compilation_input p ip in   (* §3 the ONE retained input, built ONCE (the sole [prog_blocks p]) *)
   let idx     := ci_idx input in                   (* = [indexed_syntax ip]; every builder reads THIS retained index *)
