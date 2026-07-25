@@ -1,13 +1,12 @@
-# Fido FCB Governance v3
+# Fido FCB Governance
 
 > **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
-> **FCB document version:** `v3` · **FCB set:** `v3` · **Generated:** `2026-07-25`  
-> **Supersedes:** `FIDO_FCB_GOVERNANCE_v2.md`  
+> **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
 > **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0` · source snapshot SHA-256 `6e25e8be64a77b7d98609c607d48b1d6917b2bf0480d10fa4a92f1a6bb170eff`  
 > **Terminal-bundle basis:** SHA-256 `58abd876a0962bde42e5c9fc0365a8431b88b13beb790440e4b52031c7f8aad0` · handoff SHA-256 `fdfc2c235707aeeef58c566f5fd145850ca606df8d693f5cc6bc81f2112eb143`  
 > **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
-> **Stable bootstrap:** `.review/fcb/current/INDEX.md` · **Manifest:** `.review/fcb/current/FIDO_FCB_MANIFEST.sha256`  
+> **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
 > This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
@@ -36,7 +35,7 @@ A model may record `APPLIED`. Only Rob may accept, countersign, reopen, reject, 
 - A mature standard collection is required when it fits the semantic role. Project-authored collection storage is forbidden.
 - No fuel, gas, bounded-step surrogate, trusted fallback, or parallel shortcut path may enter the certified route.
 - Git is the sole canonical FCB store. Model project libraries contain bootstrap shims only and never own or edit FCB bytes.
-- Every serious task resolves one exact repository ref, verifies `.review/fcb/current/FIDO_FCB_MANIFEST.sha256`, and never mixes FCB files across refs.
+- Every serious task resolves one exact repository ref, takes every FCB document from that single ref, and never mixes FCB files across refs. Git's content addressing is the integrity mechanism; there is no separate checksum manifest.
 
 ## 3. Settled Decisions Register
 

@@ -1,13 +1,12 @@
-# Fido FCB Checkpoint Authoring Guide v3
+# Fido FCB Checkpoint Authoring Guide
 
 > **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
-> **FCB document version:** `v3` · **FCB set:** `v3` · **Generated:** `2026-07-25`  
-> **Supersedes:** `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE_v2.md`  
+> **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
 > **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0` · source snapshot SHA-256 `6e25e8be64a77b7d98609c607d48b1d6917b2bf0480d10fa4a92f1a6bb170eff`  
 > **Terminal-bundle basis:** SHA-256 `58abd876a0962bde42e5c9fc0365a8431b88b13beb790440e4b52031c7f8aad0` · handoff SHA-256 `fdfc2c235707aeeef58c566f5fd145850ca606df8d693f5cc6bc81f2112eb143`  
 > **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
-> **Stable bootstrap:** `.review/fcb/current/INDEX.md` · **Manifest:** `.review/fcb/current/FIDO_FCB_MANIFEST.sha256`  
+> **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
 > This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
@@ -92,11 +91,9 @@ Models record `APPLIED` at most. Ship empty Rob countersign fields. Regenerate t
 On Rob’s acceptance:
 
 1. regenerate every affected FCB document from the accepted repository basis;
-2. bump each changed FCB document version;
-3. update the versioned Index, stable `INDEX.md`, and current SHA manifest;
-4. run `.review/fcb/tools/verify_current_fcb.py`;
+2. update the Index and stable `INDEX.md` if the file set changed;
 5. commit the coherent replacement under `.review/fcb/current/` in Git;
-6. retain superseded versions through Git history or an explicit archive, never as a second live set;
+6. retain superseded states through Git history or an explicit archive, never as a second live set;
 7. record the accepted source repo SHA and source snapshot hash in every changed banner.
 
 Project libraries contain bootstrap shims only. They are not regenerated with each checkpoint and change only if

@@ -41,10 +41,10 @@ insert_final_newline = false
 
 # ---- hash-pinned corpora: bytes are fixed by a SHA-256 manifest ----
 
-# The live Fido Conformance Basis.  Every file is hashed by .review/fcb/current/FIDO_FCB_MANIFEST.sha256,
-# whose own SHA-256 is declared by accepted amendment A002 and checked by
-# .review/fcb/tools/verify_current_fcb.py.  Trailing spaces here are Markdown hard line breaks; stripping one
-# fails the verifier.
+# The live Fido Conformance Basis.  Trailing spaces here are Markdown HARD LINE BREAKS carrying the banner
+# layout; stripping them silently reflows the governing documents.  (Per accepted amendment A003 these are
+# living documents with no checksum manifest — Git content-addresses them — so the reason to leave the bytes
+# alone is semantic, not a hash.)
 [.review/fcb/**]
 trim_trailing_whitespace = false
 insert_final_newline = false

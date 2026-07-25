@@ -15,12 +15,12 @@ toolchain evidence, roadmap, checkpoint authoring, model roles, or human-review 
 1. Resolve one exact repository ref. Use the candidate commit or uploaded repository snapshot specified for the
    task; otherwise use the latest accessible `main`.
 2. Fetch `.review/fcb/current/INDEX.md` from that exact ref.
-3. Follow it to the current versioned FCB Index and `FIDO_FCB_MANIFEST.sha256`.
-4. Verify the manifest or use the repository's verification tool.
+3. Follow it to the FCB Index.
+4. Take every document from that one ref; Git's content addressing is the integrity guarantee.
 5. Read `.review/NEXT_STEPS.md` from the same ref for the live checkpoint authority.
 6. Consult only the documents named by the current Index. Never mix FCB files from different refs.
 
-Do not treat this shim, old project-library files, chat memory, prior FCB versions, or the spec-closure campaign
+Do not treat this shim, old project-library files, chat memory, superseded FCB states, or the spec-closure campaign
 archive as current FCB authority. If the repository/ref is unavailable or verification fails, stop and tell Rob;
 do not guess.
 
