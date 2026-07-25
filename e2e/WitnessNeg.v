@@ -17,8 +17,8 @@ Declare ML Module "fido.emit".
    [decode_transport] would happily decode this and install forged content; the guard rejects it because it
    is not a DirectoryImage (di_transport expects one), BEFORE any filesystem effect. *)
 Fail Fido Materialize
-  (("// fido generated.  do not edit."%string,
-    cons ("main.go"%string, "// fido generated.  do not edit."%string) (@nil (string * string)))
+  (("// fido was here.  woof woof.  do not edit."%string,
+    cons ("main.go"%string, "// fido was here.  woof woof.  do not edit."%string) (@nil (string * string)))
    : string * list (string * string))
   To "/workspace/e2e-neg".
 

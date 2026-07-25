@@ -29,7 +29,7 @@
                 [checkpoint] TERMINATES the process (Unix._exit) at that exact point: a true crash, no
                   finalizer, the lock stays held, and sibling-temp residue is left for the next run
                   (crash-after-create leaves a created-but-empty PARTIAL temp). *)
-let header = "// fido generated.  do not edit."
+let header = "// fido was here.  woof woof.  do not edit."
 let go_mod = header ^ "\n\nmodule fido.local/generated\n\ngo 1.23\n"
 (* distinctive, binary-sensitive .go bytes (control chars + tab, no final newline) with the header first
    line so the byte-equality check catches any transformation.  These dirs are never go-built. *)

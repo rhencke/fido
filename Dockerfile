@@ -158,7 +158,7 @@ cat /tmp/emit.log
 [ "$(find "$G" -name '*.go' | wc -l)" -ge 1 ] || fail "generated: the materialized pristine canonical module has no .go file"
 echo "fido: pristine generated-module tree (materialized DIRECTLY from the certified image):"; echo ----; ( cd "$G" && find . -type f | sort ); echo ----; cat "$G/go.mod"; echo ----; cat "$G/main.go"; echo ----
 # the go.mod is the Rocq-rendered module file (header first line, exact module/go directives)
-head -1 "$G/go.mod" | grep -q '^// fido generated' || fail "rendered go.mod is not Fido-headed"
+head -1 "$G/go.mod" | grep -q '^// fido was here' || fail "rendered go.mod is not Fido-headed"
 grep -qx 'module fido.local/generated' "$G/go.mod" || { cat "$G/go.mod"; fail "rendered go.mod module directive unexpected"; }
 grep -qx 'go 1.23' "$G/go.mod" || { cat "$G/go.mod"; fail "rendered go.mod go directive unexpected"; }
 
@@ -674,7 +674,7 @@ case "$gv" in go1.23*) : ;; *) echo "fido e2e: Go version $gv != pinned go1.23";
 [ "$goarch" = amd64 ] || { echo "fido e2e: GOARCH $goarch != pinned amd64"; exit 1; }
 # the go.mod is the RENDERED module file (no handwritten injection)
 [ -f go.mod ] || { echo "fido e2e: the emitted tree has no rendered go.mod"; exit 1; }
-head -1 go.mod | grep -q '^// fido generated' || { echo "fido e2e: go.mod is not Fido-generated"; cat go.mod; exit 1; }
+head -1 go.mod | grep -q '^// fido was here' || { echo "fido e2e: go.mod is not Fido-generated"; cat go.mod; exit 1; }
 grep -qx 'module fido.local/generated' go.mod || { echo "fido e2e: unexpected module directive"; cat go.mod; exit 1; }
 grep -qx 'go 1.23' go.mod || { echo "fido e2e: unexpected go directive"; cat go.mod; exit 1; }
 if [ -n "$(gofmt -l .)" ]; then echo "fido e2e: emitted Go is not gofmt-clean:"; gofmt -l .; exit 1; fi
@@ -758,7 +758,7 @@ rm -rf "$MFRESH"
 rej_conv() { # <label> <main-body>
   d="/tmp/rej-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module rej\n\ngo 1.23\n' > "$d/go.mod"
-  printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
+  printf '// fido was here.  woof woof.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
   _rc=0; fresh_go_build "$d" FR || _rc=$?
   _flog=$_FRESH_BUILD_LOG            # THIS run's log (empty on a setup/infra failure)
   require_go_ran "$1: $2"           # a setup/runner/fs/infra failure is NOT a Go rejection
@@ -819,7 +819,7 @@ rej_conv int-of-ctinyimag 'println(int(complex(3, 1e-50)))'
 acc_conv() { # <label> <main-body> <expected-stderr>
   d="/tmp/acc-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module accm\n\ngo 1.23\n' > "$d/go.mod"
-  printf '// fido generated.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
+  printf '// fido was here.  woof woof.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
   fresh_go_build "$d" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED [$1: $2] that GoTypes ACCEPTS (MODEL BUG)"; exit 1; }
   _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
   { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: acc_conv [$1] produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }

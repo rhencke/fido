@@ -18,7 +18,7 @@
 #   - no .fido control entry or *.fido-tmp-v1 temp anywhere in the checked tree.
 set -eu
 root=${1:-.}
-header='// fido generated.  do not edit.'
+header='// fido was here.  woof woof.  do not edit.'
 fail=0
 
 # control/temp residue anywhere in the checked tree (never source artifacts)

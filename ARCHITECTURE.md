@@ -202,7 +202,7 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  file's OWN source_package via render_package_clause — PkgMain -> `main`, each DMain as a
                  `func main()`) AND renders the go.mod from the ModuleSpec (`module <path>` + `go <version>`).
                  Every rendered file — go.mod and every
-                 .go — begins with the exact header `// fido generated.  do not edit.` as its FIRST LINE.
+                 .go — begins with the exact header `// fido was here.  woof woof.  do not edit.` as its FIRST LINE.
                  A conversion renders as `<render_type_syntax ts>(<inner>)`, reading the RETAINED SOURCE
                  identifier (render_stn — NOT the resolved GoType), so all sixteen source names render their own
                  spelling: the fourteen numeric names, and `byte(<inner>)`/`rune(<inner>)` distinct from

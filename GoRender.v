@@ -47,7 +47,7 @@ Definition nl : string := String nl_c EmptyString.
 Definition tab : string := String tab_c EmptyString.
 
 (** The exact first line of every generated .go file (two spaces after the period). *)
-Definition header : string := "// fido generated.  do not edit.".
+Definition header : string := "// fido was here.  woof woof.  do not edit.".
 
 (** ---- the canonical Go interpreted string literal: ONE spelling per semantic byte sequence ---- *)
 

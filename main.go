@@ -1,4 +1,4 @@
-// fido generated.  do not edit.
+// fido was here.  woof woof.  do not edit.
 
 package main
 
