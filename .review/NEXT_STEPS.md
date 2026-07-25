@@ -58,5 +58,12 @@
   ADR-0002 remains REJECTED AS WRITTEN / OPEN. SR-009 remains an unresolved existing restriction. `LAT-X004` is
   settled in the FCB as option (ii), the rounding-invariant accepted domain. No numeric-model or scope change was
   made by this authority install.
+- **Open questions:** `.review/OPEN_QUESTIONS.md` — scoping calls and ambiguities raised from implementation
+  that are neither a contract conflict nor a tracked human act. Each entry names its owner (reviewer or Rob),
+  whether it blocks, and **the default I take if nobody answers**, so no question stalls the work silently. It
+  is not authority and overrides nothing. Currently open: authorization to begin repair-14 implementation
+  (blocking); the A004 disposition; the ADR-0001 / SR-001 reconciliation; whether deleting `IndexedProgram` is
+  in repair-14 scope; and whether the Human Review Index is meant to be generator-discovered rather than
+  hand-maintained.
 - **Automatic Codex review:** DISABLED.
 - **C5 is FORBIDDEN** until C4 is accepted. **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted.
