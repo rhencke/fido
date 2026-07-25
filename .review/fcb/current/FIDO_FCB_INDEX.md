@@ -5,8 +5,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`;
-> `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
-> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task.
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
@@ -20,8 +20,9 @@ live in Git history, never beside the live set.
 **Blocked implementation candidate:** `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` — C4 is blocked at the final
 static-capability boundary, where the published capability keeps copied projections plus an equality to
 rerunning the elaborator instead of retaining the exact causal elaboration object.  
-**Current C4 state:** the repair-14 authority is installed at `.review/C4_IMPLEMENTATION_REPAIR_14.md`;
-**implementation has not begun.**  
+**Current C4 state:** the repair-14 authority is installed at `.review/C4_IMPLEMENTATION_REPAIR_14.md`, and
+Rob **AUTHORIZED** its implementation on 2026-07-25 (begin on the current `main` head; do not reset to
+`9d5246e`; preserve the recorded out-of-band changes).  
 **Next authorized C4 work:** implement and freeze intrinsic retained elaboration under that authority.  
 **Next permitted sequence:** `C4 repair 14 → human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  

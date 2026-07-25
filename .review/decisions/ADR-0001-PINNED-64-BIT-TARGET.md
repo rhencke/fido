@@ -1,6 +1,11 @@
 # ADR-0001 — Pinned 64-bit target (linux/amd64, Go 1.23)
 
-- **Status:** PROPOSED — pending Rob's review with the C4 candidate. (Not accepted until Rob accepts it.)
+- **Status:** **ACCEPTED FOR CURRENT BASIS** — Rob, 2026-07-25.
+- **Accepted basis:** Go 1.23 on `linux/amd64` with `GOAMD64=v1`; `int` and `uint` use 64-bit ranges and
+  remain distinct from fixed-width types.
+- **Reopen trigger:** C16, or any earlier explicit request to add another target or to add `uintptr`.
+  Acceptance does NOT authorize `uintptr`, another target, C5, or the post-C4 trim; `uintptr` stays OUT until
+  a separate reviewed scope change pays its inclusion price.
 - **Date:** 2026-07-22.
 - **Scope ledger link:** `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` SR-001.
 - **Charter link:** `ARCHITECTURE.md` (ModuleSpec is NOT a TargetConfig); `CLAUDE.md` Standing law §8.
@@ -139,10 +144,11 @@ SR-001, that would open a comment-vs-enforcement gap to catch.
 - A request to support 32-bit.
 - A request to support arm64 or another OS.
 - Any portable-Go public claim.
-- **C5 activation AUTOMATICALLY reopens this ADR** — C5 adds `uintptr`, whose width is target-dependent, so it
-  extends the target-dependent semantic surface. Before `uintptr` is implemented, C5 must decide whether
-  `uintptr` is pinned to 64-bit under linux/amd64 (consistent with this ADR) or a target descriptor lands
-  first (generalizing this ADR). This ADR must be revisited at that point regardless.
+- **Reopen at C16, or at any earlier explicit request to add another target or to add `uintptr`.** `uintptr`'s
+  width is target-dependent, so admitting it extends the target-dependent semantic surface: before `uintptr`
+  is implemented, that request must decide whether `uintptr` is pinned to 64-bit under linux/amd64
+  (consistent with this ADR) or a target descriptor lands first (generalizing it). Accepting this ADR for the
+  current basis does not pre-authorize either.
 - `uintptr`/pointer/layout work that needs a richer target model.
 - A toolchain/target image change.
 - A proof benefit from a target descriptor that exceeds its cost.

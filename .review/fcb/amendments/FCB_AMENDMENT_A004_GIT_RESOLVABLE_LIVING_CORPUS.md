@@ -1,7 +1,7 @@
 # FCB Amendment A004 — Every Live Documentation Reference Resolves at One Git Ref
 
 - **ID:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`
-- **Status:** **PROPOSED — Rob disposition required**
+- **Status:** **ACCEPTED AS IMPLEMENTED** — Rob, 2026-07-25
 - **Author:** Claude (external adversarial reviewer), Review 100
 - **Human owner:** Rob
 - **Committer:** Claude Code (applied the repairs; authored nothing in this amendment)
@@ -9,9 +9,8 @@
 - **Reviewed repository head:** `267f239fe63062ed71aa32e0e81de9e5f821266f`
 - **Blocked C4 implementation candidate (unchanged):** `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179`
 
-> Recorded with the status the reviewer assigned. Claude Code does not record a human disposition Rob has not
-> given. The live Index therefore lists A004 as proposed; on Rob's acceptance the status here and there both
-> change, and nothing else in this document needs to.
+> Delivered PROPOSED and recorded as such until Rob dispositioned it. Rob accepted it as implemented on
+> 2026-07-25; `D-24` remains installed as a settled decision.
 
 ## New information
 

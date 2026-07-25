@@ -36,7 +36,7 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
-## Repair 14 — intrinsic retained elaboration — AUTHORITY INSTALLED, implementation NOT begun
+## Repair 14 — intrinsic retained elaboration — AUTHORIZED, implementation not yet started
 
 **C4 is BLOCKING at `9d5246e`, the fourteenth blocked implementation candidate.** Authority:
 `.review/C4_IMPLEMENTATION_REPAIR_14.md`, token `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under
@@ -59,8 +59,14 @@ every public query a projection; `go_compile` passing the exact object through; 
 reconstruction root, including `cp_prov` as provenance and the `elaborate_ok_seals_*` rebuilt-phase forms. A
 canonical-rerun equality may survive only as a clearly labelled specification/determinism theorem.
 
-**Repair 12 and 13 results are retained unchanged** (see below). No implementation has been performed under this
-authority: only the authority file and the current-state documents were written.
+**Rob authorized implementation on 2026-07-25:** begin on the current `main` head, do not reset to `9d5246e`,
+preserve the recorded out-of-band changes; C5 and the post-C4 trim remain forbidden. The reviewer added one
+scope decision: **`IndexedProgram` is NOT deleted during repair 14** — if the retained core makes it redundant,
+record the redundancy and the affected queries and theorems, keep the wrapper, and propose deletion under a
+separate contract (preferably the post-C4 trim).
+
+**Repair 12 and 13 results are retained unchanged** (see below). No implementation has been performed yet:
+only the authority file, the answered dispositions, and the current-state documents are written.
 
 ## Repair 13 — exact standard work-member index — landed at `9d5246e` (baseline `af7d5d3`)
 
@@ -163,7 +169,11 @@ requires inspecting the publish boundary rather than trusting a passing gate.
 
 ## Scope
 
-ADR-0001-PINNED-64-BIT-TARGET **PROPOSED**; ADR-0002-BOUNDED-DECIMALFLOAT-DOMAIN **REJECTED AS WRITTEN / OPEN**;
-SR-009 **UNRESOLVED EXISTING RESTRICTION**; every `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` entry PROPOSED with
-a neutral classification unless Rob explicitly accepts it. No numeric-model or scope change in repair 12 or repair
-13; the DecimalFloat decision work is not begun.
+ADR-0001-PINNED-64-BIT-TARGET and SR-001 are **ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25): Go 1.23 on
+`linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at C16 or any
+earlier explicit request to add another target or `uintptr`. This authorizes neither `uintptr` — which stays OUT
+until a separate reviewed scope change pays its inclusion price — nor C5 nor the post-C4 trim.
+ADR-0002-BOUNDED-DECIMALFLOAT-DOMAIN **REJECTED AS WRITTEN / OPEN**; SR-009 **UNRESOLVED EXISTING RESTRICTION**;
+every other `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` entry stays PROPOSED with a neutral classification
+unless Rob explicitly accepts it. No numeric-model change in repair 12, 13 or this disposition commit; the
+DecimalFloat decision work is not begun.

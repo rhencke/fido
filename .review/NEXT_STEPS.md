@@ -1,7 +1,25 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — AUTHORITY INSTALLED; implementation NOT
-  begun.** C4 is **BLOCKING** at implementation candidate `9d5246e`, the fourteenth blocked candidate.
+- **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — AUTHORIZED; implementation may begin.**
+  C4 is **BLOCKING** at implementation candidate `9d5246e`, the fourteenth blocked candidate.
+- **Rob's authorization, 2026-07-25 (exact):** *Begin `.review/C4_IMPLEMENTATION_REPAIR_14.md` implementation on
+  the current `main` head. Do not reset to `9d5246e`. Preserve all out-of-band changes already recorded in
+  `.review/NEXT_STEPS.md`. C5 and the post-C4 trim remain forbidden.* Implementation begins only after the
+  documentation dispositions below are recorded, which this commit does.
+- **Scope decision (reviewer, 2026-07-25):** **do NOT delete `IndexedProgram` during repair 14.** Repair 14 is
+  limited to the final retained-elaboration boundary; deleting a capability-adjacent wrapper in the same repair
+  would enlarge the review surface. If the retained `ElaborationCore` makes it clearly redundant, record the
+  exact redundancy and the affected queries and theorems, keep the wrapper, and propose deletion under a
+  separate explicit contract — preferably the post-C4 trim, unless a correctness conflict forces it earlier.
+  `IndexedProgram` may remain only as the existing exact wrapper or projection; it must never become a parallel
+  semantic authority.
+- **Deferred process task (nonblocking, before the next accepted checkpoint):** implement the living-FCB Human
+  Review Index generator required by Governance `D-07`. It must derive entries from named canonical statuses,
+  produce the tracked Markdown deterministically, and FAIL both when the tracked index omits a live human act
+  and when it retains a stale one. The historical terminal-bundle stub must not be reused unchanged — its
+  schema is provenance, not the living-FCB schema. Until it lands the index carries a temporary
+  hand-maintained disclaimer; `D-07` is not weakened, and softening it would require a named amendment. This
+  task must not expand repair 14.
 - **The finding (NEW, holistic review).** Repair 13 is correct and intact — one immutable source authority, one
   retained `CompilationInput`, one proof-carrying `ExprWorkForest`, the exact standard-map-backed `ExprWorkIndex`,
   no production `List.find` key lookup, exact member/step identity, one `OutcomeAccumulator` and intrinsic
@@ -48,22 +66,23 @@
   directions), `index_member_at` / `forest_index_member_at`, and zero production `List.find` key lookup. Repair 12:
   exact source-step identity — `StepCause_ok_conv_inv`, `retained_convsuccess_closure` and `nested_success_bundle`
   return the `ConversionStep` at the EXACT source `ts`/`x`, no existential.
-- **State:** repair-14 **authority installed; no implementation performed.** The next implementation act is the
+- **State:** repair-14 **AUTHORIZED; implementation not yet started.** The next act is the
   work in `.review/C4_IMPLEMENTATION_REPAIR_14.md` §C2–C13: one `ElaborationCore` built once, the decision indexed
   by that exact core, accepted/rejected results retaining it, `CompilableProgram` retaining the accepted core
   behind an opaque constructor, `go_compile` passing the exact object through, and deletion of the
   reconstruction root (`cp_prov` as provenance, the `elaborate_ok_seals_*` rebuilt-phase forms).
-- **Scope decisions:** ADR-0001 / SR-001 — the FCB records ADR-0001 as adopted for the current basis; this
-  repository still shows PROPOSED, and reconciling the two is an explicit repair-14 duty (§A4), not done here.
+- **Scope decisions:** **ADR-0001 / SR-001 are ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25) — Go 1.23 on
+  `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types; reopen at C16 or any
+  earlier explicit request for another target or `uintptr`. `uintptr` stays OUT until a separate reviewed scope
+  change pays its price, and this acceptance authorizes neither C5 nor the post-C4 trim.
   ADR-0002 remains REJECTED AS WRITTEN / OPEN. SR-009 remains an unresolved existing restriction. `LAT-X004` is
   settled in the FCB as option (ii), the rounding-invariant accepted domain. No numeric-model or scope change was
   made by this authority install.
 - **Open questions:** `.review/OPEN_QUESTIONS.md` — scoping calls and ambiguities raised from implementation
   that are neither a contract conflict nor a tracked human act. Each entry names its owner (reviewer or Rob),
   whether it blocks, and **the default I take if nobody answers**, so no question stalls the work silently. It
-  is not authority and overrides nothing. Currently open: authorization to begin repair-14 implementation
-  (blocking); the A004 disposition; the ADR-0001 / SR-001 reconciliation; whether deleting `IndexedProgram` is
-  in repair-14 scope; and whether the Human Review Index is meant to be generator-discovered rather than
-  hand-maintained.
+  is not authority and overrides nothing. All five questions raised on `d2fad7f` were answered on 2026-07-25;
+  Q-02, Q-03 and Q-05 are recorded and removed here, and Q-01 and Q-04 are removed in the first repair-14
+  implementation commit that relies on them.
 - **Automatic Codex review:** DISABLED.
 - **C5 is FORBIDDEN** until C4 is accepted. **Post-C4 simplification / trim is FORBIDDEN** until C4 is accepted.

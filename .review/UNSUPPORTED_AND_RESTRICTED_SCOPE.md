@@ -55,7 +55,10 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   proof benefit from a target descriptor that exceeds its cost.
 - **Linked:** `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`; `ARCHITECTURE.md` (ModuleSpec is NOT a
   TargetConfig).
-- **Approval state:** PROPOSED — pending Rob's review with the C4 candidate (tracks ADR-0001). Date: 2026-07-22.
+- **Approval state:** **ACCEPTED FOR CURRENT BASIS** — Rob, 2026-07-25 (tracks ADR-0001). Accepted basis: Go
+  1.23 on `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at
+  C16 or any earlier explicit request to add another target or `uintptr`; `uintptr` stays OUT until a separate
+  reviewed scope change pays its price.
 
 ---
 

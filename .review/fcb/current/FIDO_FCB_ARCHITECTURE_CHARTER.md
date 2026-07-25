@@ -3,8 +3,8 @@
 > **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
-> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
-> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -422,7 +422,7 @@ There is no numeric `TypeId` registry and no `GoTypeTag`.
 
 ### 6.1 Pinned target and `uintptr`
 
-The current target remains direct rather than threaded through every theorem. This invokes `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`, which remains **PROPOSED** and is not accepted by this plan.
+The current target remains direct rather than threaded through every theorem. This invokes `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`, **ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25): Go 1.23 on `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at C16 or any earlier explicit request to add another target or `uintptr`; `uintptr` stays OUT until a separate reviewed scope change pays its price.
 
 `uintptr` is OUT in the Spec-Closure Ledger until Rob accepts ADR-0001 or a replacement target decision and the inclusion price is paid. Ordinary `uintptr` support and `unsafe.Pointer` support are separate decisions.
 

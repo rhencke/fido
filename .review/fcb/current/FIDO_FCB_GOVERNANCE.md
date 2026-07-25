@@ -3,8 +3,8 @@
 > **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
-> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
-> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -277,10 +277,10 @@ is sent to an object that exists.
 | Field | Disposition |
 |---|---|
 | Amendment | `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS` |
-| Status | **PROPOSED — Rob disposition required** |
+| Status | **ACCEPTED AS IMPLEMENTED** |
 | Author | Claude (external adversarial reviewer) |
 | Human owner | Rob |
-| Date proposed | `2026-07-25` |
+| Date | `2026-07-25` |
 | New information | The first adversarial review of the Git-canonical corpus found A003 only partly applied: dangling version-suffixed paths, a deleted manifest still required by live process text, A003 absent from the register, stale embedded repository bases, and fixed-point paths that resolve to nothing. |
 | Settled rule sought | Every operational reference in the live FCB either resolves at the same exact Git ref or is explicitly typed as an external evidence reference with a recorded availability status. |
 | Governance decision added | `D-24` |
