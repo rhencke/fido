@@ -14,9 +14,13 @@
 A002 made Git the sole canonical FCB store. Once that landed, the per-file SHA-256 manifest became redundant
 with Git itself: Git content-addresses every blob, and a commit pins the whole tree. The manifest's original
 justification — verifying a corpus that travelled out-of-band into model project libraries — was abolished by
-A002, which reduced those libraries to bootstrap shims. Documentation now reaches a reviewer as a ZIP of the
-repository, where one sidecar over the archive covers the whole set; per-file hashes inside it duplicate that
-guarantee while adding a regeneration duty to every documentation edit.
+A002, which reduced those libraries to bootstrap shims.
+
+Documentation reaches a reviewer as a ZIP downloaded from GitHub. No external sidecar is possible for such an
+archive and none is needed: the ZIP format carries a CRC-32 per entry, so an archive that extracts without error
+has already validated its own contents. That is sufficient transport provenance. A second, hand-maintained layer
+of per-file SHA-256 hashes inside the archive adds no guarantee and imposes a regeneration duty on every
+documentation edit.
 
 The same reasoning retires version suffixes. A document's version is its blob hash; its history is the commit
 log; two states are compared by diffing two refs, or two extracted directories for a distributed ZIP. Encoding
@@ -53,14 +57,23 @@ it may not author, version, or self-accept documentation.
 - In `FIDO_FCB_FIXED_POINTS.md`, the ARCH-03 `static-capability-provenance` component's paths become the
   unversioned charter filename on both sides. The selector and protected projection are unchanged; baseline and
   terminal are now distinguished by **ref**, which is precisely the living-document model.
+- Deletes `.review/fcb/archive/project-library-v2/` — a working-tree copy of a superseded FCB set, which is
+  exactly what Git history already holds (`git show 96aa8e0:…` recovers every byte). The working tree carries
+  living documents; history carries superseded ones.
+- Deletes `.review/spec-closure-campaign/MANIFEST.sha256` and the per-file SHA-256 table in that tree's
+  `PROVENANCE.md`. **No documentation in this repository is checksummed.** That tree's `PROVENANCE.md` retains
+  only the hashes of the EXTERNAL packages the campaign arrived in — artifacts that never lived in the
+  repository, which Git therefore cannot cover, and whose recorded hashes are the only surviving record of what
+  was received.
 
 ## Deliberately unchanged
 
 - `amendments/A001` and `A002` keep their recorded manifest hashes: those are historical statements of what was
   true when they were accepted, not live pointers.
-- `.review/fcb/archive/**` stays byte-exact as frozen provenance, version suffixes included.
-- `.review/spec-closure-campaign/**` keeps its manifest: it records the integrity of an actual out-of-band ZIP
-  transfer and is provenance, not live documentation.
+- `.review/spec-closure-campaign/**` keeps its versioned directive/protocol lineage. Those are not versions of
+  one living document: they are distinct artifacts of an adversarial volley process where the version number IS
+  the identity (v12's supersedes chain cites each predecessor by full SHA-256, and the protocol and provenance
+  table reference them by version). Renaming or collapsing them would break the record's internal references.
 - Governance D-16's "SHA manifest" refers to the **terminal bundle's** manifest, a different artifact, and is
   untouched.
 - No Closure Ledger row, Latitude Ledger row, Acceptance Gate, fixed-point count, roadmap row assignment,

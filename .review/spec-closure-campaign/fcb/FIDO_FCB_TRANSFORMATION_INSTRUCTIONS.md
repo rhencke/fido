@@ -8,14 +8,14 @@
 
 ## 0. PRECONDITIONS (do not begin the transformation before all four)
 
-1. Terminal directive **v12** (SHA-256 `89d0c88b05d833803cd9e33652edf7aa745ef74e17f7ea0a34377ab450f8779a`) has been **executed**: all eighteen steps, `TERMINAL-REPAIR-CANDIDATE` status (Confirmed provenance) or Rob's explicit acceptance of `OPEN-REVIEW-CANDIDATE`.
+1. Terminal directive **v12** () has been **executed**: all eighteen steps, `TERMINAL-REPAIR-CANDIDATE` status (Confirmed provenance) or Rob's explicit acceptance of `OPEN-REVIEW-CANDIDATE`.
 2. Rob has worked the **Human-Review Index**: countersigns entered on the T/F/R rows he accepts.
 3. Rob has made the **LAT-X004 policy choice** (menu i/ii/iii), and the consequent **regeneration, re-audit, and re-freeze** has run — the FCB is generated from the *post-choice* bundle, never the open candidate.
 4. Rob has dispositioned or explicitly deferred **ADR-0001..0004** (a deferred ADR is carried into the FCB as OPEN with its Human-Review Index entry preserved).
 
 ## 1. SOURCES OF TRUTH (and nothing else)
 
-The countersigned post-regeneration terminal bundle; the repository at its current accepted state; Rob's recorded dispositions. Chat history, superseded directives v1–v11, and review prose are **provenance, not sources** — if something matters and lives only in prose, it must already be in the bundle; if it is not, flag it to Rob rather than importing it silently.
+The countersigned post-regeneration terminal bundle; the repository at its current accepted state; Rob's recorded dispositions. Chat history, superseded directives every earlier revision, and review prose are **provenance, not sources** — if something matters and lives only in prose, it must already be in the bundle; if it is not, flag it to Rob rather than importing it silently.
 
 ## 2. THE FCB FILE SET (the division)
 
@@ -54,7 +54,7 @@ A checkpoint definition handed to Claude Code must contain, in order: **(a) Scop
 
 ## 5. RETIREMENT REGISTER (the paintbrushes — archived in the frozen bundle, removed from live libraries)
 
-Volley Protocol v1–v3 and the decision-ratchet *procedure* (contents absorbed into GOVERNANCE); directives v1–v11 (v12 remains as the executed authority, archived); `lint_directive.py`, `validate_return.py`, send/return packaging tools; the review lineage and adjudication briefs. **Explicitly NOT retired:** `run_fixture.py` + `PROBE_ENVIRONMENT.tsv` (the live differential-testing spine — migrates toward the repo as the BOUND-003 strengthening at its implementing checkpoint); the audit/verifier pattern (template for checkpoint gates); the extraction tools stay archived in-bundle for reproducibility on demand — the spec is pinned and does not change, so no live re-derivation cadence exists.
+Volley Protocol v1–v3 and the decision-ratchet *procedure* (contents absorbed into GOVERNANCE); directives every earlier revision (v12 remains as the executed authority, archived); `lint_directive.py`, `validate_return.py`, send/return packaging tools; the review lineage and adjudication briefs. **Explicitly NOT retired:** `run_fixture.py` + `PROBE_ENVIRONMENT.tsv` (the live differential-testing spine — migrates toward the repo as the BOUND-003 strengthening at its implementing checkpoint); the audit/verifier pattern (template for checkpoint gates); the extraction tools stay archived in-bundle for reproducibility on demand — the spec is pinned and does not change, so no live re-derivation cadence exists.
 
 ## 6. DELIVERY
 

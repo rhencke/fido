@@ -4,8 +4,8 @@
 **Issued by:** Rob (human authority). This file is the directive.
 **Repair authorization token:** `SPEC-CLOSURE-terminal-repair-2` (unchanged)
 **Version:** v12 — self-contained, sealing-only revision of v11. **This document alone is sufficient to execute and audit the repair. Earlier directives are provenance only, and no normative sentence below refers to any of them.**
-**Supersedes (full hashes):** v11 `428c609766f08025686580ab88fa25c02e06fb339629c10ec6023ed9c77d7540`; v10 `d16c64d7db3cac6fd094c3d6aeeab045569cb34f2a0da59d4d5cb352e77d9685`; v9 `9f4e0ebcafba65db941c68fdf276c022e00fea6eae9cfcfe64df70a375215be2`; v8 `2173975c624f67fd892647ac76acfe1ed3eb6a70299ba6872d2f14ea0c67e994`; v7 `5c1996a5c2bffc8f0bad43e4f1c6fde328d997deb0bafeb2586e92ee60b0db15`; v6 `dc7a369120ab23c548998739111d1eb7ef7edcfac652dd9d634cfab494cc3562`; v5 `5a083bf157cd97644755517e7e7fa1a8f31c5bcd65fa9a4b5b4a39106d44d6c9`; v4 `eab3b1ed4b856157f7c784a6a7bcd35f5abe454cd558fb631b1f6772095648ff`; v3 `6a99418c02cba3063bc43e61a71c48197fe3a55889d5c18f0225d5b78dbc011b`; v2 `d8b2a9c71355ed0163b00bfa6a3aa9ca6dd6646a1ca80d30dd0596a022d560a2`; v1 `b30c03b8c16a09868763f891ec2fd92f3a03f2a0739c852b497a536b70502a34`.
-**Baseline:** `FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1_2026-07-23.zip`, SHA-256 `a01a7be5160b10e83bce11ed2161e353a94ca9bd86ef2843aca9fe29e1da303e`.
+**Supersedes:** every earlier revision of this directive. Those revisions are retired from the working tree; Git history holds them, and no checksum chain is maintained.
+**Baseline:** `FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1_2026-07-23.zip`,.
 **Provenance:** Authored by Claude (Fable 5, external adversarial reviewer). Return-volley round 11 by ChatGPT under Rob's direct amended-archive instruction: `REOPENS(D-15)` — v11 moved the fixed-point manifest to the late-governance phase but its inventory rule still allowed only the audit JSON, freeze record, and SHA manifest; `REGRESSION(D-06)` — v11 identified its frozen live directive as “v10” inside the read-only evidence rule; `NEW` — the provenance paragraph called the self-reference class both its fifth occurrence and a count of four; `NEW` — the newly required verifier checks were not part of a closed check-function inventory. All four are corrected here, and each defect class now has a linter or package-validator regression check. The D-15 defect is the self-reference bug class's **fifth** occurrence; the self-reference bug-class count is **five**. No architecture, language-semantics, latitude-policy, or toolchain-policy change is made.
 
 ---
@@ -35,7 +35,7 @@
 **ARCH-10.** Rejection of vacuous library safety from an empty start set (§19).
 **ARCH-11.** The Do-Not-Do-Early list (§24), verbatim.
 **ARCH-12.** The candidate-only acceptance stance (§26) with Rob as sole disposition owner.
-**EVID-01.** Pinned spec SHA-256 `c47fb4b5b795b9732cbae0250dcb84f791df78bb98695b30fb3f7788d1c9b389`; pinned memory-model SHA-256 `366b995adeee8b57bd23547feea8252a7ee619baec91cb22cfb21b12208da2c6`; the pinned document bytes themselves.
+**EVID-01.** Pinned spec; pinned memory-model; the pinned document bytes themselves.
 **EVID-02.** Reproducible audit and latitude extraction: shipped scripts re-run to byte-identical frozen outputs; the frozen candidate manifest is preserved whole, header included; the freeze record's byte-reproduction claim is preserved verbatim.
 **EVID-03.** Route A evaluation-order nondeterminism (plan §12.4) and its contract (`SC-20-EVAL-ORDER-LATITUDE`, plan §25.21) including the deterministic left-to-right call/method/receive fixture obligations stated inside that contract section.
 **EVID-04.** The FMA both-branches model (latitude row LAT-121, STEP-NONDET) with its pinned-target observation recorded as adequacy evidence, never spec truth.

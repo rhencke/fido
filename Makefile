@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -89,6 +89,15 @@ regen-guard: builder
 # `core.symlinks=false` export would hide) is a STAGED/committed-policy check, so it runs ONLY in the
 # pre-commit hook.  `make check` verifies the WORKING TREE, where the generated-output gate's own
 # `-L`/`-f`/`-x` file-type tests on the real files are authoritative for mode.
+
+# Whitespace/format check against `.editorconfig`.  Property resolution is delegated to the EditorConfig
+# reference implementation (apt: `editorconfig`), so glob matching, nesting and inheritance are the spec's.
+# It REPORTS and never rewrites — this tree is full of byte-exact artifacts (generated Go byte-compared against
+# the pristine build, reviewed goldens pinning control characters, frozen evidence cited by hash elsewhere).
+# Deliberately NOT wired into `check` or the pre-commit hook: those stay code-level gates, and every whitespace
+# case that can actually break something is already caught by a stronger, semantic check.
+fmt:
+	@python3 tools/fmt-check.py
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \

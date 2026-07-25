@@ -5,7 +5,6 @@
 - **Human owner:** Rob
 - **Date:** `2026-07-25`
 - **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`
-- **Previous FCB v2 manifest-file SHA-256:** `6a569c8c8e0963344c79a4cd0800e9c8495eecde54bb9a6d78f732731b3e8682`
 
 ## New information
 
@@ -41,6 +40,4 @@ row assignment, checkpoint order, or target/toolchain policy changes.
 
 ## Installed corpus identity
 
-- **FCB set:** v3
-- **Live manifest-file SHA-256:** `992ac96a18f86295b1c1a5ce256ab2601a7417da1e52db8b91e7e38674b44a28`
-- **Canonical path:** `.review/fcb/current/`
+- **Canonical path:** `.review/fcb/current/` (the corpus is no longer version-labelled; see A003)

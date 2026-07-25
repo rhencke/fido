@@ -39,21 +39,14 @@ insert_final_newline = false
 trim_trailing_whitespace = false
 insert_final_newline = false
 
-# ---- hash-pinned corpora: bytes are fixed by a SHA-256 manifest ----
-
-# The live Fido Conformance Basis.  Trailing spaces here are Markdown HARD LINE BREAKS carrying the banner
-# layout; stripping them silently reflows the governing documents.  (Per accepted amendment A003 these are
-# living documents with no checksum manifest — Git content-addresses them — so the reason to leave the bytes
-# alone is semantic, not a hash.)
-[.review/fcb/**]
-trim_trailing_whitespace = false
-insert_final_newline = false
-
-# The spec-closure campaign record.  Hashed by its own MANIFEST.sha256 + PROVENANCE.md; directives/, protocol/
-# and reviews/ are frozen append-only evidence whose bytes may not change.
-[.review/spec-closure-campaign/**]
-trim_trailing_whitespace = false
-insert_final_newline = false
+# ---- documentation trees carry their own nested .editorconfig ----
+#
+# EditorConfig nests, so the byte rules for a documentation corpus live WITH that corpus rather than being
+# described from up here:
+#   .review/fcb/.editorconfig                    — the living Fido Conformance Basis
+#   .review/spec-closure-campaign/.editorconfig  — the frozen spec-closure campaign record
+# Neither sets `root`, so both inherit the defaults above and override only what they must.  Keeping them local
+# means the rules travel with the documents when the tree is zipped, extracted, or moved.
 
 # ---- reviewed goldens: exact observed program bytes ----
 

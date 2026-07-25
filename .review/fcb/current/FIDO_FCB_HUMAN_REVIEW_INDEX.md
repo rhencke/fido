@@ -2,8 +2,7 @@
 
 > **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
-> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0` · source snapshot SHA-256 `6e25e8be64a77b7d98609c607d48b1d6917b2bf0480d10fa4a92f1a6bb170eff`  
-> **Terminal-bundle basis:** SHA-256 `58abd876a0962bde42e5c9fc0365a8431b88b13beb790440e4b52031c7f8aad0` · handoff SHA-256 `fdfc2c235707aeeef58c566f5fd145850ca606df8d693f5cc6bc81f2112eb143`  
+> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`  
 > **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
@@ -31,4 +30,4 @@ This index lists current human acts. It is regenerated after every accepted chec
 - `ADR-0003`: adopted.
 - Terminal open candidate: Rob’s 2026-07-24 instruction authorized FCB generation from it while preserving pending provenance as pending.
 
-Old F/R/T countersign tables remain in the frozen terminal bundle as provenance. Superseded FCB sets remain in Git history or `.review/fcb/archive/`; their settled contents are absorbed into Governance and Fixed Points, and their unresolved substantive acts appear above.
+Old F/R/T countersign tables remain in the frozen terminal bundle as provenance. Superseded FCB sets remain in Git history; their settled contents are absorbed into Governance and Fixed Points, and their unresolved substantive acts appear above.

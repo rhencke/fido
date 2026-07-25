@@ -5,7 +5,6 @@ Git is the sole canonical home of the live FCB.
 ## Layout
 
 - `current/` — the only live FCB corpus. Start at `current/INDEX.md`.
-- `archive/project-library-v2/` — exact former project-library v2 set; provenance only.
 - `amendments/` — accepted living-document amendments.
 - `PROJECT_LIBRARY_BOOTSTRAP.md` — exact bootstrap shim to place in ChatGPT or Claude project libraries.
 

@@ -4,10 +4,8 @@
 - **Status:** ACCEPTED
 - **Human owner:** Rob
 - **Date:** `2026-07-25`
-- **Documentation-writer directive SHA-256:** `79a8fa3f6d5a861b82259a578eef6123369dbc9567fbd63288b93c1ce1037b8c`
 - **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`
 - **Resulting project-library set:** FCB v2
-- **FCB v2 manifest-file SHA-256:** `6a569c8c8e0963344c79a4cd0800e9c8495eecde54bb9a6d78f732731b3e8682`
 
 ## New information
 

@@ -1,5 +1,5 @@
 # FIDO FCB document v2 / set v3 — derived reference, not authority; code and gated theorems are sole implementation authority.
-# Source repository rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0; source snapshot SHA-256 6e25e8be64a77b7d98609c607d48b1d6917b2bf0480d10fa4a92f1a6bb170eff; generated 2026-07-25.
+# Source repository rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0; generated 2026-07-25.
 # LAT-X004 is closed by the option-(ii) rounding-invariant-domain policy.
 # Canonical live location: .review/fcb/current/ in the exact Git ref used for the task; project libraries contain bootstrap shims only.
 # Regenerate, verify, and commit affected FCB files in Git after checkpoint acceptance or an accepted amendment.

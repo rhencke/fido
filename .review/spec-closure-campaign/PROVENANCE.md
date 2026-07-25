@@ -1,45 +1,36 @@
-# Provenance — every campaign artifact, hashed (2026-07-24)
+# Provenance — spec-closure campaign
 
-| artifact | sha256 |
-|---|---|
-| COLLABORATION.md | `703334fcafffff5ba89c630016a17da88aa6fd5b0bc72f0fdc9ff7ae5336c6bb` |
-| README.md | `554134e4c7b8567274e512c7314b65fd04d8e4b4a5082e61d85dea57be487412` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_2026-07-23.md | `b30c03b8c16a09868763f891ec2fd92f3a03f2a0739c852b497a536b70502a34` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v10_2026-07-23.md | `d16c64d7db3cac6fd094c3d6aeeab045569cb34f2a0da59d4d5cb352e77d9685` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v11_2026-07-24.md | `428c609766f08025686580ab88fa25c02e06fb339629c10ec6023ed9c77d7540` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v12_2026-07-24.md | `89d0c88b05d833803cd9e33652edf7aa745ef74e17f7ea0a34377ab450f8779a` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v2_2026-07-23.md | `d8b2a9c71355ed0163b00bfa6a3aa9ca6dd6646a1ca80d30dd0596a022d560a2` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v3_2026-07-23.md | `6a99418c02cba3063bc43e61a71c48197fe3a55889d5c18f0225d5b78dbc011b` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v4_2026-07-23.md | `eab3b1ed4b856157f7c784a6a7bcd35f5abe454cd558fb631b1f6772095648ff` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v5_2026-07-23.md | `5a083bf157cd97644755517e7e7fa1a8f31c5bcd65fa9a4b5b4a39106d44d6c9` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v6_2026-07-23.md | `dc7a369120ab23c548998739111d1eb7ef7edcfac652dd9d634cfab494cc3562` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v7_2026-07-23.md | `5c1996a5c2bffc8f0bad43e4f1c6fde328d997deb0bafeb2586e92ee60b0db15` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v8_2026-07-23.md | `2173975c624f67fd892647ac76acfe1ed3eb6a70299ba6872d2f14ea0c67e994` |
-| directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE_v9_2026-07-23.md | `9f4e0ebcafba65db941c68fdf276c022e00fea6eae9cfcfe64df70a375215be2` |
-| fcb/FIDO_FCB_TRANSFORMATION_INSTRUCTIONS_v2_2026-07-24.md | `a25213f2d566489f07c50aa8adbdd0e7a43ff20ce28a7fd1a42b74aba6a37efd` |
-| protocol/FIDO_VOLLEY_ADJUDICATION_BRIEF_2026-07-24.md | `d7bc5053d1ed66b92f5a623d100bb1eadcc4b958ceb37169a85a84e83cb8227f` |
-| protocol/FIDO_VOLLEY_PROTOCOL_SAFETIES_v1.md | `3649a1eb36683f106c3722d439ea1a42d2ef96a33ec1c9907654305a62099c5a` |
-| protocol/FIDO_VOLLEY_PROTOCOL_SAFETIES_v2.md | `8e8f79bcad7b9420a32ca8db5af650fb37b31640024da646ba065acbb1dc2502` |
-| protocol/FIDO_VOLLEY_PROTOCOL_SAFETIES_v3.md | `1f5c28e9e2ee6f9c087a83712c749230eb258ed4e4d95058d4b333561f9f5fc3` |
-| protocol/FIDO_VOLLEY_RETURN_BRIEF_2026-07-24.md | `e1f8ea7520b3ae5089ed09b0307337545aafa9d4c667c0a1e14d6f5d0e8883ec` |
-| protocol/ROUND_10_RETURN_NOTE.md | `966d98cbc8f814c87d61cdc6b6b6c3a6fbd6470a78c583738ccfe5b2e82f7ccb` |
-| reviews/FIDO_SPEC_CLOSURE_R1_REVIEW_AND_REPAIR_2_DIRECTIVE_2026-07-23.md | `755f1e4a9d18bb7571c0fabdd60c352c38f6ca51c220a57135def8f9528abeb9` |
-| reviews/STRICT_REVIEW_TEN_YEAR_ARCHITECTURE_PLAN_2026-07-23.md | `236de219d6cef8f0040450424a755806893435616d93602a83cfdad58f0502d5` |
-| tools/PROBE_ENVIRONMENT.tsv | `3719f35247d027aa621b8ccc9a3087b6100986ecb4b1da1a710c847b12527a21` |
-| tools/REGISTRY_BASELINE_REFERENCE.tsv | `40d8a0c2e267fa09cfb12eab70b0a68c4a21a178942895b28910060bbeef93e8` |
-| tools/SELECTOR_SPEC.md | `be3431a804168323a93c3c8b8911c333518ba7de6449cd6aeb6a9e6bc6ff1b1c` |
-| tools/audit_spec_closure_bundle.py | `c61153b581c6141f2b8aede894bdaf3b4dd53d2383eac69e64b6e5591c803ec1` |
-| tools/build_deterministic_bundle.py | `a0a455bc845f2e34cbc000895b5ea3104ede8b8dd0dca51d944d99433f38f400` |
-| tools/generate_change_ledger.py | `f7e6c2132b180c77ad28e431654821f8253db3877f073d8e937526a9b3d477bb` |
-| tools/generate_file_delta.py | `ba552df058545e8d05e56b2fd6028a9a08c070018be6837c6623a9979a11030c` |
-| tools/generate_fixed_point_manifest.py | `78a66ed6ec73236c50d0733df06afd05a9b9837ee5bf2692c74e125c9dcf1d44` |
-| tools/generate_freeze_record.py | `6974dba9880ebae7111c78c8c34e6e901dc8ed36616dcfd072ab1f6c6058c26f` |
-| tools/generate_human_review_index.py | `c027f768ede028dc061efcb339ff24e460f4adfe0cefede0525022e011558a24` |
-| tools/generate_sha_manifest.py | `836d8bb30b767767e8c6a25b80db26e19ad8d36deea5848e3f07126349a460a4` |
-| tools/run_fixture.py | `340938b1e00cf1f0838a61b46c73abc2536b724124e3633d88dfd99bd5d4c3e2` |
-| tools/verify_terminal_bundle.py | `5609d8d683ad0198c1d1f43fad2f994547b0254979338d0294227698a4bebfef` |
-| tools/write_zip_sidecar.py | `ad947061e245ffca54d17d7c433a392772ae2d6715d4bfc6efe18ba769efdb2f` |
-| package: FIDO_VOLLEY_SEND_2026-07-23.zip | `02bf0cd34048a424ba70db9fa32e30aeb3fd4c2f1a3c00a5daa82afa6a14f5b6` |
-| package: FIDO_VOLLEY_SEND_2_2026-07-24.zip | `d63a48e2ce8c7255e05f766e8175c182bf5af34e0061f0b412fa8ca497c0958c` |
-| package: FIDO_VOLLEY_RETURN_2_2026-07-24.zip | `f31d2f4993ffefc7f86bd28e2fbcafc4c7f89fcc55acd30e99e52ae7f42cc43c` |
-| baseline: FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1_2026-07-23.zip | `a01a7be5160b10e83bce11ed2161e353a94ca9bd86ef2843aca9fe29e1da303e` |
+Per Rob's standing rule (FCB amendment A003 and after): **documentation is not checksummed.** Git
+content-addresses every file in this tree, the commit log is its history, and the identity of the whole
+directory is its tree hash:
+
+```sh
+git rev-parse HEAD:.review/spec-closure-campaign
+```
+
+The former per-file SHA-256 table and `MANIFEST.sha256` are retired. They restated, by hand, a guarantee Git
+already provides — and imposed a regeneration duty on every edit to a frozen tree that is not supposed to
+change anyway.
+
+## What this tree is
+
+The frozen record of the July 2026 Go 1.23 spec-closure campaign: the terminal-correctness directive lineage
+(`directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE.md` is the executable authority the campaign reached; its
+earlier revisions are retired from the working tree and live in Git history), the volley
+protocols and adjudications, the founding reviews, the FCB transformation instructions, and the campaign
+toolkit.
+
+`directives/`, `protocol/` and `reviews/` are **frozen and append-only** — byte-preserved evidence. Their
+version numbers are identity, not staleness: v12's supersedes chain cites each predecessor by full SHA-256
+inside the documents themselves, so the lineage remains self-describing without an external manifest.
+
+Nothing here is current authority. The live Fido Conformance Basis is `.review/fcb/current/`; the live
+checkpoint authority is `.review/NEXT_STEPS.md`; the code and its gated theorems are the sole implementation
+authority.
+
+## External artifacts (not in this repository)
+
+The campaign was carried in ZIP packages (`FIDO_VOLLEY_SEND`, `FIDO_VOLLEY_SEND_2`, `FIDO_VOLLEY_RETURN_2`)
+against the `FIDO_GO1_23_SPEC_CLOSURE_REVIEW_BUNDLE_R1` baseline. Those archives are not checksummed here: a
+ZIP carries a CRC-32 per entry and validates itself on extraction, and per Rob's mandate nothing
+documentation-related is checksummed in this repository.

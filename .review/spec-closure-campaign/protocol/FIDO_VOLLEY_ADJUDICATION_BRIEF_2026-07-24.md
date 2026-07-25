@@ -17,7 +17,7 @@ The round-10 return (ChatGPT) declared three `REOPENS` findings, triggering an S
 **5. Packaging derailment.** The reviewer's attempt to produce a return ZIP failed in its environment. **The review content is unaffected and accepted** — its hash handshake was independently re-verified here: the claimed v10 SHA-256 is exact. Disposition: reviewer-side packaging is abolished (Protocol v2, S-6); returns are plain Markdown only; packaging is an author/executor act using shipped deterministic tools.
 
 ## Issued under this adjudication
-- **Directive v11** (sealing-only, self-contained, 28 surgical edits, lints CLEAN): SHA-256 `428c609766f08025686580ab88fa25c02e06fb339629c10ec6023ed9c77d7540`
+- **Directive v11** (sealing-only, self-contained, 28 surgical edits, lints CLEAN):
 - **Volley Protocol v2**: adds S-6 (Markdown-only returns), S-7 (no narrated execution; fabrication handling), ratchet entries D-15 (late-manifest ordering) and D-16 (derived-governance ownership); ships `tools/validate_return.py`.
 
 **Rob countersign:** ______________

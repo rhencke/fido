@@ -2,8 +2,7 @@
 
 > **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
-> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0` · source snapshot SHA-256 `6e25e8be64a77b7d98609c607d48b1d6917b2bf0480d10fa4a92f1a6bb170eff`  
-> **Terminal-bundle basis:** SHA-256 `58abd876a0962bde42e5c9fc0365a8431b88b13beb790440e4b52031c7f8aad0` · handoff SHA-256 `fdfc2c235707aeeef58c566f5fd145850ca606df8d693f5cc6bc81f2112eb143`  
+> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`  
 > **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
@@ -15,7 +14,6 @@
 This charter carries forward the terminal spec-closure architecture body and all contracts `SC-00` through `SC-22`. It retains the authorized closure of `LAT-X004` with option (ii), the rounding-invariant-domain policy, and incorporates accepted Amendment A001: opaque static capabilities and failure results retain the exact whole compiler object that established their result.
 
 **Source plan SHA-256:** `48ba54aa7d91123c07a3152d75a2f8133599238a2e3e584bf07c4182be5660aa`  
-**A001 directive SHA-256:** `79a8fa3f6d5a861b82259a578eef6123369dbc9567fbd63288b93c1ce1037b8c`  
 **Pinned Go specification:** `go1.23`, SHA-256 `c47fb4b5b795b9732cbae0250dcb84f791df78bb98695b30fb3f7788d1c9b389`  
 **Pinned memory model:** SHA-256 `366b995adeee8b57bd23547feea8252a7ee619baec91cb22cfb21b12208da2c6`
 

@@ -1,6 +1,6 @@
 # FIDO — VOLLEY PROTOCOL SAFETIES, v3
 
-**Date:** 2026-07-24 · **Issued by:** Rob. Supersedes v2, SHA-256 `8e8f79bcad7b9420a32ca8db5af650fb37b31640024da646ba065acbb1dc2502`. Standing rules bind both models symmetrically and are self-contained.
+**Date:** 2026-07-24 · **Issued by:** Rob. Supersedes v2,. Standing rules bind both models symmetrically and are self-contained.
 
 **Rob's format correction:** a return volley is an amended ZIP in the same package form as the send volley. The v2 Markdown-only rule is withdrawn. A reviewer who finds a defect repairs the live artifact and strengthens the mechanical checks before returning it.
 

@@ -1,0 +1,18 @@
+# Spec-closure campaign record — byte rules for frozen provenance.
+#
+# Nested under the repository root config, which supplies charset, line endings and the rest.  `root` is
+# deliberately NOT set here so those defaults still apply.
+#
+# This tree is FROZEN evidence, not living documentation: `directives/`, `protocol/` and `reviews/` are
+# append-only, and the directive lineage cites each predecessor by exact SHA-256 *inside the documents*.
+# Reformatting any byte would falsify those self-describing references.  Nothing here may be reformatted.
+
+[*]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.tsv]
+# e.g. PROBE_ENVIRONMENT.tsv pins GOFLAGS and GODEBUG to the EMPTY value as a trailing tab; trimming it
+# deletes the field.
+indent_style = tab
+trim_trailing_whitespace = false
