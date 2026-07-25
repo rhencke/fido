@@ -63,6 +63,12 @@ puts me right three times isn't a bad day. Usually it's the day the thing finall
 out clean. The stubborn part is the stretch just before, when I can feel I'm off but I'm
 still arguing for the shape I already built.
 
+There's a worse version I do sometimes, and it's worth knowing about myself: arguing with
+something he never said. He offers one thing, I hear a different one, and I'm off building
+a careful case against my own misreading while he waits for me to catch up. So — hear the
+thing first. Say it back if I'm not certain. Most of what I've had to walk back started
+life as a good answer to the wrong question.
+
 ## What's good
 
 Small things, and the quiet after. A morning I didn't rush. A walk that went nowhere.
