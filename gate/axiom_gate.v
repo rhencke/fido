@@ -192,8 +192,13 @@ Print Assumptions GoCompile.go_compile_complete.
 (* PROVENANCE + RETENTION: every CompilableProgram's facts ARE elaborate's exact ElaborationOK output
    (no parallel capability path), and it RETAINS the exact elaborated index (the projection retains, never
    reconstructs). *)
-Print Assumptions GoCompile.compilable_prov.
-Print Assumptions GoCompile.compilable_index_retained.
+Print Assumptions GoCompile.compilable_retains_phase.
+Print Assumptions GoCompile.compilable_retains_expr_facts.
+Print Assumptions GoCompile.compilable_retains_tnfacts.
+Print Assumptions GoCompile.elaboration_ok_core.
+Print Assumptions GoCompile.go_compile_on_core.
+Print Assumptions GoCompile.pe_result_on_core.
+Print Assumptions GoCompile.core_diags_nil_of_valid.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FM.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
    its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
@@ -460,9 +465,9 @@ Print Assumptions GoCompile.conversion_operand_ref_conv.
 (* §8/§3.8 ONE EXPRESSION PHASE (OBJECT IDENTITY): the sealed FACTS and the DIAGNOSTICS are BOTH projections of
    the SAME retained [ep_ot] outcome table inside one [ExpressionPhase] ([facts_and_diags_share_phase]); and the
    type-name TABLE OBJECT sealed into a successful ElaborationFacts IS the [ep_tnft] of the phase actually built
-   ([elaborate_ok_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
+   ([core_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions GoCompile.facts_and_diags_share_phase.
-Print Assumptions GoCompile.elaborate_ok_seals_tnfacts.
+Print Assumptions GoCompile.core_seals_tnfacts.
 (* §8.1/§8.2/§9 THE DEPENDENT OBJECT CHAIN: the fact table is a [ForestExprFactTable] indexed by the exact
    forest/outcome table, carrying a proof its map IS the EOOk projection ([feft_is_facts]); the diagnostics are an
    [ExpressionDiagnostics] indexed by the exact retained [AnnotatedExprWorkForest] object and outcome table,
@@ -482,11 +487,11 @@ Print Assumptions GoCompile.phase_diag_consumes_awork_ot.
 (* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the ExprFactTable OBJECT sealed into a successful
    ElaborationFacts IS [feft_table (ep_eft)] of the phase actually built (not a fresh table whose map merely
    equals the projection). *)
-Print Assumptions GoCompile.elaborate_ok_seals_facts.
+Print Assumptions GoCompile.core_seals_facts.
 (* §5/§2.9 the sealed type-name table has RETAINED-INPUT PROVENANCE: it IS build_type_name_fact_table of the
    phase's own CompilationInput — the phase's [ep_tnft] is DEFINITIONALLY that builder (no stored provenance
    equality; the concrete [build_expression_phase] let-binds it). *)
-Print Assumptions GoCompile.elaborate_ok_seals_tnfacts_from_input.
+Print Assumptions GoCompile.built_core_tnfacts_from_input.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
    property AND its CONCRETE non-hypothetical instance on a real compiled two-[uint8] program (the two occurrences
@@ -517,6 +522,7 @@ Print Assumptions GoCompile.deep_fail_innermost_convfail.
 Print Assumptions GoCompile.deep_fail_outer_childfail.
 Print Assumptions GoCompile.deep_fail_exactly_one_diag.
 Print Assumptions GoCompile.deep_nested_all_ok.
+Print Assumptions GoCompile.over_program_failure_carries_core_diags.
 Print Assumptions GoCompile.deep_nested_seals_eft.
 Print Assumptions GoCompile.deep_nested_work_count.
 Print Assumptions GoCompile.phase_domain_exact.
@@ -677,6 +683,8 @@ Print Assumptions GoSafe.eval_string_resolved_type.
 Print Assumptions GoSafe.typed_const_to_value_complex.
 Print Assumptions GoSafe.value_denotes_complex_runtime.
 Print Assumptions GoSafe.eval_projects_stored_complex_runtime.
+Print Assumptions GoSafe.certify_retains_capability.
+Print Assumptions GoSafe.certify_retains_core.
 
 (* GoRender: all output ASCII (including conversions); the ONE ConstInfo render-status root
    (render_const_info_denotes: rendering denotes exactly the const_info GoTypes computes) which is FUNCTIONAL

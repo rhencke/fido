@@ -407,5 +407,17 @@ Definition certify (cp : CompilableProgram) : SafeProgram := mkSafe cp I.
 (** The certified program (what the public renderer/emitter traverse — only through SafeProgram). *)
 Definition sp_program (sp : SafeProgram) : GoProgram := cp_program (sp_compiled sp).
 
+(** RETENTION ACROSS THE SAFETY BOUNDARY (repair 14): safety wraps the capability, so a [SafeProgram]
+    transitively retains the EXACT [ElaborationCore] that justified admissibility — [certify] passes the object
+    through untouched and [sp_core] projects it.  A future safety proof therefore consumes the accepted causal
+    object directly; it never re-elaborates to recover one.  Both facts hold by [reflexivity]. *)
+Definition sp_core (sp : SafeProgram) : ElaborationCore (sp_program sp) := cp_core (sp_compiled sp).
+
+Theorem certify_retains_capability : forall cp, sp_compiled (certify cp) = cp.
+Proof. reflexivity. Qed.
+
+Theorem certify_retains_core : forall cp, sp_core (certify cp) = cp_core cp.
+Proof. reflexivity. Qed.
+
 (** (The package name is no longer a compiler-derived fact: each file's package clause is SOURCE-owned
     ([source_package]) and rendered by [GoRender].  There is no [sp_pkg_name]/[cf_pkg_name].) *)
