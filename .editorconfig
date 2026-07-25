@@ -1,0 +1,84 @@
+# Fido — editor conventions.
+#
+# This file exists mostly to PROTECT bytes, not to reformat them.  Large parts of this repository are
+# byte-exact by construction: SHA-256-pinned governance corpora, generated Go that is byte-compared against a
+# pristine build, and reviewed goldens that pin control characters.  An editor that helpfully strips a trailing
+# space or adds a final newline in those trees BREAKS a manifest, a proof gate, or the generated-byte compare.
+# Every `= false` below is load-bearing; do not "tidy" it away.
+#
+# Measured state when this file was added (141 tracked files): no CRLF anywhere, every file ends with a
+# newline, and the ONLY trailing whitespace lives in the two hash-pinned trees called out below.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# ---- tab-significant ----
+
+# Make recipes REQUIRE hard tabs.  Converting them to spaces breaks the build outright.
+[Makefile]
+indent_style = tab
+
+# ---- generated output: never hand-edited, byte-compared against the pristine Buildx layer ----
+
+# The tracked canonical module (root go.mod + recursive .go) is a REVIEWED DERIVED ARTIFACT.  Its bytes come
+# from GoRender and must byte-match a pristine build (`make check`, and the staged pre-commit compare).  Any
+# editor-side whitespace change is a build failure.  Go itself is gofmt-shaped: hard tabs.
+[*.go]
+indent_style = tab
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[go.mod]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# ---- hash-pinned corpora: bytes are fixed by a SHA-256 manifest ----
+
+# The live Fido Conformance Basis.  Every file is hashed by .review/fcb/current/FIDO_FCB_MANIFEST.sha256,
+# whose own SHA-256 is declared by accepted amendment A002 and checked by
+# .review/fcb/tools/verify_current_fcb.py.  Trailing spaces here are Markdown hard line breaks; stripping one
+# fails the verifier.
+[.review/fcb/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# The spec-closure campaign record.  Hashed by its own MANIFEST.sha256 + PROVENANCE.md; directives/, protocol/
+# and reviews/ are frozen append-only evidence whose bytes may not change.
+[.review/spec-closure-campaign/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# ---- reviewed goldens: exact observed program bytes ----
+
+# The e2e goldens pin stdout/stderr/exit of the emitted witness, including tabs, CR, and other control
+# characters.  Normalizing them would corrupt the very thing they exist to pin.
+[e2e/golden.*]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# ---- tabular data: a trailing tab is a MEANINGFUL empty final field ----
+
+# e.g. PROBE_ENVIRONMENT.tsv pins `GOFLAGS` and `GODEBUG` to the EMPTY value as a trailing tab.  Trimming it
+# deletes the field.
+[*.{tsv,csv}]
+indent_style = tab
+trim_trailing_whitespace = false
+
+# ---- sources ----
+
+# Rocq theory, OCaml transport boundary, shell gates: spaces, width 2 (measured dominant convention).
+[*.{v,ml,mli,mlg,sh}]
+indent_style = space
+indent_size = 2
+
+# Markdown: two trailing spaces are a hard line break, so trimming is unsafe as a blanket rule; the prose in
+# this repo does not rely on it outside the pinned trees above, but keep the width convention explicit.
+[*.md]
+indent_size = 2
