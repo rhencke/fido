@@ -2,7 +2,6 @@
 
 checkpoint: C4 — source type names, compiler resolution, and unified numeric conversions
 contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
-contract_sha256: 9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4
 baseline: 8c9212a8c814c7a99a5e3ef1970a0ae32425a918
 human_authorization: C4-source-type-resolution-1
 

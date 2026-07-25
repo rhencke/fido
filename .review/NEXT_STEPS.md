@@ -21,7 +21,6 @@
   theorem and is never the production provenance. Governance decision **D-22**: opacity restricts access, it never
   authorizes discarding and later rebuilding.
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
-- **Contract SHA-256:** `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
 - **Accepted review basis:** `.review/REVIEW_BASIS.md`.
 - **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·

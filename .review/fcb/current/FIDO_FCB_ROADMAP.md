@@ -1,9 +1,10 @@
 # Fido FCB Roadmap
 
-> **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
-> **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
-> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`  
-> **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
+> **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
+> **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
+> history is the commit log. No version suffixes, no checksum manifest.  
+> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
+> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -17,7 +18,7 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 C4 repair-13 implementation candidate `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` is **BLOCKING** at the final static-capability boundary. FCB Amendment A001 is accepted. C4 repair 14 must retain the exact successful and failed whole-elaboration objects before C4 can return for human review.
 
-Repository basis `ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0` is a later documentation/campaign commit and is not a new implementation candidate.
+The out-of-band documentation, header and tooling commits after the blocked candidate are not new
 
 FCB Amendment A002 is accepted: the live FCB is Git-canonical under `.review/fcb/current/`; project libraries contain bootstrap shims only. This changes no checkpoint assignment or dependency.
 

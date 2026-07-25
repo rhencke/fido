@@ -15,8 +15,7 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 
 - Active checkpoint: **C4** — source type names, compiler resolution, and unified numeric conversions (including
   the `byte`→`uint8` / `rune`→`int32` SOURCE ALIASES, which are C4 work and are present in the current candidate).
-- Functional contract: `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`; contract SHA-256
-  `9ec55b38444e3a32eaf6cb024f72285527992ba1612dabfdc99ce6f89c8517b4`.
+- Functional contract: `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md` (identity is its path at the authorizing Git ref; documentation is not checksummed).
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·

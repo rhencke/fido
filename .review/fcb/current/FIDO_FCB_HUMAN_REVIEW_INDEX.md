@@ -1,9 +1,10 @@
 # Fido FCB Human Review Index
 
-> **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
-> **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
-> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`  
-> **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
+> **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
+> **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
+> history is the commit log. No version suffixes, no checksum manifest.  
+> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
+> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -19,9 +20,11 @@ This index lists current human acts. It is regenerated after every accepted chec
 | `ADR-0002` | **OPEN / DEFERRED** | Choose the DecimalFloat domain after differential and proof-cost evidence. | Governance ADR register | Before C7 broadens floating constant coverage. |
 | `ADR-0004` | **DEFERRED** | Choose the multi-platform 64-bit target set. | Governance ADR register | C16. |
 | `TOOLCHAIN-PROVENANCE` | **PENDING** | Replace pending local-distribution evidence with verified official tarball evidence, or expressly retain pending status for a specific review use. | Toolchain Evidence | Adequacy evidence remains pending; formal architecture is unchanged. |
-| `FCB-SHOWROOM` | **OPEN** | Have Claude perform one adversarial showroom pass over the Git-hosted FCB v3 set; disposition findings. | FCB transformation completion rule | Required before calling the document split final. |
+| `FCB-A004` | **PROPOSED / AWAITING DISPOSITION** | Accept, amend, or reject `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS` (every live documentation reference resolves at one Git ref; adds `D-24`). | Review 100; `.review/fcb/amendments/` | Until dispositioned, A004 is recorded PROPOSED and the Index lists it as such. |
+| `FIXED-POINT-EXTERNAL-EVIDENCE` | **OPEN** | Decide whether the twelve external R1-bundle components (pinned spec and memory-model HTML, extractor script, latitude manifest, freeze records, pinned toolchain evidence, F-dispositions, audit JSON, heading and grammar manifests) should be committed into a Git evidence subtree, or expressly retained as external `PROVENANCE-PENDING` references. | Fixed Points registry; D-24 | Their bytes are not in Git, so their protected projections cannot currently be recomputed from the repository. |
+| `FCB-SHOWROOM` | **OPEN** | Have Claude perform one adversarial showroom pass over the live Git-hosted FCB; disposition findings. | FCB transformation completion rule | Required before calling the document split final. |
 
-## Closed in FCB v3
+## Closed
 
 - `FCB-A002`: accepted on `2026-07-25`. Git is the sole canonical FCB store; project libraries contain bootstrap shims only; root `CLAUDE.md` uses the same bootstrap; D-23 added.
 - `FCB-A001`: accepted on `2026-07-25`. The static capability and failure result must retain the exact whole elaboration by construction; `ARCH-03` reopened and strengthened; D-22 added.

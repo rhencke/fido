@@ -1,9 +1,10 @@
 # Fido FCB Model Operations
 
-> **Derived reference, not authority.** The code and its gated theorems are the sole implementation authority.  
-> **Living document** — its version is the Git blob; its history is the commit log. · **Last updated:** `2026-07-25`  
-> **Source repository basis:** `rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0`  
-> **Amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`  
+> **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
+> **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
+> history is the commit log. No version suffixes, no checksum manifest.  
+> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`.
+> **Proposed, awaiting Rob:** `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -29,12 +30,16 @@ Git is the sole canonical FCB store. The stable entry point is `.review/fcb/curr
 For every serious Fido design, implementation, or review task:
 
 1. Resolve one exact repository ref. Use the user-specified candidate commit or uploaded repository snapshot when one is supplied; otherwise use the latest accessible `main`.
-2. Read `.review/fcb/current/INDEX.md` from that exact ref.
-3. Read the Index named by the stable bootstrap and use its consultation map.
-5. Read `.review/NEXT_STEPS.md` from the same ref.
+2. Read the stable bootstrap `.review/fcb/current/INDEX.md` from that exact ref.
+3. Read the FCB Index it names and use its consultation map.
+4. Confirm every file the Index names exists at that same ref.
+5. Read `.review/NEXT_STEPS.md` from the same ref — it is the live checkpoint authority.
 6. Never mix FCB files or checkpoint status from different refs.
+7. Stop on any missing or dangling reference (D-24).
 
-If the repository/ref is unavailable or the manifest fails, stop and report the documentation-access defect. Do not answer from a stale project-library document or compressed chat memory.
+There is no checksum manifest and no verification tool: Git content-addresses the bytes, and the ref plus the
+path is the identity. If the repository or ref is unavailable, or a named file does not resolve there, stop and
+report the documentation-access defect. Do not answer from a stale project-library document or from memory.
 
 ## 3. Working sequence
 

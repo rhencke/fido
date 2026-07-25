@@ -1,5 +1,4 @@
-# FIDO FCB document v2 / set v3 — derived reference, not authority; code and gated theorems are sole implementation authority.
-# Source repository rhencke/fido@ece4c1dd0797eff6e9ebdd5d77a0e59f1c9e76e0; generated 2026-07-25.
+# FIDO FCB — living document; derived reference, not authority; code and gated theorems are sole implementation authority.
 # Canonical live location: .review/fcb/current/ in the exact Git ref used for the task; project libraries contain bootstrap shims only.
 # Regenerate, verify, and commit affected FCB files in Git after checkpoint acceptance or an accepted amendment.
 # ID discipline: BOUND-### are live boundary rows; BOUND-X### are priced exclusions. IDs are stable and never renumbered.
