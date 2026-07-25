@@ -101,7 +101,8 @@ Do not add `TByte`, `TRune`, `IByte`, or `IRune`.
    result: none; human C4 Implementation Review is pending after the candidate is frozen
 
    contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
-   contract_sha256: <exact hash>
+   contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md   (path at the authorizing Git
+   ref; documentation is not checksummed)
    review_basis: .review/REVIEW_BASIS.md
 
    Automatic Codex review is disabled. No review is requested by this file.
