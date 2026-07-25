@@ -18,6 +18,12 @@ vendor/
 *.cmxs
 *.o
 
+# Python: the campaign toolkit under .review/spec-closure-campaign/tools/ is SOURCE (*.py, tracked and
+# hashed by the campaign manifest).  Interpreter-derived bytecode is NOT a campaign artifact — it is
+# CPython-version-specific, goes stale against its own .py source, and must never be a live tool authority.
+__pycache__/
+*.pyc
+
 # Environment
 .env
 

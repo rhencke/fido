@@ -28,7 +28,6 @@
 | tools/PROBE_ENVIRONMENT.tsv | `3719f35247d027aa621b8ccc9a3087b6100986ecb4b1da1a710c847b12527a21` |
 | tools/REGISTRY_BASELINE_REFERENCE.tsv | `40d8a0c2e267fa09cfb12eab70b0a68c4a21a178942895b28910060bbeef93e8` |
 | tools/SELECTOR_SPEC.md | `be3431a804168323a93c3c8b8911c333518ba7de6449cd6aeb6a9e6bc6ff1b1c` |
-| tools/__pycache__/audit_spec_closure_bundle.cpython-312.pyc | `97ecbcfd06f171364f0771ccfbc28c5c1037ae629357bc4a0e9cf9ac3b046dae` |
 | tools/audit_spec_closure_bundle.py | `c61153b581c6141f2b8aede894bdaf3b4dd53d2383eac69e64b6e5591c803ec1` |
 | tools/build_deterministic_bundle.py | `a0a455bc845f2e34cbc000895b5ea3104ede8b8dd0dca51d944d99433f38f400` |
 | tools/generate_change_ledger.py | `f7e6c2132b180c77ad28e431654821f8253db3877f073d8e937526a9b3d477bb` |
