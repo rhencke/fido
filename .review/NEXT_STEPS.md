@@ -22,7 +22,11 @@
      already lower-case, so an upper-case field is invisible — the same pre-validation defect that previously
      hid lower-case constructors. And a selected text file that fails to decode or read is silently skipped.
   3. **`Emit.Image` has a public raw constructor**, although Charter §22 says its constructor is private and
-     §24 says to seal its construction.
+     §24 says to seal its construction. **BLOCKED — `.review/OPEN_QUESTIONS.md` Q-08.** Sealing the
+     representation makes `module_bytes`/`files` opaque, so the transport's `nf_all` cannot reduce
+     `Emit.transport` and materialization fails; isolated by a one-token `:` vs `<:` experiment. The
+     representation now RETAINS the exact `Safe.Program` and proves its bytes exactly, which strengthens the
+     proof of origin but does not close §22. Awaiting the reviewer's choice of mechanism.
   4. **A coarse legacy result peer survived** with no production consumer, collapsing the structured
      `Outcome` and exact `DiagnosticReason` list into four tags. Now retired, with its whole classification
      closure, and its names are in the gate's retired-surface table so it cannot return.
