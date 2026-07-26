@@ -10783,17 +10783,32 @@ Definition deep_fail_src : Syntax.File := main_source
 
 (* §12.2 helper — a deep_fail conversion whose OWN step does not locally fail but whose fact is absent (a blocked
    child) is ChildFailure on the production Index.table, queried through a RETAINED [WorkMember] of [phase_work]. *)
+(** the exact per-OCCURRENCE enclosing child failure — the rejected counterpart of
+    [accepted_conversion_at].  Same reason for existing: the proof looks the member up AT a source local, so
+    the statement should say which one.  A syntactically equal enclosing conversion elsewhere in the file must
+    not satisfy this field. *)
+Definition childfail_conversion_at (input : Input deep_fail_program) (ph : Phase input)
+    (local : positive) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  exists occ (wm : WorkMember (phase_work ph)),
+       Index.source_occurrence_at deep_fail_src local = Some occ
+    /\ Index.view_expr occ = Some (Syntax.Convert ts x)
+    /\ work_occurrence (proj1_sig wm) = occ
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))
+       = Index.MakeKey (FilePath.Make "main.go" eq_refl) local
+    /\ childfail_conversion_cause (phase_ot ph) wm ts x.
+
 Lemma deep_fail_childfail_at (input : Input deep_fail_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_fail_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   occurrence_expr_fact occ = None ->
   local_conv_failure (Syntax.Convert ts x) = None ->
-  exists wm : WorkMember (phase_work (ph)), childfail_conversion_cause (phase_ot ph) wm ts x.
+  childfail_conversion_at input ph local ts x.
 Proof.
   intros Hsrc Hview Hnf Hlcf.
   destruct (member_at_in_forest deep_fail_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
-              ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
-  exists wm.
+              ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He Hkey]]].
+  exists occ, wm.
+  split; [ exact Hsrc | split; [ exact Hview | split; [ exact Hocc | split; [ exact Hkey | ] ] ] ].
   apply (retained_childfail_cause (phase_ot ph) wm ts x He).
   apply (total_forest_outcome_childfail_shape _ wm ts x);
     [ rewrite Hocc; exact Hview | rewrite Hocc; exact Hnf | exact Hlcf ].
@@ -10805,16 +10820,22 @@ Lemma deep_nested_ok_at (input : Input deep_nested_program) (ph : Phase input) (
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some e ->
   (exists f, occurrence_expr_fact occ = Some f) ->
+  (* the member is returned WITH its occurrence identity: which source occurrence it is, and the exact
+     retained key that occurrence has.  [member_at_in_forest] already proves both; discarding them here is
+     what let the public fixtures fall back to "SOME member with a matching expression shape". *)
   exists (wm : WorkMember (phase_work (ph))) f,
     work_expr (proj1_sig wm) = e
+    /\ work_occurrence (proj1_sig wm) = occ
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))
+       = Index.MakeKey (FilePath.Make "main.go" eq_refl) local
     /\ total_forest_outcome_at
          (phase_ot (ph)) wm
        = ExpressionSuccess f.
 Proof.
   intros Hsrc Hview [f Hf].
   destruct (member_at_in_forest deep_nested_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_nested_src local occ e
-              ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
-  exists wm, f. split; [exact He | ].
+              ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He Hkey]]].
+  exists wm, f. split; [exact He | split; [ exact Hocc | split; [ exact Hkey | ] ] ].
   apply (total_forest_outcome_ok_of_fact _ wm f). rewrite Hocc. exact Hf.
 Qed.
 
@@ -10827,13 +10848,19 @@ Qed.
    [Conversion] built after the Index.table result — the cause is the one the fold retained. *)
 Theorem deep_fail_innermost_convfail (input : Input deep_fail_program) (ph : Phase input) :
   let ot := phase_ot (ph) in
-  exists (wm : WorkMember (phase_work (ph)))
+  exists occ (wm : WorkMember (phase_work (ph)))
          (rest : list (Work input))
          (acc_rest : Accumulator (phase_work (ph))
                        (phase_type_name_facts (ph)) rest)
          (step : ConversionStep (phase_work (ph)) (proj1_sig wm) rest
                    (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) opf t,
-       work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
+       (* the failing member is the one at SOURCE LOCAL 11 — not merely some member of that shape *)
+       Index.source_occurrence_at deep_fail_src 11 = Some occ
+    /\ Index.view_expr occ = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
+    /\ work_occurrence (proj1_sig wm) = occ
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))
+       = Index.MakeKey (FilePath.Make "main.go" eq_refl) 11
+    /\ work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
     /\ total_forest_outcome_at ot wm
          = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
@@ -10853,7 +10880,7 @@ Proof.
   destruct (Index.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
   destruct (member_at_in_forest deep_fail_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_fail_src 11 occ
               (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) ltac:(vm_compute; reflexivity) Eo
-              ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He _]]].
+              ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He Hkey]]].
   destruct (total_forest_outcome_convfail_shape
               (phase_ot (ph))
               wm (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
@@ -10880,7 +10907,12 @@ Proof.
   pose proof (final_operand_outcome
                 (phase_ot (ph))
                 rest acc_rest Hpreserve (step_operand_suffix step)) as Hclose.
-  exists wm, rest, acc_rest, step, opf, t.
+  exists occ, wm, rest, acc_rest, step, opf, t.
+  (* the destruct at the top already replaced the query with [Some occ], so the source-occurrence conjunct
+     is closed by reflexivity here; the STATEMENT still carries it, which is the point. *)
+  split; [ reflexivity | ].
+  split; [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity | ].
+  split; [ exact Hocc | split; [ exact Hkey | ] ].
   split; [ exact He | split; [ | split; [ exact Hopf | split; [ | split; [ | split ] ] ] ] ].
   - rewrite Hout, Her2, Htr2, Hopr2, Hci. reflexivity.
   - transitivity (accumulator_total acc_rest (step_operand_suffix step)); [ exact Hclose | exact Hopf ].
@@ -10894,16 +10926,13 @@ Qed.
 (* the claim of [deep_fail_outer_childfail], named so a returned-object fixture can assert it. *)
 Definition deep_fail_outer_childfail_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
   let ot := phase_ot (ph) in
-  (exists wm : WorkMember (phase_work (ph)),
-     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int16)
-       (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
-  /\ (exists wm : WorkMember (phase_work (ph)),
-     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int32)
-       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
-  /\ (exists wm : WorkMember (phase_work (ph)),
-     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int64)
+  childfail_conversion_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
+       (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
+  /\ childfail_conversion_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
+       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
+  /\ childfail_conversion_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-         (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))).
+         (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))).
 
 Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase input) :
   deep_fail_outer_childfail_claim input ph.
@@ -10958,8 +10987,14 @@ Qed.
     names the step's own refs and cannot be stated outside it.  Every list is pinned to the EXACT singleton —
     not a length, not a non-emptiness, not an [exists reason]. *)
 Definition deep_fail_innermost_diag_claim (c : Core deep_fail_program) : Prop :=
-  exists wm : WorkMember (phase_work (phase c)),
-    rejected_conversion_cause (phase_ot (phase c)) wm
+  exists occ (wm : WorkMember (phase_work (phase c))),
+       (* the failing member is the one at SOURCE LOCAL 11 *)
+       Index.source_occurrence_at deep_fail_src 11 = Some occ
+    /\ Index.view_expr occ = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
+    /\ work_occurrence (proj1_sig wm) = occ
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))
+       = Index.MakeKey (FilePath.Make "main.go" eq_refl) 11
+    /\ rejected_conversion_cause (phase_ot (phase c)) wm
       (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
       (fun step opf t =>
          exists (wma : WorkMember (phase_work (phase c))) (outer : list (Index.ExprRef deep_fail_program)),
@@ -10981,8 +11016,9 @@ Proof.
   unfold deep_fail_innermost_diag_claim.
   (* the member and its exact ConversionFailure, from the shape fixture over this core's OWN phase *)
   pose proof deep_fail_innermost_convfail (core_input c) (phase c) as H. cbn zeta in H.
-  destruct H as [wm [rest0 [acc0 [step0 [opf0 [t0 [He [Hout0 _]]]]]]]].
-  exists wm.
+  destruct H as [occ [wm [rest0 [acc0 [step0 [opf0 [t0 [Esrc [Hview [Hoccw [Hkey [He [Hout0 _]]]]]]]]]]]]].
+  exists occ, wm.
+  split; [ exact Esrc | split; [ exact Hview | split; [ exact Hoccw | split; [ exact Hkey | ] ] ] ].
   apply (retained_convfail_cause (phase_ot (phase c)) wm _ _ _ _ _ _ _ _ He Hout0).
   (* everything below is stated over the step the RETAINED CAUSE supplied, not over [step0] *)
   intros step opf He' Hout.
@@ -11025,6 +11061,22 @@ Proof.
   - rewrite (core_plan_is_fresh_build_plan c). vm_compute. reflexivity.
 Qed.
 
+(* the SHAPE-ONLY projection of [deep_nested_ok_at], for [deep_nested_all_ok] — which is about every member
+   of the chain resolving, not about which occurrence each one is.  Named for what it drops, so nobody reaches
+   for it where occurrence identity is the point. *)
+Lemma deep_nested_ok_at_shape (input : Input deep_nested_program) (ph : Phase input) (local : positive) e occ :
+  Index.source_occurrence_at deep_nested_src local = Some occ ->
+  Index.view_expr occ = Some e ->
+  (exists f, occurrence_expr_fact occ = Some f) ->
+  exists (wm : WorkMember (phase_work (ph))) f,
+    work_expr (proj1_sig wm) = e
+    /\ total_forest_outcome_at (phase_ot (ph)) wm = ExpressionSuccess f.
+Proof.
+  intros Hsrc Hview Hfact.
+  destruct (deep_nested_ok_at input ph local e occ Hsrc Hview Hfact) as [wm [f [He [_ [_ Hok]]]]].
+  exists wm, f. split; [ exact He | exact Hok ].
+Qed.
+
 (* §12.1 — deep_nested: EVERY conversion of the chain (int64@5, int32@7, int16@9, int8@11) AND the leaf int@13
    resolve ExpressionSuccess on the production Index.table — all five retained work items, no fail-open anywhere in the valid tree. *)
 Theorem deep_nested_all_ok (input : Input deep_nested_program) (ph : Phase input) :
@@ -11050,38 +11102,46 @@ Proof.
   cbn zeta.
   split; [ | split; [ | split; [ | split ] ] ].
   - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at input ph 5 (Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
+    apply (deep_nested_ok_at_shape input ph 5 (Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at input ph 7 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+    apply (deep_nested_ok_at_shape input ph 7 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at input ph 9 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
+    apply (deep_nested_ok_at_shape input ph 9 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at input ph 11 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
+    apply (deep_nested_ok_at_shape input ph 11 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 13) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at input ph 13 (Syntax.IntegerLiteral 5) occ Eo);
+    apply (deep_nested_ok_at_shape input ph 13 (Syntax.IntegerLiteral 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
 Qed.
 
-(* §3 the EXACT per-conversion valid-chain success evidence at ONE source shape: SOME retained member carries
-   that conversion, and its whole causal history is [accepted_conversion_cause] — the suffix and tail accumulator
-   are the ones [total_forest_outcome_cause] read off the retained [outcomes_trace], not a foreign pair the
-   statement was free to pick.  Only the MEMBER is existential here, and only because the source shape, not the
-   occurrence, is what this bundle names. *)
-Definition nested_conversion_cause (input : Input deep_nested_program) (ph : Phase input)
-    (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
-  exists wm : WorkMember (phase_work ph), accepted_conversion_cause (phase_ot ph) wm ts x.
+(** §3 the EXACT per-OCCURRENCE valid-chain success evidence.  The earlier form named a source SHAPE — "some
+    retained member carries this conversion" — which a syntactically equal conversion at a DIFFERENT occurrence
+    satisfies just as well.  The proof always knew the exact source local; the statement threw it away.
+
+    Here the local is a parameter and the proposition carries all five ownership facts: the source occurrence
+    AT that local, its expression view, the retained member's occurrence, that member's exact retained key, and
+    the whole retained causal history at it.  Occurrence identity is now in the theorem, not only in its proof. *)
+Definition accepted_conversion_at (input : Input deep_nested_program) (ph : Phase input)
+    (local : positive) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  exists occ (wm : WorkMember (phase_work ph)),
+       Index.source_occurrence_at deep_nested_src local = Some occ
+    /\ Index.view_expr occ = Some (Syntax.Convert ts x)
+    /\ work_occurrence (proj1_sig wm) = occ
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))
+       = Index.MakeKey (FilePath.Make "main.go" eq_refl) local
+    /\ accepted_conversion_cause (phase_ot ph) wm ts x.
 
 (* §3.2 the EXACT concrete helper: any valid deep_nested conversion occurrence instantiates the cause-owned
    evidence, via [retained_convsuccess_cause] on the phase's OWN [phase_ot].  No reduced projection. *)
@@ -11089,11 +11149,14 @@ Lemma deep_nested_convsuccess_at (input : Input deep_nested_program) (ph : Phase
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  nested_conversion_cause input ph ts x.
+  accepted_conversion_at input ph local ts x.
 Proof.
   intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
-  exists wm. exact (retained_convsuccess_cause (phase_ot ph) wm ts x f He Hok).
+  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact)
+    as [wm [f [He [Hocc [Hkey Hok]]]]].
+  exists occ, wm.
+  split; [ exact Hsrc | split; [ exact Hview | split; [ exact Hocc | split; [ exact Hkey | ] ] ] ].
+  exact (retained_convsuccess_cause (phase_ot ph) wm ts x f He Hok).
 Qed.
 
 (* §3.3 the EXACT concrete aggregate: ALL FOUR valid-chain conversions (int8/int16/int32/int64) carry the
@@ -11101,11 +11164,11 @@ Qed.
    its exact ConversionStep, target fact, operand member, tail/final equality, Typing.convert_constant result, and
    current final ExpressionFact.  [deep_nested_all_ok] remains a short shape corollary. *)
 Theorem deep_nested_chain_success_evidence (input : Input deep_nested_program) (ph : Phase input) :
-  nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int32)
+  accepted_conversion_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+  /\ accepted_conversion_at input ph 9 (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+  /\ accepted_conversion_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int64)
+  /\ accepted_conversion_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))).
 Proof.
   split; [ | split; [ | split ] ].
@@ -11293,20 +11356,20 @@ Record AcceptedFixture (cp : Program) (Hcp : source cp = deep_nested_program) : 
         tail-to-final preservation, the operand navigation through the retained index, the ONE
         [Typing.convert_constant], and the exact current [ExpressionFact] ── *)
   accepted_fixture_int8_cause :
-    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
-      (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) ;
+    accepted_conversion_at (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) ;
   accepted_fixture_int16_cause :
-    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
-      (Syntax.type_expr_of_name Names.Int16)
+    accepted_conversion_at (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      9 (Syntax.type_expr_of_name Names.Int16)
       (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) ;
   accepted_fixture_int32_cause :
-    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
-      (Syntax.type_expr_of_name Names.Int32)
+    accepted_conversion_at (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      7 (Syntax.type_expr_of_name Names.Int32)
       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
         (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) ;
   accepted_fixture_int64_cause :
-    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
-      (Syntax.type_expr_of_name Names.Int64)
+    accepted_conversion_at (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      5 (Syntax.type_expr_of_name Names.Int64)
       (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
         (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
           (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) ;

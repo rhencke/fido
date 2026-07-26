@@ -655,6 +655,16 @@ Print Assumptions Compilable.phase_domain_exact.
    EVERY member of the valid chain resolves, so no fail-open hides anywhere in the accepted tree. *)
 Print Assumptions Compilable.deep_nested_convsuccess_at.
 Print Assumptions Compilable.deep_nested_chain_success_evidence.
+(* §4 the EXACT SOURCE OCCURRENCE, in the statement rather than only in the proof.  The earlier predicates
+   named a source SHAPE — "SOME retained member carries this conversion" — which a syntactically equal
+   conversion at a DIFFERENT occurrence satisfies just as well, while the proof all along looked the member up
+   at an exact source local.  [Compilable.accepted_conversion_at] and [Compilable.childfail_conversion_at] take the local as a
+   parameter and carry five ownership facts: the source occurrence AT that local, its expression view, the
+   retained member's occurrence, that member's exact retained key, and the retained causal history at it.
+   The accepted chain is pinned at locals 11 / 9 / 7 / 5 and the rejected one at 11 (the innermost failure,
+   inside [deep_fail_innermost_diag_claim]) and 9 / 7 / 5 (the enclosing child failures). *)
+Print Assumptions Compilable.accepted_conversion_at.
+Print Assumptions Compilable.childfail_conversion_at.
 Print Assumptions Compilable.deep_fail_innermost_diag.
 Print Assumptions Compilable.deep_fail_childfail_at.
 (* the GENERAL cause-owned predicates the concrete fixtures instantiate, and the lemmas that produce them.
