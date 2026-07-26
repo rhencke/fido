@@ -30,7 +30,7 @@ indent_style = tab
 # ---- generated output: never hand-edited, byte-compared against the pristine Buildx layer ----
 
 # The tracked canonical module (root go.mod + recursive .go) is a REVIEWED DERIVED ARTIFACT.  Its bytes come
-# from GoRender and must byte-match a pristine build (`make check`, and the staged pre-commit compare).  Any
+# from Render and must byte-match a pristine build (`make check`, and the staged pre-commit compare).  Any
 # editor-side whitespace change is a build failure.  Go itself is gofmt-shaped: hard tabs.
 [*.go]
 indent_style = tab

@@ -1,15 +1,15 @@
 DECLARE PLUGIN "fido.emit"
 
 (* The ONE handwritten transport bridge.  It decides NOTHING about programs.  Provenance is enforced at
-   the boundary two ways, BEFORE any effect: (1) the bridge itself applies the certified di_transport
+   the boundary two ways, BEFORE any effect: (1) the bridge itself applies the certified Emit.transport
    projection and typechecks it, so the argument must have the proved directory-image type (a raw
    (go.mod, entries) transport is rejected); and (2) since that type is proof-carrying and a proof can be an
    axiom, the bridge rejects any argument whose assumption closure contains an axiom/assumption — a forged
    image built with an [Axiom]/[Admitted] provenance proof cannot materialize.  Only then does it reduce the
    term and STRUCTURALLY decode the final (go.mod bytes, (path, bytes) list) transport — exact expected
    constructors of prod / list / string / ascii / bool, failing LOUD on any other shape — and hand it to the
-   pristine WRITER [Fido_sink.materialize], which writes the exact decoded bytes into a FRESH EMPTY root (a
-   build-validation export, NEVER the dirty-directory publication sink [Fido_sink.sync]).  It inspects no
+   pristine WRITER [Sink.materialize], which writes the exact decoded bytes into a FRESH EMPTY root (a
+   build-validation export, NEVER the dirty-directory publication sink [Sink.sync]).  It inspects no
    program, no syntax tree, no compilation certificate, no safety certificate, no derived facts, no semantics —
    only the certified image's type, its assumption closure, and the final transport. *)
 
@@ -176,7 +176,7 @@ let decode_guarded t =
   (* STEP 1 — TYPECHECK: apply the certified transport projection (resolved by qualified name) and
      typecheck it, so [tc] must have the proved image type.  A raw (go.mod, entries) transport has type
      string * list (string*string), not the image type, and is rejected here. *)
-  let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.GoEmit.di_transport") in
+  let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.Emit.transport") in
   let (sigma, de) = Evd.fresh_global env sigma de_ref in
   let app = EConstr.mkApp (de, [| tc |]) in
   let (sigma, _ty) = Typing.type_of env sigma app in
@@ -216,14 +216,14 @@ let decode_guarded t =
    a trusted artifact. *)
 let do_materialize t dir =
   let (go_mod, entries) = decode_guarded t in
-  let n = (try Fido_sink.materialize dir go_mod entries
-           with Fido_sink.Fail m -> CErrors.user_err (str ("fido materialize: " ^ m))) in
+  let n = (try Sink.materialize dir go_mod entries
+           with Sink.Fail m -> CErrors.user_err (str ("fido materialize: " ^ m))) in
   Feedback.msg_notice (str (Printf.sprintf "fido materialize: wrote %d authoritative file(s) into %s" n dir))
 
-(* There is NO public `Fido Emit` sink vernac.  The low-level publication SINK ([Fido_sink.sync], the
+(* There is NO public `Fido Emit` sink vernac.  The low-level publication SINK ([Sink.sync], the
    foreign-Go-rejecting sibling-temp synchronizer that writes into a possibly-dirty real destination) is
    INTERNAL: it is reached ONLY from handwritten OCaml — `e2e/sink_test.ml` (the sink's own byte-exact test
-   driver) and `e2e/fido_apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
+   driver) and `e2e/apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
    invokes only AFTER a fresh `go build ./...` succeeds).  The Rocq boundary exposes ONLY [Fido Materialize]
    (the authoritative pristine export for build validation, above) and [Fido Audit Assumptions]; no Rocq
    command publishes into a real destination.  A deliberate local invocation of the internal sink is outside

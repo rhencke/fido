@@ -59,7 +59,7 @@ A model may record `APPLIED`. Only Rob may accept, countersign, reopen, reject, 
 
 ### D-04 — Constant-value ownership never moves.
 
-**Standing law:** `LAT-X004` is owned by `SPEC-096`, intrinsic `ExprFact`, and `SC-05`. The settled policy is the proved rounding-invariant accepted domain.
+**Standing law:** `LAT-X004` is owned by `SPEC-096`, intrinsic `Compilable.ExpressionFact`, and `SC-05`. The settled policy is the proved rounding-invariant accepted domain.
 
 **Rationale:** Acceptance and value are distinct. The selected policy keeps one deterministic fact without a gc-specific value system.
 
@@ -197,7 +197,7 @@ history, review, and exact identity.
 | ADR | Current status | Standing result | Reopen trigger |
 |---|---|---|---|
 | ADR-0001 — Pinned 64-bit target | **ADOPTED FOR CURRENT BASIS** | Go 1.23, linux/amd64, `GOAMD64=v1`; `int` and `uint` are 64-bit and distinct from fixed-width types. | C16 or any earlier target/`uintptr` request. |
-| ADR-0002 — Bounded DecimalFloat domain | **OPEN / DEFERRED** | The current bound remains an explicit unresolved restriction. It gains no new correctness claim. | Before C7 accepts broader floating constants, or when measured proof cost justifies a replacement. |
+| ADR-0002 — Bounded Float.Decimal domain | **OPEN / DEFERRED** | The current bound remains an explicit unresolved restriction. It gains no new correctness claim. | Before C7 accepts broader floating constants, or when measured proof cost justifies a replacement. |
 | ADR-0003 — Authority ordering | **ADOPTED** | Definite spec text owns meaning; pinned gc owns target acceptance and adequacy where permitted; gc never narrows required formal latitude. | New evidence of a definite spec/toolchain conflict. |
 | ADR-0004 — Multi-platform 64-bit set | **DEFERRED TO C16** | No target beyond go1.23.2 linux/amd64 is covered. | C16. |
 

@@ -1,6 +1,6 @@
-(* fido_sink — the ONLY handwritten filesystem logic: a small, auditable, ownership-aware dirty-directory
+(* sink — the ONLY handwritten filesystem logic: a small, auditable, ownership-aware dirty-directory
    synchronizer.  It receives an already-final directory image — the exact root [go.mod] bytes plus an
-   ((on-disk relative .go path * exact bytes) list), decoded from a proved-Rocq DirectoryImage whose
+   ((on-disk relative .go path * exact bytes) list), decoded from a proved-Rocq Emit.Image whose
    provenance the vernac bridge typechecks — and makes a target tree's Fido-generated module EQUAL that
    image, while REFUSING to run in the presence of any foreign Go/module input or nested control name.  It
    understands ONLY the filesystem — no program, no Go, no Rocq terms.
@@ -20,7 +20,7 @@
    already known to the live sync.  Since temp and target are SIBLINGS, install is an atomic same-device
    rename (nested mounts inside root work; EXDEV fails loud, no copy).  A regular non-symlink file whose
    basename ends in `.fido-tmp-v1` is, by PUBLIC (and forgeable) CONVENTION, an abandoned Fido temp ONLY IF
-   its suffix-stripped path maps to a Fido FINAL path (the root `go.mod` or an intrinsic FilePath `.go`); a
+   its suffix-stripped path maps to a Fido FINAL path (the root `go.mod` or an intrinsic FilePath.T `.go`); a
    non-mappable suffixed entry, or a symlink/directory/special with that suffix, is NOT owned (refuse +
    preserve).  Forgeability of the mapped suffix is an accepted tradeoff under the single-owner /
    cooperating-process threat model — no transaction log is built to avoid it.
@@ -35,7 +35,7 @@
    root chain and reject a reserved-namespace desired path BEFORE any effect; ensure/roll-back .fido; lock;
    inspect; delete abandoned temps; preflight; stage complete; install by rename; remove stale; release.
 
-   HONEST GUARANTEE (Linux/amd64 scope).  GoProgram acceptance, SafeProgram certification, and DirectoryImage
+   HONEST GUARANTEE (Linux/amd64 scope).  Syntax.Program acceptance, Safe.Program certification, and Emit.Image
    creation are semantically all-or-nothing.  Dirty-directory installation is locked for cooperating
    emitters, rejects foreign Go/module inputs and nested `.fido` in the Go-discovered namespace (skipping the
    opaque dot/underscore/testdata/vendor trees `go build ./...` ignores), inspects that namespace fail-closed,
@@ -117,7 +117,7 @@ let write_new p bytes =
      fail "cannot write %s: %s%s" p base (match close_msg with Some c -> " | fd close failed: " ^ c | None -> ""))
 
 (* ---- the formal output domain: the sink's defensive path validator accepts EXACTLY the canonical strings
-   emitted from the intrinsic [FilePath] for a `.go` file (it does not broaden the domain, and it faithfully
+   emitted from the intrinsic [FilePath.T] for a `.go` file (it does not broaden the domain, and it faithfully
    MIRRORS `FilePath.path_ok` — a weaker check would let a noncanonical path, a `go build`-ignored dir, or a
    nested control name through, and `ensure_dir_chain` would then materialize it).  Kept in exact
    correspondence with `FilePath.v`: `is_lower`/`is_lower_digit`/`component_ok`/`reserved_dir`/
@@ -186,7 +186,7 @@ let go_ignored_name name = name <> "" && (name.[0] = '.' || name.[0] = '_')
 let go_ignored_dir name = go_ignored_name name || name = "testdata" || name = "vendor"
 
 (* a reserved-suffix regular file is Fido-owned as an abandoned temp ONLY if removing the suffix yields a
-   path Fido could actually have STAGED: exactly the root `go.mod`, or a `.go` path in the intrinsic FilePath
+   path Fido could actually have STAGED: exactly the root `go.mod`, or a `.go` path in the intrinsic FilePath.T
    output domain (the SAME [filepath_ok]).  A suffix entry that maps to neither is NOT Fido state — it is
    preserved and makes the run refuse clearly rather than being silently adopted or deleted. *)
 let temp_maps_to_final final = final = gomod_name || filepath_ok final
@@ -225,7 +225,7 @@ let rec inspect root header rel temps =
              suffix entry is never mappable → refuses. *)
           let final = String.sub child_rel 0 (String.length child_rel - String.length temp_suffix) in
           if not (temp_maps_to_final final) then
-            fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath .go) — refusing (preserved)" child_rel
+            fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath.T .go) — refusing (preserved)" child_rel
           else if k = Unix.S_REG then temps := SSet.add p !temps
           else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel
         end
@@ -337,7 +337,7 @@ let ensure_root_and_control root control_abs =
 
 (* ============================================================================================================
    PRISTINE MATERIALIZE — the AUTHORITATIVE pre-publication image write.  It writes the EXACT decoded
-   DirectoryImage (go.mod bytes + (relative .go path, bytes) entries) into a FRESH, EMPTY target directory,
+   Emit.Image (go.mod bytes + (relative .go path, bytes) entries) into a FRESH, EMPTY target directory,
    with NO `.fido` control state, NO foreign-input rejection, and NO sibling-temp staging: the target is a
    DISPOSABLE build-VALIDATION root created fresh for exactly this one image, NEVER a user directory.  The
    pinned `go build ./...` validates THESE bytes, and the canonical committed artifact is copied from THIS
@@ -372,7 +372,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
   (* A. validate the root chain (prefix symlinks) — before any effect *)
   validate_root_chain dir;
   (* B. compute the desired outputs (go.mod at root + every .go); [filepath_ok] enforces the EXACT intrinsic
-        FilePath `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
+        FilePath.T `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
         `testdata` dir, `.go` basename, arbitrary length) — so a noncanonical path or a nested control name is
         rejected BEFORE any effect and can never be materialized by [ensure_dir_chain] *)
   (* immediately validate the transport entries into a desired-output MAP keyed by relative path — REJECTING
@@ -386,7 +386,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
       SMap.add rel v m in
     let m0 = add SMap.empty gomod_name (Filename.concat dir gomod_name, "", gomod_name, go_mod) in
     List.fold_left (fun m (rel, bytes) ->
-      if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath `.go` domain: %s" rel;
+      if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath.T `.go` domain: %s" rel;
       let (parent_rel, base) = split_parent (String.split_on_char '/' rel) in
       add m rel (Filename.concat dir rel, parent_rel, base, bytes)) m0 entries in
   let desired = List.map snd (SMap.bindings desired_map) in

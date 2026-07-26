@@ -1,4 +1,4 @@
-(* A tiny standalone driver that exercises the dirty-directory sink (plugin/fido_sink.ml) directly, so the
+(* A tiny standalone driver that exercises the dirty-directory sink (plugin/sink.ml) directly, so the
    sibling-temp staging / two-phase recovery / foreign-rejection algorithm can be tested against
    dirty/adversarial trees without the Rocq layer.  It syncs a fixed module image (a go.mod whose first line
    is the exact ownership header, plus zero or more .go files) into argv.(1) and, on success, verifies each
@@ -8,7 +8,7 @@
      "empty"    — an EMPTY source map (go.mod only): the module-only program;
      "multi"    — files in two parents (root main.go + sub/main.go): two sibling temps;
      "reserved"/"p-nestedfido"/"p-vendor"/"p-testdata"/"p-upper"/"p-underscore"/"p-dotdot"/"p-nongo"
-                desired paths OUTSIDE the intrinsic FilePath `.go` domain (nested/first `.fido`, a
+                desired paths OUTSIDE the intrinsic FilePath.T `.go` domain (nested/first `.fido`, a
                   `go build`-ignored dir, upper-case/underscore/`..`/non-`.go`): each must be
                   rejected before any effect, materializing nothing;
      "p-long"   — a very long (205-byte) canonical `.go` path: ARBITRARY LENGTH is IN the domain (no cap),
@@ -53,8 +53,8 @@ let () =
     let es1 = [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB"); ("a/x.go", mk "AX") ] in
     let es2 = [ ("a/x.go", mk "AX"); ("sub/main.go", mk "SUB"); ("main.go", mk "ROOT") ] in
     let dir_a = root and dir_b = root ^ "-perm-b" in
-    let _ = Fido_sink.sync dir_a go_mod es1 in
-    let _ = Fido_sink.sync dir_b go_mod es2 in
+    let _ = Sink.sync dir_a go_mod es1 in
+    let _ = Sink.sync dir_b go_mod es2 in
     List.iter (fun (rel, _) ->
       let a = read_all (Filename.concat dir_a rel) and b = read_all (Filename.concat dir_b rel) in
       if a <> b then (Printf.eprintf "sink_test: perm mismatch at %s\n" rel; exit 1))
@@ -66,9 +66,9 @@ let () =
      order and multiplicity are irrelevant, so this is a membership-only SET, reusing the sink's
      already-shared standard [Set.Make(String)] rather than a raw [List.mem]. *)
   let faults =
-    List.fold_left (fun s t -> Fido_sink.SSet.add t s) Fido_sink.SSet.empty
+    List.fold_left (fun s t -> Sink.SSet.add t s) Sink.SSet.empty
       (String.split_on_char '+' (if Array.length Sys.argv > 3 then Sys.argv.(3) else image)) in
-  let has f = Fido_sink.SSet.mem f faults in
+  let has f = Sink.SSet.mem f faults in
   let entries = match image with
     | "empty"        -> []
     | "multi"        -> [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB") ]
@@ -87,7 +87,7 @@ let () =
     if has ("crash-" ^ label) then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
     else if has ("fail-" ^ label) then
-      raise (Fido_sink.Fail ("injected handled failure at " ^ label)) in
+      raise (Sink.Fail ("injected handled failure at " ^ label)) in
   let unlink =
     if has "unlink-fail" then (fun p -> raise (Unix.Unix_error (Unix.EACCES, "unlink", p)))
     else Unix.unlink in
@@ -100,12 +100,12 @@ let () =
   let before_install target =
     if has "foreign-before-install" && Filename.basename target = "main.go" then make_foreign target in
   let before_write sp =
-    if has "fail-write-sub" && has_sub sp then raise (Fido_sink.Fail "injected later-stage write failure") in
+    if has "fail-write-sub" && has_sub sp then raise (Sink.Fail "injected later-stage write failure") in
   let before_delete p =
     if has "foreign-before-delete" && has_sub p then make_foreign p in
-  match (try `Ok (Fido_sink.sync ~checkpoint ~unlink ~rename ~before_install ~before_write
+  match (try `Ok (Sink.sync ~checkpoint ~unlink ~rename ~before_install ~before_write
                     ~before_delete root go_mod entries)
-         with Fido_sink.Fail m -> `Fail m) with
+         with Sink.Fail m -> `Fail m) with
   | `Ok n ->
     let check rel bytes =
       let inst = read_all (Filename.concat root rel) in

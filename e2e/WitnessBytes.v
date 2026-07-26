@@ -7,9 +7,9 @@
     This is NOT the canonical generated module (that is the primary `Witness.v`); it is emitted to a separate
     tree consumed only by the integration byte-exactness check.  `println` output is INTEGRATION EVIDENCE of
     real-Go byte fidelity, NOT the formal string semantics — the formal semantics are the exact byte value
-    ([const_value]/[eval_expr]) and the independent canonical-literal decoder round-trip ([GoRender]). *)
+    ([const_value]/[eval_expr]) and the independent canonical-literal decoder round-trip ([Render]). *)
 From Stdlib Require Import List NArith String Ascii.
-From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.
 
 Definition boundary_bytes : string :=
@@ -17,22 +17,22 @@ Definition boundary_bytes : string :=
  (String (ascii_of_nat 127) (String (ascii_of_nat 128)
  (String (ascii_of_nat 255) EmptyString)))).
 
-Definition bytes_file (*decls*) : list GoDecl := [ DMain [ SPrintln [ EString boundary_bytes ] ] ].
-Definition bytes_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
-Definition bytes_program : GoProgram := singleton_program bytes_module (mkFP "main.go" eq_refl) bytes_file.
+Definition bytes_file (*decls*) : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax.StringLiteral boundary_bytes ] ] ].
+Definition bytes_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
+Definition bytes_program : Syntax.Program := singleton_program bytes_module (FilePath.make "main.go" eq_refl) bytes_file.
 
-Lemma bytes_valid : GoCompile bytes_program.
-Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Lemma bytes_valid : Admissible bytes_program.
+Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
-Definition bytes_compiled : CompilableProgram :=
+Definition bytes_compiled : Compilable.Program :=
   compilable_of_valid bytes_program bytes_valid.
 
-(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via go_compile). *)
-Example bytes_compiles : exists cp Hcp, go_compile bytes_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_complete bytes_program bytes_valid). Qed.
-Definition bytes_safe : SafeProgram := certify bytes_compiled.
+(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via Compilable.compile). *)
+Example bytes_compiles : exists cp Hcp, Compilable.compile bytes_program = Compilable.Compiled cp Hcp.
+Proof. exact (Compilable.compile_complete bytes_program bytes_valid). Qed.
+Definition bytes_safe : Safe.Program := certify bytes_compiled.
 
 Declare ML Module "fido.emit".
-Fido Materialize (render_program bytes_safe) To "/workspace/generated-bytes".
+Fido Materialize (Emit.of_safe bytes_safe) To "/workspace/generated-bytes".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

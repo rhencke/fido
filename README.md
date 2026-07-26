@@ -41,38 +41,38 @@ conversion rounds **each component once**, and a scalar↔complex conversion fol
 Go prints a complex as `(real+imagi)` — integration evidence only. It is still exact complex **constants** —
 no complex arithmetic, no `real`/`imag`, no imports.
 
-- **One program representation.** A `GoProgram` is an intrinsic `ModuleSpec` (a narrow canonical module
+- **One program representation.** A `Syntax.Program` is an intrinsic `ModuleSpec` (a narrow canonical module
   path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
-  **possibly-empty** verified finite map from intrinsic `FilePath` keys to one raw file AST per file (a raw
-  string is **not** a path). A raw file is a source-shaped `GoSourceFile` — a **source-owned package clause**,
+  **possibly-empty** verified finite map from intrinsic `FilePath.T` keys to one raw file AST per file (a raw
+  string is **not** a path). A raw file is a source-shaped `Syntax.File` — a **source-owned package clause**,
   an intrinsically-empty import section, and its declarations; package **grouping**, entry-point status, and
   import **resolution** are compilation results. There is no second tree and no separate IR.
-- **One type authority.** Each raw literal denotes an exact **untyped** constant (`GoConst`); `GoTypes` — the
-  single type authority, evidence over the same AST (universe `TBool` / the integer family `TInteger` (ten
-  members) / `TFloat` (`float32`/`float64`) / `TComplex` (`complex64`/`complex128`) / `TString`) — resolves it
+- **One type authority.** Each raw literal denotes an exact **untyped** constant (`Typing.Constant`); `Typing` — the
+  single type authority, evidence over the same AST (universe `Typing.BoolType` / the integer family `Typing.IntegerType` (ten
+  members) / `Typing.FloatType` (`float32`/`float64`) / `Typing.ComplexType` (`complex64`/`complex128`) / `Typing.StringType`) — resolves it
   in a use context (an untyped int defaults to `int` and its range is checked; a bare float to `float64`; a
-  bare complex to `complex128`; every string representable as `TString`). An explicit conversion is a **typed**
-  constant of the destination type, routed through one target-directed `convert_const` authority (integer
+  bare complex to `complex128`; every string representable as `Typing.StringType`). An explicit conversion is a **typed**
+  constant of the destination type, routed through one target-directed `Typing.convert_constant` authority (integer
   conversions value-preserving + range-checked at every nesting layer; float/complex conversions round once —
   each complex component once; scalar↔complex by Go's zero-imaginary rule). A literal is not a typed value,
   and there is no typed AST or second IR.
-- **Exact, whole-program compilation = the pinned one-shot `go build ./...` acceptance.** `GoCompile p :=
+- **Exact, whole-program compilation = the pinned one-shot `go build ./...` acceptance.** `Admissible p :=
   fresh_build_preflight_ok p /\ SourceProgramValid p`: it groups files by directory into `package main`
-  packages, requires the source valid (typed through `GoTypes`, plus the two factored package rules —
+  packages, requires the source valid (typed through `Typing`, plus the two factored package rules —
   name uniqueness and main-package entry), AND models cmd/go's default-OUTPUT behaviour (a sole main package
   whose default executable name collides with an existing root directory is rejected). Two claims stay
   distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches `go build ./...` — the GOAL,
   exercised by a differential matrix, never a kernel theorem about `cmd/go`.
-- **Real semantics + faithful rendering.** `GoSafe` evaluates to real Go values that carry the **same**
-  `GoType` and are range-well-formed; evaluation is partial (a compiler-invalid conversion has no value), so a
-  resolved expression provably evaluates to a well-formed value of its resolved type. `GoRender` proves
-  `render_const_info_denotes` (a spelling denotes exactly the ConstInfo GoTypes computes) and
-  `render_resolved_expr_denotes`, plus all-ASCII and the header as the exact first line, and renders the
+- **Real semantics + faithful rendering.** `Property` evaluates to real Go values that carry the **same**
+  `Typing.SemanticType` and are range-well-formed; evaluation is partial (a compiler-invalid conversion has no value), so a
+  resolved expression provably evaluates to a well-formed value of its resolved type. `Render` proves
+  `Render.const_info_denotes` (a spelling denotes exactly the Typing.ConstantInfo Typing computes) and
+  `Render.resolved_expr_denotes`, plus all-ASCII and the header as the exact first line, and renders the
   `go.mod` directly from the `ModuleSpec`. Every layer is proved **axiom-free** in a pinned Rocq 9.2.0
   container — asserted by a whole-certified-theory assumption-closure audit, not just per-surface `Print
   Assumptions`.
-- **A transport boundary, not a backend.** The image is an abstract `DirectoryImage` (the exact `go.mod` bytes
-  plus a possibly-empty map of `.go` bytes) carrying a proof both came from rendering one `SafeProgram`.
+- **A transport boundary, not a backend.** The image is an abstract `Emit.Image` (the exact `go.mod` bytes
+  plus a possibly-empty map of `.go` bytes) carrying a proof both came from rendering one `Safe.Program`.
   Publication is ONE validate-before-publish workflow, never a standalone publish command: the SOLE Rocq
   transport vernac `Fido Materialize` writes the authoritative pristine bytes into a fresh disposable root, the
   pinned `go build ./...` **validates** that tree, and only THEN does the internal sink (its own test driver +

@@ -1,22 +1,22 @@
 (** A differential witness: a WHOLE-PROGRAM with TWO main packages in different directories (root
     `main.go` and `sub/main.go`, each with exactly one `main`) plus a THIRD file in the root package that
     has no declarations (an empty file, valid because the root package's single `main` is elsewhere).
-    GoCompile accepts it (source_spec_valid_b = true, checked below); the emitted tree must be accepted by
+    Admissible accepts it (source_spec_valid_b = true, checked below); the emitted tree must be accepted by
     `go build ./...` — the differential alarm that the whole-program directory/package rules match Go. *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath ModulePath GoVersion GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.
 
-Definition multi_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
-Definition m_root  : FilePath := mkFP "main.go" eq_refl.
-Definition m_extra : FilePath := mkFP "extra.go" eq_refl.          (* same (root) package, no main *)
-Definition m_sub   : FilePath := mkFP "sub/main.go" eq_refl.       (* a second main package *)
+Definition multi_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
+Definition m_root  : FilePath.T := FilePath.make "main.go" eq_refl.
+Definition m_extra : FilePath.T := FilePath.make "extra.go" eq_refl.          (* same (root) package, no main *)
+Definition m_sub   : FilePath.T := FilePath.make "sub/main.go" eq_refl.       (* a second main package *)
 
-(** specification-shaped file roots (the construction API takes [GoFileNode]s, not path/decl pairs). *)
-Definition multi_nodes : list GoFileNode :=
-  [ main_file_node m_root  [ DMain [ SPrintln [ EBool true; EInt 1 ] ] ]
+(** specification-shaped file roots (the construction API takes [Syntax.FileNode]s, not path/decl pairs). *)
+Definition multi_nodes : list Syntax.FileNode :=
+  [ main_file_node m_root  [ Syntax.Main [ Syntax.Println [ Syntax.BoolLiteral true; Syntax.IntegerLiteral 1 ] ] ]
   ; main_file_node m_extra []
-  ; main_file_node m_sub   [ DMain [ SPrintln [ ENeg 5 ] ] ] ].
+  ; main_file_node m_sub   [ Syntax.Main [ Syntax.Println [ Syntax.NegatedIntegerLiteral 5 ] ] ] ].
 
 (** the three node paths are distinct, so [build_program] SUCCEEDS.  [multi_program] is a proof-backed TOTAL
     extraction from that success — NOT a fail-soft [None => empty_program] default: if the supposedly-unique
@@ -25,28 +25,28 @@ Definition multi_nodes : list GoFileNode :=
 Definition multi_builds : build_program multi_module multi_nodes <> None.
 Proof. vm_compute. discriminate. Qed.
 
-Definition multi_program : GoProgram :=
-  match build_program multi_module multi_nodes as o return (o <> None -> GoProgram) with
+Definition multi_program : Syntax.Program :=
+  match build_program multi_module multi_nodes as o return (o <> None -> Syntax.Program) with
   | Some p => fun _ => p
-  | None   => fun H => False_rect GoProgram (H eq_refl)
+  | None   => fun H => False_rect Syntax.Program (H eq_refl)
   end multi_builds.
 
 (** the exact successful construction: [build_program] returns EXACTLY this program. *)
 Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_program.
 Proof. vm_compute. reflexivity. Qed.
 
-Lemma multi_valid : GoCompile multi_program.
-Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Lemma multi_valid : Admissible multi_program.
+Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
-Definition multi_compiled : CompilableProgram :=
+Definition multi_compiled : Compilable.Program :=
   compilable_of_valid multi_program multi_valid.
 
-(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via go_compile). *)
-Example multi_compiles : exists cp Hcp, go_compile multi_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_complete multi_program multi_valid). Qed.
-Definition multi_safe : SafeProgram := certify multi_compiled.
+(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via Compilable.compile). *)
+Example multi_compiles : exists cp Hcp, Compilable.compile multi_program = Compilable.Compiled cp Hcp.
+Proof. exact (Compilable.compile_complete multi_program multi_valid). Qed.
+Definition multi_safe : Safe.Program := certify multi_compiled.
 
 Declare ML Module "fido.emit".
-Fido Materialize (render_program multi_safe) To "/workspace/generated-multi".
+Fido Materialize (Emit.of_safe multi_safe) To "/workspace/generated-multi".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

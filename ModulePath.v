@@ -1,9 +1,9 @@
-(** ModulePath — the intrinsic canonical module-path domain (the `module` directive of the generated
+(** T — the intrinsic canonical module-path domain (the `module` directive of the generated
     `go.mod`).  A raw [string] is NOT a module path: the path is a SEMANTIC program fact (it is the prefix
     of every future closed-world package import path), so only a deliberately NARROW canonical grammar is
     representable — this is not an ambitious model of every path any Go release accepts.
 
-    A [ModulePath] is one or more `/`-separated segments; each segment is nonempty, starts with a
+    A [T] is one or more `/`-separated segments; each segment is nonempty, starts with a
     lowercase letter, ends with a lowercase letter or digit, and contains only lowercase letters, digits,
     or `.` with no `..`.  The FIRST element must contain a `.` (never a stdlib-colliding dotless prefix like
     `go`/`fmt`); the FINAL element must NOT be a version-suffix shape (`v` + one-or-more digits/dots, dot-led
@@ -17,7 +17,7 @@
     modules are deliberately out of scope (no import support yet), excluded rather than admitted-then-narrowed
     so "representable ⇒ Go-accepts" stays exact (the e2e's `go build ./...` is the differential alarm).
 
-    Validity is intrinsic: [ModulePath] carries [modpath_ok mp_str = true], so no value exists for a bad
+    Validity is intrinsic: [T] carries [path_ok text = true], so no value exists for a bad
     path; equality is decidable and reduces to string equality (bool UIP).  Invalid module paths are
     UNREPRESENTABLE — never preserved-then-rejected. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith Lia.
@@ -117,10 +117,10 @@ Proof.
 Qed.
 
 (** every character of a module path is a segment char or the separator `/` — all ASCII (< 128). *)
-Definition modpath_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
+Definition path_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
 
-Fixpoint all_modpath_chars (s : string) : bool :=
-  match s with EmptyString => true | String c s' => modpath_char c && all_modpath_chars s' end.
+Fixpoint all_path_chars (s : string) : bool :=
+  match s with EmptyString => true | String c s' => path_char c && all_path_chars s' end.
 
 (** the leading path element, and whether it contains a `.`: Go treats a path whose FIRST element has NO dot
     as a STANDARD-LIBRARY candidate (e.g. `go/ast`, `fmt`), so requiring a dot there keeps every represented
@@ -169,26 +169,26 @@ Definition is_gopkg_in (s : string) : bool := String.prefix "gopkg.in/" s.
     FINAL element is NOT a version-suffix shape (the two semantic-import-versioning reject classes Go 1.23
     enforces); every `/`-separated segment is admissible (an empty segment from a leading/trailing/repeated
     slash, or the empty string, fails [segment_ok]).  ARBITRARY LENGTH — no length cap. *)
-Definition modpath_ok (s : string) : bool :=
-  all_modpath_chars s
+Definition path_ok (s : string) : bool :=
+  all_path_chars s
   && contains_dot (before_slash s)
   && negb (is_gopkg_in s)
   && negb (version_suffix_shape (last_segment s))
   && forallb segment_ok (split_slash s).
 
-Lemma modpath_ok_all_chars : forall s, modpath_ok s = true -> all_modpath_chars s = true.
+Lemma path_ok_all_chars : forall s, path_ok s = true -> all_path_chars s = true.
 Proof.
-  intros s H; unfold modpath_ok in H.
+  intros s H; unfold path_ok in H.
   apply Bool.andb_true_iff in H as [H _].            (* drop forallb segment_ok *)
   apply Bool.andb_true_iff in H as [H _].            (* drop negb (version_suffix_shape (last_segment s)) *)
   apply Bool.andb_true_iff in H as [H _].            (* drop negb (is_gopkg_in s) *)
-  apply Bool.andb_true_iff in H as [H _]; exact H.   (* drop contains_dot (before_slash s); keep all_modpath_chars *)
+  apply Bool.andb_true_iff in H as [H _]; exact H.   (* drop contains_dot (before_slash s); keep all_path_chars *)
 Qed.
 
 (** every module-path character is ASCII (the go.mod ASCII proof rests on this). *)
-Lemma modpath_char_lt_128 : forall c, modpath_char c = true -> (nat_of_ascii c < 128)%nat.
+Lemma path_char_lt_128 : forall c, path_char c = true -> (nat_of_ascii c < 128)%nat.
 Proof.
-  intros c H; unfold modpath_char in H; apply Bool.orb_true_iff in H as [H | H].
+  intros c H; unfold path_char in H; apply Bool.orb_true_iff in H as [H | H].
   - unfold seg_char in H; apply Bool.orb_true_iff in H as [H | H].
     + unfold is_lower_digit in H; cbv zeta in H; apply Bool.orb_true_iff in H as [H | H];
         apply Bool.andb_true_iff in H as [_ H]; apply Nat.leb_le in H; lia.
@@ -198,31 +198,30 @@ Qed.
 
 (** ---- the intrinsic type ---- *)
 
-Record ModulePath : Type := mkMP { mp_str : string ; mp_ok : modpath_ok mp_str = true }.
+Record T : Type := make { text : string ; valid : path_ok text = true }.
 
 (** The canonical `module` directive text (the proved conversion to output bytes). *)
-Definition mp_string (p : ModulePath) : string := mp_str p.
 
-Lemma modpath_ok_pi : forall s (p q : modpath_ok s = true), p = q.
+Lemma path_ok_pi : forall s (p q : path_ok s = true), p = q.
 Proof. intros s p q; apply (UIP_dec Bool.bool_dec). Qed.
 
-Lemma mp_eq : forall a b, mp_str a = mp_str b -> a = b.
-Proof. intros [sa pa] [sb pb] H; simpl in H; subst sb; f_equal; apply modpath_ok_pi. Qed.
+Lemma equal : forall a b, text a = text b -> a = b.
+Proof. intros [sa pa] [sb pb] H; simpl in H; subst sb; f_equal; apply path_ok_pi. Qed.
 
-Definition mp_eqb (a b : ModulePath) : bool := String.eqb (mp_str a) (mp_str b).
+Definition equalb (a b : T) : bool := String.eqb (text a) (text b).
 
-Lemma mp_eqb_eq : forall a b, mp_eqb a b = true <-> a = b.
+Lemma equalb_spec : forall a b, equalb a b = true <-> a = b.
 Proof.
-  intros a b; unfold mp_eqb; split.
-  - intro H; apply String.eqb_eq in H; apply mp_eq; exact H.
+  intros a b; unfold equalb; split.
+  - intro H; apply String.eqb_eq in H; apply equal; exact H.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
 (** The canonical COMPONENT AUTHORITY over a module path.  [split_slash] is the split view and its
     "/"-join is its inverse ([split_slash_concat]); a valid [segment_ok] segment contains no separator, so
-    it is a SINGLE component ([segment_ok_single]) and is nonempty ([segment_ok_nonempty]).  A [ModulePath]'s
-    [mp_segments] are its validated segments: the module string IS their join ([mp_string_concat]), and each
-    is a single nonempty component.  This is the lower-layer authority [GoCompile] composes for package
+    it is a SINGLE component ([segment_ok_single]) and is nonempty ([segment_ok_nonempty]).  A [T]'s
+    [segments] are its validated segments: the module string IS their join ([text_concat]), and each
+    is a single nonempty component.  This is the lower-layer authority [Admissible] composes for package
     import-path and executable-name reasoning — no character-level scan in the consumer. *)
 
 Lemma concat_cons_empty : forall sep h t,
@@ -285,68 +284,68 @@ Qed.
 Lemma segment_ok_nonempty : forall s, segment_ok s = true -> s <> ""%string.
 Proof. intros s H; destruct s; [ discriminate H | discriminate ]. Qed.
 
-Definition mp_segments (p : ModulePath) : list string := split_slash (mp_str p).
+Definition segments (p : T) : list string := split_slash (text p).
 
-Lemma mp_segments_nonempty : forall p, mp_segments p <> [].
+Lemma segments_nonempty : forall p, segments p <> [].
 Proof. intro p. apply split_slash_nonempty. Qed.
 
-Lemma mp_string_concat : forall p, String.concat "/" (mp_segments p) = mp_str p.
+Lemma text_concat : forall p, String.concat "/" (segments p) = text p.
 Proof. intro p. apply split_slash_concat. Qed.
 
-Lemma mp_segments_segment_ok : forall p s, In s (mp_segments p) -> segment_ok s = true.
+Lemma segments_segment_ok : forall p s, In s (segments p) -> segment_ok s = true.
 Proof.
-  intros p s Hin. pose proof (mp_ok p) as Hok. unfold modpath_ok in Hok.
+  intros p s Hin. pose proof (valid p) as Hok. unfold path_ok in Hok.
   apply Bool.andb_true_iff in Hok as [_ Hseg].
   rewrite forallb_forall in Hseg. exact (Hseg s Hin).
 Qed.
 
-Lemma mp_segments_single : forall p s, In s (mp_segments p) -> split_slash s = [s].
-Proof. intros p s Hin. apply segment_ok_single. exact (mp_segments_segment_ok p s Hin). Qed.
+Lemma segments_single : forall p s, In s (segments p) -> split_slash s = [s].
+Proof. intros p s Hin. apply segment_ok_single. exact (segments_segment_ok p s Hin). Qed.
 
-Lemma mp_segments_nonempty_elt : forall p s, In s (mp_segments p) -> s <> ""%string.
-Proof. intros p s Hin. apply segment_ok_nonempty. exact (mp_segments_segment_ok p s Hin). Qed.
+Lemma segments_nonempty_elt : forall p s, In s (segments p) -> s <> ""%string.
+Proof. intros p s Hin. apply segment_ok_nonempty. exact (segments_segment_ok p s Hin). Qed.
 
 (** ---- positive / negative fixtures (the grammar, kernel-checked) ---- *)
 
 (* every representable path has a dotted FIRST element (a safe, non-stdlib prefix) *)
-Example ok_generated : modpath_ok "fido.local/generated" = true.       Proof. reflexivity. Qed.
-Example ok_nested    : modpath_ok "fido.local/generated/sub" = true.   Proof. reflexivity. Qed.
-Example ok_common    : modpath_ok "fido.local/common" = true.          Proof. reflexivity. Qed.
-Example ok_dothost   : modpath_ok "example.com" = true.                Proof. reflexivity. Qed.
-Example ok_digits    : modpath_ok "fido2.dev/pkg9" = true.             Proof. reflexivity. Qed.
+Example ok_generated : path_ok "fido.local/generated" = true.       Proof. reflexivity. Qed.
+Example ok_nested    : path_ok "fido.local/generated/sub" = true.   Proof. reflexivity. Qed.
+Example ok_common    : path_ok "fido.local/common" = true.          Proof. reflexivity. Qed.
+Example ok_dothost   : path_ok "example.com" = true.                Proof. reflexivity. Qed.
+Example ok_digits    : path_ok "fido2.dev/pkg9" = true.             Proof. reflexivity. Qed.
 
-Example no_empty         : modpath_ok "" = false.               Proof. reflexivity. Qed.
-Example no_leading_slash : modpath_ok "/x" = false.             Proof. reflexivity. Qed.
-Example no_trailing_slash : modpath_ok "x/" = false.            Proof. reflexivity. Qed.
-Example no_double_slash  : modpath_ok "a//b" = false.           Proof. reflexivity. Qed.
-Example no_upper         : modpath_ok "Fido.dev" = false.       Proof. reflexivity. Qed.
-Example no_dotdot        : modpath_ok "a..b" = false.           Proof. reflexivity. Qed.
-Example no_leading_dot   : modpath_ok ".fido" = false.          Proof. reflexivity. Qed.
-Example no_trailing_dot  : modpath_ok "fido." = false.          Proof. reflexivity. Qed.
-Example no_at            : modpath_ok "fido.dev@v1" = false.    Proof. reflexivity. Qed.
-Example no_space         : modpath_ok "fido dev.x" = false.     Proof. reflexivity. Qed.
-Example no_digit_start    : modpath_ok "9fido.dev" = false.     Proof. reflexivity. Qed.
+Example no_empty         : path_ok "" = false.               Proof. reflexivity. Qed.
+Example no_leading_slash : path_ok "/x" = false.             Proof. reflexivity. Qed.
+Example no_trailing_slash : path_ok "x/" = false.            Proof. reflexivity. Qed.
+Example no_double_slash  : path_ok "a//b" = false.           Proof. reflexivity. Qed.
+Example no_upper         : path_ok "Fido.dev" = false.       Proof. reflexivity. Qed.
+Example no_dotdot        : path_ok "a..b" = false.           Proof. reflexivity. Qed.
+Example no_leading_dot   : path_ok ".fido" = false.          Proof. reflexivity. Qed.
+Example no_trailing_dot  : path_ok "fido." = false.          Proof. reflexivity. Qed.
+Example no_at            : path_ok "fido.dev@v1" = false.    Proof. reflexivity. Qed.
+Example no_space         : path_ok "fido dev.x" = false.     Proof. reflexivity. Qed.
+Example no_digit_start    : path_ok "9fido.dev" = false.     Proof. reflexivity. Qed.
 (* dotless first elements are STDLIB-colliding and UNREPRESENTABLE (`go/ast`, `fmt`, a bare vanity name): *)
-Example no_dotless_go   : modpath_ok "go" = false.             Proof. reflexivity. Qed.
-Example no_dotless_fmt  : modpath_ok "fmt" = false.            Proof. reflexivity. Qed.
-Example no_dotless_bare : modpath_ok "fidoe2e" = false.        Proof. reflexivity. Qed.
-Example no_dotless_pkg  : modpath_ok "fido2/pkg9" = false.     Proof. reflexivity. Qed.  (* first elem "fido2" has no dot *)
+Example no_dotless_go   : path_ok "go" = false.             Proof. reflexivity. Qed.
+Example no_dotless_fmt  : path_ok "fmt" = false.            Proof. reflexivity. Qed.
+Example no_dotless_bare : path_ok "fidoe2e" = false.        Proof. reflexivity. Qed.
+Example no_dotless_pkg  : path_ok "fido2/pkg9" = false.     Proof. reflexivity. Qed.  (* first elem "fido2" has no dot *)
 (* semantic-import-versioning: Go rejects a `/vN` final element with N<2 / leading zero / dot; we exclude the
    whole version-suffix-shaped last element (so a valid `/v2` is out of scope too, not admitted-then-narrowed): *)
-Example no_ver_v1     : modpath_ok "example.com/pkg/v1" = false.   Proof. reflexivity. Qed.
-Example no_ver_v01    : modpath_ok "example.com/pkg/v01" = false.  Proof. reflexivity. Qed.
-Example no_ver_v1dot2 : modpath_ok "example.com/pkg/v1.2" = false. Proof. reflexivity. Qed.
-Example no_ver_vdot   : modpath_ok "example.com/pkg/v.2.3" = false. Proof. reflexivity. Qed.  (* dot-led run *)
-Example no_ver_v2     : modpath_ok "example.com/pkg/v2" = false.   Proof. reflexivity. Qed.  (* Go-valid, but out of scope *)
-Example ok_vlike_mid  : modpath_ok "example.com/v2/pkg" = true.    Proof. reflexivity. Qed.  (* v2 NOT the last element *)
-Example ok_vword      : modpath_ok "example.com/verify" = true.    Proof. reflexivity. Qed.  (* not a version shape *)
+Example no_ver_v1     : path_ok "example.com/pkg/v1" = false.   Proof. reflexivity. Qed.
+Example no_ver_v01    : path_ok "example.com/pkg/v01" = false.  Proof. reflexivity. Qed.
+Example no_ver_v1dot2 : path_ok "example.com/pkg/v1.2" = false. Proof. reflexivity. Qed.
+Example no_ver_vdot   : path_ok "example.com/pkg/v.2.3" = false. Proof. reflexivity. Qed.  (* dot-led run *)
+Example no_ver_v2     : path_ok "example.com/pkg/v2" = false.   Proof. reflexivity. Qed.  (* Go-valid, but out of scope *)
+Example ok_vlike_mid  : path_ok "example.com/v2/pkg" = true.    Proof. reflexivity. Qed.  (* v2 NOT the last element *)
+Example ok_vword      : path_ok "example.com/verify" = true.    Proof. reflexivity. Qed.  (* not a version shape *)
 (* gopkg.in special case: every gopkg.in path must end in `.vN`, so bare `gopkg.in/foo` is Go-rejected; we
    exclude the whole `gopkg.in/` prefix class: *)
-Example no_gopkg_bare : modpath_ok "gopkg.in/foo" = false.        Proof. reflexivity. Qed.
-Example no_gopkg_v2   : modpath_ok "gopkg.in/yaml.v2" = false.    Proof. reflexivity. Qed.  (* Go-valid, but out of scope *)
+Example no_gopkg_bare : path_ok "gopkg.in/foo" = false.        Proof. reflexivity. Qed.
+Example no_gopkg_v2   : path_ok "gopkg.in/yaml.v2" = false.    Proof. reflexivity. Qed.  (* Go-valid, but out of scope *)
 (* Windows-reserved device names Go rejects as a path ELEMENT (even on Linux), with or without extension: *)
-Example no_reserved_con   : modpath_ok "fido.local/con" = false. Proof. reflexivity. Qed.
-Example no_reserved_nul   : modpath_ok "fido.dev/nul" = false.  Proof. reflexivity. Qed.
-Example no_reserved_com1  : modpath_ok "fido.dev/com1" = false. Proof. reflexivity. Qed.
-Example no_reserved_lpt9  : modpath_ok "fido.dev/lpt9" = false. Proof. reflexivity. Qed.
-Example no_reserved_conext : modpath_ok "con.js" = false.      Proof. reflexivity. Qed.  (* base "con" reserved *)
+Example no_reserved_con   : path_ok "fido.local/con" = false. Proof. reflexivity. Qed.
+Example no_reserved_nul   : path_ok "fido.dev/nul" = false.  Proof. reflexivity. Qed.
+Example no_reserved_com1  : path_ok "fido.dev/com1" = false. Proof. reflexivity. Qed.
+Example no_reserved_lpt9  : path_ok "fido.dev/lpt9" = false. Proof. reflexivity. Qed.
+Example no_reserved_conext : path_ok "con.js" = false.      Proof. reflexivity. Qed.  (* base "con" reserved *)

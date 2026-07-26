@@ -21,34 +21,34 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 ## SR-001 — Pinned linux/amd64 64-bit validation target
 
 - **Classification:** TARGET RESTRICTION.
-- **Exact excluded case:** the certified semantics fix `int`/`uint` to 64-bit ranges (`Ints`), and the
+- **Exact excluded case:** the certified semantics fix `int`/`uint` to 64-bit ranges (`Integer`), and the
   operational end-to-end validation runs on exactly one target: `GOOS=linux`, `GOARCH=amd64`, the
   digest-pinned `golang:1.23-alpine` image, rendered `go.mod` language `1.23`. 32-bit targets, other
   architectures (arm64, …), and other operating systems are not a validation target and their `int`/`uint`
   word size is not modeled.
 - **Exact reason:** a single pinned deployment/validation target lets the external adequacy TARGET
-  `GoCompile == go build` be differentially tested against one real toolchain, and lets `int`/`uint` be concrete 64-bit types
+  `Admissible == go build` be differentially tested against one real toolchain, and lets `int`/`uint` be concrete 64-bit types
   (type-distinct from `int64`/`uint64`) with complete value/render/proof surfaces — instead of a
   target-parametric width abstraction threaded through every numeric proof before it earns its keep.
 - **Why difficulty is not the reason:** target-parametric `int`/`uint` semantics are a *cross-cutting*
   abstraction (a target descriptor in every constant, conversion, value, and render proof) whose only current
   consumer would be a portability claim Fido does not yet make. The restriction is a deliberate theorem-domain
   boundary, not avoidance — see ADR-0001 for the full option analysis.
-- **Benefit obtained:** concrete 64-bit `Ints`; a one-target differential ATTACKING the `GoCompile` external
+- **Benefit obtained:** concrete 64-bit `Integer`; a one-target differential ATTACKING the `Admissible` external
   adequacy target (never proving it); no premature target-config abstraction; a reproducible pinned e2e.
-- **Three distinct claims (do not conflate):** (i) the FORMAL `GoCompile` judgment matches Fido's checker is
-  KERNEL-PROVED exact (`go_compile_ok_valid` + `go_compile_complete`, `elaborate_ok_iff_GoCompile`); (ii) that
-  the accepted programs are accepted by real `cmd/go` (`GoCompile == go build`) is an EXTERNAL ADEQUACY TARGET,
+- **Three distinct claims (do not conflate):** (i) the FORMAL `Admissible` judgment matches Fido's checker is
+  KERNEL-PROVED exact (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, `elaborate_ok_iff_GoCompile`); (ii) that
+  the accepted programs are accepted by real `cmd/go` (`Admissible == go build`) is an EXTERNAL ADEQUACY TARGET,
   not a Rocq theorem; (iii) the pinned differential + e2e are EVIDENCE attacking target (ii) on one toolchain —
   they do not prove it universally.
 - **Valid Go / environments lost:** building/running the generated module on 32-bit or non-amd64/non-linux
   targets is outside the validated envelope (the generated Go is not architecture-specific, but no claim is
   made about it there).
-- **Enforcement points:** `Ints.v` (`int`/`uint` = 64-bit, distinct from `int64`/`uint64`); `Makefile`
+- **Enforcement points:** `Integer.v` (`int`/`uint` = 64-bit, distinct from `int64`/`uint64`); `Makefile`
   header (platform pinned linux/amd64); `Dockerfile` go-e2e stage (`GOOS=linux GOARCH=amd64`, explicit
   `[ "$goos" = linux ]` / `[ "$goarch" = amd64 ]` guards); digest-pinned `golang:1.23-alpine`; the e2e
   boundary witnesses.
-- **Guarantees relying on it:** `Ints` width theorems (kernel-proved); the `GoCompile == go build` adequacy
+- **Guarantees relying on it:** `Integer` width theorems (kernel-proved); the `Admissible == go build` adequacy
   target and its one-target differential EVIDENCE; the rendered `go.mod` language pin.
 - **Reconsideration triggers:** a request to support 32-bit, arm64, or another OS; any portable-Go public
   claim; `uintptr`/pointer/layout work needing a richer target model; a toolchain/target image change; a
@@ -69,7 +69,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   ceilings). Paths and module paths are modeled at ARBITRARY length with NO magic numeric cap; an over-long
   path is not rejected by the grammar, the model, or the sink.
 - **Exact reason:** these limits are platform-specific and not part of the Go-source/`cmd/go` semantic
-  domain. The `GoCompile == go build` external adequacy TARGET scopes to the semantic and `cmd/go`
+  domain. The `Admissible == go build` external adequacy TARGET scopes to the semantic and `cmd/go`
   package/output LOGIC (types, one main per package, directory collision) and deliberately EXCLUDES platform fs
   limits; whether the formal judgment matches real `cmd/go` on that scope is an adequacy goal attacked by the
   differential, NOT a Rocq theorem. An over-long path fails LOUDLY at the OS boundary
@@ -83,7 +83,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   once a real filesystem's limit is exceeded (that is the OS's to signal).
 - **Enforcement points:** `FilePath.v` and `ModulePath.v` (explicit "ARBITRARY LENGTH — no length cap"
   headers); the OCaml materializer/sink surface OS errors fail-loud rather than pre-checking limits.
-- **Guarantees relying on it:** the scope of the `GoCompile == go build` external adequacy target (semantic +
+- **Guarantees relying on it:** the scope of the `Admissible == go build` external adequacy target (semantic +
   cmd/go logic, not platform fs limits) — a differential-evidence target, not a kernel exactness theorem.
 - **Reconsideration triggers:** a decision to model a specific deployment filesystem's limits as a
   correctness property (not currently in scope).
@@ -150,7 +150,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 
 - **Classification:** MODEL EXCLUSION.
 - **Correction (this repair):** SR-005 previously discussed only `/vN` major-version suffixes and `gopkg.in`
-  forms. The canonical `ModulePath` grammar excludes much more. Full enumeration of what it excludes:
+  forms. The canonical `ModulePath.T` grammar excludes much more. Full enumeration of what it excludes:
   - lowercase-only segments (`[a-z][a-z0-9.]*`) — rejects uppercase (`github.com/User/Repo`);
   - no hyphen and no other punctuation beyond `.` within a segment — rejects `my-org/pkg`, `x_y/pkg`;
   - a dot required in (the shape of) the first segment (host-like) and a canonical dot shape — rejects
@@ -175,8 +175,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Valid Go / environments lost:** every module whose path uses uppercase, hyphens, underscores, a single-word
   first segment, a `/vN` element, or a `gopkg.in` vanity form — all Go-valid, all currently unrepresentable.
 - **Enforcement points:** `ModulePath.v` (the segment grammar + one-way mapping note); `ARCHITECTURE.md`
-  (ModuleSpec row); `GoRender` module-path rendering.
-- **Guarantees relying on it:** `ModulePath` decidable equality / canonical render; the exact `go.mod`
+  (ModuleSpec row); `Render` module-path rendering.
+- **Guarantees relying on it:** `ModulePath.T` decidable equality / canonical render; the exact `go.mod`
   module directive.
 - **Reconsideration triggers:** imports or multi-module support requiring any of the excluded forms; a request
   to represent a mixed-case/hyphenated module path.
@@ -208,7 +208,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   path containing an uppercase letter, hyphen, underscore, or a non-`[a-z0-9.]` component character
   (`foo_bar.go`, `Foo.go`, `my-pkg/x.go`, …).
 - **Exact reason:** (a) faithfulness to `go build`'s file selection; (b) a canonical, decidable, minimal path
-  subset that keeps `FilePath` equality/rendering simple ahead of any consumer needing the broader grammar.
+  subset that keeps `FilePath.T` equality/rendering simple ahead of any consumer needing the broader grammar.
 - **Why difficulty is not the reason:** (a) is a correctness match (admitting `_test.go` would be a
   faithfulness bug); (b) is a deliberate subset choice, not "too hard" — it returns to the full safe grammar
   when a real need arises, by proof.
@@ -219,11 +219,11 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Enforcement points:** `FilePath.v` (`component_ok`, `reserved_dir`, `filename_ok`, `path_ok` + the
   `no_test`/`no_testdata` examples).
 - **Guarantees relying on it:** the file map's correspondence to the `go build ./...` compiled set (part a);
-  `FilePath` decidable equality / canonical render (part b).
+  `FilePath.T` decidable equality / canonical render (part b).
 - **Reconsideration triggers:** any need to represent a valid mixed-case/hyphen/underscore Go source path; a
   decision to model test compilation or build-tagged/ignored files.
 - **Decision record for part (b):** the additional lowercase/alphanumeric restriction needs its OWN proposed
-  ADR (exact valid Go files lost + why the subset is minimal), OR `FilePath` should be broadened to admit
+  ADR (exact valid Go files lost + why the subset is minimal), OR `FilePath.T` should be broadened to admit
   ordinary safe names and model build-suffix selection exactly. Not decided here — presented to Rob.
 - **Linked:** `FilePath.v`; `ARCHITECTURE.md`.
 - **Approval state:** PROPOSED — pending Rob. Part (a) reflects `go build` file-selection faithfulness; part
@@ -236,8 +236,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Classification:** TEMPORARY FEATURE FRONTIER.
 - **Exact excluded case:** no import syntax is representable; the import section of every source file is
   intrinsically empty. A program that imports any package cannot be represented.
-- **Exact reason:** the closed-world guarantee (`GoCompile` must resolve every import to a package owned by
-  the SAME `GoProgram`, or reject the whole program — no stdlib/cache/network/vendor/workspace/ambient
+- **Exact reason:** the closed-world guarantee (`Admissible` must resolve every import to a package owned by
+  the SAME `Syntax.Program`, or reject the whole program — no stdlib/cache/network/vendor/workspace/ambient
   escape) is a real property that must be built and proven before import syntax is admitted. Admitting import
   syntax without that resolver would be a fail-open hole.
 - **Why difficulty is not the reason:** this is a sequenced frontier, not a permanent decision — the
@@ -247,7 +247,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Benefit obtained:** a sound closed-world model today; no premature import surface that could admit an
   unresolved/ambient dependency.
 - **Valid Go / environments lost:** every program that imports a package (including the standard library).
-- **Enforcement points:** `GoAST` (`source_imports` intrinsically empty; no import syntax); `ARCHITECTURE.md`
+- **Enforcement points:** `Syntax` (`Syntax.imports` intrinsically empty; no import syntax); `ARCHITECTURE.md`
   Closed-world section; `CLAUDE.md` Standing law §9.
 - **Guarantees relying on it:** the closed-world admissibility claim for the current fragment.
 - **Reconsideration triggers:** the imports arc landing with its resolver + closed-world proof, under
@@ -260,8 +260,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 ## SR-008 — Unrepresented Go syntax / features (the admitted fragment)
 
 - **Classification:** TEMPORARY FEATURE FRONTIER.
-- **Exact excluded case:** the admitted fragment is `SPrintln` over primitive literals (bool, the ten integer
-  types, float32/64, complex64/128, exact strings) plus ONE source-shaped `EConvert TypeSyntax GoExpr`
+- **Exact excluded case:** the admitted fragment is `Syntax.Println` over primitive literals (bool, the ten integer
+  types, float32/64, complex64/128, exact strings) plus ONE source-shaped `Syntax.Convert Syntax.TypeExpr Syntax.Expr`
   conversion naming the closed sixteen source names. Everything else is UNREPRESENTABLE (absent from the AST),
   not rejected: other declarations, calls, parameters, non-`main` packages, arithmetic / imaginary-literal /
   `real`/`imag` / NaN / Inf syntax, and conversion targets outside the sixteen names
@@ -278,8 +278,8 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Benefit obtained:** every retained layer is complete and correct in itself and builds only on
   already-complete foundations; the axiom-free surface stays honest.
 - **Valid Go / environments lost:** the vast majority of Go programs — anything beyond the fragment above.
-- **Enforcement points:** `GoAST` (only the fragment's constructors exist); `GoNames` (the closed sixteen-name
-  class); `ARCHITECTURE.md` (GoAST row); `CLAUDE.md` (the admitted-fragment paragraph).
+- **Enforcement points:** `Syntax` (only the fragment's constructors exist); `Names` (the closed sixteen-name
+  class); `ARCHITECTURE.md` (Syntax row); `CLAUDE.md` (the admitted-fragment paragraph).
 - **Guarantees relying on it:** every axiom-free layer theorem is stated over exactly this representable set.
 - **Reconsideration triggers:** each future Source-Forest / feature checkpoint that lands a new construct with
   its proofs.
@@ -288,12 +288,12 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 
 ---
 
-## SR-009 — Bounded DecimalFloat literal domain (`|coeff| < 10^40`, `|exp10| ≤ 4096`)
+## SR-009 — Bounded Float.Decimal literal domain (`|coeff| < 10^40`, `|exp10| ≤ 4096`)
 
-- **Classification:** UNRESOLVED EXISTING RESTRICTION. (This is a pre-existing `Floats.v` bound whose
+- **Classification:** UNRESOLVED EXISTING RESTRICTION. (This is a pre-existing `Float.v` bound whose
   necessity is unresolved — it is NOT a settled model exclusion; the ADR that would resolve it is rejected as
   written, so the restriction stands unexplained pending a correct decision, not accepted.)
-- **Exact excluded case:** the `DecimalFloat` literal domain is a bounded box — a canonical `coeff·10^exp10`
+- **Exact excluded case:** the `Float.Decimal` literal domain is a bounded box — a canonical `coeff·10^exp10`
   with `decimal_max_coeff = 10^40` (at most 40 significant digits, `|coeff| < 10^40`) and
   `decimal_max_exp = 4096` (`-4096 ≤ exp10 ≤ 4096`). A source float literal outside this box (more than 40
   significant digits, or `|exp10| > 4096`) is UNREPRESENTABLE in the AST — even though pinned Go's parser
@@ -302,7 +302,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Go-valid lost:** Go float-literal source forms with >40 significant digits, or decimal exponents beyond
   ±4096, that Go would parse and round — e.g. a literal with 60 significant digits, or `1e5000` (which Go
   rejects as overflow only above its own much larger bound, and accepts many forms Fido cannot hold).
-- **Exact reason (as currently stated in `Floats.v`):** the caps were "chosen to cover every F32/F64 overflow
+- **Exact reason (as currently stated in `Float.v`):** the caps were "chosen to cover every F32/F64 overflow
   (~e39/e309) and underflow (~e-330) fixture WITH MARGIN." This is a FIXTURE-COVERAGE rationale, not a
   language-faithfulness or toolchain-limit one — exactly the kind of magic bound that requires hostile review.
 - **Why difficulty is not the reason:** widening or removing the box is not blocked by difficulty; the caps
@@ -310,13 +310,13 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   pinned larger box, unbounded canonical decimal syntax, or retained as a language subset is an OPEN decision.
 - **Benefit obtained:** a small, decidable, intrinsically-canonical decimal domain with simple bounds proofs;
   every current F32/F64 fixture covered with margin.
-- **Enforcement points:** `Floats.v` (`decimal_max_coeff`, `decimal_max_exp`, the canonicality + bound
-  predicates on `DecimalFloat`); `ARCHITECTURE.md` (GoAST row: `|coeff|<10^40`, `|exp|≤4096`).
-- **Guarantees relying on it:** the `DecimalFloat` bound/canonicality proofs and the exact float render/decode
+- **Enforcement points:** `Float.v` (`decimal_max_coeff`, `decimal_max_exp`, the canonicality + bound
+  predicates on `Float.Decimal`); `ARCHITECTURE.md` (Syntax row: `|coeff|<10^40`, `|exp|≤4096`).
+- **Guarantees relying on it:** the `Float.Decimal` bound/canonicality proofs and the exact float render/decode
   round-trip over the bounded domain.
 - **Reconsideration triggers:** any real float literal beyond the box; a decision to match Go's float-constant
   bound exactly; a proof/round-trip that needs a larger domain.
-- **Decision record:** **ADR-0002** (bounded DecimalFloat domain) is **REJECTED AS WRITTEN** — its earlier draft
+- **Decision record:** **ADR-0002** (bounded Float.Decimal domain) is **REJECTED AS WRITTEN** — its earlier draft
   conflated lexical/source representability, untyped-constant representability, accepted current-fragment
   programs, and finite F32/F64 conversion, and wrongly claimed a bound is *required* for finite data and
   decidable equality (arbitrary Rocq `Z` coefficients/exponents are already finite with decidable equality; a

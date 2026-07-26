@@ -29,7 +29,7 @@ The claim sought by this plan is **spec-closure**, not age, elegance, confidence
 Closure has an exact meaning. The Spec-Closure Ledger walks the pinned specification exhaustively. Every construct has one disposition:
 
 - **IN:** the construct is paper-elaborated through this architecture; each part of its meaning has one named owner; at least one named §25 contract covers it; and inclusion demands no new public source, compiler, type, execution, trace, scheduler, safety, or rendering authority.
-- **OUT:** the construct is absent by construction or rejected before `CompilableProgram`; the exact loss is stated; and the full price of any future inclusion is written before implementation. No exclusion may live only in prose, code comments, tests, or custom knowledge. Reflection is explicitly OUT rather than inherited by silence.
+- **OUT:** the construct is absent by construction or rejected before `Compilable.Program`; the exact loss is stated; and the full price of any future inclusion is written before implementation. No exclusion may live only in prose, code comments, tests, or custom knowledge. Reflection is explicitly OUT rather than inherited by silence.
 
 The ledger’s closure invariants are:
 
@@ -140,7 +140,7 @@ Fido provides exactly one machine for each accepted program:
 
 ```coq
 GoMachine :
-  CompilableProgram ->
+  Compilable.Program ->
   Machine.
 ```
 
@@ -186,31 +186,31 @@ final_states_have_no_steps :
 
 `step` has a global nonfinal side condition. A main-returned state is final even when other goroutines remain. Those goroutines cannot take ghost steps. Fatal process termination is also final and absorbing.
 
-This theorem is part of the permanent machine law, not a property reconstructed by `GoSafe`.
+This theorem is part of the permanent machine law, not a property reconstructed by `Property`.
 
 ---
 
 ## 3. Complete Authority Chain
 
 ```text
-GoProgram
-  -> SyntaxIndex
+Syntax.Program
+  -> Index.Syntax
   -> exact retained whole elaboration
   -> projected total compiler facts
-  -> CompilableProgram
+  -> Compilable.Program
   -> GoMachine
   -> runs and safety
-  -> SafeProgram
-  -> direct rendering of the original GoProgram
-  -> DirectoryImage
+  -> Safe.Program
+  -> direct rendering of the original Syntax.Program
+  -> Emit.Image
 ```
 
 Each kind of meaning has one owner:
 
 | Meaning | Sole authority |
 |---|---|
-| Source | `GoProgram` |
-| Source occurrence identity | `SyntaxIndex` and sealed references |
+| Source | `Syntax.Program` |
+| Source occurrence identity | `Index.Syntax` and sealed references |
 | Static compilation provenance | The exact retained whole-elaboration object hidden inside the accepted or rejected compiler result |
 | Binding, type, use, control, package, initialization, method, layout, and build-plan decisions | Total projections from that retained whole elaboration |
 | Runtime behavior and nondeterministic choice | `GoMachine cp` and its `step` relation |
@@ -218,7 +218,7 @@ Each kind of meaning has one owner:
 | Resource provenance needed by later steps | Resource-local state linked by proofs to prior labels |
 | Safety | A property over runs of that machine |
 | Output source | Direct rendering of the original AST |
-| Published bytes | `DirectoryImage` |
+| Published bytes | `Emit.Image` |
 | Spec inclusion and exclusion | Frozen Spec-Closure Ledger |
 
 A derived fact table, diagnostic list, layout, or build plan is a projection of the retained whole elaboration. It cannot replace that elaboration as provenance and cannot be independently paired with a foreign causal history.
@@ -229,9 +229,9 @@ Derived views are allowed only when they are proved projections of the authority
 
 ---
 
-## 4. `CompilableProgram` Is the Static Capability
+## 4. `Compilable.Program` Is the Static Capability
 
-`CompilableProgram` is an abstract static capability minted only by the one production elaborator.
+`Compilable.Program` is an abstract static capability minted only by the one production elaborator.
 
 Its hidden representation retains, by construction, the exact successful whole-elaboration object that made the program admissible. That retained object includes the exact source index and retained compilation input, the exact compiler phase objects, the causal outcome history, retained compiler facts, package facts, root layout, build plan, diagnostic projection, and the success evidence over that same object.
 
@@ -241,15 +241,15 @@ The public interface exposes the original source, exact source/index references,
 
 ```coq
 source :
-  CompilableProgram -> GoProgram
+  Compilable.Program -> Syntax.Program
 
 index :
   forall cp,
-  SyntaxIndex (source cp)
+  Index.Syntax (source cp)
 
 expr_fact :
   forall cp (r : ExprRef cp),
-  ExprFact cp r
+  Compilable.ExpressionFact cp r
 
 expr_use_fact :
   forall cp (r : ExprUseRef cp),
@@ -292,7 +292,7 @@ A public query never reruns elaboration, rediscovers a domain, remints a source 
 
 Equality between the retained result and a canonical rerun may be proved separately as a specification or determinism theorem. That equality is not the capability's retained provenance and is not required to recover any retained object.
 
-A rejected elaboration retains its exact failed whole-elaboration object behind an opaque failure interface. Rejected programs cannot mint `CompilableProgram`, `SafeProgram`, or `DirectoryImage`.
+A rejected elaboration retains its exact failed whole-elaboration object behind an opaque failure interface. Rejected programs cannot mint `Compilable.Program`, `Safe.Program`, or `Emit.Image`.
 
 ### 4.1 Blank identifier
 
@@ -306,12 +306,12 @@ Internal compiler objects do not become a second public semantics. One exact obj
 
 Opacity restricts access; it never authorizes discarding an object and later rebuilding an extensionally equal replacement. A consumer may receive total projections and theorem surfaces, but no consumer may rediscover a domain, remint a source reference, rebuild a compiler phase, or use specification equality as object identity.
 
-### 4.3 `IndexedProgram`
+### 4.3 `Index.Program`
 
-The current one-field `IndexedProgram` wrapper does not pass the deletion test yet. It must either:
+The current one-field `Index.Program` wrapper does not pass the deletion test yet. It must either:
 
-1. gain a real invariant or capability not present in `SyntaxIndex`; or
-2. be deleted, with the retained whole elaboration carrying `SyntaxIndex` directly.
+1. gain a real invariant or capability not present in `Index.Syntax`; or
+2. be deleted, with the retained whole elaboration carrying `Index.Syntax` directly.
 
 This remains an open later foundation decision. Repair 14 may provide new evidence, but neither preservation nor deletion is authorized by this documentation amendment. Any deletion still requires explicit review and authorization.
 
@@ -324,7 +324,7 @@ Do not use one broad expression record with inactive or optional fields.
 Use:
 
 ```coq
-ExprFact :
+Compilable.ExpressionFact :
   forall cp,
   ExprRef cp ->
   Type
@@ -337,7 +337,7 @@ ExprUseFact :
 
 An `ExprUseRef` is a proved reference to one child occurrence in one parent role. It is not another syntax node.
 
-`ExprFact` owns context-free facts:
+`Compilable.ExpressionFact` owns context-free facts:
 
 - exact untyped constant kind and value;
 - exact typed constant and semantic type;
@@ -366,7 +366,7 @@ An `ExprUseRef` is a proved reference to one child occurrence in one parent role
 
 Each frozen checkpoint contract enumerates every `ExprUseRef` constructor it introduces. A use kind absent from every accepted contract is unrepresentable. Adding a use kind requires its exact fact, diagnostics, consumers, and §25 fixture in the same checkpoint.
 
-The use builder consumes the exact retained child `ExprFact`. It does not inspect the raw child again.
+The use builder consumes the exact retained child `Compilable.ExpressionFact`. It does not inspect the raw child again.
 
 ---
 
@@ -376,7 +376,7 @@ Use one type algebra parameterized by free type variables:
 
 ```coq
 SemanticType
-  (cp : CompilableProgram)
+  (cp : Compilable.Program)
   (V  : Type) :
   Type.
 ```
@@ -809,7 +809,7 @@ Where the pinned specification leaves relative evaluation order unspecified, the
 
 Where the specification fixes order, the zipper remains deterministic. In particular, the lexical left-to-right order of function calls, method calls, and receive operations is a named obligation, as are the specified assignment and return evaluation/assignment phases.
 
-A deterministic canonical traversal of unspecified siblings is forbidden because it would under-approximate the pinned specification and make `GoSafe` blind to allowed executions. A proved refinement may replace this nondeterminism only after Rob approves the `PROVED-REFINEMENT` Latitude Ledger disposition and the named insensitivity theorem is proved.
+A deterministic canonical traversal of unspecified siblings is forbidden because it would under-approximate the pinned specification and make `Property` blind to allowed executions. A proved refinement may replace this nondeterminism only after Rob approves the `PROVED-REFINEMENT` Latitude Ledger disposition and the named insensitivity theorem is proved.
 
 ---
 
@@ -1057,7 +1057,7 @@ A future external boundary adds one exact `BadPrefix` constructor per represente
 Then:
 
 ```coq
-Definition GoSafe (cp : CompilableProgram) : Prop :=
+Definition Property (cp : Compilable.Program) : Prop :=
   forall start trace state,
     FiniteRun
       (GoMachine cp)
@@ -1155,7 +1155,7 @@ proof that every required edge is present
 proof that the dependency graph is acyclic
 ```
 
-An initialization cycle cannot inhabit `ProgramFacts` or `CompilableProgram`; elaboration rejects it with an exact diagnostic.
+An initialization cycle cannot inhabit `ProgramFacts` or `Compilable.Program`; elaboration rejects it with an exact diagnostic.
 
 The initial goroutine performs initialization through the same activation machine and the same `step` relation. At each point, `step` may select any initializer ready under the retained partial order when the pinned specification leaves its order relative to another initializer unspecified. Specified dependency and file/declaration-order edges remain deterministic obligations.
 
@@ -1214,11 +1214,11 @@ It does not consume:
 - lowered commands;
 - method tables.
 
-Cross-layer theorems belong in a theorem-only module that imports compiler facts, behavior, and rendering. `GoRender` should not import runtime behavior merely to hold those theorems.
+Cross-layer theorems belong in a theorem-only module that imports compiler facts, behavior, and rendering. `Render` should not import runtime behavior merely to hold those theorems.
 
 The parser never enters the production path.
 
-`DirectoryImage` remains because it pins the exact byte snapshot used by validation and publication. Its constructor is private.
+`Emit.Image` remains because it pins the exact byte snapshot used by validation and publication. Its constructor is private.
 
 The Go compiler and runtime remain a named pinned external trust boundary. Fido proves the accepted source, its model, and exact bytes. Differential tests check the external toolchain.
 
@@ -1246,12 +1246,12 @@ Instrumentation may expose scheduler, select, or map-order choices needed for me
 The emitted `go.mod` contains exactly:
 
 ```text
-module <the accepted ModulePath>
+module <the accepted ModulePath.T>
 
 go 1.23
 ```
 
-The module directive consumes the one accepted `ModulePath` authority. The `go` directive equals the language version of this ledger. The frozen module parser source proves those directives are read as exact `module` and `go` statements, and the frozen `gc.go` source proves the selected module Go version is passed to the compiler as `-lang=go1.23`. Changing either directive or either governing source is a ledger-revision event under human review, not a renderer detail.
+The module directive consumes the one accepted `ModulePath.T` authority. The `go` directive equals the language version of this ledger. The frozen module parser source proves those directives are read as exact `module` and `go` statements, and the frozen `gc.go` source proves the selected module Go version is passed to the compiler as `-lang=go1.23`. Changing either directive or either governing source is a ledger-revision event under human review, not a renderer detail.
 
 Validate-then-publish invokes the exact pinned `/usr/local/go/bin/go` binary whose hash is recorded above, with at least:
 
@@ -1296,13 +1296,13 @@ fido_accepts_subset_pinned_gc
 
 It is split into three exact claims:
 
-1. **Formal:** every `CompilableProgram` satisfies each accepted implementation-restriction row. Each implementing checkpoint discharges its own restriction with an elaboration rule and exact diagnostic.
-2. **External:** a publishable `DirectoryImage` passes the pinned-gc preflight under the one closed probe environment.
+1. **Formal:** every `Compilable.Program` satisfies each accepted implementation-restriction row. Each implementing checkpoint discharges its own restriction with an elaboration rule and exact diagnostic.
+2. **External:** a publishable `Emit.Image` passes the pinned-gc preflight under the one closed probe environment.
 3. **Evidence:** this documentary bundle records pinned-gc observations and freezes the future Fido fixtures. A finite probe set is evidence for the selected profile, not a proof of the formal theorem.
 
 The Latitude Ledger disposition `ACCEPTANCE-ALIGNMENT` owns these restrictions. Each row has an individual justification, one pinned-gc fixture observation, one frozen future-Fido diagnostic obligation, one owning contract, and one implementing checkpoint. Until that checkpoint runs both halves, the Fido half remains `PENDING-IMPLEMENTATION`.
 
-Constant-expression **value** latitude is separate. `LAT-X004` is owned by closure row `SPEC-096`, intrinsic `ExprFact`, and `SC-05-EXPR-FACT-USE-EVAL`. `SC-22` owns only admission into `CompilableProgram`. The settled policy is option (ii), the proved rounding-invariant accepted domain. `ExprFact` retains the unique exact value of every accepted constant expression; expressions outside the proved domain must be rejected with the acceptance-gate diagnostic. Ownership remains `SPEC-096` / `ExprFact` / `SC-05`.
+Constant-expression **value** latitude is separate. `LAT-X004` is owned by closure row `SPEC-096`, intrinsic `Compilable.ExpressionFact`, and `SC-05-EXPR-FACT-USE-EVAL`. `SC-22` owns only admission into `Compilable.Program`. The settled policy is option (ii), the proved rounding-invariant accepted domain. `Compilable.ExpressionFact` retains the unique exact value of every accepted constant expression; expressions outside the proved domain must be rejected with the acceptance-gate diagnostic. Ownership remains `SPEC-096` / `Compilable.ExpressionFact` / `SC-05`.
 
 ---
 
@@ -1310,11 +1310,11 @@ Constant-expression **value** latitude is separate. `LAT-X004` is owned by closu
 
 Delete when complete replacements exist:
 
-- one-field `IndexedProgram`, unless it gains a real invariant;
-- `ExprFact.ef_use_resolved`;
+- one-field `Index.Program`, unless it gains a real invariant;
+- `Compilable.ExpressionFact.use_resolved`;
 - production raw `eval_expr`, `eval_stmt`, `eval_decl`, and `eval_file`;
 - unconditional `certify` once a real violation is representable;
-- `EConvert`, `SPrintln`, and `DMain` after complete general forms replace them;
+- `Syntax.Convert`, `Syntax.Println`, and `Syntax.Main` after complete general forms replace them;
 - source-name comparisons used as semantic identity;
 - optional lookup after accepted compilation;
 - raw numeric runtime references;
@@ -1341,25 +1341,25 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 
 ### Keep
 
-- `GoProgram` as sole source authority.
-- `SyntaxIndex` and sealed references.
-- C4 `CompilationInput` and `ExprWorkForest` as internal one-domain construction.
+- `Syntax.Program` as sole source authority.
+- `Index.Syntax` and sealed references.
+- C4 `Compilable.Input` and `Compilable.WorkForest` as internal one-domain construction.
 - exact phase object identity.
-- `ElaborationFacts`.
-- full `CompilableProgram` provenance.
-- exact constants and `TypedConst`.
+- `Compilable.Facts`.
+- full `Compilable.Program` provenance.
+- exact constants and `Typing.TypedConstant`.
 - direct source rendering.
-- `DirectoryImage`.
+- `Emit.Image`.
 - transport-only extraction and materialization boundary.
 
 ### Change at approved checkpoints
 
-- make `CompilableProgram` opaque;
+- make `Compilable.Program` opaque;
 - split expression facts from use facts;
 - expose total fact-backed behavior queries;
 - replace production raw source evaluation with retained fact consumption;
-- move cross-layer semantic theorems out of `GoRender`;
-- seal `DirectoryImage` construction;
+- move cross-layer semantic theorems out of `Render`;
+- seal `Emit.Image` construction;
 - replace unindexed runtime values at the first nonconstant runtime feature;
 - add only the source constructors, facts, rules, and tests named by the accepted checkpoint’s Spec-Closure rows.
 
@@ -1368,8 +1368,8 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - Every proof-carrying compiler phase built by the production path must survive any later capability or result boundary when later proofs depend on its identities, predecessors, or causal history.
 - Selected projections plus equality to rebuilding the compiler result do not satisfy this obligation.
 - Accepted and rejected compilation both retain the exact whole-elaboration object.
-- `SafeProgram` refines the same exact accepted capability.
-- Rendering continues to project the original `GoProgram` and does not evaluate elaboration.
+- `Safe.Program` refines the same exact accepted capability.
+- Rendering continues to project the original `Syntax.Program` and does not evaluate elaboration.
 
 This is the active C4 blocking obligation introduced by A001. The repair-13 candidate does not yet satisfy it; repair 14 must establish it before C4 can return for human review.
 
@@ -1451,7 +1451,7 @@ Prove the renderer’s admitted source forms encode exact source values and that
 
 Cover integer, floating-point, imaginary, rune, interpreted string, boolean, exact untyped constants, typed constants, `iota`, constant expressions, representability, defaulting, overflow, and materialization.
 
-No fixture bound may replace a spec bound. Any current DecimalFloat restriction must receive its own human disposition before the full floating-literal row can become implemented.
+No fixture bound may replace a spec bound. Any current Float.Decimal restriction must receive its own human disposition before the full floating-literal row can become implemented.
 
 ### 25.4 `SC-03-BINDINGS-DECLARATIONS-BLANK`
 
@@ -1636,7 +1636,7 @@ Required fixtures and theorems:
 - the pinned invocation cannot switch away from the hashed `go1.23.2` executor;
 - initialization follows every required dependency edge;
 - two initializers left unordered by hidden dependencies can execute in both specification-permitted orders;
-- a two-variable initialization cycle is rejected and cannot mint `CompilableProgram`;
+- a two-variable initialization cycle is rejected and cannot mint `Compilable.Program`;
 - an acyclic variant initializes in dependency order rather than source order;
 - main returns while another goroutine is blocked mid-send;
 - the result is `NormalExit`, not `Deadlocked`;
@@ -1659,7 +1659,7 @@ Required fixtures:
 
 Cover exact static diagnostics, invalid program rejection, runtime panic constructors, and every `OUT` boundary’s constructor absence.
 
-No rejected program can mint `CompilableProgram`, `SafeProgram`, or `DirectoryImage`.
+No rejected program can mint `Compilable.Program`, `Safe.Program`, or `Emit.Image`.
 
 Static acceptance and rejection are decided over one exact retained whole-elaboration object. Every represented static error projects from the exact rejected object which produced it. The public failure interface may hide the object, but it retains it. A diagnostic list copied out of a discarded failed phase is insufficient.
 
@@ -1669,7 +1669,7 @@ No broad “unsupported” catch-all constructor is allowed where the ledger nam
 
 ### 25.18 `SC-17-RENDER-ADEQUACY-MEMBERSHIP`
 
-Prove direct rendering covers every admitted source constructor, preserves exact literal values and grouping, has no raw-text escape, and yields the one `DirectoryImage` publication path.
+Prove direct rendering covers every admitted source constructor, preserves exact literal values and grouping, has no raw-text escape, and yields the one `Emit.Image` publication path.
 
 For deterministic programs, pinned-Go observations match by the exact terminal tuple `(stdout bytes, stderr projection, exit status)`.
 
@@ -1766,12 +1766,12 @@ The contract requires:
 - every `ACCEPTANCE-ALIGNMENT` row has a unique justification, a pinned-toolchain observation, a future Fido elaboration obligation, an exact diagnostic ID and text-or-shape, and an implementing checkpoint;
 - pinned observations run under the closed `PROBE_ENVIRONMENT.tsv` profile and retain raw stdout, stderr, exit status, exact command, effective `go env`, and distribution provenance;
 - a finite probe set never claims to prove the global subset theorem;
-- the publication path rejects any `DirectoryImage` the pinned toolchain rejects;
+- the publication path rejects any `Emit.Image` the pinned toolchain rejects;
 - the formal subset theorem is discharged incrementally by the checkpoint that makes each restriction representable;
-- `LAT-X004` is closed by a proved rounding-invariant accepted domain; ownership remains `ExprFact`, closure row `SPEC-096`, and `SC-05`; no acceptance row may own or silently select a constant value;
+- `LAT-X004` is closed by a proved rounding-invariant accepted domain; ownership remains `Compilable.ExpressionFact`, closure row `SPEC-096`, and `SC-05`; no acceptance row may own or silently select a constant value;
 - the first frozen future-Fido fixtures cover the pinned constant limit, general-interface union restriction, unused local, empty-type-set operand, duplicate constant switch case, shadowed-result naked return, and unsupported `print`/`println` argument type.
 
-`CompilableProgram` is minted from the exact retained accepted whole elaboration. `CompileFailure` retains the exact rejected whole elaboration. Acceptance-alignment fixtures and publication checks consume projections from those retained objects; they do not rerun elaboration to reconstruct acceptance evidence.
+`Compilable.Program` is minted from the exact retained accepted whole elaboration. `Compilable.Failure` retains the exact rejected whole elaboration. Acceptance-alignment fixtures and publication checks consume projections from those retained objects; they do not rerun elaboration to reconstruct acceptance evidence.
 
 The global subset theorem may compare the retained result with pinned-toolchain acceptance, but no such comparison becomes the compiler's retained provenance.
 

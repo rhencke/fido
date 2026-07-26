@@ -8,20 +8,20 @@ stop. When an entry stops being a live temptation, delete it.
 1. **A subset filter is not exact compiler admissibility.** If the AST can represent a program the real
    toolchain ACCEPTS, a checker that rejects it is a supported-scope decision wearing a compiler-authority
    name. Model every represented form's real acceptance, or make unsupported forms UNREPRESENTABLE — never
-   rejected by a guard. A representable program `go build ./...` accepts but `GoCompile` rejects is a MODEL
-   BUG, not "unsupported syntax." (Hence `GoCompile` is proved sound + complete against a declarative
+   rejected by a guard. A representable program `go build ./...` accepts but `Admissible` rejects is a MODEL
+   BUG, not "unsupported syntax." (Hence `Admissible` is proved sound + complete against a declarative
    judgment and attacked by differential experiments; a green boolean is not the authority.)
 
 2. **The Go compilation unit is the WHOLE module tree.** Go groups files by directory into packages;
    one-main-per-package is a whole-program property; paths, module identity, and the module file are semantic
    inputs (a raw `string` key is not a file path — discovery depends on the extension, `_test`/GOOS suffixes,
-   hidden dirs, directory identity). So `GoProgram` = an intrinsic `ModuleSpec` + a POSSIBLY-EMPTY standard
-   `FilePath`-keyed finite map (`GoFileMap`; the empty map is a valid module-only program); `GoCompile`
-   consumes it all at once, all-or-nothing. The package CLAUSE / NAME is SOURCE syntax (`source_package`,
-   `PkgMain` → `main`, rendered by GoRender) — NOT a compiler-derived name; imports are intrinsically absent
+   hidden dirs, directory identity). So `Syntax.Program` = an intrinsic `ModuleSpec` + a POSSIBLY-EMPTY standard
+   `FilePath.T`-keyed finite map (`Syntax.Files`; the empty map is a valid module-only program); `Admissible`
+   consumes it all at once, all-or-nothing. The package CLAUSE / NAME is SOURCE syntax (`Syntax.package`,
+   `Syntax.MainPackage` → `main`, rendered by Render) — NOT a compiler-derived name; imports are intrinsically absent
    today. Package GROUPING (files by directory) and ENTRY/main status are COMPILATION RESULTS, never collapsed
    into a raw node. The `go.mod` is part of the program, RENDERED in Rocq from the `ModuleSpec`, never a
-   `FilePath` key.
+   `FilePath.T` key.
 
 3. **Gate the invariant you actually advertise.** A functional first-match lookup theorem holds even over a
    duplicate-keyed list, so it is NOT evidence of key uniqueness. (Fido once carried key uniqueness as a
@@ -36,8 +36,8 @@ stop. When an entry stops being a live temptation, delete it.
    cannot be met, delete the e2e — a false transport foundation is worse than none. (Emission is an EXPLICIT
    command, not a cached `.vo` side effect a warm cache would silently skip.)
 
-5. **Proof-carrying provenance still requires a LIVE assumption-closure gate.** A `DirectoryImage` carries a
-   proof it came from rendering a `SafeProgram`, but a proof can be POSTULATED (`Axiom`/`Admitted`/section
+5. **Proof-carrying provenance still requires a LIVE assumption-closure gate.** A `Emit.Image` carries a
+   proof it came from rendering a `Safe.Program`, but a proof can be POSTULATED (`Axiom`/`Admitted`/section
    `Variable` → a well-typed but uncertified image), so the type is not the gate. The gate is the emit
    command's assumption-closure check, which rejects any image whose proof depends on an assumption before any
    filesystem effect.
@@ -70,12 +70,12 @@ stop. When an entry stops being a live temptation, delete it.
    numeric-width or type authority beside the one.
 
 9. **Untyped constants, typed constants, and runtime values are DISTINCT.** A raw literal denotes an exact
-   UNTYPED constant (arbitrary-precision `Z`, no width) — its exact value is just that `GoConst`
-   (`const_info_exact` of `const_info`), no range check, no wrap. A use context or an explicit conversion yields
-   a TYPED constant (the intrinsic dependently-typed `TypedConst` — a mismatched/out-of-range one
+   UNTYPED constant (arbitrary-precision `Z`, no width) — its exact value is just that `Typing.Constant`
+   (`Typing.constant_info_exact` of `Typing.constant_info`), no range check, no wrap. A use context or an explicit conversion yields
+   a TYPED constant (the intrinsic dependently-typed `Typing.TypedConstant` — a mismatched/out-of-range one
    UNREPRESENTABLE) that retains its exact value AND its type and does not default again. A runtime value
-   carries the same `GoType`. Defaulting/representability
-   live in the resolution judgment, never baked into the literal (`EInt : … TInteger IInt` is wrong) and never a
+   carries the same `Typing.SemanticType`. Defaulting/representability
+   live in the resolution judgment, never baked into the literal (`Syntax.IntegerLiteral : … Typing.IntegerType Integer.Int` is wrong) and never a
    parallel typed tree.
 
 10. **Integration / differential tests are ALARMS, not proofs.** The pinned-Go `go build ./...` over the whole
@@ -102,7 +102,7 @@ stop. When an entry stops being a live temptation, delete it.
     exact byte sequence (`string`/`ascii`), not UTF-8 / code-points / runes. Fido emits ONE canonical source
     spelling per byte sequence; its INDEPENDENT certified decoder assigns exact byte meaning to that spelling
     and MAY ALSO accept semantically equivalent noncanonical spellings. The proved property is the byte round
-    trip `decode_string_literal (render_string_literal s) = Some s`; NO source-spelling inverse
+    trip `decode_string_literal (Render.string_literal s) = Some s`; NO source-spelling inverse
     `render (decode source) = source` is claimed, and the decoder is not narrowed to make that prose easier.
     The decoder is a DENOTATION tool, not a general Go parser — real-Go parse acceptance is external adequacy
     (the differential + boundary-byte e2e). No string operations exist yet: bytes in, canonical ASCII literal
@@ -112,7 +112,7 @@ stop. When an entry stops being a live temptation, delete it.
     exposed association lists plus `NoDup` as finite maps. That looked small and proof-friendly, but lookup
     and construction were linear/quadratic, physical order leaked into compiler definitions, and every consumer
     needed permutation/congruence proofs to recover the semantics the datatype should have expressed.
-    Identity-keyed state uses mature Rocq finite maps (`FMapAVL` behind a `FilePath`/`String` key, `FMapPositive`
+    Identity-keyed state uses mature Rocq finite maps (`FMapAVL` behind a `FilePath.T`/`String` key, `FMapPositive`
     for positive keys); membership-only state uses mature finite sets; duplicate-invalid source bindings use
     maps to occurrence buckets until validation; ordered syntax/execution stays a list; map/set lists are
     DERIVED enumerations only (`elements` of an ordered map is a function of the map's meaning, so extensionally
@@ -133,14 +133,14 @@ stop. When an entry stops being a live temptation, delete it.
     approximation to clean up. A SOLE main package makes cmd/go compute a default executable name (the
     import-path basename, with a trailing `/vN` major-version element stripped) and, BEFORE compiling, FAIL if
     that name is an existing root DIRECTORY — while 0 or ≥2 main packages write no default output and never
-    collide. So `GoCompile` carries a fresh-build output PREFLIGHT; the preflight failure takes PRECEDENCE over
+    collide. So `Admissible` carries a fresh-build output PREFLIGHT; the preflight failure takes PRECEDENCE over
     the sole package's semantic errors (phase order: cmd/go checks the output before the compiler runs); and a
     collision program is REJECTED though its source is perfectly valid. Never replace the command with a cleaner
     per-package approximation — model the side effect and back it with a real-Go differential.
 
 16. **Freshness is a semantic input; never build in — or publish — the authoritative tree.** cmd/go's result
     can depend on pre-existing filesystem entries, so the certified judgment is over a FRESH materialization of
-    the DirectoryImage (go.mod + `.go` only), not a sink-synchronized or post-build directory. A successful
+    the Emit.Image (go.mod + `.go` only), not a sink-synchronized or post-build directory. A successful
     sole-command build may OVERWRITE go.mod or a source file with the executable, so build only in a disposable
     copy and publish the ORIGINAL image — ONE reusable fresh-build runner, never per-witness shell. And factor
     the source rule HONESTLY: package-block name uniqueness and main-package entry are two independent Go rules

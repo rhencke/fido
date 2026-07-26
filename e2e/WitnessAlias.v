@@ -9,35 +9,35 @@
     This is a DISPOSABLE differential output (§13): it is materialized to a SEPARATE tree consumed only by the
     integration check and NEVER changes the canonical published module (`main.go`).  The REJECTED alias scars
     (`byte(-1)`, `byte(256)`, `rune(-2147483649)`, `rune(2147483648)`, and the matching `uint8`/`int32`) fail IN
-    Rocq (`resolve_expr = None`, the GoCompile `scar_*_rejected` examples) so no Fido image exists for them; the
+    Rocq (`Typing.resolve = None`, the Admissible `scar_*_rejected` examples) so no Fido image exists for them; the
     e2e's `rej_conv` helper feeds the corresponding RAW Go to the SAME pinned toolchain and confirms it too
     REJECTS them with a conversion/type-check diagnostic — the accept AND reject halves are both pinned-Go. *)
 From Stdlib Require Import List NArith String Ascii.
-From Fido Require Import FilePath ModulePath GoVersion GoNames GoAST GoCompile GoSafe GoRender GoEmit.
+From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Safe Render Emit.
 Import ListNotations.
 
-Definition alias_file : list GoDecl :=
-  [ DMain [ SPrintln [ EConvert (tsyn TNbyte)  (EInt 0)
-                     ; EConvert (tsyn TNbyte)  (EInt 255)
-                     ; EConvert (tsyn TNuint8) (EInt 255)
-                     ; EConvert (tsyn TNrune)  (ENeg 2147483648)
-                     ; EConvert (tsyn TNrune)  (EInt 2147483647)
-                     ; EConvert (tsyn TNint32) (ENeg 2147483648)
-                     ; EConvert (tsyn TNint32) (EInt 2147483647) ] ] ].
-Definition alias_module : ModuleSpec := mkModuleSpec (mkMP "fido.local/generated" eq_refl) Go1_23.
-Definition alias_program : GoProgram := singleton_program alias_module (mkFP "main.go" eq_refl) alias_file.
+Definition alias_file : list Syntax.Decl :=
+  [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Byte)  (Syntax.IntegerLiteral 0)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Byte)  (Syntax.IntegerLiteral 255)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 255)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Rune)  (Syntax.NegatedIntegerLiteral 2147483648)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Rune)  (Syntax.IntegerLiteral 2147483647)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.NegatedIntegerLiteral 2147483648)
+                     ; Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.IntegerLiteral 2147483647) ] ] ].
+Definition alias_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
+Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.make "main.go" eq_refl) alias_file.
 
-Lemma alias_valid : GoCompile alias_program.
-Proof. apply GoCompile_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Lemma alias_valid : Admissible alias_program.
+Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
-Definition alias_compiled : CompilableProgram :=
+Definition alias_compiled : Compilable.Program :=
   compilable_of_valid alias_program alias_valid.
 
-Example alias_compiles : exists cp Hcp, go_compile alias_program = CompiledOk cp Hcp.
-Proof. exact (go_compile_complete alias_program alias_valid). Qed.
-Definition alias_safe : SafeProgram := certify alias_compiled.
+Example alias_compiles : exists cp Hcp, Compilable.compile alias_program = Compilable.Compiled cp Hcp.
+Proof. exact (Compilable.compile_complete alias_program alias_valid). Qed.
+Definition alias_safe : Safe.Program := certify alias_compiled.
 
 Declare ML Module "fido.emit".
-Fido Materialize (render_program alias_safe) To "/workspace/generated-alias".
+Fido Materialize (Emit.of_safe alias_safe) To "/workspace/generated-alias".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish; DISPOSABLE — never the canonical published image. *)

@@ -37,8 +37,8 @@ explicit conversion targets. A syntax-only C4a would therefore do one of three b
 None is allowed.
 
 C4 must replace the three family-specific conversion constructors with one source-shaped conversion, resolve its
-source type name in `GoCompile`, retain occurrence-keyed type-name facts, preserve the source spelling in
-`GoRender`, and delete the old path in the same checkpoint.
+source type name in `Admissible`, retain occurrence-keyed type-name facts, preserve the source spelling in
+`Render`, and delete the old path in the same checkpoint.
 
 The old roadmap also puts `byte` and `rune` alias resolution in C5 while C4.6 requires the source/semantic facts:
 
@@ -140,13 +140,13 @@ After C4, the live path must be:
 
 ```text
 raw Go source AST
-    EConvert TypeSyntax Expr
+    Syntax.Convert Syntax.TypeExpr Expr
         |
         v
-one retained GoIndex occurrence for the source type name
+one retained Index occurrence for the source type name
         |
         v
-GoCompile current predeclared type context
+Admissible current predeclared type context
         |
         v
 occurrence-keyed resolved TypeNameFact
@@ -154,7 +154,7 @@ occurrence-keyed resolved TypeNameFact
         +------------------------+
         |                        |
         v                        v
-GoTypes.convert_const        GoRender source spelling
+Typing.convert_constant        Render source spelling
 semantic target              original type-name text
         |                        |
         +------------+-----------+
@@ -162,12 +162,12 @@ semantic target              original type-name text
           exact accepted/rejected result
 ```
 
-The raw AST owns source syntax only. `GoCompile` owns name binding. `GoTypes` owns semantic constant conversion.
-`GoRender` owns source bytes and must read the source spelling, not reverse-map the semantic type.
+The raw AST owns source syntax only. `Admissible` owns name binding. `Typing` owns semantic constant conversion.
+`Render` owns source bytes and must read the source spelling, not reverse-map the semantic type.
 
 There must be one production elaboration root, one retained index, one compiler occurrence visit per elaboration,
 one type-name fact authority, one expression fact authority, one conversion semantic authority, and one renderer
-path. The specification functions and the later SafeProgram renderer may traverse for their distinct proved jobs;
+path. The specification functions and the later Safe.Program renderer may traverse for their distinct proved jobs;
 they must not become peer production compilers or rebuild compiler facts.
 
 ===============================================================================
@@ -233,10 +233,10 @@ parenthesis nodes, or a parser to make broader names appear live.
 4. ONE SOURCE-NAME FOUNDATION
 ===============================================================================
 
-Add a small source-name module, preferably `GoNames.v`, below `GoAST` and above semantic/compiler modules.
+Add a small source-name module, preferably `Names.v`, below `Syntax` and above semantic/compiler modules.
 Use another name only if the dependency graph requires it.
 
-It must own one intrinsic `IdentifierSyntax` domain. A proof-carrying ASCII subset is approved:
+It must own one intrinsic `Names.Identifier` domain. A proof-carrying ASCII subset is approved:
 
 ```text
 [A-Za-z_][A-Za-z0-9_]*
@@ -250,7 +250,7 @@ Required properties:
 - the first character is ASCII letter or underscore;
 - each later character is ASCII letter, digit, or underscore;
 - keywords cannot inhabit the domain;
-- no unchecked `string` enters `IdentifierSyntax`;
+- no unchecked `string` enters `Names.Identifier`;
 - equality has a proved Boolean reflection;
 - rendering is the stored source text;
 - every rendered identifier is ASCII and valid in the approved bounded domain.
@@ -260,7 +260,7 @@ Non-ASCII Go identifiers remain honestly unrepresentable.
 The same module must define the closed lexical class of the sixteen supported conversion type names. The lexical
 class is source identity only. It must not contain:
 
-- `GoType`;
+- `Typing.SemanticType`;
 - width or signedness;
 - representability bounds;
 - conversion rules;
@@ -268,11 +268,11 @@ class is source identity only. It must not contain:
 - renderer-only semantic tags.
 
 Use one source-spelling authority. Construction, classification, equality, rendering, and proofs must derive from
-one descriptor or one proved inverse pair. Do not repeat sixteen string tables across `GoAST`, `GoCompile`,
-`GoRender`, tests, and diagnostics.
+one descriptor or one proved inverse pair. Do not repeat sixteen string tables across `Syntax`, `Admissible`,
+`Render`, tests, and diagnostics.
 
-The raw type-name value must retain an `IdentifierSyntax`. A proof that it belongs to the approved sixteen-name
-class is allowed. A semantic `IntegerType`, `FloatType`, `ComplexType`, or `GoType` in that raw source value is
+The raw type-name value must retain an `Names.Identifier`. A proof that it belongs to the approved sixteen-name
+class is allowed. A semantic `Integer.Kind`, `Float.Kind`, `Complex.Kind`, or `Typing.SemanticType` in that raw source value is
 not allowed.
 
 Required source constructors or smart constructors must make all sixteen approved names easy to use in fixtures.
@@ -285,11 +285,11 @@ They must not provide a bypass for arbitrary strings.
 Add only the live type syntax:
 
 ```text
-TypeNameSyntax :=
-  TNUnqualified <supported source type identifier>
+Syntax.TypeName :=
+  Syntax.Unqualified <supported source type identifier>
 
-TypeSyntax :=
-  TSName TypeNameSyntax
+Syntax.TypeExpr :=
+  Syntax.NamedType Syntax.TypeName
 ```
 
 Do not add a dead qualified-name constructor. Record the future direction in prose only. A qualified constructor
@@ -298,15 +298,15 @@ may become live only when imports and package-name binding become live.
 Replace:
 
 ```text
-EIntConvert     IntegerType GoExpr
-EFloatConvert   FloatType GoExpr
-EComplexConvert ComplexType GoExpr
+EIntConvert     Integer.Kind Syntax.Expr
+EFloatConvert   Float.Kind Syntax.Expr
+EComplexConvert Complex.Kind Syntax.Expr
 ```
 
 with one constructor:
 
 ```text
-EConvert TypeSyntax GoExpr
+Syntax.Convert Syntax.TypeExpr Syntax.Expr
 ```
 
 Delete the three old constructors in the same implementation. Do not keep:
@@ -323,28 +323,28 @@ witnesses must migrate to the one live constructor.
 The AST must not decide that `byte` means `uint8` or that `rune` means `int32`.
 
 ===============================================================================
-6. OCCURRENCE IDENTITY IN GoIndex
+6. OCCURRENCE IDENTITY IN Index
 ===============================================================================
 
 Add one live type-name occurrence kind and a typed reference, for example:
 
 ```text
-KTypeName
+Index.TypeNameKind
 TypeNameRef
 ```
 
 Do not add unused occurrence kinds for future type forms.
 
-For `EConvert target operand`, the index must expose two children in source order:
+For `Syntax.Convert target operand`, the index must expose two children in source order:
 
-1. the target type-name occurrence with role `RConversionTarget`;
-2. the operand expression occurrence with role `RConversionOperand`.
+1. the target type-name occurrence with role `Index.ConversionTarget`;
+2. the operand expression occurrence with role `Index.ConversionOperand`.
 
-`TypeSyntax` has only `TSName` in C4. Index the live type-name occurrence once. Do not add a redundant wrapper
+`Syntax.TypeExpr` has only `Syntax.NamedType` in C4. Index the live type-name occurrence once. Do not add a redundant wrapper
 occurrence that has no independent source identity or choice. Revisit that shape when a second type-syntax
 constructor becomes live.
 
-Extend the source view with the exact original `TypeNameSyntax`. Keep `NodeMeta` structural. Do not copy a
+Extend the source view with the exact original `Syntax.TypeName`. Keep `Index.Meta` structural. Do not copy a
 resolved type or semantic fact into the index.
 
 Required index facts include:
@@ -365,41 +365,41 @@ walk.
 7. COMPILER-OWNED NAME RESOLUTION
 ===============================================================================
 
-`GoCompile` owns the current predeclared type context and the source-name-to-semantic-type map.
+`Admissible` owns the current predeclared type context and the source-name-to-semantic-type map.
 
 The exact current mapping is:
 
 ```text
-int        -> TInteger IInt
-int8       -> TInteger IInt8
-int16      -> TInteger IInt16
-int32      -> TInteger IInt32
-int64      -> TInteger IInt64
-uint       -> TInteger IUint
-uint8      -> TInteger IUint8
-uint16     -> TInteger IUint16
-uint32     -> TInteger IUint32
-uint64     -> TInteger IUint64
-float32    -> TFloat F32
-float64    -> TFloat F64
-complex64  -> TComplex C64
-complex128 -> TComplex C128
-byte       -> TInteger IUint8
-rune       -> TInteger IInt32
+int        -> Typing.IntegerType Integer.Int
+int8       -> Typing.IntegerType Integer.Int8
+int16      -> Typing.IntegerType Integer.Int16
+int32      -> Typing.IntegerType Integer.Int32
+int64      -> Typing.IntegerType Integer.Int64
+uint       -> Typing.IntegerType Integer.Uint
+uint8      -> Typing.IntegerType Integer.Uint8
+uint16     -> Typing.IntegerType Integer.Uint16
+uint32     -> Typing.IntegerType Integer.Uint32
+uint64     -> Typing.IntegerType Integer.Uint64
+float32    -> Typing.FloatType F32
+float64    -> Typing.FloatType F64
+complex64  -> Typing.ComplexType C64
+complex128 -> Typing.ComplexType C128
+byte       -> Typing.IntegerType Integer.Uint8
+rune       -> Typing.IntegerType Integer.Int32
 ```
 
-This table belongs in compiler binding logic, not `GoAST`, `GoTypes`, or `GoRender`.
+This table belongs in compiler binding logic, not `Syntax`, `Typing`, or `Render`.
 
 The current language has no named declarations or imports, so do not build an empty general scope-stack
 framework. A compact explicit current predeclared context is enough. Its interface must still make the ownership
 clear so later declaration shadowing can replace or extend the lookup rather than rewrite the AST.
 
 Define a resolved result that distinguishes source symbol identity from semantic type. It may retain the closed
-predeclared symbol identity and must expose the resolved `GoType`. `byte` and `uint8` must remain distinct source
+predeclared symbol identity and must expose the resolved `Typing.SemanticType`. `byte` and `uint8` must remain distinct source
 symbols even though their semantic type is equal. The same rule applies to `rune` and `int32`.
 
 Resolution may return an option for future extension, but prove that it succeeds for every C4-live
-`TypeNameSyntax`.
+`Syntax.TypeName`.
 
 Do not copy the source identifier into the resolved fact. The `TypeNameRef` is the source identity and can recover
 its spelling from the retained snapshot.
@@ -408,24 +408,24 @@ its spelling from the retained snapshot.
 8. OCCURRENCE-KEYED TYPE-NAME FACTS
 ===============================================================================
 
-Add one sealed standard-map fact table keyed by the existing `NodeKey`, with a typed public query over
+Add one sealed standard-map fact table keyed by the existing `Index.Key`, with a typed public query over
 `TypeNameRef`, analogous to the current expression-fact table.
 
 A fact must contain the resolved compiler result, not a copy of raw syntax.
 
-Add it to `ElaborationFacts` and retain it in `CompilableProgram` through the existing provenance path.
+Add it to `Compilable.Facts` and retain it in `Compilable.Program` through the existing provenance path.
 
 Required facts and proofs:
 
 - the table domain is exactly the live type-name occurrences;
 - no expression, statement, file, package, or foreign key occurs in the table;
 - every `TypeNameRef` has one exact fact;
-- the fact equals `GoCompile` resolution of that reference's source `TypeNameSyntax` in the current context;
+- the fact equals `Admissible` resolution of that reference's source `Syntax.TypeName` in the current context;
 - the total public query returns the stored table entry and does not recompute resolution;
 - table construction uses the one retained compiler program visit/index and does not recurse over the AST again;
-- the same once-built table supplies failure diagnostics during elaboration and is sealed into `ElaborationFacts`
+- the same once-built table supplies failure diagnostics during elaboration and is sealed into `Compilable.Facts`
   on success; the failure path must not call the resolver again to rebuild equivalent facts;
-- `CompilableProgram` retains the same index and facts returned by the one `elaborate` call.
+- `Compilable.Program` retains the same index and facts returned by the one `elaborate` call.
 
 Do not store a second map from source strings to semantic types in the facts. Do not cache a renderer spelling in
 the facts.
@@ -434,9 +434,9 @@ the facts.
 9. ONE CONVERSION SEMANTIC AUTHORITY
 ===============================================================================
 
-`GoTypes.convert_const` remains the sole target-directed constant-conversion authority.
+`Typing.convert_constant` remains the sole target-directed constant-conversion authority.
 
-It must continue to receive a semantic `GoType` and a source constant status. It must not resolve source names.
+It must continue to receive a semantic `Typing.SemanticType` and a source constant status. It must not resolve source names.
 It must not inspect renderer strings.
 
 Refactor the expression typing path so a conversion node is handled as follows:
@@ -444,25 +444,25 @@ Refactor the expression typing path so a conversion node is handled as follows:
 1. obtain the target `TypeNameRef` from the retained index;
 2. obtain its retained resolved type-name fact;
 3. obtain the already computed operand expression fact;
-4. call `GoTypes.convert_const` once with the resolved semantic target;
+4. call `Typing.convert_constant` once with the resolved semantic target;
 5. store the resulting expression fact or exact invalid-conversion evidence.
 
 The production path must remain bottom-up and occurrence-indexed. Do not recursively recompute an operand's
 constant status from the raw subtree after its fact exists.
 
-The current context-free `GoTypes.const_info` and `const_info_step` pattern-match semantic target tags in the old
+The current context-free `Typing.constant_info` and `Typing.constant_info_step` pattern-match semantic target tags in the old
 AST. That shape cannot remain as a hidden peer authority.
 
 Use one coherent arrangement:
 
-- keep literal and target-directed semantic steps in `GoTypes`;
+- keep literal and target-directed semantic steps in `Typing`;
 - parameterize any index-free specification by a resolver, or move the source-name-aware specification to
-  `GoCompile`;
-- keep the production occurrence pass in `GoCompile` and prove it exact against the declarative/index-free
+  `Admissible`;
+- keep the production occurrence pass in `Admissible` and prove it exact against the declarative/index-free
   specification;
-- do not put a private source-name-to-`GoType` table in `GoTypes` to avoid the refactor.
+- do not put a private source-name-to-`Typing.SemanticType` table in `Typing` to avoid the refactor.
 
-`ProgramTyped`, `program_typedb`, `SourceProgramValid`, diagnostics, and the production elaboration must all use
+`Typing.Program`, `program_typedb`, `SourceProgramValid`, diagnostics, and the production elaboration must all use
 the same approved resolver and conversion step. A specification helper may exist only with an exact theorem to
 the production facts. It is not a second public compiler or capability path.
 
@@ -485,10 +485,10 @@ Do not replace proofs with test matrices or bounded evaluation claims.
 
 Every C4-live type name resolves by construction. Therefore C4 has no unresolved-type-name diagnostic.
 
-Do not create a fake unresolved-name diagnostic whose source syntax cannot inhabit `GoProgram`.
+Do not create a fake unresolved-name diagnostic whose source syntax cannot inhabit `Syntax.Program`.
 
 Unknown, qualified, user-defined, and unsupported predeclared target names remain unrepresentable. A later
-checkpoint may widen `TypeNameSyntax` and add exact binding failures when the language has enough scope and call
+checkpoint may widen `Syntax.TypeName` and add exact binding failures when the language has enough scope and call
 syntax to classify them honestly.
 
 Invalid conversions remain represented and rejected. Update the structured invalid-conversion reason so it
@@ -519,14 +519,14 @@ Do not add a second diagnostic traversal or reconstruct type-name facts while er
 11. RENDERING AND SOURCE/SEMANTIC IDENTITY
 ===============================================================================
 
-Render a conversion from its raw `TypeSyntax`:
+Render a conversion from its raw `Syntax.TypeExpr`:
 
 ```text
-render_type_syntax target ++ "(" ++ render_expr operand ++ ")"
+Render.type_expr target ++ "(" ++ Render.expr operand ++ ")"
 ```
 
-`render_type_name` must read the retained source `IdentifierSyntax`. It must not select a keyword from the
-resolved `GoType`.
+`render_type_name` must read the retained source `Names.Identifier`. It must not select a keyword from the
+resolved `Typing.SemanticType`.
 
 Delete the old renderer branches that use:
 
@@ -545,26 +545,26 @@ Required representative theorems:
 ```text
 source name byte  <> source name uint8
 render byte       <> render uint8
-resolve byte      = TInteger IUint8
-resolve uint8     = TInteger IUint8
+resolve byte      = Typing.IntegerType Integer.Uint8
+resolve uint8     = Typing.IntegerType Integer.Uint8
 
 source name rune  <> source name int32
 render rune       <> render int32
-resolve rune      = TInteger IInt32
-resolve int32     = TInteger IInt32
+resolve rune      = Typing.IntegerType Integer.Int32
+resolve int32     = Typing.IntegerType Integer.Int32
 ```
 
 Also prove the conversion rendering/denotation theorem for all sixteen live names and all expressions whose
 constant status succeeds.
 
-The public `render_program`/materialization path must still require the existing `SafeProgram` and consume the
+The public `Emit.of_safe`/materialization path must still require the existing `Safe.Program` and consume the
 same retained compilation facts/provenance. Do not add a raw-program renderer or emitter capability.
 
 ===============================================================================
 12. REQUIRED TESTS AND DIFFERENTIALS
 ===============================================================================
 
-Migrate every existing conversion fixture to `EConvert` and keep its result.
+Migrate every existing conversion fixture to `Syntax.Convert` and keep its result.
 
 Add focused Rocq examples for all sixteen names. At minimum cover:
 
@@ -623,7 +623,7 @@ by the current regeneration guard.
 After implementation:
 
 - all pre-existing generated `go.mod` and `.go` bytes must be byte-identical;
-- `make regenerate` must use the same proved `SafeProgram` path;
+- `make regenerate` must use the same proved `Safe.Program` path;
 - `make regen-guard` must pass;
 - no generated file may gain a C4-only alias fixture unless the existing public artifact already calls for it;
 - no plugin, OCaml, shell, Docker, or sink code may implement type resolution or conversion semantics.
@@ -666,7 +666,7 @@ The C4 Implementation Review will assess these material claims:
 
 2. **Compiler-owned binding**
    - raw syntax contains no semantic target tag;
-   - `GoCompile` alone resolves current source type names through the current predeclared context;
+   - `Admissible` alone resolves current source type names through the current predeclared context;
    - `byte`/`rune` retain source identity and resolve to `uint8`/`int32` semantics.
 
 3. **One indexed semantic path**
@@ -675,7 +675,7 @@ The C4 Implementation Review will assess these material claims:
    - one `elaborate` result mints the only compilation capability.
 
 4. **One conversion authority**
-   - all explicit constant conversions route through `GoTypes.convert_const`;
+   - all explicit constant conversions route through `Typing.convert_constant`;
    - all old family-specific source constructors and peer paths are deleted;
    - success and failure remain exact.
 
@@ -694,7 +694,7 @@ The C4 Implementation Review will assess these material claims:
 
 Any of these blocks C4:
 
-- a semantic integer/float/complex/`GoType` tag remains in raw conversion syntax;
+- a semantic integer/float/complex/`Typing.SemanticType` tag remains in raw conversion syntax;
 - the old and new conversion constructors coexist;
 - arbitrary or qualified type names become representable without exact call/scope semantics;
 - `bool`, `string`, `uintptr`, interface names, or user types become representable but valid Go cases are rejected;
@@ -703,11 +703,11 @@ Any of these blocks C4:
 - diagnostics lose `byte`/`rune` spelling;
 - type-name facts copy syntax, accept foreign keys, omit live refs, or recompute on query;
 - expression facts recursively recompute an already indexed operand;
-- `GoTypes` hides a second source-name resolver;
+- `Typing` hides a second source-name resolver;
 - a specification helper becomes a peer production compiler;
 - a second AST walk, type side index, parser, sort, custom map, or copied tree is added;
 - exact soundness/completeness is replaced by examples, bounds, or fuel;
-- a rejected program can mint `CompilableProgram`, `SafeProgram`, or `DirectoryImage`;
+- a rejected program can mint `Compilable.Program`, `Safe.Program`, or `Emit.Image`;
 - existing generated source bytes drift;
 - any C5 rune-literal or `uintptr` work enters the checkpoint;
 - current permanent documents preserve conflicting C4/C5 authority.
@@ -728,7 +728,7 @@ The final report and repository must provide:
 - the exact production expression-fact theorem against the declarative source semantics;
 - invalid-conversion diagnostic soundness, completeness, multiplicity, ordering, and anchor proofs;
 - renderer/denotation proofs over source type names;
-- evidence that the public renderer/materializer still consumes only `SafeProgram` from the one retained
+- evidence that the public renderer/materializer still consumes only `Safe.Program` from the one retained
   elaboration;
 - full pinned-Go differential results;
 - zero project assumptions and the updated readable assumption gate;
@@ -770,10 +770,10 @@ After the authority commit:
 1. Record pre-change generated-source hashes/bytes and the baseline gate count.
 2. Add the intrinsic source-name foundation and its proofs.
 3. Add the raw type syntax and replace all conversion constructors.
-4. Extend `GoIndex` with exact type-name occurrence identity.
+4. Extend `Index` with exact type-name occurrence identity.
 5. Add compiler resolution and the sealed type-name fact table.
 6. Refactor expression semantics so production consumes retained target and operand facts and calls
-   `GoTypes.convert_const` once.
+   `Typing.convert_constant` once.
 7. Update exact source validity, diagnostics, capability provenance, and all related proofs.
 8. Update rendering and independent denotation proofs from source type syntax.
 9. Migrate fixtures and e2e witnesses; add focused alias scars and pinned-Go differentials.

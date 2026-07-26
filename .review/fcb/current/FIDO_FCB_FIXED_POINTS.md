@@ -127,7 +127,7 @@ Review Index. No component silently points at a repository path that does not ex
 | ARCH-01 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 1. Standard`` | `normalized-section-text` |
 | ARCH-02 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 2. Permanent Public Semantic Base`` | `normalized-section-text` |
 | ARCH-03 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 3. Complete Authority Chain`` | `normalized-section-text` |
-| ARCH-03 | static-capability-provenance | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 4. \`CompilableProgram\` Is the Static Capability`` | `normalized-section-text` |
+| ARCH-03 | static-capability-provenance | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 4. \`Compilable.Program\` Is the Static Capability`` | `normalized-section-text` |
 | ARCH-04 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 5. Facts Depend on Exact Source Roles`` | `normalized-section-text` |
 | ARCH-05 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 6. One Type Algebra`` | `normalized-section-text` |
 | ARCH-06 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 11. Static Bindings and Dynamic Cells Are Different`` | `normalized-section-text` |

@@ -46,24 +46,24 @@ any kind may be added without creating and reporting a new freeze head.
 
 **A proof project whose vertical slice is proved AND executed.** An untrusted proposer (an LLM) may write a
 raw Go program and arbitrary supporting lemmas; **no Go is emitted unless Rocq first proves the whole program
-compile-admissible and safe.** There is **one** program representation — the AST *is* the IR; a `GoProgram` is
-a `ModuleSpec` (module path + Go version) paired with a possibly-EMPTY `GoFileMap` (a pinned-stdlib
-`FilePath`-keyed `FMapAVL` of source-file roots; the PATH is the map KEY). "Compiled" and "safe" are
+compile-admissible and safe.** There is **one** program representation — the AST *is* the IR; a `Syntax.Program` is
+a `ModuleSpec` (module path + Go version) paired with a possibly-EMPTY `Syntax.Files` (a pinned-stdlib
+`FilePath.T`-keyed `FMapAVL` of source-file roots; the PATH is the map KEY). "Compiled" and "safe" are
 PROOFS/EVIDENCE over that one program, never new trees. The certified pipeline:
 
 ```
-GoProgram -> GoTypes (evidence, ONE type authority) -> GoCompile (whole-program admissibility = the pinned
-  one-shot `go build ./...` acceptance) -> GoSafe -> GoRender -> DirectoryImage -> `Fido Materialize` writes
+Syntax.Program -> Typing (evidence, ONE type authority) -> Admissible (whole-program admissibility = the pinned
+  one-shot `go build ./...` acceptance) -> Property -> Render -> Emit.Image -> `Fido Materialize` writes
   the authoritative pristine image -> pinned Go `go build ./...` VALIDATES it -> ONLY THEN the internal
   `make regenerate` sink publishes the SAME validated bytes   [integration only]
 ```
 
 **The admitted fragment is small and grows only by proof.** Files group by directory into `package main`
-packages; each source file is a source-owned `package main` clause + empty imports + `DMain` (a `func main()`);
-statements are `SPrintln` over primitive literals: bool, the ten integer types, float32/64, complex64/128, exact
-strings, and ONE source-shaped explicit conversion `EConvert TypeSyntax GoExpr`. A conversion names a SOURCE
+packages; each source file is a source-owned `package main` clause + empty imports + `Syntax.Main` (a `func main()`);
+statements are `Syntax.Println` over primitive literals: bool, the ten integer types, float32/64, complex64/128, exact
+strings, and ONE source-shaped explicit conversion `Syntax.Convert Syntax.TypeExpr Syntax.Expr`. A conversion names a SOURCE
 type — the closed sixteen-name lexical class (the fourteen numeric names plus the `byte`→uint8 and `rune`→int32
-SOURCE ALIASES) — which `GoCompile`'s predeclared context resolves to a semantic `GoType`; `byte`/`rune` render
+SOURCE ALIASES) — which `Admissible`'s predeclared context resolves to a semantic `Typing.SemanticType`; `byte`/`rune` render
 their own spelling but resolve to `uint8`/`int32`. Each literal is an exact UNTYPED constant; a conversion is a
 TYPED constant at the resolved target. Anything else — other decls, calls, params, non-empty imports, non-`main`
 packages, `bool`/`string`/`uintptr`/`any`/`error`/`comparable`/unknown/qualified conversion targets, strange
@@ -91,16 +91,16 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 - Expressiveness expands by proof principles, never by lists of examples.
 - Integration checks (the pinned-Go `go build ./...` e2e) catch regressions; they never certify
   semantics/safety/adequacy. **A Go build/run failure for an emitted program is never an expected test** —
-  it means GoCompile, rendering, the derived facts, or the transport is wrong. Negative candidates fail IN
+  it means Admissible, rendering, the derived facts, or the transport is wrong. Negative candidates fail IN
   Rocq, before any bytes.
 - Public correctness claims must be backed by zero-axiom theorem surfaces. Axiom-free ≠ correct — always
   check the theorem's STATEMENT is the right one (a functional-lookup lemma is not proof of key uniqueness).
-- **`GoCompile` is EXACT whole-PROGRAM compiler admissibility, not a subset filter.** It consumes the whole
+- **`Admissible` is EXACT whole-PROGRAM compiler admissibility, not a subset filter.** It consumes the whole
   finite map; it aims to accept exactly what `go build ./...` accepts for every representable rendered
   program. Keep two claims distinct: (A) the checker matches the formal judgment is PROVED
-  (`go_compile_ok_valid` + `go_compile_complete`, sound + complete; `elaborate_ok_iff_GoCompile`); (B)
+  (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, sound + complete; `elaborate_ok_iff_GoCompile`); (B)
   accepted programs are accepted by real Go is the GOAL, attacked by DIFFERENTIAL experiments and the e2e,
-  never a kernel theorem about `cmd/go`. A representable program Go accepts but GoCompile rejects is a MODEL
+  never a kernel theorem about `cmd/go`. A representable program Go accepts but Admissible rejects is a MODEL
   BUG, never a documented limitation.
 - **No second authority / no second tree:** paths, syntax, admissibility, safety, rendering, and emission
   each have exactly one authoritative definition over the ONE program. Never a copied compiled AST, a raw
@@ -110,12 +110,12 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 
 1. **Handwritten OCaml is the transport boundary — it understands filesystems/transport, not programs.**
    All semantic work — paths, compile, safety, rendering (incl. the go.mod), and the final image — is proved
-   Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/g_fido.mlg` (the bridge — guards provenance
+   Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/materialize.mlg` (the bridge — guards provenance
    ONCE by two kernel queries, typechecking the image type and rejecting a non-empty assumption closure, then
    decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport via exact constructors, fail-loud, and
    hands it to `Fido Materialize`, the SOLE Rocq transport command; there is NO public `Fido Emit`, and the
-   sink publication `Fido_sink.sync` is INTERNAL, reached only from `fido_apply`/`sink_test`) and
-   `plugin/fido_sink.ml` + `e2e/sink_test.ml` + `e2e/fido_apply.ml` (the pristine materializer + the generic
+   sink publication `Sink.sync` is INTERNAL, reached only from `apply`/`sink_test`) and
+   `plugin/sink.ml` + `e2e/sink_test.ml` + `e2e/apply.ml` (the pristine materializer + the generic
    dirty-directory sink, its test driver, and the tiny `make regenerate` apply adapter — filesystem ONLY, walk
    no Rocq terms; `materialize` writes the decoded image into a FRESH disposable build-validation root, never a
    user dir; the sink REJECTS foreign Go/module inputs and nested `.fido`, stages into RESERVED sibling temps
@@ -142,16 +142,16 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
    `generated-module` Buildx layer by `make check` on the WORKING TREE AND the pre-commit hook on the STAGED
    snapshot (the SAME shared compare, each vs a pristine built from those same inputs); `make regenerate`
-   rewrites them through the SAME `Fido_sink`. The emit step (`Fido Materialize` on the witnesses) is an
+   rewrites them through the SAME `Sink`. The emit step (`Fido Materialize` on the witnesses) is an
    EXPLICIT always-run step after the cached theory/plugin build, never a `.vo` side effect. The header is
-   Rocq's bytes (`GoRender.header`), proved the exact first line; the sink recognizes it as an ownership marker
+   Rocq's bytes (`Render.header`), proved the exact first line; the sink recognizes it as an ownership marker
    but adds/alters no bytes. Nested `go.mod`, tracked `.fido`/temp, and non-Fido-headed tracked Go are forbidden
    by `tools/generated-output-gate.sh`.
 3. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** Unrepresentable ⇒ absent from the
    AST (or rejected in Rocq). ⚠ NEVER a raw/opaque/string-rescue escape hatch (`PAINFUL_LESSONS.md`).
 4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** `Definition`s /
    `Record`s / `Inductive`s over concrete data. Never `Axiom`/`Parameter`/`Admitted`, a kernel primitive, or
-   `FunctionalExtensionality`. `make prove` asserts the public surfaces axiom-free via `gate/axiom_gate.v` (the
+   `FunctionalExtensionality`. `make prove` asserts the public surfaces axiom-free via `gate/Assumptions.v` (the
    sole `Print Assumptions` target, compiled fresh + count-checked) PLUS the Rocq-native `Fido Audit
    Assumptions` command — a WHOLE-CERTIFIED-THEORY assumption-closure audit seeded from every Fido CONSTANT
    **and every Fido mutual INDUCTIVE (via `IndRef`) and every surviving named assumption**, computing the union
@@ -164,40 +164,40 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    non-empty. Tracked axiom-bearing fixtures are FORBIDDEN — negatives are generated transiently. NO
    source-text axiom scanner.
 5. **No fuel, ever.** Totality comes from decreasing structure.
-6. **SafeProgram is the permanent safety boundary.** `GoSafe cp := True` is honest TODAY (the fragment has
+6. **Safe.Program is the permanent safety boundary.** `Property cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
    unused panic/control placeholder.
-7. **Naming is a correctness claim.** `GoSafe` uses REAL Go values (`VInteger` carrying the exact value at its
-   exact type; `VFloat` a proof-carrying canonical `spec_float` at its format; `VComplex` a PAIR of general
-   `FloatValue` components — so a RUNTIME complex MAY carry -0/inf/NaN though a typed complex CONSTANT cannot;
-   `VString` exact bytes). `EInt 0` and `ENeg 0` evaluate equal; every runtime integer value is
-   range-well-formed (`ValueWF`; a float's/complex's canonicality lives in `FloatValue`); values carry the SAME
-   `GoType` (`value_type`). Evaluation is DERIVED from the one constant-status analysis (`const_info` →
-   `resolve_const_info` → `typed_const_to_value`) and is PARTIAL (a compiler-invalid conversion has no value —
-   never a wrap; a typed float PROJECTS its stored canonical `tfc_runtime`, rounded ONCE at conversion and never
-   re-rounded). `render_const_info_denotes` / `render_resolved_expr_denotes` tie the rendered spelling to the
-   analyzed `ConstInfo`, value, and type. Every admitted primitive has its complete type/value/render/syntax
+7. **Naming is a correctness claim.** `Property` uses REAL Go values (`Safe.IntegerValue` carrying the exact value at its
+   exact type; `Safe.FloatValue` a proof-carrying canonical `spec_float` at its format; `Safe.ComplexValue` a PAIR of general
+   `Float.Value` components — so a RUNTIME complex MAY carry -0/inf/NaN though a typed complex CONSTANT cannot;
+   `Safe.StringValue` exact bytes). `Syntax.IntegerLiteral 0` and `Syntax.NegatedIntegerLiteral 0` evaluate equal; every runtime integer value is
+   range-well-formed (`Safe.ValueWellFormed`; a float's/complex's canonicality lives in `Float.Value`); values carry the SAME
+   `Typing.SemanticType` (`value_type`). Evaluation is DERIVED from the one constant-status analysis (`Typing.constant_info` →
+   `Typing.resolve_constant_info` → `Safe.typed_constant_to_value`) and is PARTIAL (a compiler-invalid conversion has no value —
+   never a wrap; a typed float PROJECTS its stored canonical `Float.runtime`, rounded ONCE at conversion and never
+   re-rounded). `Render.const_info_denotes` / `Render.resolved_expr_denotes` tie the rendered spelling to the
+   analyzed `Typing.ConstantInfo`, value, and type. Every admitted primitive has its complete type/value/render/syntax
    proofs NOW.
-8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM STANDARD FilePath MAP of source files; integer width,
+8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM STANDARD FilePath.T MAP of source files; integer width,
    float format, complex format, AND the type universe each have one authority.** The map KEY is the path (raw
-   strings are NOT paths), so a duplicate path is unrepresentable by construction and `filemap_of_nodes` is
-   sound + complete + exact (no silent overwrite). `GoFileNode` is a construction/view, NOT the stored value;
+   strings are NOT paths), so a duplicate path is unrepresentable by construction and `Syntax.files_of_nodes` is
+   sound + complete + exact (no silent overwrite). `Syntax.FileNode` is a construction/view, NOT the stored value;
    semantic file-map equality is standard map `Equal`; enumerations are CANONICAL derived lists. Files group by
    directory into packages via a one-pass `PackageMap` aggregation (no O(files²) scan); the package clause is
    SOURCE-owned, entry point is a compilation result. `ModuleSpec` describes the GENERATED module, NOT the
-   environment — it is NOT a `TargetConfig`. The one integer authority is `Ints` (the ten-member `IntegerType`;
-   `int`/`uint` pinned 64-bit, distinct from `int64`/`uint64`), the one float authority is `Floats` (F32/F64),
-   the one complex authority is `Complexes` (C64/C128, all format via the ONE `complex_component_type` mapping),
-   and the one type authority is `GoTypes` (each type landed together with its syntax + value + rendering +
+   environment — it is NOT a `TargetConfig`. The one integer authority is `Integer` (the ten-member `Integer.Kind`;
+   `int`/`uint` pinned 64-bit, distinct from `int64`/`uint64`), the one float authority is `Float` (F32/F64),
+   the one complex authority is `Complex` (C64/C128, all format via the ONE `Complex.component_kind` mapping),
+   and the one type authority is `Typing` (each type landed together with its syntax + value + rendering +
    proofs, never ahead of it). There is NO `TargetConfig`, no second width/type authority, no per-width runtime
    record family, no `GoTypeTag`, no `unknown`/`opaque`/`raw` type ahead of its syntax, and no typed AST beside
-   the one raw `GoAST`. A conversion's SOURCE type name is a `TypeSyntax` (source identity: the `GoNames` closed
-   sixteen-name lexical class carrying a retained `IdentifierSyntax` + a classify-match proof) — the ONE source-
-   name authority; the SOURCE name never decides its semantic type. `GoCompile`'s predeclared context is the ONE
-   source-name→`GoType` resolver (`byte`→`uint8`, `rune`→`int32`), kept as sealed occurrence-keyed type-name
-   FACTS (the resolved `GoType` only, keyed by `NodeKey`, retained in `ElaborationFacts`/`CompilableProgram`);
+   the one raw `Syntax`. A conversion's SOURCE type name is a `Syntax.TypeExpr` (source identity: the `Names` closed
+   sixteen-name lexical class carrying a retained `Names.Identifier` + a classify-match proof) — the ONE source-
+   name authority; the SOURCE name never decides its semantic type. `Admissible`'s predeclared context is the ONE
+   source-name→`Typing.SemanticType` resolver (`byte`→`uint8`, `rune`→`int32`), kept as sealed occurrence-keyed type-name
+   FACTS (the resolved `Typing.SemanticType` only, keyed by `Index.Key`, retained in `Compilable.Facts`/`Compilable.Program`);
    `byte`/`uint8` (and `rune`/`int32`) are DISTINCT source syntax with EQUAL semantic facts. No source-name→
-   `GoType` table lives in `GoAST`, `GoTypes`, or `GoRender`; no `TByte`/`TRune`/`IByte`/`IRune`/`uintptr`.
+   `Typing.SemanticType` table lives in `Syntax`, `Typing`, or `Render`; no `TByte`/`TRune`/`IByte`/`IRune`/`uintptr`.
 9. **Closed world; imports on hold.** No import syntax is representable. When imports arrive, every import
    must resolve to an owned package in the SAME program or reject the whole program — no stdlib / cache /
    network / vendor / workspace / ambient escape. Adding imports needs explicit sign-off.
@@ -218,19 +218,19 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
    `match build … with Some c => c | None => empty` (unless the semantics explicitly define failure as empty,
    which no Fido builder does). If NO standard collection fits: document the exact mismatch + the alternatives
    considered, report an ARCHITECTURAL CONFLICT, notify Rob, and STOP — never autonomously implement a
-   collection. (`NodeTable` is acceptable ONLY because it delegates its type + operations to `FMapPositive` with
+   collection. (`Table` is acceptable ONLY because it delegates its type + operations to `FMapPositive` with
    no Fido-authored storage.) OCaml identity/membership collections likewise use `Map.Make`/`Set.Make` /
    `Names.GlobRef.Set`, never a raw `List.mem`/`::` authority.
 
 ## The layers
 
 One authority per layer, over the ONE program:
-`FilePath` · `Collections` (the ONE standard-collection foundation) · `Ints` · `Floats` · `Complexes` ·
-`ModulePath` · `GoVersion` · `GoNames` (the ONE source type-name class — the closed sixteen-name lexical
-authority) · `GoAST` · `GoIndex` (structural occurrence identity + navigation) · `GoTypes`
-(the ONE type authority, evidence over the raw AST) · `GoCompile` (whole-program admissibility + the ONE
-source-name→`GoType` predeclared resolver) · `GoSafe` ·
-`GoRender` · `GoEmit` · the OCaml transport (`g_fido.mlg` / `fido_sink.ml`). The full responsibility of each
+`FilePath.T` · `Collections` (the ONE standard-collection foundation) · `Integer` · `Float` · `Complex` ·
+`ModulePath.T` · `Version` · `Names` (the ONE source type-name class — the closed sixteen-name lexical
+authority) · `Syntax` · `Index` (structural occurrence identity + navigation) · `Typing`
+(the ONE type authority, evidence over the raw AST) · `Admissible` (whole-program admissibility + the ONE
+source-name→`Typing.SemanticType` predeclared resolver) · `Property` ·
+`Render` · `Emit` · the OCaml transport (`materialize.mlg` / `sink.ml`). The full responsibility of each
 layer — its definitions, invariants, and theorem surfaces — is the binding charter in **`ARCHITECTURE.md`**;
 do not restate it here.
 
@@ -275,7 +275,7 @@ pristine built from the SAME inputs — since `.dockerignore` hides the committe
 ONLY check that catches a header-preserving edit to a tracked `.go`). The pre-commit hook runs the SAME shared
 compare over the STAGED snapshot instead.
 
-- **`make prove`** — the COMPLETE proof gate: `dune build` + `gate/axiom_gate.v` axiom-free count-checked +
+- **`make prove`** — the COMPLETE proof gate: `dune build` + `gate/Assumptions.v` axiom-free count-checked +
   certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` + adversarial self-tests A-E.
 - **`make e2e`** — Dune-cached theory+plugin; EXPLICIT `Fido Materialize` writes each pristine tree (witness,
   multi-package, EMPTY module); the provenance boundary is exercised (a forged raw transport and
@@ -290,7 +290,7 @@ make check       # gates + pinned-Rocq proof + pinned-Go whole-tree e2e + workin
 make prove       # the COMPLETE proof gate
 make emit        # theory+plugin build + Fido Materialize witness/multi/empty pristine + provenance + sink tests
 make e2e         # emit + pristine generated-module + go build ./... + empty + differential + witness vs goldens
-make regenerate  # rebuild + apply the pristine canonical module into the repo via Fido_sink (then git add + commit)
+make regenerate  # rebuild + apply the pristine canonical module into the repo via Sink (then git add + commit)
 make prover-log  # stream the plain Rocq log
 make install-hooks
 ```
@@ -318,28 +318,28 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
 
 ## Files
 
-- **Certified theory** (`dune`): `digits.v`, `Ints.v`, `Floats.v`, `Complexes.v`, `FilePath.v`,
+- **Certified theory** (`dune`): `Decimal.v`, `Integer.v`, `Float.v`, `Complex.v`, `FilePath.v`,
   `Collections.v` (the ONE standard-collection foundation — pinned `FMapAVL`/`FMapPositive` wrappers; there is
-  NO project-authored `FMap.v`), `ModulePath.v`, `GoVersion.v`, `GoNames.v` (the source type-name foundation —
-  the proof-carrying `IdentifierSyntax` domain + the closed sixteen-name `TypeName`/`SupportedTypeName` class
-  with `tn_spelling`/`classify` inverse and the `byte`/`uint8` + `rune`/`int32` source-distinctness), `GoAST.v`,
-  `GoIndex.v`, `GoTypes.v`, `GoCompile.v`, `GoSafe.v`, `GoRender.v`, `GoEmit.v`. `GoIndex.v` is the production
-  occurrence-index / structural authority, between `GoAST` and `GoTypes`; it imports ONLY
-  `GoAST`/`Collections`/`FilePath` (it knows no semantic type, compiler acceptance, rendering, or diagnostics)
-  and is CONSUMED by `GoCompile`'s `elaborate` as the ONE indexed whole-program pass. Every generated byte is
-  UNCHANGED by `GoIndex`. Full responsibilities: `ARCHITECTURE.md`.
-- `plugin/g_fido.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit;
-  `plugin/fido_sink.ml` — the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library.
+  NO project-authored `FMap.v`), `ModulePath.v`, `Version.v`, `Names.v` (the source type-name foundation —
+  the proof-carrying `Names.Identifier` domain + the closed sixteen-name `TypeName`/`Names.SupportedType` class
+  with `Names.type_name_spelling`/`classify` inverse and the `byte`/`uint8` + `rune`/`int32` source-distinctness), `Syntax.v`,
+  `Index.v`, `Typing.v`, `Compilable.v`, `Safe.v`, `Render.v`, `Emit.v`. `Index.v` is the production
+  occurrence-index / structural authority, between `Syntax` and `Typing`; it imports ONLY
+  `Syntax`/`Collections`/`FilePath.T` (it knows no semantic type, compiler acceptance, rendering, or diagnostics)
+  and is CONSUMED by `Admissible`'s `elaborate` as the ONE indexed whole-program pass. Every generated byte is
+  UNCHANGED by `Index`. Full responsibilities: `ARCHITECTURE.md`.
+- `plugin/materialize.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit;
+  `plugin/sink.ml` — the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library.
   `e2e/Witness.v` — the witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` —
   the multi-package differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessBytes.v` — the
   boundary-byte string witness (DISPOSABLE); `e2e/WitnessAlias.v` — the `byte`/`rune` source-alias pinned-Go
   differential (DISPOSABLE — `byte(255)`/`rune(65)` accepted by Go, never the canonical image); `e2e/WitnessNeg.v`
   — the raw-transport rejection fixture (forged-image provenance fixtures are GENERATED TRANSIENTLY — no tracked
-  axioms); `e2e/sink_test.ml` — the sink driver; `e2e/fido_apply.ml` — the filesystem-only `make regenerate`
+  axioms); `e2e/sink_test.ml` — the sink driver; `e2e/apply.ml` — the filesystem-only `make regenerate`
   apply adapter; `e2e/golden.*` — reviewed goldens.
 - **Tracked canonical generated module**: `go.mod` + `main.go` at the repo root (Fido-headed; verified
   byte-exact against the pristine `generated-module` Buildx layer by `make check` and the pre-commit hook).
-- `gate/axiom_gate.v` — the `Print Assumptions` target. `tools/ocaml-origin-gate.sh` — the transport-only OCaml
+- `gate/Assumptions.v` — the `Print Assumptions` target. `tools/ocaml-origin-gate.sh` — the transport-only OCaml
   origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate;
   `tools/generated-mode-gate.sh` — the index-authoritative exact-mode gate (hook only);
   `tools/staged-generated-compare.sh` — the SHARED byte/path compare (working tree for `make check`, exported

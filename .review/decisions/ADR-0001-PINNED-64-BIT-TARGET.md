@@ -20,7 +20,7 @@ one OS and one architecture, not a portability class.
 ### 1. Semantic language / constant assumption
 
 - Go language version **1.23**.
-- In `Ints`, `int` and `uint` have **64-bit** ranges.
+- In `Integer`, `int` and `uint` have **64-bit** ranges.
 - `int` remains **type-distinct** from `int64`.
 - `uint` remains **type-distinct** from `uint64`.
 
@@ -34,7 +34,7 @@ These are semantic facts of the modelled language at the pinned version — `int
 - The digest-pinned `golang:1.23-alpine` image.
 - Rendered `go.mod` language version `1.23`.
 
-This is the single target against which `GoCompile == go build` is differentially exercised.
+This is the single target against which `Admissible == go build` is differentially exercised.
 
 ### 3. Claims NOT made
 
@@ -50,7 +50,7 @@ This is the single target against which `GoCompile == go build` is differentiall
 
 ### Why one exact deployment/validation target now
 
-The core project claim is `GoCompile == go build ./...` as an EXACT, differentially-tested property. "Exact"
+The core project claim is `Admissible == go build ./...` as an EXACT, differentially-tested property. "Exact"
 is only meaningful against a specific toolchain: acceptance, integer-range diagnostics, and rendered `go.mod`
 semantics are all pinned to one `cmd/go`. One target makes that claim reproducible and falsifiable; a family
 of targets would either dilute the claim to a lowest common denominator or multiply the differential surface
@@ -68,8 +68,8 @@ parameter. It is a deferred generalization, not a repair of something skipped.
 
 ### Why target-parametric int/uint would add a real cross-cutting abstraction now
 
-Making `int`/`uint` width a parameter means threading a target descriptor through `Ints`, every
-`ConstInfo`/`convert_const` step, every `VInteger` value, `ValueWF`, and every render/denotation proof — a
+Making `int`/`uint` width a parameter means threading a target descriptor through `Integer`, every
+`Typing.ConstantInfo`/`Typing.convert_constant` step, every `Safe.IntegerValue` value, `Safe.ValueWellFormed`, and every render/denotation proof — a
 descriptor that would appear in dozens of statements. Today its only consumer would be a portability claim Fido
 does not make — but note this is time-boxed: **C5 introduces `uintptr`, whose width IS target-dependent**, so
 C5 is a near-term consumer of a target model (see the reconsideration triggers). The pin avoids paying the
@@ -78,7 +78,7 @@ pinned to 64 under linux/amd64 or a target descriptor lands first.
 
 ### Which current definitions / proofs / tests depend on 64-bit int/uint
 
-- **Definitions:** `Ints.v` — the ten-member `IntegerType` with `int`/`uint` fixed at the 64-bit
+- **Definitions:** `Integer.v` — the ten-member `Integer.Kind` with `int`/`uint` fixed at the 64-bit
   min/max ranges, kept type-distinct from `int64`/`uint64`.
 - **Proofs:** the integer range-well-formedness and conversion/denotation theorems over those ranges; the
   render/decoder round-trips for `int`/`uint` literals and conversions.
@@ -108,20 +108,20 @@ pinned to 64 under linux/amd64 or a target descriptor lands first.
 
 ### Why the chosen option is presently better
 
-It yields an exact, reproducible, falsifiable `GoCompile == go build` adequacy TARGET and concrete,
+It yields an exact, reproducible, falsifiable `Admissible == go build` adequacy TARGET and concrete,
 fully-proven `int`/`uint` semantics, with zero premature abstraction — while leaving every widening path open
 as a future step (which may require reproving, not necessarily additive) under its own review.
 
-**`GoCompile == go build` is an external ADEQUACY TARGET, not a Rocq theorem.** It is a goal about the pinned
+**`Admissible == go build` is an external ADEQUACY TARGET, not a Rocq theorem.** It is a goal about the pinned
 real toolchain, supported by DIFFERENTIAL evidence (the e2e over `golang:1.23-alpine` + accept/reject
 fixtures), attacked empirically — NOT a kernel-proved property of `cmd/go`. The kernel theorems are about the
-formal judgment (`go_compile_ok_valid`, completeness); adequacy to the real compiler is evidence-backed. This
+formal judgment (`Compilable.compile_ok_valid`, completeness); adequacy to the real compiler is evidence-backed. This
 distinction is load-bearing: the pin makes the differential exact against ONE toolchain, but it never turns the
 adequacy target into a theorem.
 
 ## Enforcement
 
-- **`Ints` definitions/theorems:** `int`/`uint` = 64-bit ranges, distinct from `int64`/`uint64`.
+- **`Integer` definitions/theorems:** `int`/`uint` = 64-bit ranges, distinct from `int64`/`uint64`.
 - **Makefile sealed platform:** the header pins the build platform to linux/amd64 as the 64-bit target the
   theory assumes (an operational pin, explicitly NOT a certified `TargetConfig`).
 - **Docker GOOS/GOARCH environment and checks:** the go-e2e stage exports `GOOS=linux GOARCH=amd64` and then
@@ -135,7 +135,7 @@ adequacy target into a theorem.
 
 None known. The Makefile/`ARCHITECTURE.md` prose describes the pin as an operational restriction (not a
 certified `TargetConfig`), and the Dockerfile actually asserts `GOOS`/`GOARCH` and pins the image digest — the
-enforcement matches the stated claim. `int`/`uint` widths are enforced in `Ints` itself, not only in prose.
+enforcement matches the stated claim. `int`/`uint` widths are enforced in `Integer` itself, not only in prose.
 If a future edit relaxes the Docker `GOOS`/`GOARCH` assertions or the digest pin without updating this ADR and
 SR-001, that would open a comment-vs-enforcement gap to catch.
 

@@ -13,13 +13,13 @@ path is disabled).  Do not preserve the C3 review basis as current authority —
 1. **Intrinsic source identity** — every live conversion target carries a valid bounded source identifier;
    only the exact sixteen approved target names are representable; source spelling is retained independently of
    the semantic type.
-2. **Compiler-owned binding** — raw syntax carries no semantic target tag; `GoCompile` alone resolves current
+2. **Compiler-owned binding** — raw syntax carries no semantic target tag; `Admissible` alone resolves current
    source type names through the current predeclared context; `byte`/`rune` keep source identity and resolve to
    `uint8`/`int32` semantics.
 3. **One indexed semantic path** — every type-name occurrence has one retained identity and one exact fact;
    conversion expression facts consume retained type-name + operand facts; one `elaborate` result mints the
    only compilation capability.
-4. **One conversion authority** — every explicit constant conversion routes through `GoTypes.convert_const`;
+4. **One conversion authority** — every explicit constant conversion routes through `Typing.convert_constant`;
    the old family-specific source constructors and peer paths are deleted; success and failure stay exact.
 5. **Source-correct output and diagnostics** — rendering and reports preserve the selected source names; a
    semantic alias never forces a canonical semantic spelling; all prior generated source bytes are unchanged.
@@ -32,10 +32,10 @@ coexisting; arbitrary/qualified names becoming representable without call/scope 
 `bool`/`string`/`uintptr`/interfaces/user types then rejecting valid cases; name lookup outside the one
 compiler authority; rendering a spelling from the semantic type; losing `byte`/`rune` spelling in diagnostics;
 type-name facts that copy syntax / accept foreign keys / omit live refs / recompute on query; recomputing an
-already-indexed operand; a hidden second source-name resolver in `GoTypes`; a specification helper acting as a
+already-indexed operand; a hidden second source-name resolver in `Typing`; a specification helper acting as a
 peer production compiler; a second AST walk / type side index / parser / sort / custom map / copied tree;
 soundness/completeness replaced by examples/bounds/fuel; a rejected program minting
-`CompilableProgram`/`SafeProgram`/`DirectoryImage`; generated-byte drift; any C5 rune-literal/`uintptr` work;
+`Compilable.Program`/`Safe.Program`/`Emit.Image`; generated-byte drift; any C5 rune-literal/`uintptr` work;
 conflicting C4/C5 authority in permanent docs.
 
 ## Evidence required at human Implementation Review (directive §17)
@@ -45,7 +45,7 @@ child/ref/domain facts for type-name occurrences; the compiler resolver + total 
 universal resolver facts for all sixteen names; the `byte`/`uint8` and `rune`/`int32` source-distinct /
 semantic-equal proofs; the exact production expression-fact theorem vs the declarative source semantics;
 invalid-conversion soundness/completeness/multiplicity/ordering/anchor proofs; renderer/denotation proofs over
-source type names; evidence the public renderer/materializer still consumes only `SafeProgram` from the one
+source type names; evidence the public renderer/materializer still consumes only `Safe.Program` from the one
 retained elaboration; the full pinned-Go differential; zero project assumptions + the updated readable gate;
 standard-collection + no-second-traversal audits; exact generated-byte comparison; all build/e2e/check/regen/
 staged-hook results; a full-tree old-constructor + stale-authority search; current permanent documentation.

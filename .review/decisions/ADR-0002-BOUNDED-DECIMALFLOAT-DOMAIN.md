@@ -1,4 +1,4 @@
-# ADR-0002 — Bounded DecimalFloat literal domain
+# ADR-0002 — Bounded Float.Decimal literal domain
 
 - **Status:** **REJECTED AS WRITTEN, then rewritten; the decision is OPEN.** The earlier draft was factually
   and conceptually wrong (see "What the earlier draft got wrong"); it is not accepted, and nothing here sets it
@@ -7,11 +7,11 @@
 - **Date:** 2026-07-22.
 - **Scope ledger link:** `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` SR-009 (classification: UNRESOLVED
   EXISTING RESTRICTION).
-- **Source:** `Floats.v` (`decimal_max_coeff`, `decimal_max_exp`, the `DecimalFloat` canonicality/bound predicates).
+- **Source:** `Float.v` (`decimal_max_coeff`, `decimal_max_exp`, the `Float.Decimal` canonicality/bound predicates).
 
 ## The restriction, stated directly
 
-Fido's `DecimalFloat` literal domain is a bounded box: a canonical `coeff·10^exp10` with
+Fido's `Float.Decimal` literal domain is a bounded box: a canonical `coeff·10^exp10` with
 `decimal_max_coeff = 10^40` (`|coeff| < 10^40`, at most 40 significant digits) and `decimal_max_exp = 4096`
 (`-4096 ≤ exp10 ≤ 4096`). A source float literal outside this box is UNREPRESENTABLE in the AST.
 
@@ -61,7 +61,7 @@ does not yet have.
   evaluation (`vm_compute` over smaller `Z`), a resource-limit guard against pathological literals, or
   implementation-performance headroom. None of these is established here; they are candidate justifications
   that require measurement before they can support the specific `10^40`/`4096` values.
-- The current `Floats.v` rationale ("chosen to cover every F32/F64 overflow/underflow fixture WITH MARGIN") is a
+- The current `Float.v` rationale ("chosen to cover every F32/F64 overflow/underflow fixture WITH MARGIN") is a
   **fixture-coverage** rationale — sized to the tests we happen to have, not to a language fact, a toolchain
   limit, or a measured proof/resource cost. That is exactly the kind of magic bound a hostile review flags.
 

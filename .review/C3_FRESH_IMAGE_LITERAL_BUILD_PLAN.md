@@ -1,13 +1,13 @@
 ★ AMENDMENT (Rob, verbal decision, 2026-07-19) — PLATFORM LIMITS ARE OUT OF SCOPE.
   Fido does NOT model platform-specific filesystem / materialization limits (NAME_MAX, PATH_MAX, disk,
-  memory).  For modeling purposes a path is UNLIMITED length.  The "GoCompile accepts EXACTLY what the pinned
+  memory).  For modeling purposes a path is UNLIMITED length.  The "Admissible accepts EXACTLY what the pinned
   `go build ./...` accepts" invariant, and the "the directory-collision is the ONLY command-level failure"
   claim, are scoped to the SEMANTIC + cmd/go PACKAGE/OUTPUT LOGIC (types, one-main, the default-output
   directory-collision — deterministic from the image, platform-independent).  A default executable name that
   exceeds a platform's NAME_MAX (so `go build` prints "file name too long") is NOT a model bug and is NOT
-  rejected by GoCompile — it fails-LOUD during printing / materialization (the OS surfaces ENAMETOOLONG), the
+  rejected by Admissible — it fails-LOUD during printing / materialization (the OS surfaces ENAMETOOLONG), the
   same way disk-space and memory limits are the platform's domain, not Fido's.  Do NOT add a
-  length / NAME_MAX / PATH_MAX check to the grammar, to GoCompile, or to the sink.  This amendment OVERRIDES
+  length / NAME_MAX / PATH_MAX check to the grammar, to Admissible, or to the sink.  This amendment OVERRIDES
   any wording below that implies platform limits are modeled, or that over-long paths are
   unrepresentable / rejected.  Rob's words: "Do not model platform limits because platform limits are
   platform specific... For modeling purposes, the path is unlimited in length.  It's the same reason we're not
@@ -51,9 +51,9 @@ C3's accepted structural implementation is retained.  Do not restart C3.  Do not
 
 The production invariant is now exact:
 
-> Every certified DirectoryImage is compiled by materializing that exact image into a fresh, empty, pinned build
+> Every certified Emit.Image is compiled by materializing that exact image into a fresh, empty, pinned build
 > root and invoking the literal pinned command `go build ./...` exactly once.  The build root is disposable and
-> is never the sink destination.  Fido's final GoCompile judgment must accept exactly the programs for which
+> is never the sink destination.  Fido's final Admissible judgment must accept exactly the programs for which
 > that production invocation succeeds.
 
 This means both parts matter:
@@ -67,10 +67,10 @@ the compiler runs.  Fido must model that failure.  If the target is an ordinary 
 or a root `.go` source file, cmd/go overwrites it after a successful build.  Fido must not reject a case that the
 literal command accepts.
 
-The fresh root contains only the authoritative DirectoryImage:
+The fresh root contains only the authoritative Emit.Image:
 
   go.mod
-  every rendered `.go` file at its FilePath
+  every rendered `.go` file at its FilePath.T
   the parent directories implied by those file paths
 
 It contains no:
@@ -136,10 +136,10 @@ review.  Additional rounds are only for repair-induced defects.
 
 At completion, the certified path is:
 
-  GoProgram p
+  Syntax.Program p
       |
       v
-  IndexedProgram p
+  Index.Program p
       |
       v
   elaborate p
@@ -148,21 +148,21 @@ At completion, the certified path is:
       |      exact nonempty structured diagnostics
       |
       +-- ElaborationOK
-             ElaborationFacts
+             Compilable.Facts
              exact retained index
              exact retained source facts
              exact retained package facts
              exact fresh-image BuildAllPlan
-             proof of GoCompile p
+             proof of Admissible p
       |
       v
-  CompilableProgram
+  Compilable.Program
       |
       v
-  SafeProgram
+  Safe.Program
       |
       v
-  DirectoryImage
+  Emit.Image
       |
       +------------------------------+
       |                              |
@@ -183,12 +183,12 @@ Required final meanings:
     The represented Go source passes the current Go language/compiler/package rules.
 
   FreshBuildPlan p
-    The exact cmd/go package-selection and default-output plan for the fresh DirectoryImage.
+    The exact cmd/go package-selection and default-output plan for the fresh Emit.Image.
 
   FreshBuildCommandValid p
     The literal pinned `go build ./...` preflight and compiler invocation succeeds in that fresh root.
 
-  GoCompile p
+  Admissible p
     Source and command conditions required for the literal production invocation to succeed.
 
 For the current represented grammar, the only command-level failure not already caused by source/compiler
@@ -240,7 +240,7 @@ Preserve every accepted law:
 13. One production semantic elaboration root.
 14. Facts and diagnostics decorate occurrence identity.
 15. Rendering uses the original AST.
-16. DirectoryImage contains original rendered source bytes.
+16. Emit.Image contains original rendered source bytes.
 17. Build side effects never become rendered or published source.
 18. Failed construction never falls back to empty/success.
 19. Duplicate evidence is never silently overwritten.
@@ -248,12 +248,12 @@ Preserve every accepted law:
 
 Add these laws:
 
-21. Every production `go build ./...` runs in a fresh materialization of exactly one DirectoryImage.
+21. Every production `go build ./...` runs in a fresh materialization of exactly one Emit.Image.
 22. No production build runs in a dirty sink destination.
 23. The literal command line is not replaced by a cleaner per-package command.
 24. The command environment is pinned and free of ambient user Go configuration.
 25. A disposable build root may be destroyed by cmd/go; the authoritative image may not.
-26. GoCompile predicts the exact one-shot fresh invocation, not a second invocation in the mutated root.
+26. Admissible predicts the exact one-shot fresh invocation, not a second invocation in the mutated root.
 27. Source/compiler validity and cmd/go output planning stay separate even though final acceptance requires both.
 28. The final combined result may depend on ModuleSpec; source occurrence facts do not.
 
@@ -263,28 +263,28 @@ Add these laws:
 
 Do not reopen these accepted decisions:
 
-- GoAST is the source authority.
-- GoIndex is structural and semantic-free.
-- IndexedProgram carries one retained SyntaxIndex.
+- Syntax is the source authority.
+- Index is structural and semantic-free.
+- Index.Program carries one retained Index.Syntax.
 - NodeRef identity is exact-program-local.
-- NodeKey is FilePath + positive local id.
+- Index.Key is FilePath.T + positive local id.
 - visit_file carries validated refs with original syntax.
-- prog_blocks retains one visit block per file.
-- prog_visit is the one flattened visit stream.
-- const_info_step is the one-node semantic step.
+- Compilable.program_blocks retains one visit block per file.
+- Compilable.program_visit is the one flattened visit stream.
+- Typing.constant_info_step is the one-node semantic step.
 - prog_status_map is bottom-up over the retained visit stream.
-- expression facts use a standard NodeKey FMapAVL.
+- expression facts use a standard Index.Key FMapAVL.
 - package main-ref buckets use a standard PackageMap.
 - enclosing conversion context is one forward pass over retained blocks.
 - facts store no source copy.
 - diagnostics use exact-snapshot anchors.
 - erased source reports support cross-snapshot comparison.
-- node-primary source diagnostics use strict NodeKey order.
-- CompilableProgram retains its exact index and facts with provenance.
-- go_compile projects one retained semantic execution.
-- GoTypes imports no GoIndex.
-- GoCompile is the sole meeting point of GoIndex and GoTypes.
-- GoRender and GoEmit use original source.
+- node-primary source diagnostics use strict Index.Key order.
+- Compilable.Program retains its exact index and facts with provenance.
+- Compilable.compile projects one retained semantic execution.
+- Typing imports no Index.
+- Admissible is the sole meeting point of Index and Typing.
+- Render and Emit use original source.
 - generated source bytes remain unchanged.
 
 The existing one-pass code is the base for this repair.
@@ -315,7 +315,7 @@ Production command line:
 
 Run from:
 
-  the root of a fresh materialization of the certified DirectoryImage
+  the root of a fresh materialization of the certified Emit.Image
 
 Pin the environment explicitly:
 
@@ -440,7 +440,7 @@ Definition shape:
 - exactly `v1` is excluded;
 - every byte after `v` is a decimal digit.
 
-Do not reuse ModulePath's different version-suffix exclusion as this rule.
+Do not reuse ModulePath.T's different version-suffix exclusion as this rule.
 
 4.5 Multiple packages discard outputs
 
@@ -495,7 +495,7 @@ Do not model a second `go build` in the same mutated root.
 
 Make the fresh build-root boundary explicit and reusable.
 
-The authoritative input is a DirectoryImage, not a sink tree.
+The authoritative input is a Emit.Image, not a sink tree.
 
 The build materializer must create:
 
@@ -508,8 +508,8 @@ No other entry is copied.
 The image source may be:
 
 - the generated-module layer;
-- another pristine DirectoryImage export;
-- a runtime DirectoryImage decoded by the approved transport.
+- another pristine Emit.Image export;
+- a runtime Emit.Image decoded by the approved transport.
 
 It may not be:
 
@@ -523,7 +523,7 @@ The build runner must:
 1. Create a new empty temporary root.
 2. Set fixed modes.
 3. Materialize go.mod byte-for-byte.
-4. Materialize each FilePath/byte entry byte-for-byte.
+4. Materialize each FilePath.T/byte entry byte-for-byte.
 5. Create only required parent directories.
 6. Verify the fresh manifest before invoking Go.
 7. Verify the fresh bytes against the authoritative input before invoking Go.
@@ -571,7 +571,7 @@ Preferred minimum:
 - no temp suffix;
 - no nested go.mod.
 
-Use the canonical pristine DirectoryImage export, not a broad copy of an emit/sink directory.
+Use the canonical pristine Emit.Image export, not a broad copy of an emit/sink directory.
 
 For each current witness, produce a pristine export:
 
@@ -584,7 +584,7 @@ The current canonical generated-module stage already has the right idea for the 
 same rule to every output rather than copying sink trees with `.fido` into go-e2e.
 
 Do not treat hidden ignored files as harmless in the authoritative build input.  The contract says the fresh root
-contains exactly DirectoryImage, so extra entries are a pipeline error even if Go would ignore them.
+contains exactly Emit.Image, so extra entries are a pipeline error even if Go would ignore them.
 
 ===============================================================================
 7. ROOT LAYOUT MODEL
@@ -597,21 +597,21 @@ Define a standard-map-backed root layout.
 Suggested value:
 
   Inductive FreshRootEntryKind :=
-  | FREGoMod
-  | FRESourceFile (path : FilePath)
-  | FREDirectory.
+  | Compilable.GoModuleEntry
+  | Compilable.SourceFileEntry (path : FilePath.T)
+  | Compilable.DirectoryEntry.
 
 Use a mature standard string-keyed map:
 
-  RootEntryMap := PackageMapBase.t FreshRootEntryKind
+  RootEntryMap := PackageMap.t FreshRootEntryKind
 
 The key is one root path component.
 
 Build it from:
 
-- key `go.mod` -> FREGoMod;
-- every root-level source FilePath -> FRESourceFile;
-- the first component of every nested source FilePath -> FREDirectory.
+- key `go.mod` -> Compilable.GoModuleEntry;
+- every root-level source FilePath.T -> Compilable.SourceFileEntry;
+- the first component of every nested source FilePath.T -> Compilable.DirectoryEntry.
 
 No custom map or association list.
 
@@ -623,7 +623,7 @@ The builder must detect contradictory entry shapes:
 
 Do not silently pick one.
 
-Audit whether FilePath's intrinsic grammar already proves those conflicts impossible.
+Audit whether FilePath.T's intrinsic grammar already proves those conflicts impossible.
 
 If it does:
 
@@ -633,7 +633,7 @@ If it does:
 If it does not:
 
 - add a duplicate/conflict-rejecting program-layout validation at the earliest correct source-program builder;
-- do not let an unmaterializable DirectoryImage reach compilation;
+- do not let an unmaterializable Emit.Image reach compilation;
 - preserve standard-map storage;
 - add exact negative fixtures.
 
@@ -647,23 +647,23 @@ Required theorems:
 - file/directory disjointness;
 - layout determinism;
 - FilesEqual programs produce equal root source layout;
-- materialized DirectoryImage has exactly this root layout.
+- materialized Emit.Image has exactly this root layout.
 
 ===============================================================================
 8. DIRECTORYIMAGE BRIDGE
 ===============================================================================
 
-Avoid a gap between a plan over GoProgram and the real emitted image.
+Avoid a gap between a plan over Syntax.Program and the real emitted image.
 
-Define or prove a bridge at the GoRender/GoEmit boundary:
+Define or prove a bridge at the Render/Emit boundary:
 
-  directory_image_realizes_fresh_layout
+  Emit.realizes_fresh_layout
 
 Conceptually:
 
-  root_layout_of_image (rendered DirectoryImage sp)
+  root_layout_of_image (rendered Emit.Image sp)
   =
-  fresh_root_layout (sp_program sp)
+  fresh_root_layout (Safe.source sp)
 
 Also prove:
 
@@ -673,10 +673,10 @@ Also prove:
 - fresh materialization preserves those keys and bytes before the build;
 - build-plan output target classification over the program equals classification over the actual image.
 
-The semantic elaborator may derive the plan from GoProgram because the bridge proves that the later DirectoryImage
+The semantic elaborator may derive the plan from Syntax.Program because the bridge proves that the later Emit.Image
 realizes the same layout.
 
-Do not make GoCompile import GoRender or GoEmit.
+Do not make Admissible import Render or Emit.
 
 Place the bridge theorem downstream, preserving dependency direction.
 
@@ -693,7 +693,7 @@ The present grammar can express only:
 
 The old primitive rule:
 
-  every package has exactly one DMain
+  every package has exactly one Syntax.Main
 
 matches current source acceptance, but combines two independent Go rules.
 
@@ -706,12 +706,12 @@ Define:
 
 Conceptually:
 
-  Definition PackageDeclsUnique (p : GoProgram) : Prop :=
+  Definition PackageDeclsUnique (p : Syntax.Program) : Prop :=
     forall dir bucket,
       bucket_for dir p = bucket ->
       length bucket <= 1.
 
-  Definition MainPackagesHaveEntry (p : GoProgram) : Prop :=
+  Definition MainPackagesHaveEntry (p : Syntax.Program) : Prop :=
     forall dir bucket,
       bucket_for dir p = bucket ->
       1 <= length bucket.
@@ -720,17 +720,17 @@ Conceptually:
     PackageDeclsUnique p /\ MainPackagesHaveEntry p.
 
   Definition SourceProgramValid p :=
-    ProgramTyped p /\ PackageRulesValid p.
+    Typing.Program p /\ PackageRulesValid p.
 
 Meaning:
 
 PackageDeclsUnique:
-- every current DMain binds package-block identifier `main`;
+- every current Syntax.Main binds package-block identifier `main`;
 - at most one prevents package-block redeclaration.
 
 MainPackagesHaveEntry:
 - every current package is named main;
-- every DMain is intrinsically `func main()` with no type parameters, parameters, or results;
+- every Syntax.Main is intrinsically `func main()` with no type parameters, parameters, or results;
 - at least one supplies the command entry.
 
 Prove universally:
@@ -738,13 +738,13 @@ Prove universally:
   current_package_rules_exactly_one :
     PackageRulesValid p
     <->
-    every represented package has exactly one DMain
+    every represented package has exactly one Syntax.Main
 
 Prove compatibility with the old source-only ProgValid definition.
 
 Delete the old rule as the semantic root.
 
-The compatibility theorem applies to source/compiler validity only.  Final GoCompile may now reject additional
+The compatibility theorem applies to source/compiler validity only.  Final Admissible may now reject additional
 source-valid programs because literal cmd/go output preflight fails.
 
 Record future rules without implementing syntax:
@@ -767,7 +767,7 @@ Model the package set selected by the literal pattern in the current represented
 The selected package identity is the package directory key:
 
   root package -> ""
-  nested package -> FilePath parent directory
+  nested package -> FilePath.T parent directory
 
 For current source:
 
@@ -793,7 +793,7 @@ Required theorems:
 - files in one directory select one package;
 - distinct directories select distinct packages;
 - construction order does not affect the package set;
-- current FilePath restrictions make every represented package visible to `./...`;
+- current FilePath.T restrictions make every represented package visible to `./...`;
 - no represented package lies under a Go-ignored directory class;
 - no nested module splits the selected set.
 
@@ -804,12 +804,12 @@ Required theorems:
 Define the exact import path cmd/go assigns to a selected package in the main module:
 
   root package:
-    ModulePath
+    ModulePath.T
 
   nested package dir:
-    ModulePath + "/" + directory key
+    ModulePath.T + "/" + directory key
 
-Use canonical source strings already carried by ModulePath and FilePath.
+Use canonical source strings already carried by ModulePath.T and FilePath.T.
 
 Required:
 
@@ -885,14 +885,14 @@ Define a retained pure plan.
 
 Suggested shape:
 
-  Inductive FreshBuildDisposition (p : GoProgram) :=
-  | FBDNoPackages
-  | FBDDiscardMultiple
+  Inductive FreshBuildDisposition (p : Syntax.Program) :=
+  | Compilable.NoPackages
+  | Compilable.DiscardMultiple
       (packages : list (PackageRef p))
       (count_ge_two : ...)
   | FBDDiscardSingleLibrary
       (package : PackageRef p)
-  | FBDWriteSingleMain
+  | Compilable.WriteSingleMain
       (package : PackageRef p)
       (import_path : string)
       (output_name : string)
@@ -904,13 +904,13 @@ be speculative.  At minimum, document the future branch and make the current con
 For the current grammar:
 
 - zero package domain:
-    FBDNoPackages
+    Compilable.NoPackages
 
 - package domain cardinal >= 2:
-    FBDDiscardMultiple
+    Compilable.DiscardMultiple
 
 - package domain cardinal = 1:
-    FBDWriteSingleMain
+    Compilable.WriteSingleMain
 
 The plan must use:
 
@@ -921,7 +921,7 @@ The plan must use:
 It must not:
 
 - traverse syntax again;
-- rebuild GoIndex;
+- rebuild Index;
 - render source;
 - inspect emitted bytes;
 - call cmd/go;
@@ -983,7 +983,7 @@ Current AST makes step 1 valid by construction.
 
 Therefore define final acceptance:
 
-  GoCompile p :=
+  Admissible p :=
     fresh_build_preflight_ok (fresh_build_plan p)
     /\
     SourceProgramValid p
@@ -1014,9 +1014,9 @@ For multiple packages, there is no default output preflight, so semantic diagnos
 
 Prove:
 
-- preflight failure implies not GoCompile;
+- preflight failure implies not Admissible;
 - semantic diagnostics are consulted only after preflight success;
-- final diagnostics empty iff GoCompile;
+- final diagnostics empty iff Admissible;
 - output-collision report has precedence over semantic diagnostics;
 - no output-collision diagnostic is emitted for zero or multiple selected packages;
 - no output-collision diagnostic is emitted for an absent or regular-file target.
@@ -1031,25 +1031,25 @@ Rename source package diagnostics:
 
   DCDuplicateMain
     ->
-  DCMainRedeclared
+  Compilable.CodeMainRedeclared
 
   DRDuplicateMain
     ->
-  DRMainRedeclared
+  Compilable.MainRedeclared
 
   DCMissingMain
     ->
-  DCMissingMainEntry
+  Compilable.CodeMissingMainEntry
 
   DRMissingMain
     ->
-  DRMissingMainEntry
+  Compilable.MissingMainEntry
 
 Add:
 
-  DCBuildOutputIsDirectory
+  Compilable.CodeBuildOutputIsDirectory
 
-  DRBuildOutputIsDirectory
+  Compilable.BuildOutputIsDirectory
     (package : PackageRef p)
     (output_name : string)
 
@@ -1067,27 +1067,27 @@ Soundness:
 - the package name is main in current source;
 - reported package is the sole package;
 - reported output name equals default_exec_name of its import path;
-- fresh root layout maps that name to FREDirectory;
+- fresh root layout maps that name to Compilable.DirectoryEntry;
 - cmd/go preflight model rejects;
-- GoCompile p is false.
+- Admissible p is false.
 
 Completeness in current represented scope:
 
-- every fresh preflight failure yields exactly one DRBuildOutputIsDirectory;
+- every fresh preflight failure yields exactly one Compilable.BuildOutputIsDirectory;
 - no other command-level preflight failure exists.
 
 Source diagnostic meaning:
 
-DRMainRedeclared:
+Compilable.MainRedeclared:
 - package-block identifier `main` is redeclared;
 - later declaration primary;
 - first canonical declaration related;
 - n mains produce n-1 diagnostics in the semantic report.
 
-DRMissingMainEntry:
+Compilable.MissingMainEntry:
 - represented package named main has no package-level valid `func main()`;
 - package anchor;
-- empty DMain bucket.
+- empty Syntax.Main bucket.
 
 Final report precedence may hide those semantic diagnostics behind a build-output collision.
 
@@ -1118,7 +1118,7 @@ Update:
 
 Add a distinct legacy class if compatibility projections remain:
 
-  LCBuildOutput
+  Compilable.LegacyBuildOutput
 
 Do not classify the collision as typing or package-main count.
 
@@ -1137,10 +1137,10 @@ Rename:
     -> elaborate_indexed
 
   AnalysisResult
-    -> ElaborationResult
+    -> Compilable.Result
 
   ProgramAnalysis
-    -> ProgramElaboration
+    -> Compilable.Elaboration
 
   AnalysisOK
     -> ElaborationOK
@@ -1149,7 +1149,7 @@ Rename:
     -> ElaborationFailed
 
   CompilationFacts
-    -> ElaborationFacts
+    -> Compilable.Facts
 
   analysis_ok_b
     -> semantic_ok_b or source_program_ok_b
@@ -1158,10 +1158,10 @@ Rename:
     -> elaborate_valid_of_no_diags
 
   analyze_result_cases
-    -> elaboration_result_cases
+    -> elaboration_result_cases   (retired by A005 Part D)
 
   analyze_ok_sig
-    -> elaboration_ok_sig
+    -> elaboration_ok_sig   (retired by A005 Part D)
 
   analyze_ok_full
     -> elaboration_ok_full
@@ -1172,12 +1172,12 @@ Rename:
   analyze_failed_*
     -> elaborate_failed_*
 
-ProgramElaboration fields:
+Compilable.Elaboration fields:
 
-  pe_indexed
-  pe_result
+  Compilable.elaboration_indexed
+  Compilable.result
 
-ElaborationFacts fields should use a consistent prefix that does not collide with ExprFact:
+Compilable.Facts fields should use a consistent prefix that does not collide with Compilable.ExpressionFact:
 
   elab_expr_facts
   elab_package_refs
@@ -1190,20 +1190,20 @@ Exact factoring may vary.
 
 Keep:
 
-  GoCompile
-  CompilableProgram
-  CompileOutcome
-  go_compile
-  GoCompile.v
+  Admissible
+  Compilable.Program
+  Compilable.Outcome
+  Compilable.compile
+  Compilable.v
 
 The physical module rename remains C6 work.
 
 Provenance becomes:
 
   cp_prov :
-    elaborate cp_program
+    elaborate Compilable.source
     =
-    mkProgramElaboration cp_index (ElaborationOK cp_facts)
+    Compilable.make_elaboration Compilable.program_index (ElaborationOK Compilable.facts)
 
 Delete dead generic result/bool helpers if no call site remains.
 
@@ -1218,12 +1218,12 @@ Retain the one-pass C3 implementation.
 Conceptual flow:
 
   elaborate p :=
-    let ip := GoIndex.index_program p in
-    mkProgramElaboration ip (elaborate_indexed p ip)
+    let ip := Index.index_program p in
+    Compilable.make_elaboration ip (elaborate_indexed p ip)
 
   elaborate_indexed p ip :=
     let idx          := indexed_syntax ip in
-    let blocks       := prog_blocks p in
+    let blocks       := Compilable.program_blocks p in
     let visit        := concat blocks in
     let status       := one bottom-up status map in
     let package_refs := one package bucket map in
@@ -1246,14 +1246,14 @@ The one-pass source work stays one-pass.
 
 Root layout and build plan may fold canonical FileMap/PackageMap elements once.  They must not invoke visit_file.
 
-ElaborationFacts on success retain:
+Compilable.Facts on success retain:
 
 - expression facts;
 - package main refs;
 - root layout or enough exact build-layout evidence;
 - FreshBuildPlan;
 - SourceProgramValid proof;
-- final GoCompile proof.
+- final Admissible proof.
 
 No facts escape on failure unless the existing public design intentionally exposes a separate non-capability report.  Do not create a typed AST.
 
@@ -1279,27 +1279,27 @@ C. Final command-facing diagnostics
 
   elaboration_diagnostics p ip plan = []
   <->
-  GoCompile p
+  Admissible p
 
 D. Elaboration success
 
   exists facts,
-    pe_result (elaborate p) = ElaborationOK facts
+    Compilable.result (elaborate p) = ElaborationOK facts
   <->
-  GoCompile p
+  Admissible p
 
 E. Elaboration failure
 
   exists ds Hne,
-    pe_result (elaborate p) = ElaborationFailed ds Hne
+    Compilable.result (elaborate p) = ElaborationFailed ds Hne
   <->
-  ~ GoCompile p
+  ~ Admissible p
 
 F. Failure precedence
 
   preflight fails
   ->
-  elaboration diagnostics = [DRBuildOutputIsDirectory ...]
+  elaboration diagnostics = [Compilable.BuildOutputIsDirectory ...]
 
 G. Semantic branch
 
@@ -1309,21 +1309,21 @@ G. Semantic branch
 
 H. Compiler projection
 
-  go_compile projects one elaborate result
+  Compilable.compile projects one elaborate result
   and never runs prog_ok or another checker
 
 I. Retention
 
-  every CompilableProgram retains:
+  every Compilable.Program retains:
     exact program
     exact index
-    exact ElaborationFacts
+    exact Compilable.Facts
     exact FreshBuildPlan
     provenance from ElaborationOK
 
 J. Downstream image bridge
 
-  every DirectoryImage reachable from CompilableProgram realizes the retained fresh root layout and build plan.
+  every Emit.Image reachable from Compilable.Program realizes the retained fresh root layout and build plan.
 
 The final equivalence to external cmd/go remains differential evidence, not a Rocq theorem importing Go.
 
@@ -1348,9 +1348,9 @@ path.
 Define a full input equality:
 
   ProgramInputEqual p1 p2 :=
-    prog_module p1 = prog_module p2
+    Syntax.module_spec p1 = Syntax.module_spec p2
     /\
-    FilesEqual (prog_files p1) (prog_files p2)
+    FilesEqual (Syntax.files p1) (Syntax.files p2)
 
 Prove:
 
@@ -1385,10 +1385,10 @@ Add:
 20.1 Empty image
 
   no packages
-  FBDNoPackages
+  Compilable.NoPackages
   preflight succeeds
   SourceProgramValid
-  GoCompile
+  Admissible
   no diagnostics
 
 20.2 One valid root package, absent output
@@ -1397,7 +1397,7 @@ Add:
   output target absent
   plan writes one executable
   preflight succeeds
-  GoCompile
+  Admissible
 
 20.3 Sole immediate child package
 
@@ -1409,11 +1409,11 @@ Add:
   preflight fails
   final report exactly one build-output-directory diagnostic
   no semantic diagnostic exposed
-  not GoCompile
+  not Admissible
 
 20.4 Immediate child with semantic error
 
-  sub/main.go contains invalid conversion or no DMain
+  sub/main.go contains invalid conversion or no Syntax.Main
   same output collision
   final report remains only build-output-directory
   proves precedence
@@ -1425,7 +1425,7 @@ Add:
   fresh root directory is a, not b
   target absent
   preflight succeeds
-  if source valid, GoCompile succeeds
+  if source valid, Admissible succeeds
 
 20.6 Final v2 package path
 
@@ -1447,7 +1447,7 @@ Add:
 
   a/main.go
   b/main.go
-  FBDDiscardMultiple
+  Compilable.DiscardMultiple
   no output preflight failure
   source-valid program succeeds
   no default a/b executable in external post-state
@@ -1460,21 +1460,21 @@ Add:
 20.10 go.mod overwrite
 
   one root package
-  ModulePath final component = go.mod
+  ModulePath.T final component = go.mod
   output name go.mod
   target regular go.mod
   preflight succeeds
-  GoCompile succeeds if source valid
+  Admissible succeeds if source valid
   plan records overwrite
 
 20.11 source overwrite
 
   root source file main.go
-  ModulePath final component = main.go
+  ModulePath.T final component = main.go
   output name main.go
   target regular source file
   preflight succeeds
-  GoCompile succeeds if source valid
+  Admissible succeeds if source valid
   plan records overwrite
 
 20.12 root source name collision without exact module match
@@ -1643,7 +1643,7 @@ Add one reusable wrapper or executable used by:
 - multi-package witness;
 - empty module witness;
 - boundary-byte witness;
-- every future DirectoryImage output;
+- every future Emit.Image output;
 - CI;
 - release validation;
 - documented local build path.
@@ -1686,10 +1686,10 @@ Do not run the build after sinking into a user directory.
 Recommended ordering:
 
   prove/certify
-  render DirectoryImage
+  render Emit.Image
   pristine export
   fresh build validation
-  only then publish/sync original DirectoryImage
+  only then publish/sync original Emit.Image
 
 A failed build must prevent publication.
 
@@ -1837,7 +1837,7 @@ Fresh root layout:
 - root directory exactness;
 - file/directory disjointness;
 - layout determinism;
-- DirectoryImage layout bridge.
+- Emit.Image layout bridge.
 
 Build plan:
 
@@ -1861,20 +1861,20 @@ Diagnostics:
 - build-output-directory completeness;
 - preflight precedence;
 - semantic branch exactness;
-- final diagnostics empty iff GoCompile;
+- final diagnostics empty iff Admissible;
 - strict source diagnostic order;
 - erased final diagnostic determinism.
 
 Elaboration:
 
-- elaborate OK iff GoCompile;
-- elaborate failed iff not GoCompile;
+- elaborate OK iff Admissible;
+- elaborate failed iff not Admissible;
 - failure nonempty;
-- go_compile projection;
+- Compilable.compile projection;
 - retained index;
 - retained facts;
 - retained FreshBuildPlan;
-- CompilableProgram provenance.
+- Compilable.Program provenance.
 
 Determinism:
 
@@ -1884,8 +1884,8 @@ Determinism:
 
 Downstream:
 
-- DirectoryImage realizes plan layout;
-- rejected elaboration cannot produce CompilableProgram/SafeProgram/DirectoryImage;
+- Emit.Image realizes plan layout;
+- rejected elaboration cannot produce Compilable.Program/Safe.Program/Emit.Image;
 - successful emitted image retains original source bytes.
 
 Remove replaced gate names.  The gate count may change.  It must match exactly.
@@ -1896,12 +1896,12 @@ Remove replaced gate names.  The gate count may change.  It must match exactly.
 
 Update:
 
-- GoCompile.v permanent header;
-- GoAST.v DMain comments;
-- GoIndex.v stale C2-progress header;
-- GoTypes.v wording;
-- GoSafe.v projections;
-- GoRender.v / GoEmit.v bridge prose;
+- Compilable.v permanent header;
+- Syntax.v Syntax.Main comments;
+- Index.v stale C2-progress header;
+- Typing.v wording;
+- Safe.v projections;
+- Render.v / Emit.v bridge prose;
 - ModulePath.v build-alarm wording;
 - Dockerfile;
 - dune synopsis;
@@ -1920,7 +1920,7 @@ Update:
 
 Permanent architecture wording:
 
-  GoCompile
+  Admissible
     exact acceptance model for the pinned one-shot fresh `go build ./...`
 
   SourceProgramValid
@@ -1932,7 +1932,7 @@ Permanent architecture wording:
   elaborate
     one retained semantic execution producing facts or command-ordered diagnostics
 
-  DirectoryImage
+  Emit.Image
     immutable authoritative source image
 
   fresh build root
@@ -1977,7 +1977,7 @@ Add concise durable lessons.
 4. Never publish a mutated build workspace
 
   A successful sole-command build may overwrite go.mod or source.  Build only in a disposable copy and publish
-  the original DirectoryImage.
+  the original Emit.Image.
 
 5. Match phase order
 
@@ -1997,7 +1997,7 @@ Run a whole-candidate audit before stopping.
 A. One authority
 
 - elaborate is the only semantic root.
-- go_compile only projects elaborate.
+- Compilable.compile only projects elaborate.
 - no analyze entrypoint remains.
 - no production prog_ok call.
 - no second index.
@@ -2022,7 +2022,7 @@ C. Fresh build plan
 - ordinary files accepted.
 - directories rejected.
 - ModuleSpec included.
-- no renderer dependency in GoCompile.
+- no renderer dependency in Admissible.
 - downstream image bridge exists.
 
 D. Phase order
@@ -2094,7 +2094,7 @@ Tell Codex:
 > Review the entire frozen C3 checkpoint.  Do not stop after the first blocker.  Return every independently
 > visible defect.  Attack source package semantics, cmd/go phase order, package selection, default executable
 > naming, vN handling, fresh root layout, regular overwrite, directory collision, one-elaboration authority,
-> occurrence facts, diagnostic exactness/order, DirectoryImage bridging, production fresh-materialization
+> occurrence facts, diagnostic exactness/order, Emit.Image bridging, production fresh-materialization
 > enforcement, pinned environment, destructive test isolation, collections, performance, gates, docs, and stale
 > names.
 
@@ -2117,7 +2117,7 @@ Codex must specifically look for:
 - build plan reconstructs index or revisits syntax;
 - root layout uses list-backed identity;
 - file/dir prefix conflict ignored;
-- no DirectoryImage bridge;
+- no Emit.Image bridge;
 - full report claims FilesEqual-only determinism;
 - build runs in sink tree;
 - wrapper builds input in place;
@@ -2191,7 +2191,7 @@ Do not:
 - accept directory collision;
 - ignore ModuleSpec in full planning;
 - compute plan from rendered text;
-- import GoRender/GoEmit into GoCompile;
+- import Render/Emit into Admissible;
 - add a second checker;
 - add a custom collection;
 - add a custom sort;
@@ -2231,9 +2231,9 @@ C3 is complete only when:
 - regular-file create/overwrite succeeds;
 - directory collision rejects;
 - output collision has cmd/go precedence;
-- final diagnostics empty iff GoCompile;
+- final diagnostics empty iff Admissible;
 - full plan/report uses ModuleSpec + files;
-- DirectoryImage realizes the plan layout;
+- Emit.Image realizes the plan layout;
 - every build uses a fresh exact image;
 - every build uses the pinned literal command;
 - no build uses sink state;
@@ -2257,22 +2257,22 @@ C3 is complete only when:
 
 Source:
 
-  GoProgram
+  Syntax.Program
     ModuleSpec
-    FileMap FilePath GoSourceFile
+    FileMap FilePath.T Syntax.File
 
 Structure:
 
-  IndexedProgram
-    one SyntaxIndex
+  Index.Program
+    one Index.Syntax
 
 Semantic source relations:
 
-  GoTypes
-    const_info_step
-    convert_const
-    resolve_const_info
-    ProgramTyped
+  Typing
+    Typing.constant_info_step
+    Typing.convert_constant
+    Typing.resolve_constant_info
+    Typing.Program
 
 Package source rules:
 
@@ -2303,7 +2303,7 @@ Cmd/go plan:
 
 Final acceptance:
 
-  GoCompile
+  Admissible
     fresh preflight succeeds
     AND
     SourceProgramValid
@@ -2322,24 +2322,24 @@ Semantic execution:
 
 Capability:
 
-  CompilableProgram
+  Compilable.Program
     original program
     exact index
-    exact ElaborationFacts
+    exact Compilable.Facts
     exact FreshBuildPlan
     provenance from ElaborationOK
 
 Rendering:
 
-  SafeProgram
+  Safe.Program
     ->
   original source rendering
     ->
-  DirectoryImage
+  Emit.Image
 
 Production:
 
-  DirectoryImage
+  Emit.Image
     ->
   fresh exact materialization
     ->
@@ -2349,14 +2349,14 @@ Production:
 
 Publication:
 
-  original DirectoryImage
+  original Emit.Image
     ->
   sink
 
 The AST owns source.
-GoIndex owns occurrence structure.
-GoTypes owns type and constant relations.
-GoCompile owns exact fresh-build admission.
-GoRender/GoEmit own authoritative source bytes.
+Index owns occurrence structure.
+Typing owns type and constant relations.
+Admissible owns exact fresh-build admission.
+Render/Emit own authoritative source bytes.
 The build runner owns the disposable cmd/go workspace.
 The sink never supplies the compiler input.

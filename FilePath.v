@@ -1,8 +1,8 @@
-(** FilePath — the intrinsic canonical relative source-path domain.  A raw [string] is NOT a file path:
+(** T — the intrinsic canonical relative source-path domain.  A raw [string] is NOT a file path:
     Go package discovery for `go build ./...` depends on the path, so the path is a SEMANTIC compiler
     input, and only a deliberately NARROW canonical grammar is representable.
 
-    A [FilePath] is a validated relative path: slash-separated lowercase-ASCII directory components and
+    A [T] is a validated relative path: slash-separated lowercase-ASCII directory components and
     an ordinary lowercase-ASCII `.go` basename, with NO empty/`.`/`..` component, NO absolute or
     trailing/leading/repeated slash, NO underscore or leading dot (so NO hidden file/dir, NO `_test.go`,
     NO `_GOOS`/`_GOARCH` build-selection suffix, NO Fido control-name collision), NO directory named
@@ -14,9 +14,9 @@
     of case-folding and platform source selection.  Strange-but-filesystem-valid paths are deliberately
     UNREPRESENTABLE — narrowness is the point, not an ambitious model of every OS path.
 
-    Validity is intrinsic: [FilePath] carries the proof [path_ok fp_str = true], so a value cannot exist
+    Validity is intrinsic: [T] carries the proof [path_ok text = true], so a value cannot exist
     for a bad path.  Equality is decidable and reduces to string equality (the proof is unique by bool
-    UIP).  [fp_parent] is the parent-directory identity used to group files into packages. *)
+    UIP).  [parent] is the parent-directory identity used to group files into packages. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
 Import ListNotations.
 
@@ -76,24 +76,23 @@ Definition path_ok (s : string) : bool :=
 
 (** ---- the intrinsic type ---- *)
 
-Record FilePath : Type := mkFP { fp_str : string ; fp_ok : path_ok fp_str = true }.
+Record T : Type := make { text : string ; valid : path_ok text = true }.
 
 (** The on-disk relative path text (the proved canonical conversion to output). *)
-Definition fp_string (p : FilePath) : string := fp_str p.
 
 (** Validity proofs are unique (bool UIP), so equality reduces to the underlying string. *)
 Lemma path_ok_pi : forall s (p q : path_ok s = true), p = q.
 Proof. intros s p q; apply (UIP_dec Bool.bool_dec). Qed.
 
-Lemma fp_eq : forall a b, fp_str a = fp_str b -> a = b.
+Lemma equal : forall a b, text a = text b -> a = b.
 Proof. intros [sa pa] [sb pb] H; simpl in H; subst sb; f_equal; apply path_ok_pi. Qed.
 
-Definition fp_eqb (a b : FilePath) : bool := String.eqb (fp_str a) (fp_str b).
+Definition equalb (a b : T) : bool := String.eqb (text a) (text b).
 
-Lemma fp_eqb_eq : forall a b, fp_eqb a b = true <-> a = b.
+Lemma equalb_spec : forall a b, equalb a b = true <-> a = b.
 Proof.
-  intros a b; unfold fp_eqb; split.
-  - intro H; apply String.eqb_eq in H; apply fp_eq; exact H.
+  intros a b; unfold equalb; split.
+  - intro H; apply String.eqb_eq in H; apply equal; exact H.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
@@ -106,13 +105,13 @@ Definition parent_of (s : string) : string :=
   end.
 
 (** The parent directory of a file — files with the SAME parent form one package. *)
-Definition fp_parent (p : FilePath) : string := parent_of (fp_str p).
+Definition parent (p : T) : string := parent_of (text p).
 
 (** The canonical DIRECTORY-COMPONENT AUTHORITY over a parent path.  [split_slash] is the split view and
     its "/"-join is its inverse ([split_slash_concat]); a valid [dir_component_ok] directory component
     contains no separator, so it is a SINGLE component ([dir_component_ok_single]) and nonempty.  For a
-    package key that is some file's [fp_parent], every directory component is nonempty
-    ([parent_dir_components_nonempty]).  This is the lower-layer authority [GoCompile] composes for
+    package key that is some file's [parent], every directory component is nonempty
+    ([parent_dir_components_nonempty]).  This is the lower-layer authority [Admissible] composes for
     package import-path and executable-name reasoning — no character-level scan in the consumer. *)
 
 Lemma split_slash_nonempty : forall s, split_slash s <> [].
@@ -218,16 +217,16 @@ Proof.
 Qed.
 
 Lemma parent_dir_components_nonempty : forall fp s,
-  In s (dir_components (fp_parent fp)) -> s <> ""%string.
+  In s (dir_components (parent fp)) -> s <> ""%string.
 Proof.
   intros fp s Hin. unfold dir_components in Hin.
-  destruct (String.eqb (fp_parent fp) ""%string) eqn:E; [ destruct Hin |].
-  pose proof (fp_ok fp) as Hok. unfold path_ok in Hok.
-  destruct (rev (split_slash (fp_str fp))) as [|lastc rdirs] eqn:Erev; [ discriminate Hok |].
+  destruct (String.eqb (parent fp) ""%string) eqn:E; [ destruct Hin |].
+  pose proof (valid fp) as Hok. unfold path_ok in Hok.
+  destruct (rev (split_slash (text fp))) as [|lastc rdirs] eqn:Erev; [ discriminate Hok |].
   apply Bool.andb_true_iff in Hok as [Hdirs _].
-  assert (Hpar : fp_parent fp = String.concat "/" (rev rdirs))
-    by (unfold fp_parent, parent_of; rewrite Erev; reflexivity).
-  assert (Hpne : fp_parent fp <> ""%string) by (intro Hc; rewrite Hc in E; cbn in E; discriminate E).
+  assert (Hpar : parent fp = String.concat "/" (rev rdirs))
+    by (unfold parent, parent_of; rewrite Erev; reflexivity).
+  assert (Hpne : parent fp <> ""%string) by (intro Hc; rewrite Hc in E; cbn in E; discriminate E).
   assert (Hsingle : forall x, In x (rev rdirs) -> split_slash x = [x]).
   { intros x Hx. apply dir_component_ok_single. rewrite forallb_forall in Hdirs.
     apply Hdirs. apply in_rev in Hx. exact Hx. }

@@ -8,10 +8,10 @@
 #
 # Fido has NO handwritten OCaml language semantics, compilation, safety reasoning, lowering, or rendering —
 # all of that lives in proved Rocq.  The ONLY handwritten OCaml is the Fido transport / apply boundary:
-#   - plugin/fido_sink.ml  — the generic dirty-directory filesystem sink (filesystem ONLY);
+#   - plugin/sink.ml  — the generic dirty-directory filesystem sink (filesystem ONLY);
 #   - e2e/sink_test.ml      — a standalone driver that exercises the sink (filesystem ONLY);
-#   - e2e/fido_apply.ml     — the `make regenerate` apply CLI (filesystem ONLY — no Rocq term, no AST);
-#   - plugin/g_fido.mlg     — the transport bridge (four ordered steps: typecheck the image type; reject a
+#   - e2e/apply.ml     — the `make regenerate` apply CLI (filesystem ONLY — no Rocq term, no AST);
+#   - plugin/materialize.mlg     — the transport bridge (four ordered steps: typecheck the image type; reject a
 #                             non-empty assumption closure; decode ONLY the final (go.mod, entries) transport;
 #                             materialize a pristine export via `Fido Materialize`).  It does NOT call the
 #                             dirty-directory sink (that is reached only from sink_test + the apply CLI), and
@@ -24,19 +24,19 @@
 # deleted history without becoming an implementation defect.
 set -eu
 root=${1:-.}
-allowed='e2e/fido_apply.ml e2e/sink_test.ml plugin/fido_sink.ml plugin/g_fido.mlg'
-fs_files='plugin/fido_sink.ml e2e/sink_test.ml e2e/fido_apply.ml'
-bridge='plugin/g_fido.mlg'
+allowed='e2e/apply.ml e2e/sink_test.ml plugin/sink.ml plugin/materialize.mlg'
+fs_files='plugin/sink.ml e2e/sink_test.ml e2e/apply.ml'
+bridge='plugin/materialize.mlg'
 
 # (1) only the four transport/apply files may be tracked OCaml (every depth; only .git metadata pruned).
 #     PATHNAME-SAFE: the four allowed paths are PRUNED, so `find -print` emits exactly the OCaml files that
 #     are NOT allowed — no shell word-splitting of paths (a rogue name with spaces/newlines is still
 #     surfaced).  No -type f, so a tracked symlink or directory named *.ml/*.mli/*.mlg is surfaced too.
 extra=$(find "$root" -name .git -prune -o \
-             -path "$root/e2e/fido_apply.ml"  -prune -o \
+             -path "$root/e2e/apply.ml"  -prune -o \
              -path "$root/e2e/sink_test.ml"   -prune -o \
-             -path "$root/plugin/fido_sink.ml" -prune -o \
-             -path "$root/plugin/g_fido.mlg"  -prune -o \
+             -path "$root/plugin/sink.ml" -prune -o \
+             -path "$root/plugin/materialize.mlg"  -prune -o \
              \( -name '*.ml' -o -name '*.mli' -o -name '*.mlg' \) -print 2>/dev/null)
 if [ -n "$extra" ]; then
   echo "fido: OCAML-ORIGIN GATE — only the transport/apply files ($allowed) may be tracked OCaml.  Offending:"; printf '%s\n' "$extra" | sed "s#^$root/*##; s/^/  /"; exit 1
@@ -53,7 +53,7 @@ done
 
 # (3) the transport bridge decodes the final transport only — never a Fido program/AST/type/safety structure.
 if [ -f "$root/$bridge" ]; then
-  if grep -nE 'GoProgram|GoFileMap|GoFileSet|GoSourceFile|GoFileNode|GoDecl|GoStmt|GoExpr|GoType|GoConst|CompilableProgram|SafeProgram|ProgramTyped|ResolveExpr|render_|eval_|GoCompile' "$root/$bridge"; then
+  if grep -nE 'Syntax.Program|Syntax.Files|Syntax.File|Syntax.FileNode|Syntax.Decl|Syntax.Stmt|Syntax.Expr|Typing.SemanticType|Typing.Constant|Compilable.Program|Safe.Program|Typing.Program|Typing.Resolve|render_|eval_|Compilable' "$root/$bridge"; then
     echo "fido: OCAML-ORIGIN GATE — $bridge must decode ONLY the final transport; it names a program/AST/type structure."; exit 1
   fi
 fi

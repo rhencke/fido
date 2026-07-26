@@ -1,21 +1,21 @@
 ; The ONE handwritten OCaml boundary: the Fido transport plugin.  The library bundles the generic
-; dirty-directory filesystem sink (fido_sink.ml) and the transport bridge + vernac (g_fido.mlg).  The bridge's
+; dirty-directory filesystem sink (sink.ml) and the transport bridge + vernac (materialize.mlg).  The bridge's
 ; boundary is four steps — typecheck the image, reject a non-empty assumption closure (a kernel provenance
-; query), decode only the final (go.mod, entries) transport, hand it to the pristine WRITER (Fido_sink.materialize
+; query), decode only the final (go.mod, entries) transport, hand it to the pristine WRITER (Sink.materialize
 ; — a fresh-empty-root export, NEVER a publication); it walks no program/AST and does no semantic inspection.
 ; The sole Rocq transport command is `Fido Materialize` (there is no public `Fido Emit`); it is run EXPLICITLY
 ; (rocq c on the witness), never as a cached dune .vo side effect.
-; fido_sink is a PRIVATE module: [Fido_sink.sync] (the dirty-directory PUBLICATION sink) is NOT exported from
+; sink is a PRIVATE module: [Sink.sync] (the dirty-directory PUBLICATION sink) is NOT exported from
 ; the library, so it is not independently usable as publication by any external OCaml consumer.  Inside the
-; library only g_fido reaches [Fido_sink.materialize] (the safe export).  The standalone publication path
-; (sink_test / the make-regenerate apply CLI) compiles its OWN copy of fido_sink.ml — it never links this
+; library only materialize reaches [Sink.materialize] (the safe export).  The standalone publication path
+; (sink_test / the make-regenerate apply CLI) compiles its OWN copy of sink.ml — it never links this
 ; library.  The apply CLI checks no marker itself; the validate-before-publish ordering is the Docker build
 ; graph — the `sync` stage depends on go-e2e, so it cannot build until the pinned `go build ./...` succeeded.
 (library
  (name fido_emit)
  (public_name fido.emit)
- (private_modules fido_sink)
+ (private_modules sink)
  (flags (:standard -rectypes -w -a))
  (libraries rocq-runtime.vernac unix))
 
-(rocq.pp (modules g_fido))
+(rocq.pp (modules materialize))

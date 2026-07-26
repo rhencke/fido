@@ -210,8 +210,8 @@ Fido is about to grow from a small literal-and-conversion generator into a langu
 - useful diagnostics;
 - later structural and operational features.
 
-The current representation is the standard `GoFileMap` (Part 3): a program is a `ModuleSpec` plus a standard
-`FilePath`-keyed finite map of specification-shaped `GoSourceFile` roots, the file's package clause is source
+The current representation is the standard `Syntax.Files` (Part 3): a program is a `ModuleSpec` plus a standard
+`FilePath.T`-keyed finite map of specification-shaped `Syntax.File` roots, the file's package clause is source
 syntax, and the source file is the full specification-shaped record — not a bare declaration list.  This
 already covers the current tiny fragment (every file is `package main`, imports are intrinsically empty, the
 only varying source content is the declaration list) and is shaped as the permanent category so more language
@@ -221,12 +221,12 @@ features do not force an expensive unwind later.
 
 At campaign completion:
 
-- `GoProgram` owns a STANDARD `FilePath`-keyed map (`GoFileMap`) of immutable specification-shaped source
-  files; the map KEY is the sole stored path authority, and a binding `FilePath -> GoSourceFile` is the
+- `Syntax.Program` owns a STANDARD `FilePath.T`-keyed map (`Syntax.Files`) of immutable specification-shaped source
+  files; the map KEY is the sole stored path authority, and a binding `FilePath.T -> Syntax.File` is the
   file-root program occurrence;
-- `GoFileNode` (path + `GoSourceFile`) is a construction / view value only — the builder input and a derived
+- `Syntax.FileNode` (path + `Syntax.File`) is a construction / view value only — the builder input and a derived
   view of a binding, never the stored map value;
-- `GoSourceFile` follows the Go specification's abstract source-file structure:
+- `Syntax.File` follows the Go specification's abstract source-file structure:
   - package clause;
   - imports;
   - top-level declarations;
@@ -235,15 +235,15 @@ At campaign completion:
 - the AST stores children only;
 - no syntax node stores a parent pointer;
 - every semantically addressable source occurrence has a canonical snapshot-local `NodeRef`;
-- one derived certified `SyntaxIndex` provides:
+- one derived certified `Index.Syntax` provides:
   - parent;
   - children;
   - containing file;
   - occurrence kind;
   - deterministic occurrence order;
 - parent navigation never searches the whole source tree;
-- `GoCompile` decorates occurrences with contextual meaning and diagnostics;
-- `GoTypes` owns origin-free semantic types and relations;
+- `Admissible` decorates occurrences with contextual meaning and diagnostics;
+- `Typing` owns origin-free semantic types and relations;
 - diagnostics point to source occurrences;
 - source spans remain optional future metadata;
 - no typed AST, copied program, target AST, or text IR exists.
@@ -252,7 +252,7 @@ At campaign completion:
 
 The durable design is:
 
-> A `GoProgram` owns a standard `FilePath`-keyed map of immutable,
+> A `Syntax.Program` owns a standard `FilePath.T`-keyed map of immutable,
 > specification-shaped source-file trees (the map key is the sole path authority).
 >
 > A source occurrence is identified inside its file by a canonical,
@@ -262,12 +262,12 @@ The durable design is:
 > A certified structural index derives upward navigation from the one
 > downward-owned tree.
 >
-> `GoCompile` connects source occurrences to binding, resolved semantic
+> `Admissible` connects source occurrences to binding, resolved semantic
 > types, and diagnostics.
 >
-> `GoTypes` defines semantic relations without source spelling or location.
+> `Typing` defines semantic relations without source spelling or location.
 >
-> `GoRender` renders the original source AST canonically.
+> `Render` renders the original source AST canonically.
 
 ===============================================================================
 PART 2 — BINDING DESIGN LAWS
@@ -291,7 +291,7 @@ The ordinary translation rule is:
 - repetition -> ordered list or finite sequence;
 - grammar alternative -> inductive constructor;
 - lexical value -> intrinsic lexical datatype;
-- contextual semantic restriction -> `GoCompile` / `GoTypes`.
+- contextual semantic restriction -> `Admissible` / `Typing`.
 
 2.2 Abstract syntax, not presentation syntax
 
@@ -364,13 +364,13 @@ The source tree stores only downward ownership:
 
 Do not store both parent and child edges in the source value.
 
-The inverse relation is derived once in `GoIndex`.
+The inverse relation is derived once in `Index`.
 
 2.5 Syntax fragments are not source occurrences
 
-A context-free `GoExpr`, `TypeSyntax`, or declaration value may exist as a builder fragment.
+A context-free `Syntax.Expr`, `Syntax.TypeExpr`, or declaration value may exist as a builder fragment.
 
-A source occurrence is that value at one exact position inside one immutable `GoProgram`.
+A source occurrence is that value at one exact position inside one immutable `Syntax.Program`.
 
 Diagnostics, binding, declaration identity, and compilation facts refer to occurrences.
 
@@ -456,19 +456,19 @@ A file path is compilation-unit placement metadata.
 
 Keep them separate:
 
-  Record GoSourceFile := {
-    source_package : PackageClauseSyntax;
-    source_imports : list ImportSpecSyntax;
-    source_decls   : list TopLevelDeclSyntax
+  Record File := {
+    Syntax.package : Syntax.PackageClause;
+    Syntax.imports : list Syntax.ImportSpec;
+    Syntax.declarations   : list Syntax.TopLevelDecl
   }.
 
-  Record GoFileNode := {          (* construction / view value only — the builder input, never the stored value *)
-    file_path   : FilePath;
-    file_source : GoSourceFile
+  Record FileNode := {          (* construction / view value only — the builder input, never the stored value *)
+    Syntax.path   : FilePath.T;
+    Syntax.source : Syntax.File
   }.
 
-The program STORES these as a standard `FilePath`-keyed map `GoFileMap := FileMapBase.t GoSourceFile`: the map
-KEY is the sole path authority (`GoFileNode.file_path` is only the builder input / a derived view).
+The program STORES these as a standard `FilePath.T`-keyed map `Syntax.Files := FileMap.t Syntax.File`: the map
+KEY is the sole path authority (`Syntax.FileNode.path` is only the builder input / a derived view).
 
 The path does not become a child production inside Go's source grammar.
 
@@ -495,18 +495,18 @@ Do not represent imports and then reject them wholesale.
 
 That would repeat the subset-filter mistake.
 
-3.3 Program file storage — a STANDARD FilePath map
+3.3 Program file storage — a STANDARD FilePath.T map
 
-The program's files are a STANDARD pinned-stdlib finite map keyed by `FilePath`:
+The program's files are a STANDARD pinned-stdlib finite map keyed by `FilePath.T`:
 
-  GoFileMap := Collections.FileMapBase.t GoSourceFile   (* FMapAVL over the FilePath ordered key *)
+  Syntax.Files := Collections.FileMap.t Syntax.File   (* FMapAVL over the FilePath.T ordered key *)
 
 A map binding
 
-  FilePath -> GoSourceFile
+  FilePath.T -> Syntax.File
 
 IS the file-root program occurrence. The PATH is the map KEY; it is NOT stored in the mapped source value.
-`GoFileNode` (path + source) is ONLY a construction value and a derived view — never the stored map value.
+`Syntax.FileNode` (path + source) is ONLY a construction value and a derived view — never the stored map value.
 
 Required meaning (all intrinsic to the standard map + its duplicate-rejecting builder):
 
@@ -518,22 +518,22 @@ Required meaning (all intrinsic to the standard map + its duplicate-rejecting bu
 Expose a thin domain wrapper over the standard map (instantiate the functor, alias operations, prove domain
 facts) — never a project-authored storage datatype:
 
-  find_file      := FileMapBase.find
-  file_mem       := FileMapBase.mem
-  file_bindings  := FileMapBase.elements     (* a DERIVED canonical enumeration, not an identity authority *)
-  FilesEqual     := FileMapBase.Equal        (* semantic map equality, distinct from Rocq record = *)
+  find_file      := FileMap.find
+  file_mem       := FileMap.mem
+  file_bindings  := FileMap.elements     (* a DERIVED canonical enumeration, not an identity authority *)
+  FilesEqual     := FileMap.Equal        (* semantic map equality, distinct from Rocq record = *)
 
 The duplicate-rejecting builder checks `mem` before the standard `add` (never a silent overwrite) and is proved
 SOUND + COMPLETE + EXACT (each input node maps to its own source; every binding comes from an input node) +
 ORDER-INDEPENDENT (a permuted node list builds a `FilesEqual` map):
 
-  filemap_of_nodes : list GoFileNode -> option GoFileMap
+  Syntax.files_of_nodes : list Syntax.FileNode -> option Syntax.Files
 
 3.4 Program root
 
-  Record GoProgram := {
-    prog_module : ModuleSpec;
-    prog_files  : GoFileMap
+  Record Program := {
+    Syntax.module_spec : ModuleSpec;
+    Syntax.files  : Syntax.Files
   }.
 
 `ModuleSpec` remains outside source files because it renders the module's `go.mod`.
@@ -548,8 +548,8 @@ Keep program writing intentionally straightforward:
 
   build_program :
     ModuleSpec ->
-    list GoFileNode ->
-    option GoProgram
+    list Syntax.FileNode ->
+    option Syntax.Program
 
 Failure at this boundary should mean the file collection cannot describe one source tree set, chiefly duplicate paths.
 
@@ -559,9 +559,9 @@ Semantic invalidity remains a compiler result.
 
 After the source-file migration:
 
-- `GoRender` renders the package clause from `GoSourceFile`;
-- `GoCompile` proves package-clause and package-grouping validity;
-- `ElaborationFacts` no longer invents package spelling for the renderer.
+- `Render` renders the package clause from `Syntax.File`;
+- `Admissible` proves package-clause and package-grouping validity;
+- `Compilable.Facts` no longer invents package spelling for the renderer.
 
 A convenience builder may construct a canonical main-package file.
 
@@ -577,7 +577,7 @@ stdlib (`Map.Make`/`Set.Make`), or the Rocq runtime (`Names.GlobRef.Set`), Fido 
 domain wrapper and MUST NOT author collection storage or generic algorithms.  Every future collection is chosen
 by SEMANTIC ROLE:
 
-- identity-keyed (identifier -> binding, `NodeRef`/`NodeKey` -> compiler fact, method name -> method,
+- identity-keyed (identifier -> binding, `NodeRef`/`Index.Key` -> compiler fact, method name -> method,
   package directory -> summary): a mature standard finite map;
 - membership-only (visited vertices, package dependencies, desired targets, audit roots): a mature standard
   finite set;
@@ -632,8 +632,8 @@ Conceptually (the canonical file-root local ID is `1`, NOT `0`):
 
 The public raw key is:
 
-  Record NodeKey := {
-    node_file  : FilePath;
+  Record Key := {
+    node_file  : FilePath.T;
     node_local : LocalNodeId
   }.
 
@@ -642,7 +642,7 @@ callers.  The canonical file-root local ID is `1%positive` (`root_id = 1`).
 
 4.3 Snapshot-indexed validated references
 
-  Record NodeRef (p : GoProgram) := {
+  Record NodeRef (p : Syntax.Program) := {
     node_file  : FileRef p;          (* a validated file root of THIS p, carried — not recomputed *)
     node_local : LocalNodeId;
     node_valid : ValidLocal p node_file node_local
@@ -650,16 +650,16 @@ callers.  The canonical file-root local ID is `1%positive` (`root_id = 1`).
 
 `NodeRef` is indexed by the EXACT source snapshot `p`, never by free-standing index data.  Two different
 programs with identical paths and identical tree shape but different literal payloads must NOT share a
-`NodeRef` type: a reference belongs to one immutable source program, so `SyntaxIndex`, `FileRef`, and
+`NodeRef` type: a reference belongs to one immutable source program, so `Index.Syntax`, `FileRef`, and
 `NodeRef` are all parameterised by `p` and are not interchangeable across snapshots (enforced at the type
 level — a `NodeRef p1` cannot be used where a `NodeRef p2` is expected).
 
 A `FileRef p` is, conceptually:
 
   FileRef p := {
-    file_path;
-    file_source;
-    proof that FileMap.find file_path p.prog_files = Some file_source
+    Syntax.path;
+    Syntax.source;
+    proof that FileMap.find Syntax.path p.prog_files = Some Syntax.source
   }
 
 — a path + its source + a STANDARD-MAP membership proof.  There is NO hidden file slot: the file's public
@@ -684,11 +684,11 @@ Use proof-irrelevant / `SProp` validity fields where appropriate.
 
 Define one occurrence kind authority:
 
-  SyntaxKind :=
-    KFile
-    KPackageClause
+  Index.Kind :=
+    Index.FileKind
+    Index.PackageClauseKind
     KImportSpec
-    KTopLevelDecl
+    Index.DeclarationKind
     KDeclaration
     KFunctionDecl
     KMethodDecl
@@ -697,8 +697,8 @@ Define one occurrence kind authority:
     KResultDecl
     KField
     KType
-    KStatement
-    KExpression
+    Index.StatementKind
+    Index.ExpressionKind
     KIdentifier
     ...
 
@@ -731,24 +731,24 @@ Do not invent a second identity system for each role.
 
 Create one dedicated structural module:
 
-  GoIndex.v
+  Index.v
 
 It imports source syntax.
 
-It does not import `GoTypes` or `GoCompile`.
+It does not import `Typing` or `Admissible`.
 
 It derives:
 
-  SyntaxIndex p
+  Index.Syntax p
 
-from one `GoProgram p`.  Concretely, the index contains (or is proved equal to) a STANDARD outer FILE map
-keyed by `FilePath`, each entry a per-file index that is a STANDARD `PositiveMap` of local ids:
+from one `Syntax.Program p`.  Concretely, the index contains (or is proved equal to) a STANDARD outer FILE map
+keyed by `FilePath.T`, each entry a per-file index that is a STANDARD `PositiveMap` of local ids:
 
-  SyntaxIndex p   contains / is proved equal to   FileMap FilePath FileIndex
-  FileIndex       contains                        PositiveMap LocalNodeId NodeMeta
+  Index.Syntax p   contains / is proved equal to   FileMap FilePath.T Index.File
+  Index.File       contains                        PositiveMap LocalNodeId Index.Meta
 
 There is NO slot-keyed outer index and NO hidden file slot — the outer key is the file PATH (the same map key
-as `GoFileMap`), the inner key is the local id.  Both are standard-library maps; Fido authors neither.
+as `Syntax.Files`), the inner key is the local id.  Both are standard-library maps; Fido authors neither.
 
 The index is not author-supplied.
 
@@ -768,14 +768,14 @@ the correspondence must pin absence as well as presence, and it drives the total
 
 The selected implementation should use small structural metadata, conceptually:
 
-  Record NodeMeta := {
-    node_kind        : SyntaxKind;
+  Record Meta := {
+    node_kind        : Index.Kind;
     node_parent      : option LocalNodeId;
-    node_role        : NodeRole;
+    node_role        : Index.Role;
     node_subtree_end : LocalNodeId
   }.
 
-`NodeRole` records how an occurrence participates in its parent, for example:
+`Index.Role` records how an occurrence participates in its parent, for example:
 
 - file package clause;
 - file declaration N;
@@ -796,12 +796,12 @@ Do not store the full recursive syntax subtree in every metadata entry.
 At minimum:
 
   parent_of :
-    SyntaxIndex p ->
+    Index.Syntax p ->
     NodeRef p ->
     option (NodeRef p)
 
   children_of :
-    SyntaxIndex p ->
+    Index.Syntax p ->
     NodeRef p ->
     list (NodeRef p)
 
@@ -810,12 +810,12 @@ At minimum:
     FileRef p
 
   node_kind :
-    SyntaxIndex p ->
+    Index.Syntax p ->
     NodeRef p ->
-    SyntaxKind
+    Index.Kind
 
   is_ancestor :
-    SyntaxIndex p ->
+    Index.Syntax p ->
     NodeRef p ->
     NodeRef p ->
     bool
@@ -830,7 +830,7 @@ It should not repeatedly perform random syntax lookup.
 API honesty (binding).  Structurally guaranteed queries are TOTAL — no `option`, no invented fallback:
 `containing_file`, `ref_meta`, `node_kind`, `node_role`, `node_subtree_end`, and `children_of` all return a
 real result for every valid `NodeRef`.  ONLY `parent_of` is optional, and its single `None` is the honest
-root case (a root has no parent).  `node_kind` returns the INDEXED kind — it never manufactures a `KFile`
+root case (a root has no parent).  `node_kind` returns the INDEXED kind — it never manufactures a `Index.FileKind`
 (or any other) placeholder; `children_of` enumerates every direct child and drops none.  An impossible index
 inconsistency (a validity proof contradicting the table) is discharged by the carried validity evidence via
 a total extraction from a proven-present option, NOT by a semantic default that would fabricate a plausible
@@ -842,12 +842,12 @@ standard `PositiveMap` metadata lookup — the structural shape of two standard-
 `List.find` over the files.
 
 Public storage abstraction (binding).  There is NO public arbitrary raw index lookup by a physical handle;
-internal map inspection and the exact `si_outer = outer_of fs` construction remain an implementation/proof
+internal map inspection and the exact `Index.outer = outer_of fs` construction remain an implementation/proof
 detail.  Exactness is exposed only through validated source references and theorem surfaces — chiefly
 `ref_meta_matches_source` (a valid reference's metadata IS its exact source occurrence's metadata) and its
 kind/role/parent/subtree projections.
 
-Raw `NodeKey` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary.  It is the one place a
+Raw `Index.Key` lookup (`ref_of_key` / `file_of_path`) is a SEPARATE minting boundary.  It is the one place a
 path is resolved — by ONE standard outer FILE-map lookup (path -> file source), then validated THROUGH the
 precomputed index (one per-file `PositiveMap` lookup) — it never rebuilds the per-file index and never scans
 a file list.  The hot path from an existing `NodeRef` never uses it.  `ref_of_key` is proved sound (a returned
@@ -897,14 +897,14 @@ Use:
 4.9 Node-table implementation (SELECTED)
 
 The per-file local-node table is the pinned Rocq standard-library positive-key map
-`FMapPositive.PositiveMap` (aliased `Collections.NodeMapBase`); `NodeTable` is a thin sealed API that
+`FMapPositive.PositiveMap` (aliased `Collections.NodeMap`); `Table` is a thin sealed API that
 delegates its type and operations to it and proves the three node-table laws from the standard map facts —
 Fido authors no storage tree.  This obeys the binding collection law: a dense primitive array
 (`PArray`/`Uint63`) is rejected (kernel primitives, forbidden by the zero-axiom / no-kernel-primitive policy)
 and a project-authored radix trie is rejected (Fido authors no collection).  A plain association list is
 likewise forbidden (an O(n) list-scan node-table lookup).
 
-The sealed `NodeTable` API hides the standard map's CONSTRUCTORS and RAW operations behind the abstract
+The sealed `Table` API hides the standard map's CONSTRUCTORS and RAW operations behind the abstract
 `table`/`empty`/`get`/`set` plus the three laws, not the choice of collection. The selected backing is
 `FMapPositive.PositiveMap`; sealing keeps callers from depending on raw map internals.
 
@@ -937,7 +937,7 @@ justified now.
 
 Do not flatten and duplicate the entire AST merely to make rare random syntax inspection constant-time.
 
-If a later measured workload needs a compact nonrecursive syntax-view cache, add it behind the same `GoIndex` API as a derived optimization.
+If a later measured workload needs a compact nonrecursive syntax-view cache, add it behind the same `Index` API as a derived optimization.
 
 That must not become a second syntax authority.
 
@@ -954,7 +954,7 @@ Prove at least:
 5. parent and child belong to the same file;
 6. every occurrence is reachable from its file root;
 7. every occurrence appears exactly once in canonical enumeration;
-8. `NodeKey` equality decides occurrence identity;
+8. `Index.Key` equality decides occurrence identity;
 9. repeated structurally equal fragments in different places have distinct refs;
 10. `containing_file` agrees with `node_file`;
 11. children are in source order;
@@ -968,7 +968,7 @@ Prove at least:
     validity (theorems 1-14) does NOT subsume this: a structurally-coherent MISLABELING (a leaf marked as a
     declaration, swapped child indexes, shifted declaration/statement indexes, a wrong parent or subtree end)
     stays interval-correct yet attaches diagnostics and typed refinement to the WRONG source occurrence, and
-    only theorem 15 rejects it.  The production `GoIndex` (C2) must carry this exactness, and it is a C2
+    only theorem 15 rejects it.  The production `Index` (C2) must carry this exactness, and it is a C2
     acceptance criterion.  Concrete fixtures supplement theorem 15 but never replace the universal proof.
 
 ===============================================================================
@@ -1022,16 +1022,16 @@ Predeclared identities remain a small closed domain.
 
 5.4 Semantic types remain origin-free
 
-`GoTypes` should eventually parameterize named semantic types by a nominal identity type supplied by compilation.
+`Typing` should eventually parameterize named semantic types by a nominal identity type supplied by compilation.
 
 Conceptually:
 
   SemanticType NominalId :=
-    TBool
-    TInteger IntegerType
-    TFloat FloatType
-    TComplex ComplexType
-    TString
+    Typing.BoolType
+    Typing.IntegerType Integer.Kind
+    Typing.FloatType Float.Kind
+    Typing.ComplexType Complex.Kind
+    Typing.StringType
     TNamed NominalId
     TArray ...
     TSlice ...
@@ -1080,7 +1080,7 @@ Do not add empty speculative fields simply because the roadmap names them.
 
 5.7 No second compiler authority
 
-`GoCompile` owns:
+`Admissible` owns:
 
 - package grouping;
 - package-clause consistency;
@@ -1091,13 +1091,13 @@ Do not add empty speculative fields simply because the roadmap names them.
 - nominal identities;
 - type-syntax resolution;
 - recursive validity;
-- use of `GoTypes` relations;
+- use of `Typing` relations;
 - diagnostics;
 - whole-program validity.
 
-`GoTypes` owns the semantic relations themselves.
+`Typing` owns the semantic relations themselves.
 
-`GoCompile` may be split into internal modules for manageability.
+`Admissible` may be split into internal modules for manageability.
 
 That is module factoring, not a second compiler authority.
 
@@ -1161,23 +1161,23 @@ Canonical diagnostic order:
 
 Package/program-only errors receive a documented deterministic position.
 
-Source-only facts and the semantic diagnostics depend only on the `GoFileMap` up to standard map equality
+Source-only facts and the semantic diagnostics depend only on the `Syntax.Files` up to standard map equality
 (`FilesEqual`): `FilesEqual` file maps produce equal semantic diagnostics, and the backing-tree structure /
 construction order is never observable.  The full fresh-build plan and the command-facing elaboration report
-ALSO depend on the `ModuleSpec` (the preflight's default output name is a `ModulePath` function), so their
+ALSO depend on the `ModuleSpec` (the preflight's default output name is a `ModulePath.T` function), so their
 determinism requires `ProgramInputEqual` (the file map AND the module), not `FilesEqual` alone.
 
 6.4 Elaboration result
 
 The permanent direction is:
 
-  ElaborationResult p :=
-    ElaborationOK (ElaborationFacts p)
+  Compilable.Result p :=
+    ElaborationOK (Compilable.Facts p)
     ElaborationFailed (NonEmpty (Diagnostic p))
 
 The proof-producing compiler remains exact against one declarative whole-program judgment.
 
-If `go_compile` remains as a convenience API, it must be a projection of the one elaboration root.
+If `Compilable.compile` remains as a convenience API, it must be a projection of the one elaboration root.
 
 It may not independently recompute validity.
 
@@ -1201,7 +1201,7 @@ PART 7 — RENDERING
 
 7.1 Render the original source AST
 
-`GoRender` traverses the original source forest.
+`Render` traverses the original source forest.
 
 It preserves source-selected semantic spellings:
 
@@ -1228,9 +1228,9 @@ The renderer chooses one canonical concrete spelling for presentation-equivalent
 Example:
 
   AST says `byte`
-  GoCompile resolves it to semantic `uint8`
-  GoTypes treats it as identical to `uint8`
-  GoRender still emits `byte`
+  Admissible resolves it to semantic `uint8`
+  Typing treats it as identical to `uint8`
+  Render still emits `byte`
 
 This is the core source/meaning split.
 
@@ -1238,13 +1238,13 @@ This is the core source/meaning split.
 
 `go.mod` remains rendered separately from `ModuleSpec`.
 
-It is not a `GoSourceFile`.
+It is not a `Syntax.File`.
 
 ===============================================================================
 PART 8 — RESPONSIBILITY TABLE
 ===============================================================================
 
-GoSyntax / GoAST
+GoSyntax / Syntax
 
 Owns:
 
@@ -1263,15 +1263,15 @@ Does not own:
 - parent pointers;
 - source spans.
 
-GoFileMap / GoProgram
+Syntax.Files / Syntax.Program
 
 Owns:
 
 - module snapshot;
-- the standard `FilePath`-keyed source-file map (the map KEY is the file-root identity);
+- the standard `FilePath.T`-keyed source-file map (the map KEY is the file-root identity);
 - unique file paths (intrinsic to the map key);
 - order-independent file-map meaning (`FilesEqual` = standard map equality);
-- `GoFileNode` as a construction / derived-view value only, never the stored map value.
+- `Syntax.FileNode` as a construction / derived-view value only, never the stored map value.
 
 Does not own:
 
@@ -1280,7 +1280,7 @@ Does not own:
 - import validity;
 - expression typing.
 
-GoIndex
+Index
 
 Owns:
 
@@ -1299,7 +1299,7 @@ Does not own:
 - compiler acceptance;
 - copied syntax.
 
-GoTypes
+Typing
 
 Owns:
 
@@ -1322,7 +1322,7 @@ Does not own:
 - import resolution;
 - diagnostic locations.
 
-GoCompile
+Admissible
 
 Owns:
 
@@ -1333,7 +1333,7 @@ Owns:
 - nominal IDs;
 - type-syntax resolution;
 - recursive validity;
-- invocation of GoTypes relations;
+- invocation of Typing relations;
 - occurrence-indexed facts;
 - diagnostics;
 - exact compiler judgment.
@@ -1344,7 +1344,7 @@ Does not own:
 - pretty printing;
 - another type relation universe.
 
-GoRender
+Render
 
 Owns:
 
@@ -1356,7 +1356,7 @@ Does not own:
 - package inference;
 - type normalization.
 
-GoSafe
+Property
 
 Owns:
 
@@ -1432,7 +1432,7 @@ Purpose:
 
 - close small residue from the complex review;
 - prove the occurrence/index idea in isolation over the SELECTED standard positive-key map
-  (`NodeTable` over `FMapPositive`; `LocalNodeId := positive`, `root_id = 1`).
+  (`Table` over `FMapPositive`; `LocalNodeId := positive`, `root_id = 1`).
 
 No production AST migration.
 
@@ -1440,8 +1440,8 @@ C1 — Specification-shaped file roots and path-keyed source forest
 
 Purpose:
 
-- replace the project-authored `map[path, declaration-list]` with a standard `FilePath`-keyed map of
-  specification-shaped `GoSourceFile` roots (`GoFileMap`), the path being the map key;
+- replace the project-authored `map[path, declaration-list]` with a standard `FilePath.T`-keyed map of
+  specification-shaped `Syntax.File` roots (`Syntax.Files`), the path being the map key;
 - move the package clause into source syntax;
 - preserve current semantics and generated bytes.
 
@@ -1451,7 +1451,7 @@ C2 — Production occurrence index and navigation
 
 Purpose:
 
-- land GoIndex;
+- land Index;
 - canonical NodeRef;
 - efficient parent/children/file navigation;
 - integrate traversal references through the current source forest.
@@ -1523,7 +1523,7 @@ C0.1 Preflight residue
 
 Fix the small accepted cleanup items from the complex review:
 
-1. GoSafe prose that says invalid raw syntax contains only integer/float conversions:
+1. Property prose that says invalid raw syntax contains only integer/float conversions:
    include complex conversion.
 
 2. The assumptions-gate renderer summary:
@@ -1562,24 +1562,24 @@ Use a tiny toy source grammar with:
 Prototype:
 
 - file-local preorder IDs;
-- NodeKey;
+- Index.Key;
 - validated NodeRef;
 - NodeKind;
-- NodeRole;
-- NodeMeta;
-- selected NodeTable;
+- Index.Role;
+- Index.Meta;
+- selected Table;
 - parent_of;
 - children_of;
 - containing_file;
 - subtree interval ancestry;
 - one-pass builder.
 
-Do not integrate this spike into production GoAST yet.
+Do not integrate this spike into production Syntax yet.
 
 C0.3 Node-table representation (SELECTED — standard positive-key map)
 
 The node table is the pinned Rocq standard-library positive-key map `FMapPositive.PositiveMap`
-(`Collections.NodeMapBase`), behind a thin sealed `NodeTable` API that delegates storage and operations and
+(`Collections.NodeMap`), behind a thin sealed `Table` API that delegates storage and operations and
 proves the node-table laws from the standard map facts (obeying the binding collection law: no project-authored
 storage).  A `PArray`/`Uint63` dense array is rejected (kernel primitives, forbidden by the zero-axiom policy);
 a project radix/Patricia trie is rejected (Fido authors no collection); a list table is rejected (O(n) scan).
@@ -1598,7 +1598,7 @@ Prove:
 - containing file recovery;
 - deterministic enumeration;
 - equal leaves in two positions have unequal refs;
-- decidable NodeKey equality;
+- decidable Index.Key equality;
 - sound preorder interval ancestor test;
 - index builder does not depend on structural equality search.
 
@@ -1618,7 +1618,7 @@ C0.6 Decision record
 Update `.review/SOURCE_FOREST_STATUS.md` with:
 
 - selected LocalNodeId representation;
-- selected NodeTable representation;
+- selected Table representation;
 - selected metadata fields;
 - build/query complexity;
 - rejected alternatives and reasons;
@@ -1656,10 +1656,10 @@ C1.1 Replace the file root
 
 Introduce:
 
-  GoSourceFile
-  GoFileNode      (construction / view only)
-  GoFileMap       (a STANDARD FilePath-keyed map of GoSourceFile — Collections.FileMapBase.t GoSourceFile)
-  GoProgram
+  Syntax.File
+  Syntax.FileNode      (construction / view only)
+  Syntax.Files       (a STANDARD FilePath.T-keyed map of Syntax.File — Collections.FileMap.t Syntax.File)
+  Syntax.Program
 
 Use the specification-shaped source-file categories.
 
@@ -1675,19 +1675,19 @@ C1.2 Remove the declaration-list alias as the file authority
 
 Delete the permanent equation:
 
-  GoFileAST := list GoDecl
+  GoFileAST := list Syntax.Decl
 
-A list of declarations may remain as the `source_decls` field.
+A list of declarations may remain as the `Syntax.declarations` field.
 
 It is no longer the entire file.
 
 C1.3 The file path is the standard-map KEY
 
-The file `FilePath` is the KEY of the standard `GoFileMap` — it is NOT stored in the mapped `GoSourceFile`
+The file `FilePath.T` is the KEY of the standard `Syntax.Files` — it is NOT stored in the mapped `Syntax.File`
 value.  The standard map enforces path uniqueness intrinsically (a duplicate path is unrepresentable; the
-duplicate-rejecting builder `filemap_of_nodes` fails loud rather than overwriting).
+duplicate-rejecting builder `Syntax.files_of_nodes` fails loud rather than overwriting).
 
-One path authority only: the map key.  `GoFileNode` (path + source) is a construction/view value carrying the
+One path authority only: the map key.  `Syntax.FileNode` (path + source) is a construction/view value carrying the
 path only for the builder input — never a parallel stored identity.
 
 C1.4 File-set API and laws
@@ -1707,26 +1707,26 @@ backing AVL tree.
 
 C1.5 Package clause responsibility
 
-Move package spelling from `ElaborationFacts` to `GoSourceFile`.
+Move package spelling from `Compilable.Facts` to `Syntax.File`.
 
 Delete `cf_pkg_name` or any replacement whose only purpose is to tell the renderer what the source file says.
 
-`GoCompile` still proves:
+`Admissible` still proves:
 
 - files are grouped correctly by path;
 - the current package clause is valid for the current generated-package policy;
 - package-level main rules.
 
-`GoRender` renders the AST package clause.
+`Render` renders the AST package clause.
 
 C1.6 Pipeline migration
 
 Migrate:
 
-- GoCompile;
-- GoSafe;
-- GoRender;
-- GoEmit;
+- Admissible;
+- Property;
+- Render;
+- Emit;
 - witnesses;
 - empty program;
 - multi-package differential;
@@ -1747,7 +1747,7 @@ The sink behavior and recursive path set remain unchanged.
 
 C1.8 Review and completion
 
-C1 is complete when: `GoSourceFile` / `GoFileNode` (construction/view) / `GoFileMap` (standard map) exist with
+C1 is complete when: `Syntax.File` / `Syntax.FileNode` (construction/view) / `Syntax.Files` (standard map) exist with
 path uniqueness and the standard lookup/builder laws proved; the package clause is source-owned; the old
 `map[path, AST]` / project-authored fmap authority is deleted; the full pipeline migration is done with adapters
 removed, docs/gates updated, behavior preservation proved, and byte identity verified.
@@ -1756,7 +1756,7 @@ C1.10 C1 acceptance
 
 - one source file root;
 - one path authority (the standard-map key);
-- one standard `FilePath`-keyed `GoFileMap`;
+- one standard `FilePath.T`-keyed `Syntax.Files`;
 - package clause in AST;
 - no imports represented;
 - current semantics unchanged;
@@ -1774,18 +1774,18 @@ C2 is activated only after explicit human approval of C1B (the collection-policy
 correction that supersedes C1's file-storage design).  C1 and C1A being complete is NOT sufficient — C2
 remains FORBIDDEN until Rob explicitly authorizes it after C1B is accepted.
 
-C2.1 Land production GoIndex
+C2.1 Land production Index
 
 Create:
 
-  GoIndex.v
+  Index.v
 
-Land the production index over `GoProgram.prog_files : GoFileMap` (`FileMap FilePath GoSourceFile`) with the
+Land the production index over `Syntax.Program.files : Syntax.Files` (`FileMap FilePath.T Syntax.File`) with the
 STANDARD-COLLECTION shape (no project-authored storage, obeying the binding collection law):
 
-- an outer STANDARD FILE map `FileMap FilePath FileIndex` (the outer key is the file PATH — the same key as
-  `GoFileMap`; NO slot-keyed outer index, NO hidden file slot);
-- each `FileIndex` a STANDARD `PositiveMap LocalNodeId NodeMeta`;
+- an outer STANDARD FILE map `FileMap FilePath.T Index.File` (the outer key is the file PATH — the same key as
+  `Syntax.Files`; NO slot-keyed outer index, NO hidden file slot);
+- each `Index.File` a STANDARD `PositiveMap LocalNodeId Index.Meta`;
 - `FileRef` = path + source + a `FileMap.find` membership proof (NO hidden slot);
 - the canonical file-root local ID is `1` (`root_id = 1`);
 - NO list-backed forest, NO file-list scan, NO per-query index rebuild.
@@ -1829,7 +1829,7 @@ C2.4 NodeRef and typed refs
 
 Land:
 
-- NodeKey;
+- Index.Key;
 - NodeRef p;
 - NodeRefOf p k;
 - FileRef;
@@ -1864,11 +1864,11 @@ Add explicit repeated-expression fixture:
 
   println(1, 1)
 
-and prove the two `EInt 1` occurrences have distinct refs while yielding equal syntax fragments.
+and prove the two `Syntax.IntegerLiteral 1` occurrences have distinct refs while yielding equal syntax fragments.
 
 C2.7 Compiler integration without semantic redesign
 
-Thread `SyntaxIndex` / NodeRef through traversal infrastructure.
+Thread `Index.Syntax` / NodeRef through traversal infrastructure.
 
 Do not redesign diagnostics yet.
 
@@ -1938,9 +1938,9 @@ C3.3 One elaboration root
 
 Introduce the permanent elaboration direction:
 
-  ElaborationResult p
+  Compilable.Result p
 
-If old `go_compile` remains, make it a projection of `elaborate`.
+If old `Compilable.compile` remains, make it a projection of `elaborate`.
 
 Delete independent duplicated checks.
 
@@ -1957,7 +1957,7 @@ Prove every fact key is a valid occurrence of the right kind.
 
 C3.5 Deterministic diagnostics
 
-Canonicalize diagnostic order over the `GoFileMap`'s canonical `elements`/`NodeKey` order — a function of the
+Canonicalize diagnostic order over the `Syntax.Files`'s canonical `elements`/`Index.Key` order — a function of the
 map up to `FilesEqual`, independent of construction order.
 
 Add tests with:
@@ -1976,7 +1976,7 @@ Prove:
 - `ElaborationFailed ds` yields nonempty valid diagnostics;
 - no valid facts exist on failure, under the selected theorem;
 - success has no diagnostics;
-- current `CompilableProgram` is produced only from `ElaborationOK`;
+- current `Compilable.Program` is produced only from `ElaborationOK`;
 - renderer/emitter still require compiled/safe evidence.
 
 C3.7 No typed AST
@@ -1997,7 +1997,7 @@ permanent Contract Review process. Its Implementation Review follows `.review/CO
 implementation is complete when:
 
 - the diagnostic types exist and every current compiler error has a valid occurrence anchor;
-- one elaboration root exists (`go_compile` is a projection of `elaborate`);
+- one elaboration root exists (`Compilable.compile` is a projection of `elaborate`);
 - the exact success/failure theorem core is green;
 - diagnostics are complete and in deterministic order;
 - reports, tests, docs, and the compiler/e2e integration are done;
@@ -2009,8 +2009,8 @@ C3.10 C3 acceptance
 
 - every current compiler failure says where and why structurally;
 - every node anchor is valid;
-- one elaboration root (`go_compile` is a projection of `elaborate`);
-- occurrence-keyed `ElaborationFacts`;
+- one elaboration root (`Compilable.compile` is a projection of `elaborate`);
+- occurrence-keyed `Compilable.Facts`;
 - deterministic diagnostics;
 - no typed AST;
 - no generated-byte drift unless explicitly reviewed;
@@ -2045,12 +2045,12 @@ C4.2 Specification-shaped type-name syntax
 
 The permanent direction:
 
-  TypeNameSyntax :=
-    Unqualified IdentifierSyntax
-    Qualified IdentifierSyntax IdentifierSyntax
+  Syntax.TypeName :=
+    Unqualified Names.Identifier
+    Qualified Names.Identifier Names.Identifier
 
-  TypeSyntax :=
-    TSName TypeNameSyntax
+  Syntax.TypeExpr :=
+    Syntax.NamedType Syntax.TypeName
     later:
       arrays
       structs
@@ -2063,13 +2063,13 @@ The permanent direction:
 
 Only live constructors are added.
 
-Type-name occurrences are indexed by GoIndex.
+Type-name occurrences are indexed by Index.
 
 C4.3 Predeclared universe is compiler context
 
 Predeclared names are not semantic constructors in the AST.
 
-`GoCompile` resolves source names through the current scope chain and universe declarations.
+`Admissible` resolves source names through the current scope chain and universe declarations.
 
 Eventually, source declarations may shadow predeclared names according to Go rules.
 
@@ -2079,17 +2079,17 @@ C4.4 Conversion source syntax
 
 The permanent direction is a source conversion whose target is source type syntax.
 
-DONE at C4: the ONE `EConvert TypeSyntax GoExpr` source-shaped conversion is LIVE and the former family-specific
+DONE at C4: the ONE `Syntax.Convert Syntax.TypeExpr Syntax.Expr` source-shaped conversion is LIVE and the former family-specific
 conversion nodes (`EIntConvert`/`EFloatConvert`/`EComplexConvert`) are DELETED — replaced same-checkpoint once
 exact replacement semantics existed for every representable target (the closed sixteen-name source class,
-resolved to a semantic `GoType` in `GoCompile`).
+resolved to a semantic `Typing.SemanticType` in `Admissible`).
 
 The replacement, as landed:
 
 - every type name made representable as a conversion target was audited (the closed sixteen: fourteen numeric
   names plus the `byte`/`rune` source aliases);
 - every accepted conversion from the representable operand domain is modelled (exact per numeric family);
-- unsupported target forms are UNREPRESENTABLE (no `SupportedTypeName` carries them) rather than blanket-rejected.
+- unsupported target forms are UNREPRESENTABLE (no `Names.SupportedType` carries them) rather than blanket-rejected.
 
 This was a vertical feature, not a cosmetic node rename.
 
@@ -2201,10 +2201,10 @@ C5.5 Constant/default/conversion integration
 
 Extend:
 
-- GoConst;
-- TypedConst/defaulting;
+- Typing.Constant;
+- Typing.TypedConstant/defaulting;
 - numeric conversion;
-- GoSafe runtime values;
+- Property runtime values;
 - renderer denotation;
 - compiler facts;
 - diagnostics;
@@ -2308,16 +2308,16 @@ At campaign closeout, verify:
 
 Source authority
 
-- one GoProgram;
+- one Syntax.Program;
 - one path-keyed source-file set;
-- one GoSourceFile shape;
+- one Syntax.File shape;
 - package clause source-owned;
 - no outer path map plus inner path duplication;
 - no declaration-list masquerading as a complete source file.
 
 Occurrence authority
 
-- one SyntaxIndex;
+- one Index.Syntax;
 - one NodeRef identity;
 - no parent fields in AST;
 - no author IDs;
@@ -2327,8 +2327,8 @@ Occurrence authority
 
 Semantic authority
 
-- GoCompile owns contextual resolution;
-- GoTypes owns semantic relations;
+- Admissible owns contextual resolution;
+- Typing owns semantic relations;
 - no semantic source spelling;
 - no universal representative type;
 - no typed AST.

@@ -25,7 +25,7 @@ This index lists current human acts.
 | ID | Status | Required human act | Source / owner | Effect |
 |---|---|---|---|---|
 | `C4-REVIEW` | **PAUSED FOR THE A005 SCOPED NAMING MIGRATION** | Review the next C4 candidate only after intrinsic retained elaboration repair 14 is implemented and frozen. Repair 14 is implemented and frozen but not human-accepted; A005 renames the whole repository first, so the review resumes against the renamed candidate. The semantic result of `3386c023fe10df4ae433726044d61642f219309c` is preserved unchanged. | `.review/NEXT_STEPS.md`, A001, A005, and the main review thread | C5 and post-C4 feature work remain forbidden. |
-| `ADR-0002` | **OPEN / DEFERRED** | Choose the DecimalFloat domain after differential and proof-cost evidence. | Governance ADR register | Before C7 broadens floating constant coverage. |
+| `ADR-0002` | **OPEN / DEFERRED** | Choose the Float.Decimal domain after differential and proof-cost evidence. | Governance ADR register | Before C7 broadens floating constant coverage. |
 | `ADR-0004` | **DEFERRED** | Choose the multi-platform 64-bit target set. | Governance ADR register | C16. |
 | `TOOLCHAIN-PROVENANCE` | **PENDING** | Replace pending local-distribution evidence with verified official tarball evidence, or expressly retain pending status for a specific review use. | Toolchain Evidence | Adequacy evidence remains pending; formal architecture is unchanged. |
 | `FIXED-POINT-EXTERNAL-EVIDENCE` | **OPEN** | Decide whether the twelve external R1-bundle components (pinned spec and memory-model HTML, extractor script, latitude manifest, freeze records, pinned toolchain evidence, F-dispositions, audit JSON, heading and grammar manifests) should be committed into a Git evidence subtree, or expressly retained as external `PROVENANCE-PENDING` references. | Fixed Points registry; D-24 | Their bytes are not in Git, so their protected projections cannot currently be recomputed from the repository. |
@@ -38,7 +38,7 @@ This index lists current human acts.
 
 - `FCB-A002`: accepted on `2026-07-25`. Git is the sole canonical FCB store; project libraries contain bootstrap shims only; root `CLAUDE.md` uses the same bootstrap; D-23 added.
 - `FCB-A001`: accepted on `2026-07-25`. The static capability and failure result must retain the exact whole elaboration by construction; `ARCH-03` reopened and strengthened; D-22 added.
-- `LAT-X004`: option (ii), proved rounding-invariant accepted domain, owner fixed at `SPEC-096` / `ExprFact` / `SC-05`.
+- `LAT-X004`: option (ii), proved rounding-invariant accepted domain, owner fixed at `SPEC-096` / `Compilable.ExpressionFact` / `SC-05`.
 - `ADR-0001`: adopted for the current single linux/amd64 target; reopens at C16 or an earlier target/`uintptr` request.
 - `ADR-0003`: adopted.
 - Terminal open candidate: Rob’s 2026-07-24 instruction authorized FCB generation from it while preserving pending provenance as pending.

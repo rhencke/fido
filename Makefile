@@ -1,10 +1,10 @@
 BUILDER := fido-builder
-# The build platform is pinned to linux/amd64 — the 64-bit target the theory assumes (Ints: int/uint are
+# The build platform is pinned to linux/amd64 — the 64-bit target the theory assumes (Integer: int/uint are
 # 64-bit).  SEALED: `override` makes any command-line/env change inert (the e2e also asserts the running
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -28,7 +28,7 @@ override PLATFORM := linux/amd64
 # export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
 # exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
-check: prove e2e builder
+check: names prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -68,14 +68,14 @@ e2e: builder
 # the `sync` target FORCES the go-e2e stage (the pinned `go build ./...`) via the Docker DAG (`sync` COPYs
 # go-e2e's /fresh-build-ok) — so a failed fresh build makes `sync` unbuildable and no sink effect occurs.  The
 # sync image bakes in the pristine `generated-module` layer + the tiny internal apply adapter; run with the
-# repository root bind-mounted at /dest, Fido_sink synchronizes /generated into the repo (preserving foreign
+# repository root bind-mounted at /dest, Sink synchronizes /generated into the repo (preserving foreign
 # non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + recursive .go, removing
 # stale Fido-owned .go).  It publishes the ORIGINAL generated-module bytes, never a post-build byte.  After it
 # runs, stage go.mod + recursive *.go and commit; the pre-commit staged-index check verifies byte-exactness.
 regenerate: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
-	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Fido_sink."
+	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
 # Structural regression proving the validate-before-publish DAG edge is load-bearing: with go-e2e forced to
@@ -98,6 +98,11 @@ regen-guard: builder
 # case that can actually break something is already caught by a stronger, semantic check.
 fmt:
 	@python3 tools/fmt-check.py
+
+# A005 scoped-name policy gate.  The compiler verifies Rocq names for free; documentation
+# has no verifier at all, so this is the only checker the prose gets.  Reports, never rewrites.
+names:
+	@python3 tools/naming-gate.py
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
