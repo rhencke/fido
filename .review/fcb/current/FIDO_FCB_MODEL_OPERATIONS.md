@@ -29,7 +29,7 @@ Git is the sole canonical FCB store. The stable entry point is `.review/fcb/curr
 
 For every serious Fido design, implementation, or review task:
 
-1. Typing.Resolved one exact repository ref. Use the user-specified candidate commit or uploaded repository snapshot when one is supplied; otherwise use the latest accessible `main`.
+1. Resolve one exact repository ref. Use the user-specified candidate commit or uploaded repository snapshot when one is supplied; otherwise use the latest accessible `main`.
 2. Read the stable bootstrap `.review/fcb/current/INDEX.md` from that exact ref.
 3. Read the FCB Index it names and use its consultation map.
 4. Confirm every file the Index names exists at that same ref.

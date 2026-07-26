@@ -17,15 +17,15 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Current implementation candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` — C4 repair 16
-(`.review/C4_IMPLEMENTATION_REPAIR_16.md`) is **IMPLEMENTED and COMPLETE**, awaiting Rob's human C4
-Implementation Review. All five findings are closed: package refs and diagnostics start from the elaboration
-own retained visit; `Compilable.Core`, its constructor and the production builder are sealed; the naming gate
-parses constructors and its 51-item residue is renamed; the direct fixtures query only the returned objects;
-and this corpus states one current truth.  
-**Last blocked candidate:** `deda8bd91dbfebf75895c8786732a4ed9d7952f2` — the seventeenth to block;
-`25bcd7aa6b53f1e506a32c5077990a884bea8574` is its documentation-only freeze, not a separate candidate.  
-**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13, 14 and 15 are historical.  
+**Blocked implementation candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` — the eighteenth
+blocked C4 candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a
+separate candidate. Repair 16 made real progress and did **not** close C4.  
+**Active work: C4 repair 17** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`) — the sole active C4 task.
+Retained package provenance and the sealed `Compilable.Core` are closed and must not regress. Still open in
+this repair: `Emit.Image` construction is **not** sealed and is **BLOCKED** on a human decision
+(`.review/OPEN_QUESTIONS.md` Q-08 — a Rocq module seal removes the projection bodies the transport must
+kernel-reduce).  
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 16 are historical.  
 Governance owns `D-01` through `D-25`; amendments `A001` through `A005` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  

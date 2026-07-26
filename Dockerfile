@@ -141,7 +141,7 @@ sealed H Compilable.MakeFacts
 sealed I Compilable.Capability.MakeProgram
 sealed J Compilable.Capability.MakeFailure
 sealed K Compilable.AcceptedFacts.MakeFacts
-# the internal mint itself: it takes an Elaboration, and an Elaboration is assemblable from any core, so
+# the internal mint itself: it takes an Elaboration.  Both it and the Elaboration constructor are sealed, so
 # exporting it would restore the "constructs an equal core" path §7 deletes.  compile is the only way in.
 sealed L Compilable.minted
 sealed M Compilable.outcome_of_elaboration

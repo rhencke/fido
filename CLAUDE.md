@@ -52,8 +52,8 @@ a `ModuleSpec` (module path + Go version) paired with a possibly-EMPTY `Syntax.F
 PROOFS/EVIDENCE over that one program, never new trees. The certified pipeline:
 
 ```
-Syntax.Program -> Typing (evidence, ONE type authority) -> Admissible (whole-program admissibility = the pinned
-  one-shot `go build ./...` acceptance) -> Property -> Render -> Emit.Image -> `Fido Materialize` writes
+Syntax.Program -> Typing (evidence, ONE type authority) -> Compilable (whole-program admissibility = the pinned
+  one-shot `go build ./...` acceptance) -> Safe -> Render -> Emit.Image -> `Fido Materialize` writes
   the authoritative pristine image -> pinned Go `go build ./...` VALIDATES it -> ONLY THEN the internal
   `make regenerate` sink publishes the SAME validated bytes   [integration only]
 ```

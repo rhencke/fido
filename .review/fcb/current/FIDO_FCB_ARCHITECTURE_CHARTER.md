@@ -1371,7 +1371,7 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - `Safe.Program` refines the same exact accepted capability.
 - Rendering continues to project the original `Syntax.Program` and does not evaluate elaboration.
 
-This is the C4 blocking obligation introduced by A001, and it is what the active repair 16 must satisfy before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
+This is the C4 blocking obligation introduced by A001, and it is what the active repair 17 must satisfy before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
 
 ### Do Not Do Early
 

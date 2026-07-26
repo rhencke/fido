@@ -22,7 +22,7 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
   `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
   `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) · `3386c02` (15) ·
   `20c5ad5c499d5046563471624117b80c737c7157` (16).
-- **Seventeenth blocked candidate:** `deda8bd91dbfebf75895c8786732a4ed9d7952f2` —
+- **Seventeenth blocked candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` —
   repair 15 made substantial, real progress and did NOT close C4.
   `25bcd7aa6b53f1e506a32c5077990a884bea8574` is its documentation-only freeze, not a separate candidate.
 - **Repair authority (ACTIVE): `.review/C4_IMPLEMENTATION_REPAIR_16.md`**, under accepted FCB amendments
@@ -36,7 +36,7 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
   `c5b67495` is a **documentation-only freeze**, not a candidate; `37c9597` remains a superseded
   documentation-only acceptance closeout. Repair 15 is implemented on top of the current head — no reset,
   rebase, history rewrite, force-push, or revert of the A005 migration. Ranges: full human C4 review
-  `8c9212a..deda8bd`; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..9d5246e`**;
+  `8c9212a..12b1bc9`; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..9d5246e`**;
   **repair-14 `9d5246e..3386c02`**; **A005 `c5b674..20c5ad5`**; **repair-15 `20c5ad5..deda8bd`**.
   Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
@@ -44,7 +44,7 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 
 ## Repair 16 — retained package provenance, an abstract Core, a gate that sees constructors — ACTIVE
 
-**`deda8bd91dbfebf75895c8786732a4ed9d7952f2` is BLOCKING — the seventeenth blocked candidate.**
+**`12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is BLOCKING — the eighteenth blocked candidate.**
 Authority: `.review/C4_IMPLEMENTATION_REPAIR_16.md`, under accepted FCB amendments **A001** / Governance
 **D-22** and **A005** / Governance **D-25**. Five findings: package facts and diagnostics must start from the
 exact retained visit rather than a rerun; `Compilable.Core` and its constructor must be abstract to clients;
@@ -172,7 +172,7 @@ Generated `go.mod` and `main.go` have been byte-identical across the whole repai
 typechecks, proves, builds and emits identical bytes — repair 13. A capability that keeps copied projections
 plus a Prop equality to rerunning the elaborator does likewise — repair 14. A package map folded from a rerun
 of `program_visit`, a publicly constructible `Core`, and direct fixtures that recover their result through an
-equality to a rebuilt peer all do likewise — repair 16's findings 1, 2 and 4, every one of them green.
+equality to a rebuilt peer all do likewise — repair 17's findings 1, 2 and 4, every one of them green.
 
 ⚠ **And the sharpest instance is a gate that could not see.** The A005 naming gate parsed constructors only
 when the first character was already uppercase, so 51 live lower-case constructors were never examined and it

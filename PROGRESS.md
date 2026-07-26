@@ -87,8 +87,8 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) — NOT yet
-accepted; `deda8bd91dbfebf75895c8786732a4ed9d7952f2` is BLOCKING and repair 16 is the sole active C4
-work** (seventeen candidates have now blocked at human Implementation Review; the withdrawn GREEN
+accepted; `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is BLOCKING and repair 17 is the sole active C4
+work** (eighteen candidates have now blocked at human Implementation Review; the withdrawn GREEN
 disposition and its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted
 until Rob accepts it). Repair 13's work index is retained and correct. The static-capability boundary now
 retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,
@@ -165,7 +165,7 @@ member, and the stored singleton) are gated in the readable assumption gate, tog
 surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
 fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
 **C4 is NOT yet human-accepted — BLOCKING
-at `deda8bd91dbfebf75895c8786732a4ed9d7952f2`, with repair 16 the sole active C4 work**
+at `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c`, with repair 17 the sole active C4 work**
 (the withdrawn GREEN disposition and its documentation-only acceptance commit `37c9597` are superseded). The
 authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
 PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.

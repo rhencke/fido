@@ -154,7 +154,7 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  executable name (import-path basename, a trailing `/vN` major-version element stripped) must not
                  be an existing root DIRECTORY (0 or ≥2 packages write no default output; empty program accepted).
                  The ONE elaboration root [elaborate] builds ONE retained [Index.Program] and returns a
-                 [Compilable.Elaboration]; [Compilable.compile] PROJECTS it (no second checker — [Compilable.compile_projects_elaborate])
+                 [Compilable.Elaboration]; [Compilable.compile] PROJECTS it (no second checker — [Compilable.compile_elaboration_core] is internal to the seal; the public facts are [Compilable.compile_complete] and [Compilable.compile_rejected_of_inadmissible])
                  into a [Compilable.Outcome] — [Compilable.Compiled] carrying a
                  [Compilable.Program] (which RETAINS the program, its exact elaborated index, and its
                  [Compilable.Facts]: the sealed occurrence-keyed [Compilable.ExpressionFactTable] + the sealed occurrence-keyed

@@ -16,7 +16,7 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 ## Current boundary
 
-C4 implementation candidate `deda8bd91dbfebf75895c8786732a4ed9d7952f2` is **BLOCKING** — the seventeenth blocked candidate; `25bcd7aa6b53f1e506a32c5077990a884bea8574` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 16 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_16.md`): retained package provenance folded from the elaboration's own visit, an abstract `Compilable.Core`, constructor naming actually enforced by the gate, direct capability fixtures that query only the returned objects, and one coherent current corpus. Repairs 13, 14 and 15 are historical; none of them is the active work.
+C4 implementation candidate `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is **BLOCKING** — the eighteenth blocked candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 17 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`): the returned-object fixtures must carry the retained causal history, the naming gate must stop being false-green for record fields and unreadable text, `Emit.Image` construction must be sealed under Charter §22, the coarse legacy result peer must be deleted, and the corpus must state one truth. Repairs 13 through 16 are historical; none of them is the active work.
 
 The out-of-band documentation, header and tooling commits after the blocked candidate are not new
 
@@ -24,7 +24,7 @@ FCB Amendment A002 is accepted: the live FCB is Git-canonical under `.review/fcb
 
 The next permitted sequence is:
 
-`C4 repair 16 → human C4 review → checkpoint-definition Step 0 → C5`.
+`C4 repair 17 → human C4 review → checkpoint-definition Step 0 → C5`.
 
 C5 remains forbidden until C4 is accepted.
 

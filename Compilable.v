@@ -9468,10 +9468,10 @@ Qed.
     of a core and a proof, cannot assemble a failure at all, and therefore cannot present the compiler's
     authority for a program the compiler never accepted (A001 / D-22).
 
-    [Core] deliberately stays TRANSPARENT.  Every one of its fields is either determined by the program or
-    carried with the proof that it IS the canonical value, so [MakeCore] is a proof obligation rather than a
-    forgery surface — and concrete fixtures must be able to compute an elaboration.  Sealing the two types
-    that carry compiler AUTHORITY is the boundary that means something. *)
+    [Core] is sealed too (§2 above).  An earlier repair left it transparent on the argument that its fields
+    are proof-pinned, so [MakeCore] could not produce a malformed value.  That argument is about whether a bad
+    value would be caught; A001 is about the TOPOLOGY of the authority chain, and a client able to build a
+    peer core is the shape it exists to prevent however well-formed the peer would be. *)
 Module Type CAPABILITY.
   Parameter Program : Type.
   Parameter source   : Program -> Syntax.Program.
@@ -9488,9 +9488,9 @@ Module Type CAPABILITY.
   | Compiled (cp : Program) (Hcp : source cp = p)
   | Rejected (fail : Failure p).
 
-  (* THE mint, and the ONLY exported one.  The internal [minted] takes an [Elaboration], and an [Elaboration]
-     is assemblable from any core — so exporting it would restore exactly the "constructs an equal core"
-     path §7 deletes.  [compile] takes a PROGRAM and runs the one elaboration itself. *)
+  (* THE mint, and the ONLY exported one.  The internal [minted] takes an [Elaboration]; both it and the
+     [Elaboration] constructor are sealed, so no client can assemble one and reach the mint that way.
+     [compile] takes a PROGRAM and runs the one elaboration itself. *)
   Parameter compile : forall p : Syntax.Program, Outcome p.
   (* THE TWO DECISION FACTS, stated over ADMISSIBILITY.  Neither names an elaboration builder, so neither can
      be used to recover a retained object by rebuilding a peer and equating to it: a caller that knows a
