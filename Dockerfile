@@ -127,50 +127,86 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 #     for the RIGHT reason (the name does not exist), never for an unrelated error.  Note the fixtures name
 #     the QUALIFIED constructor: `MakeProgram` alone also exists in Syntax and Index, so a bare probe would
 #     resolve there and the test would silently prove nothing.
-sealed() { # <label> <qualified term that must NOT resolve>
-  printf 'From Fido Require Import Syntax Compilable.\nDefinition probe := %s.\n' "$2" > /tmp/sealed.v
+#
+#     TWO STAGES, and the first is the one that matters.  The earlier single-stage helper imported only
+#     `Syntax Compilable`, so every `Safe.*` and `Emit.*` probe could fail because the module was never
+#     loaded rather than because its constructor is hidden — the tests passed and proved nothing.  Stage 1
+#     therefore compiles the prelude plus a PUBLIC SENTINEL from the module under test and must SUCCEED;
+#     only then does stage 2 add the hidden term and require a failure that NAMES that hidden component.
+#     The prelude imports the whole public chain, because `Compilable` cannot import its own downstream
+#     modules and no transitive loading can supply them.
+SEALED_PRELUDE='From Fido Require Import Syntax Compilable Safe Emit.'
+sealed() { # <label> <public sentinel in the module under test> <qualified term that must NOT resolve>
+  printf '%s\nDefinition sentinel := %s.\n' "$SEALED_PRELUDE" "$2" > /tmp/sealed_load.v
+  if ! rocq c -Q _build/default/. Fido /tmp/sealed_load.v > /tmp/sealed_load.log 2>&1; then
+    cat /tmp/sealed_load.log
+    fail "sealed self-test $1: the module under test did not load or its public sentinel $2 did not resolve — this control would have proved nothing"
+  fi
+  printf '%s\nDefinition sentinel := %s.\nDefinition probe := %s.\n' "$SEALED_PRELUDE" "$2" "$3" > /tmp/sealed.v
   if rocq c -Q _build/default/. Fido /tmp/sealed.v > /tmp/sealed.log 2>&1; then
-    cat /tmp/sealed.log; fail "sealed self-test $1: $2 IS reachable — that constructor is not sealed"
+    cat /tmp/sealed.log; fail "sealed self-test $1: $3 IS reachable — that constructor is not sealed"
   fi
   grep -qE 'was not found|Unbound|Cannot find|No such' /tmp/sealed.log \
-    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but NOT because $2 is absent"; }
-  echo "fido: sealed self-test $1 — $2 unreachable (as required)"; }
-sealed F Compilable.MakeProgram
-sealed G Compilable.MakeFailure
-sealed H Compilable.MakeFacts
-sealed I Compilable.Capability.MakeProgram
-sealed J Compilable.Capability.MakeFailure
-sealed K Compilable.AcceptedFacts.MakeFacts
+    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but NOT because a name is absent"; }
+  grep -qF "$3" /tmp/sealed.log \
+    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
+  echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
+sealed F Compilable.compile Compilable.MakeProgram
+sealed G Compilable.compile Compilable.MakeFailure
+sealed H Compilable.compile Compilable.MakeFacts
+sealed I Compilable.compile Compilable.Capability.MakeProgram
+sealed J Compilable.compile Compilable.Capability.MakeFailure
+sealed K Compilable.compile Compilable.AcceptedFacts.MakeFacts
 # the internal mint itself: it takes an Elaboration.  Both it and the Elaboration constructor are sealed, so
 # exporting it would restore the "constructs an equal core" path §7 deletes.  compile is the only way in.
-sealed L Compilable.minted
-sealed M Compilable.outcome_of_elaboration
-sealed N Compilable.Capability.minted
+sealed L Compilable.compile Compilable.minted
+sealed M Compilable.compile Compilable.outcome_of_elaboration
+sealed N Compilable.compile Compilable.Capability.minted
 # the WHOLE-ELABORATION representation and its production builder.  A client that can assemble a peer Core —
 # even a well-formed one — has the topology A001 exists to prevent, so the raw record, its constructor, the
 # builder, and every helper that would take a core and hand back a capability must all be absent.
-sealed O Compilable.MakeCore
-sealed P Compilable.CoreRepresentation
-sealed Q Compilable.build_elaboration_core
-sealed R Compilable.Elaborations.MakeCore
-sealed S Compilable.Elaborations.CoreRepresentation
-sealed T Compilable.Elaborations.build_elaboration_core
-sealed U Compilable.elaborate_at
-sealed V Compilable.decision_of_core
-sealed W Compilable.MakeElaboration
-sealed X Compilable.Elaborations.MakeElaboration
+sealed O Compilable.compile Compilable.MakeCore
+sealed P Compilable.compile Compilable.CoreRepresentation
+sealed Q Compilable.compile Compilable.build_elaboration_core
+sealed R Compilable.compile Compilable.Elaborations.MakeCore
+sealed S Compilable.compile Compilable.Elaborations.CoreRepresentation
+sealed T Compilable.compile Compilable.Elaborations.build_elaboration_core
+sealed U Compilable.compile Compilable.elaborate_at
+sealed V Compilable.compile Compilable.decision_of_core
+sealed W Compilable.compile Compilable.MakeElaboration
+sealed X Compilable.compile Compilable.Elaborations.MakeElaboration
 # A006 / D-26: the MINT authority.  The raw token constructor and its representation are private; the
 # retired MakeImage name is gone.  The carrier pack constructor is deliberately NOT in this list — it is a
 # reducible carrier, not a mint, and cannot be applied without an inhabitant of the indexed token type.
-sealed Y Emit.Mint.Issue
-sealed Z Emit.Mint.TokenRepresentation
-sealed AA Emit.MakeImage
+sealed Y Emit.Mint.issue Emit.Mint.Issue
+sealed Z Emit.Mint.issue Emit.Mint.TokenRepresentation
+sealed AA Emit.of_safe Emit.MakeImage
 # the SAFETY capability.  The whole-system audit (A006 §9) found this one still public while the Charter's
 # A006 paragraph asserts it is abstract; no certified transport reduces its representation, so the narrow
 # carrier allowance does not apply to it and it is now sealed like the rest.
-sealed AE Safe.Make
-sealed AF Safe.ProgramRepresentation
-sealed AG Safe.Certificate.Make
+sealed AE Safe.certify Safe.Make
+sealed AF Safe.certify Safe.ProgramRepresentation
+sealed AG Safe.certify Safe.Certificate.Make
+# ADVERSARIAL CONTROLS ON THE HELPER ITSELF.  A sealed-constructor test is only evidence if it could have
+# failed for the right reason, so the helper must reject its own bad evidence.  Each runs in a subshell,
+# because `fail` exits.
+meta_reject() { # <label> <prelude> <sentinel> <hidden term> <expected rejection fragment>
+  if out=$( SEALED_PRELUDE="$2"; sealed "meta-$1" "$3" "$4" 2>&1 ); then
+    echo "$out"; fail "sealed meta-control $1: the helper ACCEPTED evidence it must reject"
+  fi
+  case "$out" in
+    *"$5"*) echo "fido: sealed meta-control $1 — helper rejected it, as required ($5)" ;;
+    *) echo "$out"; fail "sealed meta-control $1: helper rejected for the WRONG reason (wanted: $5)" ;;
+  esac; }
+# (1) exactly the defect this repair fixes: a prelude that never loads the module under test. The helper must
+#     call that invalid evidence, not a sealed constructor.
+meta_reject omitted-safe 'From Fido Require Import Syntax Compilable.' Safe.certify Safe.Make \
+  'did not load or its public sentinel'
+meta_reject omitted-emit 'From Fido Require Import Syntax Compilable.' Emit.Mint.issue Emit.Mint.Issue \
+  'did not load or its public sentinel'
+# (2) a REACHABLE public term must make the helper fail its own expectation — otherwise a seal that quietly
+#     became public would still report green.
+meta_reject reachable "$SEALED_PRELUDE" Compilable.compile Compilable.compile 'IS reachable'
 # …and the payload really is forced by the token's indices.  These must fail to TYPECHECK, not merely be
 # absent, so they get their own control with its own expected reason.
 mintfail() {  # <label> <what> <definition text>
@@ -218,7 +254,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-AA/AE-AG + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (each proves its module loaded and its public sentinel resolved first) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
