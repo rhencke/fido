@@ -18,21 +18,23 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - Functional contract: `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md` (identity is its path at the authorizing Git ref; documentation is not checksummed).
 - Accepted review basis: `.review/REVIEW_BASIS.md`.
 - Original C4 baseline: `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- **Blocked C4 implementation candidates (all fourteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
+- **Blocked C4 implementation candidates (all sixteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
   `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
-  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) ·
-  `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` (14 — **the candidate under review**).
-- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_14.md`**, human authorization token
-  `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under accepted FCB amendment A001 / Governance D-22.
-  Repair 13's authority file is retained until the first repair-14 implementation commit, per that directive.
-- **C4 disposition: NOT accepted at `9d5246e`. Repair 14 is the active authority; its implementation has NOT
-  begun.** Commit `37c9597` (`review(accept): C4 — accept exact source-type conversion foundation`) remains a
-  **SUPERSEDED documentation-only acceptance closeout**, not an implementation candidate. The commits after
-  `9d5246e` are out-of-band (campaign persistence, bytecode hygiene, the generated-header change, the
-  Git-canonical/living FCB work, `.editorconfig` and `make fmt`); none is an implementation candidate, and repair
-  14 is implemented on top of the current head rather than by resetting. Ranges: full human C4 review
-  `8c9212a..`the repair-14 freeze; full repair `89b8e54..`the repair-14 freeze; **repair-12 `37c9597..af7d5d3`**;
-  **repair-13 `af7d5d3..9d5246e`**; **repair-14 the current head..**its freeze. Automatic Codex review is DISABLED.
+  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) · `3386c02` (15) ·
+  `20c5ad5c499d5046563471624117b80c737c7157` (16 — **the candidate under review**).
+- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_15.md`**, human authorization token
+  `C4-complete-scoped-names-and-retained-elaboration-repair-15`, under accepted FCB amendments A001 /
+  Governance D-22 and A005 / Governance D-25. Repair 15 subsumes every still-live repair-14 obligation.
+- **C4 disposition: NOT accepted at `20c5ad5`.** The A005 migration candidate is BLOCKED for three independent
+  reasons: A005's first implementation is incomplete and its naming gate can return a false green; the retained
+  `Compilable.Core` recomputes package facts, layout, plan and diagnostics instead of retaining them; and the
+  public `Failure` discards the exact rejected core. Repair 14 is **not accepted** and is subsumed by repair 15.
+  `c5b67495` is a **documentation-only freeze**, not a candidate; `37c9597` remains a superseded
+  documentation-only acceptance closeout. Repair 15 is implemented on top of the current head — no reset,
+  rebase, history rewrite, force-push, or revert of the A005 migration. Ranges: full human C4 review
+  `8c9212a..`the repair-15 freeze; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..9d5246e`**;
+  **repair-14 `9d5246e..3386c02`**; **A005 closeout `20c5ad5..`**the repair-15 freeze; **repair-15
+  `c5b67495..`**its freeze. Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
