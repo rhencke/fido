@@ -42,7 +42,7 @@ EXCLUDED_TREES = (
 )
 EXCLUDED_FILES = (
     'tools/naming-gate.py',                       # this file necessarily spells every retired name
-    '.review/C4_IMPLEMENTATION_REPAIR_16.md',     # installed VERBATIM; markers cannot be added to it
+    '.review/C4_IMPLEMENTATION_REPAIR_17.md',     # installed VERBATIM; markers cannot be added to it
 )
 BINARY_SUFFIXES = {'.png', '.jpg', '.jpeg', '.gif', '.zip', '.gz', '.pdf', '.vo', '.glob', '.hex'}
 
@@ -187,7 +187,11 @@ def declared(code: str):
             ctor = re.match(r'\s*([A-Za-z_][A-Za-z0-9_\']*)\s*\{', body)
             if ctor:
                 yield line, 'constructor', ctor.group(1)
-            for f in re.findall(r"[{;]\s*([a-z_][A-Za-z0-9_']*)\s*:", body):
+            # A general identifier, judged afterwards.  THIS IS THE RULE FOR EVERY EXTRACTOR HERE: a parser
+            # that constrains the first character is doing validation, and a name it refuses to parse is a
+            # name no rule can reject.  That defect hid lower-case constructors, then the first constructor
+            # after `:=`, then upper-case fields — three times, in the same gate, from the same cause.
+            for f in re.findall(r"[{;]\s*([A-Za-z_][A-Za-z0-9_']*)\s*:", body):
                 yield line, 'field', f
 
 
@@ -346,8 +350,10 @@ def run(root: Path, snapshot: bool):
     for rel, path in selected(root, rels):
         try:
             text = path.read_text(encoding='utf-8')
-        except (UnicodeDecodeError, OSError):
-            continue                       # genuinely binary; not a text surface
+        except (UnicodeDecodeError, OSError) as exc:
+            # Selection already classified this as a text surface, so a decode or read failure here is the
+            # gate failing to look — not evidence that the file is binary.  Fail closed and name the path.
+            raise EnumerationError(f'{rel}: selected text file could not be read ({exc.__class__.__name__}: {exc})')
         examined += 1
         if rel.endswith('.v'):
             violations += check_code(rel, text)
@@ -384,6 +390,13 @@ SELF_TESTS = [
      'Record GoodType := make_bad {\n  value : nat\n}.\n', True),
     ('lower-case ctor among good ones',   check_code, 'Inductive T := Good | make_bad | AlsoGood.\n', True),
     ('lower-case variant constructor',    check_code, 'Variant V := make_bad.\n', True),
+    # the same pre-validation defect, one layer down: an upper-case FIELD was never parsed either
+    ('upper-case field, only field',      check_code, 'Record Good := MakeGood { BadField : nat }.\n', True),
+    ('upper-case field, later field',     check_code,
+     'Record Good := MakeGood { good : nat; BadField : nat }.\n', True),
+    ('upper-case field, multiline',       check_code,
+     'Record Good := MakeGood {\n  good : nat ;\n  BadField : nat\n}.\n', True),
+    ('lower-camel field',                 check_code, 'Record Good := MakeGood { badField : nat }.\n', True),
     ('Go-domain repetition',              check_code, 'Record GoWidget := mk { a : nat }.\n', True),
     ('deleted Q-08 surface',              check_code, 'Definition g := pe_result_on_core.\n', True),
     ('retired qualified name',            check_code, 'Definition f := Integer.IntegerType.\n', True),
@@ -405,6 +418,10 @@ SELF_TESTS = [
     ('UpperCamelCase inductive ctor',     check_code, 'Inductive GoodType := MakeGood : GoodType.\n', False),
     ('several UpperCamelCase ctors',      check_code, 'Inductive T := First | Second | Third.\n', False),
     ('anonymous record constructor',      check_code, 'Record GoodType := { value : nat }.\n', False),
+    ('clean first and later fields',      check_code,
+     'Record Good := MakeGood { good : nat; also_good : nat }.\n', False),
+    ('clean multiline fields',            check_code,
+     'Record Good := MakeGood {\n  first_field : nat ;\n  second_field : nat\n}.\n', False),
 ]
 
 
@@ -436,14 +453,60 @@ def self_test() -> int:
             print('  FAIL  snapshot mode on an incomplete export must raise'); failures += 1
     except EnumerationError:
         pass
-    n = len(SELF_TESTS) + 3
+
+    def complete_snapshot(d: Path):
+        """A snapshot that passes every enumeration precondition, so a later failure is attributable."""
+        for name in ('Compilable.v', 'Syntax.v', 'Index.v', 'Typing.v', 'Safe.v', 'Render.v', 'Emit.v'):
+            (d / name).write_text('(* ok *)\n', encoding='utf-8')
+        (d / 'dune').write_text('(coq.theory (name Fido) (modules Compilable))\n', encoding='utf-8')
+        (d / 'Makefile').write_text('all:\n', encoding='utf-8')
+        (d / 'gate').mkdir(exist_ok=True)
+        (d / 'e2e').mkdir(exist_ok=True)
+
+    # a COMPLETE snapshot whose only defect is one selected prose file that is not valid UTF-8: the gate must
+    # fail and name it.  Skipping it silently is how a stale name hides behind a decode error.
+    import tempfile
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); complete_snapshot(root)
+            (root / 'bad.md').write_bytes(b'The GoCompile layer is live.\xff')
+            run(root, snapshot=True)
+            print('  FAIL  a selected file that is not valid UTF-8 must fail the gate'); failures += 1
+    except EnumerationError:
+        pass
+
+    # …and the same for a selected file that cannot be READ.  Where the platform cannot express the condition
+    # (running as root, for instance) the control says so out loud rather than passing quietly.
+    import os
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); complete_snapshot(root)
+            blocked = root / 'unreadable.md'
+            blocked.write_text('# doc\n', encoding='utf-8')
+            os.chmod(blocked, 0o000)
+            try:
+                blocked.read_text(encoding='utf-8')
+                print('  SKIP  unreadable-file control: this platform still reads a 0o000 file '
+                      '(running as root?) — the condition cannot be expressed here')
+            except OSError:
+                try:
+                    run(root, snapshot=True)
+                    print('  FAIL  a selected file that cannot be read must fail the gate'); failures += 1
+                except EnumerationError:
+                    pass
+            finally:
+                os.chmod(blocked, 0o600)
+    except OSError as exc:
+        print(f'  FAIL  unreadable-file control could not run: {exc}'); failures += 1
+
+    n = len(SELF_TESTS) + 5
     if failures:
         print(f"fido: NAMING GATE SELF-TEST FAILED — {failures} of {n} controls wrong; "
               f"the gate is not trustworthy")
         return 1
-    print(f"fido: naming-gate self-test OK — {n} negative controls "
+    print(f"fido: naming-gate self-test OK — {n} controls "
           f"({sum(1 for t in SELF_TESTS if t[3])} must-flag, "
-          f"{sum(1 for t in SELF_TESTS if not t[3])} must-accept, 3 enumeration fail-closed) ✓")
+          f"{sum(1 for t in SELF_TESTS if not t[3])} must-accept, 5 enumeration/read fail-closed) ✓")
     return 0
 
 
