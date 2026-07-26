@@ -11,10 +11,11 @@
     public `Fido Emit`), which before any effect (i)
     typechecks its argument's [transport] projection (rejecting a wrong-typed raw transport) and (ii)
     rejects any argument whose assumption closure is non-empty (rejecting an axiom/variable-backed proof).
-    The image REPRESENTATION and its constructor are PRIVATE (Charter §22/§24): a client can obtain an
-    [Image] only through [of_safe] — from an actual [Safe.Program] — so there is no second image-mint
-    topology and no arbitrary-bytes-plus-a-proof helper.  The byte fields stay reducible (only the
-    representation is sealed, not the projections) so the transport command can still evaluate them.
+    The raw [Mint.Token] constructor is PRIVATE and [Mint.issue] is the SOLE authority-producing operation
+    (A006 / D-26).  [Image] is a REDUCIBLE carrier whose pack constructor requires that exact indexed
+    authority: it is not a mint, and it cannot be applied to foreign bytes because the token's indices force
+    the payload.  The byte fields stay reducible — which is the whole reason the authority, not the
+    representation, is what gets sealed.
 
     `go.mod` is NOT a [FilePath.T] (it is not a `.go` source path — [FilePath.T] deliberately cannot represent
     it), so it is carried as a distinguished root field, not smuggled into the file map.  [transport] is
@@ -48,53 +49,76 @@ Definition module_file_of (p : Syntax.Program) : string :=
 Definition file_map (sp : Safe.Program) : FileMap.t string := file_map_of (Safe.source sp).
 Definition module_file (sp : Safe.Program) : string := module_file_of (Safe.source sp).
 
-(** ═══ THE IMAGE, AND WHY ITS CONSTRUCTOR IS NOT YET SEALED ═══ Charter §22/§24 require a PRIVATE
-    constructor.  That is BLOCKED by a hard mechanism conflict, isolated by experiment (repair 17):
+(** ═══ THE MINT AUTHORITY (A006 / D-26) ═══ [Mint.Token] is OPAQUE and INDEXED by the exact
+    [Safe.Program], the exact go.mod bytes and the exact `.go` map.  Its raw constructor never leaves this
+    module, and [Mint.issue] is the SOLE authority-producing operation.
 
-      `Fido Materialize` kernel-reduces [transport img] with [Reductionops.nf_all].  Sealing this
-      representation behind `Module Images : IMAGE` removes the BODIES of [module_bytes] and [files], so the
-      normal form is a stuck projection and the decoder reports "expected a directory-entries list".  With
-      `<:` (signature checked, representation NOT hidden) the same code emits correctly.  Sealing the image
-      and reducing the image are mutually exclusive while the transport decodes a Rocq term.
+    Charter §22 originally asked for a private image CONSTRUCTOR.  That is impossible here: `Fido Materialize`
+    kernel-reduces [transport img], and opaque module ascription removes the projection bodies that reduction
+    needs (isolated by a `:` versus `<:` experiment during repair 17).  A006 moves the authority instead of the
+    representation — the carrier below stays reducible, and its visible pack constructor is NOT a mint because
+    it cannot be applied without an inhabitant of this indexed type. *)
+Module Type MINT.
+  Parameter Token : Safe.Program -> string -> FileMap.t string -> Type.
+  Parameter issue : forall sp, Token sp (module_file sp) (file_map sp).
+  Parameter module_exact : forall sp m f, Token sp m f -> m = module_file sp.
+  Parameter files_exact  : forall sp m f, Token sp m f -> f = file_map sp.
+End MINT.
 
-    What IS done here, and is not a workaround for the seal: the representation now RETAINS the exact
-    [Safe.Program] it was minted from and carries the two exactness proofs, so [provenance] is a PROJECTION of
-    that retained certificate rather than an existential the caller supplied.  Every inhabitant therefore
-    publishes exactly the bytes of the certificate it holds — [module_bytes_exact] / [files_exact] — and
-    [of_safe] is the canonical mint.  This strengthens the proof of origin; it does not close §22.
+Module Mint : MINT.
+  (* Rocq will not match a bare [Inductive] against a `Parameter … : Type` ("a definition is expected"), so
+     the representation keeps a distinct private name and [Token] is its alias — Rocq's own prescribed
+     workaround, already used by [Index.Snapshot].  The topology is unchanged: [Issue] stays private. *)
+  Inductive TokenRepresentation (sp : Safe.Program) : string -> FileMap.t string -> Type :=
+  | Issue : TokenRepresentation sp (module_file sp) (file_map sp).
+  Definition Token (sp : Safe.Program) (m : string) (f : FileMap.t string) : Type :=
+    TokenRepresentation sp m f.
+  Definition issue sp : Token sp (module_file sp) (file_map sp) := Issue sp.
+  Lemma module_exact : forall sp m f, Token sp m f -> m = module_file sp.
+  Proof. intros sp m f tok. destruct tok. reflexivity. Qed.
+  Lemma files_exact : forall sp m f, Token sp m f -> f = file_map sp.
+  Proof. intros sp m f tok. destruct tok. reflexivity. Qed.
+End Mint.
 
-    Reported to Rob for decision; do not silently treat the constructor as private. *)
-Record Image : Type := MakeImage {
-  image_safe   : Safe.Program ;         (* the exact certificate this image was minted from *)
+(** The REDUCIBLE transport carrier.  It retains the exact certificate, the exact bytes, and the exact token
+    that authorizes them.  There are no separate equality-proof fields: exactness is DERIVED from the retained
+    token, so no independently supplied equality can stand where the one mint authority belongs. *)
+Record Image : Type := Pack {
+  safe         : Safe.Program ;
   module_bytes : string ;
   files        : FileMap.t string ;
-  module_bytes_exact : module_bytes = module_file image_safe ;
-  files_exact        : files = file_map image_safe
+  origin       : Mint.Token safe module_bytes files
 }.
 
-(** provenance is a PROJECTION of the retained certificate, not an existential the caller supplied. *)
+Theorem module_bytes_exact : forall img, module_bytes img = module_file (safe img).
+Proof. intro img. exact (Mint.module_exact _ _ _ (origin img)). Qed.
+Theorem files_are_exact : forall img, files img = file_map (safe img).
+Proof. intro img. exact (Mint.files_exact _ _ _ (origin img)). Qed.
+
+(** provenance is a PROJECTION of the retained certificate and its token, not an existential a caller supplied. *)
 Theorem provenance : forall img : Image,
   exists sp, module_bytes img = module_file sp /\ files img = file_map sp.
-Proof. intro img. exists (image_safe img). split; [ apply module_bytes_exact | apply files_exact ]. Qed.
+Proof. intro img. exists (safe img). split; [ apply module_bytes_exact | apply files_are_exact ]. Qed.
 
-(** the canonical public mint, from an actual certificate. *)
+(** the canonical production packer. *)
 Definition of_safe (sp : Safe.Program) : Image :=
-  MakeImage sp (module_file sp) (file_map sp) eq_refl eq_refl.
-Lemma of_safe_retains : forall sp, image_safe (of_safe sp) = sp.
+  Pack sp (module_file sp) (file_map sp) (Mint.issue sp).
+Lemma of_safe_retains : forall sp, safe (of_safe sp) = sp.
 Proof. reflexivity. Qed.
 Lemma of_safe_module_bytes : forall sp, module_bytes (of_safe sp) = module_file sp.
 Proof. reflexivity. Qed.
 Lemma of_safe_files : forall sp, files (of_safe sp) = file_map sp.
 Proof. reflexivity. Qed.
 
-(** …and the same image formed from a source program ALREADY KNOWN to be that certificate's own.  Not a second
-    mint: it demands the exact [Safe.Program], and [H] cannot be had without one.  It exists because the
-    transport must REDUCE the image, and reading the source back out of the certificate would force the
-    capability's whole elaboration to recover a program the caller already holds. *)
+(** the SAME authority, transported along the exact source equality.  Not a second mint: it demands the exact
+    [Safe.Program] and issues nothing — [Mint.issue sp] is moved, inside the never-forced [origin] field, to
+    the index the caller already proved equal.  The bytes are stored directly from [p] so the transport does
+    not have to force the capability's source to reduce. *)
 Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
-  MakeImage sp (module_file_of p) (file_map_of p)
-    (f_equal module_file_of (eq_sym H)) (f_equal file_map_of (eq_sym H)).
-Lemma of_safe_at_retains : forall sp p H, image_safe (of_safe_at sp p H) = sp.
+  Pack sp (module_file_of p) (file_map_of p)
+    (eq_rect (Safe.source sp) (fun q => Mint.Token sp (module_file_of q) (file_map_of q))
+             (Mint.issue sp) p H).
+Lemma of_safe_at_retains : forall sp p H, safe (of_safe_at sp p H) = sp.
 Proof. reflexivity. Qed.
 Lemma of_safe_at_module_bytes : forall sp p H, module_bytes (of_safe_at sp p H) = module_file_of p.
 Proof. reflexivity. Qed.
@@ -102,6 +126,7 @@ Lemma of_safe_at_files : forall sp p H, files (of_safe_at sp p H) = file_map_of 
 Proof. reflexivity. Qed.
 Lemma of_safe_at_refl : forall sp, of_safe_at sp (Safe.source sp) eq_refl = of_safe sp.
 Proof. reflexivity. Qed.
+
 (** The transport projection: the exact go.mod bytes and the CANONICAL derived list of (on-disk `.go` path,
     contents) enumerated from the standard [FileMap.elements] (the ONE ordered enumeration, not a stored list). *)
 Definition entries (img : Image) : list (string * string) :=
@@ -314,7 +339,7 @@ Theorem accepted_path_emits_from_returned_capability : forall p (H : Compilable.
     /\ Safe.core (Safe.certify cp) = Compilable.core cp
     /\ Safe.source (Safe.certify cp) = Compilable.source cp
     (* and the image retains that exact certificate and publishes exactly its bytes *)
-    /\ image_safe (of_safe (Safe.certify cp)) = Safe.certify cp
+    /\ safe (of_safe (Safe.certify cp)) = Safe.certify cp
     /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
     /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
 Proof.

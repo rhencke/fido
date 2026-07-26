@@ -199,13 +199,22 @@ Print Assumptions Compilable.program_of_admissible.
 Print Assumptions Compilable.capability_source.
 Print Assumptions Compilable.capability_is_compile_outcome.
 Print Assumptions Compilable.compile_rejected_not_admissible.
-(* §3 THE SEALED IMAGE: the representation and its constructor are private (Charter §22/§24), so the image
+(* §3 THE SEALED MINT (A006 / D-26): the raw token constructor is private and [Mint.issue] is the sole
+   authority-producing operation, while the carrier stays REDUCIBLE so the transport can evaluate it.  The
+   carrier pack constructor is deliberately NOT private; it cannot authorize foreign bytes because the token's
+   indices force the payload (build controls AB-AD).  The image
    RETAINS the exact certificate it was minted from and provenance is a PROJECTION of that certificate rather
    than an existential a caller supplied.  Constructor inaccessibility is not a Print-Assumptions surface —
    it is enforced by the negative client tests Y-AB in `make prove`. *)
-Print Assumptions Emit.image_safe.
+Print Assumptions Emit.Mint.Token.
+Print Assumptions Emit.Mint.issue.
+Print Assumptions Emit.Mint.module_exact.
+Print Assumptions Emit.Mint.files_exact.
+Print Assumptions Emit.Image.
+Print Assumptions Emit.safe.
+Print Assumptions Emit.origin.
 Print Assumptions Emit.module_bytes_exact.
-Print Assumptions Emit.files_exact.
+Print Assumptions Emit.files_are_exact.
 Print Assumptions Emit.provenance.
 Print Assumptions Emit.of_safe.
 Print Assumptions Emit.of_safe_retains.

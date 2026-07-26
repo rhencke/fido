@@ -159,6 +159,30 @@ sealed U Compilable.elaborate_at
 sealed V Compilable.decision_of_core
 sealed W Compilable.MakeElaboration
 sealed X Compilable.Elaborations.MakeElaboration
+# A006 / D-26: the MINT authority.  The raw token constructor and its representation are private; the
+# retired MakeImage name is gone.  The carrier pack constructor is deliberately NOT in this list — it is a
+# reducible carrier, not a mint, and cannot be applied without an inhabitant of the indexed token type.
+sealed Y Emit.Mint.Issue
+sealed Z Emit.Mint.TokenRepresentation
+sealed AA Emit.MakeImage
+# …and the payload really is forced by the token's indices.  These must fail to TYPECHECK, not merely be
+# absent, so they get their own control with its own expected reason.
+mintfail() {  # <label> <what> <definition text>
+  { printf 'From Stdlib Require Import String List.\n';
+    printf 'From Fido Require Import FilePath Collections ModulePath Version Syntax Compilable Safe Render Emit.\n';
+    printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/mintfail.v
+  if rocq c -Q _build/default/. Fido /tmp/mintfail.v > /tmp/mintfail.log 2>&1; then
+    cat /tmp/mintfail.log; fail "mint self-test $1: $2 WAS constructible — the token indices do not force the payload"
+  fi
+  grep -qE 'has type|cannot be applied|Unable to unify|expected to have type|not found' /tmp/mintfail.log \
+    || { cat /tmp/mintfail.log; fail "mint self-test $1: rejected, but not by typing"; }
+  echo "fido: mint self-test $1 — $2 unconstructible (as required)"; }
+mintfail AB "an image with foreign go.mod bytes" \
+  'Definition forged (sp : Safe.Program) : Emit.Image := Emit.Pack sp "forged" (Emit.file_map sp) (Emit.Mint.issue sp).'
+mintfail AC "an image with a foreign file map" \
+  'Definition forged (sp : Safe.Program) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Collections.FileMap.empty string) (Emit.Mint.issue sp).'
+mintfail AD "an image authorized by an equality proof instead of a token" \
+  'Definition forged (sp : Safe.Program) (H : Emit.module_file sp = Emit.module_file sp) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Emit.file_map sp) H.'
 # (g) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -180,12 +204,15 @@ Definition rejected_diags {p} (f : Compilable.Failure p) := Compilable.failure_d
 (* certify and emit through the accepted capability *)
 Definition certify_it (cp : Compilable.Program) : Safe.Program := Safe.certify cp.
 Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
+(* the canonical end-to-end client mint: compile -> certify -> of_safe *)
+Definition emit_from_capability (cp : Compilable.Program) : Emit.Image := Emit.of_safe (Safe.certify cp).
+Definition emitted_bytes (cp : Compilable.Program) := Emit.transport (emit_from_capability cp).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-X + positive control"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-AA + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
@@ -342,6 +369,22 @@ Definition img : Emit.Image := Emit.of_safe sp.
 Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
 EOF
+cat /tmp/forge/preamble - > /tmp/forge/TokenAx.v <<'EOF'
+Axiom sp : Safe.Program.
+Axiom tok : Emit.Mint.Token sp "forged"%string (Collections.FileMap.empty string).
+Definition img : Emit.Image := Emit.Pack sp "forged"%string (Collections.FileMap.empty string) tok.
+Declare ML Module "fido.emit".
+Fido Materialize img To "/workspace/e2e-forge-tok".
+EOF
+cat /tmp/forge/preamble - > /tmp/forge/TokenVar.v <<'EOF'
+Declare ML Module "fido.emit".
+Section S.
+Variable sp : Safe.Program.
+Variable tok : Emit.Mint.Token sp "forged"%string (Collections.FileMap.empty string).
+Definition img : Emit.Image := Emit.Pack sp "forged"%string (Collections.FileMap.empty string) tok.
+Fido Materialize img To "/workspace/e2e-forge-tv".
+End S.
+EOF
 forge_reject() {   # <file> <target-dir> <label>
   if rocq c -Q _build/default/. Fido "$1" > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "$3: a forged image was NOT rejected"; fi
   grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
@@ -352,6 +395,8 @@ forge_reject /tmp/forge/Direct.v      /workspace/e2e-forge     "direct axiom"
 forge_reject /tmp/forge/Opaque.v      /workspace/e2e-forge-op  "axiom behind an opaque Qed proof"
 forge_reject /tmp/forge/Var.v         /workspace/e2e-forge-var "direct section variable"
 forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive section variable"
+forge_reject /tmp/forge/TokenAx.v     /workspace/e2e-forge-tok "axiom-backed mint token"
+forge_reject /tmp/forge/TokenVar.v    /workspace/e2e-forge-tv  "section-variable-backed mint token"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
 # duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
