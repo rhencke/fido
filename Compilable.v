@@ -11410,6 +11410,10 @@ Theorem deep_nested_capability_retains_causes :
               (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))))
+        (* the retained phase produced NO expression diagnostics, and the retained core's RAW list — the
+           phase's own diagnostics followed by its own package map's — is exactly empty *)
+        /\ phase_diags (phase c) = nil
+        /\ core_raw_diagnostics c = nil
         (* …and the retained standard work index, exact in both directions, at those same occurrences *)
         /\ (nested_index_bundle (core_input c) (phase c)
               (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
@@ -11428,8 +11432,13 @@ Theorem deep_nested_capability_retains_causes :
 Proof.
   destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hc]].
   exists cp, Hcp. split; [ exact Hc | ]. cbn zeta.
-  split; [ exact (deep_nested_chain_success_evidence _ _)
-         | exact (deep_nested_chain_index_evidence _ _) ].
+  set (c := eq_rect (source cp) Core (core cp) deep_nested_program Hcp).
+  split; [ exact (deep_nested_chain_success_evidence _ _) | ].
+  split; [ exact (deep_nested_phase_no_diags _ _) | ].
+  split; [ | exact (deep_nested_chain_index_evidence _ _) ].
+  rewrite (core_raw_diagnostics_exact c), (core_package_diags_canonical c),
+          (deep_nested_phase_no_diags (core_input c) (phase c)); cbn [app].
+  apply (proj2 (package_diags_empty_iff (core_index c))). vm_compute. reflexivity.
 Qed.
 
 Theorem twin_capability_retains_distinct_occurrences :
