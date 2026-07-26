@@ -18,12 +18,13 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Blocked implementation candidate:** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` — the twentieth blocked
-C4 candidate. `.review/NEXT_STEPS.md` owns candidate state; this Index states the boundary and names the
-candidate offered for review only at freeze.  
-**Active work: C4 repair 19** (`.review/C4_IMPLEMENTATION_REPAIR_19.md`) — the sole active C4 task: complete
-`A005`, retain exact source occurrence in the public cause theorems, make the negative controls non-vacuous,
-and make `D-24` a complete two-way relation.  
+**Implementation candidate offered for review:** `0ffdc5f7019204a868d75ef709a16fb69a9979d5` — repair 19
+IMPLEMENTED and COMPLETE. `.review/NEXT_STEPS.md` owns candidate state; this Index names the candidate only
+because the corpus is at freeze.  
+**Repair 19** (`.review/C4_IMPLEMENTATION_REPAIR_19.md`) closed all six blocker classes: `A005` finished with
+a class rule, exact source occurrence retained in the public cause theorems, non-vacuous `Safe`/`Emit`
+opacity controls, no skipped naming control, `D-24` complete in both directions, and the stale and weaker
+residue gone. The whole-system closure audit is `.review/C4_REPAIR_19_CLOSURE_AUDIT.md`.  
 **C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 17 are historical.  
 Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  

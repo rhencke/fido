@@ -5,14 +5,14 @@ This file alone owns the current checkpoint and candidate state.
 
 <!-- FIDO-HUMAN-ACT:C4-REVIEW -->
 
-- **Active work: C4 REPAIR 19 — the sole active C4 task.**
+- **C4 REPAIR 19 IS IMPLEMENTED AND COMPLETE.**
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_19.md` (installed verbatim). <!-- FIDO-FCB-REF:REVIEW-C4-IMPLEMENTATION-REPAIR-19-MD -->
-  Implementation base: the reviewed freeze. Do not reset, rebase, rewrite history, or discard accepted
-  `A001`–`A006` work.
-- **Candidate status.** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` is **BLOCKING** — the twentieth
-  blocked C4 implementation candidate. `2b848871c7faf4a9586c8b20b4896e1ec543987c` is its
-  **documentation-only freeze**, not a separate candidate.
-- **C4 is NOT accepted.** Only Rob accepts it.
+- **Candidate offered for human review.** `0ffdc5f7019204a868d75ef709a16fb69a9979d5` is the C4
+  implementation candidate. `50c3bcc5b8eb2e47074352f5c9f0124e71509396` was the twentieth blocked candidate
+  and is superseded. All six blocker classes are closed; the mandatory whole-system closure audit is
+  `.review/C4_REPAIR_19_CLOSURE_AUDIT.md` <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-19-CLOSURE-AUDIT-MD --> and the
+  obligation matrix `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` reads 19 of 19 closed.
+- **C4 is still NOT accepted.** Only Rob accepts it. Awaiting his human C4 Implementation Review.
 - **The six blocker classes repair 19 must close.**
   1. **`A005` is still incomplete.** The UpperCamelCase local notation aliases the naming migration rejected
      were still declared in `Compilable.v`, `Safe.v` and `Render.v`, five of them entirely unused, and the
