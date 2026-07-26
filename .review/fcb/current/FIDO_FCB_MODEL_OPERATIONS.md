@@ -78,6 +78,12 @@ Models must inspect constructor topology and retained-object flow when reviewing
 
 The live documents for this rule are `FIDO_FCB_GOVERNANCE.md`, `FIDO_FCB_ARCHITECTURE_CHARTER.md`, `FIDO_FCB_FIXED_POINTS.md`, `FIDO_FCB_ROADMAP.md`, `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md`, and `FIDO_FCB_HUMAN_REVIEW_INDEX.md`.
 
+### 7.1 Open human acts (D-07)
+
+Consult `FIDO_FCB_HUMAN_ACTS.tsv` — it alone owns the set of open human acts. `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its generated view and is never edited by hand.
+
+To change an act, edit its TSV row and, when the owning source changes, its single `<!-- FIDO-HUMAN-ACT:<ID> -->` anchor; then regenerate with `make human-acts-write` and publish both files in the same commit. `make human-acts` verifies the tracked view is byte-exact and that every anchor occurs exactly once in its named owning source; it runs inside `make check` and inside the pre-commit hook over the exported staged tree. Never hand-edit a generated row, and never restate the act list in another document.
+
 ## 8. Review standard
 
 Review the whole live code and architecture. A component has only two valid fates: exact integration into the certified path, or deletion. No TODO, compatibility path, demo authority, trusted rescue, conservative gate marketed as correctness, or extensional stand-in may survive.

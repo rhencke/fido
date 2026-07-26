@@ -351,11 +351,13 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
   deliberately NOT a gate and NOT wired into `make check` or the hook, which stay code-level.
   `tools/human-review-index.py` — the Governance D-07 generator: the set of open human acts is DISCOVERED from
   the canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`, never hand-copied.
-  `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its GENERATED view — never edit it by hand; run `make human-acts-write`.
-  `make human-acts` (in `make check`, and in the hook over the exported staged tree) verifies the tracked view
-  is byte-exact and that every row's `<!-- FIDO-HUMAN-ACT:… -->` ownership anchor occurs EXACTLY ONCE in its
-  named owning source. Every must-fail control pins the expected failure REASON, so a control that starts
-  failing for an unrelated reason is itself a gate failure rather than a vacuous pass.
+  **To change a human act: edit its TSV row, edit its single `<!-- FIDO-HUMAN-ACT:<ID> -->` anchor in the
+  owning source named by that row, then run `make human-acts-write` and commit both files together. NEVER
+  hand-edit `FIDO_FCB_HUMAN_REVIEW_INDEX.md` — it is generated output — and never restate the act list in
+  another document.** `make human-acts` (in `make check`, and in the hook over the exported staged tree)
+  verifies the tracked view is byte-exact and that every anchor occurs EXACTLY ONCE in its named owning source.
+  Every must-fail control pins the expected failure REASON, so a control that starts failing for an unrelated
+  reason is itself a gate failure rather than a vacuous pass.
 - `.editorconfig` at the root, plus nested `.review/fcb/.editorconfig` and
   `.review/spec-closure-campaign/.editorconfig` — the byte rules live WITH the documents they govern. Their
   `trim_trailing_whitespace = false` entries are load-bearing: generated Go, reviewed goldens, tabular ledgers

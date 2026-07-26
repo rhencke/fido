@@ -252,6 +252,27 @@ def self_test(root: Path) -> int:
              lambda w: (w / INDEX_REL).write_text(
                  (w / INDEX_REL).read_text(encoding='utf-8') + '\nstale trailing prose\n', encoding='utf-8'),
              expect='is not the generated view')
+    scenario('stale extra ROW in the generated view',
+             lambda w: (w / INDEX_REL).write_text(
+                 (w / INDEX_REL).read_text(encoding='utf-8')
+                 + '| `GHOST-ACT` | **OPEN** | An act nobody can revoke. | nowhere | none |\n',
+                 encoding='utf-8'),
+             expect='is not the generated view')
+
+    # A selected source file that FAILS TO READ (not merely absent, not merely undecodable).  `chmod 000` is
+    # not a control here: under root it stays readable and the test would silently pass while proving nothing.
+    # This calls the read path directly on an input that raises OSError deterministically at any privilege —
+    # `/dev/null` is not a directory, so resolving a child of it is always ENOTDIR.
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    try:
+        read_text(Path('/dev/null/unreadable.md'), 'selected source')
+        failures.append('selected source file read failure: expected failure, the read returned')
+    except DataError as exc:
+        if 'could not be read' not in str(exc) or 'unreadable.md' not in str(exc):
+            failures.append(f'selected source file read failure: wrong reason or unnamed path: {exc}')
+    except OSError as exc:
+        failures.append(f'selected source file read failure: OSError escaped as itself: {exc!r}')
 
     total, must_fail = counts['total'], counts['must_fail']
     if failures:

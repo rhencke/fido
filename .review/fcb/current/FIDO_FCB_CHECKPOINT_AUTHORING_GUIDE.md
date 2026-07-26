@@ -78,7 +78,9 @@ Inspect constructor topology at every publish boundary, not only inside the newe
 
 ### F. Provenance duties
 
-Models record `APPLIED` at most. Ship empty Rob countersign fields. Regenerate the Human-Review Index from canonical sources. Do not hand-remove an open act.
+Models record `APPLIED` at most. Ship empty Rob countersign fields. Do not hand-remove an open act.
+
+Every human act the checkpoint raises or resolves is added to or updated in `FIDO_FCB_HUMAN_ACTS.tsv` — one row, one owning source, one `<!-- FIDO-HUMAN-ACT:<ID> -->` anchor in that source — and the Human-Review Index is regenerated with `make human-acts-write` BEFORE the checkpoint is submitted for review. `make human-acts` must be green. An act recorded only in prose is not recorded.
 
 ### G. Whole-result implementation constraints
 
@@ -156,7 +158,7 @@ the repository identity or stable bootstrap path changes.
 ## 7. Provenance and review
 - Model record: APPLIED / BLOCKING finding
 - Rob countersign: <empty>
-- Human-Review Index regeneration:
+- Human-Review Index regeneration (`make human-acts-write`, then `make human-acts` green):
 
 ## 8. FCB update plan
 ```

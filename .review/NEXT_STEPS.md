@@ -30,9 +30,12 @@ This file alone owns the current checkpoint and candidate state.
      the rejected side proves `<> nil` where the contract requires the exact singleton reason.
      **The freeze prose claimed more than any one theorem statement carried — a green proof cannot upgrade a
      weaker statement.**
-  2. **Governance `D-07` is accepted, due, and unimplemented.** The Human Review Index still says it is
-     temporarily hand-maintained and that the living-FCB generator is due before the next accepted checkpoint.
-     C4 is that checkpoint, so C4 cannot be accepted while the disclaimer is true.
+  2. **Governance `D-07` is accepted, due, and unimplemented.** ✅ **CLOSED.** The set of open human acts is
+     now discovered from `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; the Human Review Index is its
+     generated view and the temporary disclaimer is gone. `tools/human-review-index.py` writes and verifies
+     it, `make human-acts` gates it in `make check` and in the pre-commit hook over the exported staged tree,
+     and nineteen adversarial controls — each must-fail one pinned to the reason it must fail on — keep the
+     checker from reporting a green it can no longer earn.
   3. **The live corpus does not state one truth and violates `D-24`.** Contradictory candidate and repair
      states across REVIEW_REQUEST, the Roadmap, PROGRESS and SOURCE_FOREST_STATUS; a stale gate count; C5
      misdescribed as `uintptr` plus rune literals; dangling operational paths; stale legacy-class comments.
