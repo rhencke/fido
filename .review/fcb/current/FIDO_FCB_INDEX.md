@@ -18,11 +18,13 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Current implementation candidate:** `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` — C4 repair 17 is
-**IMPLEMENTED and COMPLETE**, awaiting Rob's human C4 Implementation Review. All five findings are closed,
-including the `Emit.Image` authority under accepted amendment A006 / Governance D-26.  
-**Last blocked candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` — the eighteenth to block.  
-**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 16 are historical.  
+**Blocked implementation candidate:** `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` — the nineteenth
+blocked C4 candidate; `e15232d3ef894c2f478e36c736cd701533e224fe` is its documentation-only freeze,
+not a separate candidate.  
+**Active work: C4 repair 18** (`.review/C4_IMPLEMENTATION_REPAIR_18.md`) — the sole active C4 task: one
+accepted and one rejected root fixture over one exact returned object; Governance `D-07` implemented; and a
+corpus that genuinely states one truth with every operational path resolving under `D-24`.  
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 17 are historical.  
 Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
