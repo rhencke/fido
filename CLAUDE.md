@@ -374,11 +374,13 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
     `.csv`, so its own claim to be generated is true rather than decorative.
 - **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one
   thing no other gate reads, so it can drift past what the public statements carry — that is how a previous
-  candidate blocked. `.review/C4_REPAIR_18_CLAIM_THEOREM_MATRIX.tsv` maps every load-bearing completion claim
-  to the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
-  that exact name, refuses a closed claim with an empty or dangling cell, and runs an executable
-  builder-prohibition check over the returned-object roots. **It does not judge whether a theorem is strong
-  enough — a human does that, and saying so narrowly is the point.**
+  candidate blocked. `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` holds one row per repair obligation, naming
+  the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
+  that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
+  builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish
+  it and cites nothing; **`.review/REVIEW_REQUEST.md` may not request review while any row is open**, so
+  freezing early is a gate failure rather than a judgement call. **The gate does not judge whether a theorem
+  is strong enough — a human does that, and saying so narrowly is the point.**
 - `.editorconfig` at the root, plus nested `.review/fcb/.editorconfig` and
   `.review/spec-closure-campaign/.editorconfig` — the byte rules live WITH the documents they govern. Their
   `trim_trailing_whitespace = false` entries are load-bearing: generated Go, reviewed goldens, tabular ledgers

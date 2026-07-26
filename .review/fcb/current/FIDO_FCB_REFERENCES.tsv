@@ -22,7 +22,7 @@ NAMING-GATE	repository-file	tools/naming-gate.py	present	FIDO_FCB_GOVERNANCE.md
 NEXT-STEPS	repository-file	.review/NEXT_STEPS.md	present	INDEX.md
 PROBE-ENVIRONMENT	external-evidence	PROBE_ENVIRONMENT.tsv	r1-bundle-provenance-pending	FIDO_FCB_ARCHITECTURE_CHARTER.md
 REFERENCES-TSV	repository-file	.review/fcb/current/FIDO_FCB_REFERENCES.tsv	present	FIDO_FCB_INDEX.md
-REPAIR-DIRECTIVE	repository-file	.review/C4_IMPLEMENTATION_REPAIR_18.md	present	.review/NEXT_STEPS.md
+REPAIR-DIRECTIVE	repository-file	.review/C4_IMPLEMENTATION_REPAIR_19.md	present	.review/NEXT_STEPS.md
 ROADMAP	repository-file	.review/fcb/current/FIDO_FCB_ROADMAP.md	present	FIDO_FCB_INDEX.md
 STABLE-BOOTSTRAP	repository-file	.review/fcb/current/INDEX.md	present	FIDO_FCB_INDEX.md
 TOOLCHAIN-EVIDENCE	repository-file	.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md	present	FIDO_FCB_INDEX.md

@@ -18,13 +18,12 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Implementation candidate offered for review:** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` — repair 18
-IMPLEMENTED and COMPLETE. `.review/NEXT_STEPS.md` remains the owner of candidate state; this Index names the
-candidate only because the corpus is at freeze.  
-**Repair 18** (`.review/C4_IMPLEMENTATION_REPAIR_18.md`) closed all three blocking findings: one accepted and
-one rejected root fixture over one exact returned object; Governance `D-07` implemented; and a corpus that
-states one truth with every operational path resolving under `D-24`. The whole-system closure audit is
-`.review/C4_REPAIR_18_CLOSURE_AUDIT.md`.  
+**Blocked implementation candidate:** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` — the twentieth blocked
+C4 candidate. `.review/NEXT_STEPS.md` owns candidate state; this Index states the boundary and names the
+candidate offered for review only at freeze.  
+**Active work: C4 repair 19** (`.review/C4_IMPLEMENTATION_REPAIR_19.md`) — the sole active C4 task: complete
+`A005`, retain exact source occurrence in the public cause theorems, make the negative controls non-vacuous,
+and make `D-24` a complete two-way relation.  
 **C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 17 are historical.  
 Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair-18 claim-to-theorem matrix checker.
+"""Repair-19 obligation matrix checker.
 
 A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem
 states — which is exactly how the previous candidate blocked: green proofs and a completion narrative that
@@ -14,8 +14,13 @@ that exact name, and that no claim is marked closed while any evidence cell is e
 That is a narrow guarantee, and stating it narrowly is the point. A gate that promised to verify claim
 strength would be the same overclaim one layer up.
 
-Matrix: `.review/C4_REPAIR_18_CLAIM_THEOREM_MATRIX.tsv`
+Matrix: `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv`
   claim_id  claim_text  owner_file  public_surface  fixture_or_client_test  gate  status
+
+`status` is `closed` or `open`. A CLOSED row must resolve every cell. An OPEN row is an obligation whose
+evidence does not exist yet; its evidence cells must say `pending: <what will establish it>` — never blank,
+never `N/A`. Review cannot be requested while any obligation is open: if `.review/REVIEW_REQUEST.md` says
+`state: requested`, every row must be closed. That is the executable form of "do not freeze early".
 
 `public_surface` is `;`-separated declaration names, each of which must be declared at top level in
 `owner_file`. `fixture_or_client_test` and `gate` are `;`-separated `path:literal-token` pairs; the token
@@ -29,7 +34,9 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/C4_REPAIR_18_CLAIM_THEOREM_MATRIX.tsv'
+TSV_REL = '.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv'
+REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
+PENDING = 'pending: '
 FIELDS = ('claim_id', 'claim_text', 'owner_file', 'public_surface',
           'fixture_or_client_test', 'gate', 'status')
 STATUSES = ('closed', 'open')
@@ -91,6 +98,19 @@ def load_rows(root: Path):
                 raise MatrixError(
                     f'{TSV_REL}:{n}: claim {row["claim_id"]}: {k!r} is {row[k]!r} — a load-bearing claim '
                     f'needs a real surface, or an explicit "{UNSUPPORTED}<reason>"')
+            # an OPEN obligation has no evidence yet and must say so in words; a CLOSED one may not.
+            pending = row[k].strip().startswith(PENDING)
+            if row['status'] == 'open' and not pending:
+                raise MatrixError(
+                    f'{TSV_REL}:{n}: {row["claim_id"]} is open, so {k!r} must be '
+                    f'"{PENDING}<what will establish it>" — an open obligation may not cite evidence it '
+                    f'does not have')
+            if row['status'] == 'closed' and pending:
+                raise MatrixError(
+                    f'{TSV_REL}:{n}: {row["claim_id"]} is closed but {k!r} is still {PENDING.strip()!r} — '
+                    f'a closed obligation must name the evidence that establishes it')
+            if pending and not row[k].strip()[len(PENDING):].strip():
+                raise MatrixError(f'{TSV_REL}:{n}: {row["claim_id"]}: {k!r} is pending with no written reason')
         rows.append(row)
     if not rows:
         raise MatrixError(f'{TSV_REL}: no claim rows')
@@ -192,14 +212,25 @@ def check_tokens(root: Path, row: dict, field: str):
 def run(root: Path) -> str:
     rows = load_rows(root)
     for row in rows:
+        if row['status'] == 'open':
+            continue                      # nothing to resolve yet; its cells already said so in words
         check_surfaces(root, row)
         check_tokens(root, row, 'fixture_or_client_test')
         if BUILDER_PROHIBITION in row['gate']:
             check_builder_prohibition(root, row)
         check_tokens(root, row, 'gate')
     closed = sum(1 for r in rows if r['status'] == 'closed')
-    return (f'{len(rows)} claim(s): {closed} closed, {len(rows) - closed} open; '
-            f'every named surface, fixture and gate resolves')
+    still_open = [r['claim_id'] for r in rows if r['status'] == 'open']
+    # Review cannot be requested while an obligation is open. This is the executable form of the standing
+    # rule not to freeze when the first findings turn green — prose alone has not held that line before.
+    if still_open:
+        rr = root / REVIEW_REQUEST_REL
+        if rr.is_file() and 'state: requested' in read_text(rr, 'review request'):
+            raise MatrixError(
+                f'{REVIEW_REQUEST_REL} requests review, but {len(still_open)} obligation(s) are still open: '
+                + ', '.join(still_open))
+    return (f'{len(rows)} obligation(s): {closed} closed, {len(still_open)} open; '
+            f'every closed row resolves its surface, fixture and gate')
 
 
 # ───────────────────────────────────────────────────────────── adversarial controls
@@ -235,13 +266,27 @@ def self_test(root: Path) -> int:
     def write(work: Path, L):
         (work / TSV_REL).write_text('\n'.join(L), encoding='utf-8')
 
-    def set_field(work: Path, idx: int, field: str, value: str):
-        L = lines(work); c = L[idx].split('\t'); c[FIELDS.index(field)] = value
-        L[idx] = '\t'.join(c); write(work, L)
+    def closed_idx(work: Path) -> int:
+        for i, l in enumerate(lines(work)[1:], start=1):
+            c = l.split('\t')
+            if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed':
+                return i
+        raise AssertionError('no closed row in the fixture to mutate')
+
+    def set_field(work: Path, field: str, value: str):
+        i = closed_idx(work)
+        L = lines(work); c = L[i].split('\t'); c[FIELDS.index(field)] = value
+        L[i] = '\t'.join(c); write(work, L)
 
     def rename_named_surface(work: Path):
-        """Rename the declaration the FIRST row points at — the matrix must notice."""
-        L = lines(work); c = L[1].split('\t')
+        """Rename the declaration the first CLOSED row points at — the matrix must notice."""
+        c = None
+        for l in lines(work)[1:]:
+            cells = l.split('\t')
+            if (len(cells) == len(FIELDS) and cells[FIELDS.index('status')] == 'closed'
+                    and cells[FIELDS.index('owner_file')].endswith('.v')):
+                c = cells; break
+        assert c is not None, 'no closed row with a Rocq owner to mutate'
         owner, name = c[FIELDS.index('owner_file')], c[FIELDS.index('public_surface')].split(';')[0].strip()
         p = work / owner
         t = p.read_text(encoding='utf-8')
@@ -254,31 +299,31 @@ def self_test(root: Path) -> int:
     scenario('a named public surface was renamed', rename_named_surface,
              expect='declares no such top-level surface')
     scenario('a named public surface never existed',
-             lambda w: set_field(w, 1, 'public_surface', 'no_such_theorem_anywhere'),
+             lambda w: set_field(w, 'public_surface', 'no_such_theorem_anywhere'),
              expect='declares no such top-level surface')
     scenario('an owner file that does not exist',
-             lambda w: set_field(w, 1, 'owner_file', 'NoSuchFile.v'),
+             lambda w: set_field(w, 'owner_file', 'NoSuchFile.v'),
              expect='not a regular file in this tree')
     scenario('a dangling gate token',
-             lambda w: set_field(w, 1, 'gate', 'gate/Assumptions.v:Print Assumptions Compilable.no_such.'),
+             lambda w: set_field(w, 'gate', 'gate/Assumptions.v:Print Assumptions Compilable.no_such.'),
              expect='dangling evidence')
     scenario('a dangling fixture token',
-             lambda w: set_field(w, 1, 'fixture_or_client_test', 'Dockerfile:sealed ZZ Nonexistent.Thing'),
+             lambda w: set_field(w, 'fixture_or_client_test', 'Dockerfile:sealed ZZ Nonexistent.Thing'),
              expect='dangling evidence')
     scenario('an empty evidence cell',
-             lambda w: set_field(w, 1, 'gate', ' '),
+             lambda w: set_field(w, 'gate', ' '),
              expect="is EMPTY")
     scenario('a bare N/A instead of a stated boundary',
-             lambda w: set_field(w, 1, 'fixture_or_client_test', 'N/A'),
+             lambda w: set_field(w, 'fixture_or_client_test', 'N/A'),
              expect='needs a real surface')
     scenario('an unsupported boundary with no written reason',
-             lambda w: set_field(w, 1, 'fixture_or_client_test', UNSUPPORTED.strip()),
+             lambda w: set_field(w, 'fixture_or_client_test', UNSUPPORTED.strip()),
              expect='unsupported boundary with no written reason')
     scenario('duplicate claim id',
              lambda w: write(w, lines(w)[:2] + [lines(w)[1]] + lines(w)[2:]),
              expect='duplicate claim_id')
     scenario('unknown status',
-             lambda w: set_field(w, 1, 'status', 'mostly'),
+             lambda w: set_field(w, 'status', 'mostly'),
              expect='is not one of')
     scenario('malformed field count',
              lambda w: write(w, [lines(w)[0], lines(w)[1].rsplit('\t', 1)[0]] + lines(w)[2:]),
@@ -290,8 +335,14 @@ def self_test(root: Path) -> int:
              lambda w: (w / TSV_REL).unlink(),
              expect='does not exist')
     scenario('a gate path escaping the tree',
-             lambda w: set_field(w, 1, 'gate', '../elsewhere.v:token'),
+             lambda w: set_field(w, 'gate', '../elsewhere.v:token'),
              expect='escapes the tree')
+    scenario('an open obligation citing evidence it does not have',
+             lambda w: open_row_cites_evidence(w),
+             expect='an open obligation may not cite evidence it does not have')
+    scenario('review requested while an obligation is still open',
+             lambda w: request_review(w),
+             expect='requests review, but')
     # the BUILDER_PROHIBITION check must actually fire.  Without this the rows that cite it would pass
     # whether or not the check does anything — a gate nobody has seen fail is not evidence.
     scenario('a prohibited builder injected into a root fixture proof',
@@ -307,6 +358,24 @@ def self_test(root: Path) -> int:
     print(f'fido: claim-matrix self-test OK — {total} controls '
           f'({must_fail} must-fail with the reason pinned, {total - must_fail} must-accept) ✓')
     return 0
+
+
+def open_row_cites_evidence(work: Path):
+    """Make an OPEN row name a real surface — it must be rejected for having evidence it cannot have."""
+    p = work / TSV_REL; L = p.read_text(encoding='utf-8').split('\n')
+    for i, l in enumerate(L[1:], start=1):
+        c = l.split('\t')
+        if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'open':
+            c[FIELDS.index('gate')] = 'Makefile:prove'
+            L[i] = '\t'.join(c); p.write_text('\n'.join(L), encoding='utf-8'); return
+    raise AssertionError('no open row in the fixture')
+
+
+def request_review(work: Path):
+    """Ask for review while obligations remain open."""
+    p = work / REVIEW_REQUEST_REL
+    t = p.read_text(encoding='utf-8').replace('state: closed', 'state: requested', 1)
+    p.write_text(t, encoding='utf-8')
 
 
 def inject_banned_builder(work: Path):
