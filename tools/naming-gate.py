@@ -94,7 +94,15 @@ DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag'
                     # repair 14's deletions, which never entered this table — which is exactly how
                     # ARCHITECTURE.md went on citing `cp_prov` as current for a whole repair cycle
                     'cp_prov', 'compilable_prov', 'elaboration_ok_full', 'elaborate_ok_whole',
-                    'elaborate_failed_whole', 'elaborate_ok_seals_facts', 'elaborate_ok_seals_tnfacts']
+                    'elaborate_failed_whole', 'elaborate_ok_seals_facts', 'elaborate_ok_seals_tnfacts',
+                    # repair 17 §4 — the coarse legacy result peer and its whole classification closure.
+                    # A compatibility projection must not be able to return under a later repair.
+                    'LegacyClass', 'LegacyOk', 'LegacyTyping', 'LegacyPackageMainCount', 'LegacyBuildOutput',
+                    'legacy_class_of_diags', 'legacy_compile_class', 'compile_class', 'compile_class_spec',
+                    'compile_class_input_equal', 'compile_class_build_permutation', 'compile_untyped',
+                    'diag_is_typing', 'diag_is_package', 'diag_is_build_output',
+                    'existsb_typing_semantic', 'existsb_package_semantic',
+                    'existsb_build_output_semantic', 'existsb_build_output_fresh']
 
 # Pseudo-qualifier SEGMENTS.  Checked anywhere in an identifier, not merely at position zero: an embedded
 # `cp` is exactly as much a fake namespace as a leading one.

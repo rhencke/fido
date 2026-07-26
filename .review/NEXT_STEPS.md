@@ -23,8 +23,9 @@
      hid lower-case constructors. And a selected text file that fails to decode or read is silently skipped.
   3. **`Emit.Image` has a public raw constructor**, although Charter §22 says its constructor is private and
      §24 says to seal its construction.
-  4. **The coarse `LegacyClass` compatibility peer survives** with no production consumer, collapsing the
-     structured `Outcome` and exact `DiagnosticReason` list into four tags.
+  4. **A coarse legacy result peer survived** with no production consumer, collapsing the structured
+     `Outcome` and exact `DiagnosticReason` list into four tags. Now retired, with its whole classification
+     closure, and its names are in the gate's retired-surface table so it cannot return.
   5. **The corpus does not state one truth** — REVIEW_REQUEST, the Roadmap, PROGRESS, SOURCE_FOREST_STATUS and
      the Charter disagree with the indexes; source comments still claim `Core` is transparent; `ARCHITECTURE.md`
      cites a deleted theorem and calls `Emit.MakeImage` public; `FIDO_FCB_MODEL_OPERATIONS.md` carries a

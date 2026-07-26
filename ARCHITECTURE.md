@@ -174,10 +174,10 @@ law backed by explicit audit and code inspection, NOT a brittle source-scanning 
                  [elaboration_diagnostics]) each have an emptiness characterization, and a FAILED preflight takes
                  PRECEDENCE (exactly one build-output diagnostic, hiding the sole package's semantic errors); a
                  snapshot-independent [erased_report]/[erased_elaboration_report] enables cross-snapshot comparison
-                 without a dependent transport.  The coarse
-                 [legacy_compile_class] (with Compilable.LegacyBuildOutput) remains ONLY as a projection of the structured
-                 diagnostics.  Determinism is split (FilesEqual source facts vs the full ProgramInputEqual for
-                 the plan/report/class), and the Emit.Image bridge proves the rendered image REALIZES the
+                 without a dependent transport.  There is NO coarse
+                 result peer: an outcome is the structured `Compilable.Outcome` branch and its exact
+                 `DiagnosticReason` list, never a collapsed tag.  Determinism is split (FilesEqual source facts
+                 vs the full ProgramInputEqual for the plan and report), and the Emit.Image bridge proves the rendered image REALIZES the
                  fresh root layout ([Emit.realizes_fresh_layout]).  The package
                  clause is SOURCE-owned (Syntax.package), NOT a compiler-derived fact — there is NO [cf_pkg_name];
                  the compiled evidence EXPOSES that the same p is typed via a canonical projection

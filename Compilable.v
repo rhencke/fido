@@ -7150,74 +7150,11 @@ Proof. intro Heq. rewrite (program_expr_facts_files_equal p1 p2 Heq). reflexivit
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
    package-class; the two are disjoint. ---- *)
 
-Definition diag_is_typing {p} (d : DiagnosticReason p) : bool :=
-  match diagnostic_code d with CodeInvalidConversion | CodeDefaultNotRepresentable => true | _ => false end.
-Definition diag_is_package {p} (d : DiagnosticReason p) : bool :=
-  match diagnostic_code d with CodeMainRedeclared | CodeMissingMainEntry => true | _ => false end.
-Definition diag_is_build_output {p} (d : DiagnosticReason p) : bool :=
-  match diagnostic_code d with CodeBuildOutputIsDirectory => true | _ => false end.
-Lemma diag_typing_not_build {p} (d : DiagnosticReason p) : diag_is_typing d = true -> diag_is_build_output d = false.
-Proof. unfold diag_is_typing, diag_is_build_output; destruct (diagnostic_code d); (reflexivity || discriminate). Qed.
-Lemma diag_package_not_build {p} (d : DiagnosticReason p) : diag_is_package d = true -> diag_is_build_output d = false.
-Proof. unfold diag_is_package, diag_is_build_output; destruct (diagnostic_code d); (reflexivity || discriminate). Qed.
-
-Lemma existsb_all_true {A} (f : A -> bool) (l : list A) :
-  (forall x, In x l -> f x = true) -> existsb f l = match l with [] => false | _ => true end.
-Proof. destruct l as [|x xs]; [reflexivity|]. intro H. cbn [existsb]. rewrite (H x (or_introl eq_refl)). reflexivity. Qed.
-
 Lemma existsb_all_false {A} (f : A -> bool) (l : list A) :
   (forall x, In x l -> f x = false) -> existsb f l = false.
 Proof.
   induction l as [|x xs IH]; [reflexivity|]. intro H. cbn [existsb].
   rewrite (H x (or_introl eq_refl)), IH by (intros y Hy; apply H; right; exact Hy). reflexivity.
-Qed.
-
-Lemma occurrence_expr_diags_family {p} (idx : Index.Snapshot.Syntax p) outer ro : forall d,
-  In d (occurrence_expr_diags idx outer ro) -> diag_is_typing d = true /\ diag_is_package d = false.
-Proof.
-  intros d Hin. unfold occurrence_expr_diags in Hin.
-  destruct (Index.as_expr idx (fst ro)) as [er|]; [| destruct Hin].
-  destruct (Index.view_expr (snd ro)) as [e|]; [| destruct Hin].
-  destruct (local_conv_failure e) as [[t ci]|].
-  - destruct (conversion_target_ref idx er) as [tr|]; [| destruct Hin].
-    destruct (conversion_operand_ref idx er) as [opr|]; [| destruct Hin].
-    destruct Hin as [<-|[]]. split; reflexivity.
-  - destruct (arg_default_failure (snd ro) e) as [[c dt]|]; [ destruct Hin as [<-|[]]; split; reflexivity | destruct Hin ].
-Qed.
-
-Lemma expression_diags_typing {p} (idx : Index.Snapshot.Syntax p) : forall d, In d (expression_diags idx) -> diag_is_typing d = true.
-Proof.
-  intros d Hin. rewrite expression_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [roc [_ Hd]].
-  apply (occurrence_expr_diags_family idx (snd roc) (fst roc) d Hd).
-Qed.
-Lemma expression_diags_not_package {p} (idx : Index.Snapshot.Syntax p) : forall d, In d (expression_diags idx) -> diag_is_package d = false.
-Proof.
-  intros d Hin. rewrite expression_diags_eq_spec in Hin. apply in_flat_map in Hin. destruct Hin as [roc [_ Hd]].
-  apply (occurrence_expr_diags_family idx (snd roc) (fst roc) d Hd).
-Qed.
-
-Lemma package_diag_of_bucket_family {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres dir l Hmt : forall d,
-  In d (@package_diag_of_bucket p m Hpres dir l Hmt) -> diag_is_package d = true /\ diag_is_typing d = false.
-Proof.
-  intros d Hin. unfold package_diag_of_bucket in Hin. destruct l as [|d1 rest].
-  - destruct Hin as [<-|[]]; split; reflexivity.
-  - apply in_map_iff in Hin. destruct Hin as [dk [<- _]]. split; reflexivity.
-Qed.
-
-Lemma bucket_diags_elems_family {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres es Hall : forall d,
-  In d (@bucket_diags_elems p m Hpres es Hall) -> diag_is_package d = true /\ diag_is_typing d = false.
-Proof.
-  revert Hall. induction es as [|kv rest IH]; intro Hall; cbn [bucket_diags_elems]; intros d Hin.
-  - destruct Hin.
-  - apply in_app_iff in Hin. destruct Hin as [Hin | Hin].
-    + exact (package_diag_of_bucket_family m Hpres (fst kv) (snd kv) (Hall kv (or_introl eq_refl)) d Hin).
-    + exact (IH (fun kv' Hin' => Hall kv' (or_intror Hin')) d Hin).
-Qed.
-
-Lemma package_diags_family {p} (idx : Index.Snapshot.Syntax p) : forall d,
-  In d (package_diags idx) -> diag_is_package d = true /\ diag_is_typing d = false.
-Proof.
-  intros d Hin. unfold package_diags in Hin. exact (bucket_diags_elems_family _ _ _ _ d Hin).
 Qed.
 
 (** code-specific PACKAGE-diagnostic soundness.  A [MissingMainEntry] comes from an EMPTY bucket
@@ -7692,48 +7629,6 @@ Theorem semantic_diagnostics_node_strict {p} (idx : Index.Snapshot.Syntax p) :
                  (bucket_flatten (node_keyed (expression_diags idx ++ package_diags idx))).
 Proof.
   apply bucket_flatten_singleton_strict; [ apply node_keyed_self | apply collect_node_buckets_singleton ].
-Qed.
-
-Lemma package_diags_package {p} (idx : Index.Snapshot.Syntax p) : forall d, In d (package_diags idx) -> diag_is_package d = true.
-Proof. intros d Hin; apply (package_diags_family idx d Hin). Qed.
-Lemma package_diags_not_typing {p} (idx : Index.Snapshot.Syntax p) : forall d, In d (package_diags idx) -> diag_is_typing d = false.
-Proof. intros d Hin; apply (package_diags_family idx d Hin). Qed.
-
-(** the diagnostic-derived TYPING flag is exactly "not program-typed"; the PACKAGE flag (when typed) is exactly
-    "not one-main-per-package".  So the legacy class is a PROJECTION of the diagnostics, matching the decision. *)
-Lemma existsb_typing_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
-  existsb diag_is_typing (semantic_diagnostics p idx) = negb (program_typedb p).
-Proof.
-  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
-  rewrite (existsb_all_false diag_is_typing (package_diags idx) (package_diags_not_typing idx)), Bool.orb_false_r.
-  rewrite (existsb_all_true diag_is_typing (expression_diags idx) (expression_diags_typing idx)).
-  destruct (expression_diags idx) as [|d ds] eqn:E.
-  - rewrite (proj1 (expression_diags_empty_iff idx) E). reflexivity.
-  - destruct (program_typedb p) eqn:Ht; [ | reflexivity ].
-    exfalso. pose proof (proj2 (expression_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
-Qed.
-Lemma existsb_package_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
-  existsb diag_is_package (semantic_diagnostics p idx) = negb (source_spec_package_rules_b p).
-Proof.
-  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
-  rewrite (existsb_all_false diag_is_package (expression_diags idx) (expression_diags_not_package idx)), Bool.orb_false_l.
-  rewrite (existsb_all_true diag_is_package (package_diags idx) (package_diags_package idx)).
-  destruct (package_diags idx) as [|d ds] eqn:E.
-  - rewrite (proj1 (package_diags_empty_iff idx) E). reflexivity.
-  - destruct (source_spec_package_rules_b p) eqn:Ht; [ | reflexivity ].
-    exfalso. pose proof (proj2 (package_diags_empty_iff idx) Ht) as Hc. rewrite Hc in E; discriminate E.
-Qed.
-(* the SEMANTIC report never contains a build-output diagnostic (only expression / package reasons) — so the
-   build-output class fires ONLY through the command-ordered preflight branch, never the semantic branch. *)
-Lemma existsb_build_output_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
-  existsb diag_is_build_output (semantic_diagnostics p idx) = false.
-Proof.
-  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
-  rewrite (existsb_all_false diag_is_build_output (expression_diags idx)
-             (fun d Hin => diag_typing_not_build d (expression_diags_typing idx d Hin))),
-          (existsb_all_false diag_is_build_output (package_diags idx)
-             (fun d Hin => diag_package_not_build d (package_diags_package idx d Hin))).
-  reflexivity.
 Qed.
 
 (** the pinned cmd/go DEFAULT-OUTPUT-NAME string layer.  Faithful to pinned Go 1.23.12
@@ -8718,25 +8613,6 @@ Qed.
 
 (* every build-output diagnostic IS a build-output diagnostic; so when the preflight fails the report's
    build-output class fires. *)
-Lemma fresh_build_diagnostics_is_build : forall p d, In d (fresh_build_diagnostics p) -> diag_is_build_output d = true.
-Proof.
-  intros p d Hin. unfold fresh_build_diagnostics, fresh_build_diagnostics_of in Hin.
-  destruct (fresh_build_plan p) as [|count|dir ip name [ [ | | ] |]]; try destruct Hin.
-  destruct (sole_package_ref p dir) as [pk|]; [| destruct Hin].
-  cbn [In] in Hin. destruct Hin as [<-|[]]. reflexivity.
-Qed.
-
-Lemma existsb_build_output_fresh : forall p,
-  fresh_build_disposition_ok (fresh_build_plan p) = false ->
-  existsb diag_is_build_output (fresh_build_diagnostics p) = true.
-Proof.
-  intros p Hpf.
-  assert (Hne : fresh_build_diagnostics p <> nil).
-  { intro Hc. apply (proj1 (fresh_build_diagnostics_nil_iff p)) in Hc. unfold fresh_build_preflight_ok in Hc.
-    rewrite Hc in Hpf; discriminate Hpf. }
-  destruct (fresh_build_diagnostics p) as [|d ds] eqn:E; [ exfalso; apply Hne; reflexivity |].
-  cbn [existsb]. rewrite (fresh_build_diagnostics_is_build p d) by (rewrite E; left; reflexivity). reflexivity.
-Qed.
 
 (** FULL program-input equality: the ModuleSpec AND the file map.  The full admission / plan / report /
     class depend on BOTH (the preflight's default exec name comes from the ModulePath.T), unlike the source
@@ -9778,21 +9654,12 @@ Definition failure_layout {p} (fail : Failure p) := core_layout (failure_core fa
 Definition failure_plan {p} (fail : Failure p) := core_plan (failure_core fail).
 Definition failure_raw_diagnostics {p} (fail : Failure p) := core_raw_diagnostics (failure_core fail).
 
-(** the LEGACY coarse class, a PROJECTION of the elaboration diagnostics (never a separate check): a typing-class
-    diagnostic dominates, else a package-class diagnostic, else success. *)
+(** the rejected query projects the SAME package object the failed decision used — by [reflexivity]. *)
 Theorem rejected_package_refs_are_decision_refs : forall p (fail : Failure p),
   failure_package_refs fail = core_package_refs (failure_core fail).
 Proof. reflexivity. Qed.
 
-Inductive LegacyClass : Type := LegacyOk | LegacyTyping | LegacyPackageMainCount | LegacyBuildOutput.
-(* the build-output failure takes PRECEDENCE: a preflight failure reports ONLY the
-   build-output-directory diagnostic, so its class dominates. *)
-Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyClass :=
-  if existsb diag_is_build_output ds then LegacyBuildOutput
-  else if existsb diag_is_typing ds then LegacyTyping
-  else if existsb diag_is_package ds then LegacyPackageMainCount else LegacyOk.
-Definition legacy_compile_class {p} (o : Outcome p) : LegacyClass :=
-  match o with Compiled _ _ => LegacyOk | Rejected fail => legacy_class_of_diags (failure_diagnostics fail) end.
+
 
 
 (** admissibility forces the accepted branch: the built core's diagnostics ARE [elaboration_diagnostics]. *)
@@ -9932,21 +9799,6 @@ Definition capability_is_compile_outcome (p : Syntax.Program) (H : Admissible p)
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
-Lemma compile_untyped : forall p, program_typedb p = false ->
-  fresh_build_disposition_ok (fresh_build_plan p) = true ->
-  legacy_compile_class (compile p) = LegacyTyping.
-Proof.
-  intros p Hf Hpf.
-  assert (Hnv : ~ Admissible p).
-  { intro Hgc.
-    pose proof (proj2 (program_typedb_iff predeclared_type p) (compile_program_typed p Hgc)) as Ht.
-    rewrite Ht in Hf; discriminate Hf. }
-  destruct (compile_rejected_of_inadmissible p Hnv) as [fail Hc]. rewrite Hc.
-  cbn [legacy_compile_class]. unfold failure_diagnostics, legacy_class_of_diags.
-  rewrite (core_diagnostics_eq_elaboration (failure_core fail)),
-          (elaboration_diagnostics_eq_semantic p _ Hpf),
-          existsb_build_output_semantic, existsb_typing_semantic, Hf. reflexivity.
-Qed.
 
 (** A rejected program yields no Program (and hence no Safe.Program, no image). *)
 Lemma reject_no_compile : forall p, source_spec_valid_b p = false -> ~ Admissible p.
@@ -10001,61 +9853,6 @@ Proof.
   - right. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf in Ep. discriminate Ep.
 Qed.
 
-(** the [compile] LEGACY CLASS (a projection of the carried diagnostics) — invariant under file insertion
-    order.  It matches the decision: success -> [LegacyOk]; not typed -> [LegacyTyping]; typed but bad package -> [LegacyPackageMainCount]. *)
-Definition compile_class (p : Syntax.Program) : LegacyClass := legacy_compile_class (compile p).
-
-Lemma compile_class_spec : forall p,
-  compile_class p
-  = (if fresh_build_disposition_ok (fresh_build_plan p)
-     then (if source_spec_valid_b p then LegacyOk else if program_typedb p then LegacyPackageMainCount else LegacyTyping)
-     else LegacyBuildOutput).
-Proof.
-  intro p. unfold compile_class.
-  destruct (admissible_dec p) as [Hgc|Hnv].
-  - destruct (compile_complete p Hgc) as [cp [Hcp Hc]]. rewrite Hc.
-    destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
-    cbn [legacy_compile_class]. rewrite (proj2 (source_spec_valid_b_iff p) Hsv). reflexivity.
-  - destruct (compile_rejected_of_inadmissible p Hnv) as [fail Hc]. rewrite Hc.
-    cbn [legacy_compile_class]. unfold failure_diagnostics, legacy_class_of_diags.
-    rewrite (core_diagnostics_eq_elaboration (failure_core fail)).
-    destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
-    + rewrite (elaboration_diagnostics_eq_semantic p _ Ep), existsb_build_output_semantic,
-              existsb_typing_semantic, existsb_package_semantic.
-      assert (Hpok : source_spec_valid_b p = false).
-      { destruct (source_spec_valid_b p) eqn:Epk; [ | reflexivity ]. exfalso. apply Hnv. split.
-        - unfold fresh_build_preflight_ok. exact Ep.
-        - apply (proj1 (source_spec_valid_b_iff p)); exact Epk. }
-      rewrite Hpok. destruct (program_typedb p) eqn:Ht; cbn [negb].
-      * assert (Hpk : source_spec_package_rules_b p = false) by (rewrite source_spec_valid_b_eq, Ht, Bool.andb_true_l in Hpok; exact Hpok).
-        rewrite Hpk. reflexivity.
-      * reflexivity.
-    + rewrite (elaboration_diagnostics_eq_fresh p _ Ep), (existsb_build_output_fresh p Ep). reflexivity.
-Qed.
-
-(** the legacy class is invariant under [ProgramInputEqual] (module + files); it depends on the ModuleSpec
-    (via the preflight), so FilesEqual ALONE is NOT enough — see [class_input_counterexample] below. *)
-Theorem compile_class_input_equal : forall p1 p2,
-  ProgramInputEqual p1 p2 -> compile_class p1 = compile_class p2.
-Proof.
-  intros p1 p2 H. pose proof (proj2 H) as Hf. rewrite !compile_class_spec.
-  rewrite (fresh_build_disposition_input_equal _ _ H), (source_spec_valid_files_equal _ _ Hf), (Typing.program_typedb_equal predeclared_type _ _ Hf).
-  reflexivity.
-Qed.
-
-Theorem compile_class_build_permutation : forall ms nodes1 nodes2 p1 p2,
-  Permutation nodes1 nodes2 ->
-  build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
-  compile_class p1 = compile_class p2.
-Proof.
-  intros ms n1 n2 p1 p2 Hperm Hb1 Hb2.
-  unfold build_program in Hb1, Hb2.
-  destruct (Syntax.files_of_nodes n1) as [fm1|] eqn:F1; [ | discriminate Hb1 ].
-  destruct (Syntax.files_of_nodes n2) as [fm2|] eqn:F2; [ | discriminate Hb2 ].
-  injection Hb1 as <-. injection Hb2 as <-.
-  apply compile_class_input_equal. split; [ reflexivity | cbn [Syntax.files] ].
-  exact (Syntax.files_of_nodes_permutation n1 n2 fm1 fm2 Hperm F1 F2).
-Qed.
 
 (** DETERMINISM, split correctly.  Source facts + the SEMANTIC report depend only on the file map (the
     [*_FilesEqual] theorems above).  The FreshBuildPlan, the FINAL command report, and the acceptance CLASS also
@@ -10151,7 +9948,12 @@ Definition over_program : Syntax.Program :=
    rendering/emission): rejection happens strictly in Rocq, before any bytes. *)
 Example over_program_untyped   : program_typedb over_program = false.        Proof. vm_compute; reflexivity. Qed.
 Example over_program_not_valid    : source_spec_valid_b over_program = false.               Proof. vm_compute; reflexivity. Qed.
-Example over_program_rejected  : legacy_compile_class (compile over_program) = LegacyTyping.    Proof. exact (compile_untyped _ over_program_untyped ltac:(vm_compute; reflexivity)). Qed.
+Example over_program_rejected  : exists fail, compile over_program = Rejected fail.
+Proof. exact (compile_rejected_of_inadmissible over_program
+                (reject_no_compile over_program over_program_not_valid)). Qed.
+Example over_program_report : map erased_code (erased_report over_program
+                                (Index.Snapshot.index_program over_program)) = [CodeDefaultNotRepresentable].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Example over_program_no_compile : ~ Admissible over_program.
 Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
 
@@ -10193,7 +9995,12 @@ Definition bad_convert_program : Syntax.Program :=
     (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.IntegerLiteral 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
-Example bad_convert_rejected    : legacy_compile_class (compile bad_convert_program) = LegacyTyping. Proof. exact (compile_untyped _ bad_convert_untyped ltac:(vm_compute; reflexivity)). Qed.
+Example bad_convert_rejected    : exists fail, compile bad_convert_program = Rejected fail.
+Proof. exact (compile_rejected_of_inadmissible bad_convert_program
+                (reject_no_compile bad_convert_program eq_refl)). Qed.
+Example bad_convert_report : map erased_code (erased_report bad_convert_program
+                               (Index.Snapshot.index_program bad_convert_program)) = [CodeInvalidConversion].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Example bad_convert_no_compile  : ~ Admissible bad_convert_program.
 Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
 
@@ -10231,8 +10038,12 @@ Definition float_reject_program : Syntax.Program :=
     (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.MakeDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
-Example float_reject_rejected   : legacy_compile_class (compile float_reject_program) = LegacyTyping.
-Proof. exact (compile_untyped _ float_reject_untyped ltac:(vm_compute; reflexivity)). Qed.
+Example float_reject_rejected   : exists fail, compile float_reject_program = Rejected fail.
+Proof. apply compile_rejected_of_inadmissible.
+       apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
+Example float_reject_report : map erased_code (erased_report float_reject_program
+                                (Index.Snapshot.index_program float_reject_program)) = [CodeInvalidConversion].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Example float_reject_no_compile : ~ Admissible float_reject_program.
 Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. Qed.
 
@@ -10260,7 +10071,12 @@ Definition complex_overflow_program : Syntax.Program :=
     (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 1 39 eq_refl) (Float.MakeDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_overflow_rejected   : legacy_compile_class (compile complex_overflow_program) = LegacyTyping. Proof. exact (compile_untyped _ complex_overflow_untyped ltac:(vm_compute; reflexivity)). Qed.
+Example complex_overflow_rejected   : exists fail, compile complex_overflow_program = Rejected fail.
+Proof. apply compile_rejected_of_inadmissible.
+       apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
+Example complex_overflow_report : map erased_code (erased_report complex_overflow_program
+                                    (Index.Snapshot.index_program complex_overflow_program)) = [CodeInvalidConversion].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Example complex_overflow_no_compile : ~ Admissible complex_overflow_program.
 Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivity. Qed.
 
@@ -10270,7 +10086,12 @@ Definition complex_nonzero_imag_program : Syntax.Program :=
     (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 3 0 eq_refl) (Float.MakeDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
-Example complex_nonzero_imag_rejected   : legacy_compile_class (compile complex_nonzero_imag_program) = LegacyTyping. Proof. exact (compile_untyped _ complex_nonzero_imag_untyped ltac:(vm_compute; reflexivity)). Qed.
+Example complex_nonzero_imag_rejected   : exists fail, compile complex_nonzero_imag_program = Rejected fail.
+Proof. apply compile_rejected_of_inadmissible.
+       apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
+Example complex_nonzero_imag_report : map erased_code (erased_report complex_nonzero_imag_program
+                                        (Index.Snapshot.index_program complex_nonzero_imag_program)) = [CodeInvalidConversion].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Example complex_nonzero_imag_no_compile : ~ Admissible complex_nonzero_imag_program.
 Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; reflexivity. Qed.
 
@@ -10300,7 +10121,6 @@ Theorem reorder_construction_deterministic :
     build_program c3_ms [rnode_a; rnode_b] = Some p1 ->
     build_program c3_ms [rnode_b; rnode_a] = Some p2 ->
     erased_report p1 idx1 = erased_report p2 idx2
-    /\ compile_class p1 = compile_class p2
     /\ Index.KeyMap.elements (program_expr_facts p1) = Index.KeyMap.elements (program_expr_facts p2).
 Proof.
   intros p1 p2 idx1 idx2 H1 H2.
@@ -10311,8 +10131,8 @@ Proof.
     injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [Syntax.files] ].
     exact (Syntax.files_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
   pose proof (proj2 HIE) as HFE.
-  split; [ exact (erased_report_files_equal p1 p2 idx1 idx2 HFE) |].
-  split; [ exact (compile_class_input_equal p1 p2 HIE) | exact (program_expr_facts_enum_files_equal p1 p2 HFE) ].
+  split; [ exact (erased_report_files_equal p1 p2 idx1 idx2 HFE)
+         | exact (program_expr_facts_enum_files_equal p1 p2 HFE) ].
 Qed.
 
 (** EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
@@ -11851,7 +11671,7 @@ Local Open Scope string_scope.
 
 (** CURRENT REQUIRED ROCQ FIXTURES (20.1-20.16).  The fresh-build plan, preflight disposition, [source_spec_valid_b],
     and [program_typedb] are ALL index-free, so a fixture [vm_compute]s them directly; the command-facing report
-    (which anchors into the OPAQUE sealed index) is pinned THROUGH the proven bridges ([compile_class_spec],
+    (which anchors into the OPAQUE sealed index) is pinned THROUGH the proven bridges ([erased_report_src_eq],
     [elaboration_diagnostics_fresh_failure]).  Module paths are valid current [ModulePath.T]s; the pinned Go
     1.23.12 default-executable / directory-collision behaviour is what these encode. *)
 
@@ -11883,8 +11703,6 @@ Example child_package_output_collision_inadmissible   : ~ Admissible fixture_sub
 Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
 Example child_package_output_collision_report : forall idx, exists pk name, elaboration_diagnostics fixture_sub idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example child_package_output_collision_class  : compile_class fixture_sub = LegacyBuildOutput.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.4 — IMMEDIATE CHILD WITH A SEMANTIC ERROR + the same output collision: the final report REMAINS only the
    build-output-directory diagnostic (PRECEDENCE — the sole package's typing error is hidden). *)
@@ -11893,8 +11711,6 @@ Example collision_hides_semantic_error_untyped : program_typedb fixture_sub_err 
 Example collision_hides_semantic_error_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub_err) = false. Proof. vm_compute. reflexivity. Qed.
 Example collision_hides_semantic_error_report_hides_semantic : forall idx, exists pk name, elaboration_diagnostics fixture_sub_err idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example collision_hides_semantic_error_class : compile_class fixture_sub_err = LegacyBuildOutput.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.5 — SOLE DEEPER PACKAGE a/b/main.go: output name "b", but the fresh root directory is "a" (not "b"), so
    the output target is absent; preflight succeeds; Admissible. *)
@@ -11941,10 +11757,11 @@ Qed.
 Example multiple_packages_expose_semantic_failure : forall p,
   build_program ex_ms [ main_file_node (FilePath.Make "a/main.go" eq_refl) ex_main
                       ; main_file_node (FilePath.Make "b/main.go" eq_refl) ex_bad ] = Some p ->
-  fresh_build_disposition_ok (fresh_build_plan p) = true /\ compile_class p = LegacyTyping.
+  fresh_build_disposition_ok (fresh_build_plan p) = true
+  /\ map erased_code (erased_report p (Index.Snapshot.index_program p)) = [CodeInvalidConversion].
 Proof.
   intros p H. vm_compute in H. injection H as <-.
-  split; [ vm_compute; reflexivity | rewrite compile_class_spec; vm_compute; reflexivity ].
+  split; [ vm_compute; reflexivity | rewrite erased_report_src_eq; vm_compute; reflexivity ].
 Qed.
 
 (* 20.10 — go.mod OVERWRITE: module final component "go.mod" -> output name "go.mod", whose root target is the
@@ -11967,26 +11784,31 @@ Example source_file_overwrite_admissible : Admissible fixture_srcov.            
 Example output_name_exact_noncollision : PackageMap.find "m" (root_layout fixture_root) = None. Proof. vm_compute. reflexivity. Qed.
 
 (* 20.13 — THREE MAINS in one package (n-1 = 2 redeclarations): with a build-output directory collision the
-   final report HIDES them (LegacyBuildOutput); without a collision the class exposes the package-main-count. *)
+   final report HIDES them behind the build-output diagnostic; without a collision the report exposes the
+   two main redeclarations. *)
 Definition ex_3main : list Syntax.Decl :=
   [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 3 ] ] ].
 Definition three_main_redeclarations_hidden : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) ex_3main.
 Definition three_main_redeclarations_exposed  : Syntax.Program := singleton_program ex_ms (FilePath.Make "main.go" eq_refl)     ex_3main.
-Example three_main_redeclarations_hidden_class  : compile_class three_main_redeclarations_hidden = LegacyBuildOutput.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 Example three_main_redeclarations_hidden_report : forall idx, exists pk name, elaboration_diagnostics three_main_redeclarations_hidden idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example three_main_redeclarations_exposed_class  : compile_class three_main_redeclarations_exposed = LegacyPackageMainCount.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
+Example three_main_redeclarations_exposed_report :
+  map erased_code (erased_report three_main_redeclarations_exposed
+                    (Index.Snapshot.index_program three_main_redeclarations_exposed))
+  = [CodeMainRedeclared; CodeMainRedeclared].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* 20.14 — MISSING MAIN ENTRY (a package file with no Syntax.Main): same two branches — a collision HIDES it, a
    collision-free layout EXPOSES the missing-main (package-main-count) class. *)
 Definition fixture_nomain_hidden : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) nil.
 Definition fixture_nomain_shown  : Syntax.Program := singleton_program ex_ms (FilePath.Make "main.go" eq_refl)     nil.
-Example missing_main_hidden_class : compile_class fixture_nomain_hidden = LegacyBuildOutput.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
-Example missing_main_exposed_class : compile_class fixture_nomain_shown = LegacyPackageMainCount.
-Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
+Example missing_main_hidden_report : forall idx, exists pk name,
+  elaboration_diagnostics fixture_nomain_hidden idx = [BuildOutputIsDirectory pk name].
+Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
+Example missing_main_exposed_report :
+  map erased_code (erased_report fixture_nomain_shown
+                    (Index.Snapshot.index_program fixture_nomain_shown)) = [CodeMissingMainEntry].
+Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* 20.15 — REORDERED CONSTRUCTION under the SAME ModuleSpec -> equal full plan, erased final report, and class
    (permuted file-node input is [ProgramInputEqual]). *)
@@ -11995,8 +11817,7 @@ Theorem reordered_construction_determinism_full_determinism :
     build_program c3_ms [rnode_a; rnode_b] = Some p1 ->
     build_program c3_ms [rnode_b; rnode_a] = Some p2 ->
     fresh_build_plan p1 = fresh_build_plan p2
-    /\ erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2
-    /\ compile_class p1 = compile_class p2.
+    /\ erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2.
 Proof.
   intros p1 p2 idx1 idx2 H1 H2.
   assert (HIE : ProgramInputEqual p1 p2).
@@ -12005,9 +11826,8 @@ Proof.
     destruct (Syntax.files_of_nodes [rnode_b; rnode_a]) as [fm2|] eqn:F2; [ | discriminate ].
     injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [Syntax.files] ].
     exact (Syntax.files_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
-  split; [ exact (fresh_build_plan_input_equal _ _ HIE) |].
-  split; [ exact (erased_elaboration_report_input_equal _ _ idx1 idx2 HIE)
-         | exact (compile_class_input_equal _ _ HIE) ].
+  split; [ exact (fresh_build_plan_input_equal _ _ HIE)
+         | exact (erased_elaboration_report_input_equal _ _ idx1 idx2 HIE) ].
 Qed.
 
 (* 20.16 — EQUAL FILES, DIFFERENT MODULE: the source file map is identical, but the two ModuleSpecs give the

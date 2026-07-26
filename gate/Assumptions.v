@@ -214,8 +214,6 @@ Print Assumptions Compilable.package_summaries_empty.
 Print Assumptions Compilable.package_summaries_equal.
 Print Assumptions Compilable.package_summaries_build_permutation.
 Print Assumptions Compilable.source_program_valid_files_equal.
-Print Assumptions Compilable.compile_class_input_equal.
-Print Assumptions Compilable.compile_class_build_permutation.
 Print Assumptions Compilable.reject_no_compile.
 Print Assumptions Compilable.compilable_program_typed.
 Print Assumptions Compilable.source_program_valid_empty.
@@ -629,7 +627,6 @@ Print Assumptions Compilable.occurrence_expr_diags_conv_sound.
 Print Assumptions Compilable.byte_uint8_erased_differ.
 Print Assumptions Compilable.rune_int32_erased_differ.
 (* the legacy compile class projects the elaboration diagnostics (matches the decision), not a rerun. *)
-Print Assumptions Compilable.compile_class_spec.
 (* decision (expression half): every println argument resolves IFF program_typedb / Typing.Program. *)
 Print Assumptions Compilable.expression_all_ok_program_typedb.
 Print Assumptions Compilable.expression_all_ok_iff_typed_program.
