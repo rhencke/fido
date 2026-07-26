@@ -88,7 +88,8 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) — NOT yet
 accepted; repair 15 (complete scoped names + retained elaboration) is IMPLEMENTED and awaiting Rob's human
-Implementation Review** (seventeen candidates have blocked at human Implementation Review; the withdrawn GREEN
+Implementation Review** (sixteen candidates have blocked at human Implementation Review and this is the
+seventeenth; the withdrawn GREEN
 disposition and its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted
 until Rob accepts it). Repair 13's work index is retained and correct. The static-capability boundary now
 retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,

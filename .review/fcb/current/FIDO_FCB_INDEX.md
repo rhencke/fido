@@ -17,17 +17,18 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Blocked implementation candidate:** `20c5ad5c499d5046563471624117b80c737c7157` — C4 is blocked at the final
-static-capability boundary, where the published capability keeps copied projections plus an equality to
-rerunning the elaborator instead of retaining the exact causal elaboration object.  
-**Current C4 state:** the repair-14 authority is installed at `.review/C4_IMPLEMENTATION_REPAIR_14.md`, and
-Rob **AUTHORIZED** its implementation on 2026-07-25 (begin on the current `main` head; do not reset to
-`9d5246e`; preserve the recorded out-of-band changes).  
-**Current blocked candidate:** `20c5ad5c499d5046563471624117b80c737c7157` — the A005 migration candidate is
-BLOCKED. **Repair 15 is active** (`.review/C4_IMPLEMENTATION_REPAIR_15.md`): finish the scoped names, make
-the retained core hold the whole elaboration, and make the failure retain the exact rejected core.
+**Current implementation candidate:** `deda8bd91dbfebf75895c8786732a4ed9d7952f2` — repair 15
+(`.review/C4_IMPLEMENTATION_REPAIR_15.md`) is **IMPLEMENTED and COMPLETE**, awaiting Rob's human C4
+Implementation Review. `Compilable.Core` retains the whole elaboration — buckets, layout, plan and both
+diagnostic lists stored with their exactness evidence; the decision is indexed by that exact core; success and
+failure both retain it; `Compilable.Program` / `Compilable.Failure` / `Compilable.Facts` are sealed so
+`Compilable.compile` is the only mint; and the A005 scoped names are finished and gated.  
+**Last blocked candidate:** `20c5ad5c499d5046563471624117b80c737c7157` — the A005 migration candidate, the
+sixteenth to block at human Implementation Review. The candidate above is the seventeenth and is under review,
+not accepted.  
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it.  
 Governance owns `D-01` through `D-25`.  
-**Next permitted sequence:** `C4 repair 14 → human C4 review → checkpoint-definition Step 0 → C5`.  
+**Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,
 or target/toolchain policy is changed by A002, A003, or A004.  
@@ -51,7 +52,7 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 |---|---|
 | `INDEX.md` | Stable Git bootstrap; names this Index and the live checkpoint authority. |
 | `FIDO_FCB_INDEX.md` | This file: live file set, current boundary, and consultation map. |
-| `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-24, amendment register, ADR register, amendment law. |
+| `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-25, amendment register, ADR register, amendment law. |
 | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
 | `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
 | `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Open human decisions and the blocked C4 review state. |

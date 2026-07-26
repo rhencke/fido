@@ -21,28 +21,33 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 - **Blocked C4 implementation candidates (all sixteen):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
   `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
   `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) · `3386c02` (15) ·
-  `20c5ad5c499d5046563471624117b80c737c7157` (16 — **the candidate under review**).
-- **Repair authority (active): `.review/C4_IMPLEMENTATION_REPAIR_15.md`**, human authorization token
+  `20c5ad5c499d5046563471624117b80c737c7157` (16).
+- **Current candidate (seventeenth, under review — neither blocked nor accepted):**
+  `deda8bd91dbfebf75895c8786732a4ed9d7952f2`.
+- **Repair authority: `.review/C4_IMPLEMENTATION_REPAIR_15.md` — IMPLEMENTED and COMPLETE**, human authorization token
   `C4-complete-scoped-names-and-retained-elaboration-repair-15`, under accepted FCB amendments A001 /
   Governance D-22 and A005 / Governance D-25. Repair 15 subsumes every still-live repair-14 obligation.
-- **C4 disposition: NOT accepted at `20c5ad5`.** The A005 migration candidate is BLOCKED for three independent
-  reasons: A005's first implementation is incomplete and its naming gate can return a false green; the retained
-  `Compilable.Core` recomputes package facts, layout, plan and diagnostics instead of retaining them; and the
-  public `Failure` discards the exact rejected core. Repair 14 is **not accepted** and is subsumed by repair 15.
+- **C4 disposition: NOT accepted.** The candidate above awaits Rob's human C4 Implementation Review; only Rob
+  accepts C4. The three reasons `20c5ad5` was BLOCKED are all closed by repair 15: A005 is complete and its
+  naming gate now fails closed in both working-tree and staged-snapshot mode; `Compilable.Core` retains
+  package refs, layout, plan and both diagnostic lists with their exactness evidence; and the public `Failure`
+  retains the exact rejected core. Repair 14 is **not separately accepted** and is subsumed by repair 15.
   `c5b67495` is a **documentation-only freeze**, not a candidate; `37c9597` remains a superseded
   documentation-only acceptance closeout. Repair 15 is implemented on top of the current head — no reset,
   rebase, history rewrite, force-push, or revert of the A005 migration. Ranges: full human C4 review
-  `8c9212a..`the repair-15 freeze; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..9d5246e`**;
-  **repair-14 `9d5246e..3386c02`**; **A005 closeout `20c5ad5..`**the repair-15 freeze; **repair-15
-  `c5b67495..`**its freeze. Automatic Codex review is DISABLED.
+  `8c9212a..deda8bd`; **repair-12 `37c9597..af7d5d3`**; **repair-13 `af7d5d3..9d5246e`**;
+  **repair-14 `9d5246e..3386c02`**; **A005 `c5b674..20c5ad5`**; **repair-15 `20c5ad5..deda8bd`**.
+  Automatic Codex review is DISABLED.
 - The post-C4 foundation consolidation / ruthless trim and C5 (= `uintptr` + rune constants/literals, reopens
   ADR-0001) remain FORBIDDEN until C4 is accepted.
 
-## Repair 14 — intrinsic retained elaboration — AUTHORIZED, implementation not yet started
+## Repair 15 — complete scoped names and retained elaboration — IMPLEMENTED
 
-**C4 is BLOCKING at `9d5246e`, the fourteenth blocked implementation candidate.** Authority:
-`.review/C4_IMPLEMENTATION_REPAIR_14.md`, token `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under
-accepted FCB amendment **A001** and Governance **D-22**.
+**The current candidate is `deda8bd91dbfebf75895c8786732a4ed9d7952f2`, the seventeenth, under review.**
+Authority: `.review/C4_IMPLEMENTATION_REPAIR_15.md`, token
+`C4-complete-scoped-names-and-retained-elaboration-repair-15`, under accepted FCB amendments **A001** /
+Governance **D-22** and **A005** / Governance **D-25**. It subsumes repair 14, whose authority document is
+retired from the working tree; Git history is its archive.
 
 **The retained-elaboration boundary (A001 / D-22).** Repair 14 replaced the reconstruction root with a
 retained `Compilable.Core`; repair 15 completes it. The core now retains the WHOLE elaboration — input,
