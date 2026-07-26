@@ -87,12 +87,15 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
 Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) — NOT yet
-accepted; BLOCKING at `9d5246e`, intrinsic retained elaboration repair 14 — authority installed, implementation
-not begun** (fourteen candidates have blocked at human Implementation Review; the withdrawn GREEN disposition and
-its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted until Rob accepts
-it). Repair 13's work index is retained and correct; the blocker moved OUTSIDE the expression phase, to the final
-static-capability boundary, where `Compilable.Program` keeps copied projections plus `cp_prov`, a Prop equality to
-RERUNNING `elaborate`, instead of retaining the exact causal elaboration object (FCB amendment A001 / D-22). The
+accepted; repair 15 (complete scoped names + retained elaboration) is IMPLEMENTED and awaiting Rob's human
+Implementation Review** (seventeen candidates have blocked at human Implementation Review; the withdrawn GREEN
+disposition and its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted
+until Rob accepts it). Repair 13's work index is retained and correct. The static-capability boundary now
+retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,
+the phase, the package buckets, the root layout, the fresh-build plan and both diagnostic lists, each stored
+with the proof that it IS the canonical value; the decision is indexed by that core; success and failure both
+retain it; and `Compilable.Program` / `Compilable.Failure` / `Compilable.Facts` are SEALED, so
+`Compilable.compile` is the only mint. The
 production expression path is ONE `Compilable.Phase`
 built from ONE retained `Compilable.Input` and driven by ONE proof-carrying retained work forest OBJECT — the
 `Compilable.WorkForest` record (`build_expr_work_forest`; its stored `Compilable.forest_blocks`/`Compilable.forest_items` with `Compilable.forest_items = concat
@@ -143,8 +146,9 @@ the `StepCause` producing the FINAL outcome + the tail-to-final query preservati
 cannot satisfy it; projected axiom-free by `Compilable.conversion_failure_cause_yields_step` / `Compilable.child_failure_cause_yields_member` /
 `Compilable.conversion_success_cause_yields_step`, each reading the operand outcome THROUGH the exact operand `SuffixMember` via `Compilable.accumulator_total
 acc_rest`; `final_operand_outcome` closes the operand into the final table), and the phase's `Compilable.TypeNameFacts`
-and `Compilable.ExpressionFactTable` are sealed into `Compilable.Facts` by object
-identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); direct production-object phase fixtures
+and `Compilable.ExpressionFactTable` are reached through `Compilable.Facts` by object
+identity (`compilable_retains_tnfacts` / `compilable_retains_expr_facts`, projections of the retained core);
+direct production-object phase fixtures
 query `total_forest_outcome_at` at REAL `WorkMember`s from `Compilable.phase_work` and project the retained cause with FINAL-TO-TAIL
 CLOSURE (innermost `Compilable.ConversionFailure` whose retained cause reads the operand's `Compilable.ExpressionSuccess` through the exact operand `SuffixMember`
 AND closes it into the final table `deep_fail_innermost_convfail`, CONNECTED to the exact stored `Compilable.InvalidConversion`

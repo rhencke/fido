@@ -77,8 +77,9 @@
 
 ## History (not current state)
 
-Repair 14 (`3386c02`) replaced the reconstruction root — `cp_prov`, the whole-equation scaffolding, and the
-`elaborate_ok_seals_*` rebuilt-phase forms — with a retained core and a decision indexed by it.
+Repair 14 (`3386c02`) retired the reconstruction root — the retired `cp_prov`, the whole-equation scaffolding,
+and the retired `elaborate_ok_seals_*` rebuilt-phase forms — replacing it with a retained core and a decision
+indexed by it.
 That result is real and is kept, but it retained the exact core only on the accepted capability path and only
 for the input and expression phase. Repair 15 finishes it. The A005 migration (`20c5ad5`) then renamed the
 repository under `D-25`; its law is accepted and its first implementation is incomplete.

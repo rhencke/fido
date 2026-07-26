@@ -91,7 +91,11 @@ DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag'
                     # repair 15 §7 — the second capability-mint path
                     'elaboration_ok_core', 'compilable_of_valid',
                     # repair 15 §8 — surfaces that named a now-sealed constructor and could not survive it
-                    'compile_on_core', 'compile_projects_elaborate', 'failure_diagnostics_make']
+                    'compile_on_core', 'compile_projects_elaborate', 'failure_diagnostics_make',
+                    # repair 14's deletions, which never entered this table — which is exactly how
+                    # ARCHITECTURE.md went on citing `cp_prov` as current for a whole repair cycle
+                    'cp_prov', 'compilable_prov', 'elaboration_ok_full', 'elaborate_ok_whole',
+                    'elaborate_failed_whole', 'elaborate_ok_seals_facts', 'elaborate_ok_seals_tnfacts']
 
 # Pseudo-qualifier SEGMENTS.  Checked anywhere in an identifier, not merely at position zero: an embedded
 # `cp` is exactly as much a fake namespace as a leading one.

@@ -9418,12 +9418,10 @@ Qed.
 (* [Admissible] and its [elaboration_diagnostics]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
    exactness theorems below are stated over [Admissible]. *)
 
-(** ═══ §6/§9 THE CAPABILITY RETAINS THE CORE ═══ the whole-equation scaffolding that used to lift a
-    stripped-result fact to a whole-elaboration equation is DELETED along with
-    [cp_prov]: it existed only to reconstruct a discarded whole result and to serve as provenance-by-equality.
-    A [Program] now RETAINS the exact accepted [Core] — with it, the input, the phase, the
-    work forest and index, the outcome Index.table and its trace, the annotation, the fact tables and the diagnostics.
-    Everything public is a PROJECTION of that retained object; no theorem calls [elaborate] to recover a field. *)
+(** ═══ §6/§9 THE CAPABILITY RETAINS THE CORE ═══ a [Program] RETAINS the exact accepted [Core] — and with
+    it the input, the phase, the work forest and index, the outcome Index.table and its trace, the annotation,
+    the fact tables and the diagnostics.  Everything public is a PROJECTION of that retained object; no
+    theorem calls [elaborate] to recover a field, and no equality to a rerun stands in for the object. *)
 
 (** ═══ §8 THE SEALED CAPABILITY ═══ [Program] and [Failure] are ABSTRACT outside this module.  Their
     representations and raw constructors never leave it, so the ONLY way either value comes into existence is

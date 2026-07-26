@@ -55,7 +55,8 @@ copied list. The stripped result peer and the reconstruction bridges are deleted
 **Required:** one `Compilable.Core` built once; the accept/reject decision indexed by that exact core; success
 and failure both retaining it; `Compilable.Program` retaining the accepted core behind an opaque constructor with
 every public query a projection; `Compilable.compile` passing the exact object through; and deletion of the
-reconstruction root, including `cp_prov` as provenance and the `elaborate_ok_seals_*` rebuilt-phase forms. A
+reconstruction root, including the now-retired `cp_prov` as provenance and the now-retired
+`elaborate_ok_seals_*` rebuilt-phase forms. A
 canonical-rerun equality may survive only as a clearly labelled specification/determinism theorem.
 
 **Rob authorized implementation on 2026-07-25:** begin on the current `main` head, do not reset to `9d5246e`,

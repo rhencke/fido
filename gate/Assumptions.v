@@ -546,6 +546,31 @@ Print Assumptions Compilable.core_raw_semantic.
 Print Assumptions Compilable.core_diagnostics_eq_elaboration.
 Print Assumptions Compilable.failure_diagnostics.
 Print Assumptions Compilable.failure_core.
+(* §11.1 CORE CONSTRUCTION — exactly ONE of each, each STORED with the proof that it IS the canonical value.
+   These are the retained record's own projections: gating them gates the retention itself, not a lemma about
+   it.  One input and one phase need no exactness proof — [Phase] is INDEXED BY the input, so a phase built
+   from a different input is not storable beside it. *)
+Print Assumptions Compilable.core_input.
+Print Assumptions Compilable.phase.
+Print Assumptions Compilable.core_package_refs_from_visit.
+Print Assumptions Compilable.core_layout_exact.
+Print Assumptions Compilable.core_plan_exact.
+Print Assumptions Compilable.core_raw_diagnostics_exact.
+Print Assumptions Compilable.core_diagnostics_exact.
+(* §11.2 DECISION — accepted IS the retained final diagnostic list being empty and rejected IS its being
+   non-empty (the two are the capability's and the failure's own evidence fields, not a rerun of a checker);
+   and each side matches whole-program admissibility exactly. *)
+Print Assumptions Compilable.accepted.
+Print Assumptions Compilable.rejected.
+(* §11.3 SUCCESS — the ONE production mint path, and the two facts a witness needs about what it minted.
+   Constructor opacity is NOT a Print-Assumptions surface: "this term does not typecheck" is not a theorem.
+   It is enforced as the build fact it is, by the sealed-capability self-tests F-N in `make prove`. *)
+Print Assumptions Compilable.capability_of_admissible.
+Print Assumptions Compilable.capability_source.
+Print Assumptions Compilable.capability_is_compile_outcome.
+(* §11.4 FAILURE — the exposed diagnostics ARE the retained core's own, definitionally; the non-emptiness is
+   the retained rejection evidence.  The failure carries the CORE; a diagnostic list carries nothing. *)
+Print Assumptions Compilable.failure_nonempty.
 Print Assumptions Compilable.deep_nested_seals_expression_fact_table.
 Print Assumptions Compilable.deep_nested_work_count.
 Print Assumptions Compilable.phase_domain_exact.
