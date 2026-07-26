@@ -301,3 +301,23 @@ Proof.
   - apply entries_equal. rewrite !of_safe_files.
     unfold file_map, file_map_of, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
 Qed.
+
+(** ═══ §10.1 THE ACCEPTED PATH, END TO END, THROUGH THE RETURNED CAPABILITY ═══ the capability the compiler
+    returned is the one safety certifies, and the image is minted from THAT certificate and publishes exactly
+    its bytes.  Every step holds by [reflexivity] — there is nothing to reconstruct between [compile] and the
+    emitted bytes. *)
+Theorem accepted_path_emits_from_returned_capability : forall p (H : Compilable.Admissible p),
+  exists cp Hcp,
+    Compilable.compile p = Compilable.Compiled cp Hcp
+    (* safety wraps the SAME capability and the SAME retained core *)
+    /\ Safe.compiled (Safe.certify cp) = cp
+    /\ Safe.core (Safe.certify cp) = Compilable.core cp
+    /\ Safe.source (Safe.certify cp) = Compilable.source cp
+    (* and the image retains that exact certificate and publishes exactly its bytes *)
+    /\ image_safe (of_safe (Safe.certify cp)) = Safe.certify cp
+    /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
+    /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
+Proof.
+  intros p H. destruct (Compilable.compile_complete p H) as [cp [Hcp Hc]].
+  exists cp, Hcp. repeat split; try reflexivity. exact Hc.
+Qed.

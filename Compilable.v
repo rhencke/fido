@@ -10724,7 +10724,8 @@ Qed.
 
 (* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each ChildFailure (blocked by the inner fail;
    no outer reason).  Direct production-Index.table queries at the exact work items. *)
-Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase input) :
+(* the claim of [deep_fail_outer_childfail], named so a returned-object fixture can assert it. *)
+Definition deep_fail_outer_childfail_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
   let ot := phase_ot (ph) in
   (exists (wm : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
@@ -10738,7 +10739,11 @@ Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase 
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
      /\ total_forest_outcome_at ot wm = ChildFailure).
+
+Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase input) :
+  deep_fail_outer_childfail_claim input ph.
 Proof.
+  unfold deep_fail_outer_childfail_claim.
   cbn zeta.
   split; [ | split ].
   - destruct (Index.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
@@ -10781,7 +10786,8 @@ Qed.
    retained annotation context [outer].  The reason is read from the STORED outcome via [forest_awork_diags]
    (repair-10 [retained_convfail_diag]), NOT re-derived by [local_conv_failure]; length one (there is no second
    local reason).  The tail operand [ExpressionSuccess opf] closes into the final Index.table and [Typing.convert_constant] rejects. *)
-Theorem deep_fail_innermost_diag (input : Input deep_fail_program) (ph : Phase input) :
+(* the claim of [deep_fail_innermost_diag], named so a returned-object fixture can assert it. *)
+Definition deep_fail_innermost_diag_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
   let phase := ph in
   let ot := phase_ot phase in
   exists (wm : WorkMember (phase_work phase))
@@ -10804,7 +10810,11 @@ Theorem deep_fail_innermost_diag (input : Input deep_fail_program) (ph : Phase i
     /\ phase_diags phase =
          [ InvalidConversion (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) outer t (const_status opf) ].
+
+Theorem deep_fail_innermost_diag (input : Input deep_fail_program) (ph : Phase input) :
+  deep_fail_innermost_diag_claim input ph.
 Proof.
+  unfold deep_fail_innermost_diag_claim.
   cbn zeta.
   pose proof deep_fail_innermost_convfail input ph as H. cbn zeta in H.
   destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq [Hcv Ht]]]]]]]]]]]].
@@ -11186,25 +11196,10 @@ Proof.
   intro H. apply Hkne. rewrite H. reflexivity.
 Qed.
 
-(* the canonical instantiation, over the freshly built phase. *)
-Theorem twin_expr_index_distinct :
-  let input := build_compilation_input twin_expr_program (Index.index_program twin_expr_program) in
-  let forest := phase_work (build_expression_phase input) in
-  exists w1 w2 : Work input,
-       In w1 (forest_items forest) /\ In w2 (forest_items forest)
-    /\ work_expr w1 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
-    /\ work_expr w2 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
-    /\ Index.Snapshot.node_ref_key (work_node_ref w1) <> Index.Snapshot.node_ref_key (work_node_ref w2)
-    /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w1))
-         (index_map (forest_index forest)) = Some w1
-    /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w2))
-         (index_map (forest_index forest)) = Some w2
-    /\ w1 <> w2.
-Proof. exact (twin_distinct_in_forest _ _). Qed.
-
 (* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [ChildFailure], and its operand's
    outcome IN THE FINAL TABLE is a FAILURE (closure into the retained Index.table, not just a shape). *)
-Theorem deep_fail_outer_operands_final_fail (input : Input deep_fail_program) (ph : Phase input) :
+(* the claim of [deep_fail_outer_operands_final_fail], named so a returned-object fixture can assert it. *)
+Definition deep_fail_outer_operands_final_fail_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
   let ot := phase_ot (ph) in
   (exists (wm opw : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
@@ -11221,7 +11216,11 @@ Theorem deep_fail_outer_operands_final_fail (input : Input deep_fail_program) (p
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
      /\ total_forest_outcome_at ot wm = ChildFailure
      /\ outcome_is_fail (total_forest_outcome_at ot opw)).
+
+Theorem deep_fail_outer_operands_final_fail (input : Input deep_fail_program) (ph : Phase input) :
+  deep_fail_outer_operands_final_fail_claim input ph.
 Proof.
+  unfold deep_fail_outer_operands_final_fail_claim.
   cbn zeta. split; [ | split ].
   - destruct (Index.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
     destruct (deep_fail_childfail_closure_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
@@ -11338,16 +11337,6 @@ Theorem core_work_count_source {p} (core : Core p) :
             (keyed_visit p)).
 Proof. exact (forest_count_source (core_input core) (phase_work (phase core))). Qed.
 
-(* §12.1 — the retained work forest of the deep_nested phase has EXACTLY 5 members (4 conversions + 1 leaf). *)
-Theorem deep_nested_work_count :
-  length (forest_items (phase_work (build_expression_phase
-              (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))) = 5%nat.
-Proof.
-  rewrite (forest_count_source (build_compilation_input deep_nested_program
-                                  (Index.index_program deep_nested_program)) _).
-  rewrite keyed_visit_source. vm_compute. reflexivity.
-Qed.
-
 (** ═══ §10.1 THE ACCEPTED CAPABILITY, QUERIED ONLY THROUGH ITSELF ═══ [cp] is the capability the production
     [compile] returned for a real four-deep conversion program.  Every claim is a PROJECTION of what that one
     value retains: the input and phase are the core's own, the sealed tables are the phase's own objects, the
@@ -11394,6 +11383,55 @@ Qed.
     SAME source expression are two DISTINCT members of the RETAINED work forest, found at DISTINCT keys in the
     RETAINED standard index.  Occurrence identity is not a property of the elaborator's scratch work — it
     survives all the way into the value a client holds. *)
+(** ═══ §10.1 THE RETAINED CAUSAL HISTORY, THROUGH THE RETURNED CAPABILITY ═══ the four conversion causes,
+    their operand predecessors, the final-table preservation, the single [Typing.convert_constant] step each,
+    and the retained work index exact in both directions — all asked of the core the compiler actually
+    returned.  The only bridge is [Hcp], the source equation the [Compiled] branch itself carries: it
+    transports a property OF [core cp], and never replaces [core cp] with an independently rebuilt peer.
+    Nothing here names a builder. *)
+Theorem deep_nested_capability_retains_causes :
+  exists cp (Hcp : source cp = deep_nested_program),
+    compile deep_nested_program = Compiled cp Hcp
+    /\ (let c := eq_rect (source cp) Core (core cp) deep_nested_program Hcp in
+        (* each of the four conversions: exact source occurrence, exact ConversionStep, the operand's
+           predecessor outcome read through its exact SuffixMember, tail-to-final preservation, and ONE
+           rejecting-or-accepting convert_constant *)
+        (nested_success_bundle (core_input c) (phase c)
+           (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+         /\ nested_success_bundle (core_input c) (phase c)
+              (Syntax.type_expr_of_name Names.Int16)
+              (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+         /\ nested_success_bundle (core_input c) (phase c)
+              (Syntax.type_expr_of_name Names.Int32)
+              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+                (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
+         /\ nested_success_bundle (core_input c) (phase c)
+              (Syntax.type_expr_of_name Names.Int64)
+              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+                  (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))))
+        (* …and the retained standard work index, exact in both directions, at those same occurrences *)
+        /\ (nested_index_bundle (core_input c) (phase c)
+              (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+            /\ nested_index_bundle (core_input c) (phase c)
+                 (Syntax.type_expr_of_name Names.Int16)
+                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+            /\ nested_index_bundle (core_input c) (phase c)
+                 (Syntax.type_expr_of_name Names.Int32)
+                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
+            /\ nested_index_bundle (core_input c) (phase c)
+                 (Syntax.type_expr_of_name Names.Int64)
+                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+                     (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))))).
+Proof.
+  destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hc]].
+  exists cp, Hcp. split; [ exact Hc | ]. cbn zeta.
+  split; [ exact (deep_nested_chain_success_evidence _ _)
+         | exact (deep_nested_chain_index_evidence _ _) ].
+Qed.
+
 Theorem twin_capability_retains_distinct_occurrences :
   exists cp Hcp,
     compile twin_expr_program = Compiled cp Hcp
@@ -11435,6 +11473,34 @@ Qed.
     value's [failure_core] is literally the core the decision judged, and input, phase, buckets, layout, plan
     and the diagnostics themselves are projections of it.  The exact singleton [InvalidConversion] count is
     read off that retained core, not recomputed from the source. *)
+(** ═══ §10.2 THE RETAINED CAUSAL HISTORY OF THE REJECTION, THROUGH THE RETURNED FAILURE ═══ the innermost
+    conversion failure with its exact target/operand refs and failed step, the operand's prior outcome and its
+    preservation into the final table, every enclosing child-failure cause, and the singleton diagnostic —
+    every one asked of [failure_core fail].  No transport is needed at all here: [Failure] is INDEXED by its
+    program, so the returned value's core is already at the right type.  Nothing names a builder. *)
+Theorem deep_fail_capability_retains_rejected_causes :
+  exists fail,
+    compile deep_fail_program = Rejected fail
+    /\ (let c := failure_core fail in
+        (* the retained phase reports, and reports EXACTLY ONE diagnostic *)
+        phase_diags (phase c) <> nil
+        /\ length (phase_diags (phase c)) = 1%nat
+        (* the innermost int8(300) conversion failure: exact refs, exact step, exact operand status *)
+        /\ deep_fail_innermost_diag_claim (core_input c) (phase c)
+        (* every enclosing conversion is a child failure, not a second reason *)
+        /\ deep_fail_outer_childfail_claim (core_input c) (phase c)
+        (* and each enclosing operand's outcome is preserved into the final table *)
+        /\ deep_fail_outer_operands_final_fail_claim (core_input c) (phase c)).
+Proof.
+  destruct (compile_rejected_of_inadmissible deep_fail_program
+              (reject_no_compile deep_fail_program ltac:(vm_compute; reflexivity))) as [fail Hc].
+  exists fail. split; [ exact Hc | ]. cbn zeta.
+  split; [ exact (deep_fail_phase_reports _ _) | ].
+  split; [ exact (deep_fail_exactly_one_diag _ _) | ].
+  split; [ exact (deep_fail_innermost_diag _ _) | ].
+  split; [ exact (deep_fail_outer_childfail _ _) | exact (deep_fail_outer_operands_final_fail _ _) ].
+Qed.
+
 Theorem deep_fail_capability_retains_rejected_elaboration :
   exists fail,
     compile deep_fail_program = Rejected fail

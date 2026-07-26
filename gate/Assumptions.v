@@ -217,6 +217,7 @@ Print Assumptions Emit.of_safe_at_module_bytes.
 Print Assumptions Emit.of_safe_at_files.
 Print Assumptions Emit.of_safe_at_refl.
 Print Assumptions Emit.of_safe_at_transport.
+Print Assumptions Emit.accepted_path_emits_from_returned_capability.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
    its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
@@ -543,6 +544,14 @@ Print Assumptions Compilable.over_program_failure_retains_rejected_core.
 Print Assumptions Compilable.deep_nested_capability_retains_elaboration.
 Print Assumptions Compilable.deep_fail_capability_retains_rejected_elaboration.
 Print Assumptions Compilable.twin_capability_retains_distinct_occurrences.
+(* §10.1/§10.2 — the RETAINED CAUSAL HISTORY through the returned objects: the four conversion causes with
+   their operand predecessors and convert_constant steps, the retained work index exact both ways, and on the
+   rejected side the innermost failure, the enclosing child failures and the operand preservation.  These are
+   the capability evidence; the generalised theorems they instantiate are stated over ANY retained phase. *)
+Print Assumptions Compilable.deep_nested_capability_retains_causes.
+Print Assumptions Compilable.deep_fail_capability_retains_rejected_causes.
+Print Assumptions Compilable.forest_count_source.
+Print Assumptions Compilable.member_at_in_forest.
 Print Assumptions Compilable.core_prop_at_source.
 (* §11.1/§11.4: the core retains the WHOLE elaboration — buckets, layout, plan and both
    diagnostic lists are stored with their exactness evidence, not recomputed on each query; and the
@@ -595,7 +604,6 @@ Print Assumptions Compilable.capability_is_compile_outcome.
    the retained rejection evidence.  The failure carries the CORE; a diagnostic list carries nothing. *)
 Print Assumptions Compilable.failure_nonempty.
 Print Assumptions Compilable.deep_nested_seals_expression_fact_table.
-Print Assumptions Compilable.deep_nested_work_count.
 Print Assumptions Compilable.phase_domain_exact.
 (* §3/§4 the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
    evidence, gated as the accepted public surfaces — each accepted theorem STATES exactly the evidence its proof
@@ -634,7 +642,6 @@ Print Assumptions Compilable.deep_nested_chain_operands_final_ok.
      [two_uint8_distinct_target_refs].) *)
 Print Assumptions Compilable.deep_nested_index_at.
 Print Assumptions Compilable.deep_nested_chain_index_evidence.
-Print Assumptions Compilable.twin_expr_index_distinct.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, Typing.convert_constant rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved Typing.SemanticType — erase DISTINGUISHABLY. *)
