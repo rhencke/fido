@@ -5,14 +5,15 @@ This file alone owns the current checkpoint and candidate state.
 
 <!-- FIDO-HUMAN-ACT:C4-REVIEW -->
 
-- **Active work: C4 REPAIR 18 — the sole active C4 task.**
+- **C4 REPAIR 18 IS IMPLEMENTED AND COMPLETE.**
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_18.md` (installed verbatim).
   Human implementation authorization token: `C4-returned-cause-human-index-coherence-repair-18`.
-  Implementation base: the reviewed freeze. Do not reset, rebase, rewrite history, or discard accepted
-  `A001`–`A006` work.
-- **Candidate status.** `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` is **BLOCKING** — the nineteenth
-  blocked C4 implementation candidate. `e15232d3ef894c2f478e36c736cd701533e224fe` is its
-  **documentation-only freeze**, not a separate candidate.
+- **Candidate offered for human review.** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` is the C4
+  implementation candidate. `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` was the nineteenth blocked candidate
+  and is superseded. All three blocking findings are closed; the mandatory whole-system closure audit is
+  `.review/C4_REPAIR_18_CLOSURE_AUDIT.md` and the claim-to-theorem matrix is
+  `.review/C4_REPAIR_18_CLAIM_THEOREM_MATRIX.tsv`.
+- **C4 is still NOT accepted.** Only Rob accepts it. Awaiting his human C4 Implementation Review.
 - **What repair 17 achieved and must NOT regress.** The A006 authority commit landed before implementation;
   `Emit.Mint.Token` is opaque and indexed by the exact `Safe.Program` and exact bytes; `Emit.Mint.issue` is the
   sole authority-producing operation; `Emit.Image` is a reducible carrier whose pack constructor is not a mint;

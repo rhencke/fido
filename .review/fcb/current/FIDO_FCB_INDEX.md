@@ -18,12 +18,13 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Blocked implementation candidate:** owned by `.review/NEXT_STEPS.md`, which names the exact commit, its
-freeze head, and its status. This Index states the boundary, not a second copy of the candidate state; at
-freeze it names the candidate offered for review.  
-**Active work: C4 repair 18** (`.review/C4_IMPLEMENTATION_REPAIR_18.md`) — the sole active C4 task: one
-accepted and one rejected root fixture over one exact returned object; Governance `D-07` implemented; and a
-corpus that genuinely states one truth with every operational path resolving under `D-24`.  
+**Implementation candidate offered for review:** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` — repair 18
+IMPLEMENTED and COMPLETE. `.review/NEXT_STEPS.md` remains the owner of candidate state; this Index names the
+candidate only because the corpus is at freeze.  
+**Repair 18** (`.review/C4_IMPLEMENTATION_REPAIR_18.md`) closed all three blocking findings: one accepted and
+one rejected root fixture over one exact returned object; Governance `D-07` implemented; and a corpus that
+states one truth with every operational path resolving under `D-24`. The whole-system closure audit is
+`.review/C4_REPAIR_18_CLOSURE_AUDIT.md`.  
 **C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 17 are historical.  
 Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
