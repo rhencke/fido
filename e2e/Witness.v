@@ -39,19 +39,19 @@ Definition s_nl  : string := String "a"%char (String (ascii_of_nat 10) (String "
 
 (* the readable float literals — Float.Decimal carries exact Z coefficient/exponent, so build under
    Z_scope; the rest of the witness uses N integer literals. *)
-Definition decimal_1p5  : Float.Decimal := Float.make_decimal 15 (-1) eq_refl.                    (* 1.5  -> 15.0e-1  *)
-Definition decimal_0p5  : Float.Decimal := Float.make_decimal 5 (-1) eq_refl.                     (* 0.5  -> 5.0e-1   *)
-Definition decimal_3    : Float.Decimal := Float.make_decimal 3 0 eq_refl.                        (* 3.0  -> 3.0e+0   *)
-Definition decimal_single_rounding : Float.Decimal := Float.make_decimal 2305843146652647425 0 eq_refl.      (* 2^61+2^37+1      *)
-Definition decimal_tiny : Float.Decimal := Float.make_decimal 1 (-330) eq_refl.                   (* 1e-330 (underflow)*)
-Definition decimal_m2p5 : Float.Decimal := Float.make_decimal (-25) (-1) eq_refl.                 (* -2.5 -> -25.0e-1 *)
-Definition decimal_0    : Float.Decimal := Float.make_decimal 0 0 eq_refl.                        (* 0.0              *)
+Definition decimal_1p5  : Float.Decimal := Float.MakeDecimal 15 (-1) eq_refl.                    (* 1.5  -> 15.0e-1  *)
+Definition decimal_0p5  : Float.Decimal := Float.MakeDecimal 5 (-1) eq_refl.                     (* 0.5  -> 5.0e-1   *)
+Definition decimal_3    : Float.Decimal := Float.MakeDecimal 3 0 eq_refl.                        (* 3.0  -> 3.0e+0   *)
+Definition decimal_single_rounding : Float.Decimal := Float.MakeDecimal 2305843146652647425 0 eq_refl.      (* 2^61+2^37+1      *)
+Definition decimal_tiny : Float.Decimal := Float.MakeDecimal 1 (-330) eq_refl.                   (* 1e-330 (underflow)*)
+Definition decimal_m2p5 : Float.Decimal := Float.MakeDecimal (-25) (-1) eq_refl.                 (* -2.5 -> -25.0e-1 *)
+Definition decimal_0    : Float.Decimal := Float.MakeDecimal 0 0 eq_refl.                        (* 0.0              *)
 
 (* the readable complex literals: exact PAIRS of Float.Decimal components. *)
-Definition decimal_complex_1p5_m2p5 : Complex.Decimal := Complex.make_decimal decimal_1p5 decimal_m2p5.   (* complex(1.5, -2.5) *)
-Definition decimal_complex_1p5_0    : Complex.Decimal := Complex.make_decimal decimal_1p5 decimal_0.      (* complex(1.5, 0.0)  *)
-Definition decimal_complex_3_0      : Complex.Decimal := Complex.make_decimal decimal_3 decimal_0.        (* complex(3.0, 0.0)  *)
-Definition decimal_complex_single_rounding_0   : Complex.Decimal := Complex.make_decimal decimal_single_rounding decimal_0.     (* complex(scar, 0.0) *)
+Definition decimal_complex_1p5_m2p5 : Complex.Decimal := Complex.MakeDecimal decimal_1p5 decimal_m2p5.   (* complex(1.5, -2.5) *)
+Definition decimal_complex_1p5_0    : Complex.Decimal := Complex.MakeDecimal decimal_1p5 decimal_0.      (* complex(1.5, 0.0)  *)
+Definition decimal_complex_3_0      : Complex.Decimal := Complex.MakeDecimal decimal_3 decimal_0.        (* complex(3.0, 0.0)  *)
+Definition decimal_complex_single_rounding_0   : Complex.Decimal := Complex.MakeDecimal decimal_single_rounding decimal_0.     (* complex(scar, 0.0) *)
 
 Definition demo_file (*decls*) : list Syntax.Decl :=
   [ Syntax.Main [ Syntax.Println [ Syntax.BoolLiteral true; Syntax.IntegerLiteral 42; Syntax.NegatedIntegerLiteral 1; Syntax.NegatedIntegerLiteral ((2 ^ 63)%N) ]
@@ -103,8 +103,8 @@ Definition demo_file (*decls*) : list Syntax.Decl :=
           ; Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.FloatLiteral decimal_1p5); Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.FloatLiteral decimal_1p5) ]
           ; Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral Typing.decimal_complex_1p5_m2p5)) ] ] ].
 
-Definition demo_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
-Definition main_go : FilePath.T := FilePath.make "main.go" eq_refl.
+Definition demo_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
+Definition main_go : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition demo_program : Syntax.Program := singleton_program demo_module main_go demo_file.
 
 Lemma demo_valid : Admissible demo_program.

@@ -1,4 +1,4 @@
-(** Decimal.v — the ONE decimal-digit authority (Stdlib-only leaf; consumed by Render's
+(** Decimal — the ONE decimal-digit authority (Stdlib-only leaf; consumed by Render's
     printer and its all-ASCII proof).  Structural double-and-add over the positive's bits:
     total by the number's own structure, no step budget. *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool.

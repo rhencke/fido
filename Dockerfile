@@ -125,7 +125,7 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 #     theorem — you cannot prove a term fails to typecheck.  It is a BUILD fact, so it is tested the way the
 #     axiom self-tests are: a transient client that names a raw constructor must FAIL to compile, and fail
 #     for the RIGHT reason (the name does not exist), never for an unrelated error.  Note the fixtures name
-#     the QUALIFIED constructor: `make_program` alone also exists in Syntax and Index, so a bare probe would
+#     the QUALIFIED constructor: `MakeProgram` alone also exists in Syntax and Index, so a bare probe would
 #     resolve there and the test would silently prove nothing.
 sealed() { # <label> <qualified term that must NOT resolve>
   printf 'From Fido Require Import Syntax Compilable.\nDefinition probe := %s.\n' "$2" > /tmp/sealed.v
@@ -135,12 +135,12 @@ sealed() { # <label> <qualified term that must NOT resolve>
   grep -qE 'was not found|Unbound|Cannot find|No such' /tmp/sealed.log \
     || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but NOT because $2 is absent"; }
   echo "fido: sealed self-test $1 — $2 unreachable (as required)"; }
-sealed F Compilable.make_program
-sealed G Compilable.make_failure
-sealed H Compilable.make_facts
-sealed I Compilable.Capability.make_program
-sealed J Compilable.Capability.make_failure
-sealed K Compilable.AcceptedFacts.make_facts
+sealed F Compilable.MakeProgram
+sealed G Compilable.MakeFailure
+sealed H Compilable.MakeFacts
+sealed I Compilable.Capability.MakeProgram
+sealed J Compilable.Capability.MakeFailure
+sealed K Compilable.AcceptedFacts.MakeFacts
 # the internal mint itself: it takes an Elaboration, and an Elaboration is assemblable from any core, so
 # exporting it would restore the "constructs an equal core" path §7 deletes.  compile is the only way in.
 sealed L Compilable.minted
@@ -149,16 +149,16 @@ sealed N Compilable.Capability.minted
 # the WHOLE-ELABORATION representation and its production builder.  A client that can assemble a peer Core —
 # even a well-formed one — has the topology A001 exists to prevent, so the raw record, its constructor, the
 # builder, and every helper that would take a core and hand back a capability must all be absent.
-sealed O Compilable.make_core
+sealed O Compilable.MakeCore
 sealed P Compilable.CoreRepresentation
 sealed Q Compilable.build_elaboration_core
-sealed R Compilable.Elaborations.make_core
+sealed R Compilable.Elaborations.MakeCore
 sealed S Compilable.Elaborations.CoreRepresentation
 sealed T Compilable.Elaborations.build_elaboration_core
 sealed U Compilable.elaborate_at
 sealed V Compilable.decision_of_core
-sealed W Compilable.make_elaboration
-sealed X Compilable.Elaborations.make_elaboration
+sealed W Compilable.MakeElaboration
+sealed X Compilable.Elaborations.MakeElaboration
 # (g) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -313,18 +313,18 @@ From Fido Require Import FilePath Collections ModulePath Version Syntax Compilab
 Import ListNotations.
 Definition fgm : string := "forged"%string.
 Definition ff : Collections.FileMap.t string :=
-  Collections.FileMap.add (FilePath.make "main.go" eq_refl) "forged"%string (Collections.FileMap.empty string).
+  Collections.FileMap.add (FilePath.Make "main.go" eq_refl) "forged"%string (Collections.FileMap.empty string).
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Direct.v <<'EOF'
 Axiom p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Definition img : Emit.Image := Emit.make_image fgm ff p.
+Definition img : Emit.Image := Emit.MakeImage fgm ff p.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Opaque.v <<'EOF'
 Axiom a : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
 Lemma p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp. Proof. exact a. Qed.
-Definition img : Emit.Image := Emit.make_image fgm ff p.
+Definition img : Emit.Image := Emit.MakeImage fgm ff p.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge-op".
 EOF
@@ -332,7 +332,7 @@ cat /tmp/forge/preamble - > /tmp/forge/Var.v <<'EOF'
 Declare ML Module "fido.emit".
 Section S.
 Variable p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Definition img : Emit.Image := Emit.make_image fgm ff p.
+Definition img : Emit.Image := Emit.MakeImage fgm ff p.
 Fido Materialize img To "/workspace/e2e-forge-var".
 End S.
 EOF
@@ -341,7 +341,7 @@ Declare ML Module "fido.emit".
 Section S.
 Variable v : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
 Definition q : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp := v.
-Definition img : Emit.Image := Emit.make_image fgm ff q.
+Definition img : Emit.Image := Emit.MakeImage fgm ff q.
 Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
 EOF

@@ -1066,7 +1066,7 @@ Definition decode_complex_literal (s : string) : option Complex.Constant :=
           | Some rem2 =>
               match read_decimal_prefix rem2 with
               | Some (imag, String p EmptyString) =>
-                  if Ascii.eqb p ")"%char then Some (Complex.make_constant real imag) else None
+                  if Ascii.eqb p ")"%char then Some (Complex.MakeConstant real imag) else None
               | _ => None
               end
           | None => None
@@ -1623,21 +1623,21 @@ Proof. apply const_info_denotes; reflexivity. Qed.
 (** ---- float rendering: the ONE canonical decimal spelling, direct conversion spellings, and
     denotation surfaces (a bare float denotes its exact rational; the decoder round-trips it). ---- *)
 Example float_1p5   : expr (Syntax.FloatLiteral Typing.decimal_15em1) = "15.0e-1". Proof. reflexivity. Qed.
-Example float_zero  : expr (Syntax.FloatLiteral (Float.make_decimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
-Example float_1e6   : expr (Syntax.FloatLiteral (Float.make_decimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
-Example float_neg   : expr (Syntax.FloatLiteral (Float.make_decimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
+Example float_zero  : expr (Syntax.FloatLiteral (Float.MakeDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
+Example float_1e6   : expr (Syntax.FloatLiteral (Float.MakeDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
+Example float_neg   : expr (Syntax.FloatLiteral (Float.MakeDecimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
 Example conv_f32    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
 Example conv_f64    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral Typing.decimal_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
 (* complex rendering: the canonical complex(real, imag) literal and the complex64/complex128
    conversion spellings; a bare complex literal denotes its exact Complex.Constant. *)
-Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_15em1 (Float.make_decimal (-25) (-1) eq_refl)))
+Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal (-25) (-1) eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
-Example cplx_zero : expr (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 0 0 eq_refl) (Float.make_decimal 0 0 eq_refl)))
+Example cplx_zero : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 0 0 eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
   = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
-Example conv_c64  : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_15em1 (Float.make_decimal 0 0 eq_refl))))
+Example conv_c64  : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal 0 0 eq_refl))))
   = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Example conv_c128 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_15em1 (Float.make_decimal 0 0 eq_refl))))
+Example conv_c128 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal 0 0 eq_refl))))
   = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
 Lemma cplx_denotes : forall dc,
   ConstantInfoDenotes (expr (Syntax.ComplexLiteral dc)) (Typing.UntypedInfo (Typing.ComplexConstant (Complex.decimal_value dc))).
@@ -1661,11 +1661,11 @@ Proof. vm_compute. reflexivity. Qed.
    negative value denotes a TYPED float64 exact (unsigned) zero — no intermediate status, exact via the ONE
    Float.round_constant authority. *)
 Example float_untyped_tenth :
-  ConstantInfoDenotes (expr (Syntax.FloatLiteral (Float.make_decimal 1 (-1) eq_refl)))
-                           (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value (Float.make_decimal 1 (-1) eq_refl)))).
+  ConstantInfoDenotes (expr (Syntax.FloatLiteral (Float.MakeDecimal 1 (-1) eq_refl)))
+                           (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value (Float.MakeDecimal 1 (-1) eq_refl)))).
 Proof. apply const_info_denotes; reflexivity. Qed.
 Example conv_f64_underflow_zero :
-  option_map Typing.constant_info_exact (constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.make_decimal (-1) (-330) eq_refl))))
+  option_map Typing.constant_info_exact (constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.MakeDecimal (-1) (-330) eq_refl))))
     = Some (Typing.FloatConstant Float.constant_zero).
 Proof. vm_compute. reflexivity. Qed.
 

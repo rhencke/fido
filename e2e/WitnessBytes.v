@@ -18,8 +18,8 @@ Definition boundary_bytes : string :=
  (String (ascii_of_nat 255) EmptyString)))).
 
 Definition bytes_file (*decls*) : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax.StringLiteral boundary_bytes ] ] ].
-Definition bytes_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
-Definition bytes_program : Syntax.Program := singleton_program bytes_module (FilePath.make "main.go" eq_refl) bytes_file.
+Definition bytes_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
+Definition bytes_program : Syntax.Program := singleton_program bytes_module (FilePath.Make "main.go" eq_refl) bytes_file.
 
 Lemma bytes_valid : Admissible bytes_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.

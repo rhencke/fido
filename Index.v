@@ -79,7 +79,7 @@ Inductive Role :=
 | ConversionOperand.        (* the single operand of an explicit conversion expression *)
 
 (* Small structural metadata; NO copy of the recursive subtree. *)
-Record Meta := make_meta {
+Record Meta := MakeMeta {
   kind        : Kind;
   parent      : option positive;   (* file-local parent id; None only for a file root *)
   role        : Role;
@@ -115,13 +115,13 @@ Fixpoint build_expr (parent : positive) (role : Role) (me : positive) (e : Synta
                     (t : Table.table Meta) : Table.table Meta * positive (* subtree_end *) :=
   match e with
   | Syntax.BoolLiteral _ | Syntax.IntegerLiteral _ | Syntax.NegatedIntegerLiteral _ | Syntax.StringLiteral _ | Syntax.FloatLiteral _ | Syntax.ComplexLiteral _ =>
-      (Table.set me (make_meta ExpressionKind (Some parent) role me) t, me)
+      (Table.set me (MakeMeta ExpressionKind (Some parent) role me) t, me)
   | Syntax.Convert _ x =>
       (* two children in source order: the type-name TARGET (a leaf at [me+1]), then the OPERAND subtree. *)
       let tn := Pos.succ me in
-      let t_tn := Table.set tn (make_meta TypeNameKind (Some me) ConversionTarget tn) t in
+      let t_tn := Table.set tn (MakeMeta TypeNameKind (Some me) ConversionTarget tn) t in
       let '(t1, e1) := build_expr me ConversionOperand (Pos.succ tn) x t_tn in
-      (Table.set me (make_meta ExpressionKind (Some parent) role e1) t1, e1)
+      (Table.set me (MakeMeta ExpressionKind (Some parent) role e1) t1, e1)
   end.
 
 (* one println argument: an expression subtree carrying its argument role. *)
@@ -147,7 +147,7 @@ Definition build_stmt (parent : positive) (sidx : nat) (me : positive) (s : Synt
   match s with
   | Syntax.Println args =>
       let '(t1, nx) := build_seq build_arg me 0 (Pos.succ me) args t in
-      (Table.set me (make_meta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx)) t1, Pos.pred nx)
+      (Table.set me (MakeMeta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx)) t1, Pos.pred nx)
   end.
 
 (* a declaration wraps a left-to-right run of statement subtrees. *)
@@ -156,11 +156,11 @@ Definition build_decl (parent : positive) (didx : nat) (me : positive) (d : Synt
   match d with
   | Syntax.Main body =>
       let '(t1, nx) := build_seq build_stmt me 0 (Pos.succ me) body t in
-      (Table.set me (make_meta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx)) t1, Pos.pred nx)
+      (Table.set me (MakeMeta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx)) t1, Pos.pred nx)
   end.
 
 (* The per-file index carries NO path (the path is the outer map key — no second file identity). *)
-Record File := make_file {
+Record File := MakeFile {
   table : Table.table Meta;
   count : positive           (* number of occurrences = last local id; ids are [1 .. count] *)
 }.
@@ -173,10 +173,10 @@ Definition build_file (f : Syntax.File) : File :=
   match Syntax.imports f with
   | i :: _ => match i with end
   | [] =>
-      let tp := Table.set package_id (make_meta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty in
+      let tp := Table.set package_id (MakeMeta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty in
       let '(t1, nx) := build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f) tp in
       let cnt := Pos.pred nx in
-      make_file (Table.set root_id (make_meta FileKind None FileRoot cnt) t1) cnt
+      MakeFile (Table.set root_id (MakeMeta FileKind None FileRoot cnt) t1) cnt
   end.
 
 (** ** Boundary functions: the last preorder id of a subtree / the next free id after a sibling run.   *)
@@ -208,9 +208,9 @@ Proof.
     intros parent role me t; try reflexivity.
   cbn [build_expr end_expr].
   specialize (IHx me ConversionOperand (Pos.succ (Pos.succ me))
-    (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t)).
+    (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t)).
   destruct (build_expr me ConversionOperand (Pos.succ (Pos.succ me)) x
-    (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t)) as [t1 e1].
+    (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t)) as [t1 e1].
   cbn [snd] in IHx |- *. exact IHx.
 Qed.
 
@@ -259,9 +259,9 @@ Lemma build_file_count : forall f, count (build_file f) = count_file f.
 Proof.
   intros f. unfold build_file, count_file. destruct (Syntax.imports f) as [|i ?]; [| destruct i].
   rewrite <- (build_seq_decl_next (Syntax.declarations f) root_id 0 (Pos.succ package_id)
-                (Table.set package_id (make_meta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty)).
+                (Table.set package_id (MakeMeta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty)).
   destruct (build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f)
-              (Table.set package_id (make_meta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty))
+              (Table.set package_id (MakeMeta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty))
     as [t1 nx].
   reflexivity.
 Qed.
@@ -281,7 +281,7 @@ Inductive View : Kind -> Type :=
 | ExpressionView    : Syntax.Expr -> View ExpressionKind
 | TypeNameView      : Syntax.TypeExpr -> View TypeNameKind.
 
-Record Occurrence := make_occurrence {
+Record Occurrence := MakeOccurrence {
   occurrence_kind        : Kind;
   occurrence_view        : View occurrence_kind;
   occurrence_parent      : option positive;
@@ -291,7 +291,7 @@ Record Occurrence := make_occurrence {
 
 (* the metadata an occurrence SHOULD carry — derived only from the occurrence, NEVER from the builder. *)
 Definition occurrence_meta (o : Occurrence) : Meta :=
-  make_meta (occurrence_kind o) (occurrence_parent o) (occurrence_role o) (occurrence_subtree_end o).
+  MakeMeta (occurrence_kind o) (occurrence_parent o) (occurrence_role o) (occurrence_subtree_end o).
 
 (* the original expression fragment an occurrence's view carries (Some only for expression occurrences). *)
 Definition view_expr (o : Occurrence) : option Syntax.Expr :=
@@ -346,12 +346,12 @@ Fixpoint occurrence_expr' (parent : positive) (role : Role) (me : positive) (e :
   : option Occurrence :=
   match e with
   | Syntax.BoolLiteral _ | Syntax.IntegerLiteral _ | Syntax.NegatedIntegerLiteral _ | Syntax.StringLiteral _ | Syntax.FloatLiteral _ | Syntax.ComplexLiteral _ =>
-      if Pos.eqb target me then Some (make_occurrence ExpressionKind (ExpressionView e) (Some parent) role me) else None
+      if Pos.eqb target me then Some (MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role me) else None
   | Syntax.Convert ts x =>
       if Pos.eqb target me
-      then Some (make_occurrence ExpressionKind (ExpressionView e) (Some parent) role (end_expr me e))
+      then Some (MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role (end_expr me e))
       else if Pos.eqb target (Pos.succ me)
-      then Some (make_occurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget (Pos.succ me))
+      then Some (MakeOccurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget (Pos.succ me))
       else occurrence_expr' me ConversionOperand (Pos.succ (Pos.succ me)) x target
   end.
 Fixpoint occurrence_exprs' (parent : positive) (aidx : nat) (me : positive) (es : list Syntax.Expr) (target : positive)
@@ -368,7 +368,7 @@ Definition occurrence_stmt' (parent : positive) (sidx : nat) (me : positive) (s 
   match s with
   | Syntax.Println args =>
       if Pos.eqb target me
-      then Some (make_occurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (end_stmt me s))
+      then Some (MakeOccurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (end_stmt me s))
       else occurrence_exprs' me 0 (Pos.succ me) args target
   end.
 Fixpoint occurrence_stmts' (parent : positive) (sidx : nat) (me : positive) (ss : list Syntax.Stmt) (target : positive)
@@ -385,7 +385,7 @@ Definition occurrence_decl' (parent : positive) (didx : nat) (me : positive) (d 
   match d with
   | Syntax.Main body =>
       if Pos.eqb target me
-      then Some (make_occurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (end_decl me d))
+      then Some (MakeOccurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (end_decl me d))
       else occurrence_stmts' me 0 (Pos.succ me) body target
   end.
 Fixpoint occurrence_decls' (parent : positive) (didx : nat) (me : positive) (ds : list Syntax.Decl) (target : positive)
@@ -402,9 +402,9 @@ Definition source_occurrence_at (f : Syntax.File) (target : positive) : option O
   | i :: _ => match i with end
   | [] =>
       if Pos.eqb target root_id
-      then Some (make_occurrence FileKind (FileView f) None FileRoot (count_file f))
+      then Some (MakeOccurrence FileKind (FileView f) None FileRoot (count_file f))
       else if Pos.eqb target package_id
-           then Some (make_occurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
+           then Some (MakeOccurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
            else occurrence_decls' root_id 0 (Pos.succ package_id) (Syntax.declarations f) target
   end.
 
@@ -557,7 +557,7 @@ Proof.
          [ subst; rewrite Table.get_set_same; reflexivity
          | rewrite Table.get_set_other by congruence; reflexivity ]).
   (* conversion: a type-name child at [me+1], then the operand subtree from [me+2] *)
-  set (t_tn := Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t).
+  set (t_tn := Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t).
   pose proof (build_expr_end x me ConversionOperand (Pos.succ (Pos.succ me)) t_tn) as He1.
   destruct (build_expr me ConversionOperand (Pos.succ (Pos.succ me)) x t_tn) as [t1 e1] eqn:E1.
   cbn [snd] in He1; subst e1; cbn [fst].
@@ -690,7 +690,7 @@ Theorem build_file_source_exact : forall f local,
 Proof.
   intros f local. unfold build_file, source_occurrence_at.
   destruct (Syntax.imports f) as [|i ?]; [| destruct i].
-  set (tp := Table.set package_id (make_meta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty).
+  set (tp := Table.set package_id (MakeMeta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty).
   pose proof (build_seq_decl_next (Syntax.declarations f) root_id 0 (Pos.succ package_id) tp) as Hnx.
   destruct (build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f) tp) as [t1 nx] eqn:E1.
   cbn [snd] in Hnx. subst nx. cbn [table].
@@ -1047,18 +1047,18 @@ Proof.
            | (eapply fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
     (* conversion: a type-name leaf child at [me+1], then the operand subtree from [me+2] *)
     (destruct (build_expr me ConversionOperand (Pos.succ (Pos.succ me)) x
-                (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0))
+                (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0))
        as [t1 e1] eqn:E1;
      injection Hbuild as Ht Hse; subst t; subst se;
      assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply fresh_weaken; [|exact Hf0]; lia);
-     assert (Htn : Fresh (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Pos.succ (Pos.succ me))
-                /\ SubtreeWF t0 (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Some me) (Pos.succ me) (Pos.succ me))
+     assert (Htn : Fresh (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Pos.succ (Pos.succ me))
+                /\ SubtreeWF t0 (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Some me) (Pos.succ me) (Pos.succ me))
        by (eapply subtree_from_forest;
             [ reflexivity | exact Hf0' | apply forest_nil
             | (eapply fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
      destruct Htn as [Hfrtn HStn];
      destruct (IHx me ConversionOperand (Pos.succ (Pos.succ me))
-                (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0)
+                (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0)
                 t1 e1 Hfrtn E1) as [Hfr1 HS1];
      assert (HF : ForestWF t0 t1 me (Pos.succ me) (Pos.succ e1))
        by (eapply forest_cons; [ exact HStn | exact Hfrtn |
@@ -1109,8 +1109,8 @@ Proof.
   assert (Hge : Pos.succ me <= nx1) by (apply (for_le HF1)).
   assert (Hnx : Pos.succ (Pos.pred nx1) = nx1)
     by (destruct (Pos.succ_pred_or nx1) as [->|H]; [exfalso; lia | exact H]).
-  assert (H : Fresh (Table.set me (make_meta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx1)) t1) nx1 /\
-              SubtreeWF t0 (Table.set me (make_meta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx1)) t1)
+  assert (H : Fresh (Table.set me (MakeMeta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx1)) t1) nx1 /\
+              SubtreeWF t0 (Table.set me (MakeMeta StatementKind (Some parent) (DeclarationStatement sidx) (Pos.pred nx1)) t1)
                         (Some parent) me (Pos.pred nx1)).
   { eapply subtree_from_forest;
       [ symmetry; exact Hnx | exact Hf0 | exact HF1 | exact Hfr1 | reflexivity | reflexivity ]. }
@@ -1130,8 +1130,8 @@ Proof.
   assert (Hge : Pos.succ me <= nx1) by (apply (for_le HF1)).
   assert (Hnx : Pos.succ (Pos.pred nx1) = nx1)
     by (destruct (Pos.succ_pred_or nx1) as [->|H]; [exfalso; lia | exact H]).
-  assert (H : Fresh (Table.set me (make_meta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx1)) t1) nx1 /\
-              SubtreeWF t0 (Table.set me (make_meta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx1)) t1)
+  assert (H : Fresh (Table.set me (MakeMeta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx1)) t1) nx1 /\
+              SubtreeWF t0 (Table.set me (MakeMeta DeclarationKind (Some parent) (FileDeclaration didx) (Pos.pred nx1)) t1)
                         (Some parent) me (Pos.pred nx1)).
   { eapply subtree_from_forest;
       [ symmetry; exact Hnx | exact Hf0 | exact HF1 | exact Hfr1 | reflexivity | reflexivity ]. }
@@ -1142,7 +1142,7 @@ Lemma build_file_wf (f : Syntax.File) :
   SubtreeWF Table.empty (table (build_file f)) None root_id (count (build_file f)).
 Proof.
   unfold build_file. destruct (Syntax.imports f) as [|i ?]; [| destruct i].
-  set (pmeta := make_meta PackageClauseKind (Some root_id) FilePackage package_id).
+  set (pmeta := MakeMeta PackageClauseKind (Some root_id) FilePackage package_id).
   set (tp := Table.set package_id pmeta Table.empty).
   assert (HSpkg : Fresh tp (Pos.succ package_id) /\ SubtreeWF Table.empty tp (Some root_id) package_id package_id).
   { unfold tp, pmeta. eapply subtree_from_forest;
@@ -1157,8 +1157,8 @@ Proof.
   assert (Hge : Pos.succ package_id <= nx) by (apply (for_le HFdecls)).
   assert (Hnx : Pos.succ (Pos.pred nx) = nx)
     by (destruct (Pos.succ_pred_or nx) as [->|H]; [exfalso; lia | exact H]).
-  assert (H : Fresh (Table.set root_id (make_meta FileKind None FileRoot (Pos.pred nx)) t1) nx /\
-              SubtreeWF Table.empty (Table.set root_id (make_meta FileKind None FileRoot (Pos.pred nx)) t1)
+  assert (H : Fresh (Table.set root_id (MakeMeta FileKind None FileRoot (Pos.pred nx)) t1) nx /\
+              SubtreeWF Table.empty (Table.set root_id (MakeMeta FileKind None FileRoot (Pos.pred nx)) t1)
                         None root_id (Pos.pred nx)).
   { eapply subtree_from_forest;
       [ symmetry; exact Hnx | apply fresh_empty | exact HF | exact Hfr | reflexivity | reflexivity ]. }
@@ -1208,9 +1208,9 @@ Theorem root_id_canonical (f : Syntax.File) :
 Proof.
   unfold build_file. destruct (Syntax.imports f) as [|i ?]; [| destruct i].
   destruct (build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f)
-              (Table.set package_id (make_meta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty))
+              (Table.set package_id (MakeMeta PackageClauseKind (Some root_id) FilePackage package_id) Table.empty))
     as [t1 nx] eqn:E.
-  exists (make_meta FileKind None FileRoot (Pos.pred nx)).
+  exists (MakeMeta FileKind None FileRoot (Pos.pred nx)).
   cbn [table]. rewrite Table.get_set_same. split; [reflexivity | split; reflexivity].
 Qed.
 
@@ -1551,15 +1551,15 @@ Proof.
     cbn [same_shape] in Hsh; try contradiction; try reflexivity;
     (cbn [build_expr];
      rewrite (IHx x2 me ConversionOperand (Pos.succ (Pos.succ me))
-                (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t) Hsh);
+                (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t) Hsh);
      destruct (build_expr me ConversionOperand (Pos.succ (Pos.succ me)) x2
-                (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t))
+                (Table.set (Pos.succ me) (MakeMeta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t))
        as [t1 e1]; reflexivity).
 Qed.
 
 Theorem meta_stores_no_subtree :
   forall m : Meta, exists k op r e,
-    m = make_meta k op r e /\ (forall e', make_meta k op r e = make_meta k op r e' -> e = e').
+    m = MakeMeta k op r e /\ (forall e', MakeMeta k op r e = MakeMeta k op r e' -> e = e').
 Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H; injection H as <-; reflexivity. Qed.
 
 (** ** PILLAR 3 — snapshot-indexed references over the exact [Syntax.Program].                        *)
@@ -1635,7 +1635,7 @@ Definition valid_localb (f : Syntax.File) (local : positive) : bool :=
   match Table.get local (table (build_file f)) with Some _ => true | None => false end.
 
 (* the public raw occurrence key: file PATH (the map-key identity) + file-local preorder id. *)
-Record Key := make_key { key_path : FilePath.T ; key_local : positive }.
+Record Key := MakeKey { key_path : FilePath.T ; key_local : positive }.
 Definition key_equalb (a b : Key) : bool :=
   FilePath.equalb (key_path a) (key_path b) && Pos.eqb (key_local a) (key_local b).
 
@@ -1699,10 +1699,10 @@ Fixpoint occurrences_expr (parent : positive) (role : Role) (me : positive) (e :
   : list (positive * Occurrence) :=
   match e with
   | Syntax.BoolLiteral _ | Syntax.IntegerLiteral _ | Syntax.NegatedIntegerLiteral _ | Syntax.StringLiteral _ | Syntax.FloatLiteral _ | Syntax.ComplexLiteral _ =>
-      [(me, make_occurrence ExpressionKind (ExpressionView e) (Some parent) role me)]
+      [(me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role me)]
   | Syntax.Convert ts x =>
-      (me, make_occurrence ExpressionKind (ExpressionView e) (Some parent) role (end_expr me e))
-        :: (Pos.succ me, make_occurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget (Pos.succ me))
+      (me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role (end_expr me e))
+        :: (Pos.succ me, MakeOccurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget (Pos.succ me))
         :: occurrences_expr me ConversionOperand (Pos.succ (Pos.succ me)) x
   end.
 Definition occurrences_arg (parent : positive) (aidx : nat) (me : positive) (e : Syntax.Expr) : list (positive * Occurrence) :=
@@ -1715,7 +1715,7 @@ Fixpoint occurrences_args (parent : positive) (aidx : nat) (me : positive) (es :
 Definition occurrences_stmt (parent : positive) (sidx : nat) (me : positive) (s : Syntax.Stmt) : list (positive * Occurrence) :=
   match s with
   | Syntax.Println args =>
-      (me, make_occurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (end_stmt me s))
+      (me, MakeOccurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (end_stmt me s))
         :: occurrences_args me 0 (Pos.succ me) args
   end.
 Fixpoint occurrences_stmts (parent : positive) (sidx : nat) (me : positive) (ss : list Syntax.Stmt) : list (positive * Occurrence) :=
@@ -1726,7 +1726,7 @@ Fixpoint occurrences_stmts (parent : positive) (sidx : nat) (me : positive) (ss 
 Definition occurrences_decl (parent : positive) (didx : nat) (me : positive) (d : Syntax.Decl) : list (positive * Occurrence) :=
   match d with
   | Syntax.Main body =>
-      (me, make_occurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (end_decl me d))
+      (me, MakeOccurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (end_decl me d))
         :: occurrences_stmts me 0 (Pos.succ me) body
   end.
 Fixpoint occurrences_decls (parent : positive) (didx : nat) (me : positive) (ds : list Syntax.Decl) : list (positive * Occurrence) :=
@@ -1738,8 +1738,8 @@ Definition occurrences_file (f : Syntax.File) : list (positive * Occurrence) :=
   match Syntax.imports f with
   | i :: _ => match i with end
   | [] =>
-      (root_id, make_occurrence FileKind (FileView f) None FileRoot (count_file f))
-        :: (package_id, make_occurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
+      (root_id, MakeOccurrence FileKind (FileView f) None FileRoot (count_file f))
+        :: (package_id, MakeOccurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
         :: occurrences_decls root_id 0 (Pos.succ package_id) (Syntax.declarations f)
   end.
 
@@ -2190,12 +2190,12 @@ Fixpoint walk_expr (parent : positive) (role : Role) (me : positive) (e : Syntax
   : list (positive * Occurrence) * positive :=
   match e with
   | Syntax.BoolLiteral _ | Syntax.IntegerLiteral _ | Syntax.NegatedIntegerLiteral _ | Syntax.StringLiteral _ | Syntax.FloatLiteral _ | Syntax.ComplexLiteral _ =>
-      ([(me, make_occurrence ExpressionKind (ExpressionView e) (Some parent) role me)], Pos.succ me)
+      ([(me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role me)], Pos.succ me)
   | Syntax.Convert ts x =>
       let tn := Pos.succ me in
       let '(sub, nxt) := walk_expr me ConversionOperand (Pos.succ tn) x in
-      ((me, make_occurrence ExpressionKind (ExpressionView e) (Some parent) role (Pos.pred nxt))
-         :: (tn, make_occurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget tn)
+      ((me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role (Pos.pred nxt))
+         :: (tn, MakeOccurrence TypeNameKind (TypeNameView ts) (Some me) ConversionTarget tn)
          :: sub, nxt)
   end.
 
@@ -2256,7 +2256,7 @@ Definition walk_stmt (parent : positive) (sidx : nat) (me : positive) (s : Synta
   match s with
   | Syntax.Println args =>
       let '(a, nxt) := walk_args me 0 (Pos.succ me) args in
-      ((me, make_occurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (Pos.pred nxt)) :: a, nxt)
+      ((me, MakeOccurrence StatementKind (StatementView s) (Some parent) (DeclarationStatement sidx) (Pos.pred nxt)) :: a, nxt)
   end.
 
 Lemma walk_stmt_snd : forall s parent sidx me, snd (walk_stmt parent sidx me s) = Pos.succ (end_stmt me s).
@@ -2314,7 +2314,7 @@ Definition walk_decl (parent : positive) (didx : nat) (me : positive) (d : Synta
   match d with
   | Syntax.Main body =>
       let '(b, nxt) := walk_stmts me 0 (Pos.succ me) body in
-      ((me, make_occurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (Pos.pred nxt)) :: b, nxt)
+      ((me, MakeOccurrence DeclarationKind (DeclarationView d) (Some parent) (FileDeclaration didx) (Pos.pred nxt)) :: b, nxt)
   end.
 
 Lemma walk_decl_snd : forall d parent didx me, snd (walk_decl parent didx me d) = Pos.succ (end_decl me d).
@@ -2372,8 +2372,8 @@ Definition walk_file (f : Syntax.File) : list (positive * Occurrence) :=
   | i :: _ => match i with end
   | [] =>
       let '(ds, nxt) := walk_decls root_id 0 (Pos.succ package_id) (Syntax.declarations f) in
-      (root_id, make_occurrence FileKind (FileView f) None FileRoot (Pos.pred nxt))
-        :: (package_id, make_occurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
+      (root_id, MakeOccurrence FileKind (FileView f) None FileRoot (Pos.pred nxt))
+        :: (package_id, MakeOccurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
         :: ds
   end.
 
@@ -2406,7 +2406,7 @@ Module Type SNAPSHOT_SIG.
     valid_localb (file_ref_source (node_ref_file r)) (node_ref_local r) = true.
   Parameter node_ref_key   : forall {p}, NodeRef p -> Key.
   Parameter node_ref_key_eq : forall {p} (r : NodeRef p),
-    node_ref_key r = make_key (file_ref_path (node_ref_file r)) (node_ref_local r).
+    node_ref_key r = MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).
   Parameter ref_meta         : forall {p}, Syntax p -> NodeRef p -> Meta.
   Parameter node_kind        : forall {p}, Syntax p -> NodeRef p -> Kind.
   Parameter node_role        : forall {p}, Syntax p -> NodeRef p -> Role.
@@ -2461,7 +2461,7 @@ Module Type SNAPSHOT_SIG.
     exists fr, file_of_path p path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
   Parameter ref_of_key_source : forall p (idx : Syntax p) (path : FilePath.T) (f : Syntax.File) (local : positive),
     find_file path (Syntax.files p) = Some f -> valid_localb f local = true ->
-    exists r, ref_of_key p idx (make_key path local) = Some r
+    exists r, ref_of_key p idx (MakeKey path local) = Some r
               /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
   (* ref-level ancestry: the O(1) interval test, sound + complete vs the parent_of closure. *)
   Inductive RefAncestor (p : Syntax.Program) (idx : Syntax p) : NodeRef p -> NodeRef p -> Prop :=
@@ -2498,9 +2498,9 @@ Module Type SNAPSHOT_SIG.
   Parameter file_of_path_source_exact : forall p (fp : FilePath.T) (fr : FileRef p),
     file_of_path p fp = Some fr -> find_file fp (Syntax.files p) = Some (file_ref_source fr).
   Parameter ref_of_key_invalid_path : forall p (idx : Syntax p) (fp : FilePath.T) (local : positive),
-    find_file fp (Syntax.files p) = None -> ref_of_key p idx (make_key fp local) = None.
+    find_file fp (Syntax.files p) = None -> ref_of_key p idx (MakeKey fp local) = None.
   Parameter ref_of_key_invalid_local : forall p (idx : Syntax p) (fp : FilePath.T) (f : Syntax.File) (local : positive),
-    find_file fp (Syntax.files p) = Some f -> valid_localb f local = false -> ref_of_key p idx (make_key fp local) = None.
+    find_file fp (Syntax.files p) = Some f -> valid_localb f local = false -> ref_of_key p idx (MakeKey fp local) = None.
   (* decidable NodeRef equality (reference identity IS Key identity). *)
   Parameter noderef_eq_dec : forall {p} (r1 r2 : NodeRef p), {r1 = r2} + {r1 <> r2}.
   (* the file-root reference + the CANONICAL preorder enumeration of ALL a file's references, and reachability
@@ -2556,7 +2556,7 @@ Module Snapshot : SNAPSHOT_SIG.
 
 (* a file-root handle for ONE file occurrence of program [p]: the file's PATH (its public identity) + its
    source + a STANDARD-MAP membership proof.  No hidden slot: the path IS the map key. *)
-Record FileRefRepresentation (p : Syntax.Program) := make_file_ref {
+Record FileRefRepresentation (p : Syntax.Program) := MakeFileRef {
   file_ref_path   : FilePath.T;
   file_ref_source : Syntax.File;
   file_ref_at     : FileMap.find file_ref_path (Syntax.files p) = Some file_ref_source
@@ -2566,7 +2566,7 @@ Arguments file_ref_source {p} _.
 Arguments file_ref_at     {p} _.
 Definition FileRef := FileRefRepresentation.
 
-Record NodeRefRepresentation (p : Syntax.Program) := make_node_ref {
+Record NodeRefRepresentation (p : Syntax.Program) := MakeNodeRef {
   node_ref_file  : FileRef p;
   node_ref_local : positive;
   node_ref_valid : valid_localb (file_ref_source node_ref_file) node_ref_local = true
@@ -2577,12 +2577,12 @@ Arguments node_ref_valid {p} _.
 Definition NodeRef := NodeRefRepresentation.
 
 Definition node_ref_key {p} (r : NodeRef p) : Key :=
-  make_key (file_ref_path (node_ref_file r)) (node_ref_local r).
+  MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 Theorem node_ref_key_eq {p} (r : NodeRef p) :
-  node_ref_key r = make_key (file_ref_path (node_ref_file r)) (node_ref_local r).
+  node_ref_key r = MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 Proof. reflexivity. Qed.
 
-Record SyntaxRepresentation (p : Syntax.Program) := make_syntax {
+Record SyntaxRepresentation (p : Syntax.Program) := MakeSyntax {
   outer : FileMap.t File;
   valid    : outer = outer_of (Syntax.files p)
 }.
@@ -2590,7 +2590,7 @@ Arguments outer {p} _.
 Arguments valid    {p} _.
 Definition Syntax := SyntaxRepresentation.
 Definition index_program (p : Syntax.Program) : Syntax p :=
-  make_syntax p (outer_of (Syntax.files p)) eq_refl.
+  MakeSyntax p (outer_of (Syntax.files p)) eq_refl.
 
 Lemma valid_at {p} (idx : Syntax p) path f :
   FileMap.find path (Syntax.files p) = Some f ->
@@ -2659,7 +2659,7 @@ Qed.
 
 Definition parent_of {p} (idx : Syntax p) (r : NodeRef p) : option (NodeRef p) :=
   (match parent (ref_meta idx r) as o return (parent (ref_meta idx r) = o -> option (NodeRef p)) with
-   | Some pid => fun H => Some (make_node_ref p (node_ref_file r) pid (parent_valid idx r pid H))
+   | Some pid => fun H => Some (MakeNodeRef p (node_ref_file r) pid (parent_valid idx r pid H))
    | None     => fun _ => None
    end) eq_refl.
 
@@ -2677,7 +2677,7 @@ Fixpoint refine_children {p} (fr : FileRef p) (ids : list positive)
   match ids with
   | []        => fun _    => []
   | c :: rest => fun Hall =>
-      make_node_ref p fr c (Hall c (or_introl eq_refl)) :: refine_children fr rest (fun c' H => Hall c' (or_intror H))
+      MakeNodeRef p fr c (Hall c (or_introl eq_refl)) :: refine_children fr rest (fun c' H => Hall c' (or_intror H))
   end.
 
 Lemma children_valid {p} (idx : Syntax p) (r : NodeRef p) c :
@@ -2692,7 +2692,7 @@ Definition children_of {p} (idx : Syntax p) (r : NodeRef p) : list (NodeRef p) :
 Definition file_of_path (p : Syntax.Program) (fp : FilePath.T) : option (FileRef p) :=
   (match FileMap.find fp (Syntax.files p) as o
          return (FileMap.find fp (Syntax.files p) = o -> option (FileRef p)) with
-   | Some f => fun H => Some (make_file_ref p fp f H)
+   | Some f => fun H => Some (MakeFileRef p fp f H)
    | None   => fun _ => None
    end) eq_refl.
 
@@ -2716,7 +2716,7 @@ Definition ref_of_key (p : Syntax.Program) (idx : Syntax p) (k : Key) : option (
   | Some fr =>
       (match valid_in_index idx fr (key_local k) as b
              return (valid_in_index idx fr (key_local k) = b -> option (NodeRef p)) with
-       | true  => fun H => Some (make_node_ref p fr (key_local k) (valid_in_index_true idx fr (key_local k) H))
+       | true  => fun H => Some (MakeNodeRef p fr (key_local k) (valid_in_index_true idx fr (key_local k) H))
        | false => fun _ => None
        end) eq_refl
   | None => None
@@ -2970,7 +2970,7 @@ Theorem file_of_path_source (p : Syntax.Program) (path : FilePath.T) (f : Syntax
   find_file path (Syntax.files p) = Some f ->
   exists fr, file_of_path p path = Some fr /\ file_ref_path fr = path /\ file_ref_source fr = f.
 Proof.
-  intros Hfind. exists (make_file_ref p path f Hfind). split; [| split; reflexivity].
+  intros Hfind. exists (MakeFileRef p path f Hfind). split; [| split; reflexivity].
   unfold file_of_path.
   generalize (@eq_refl (option Syntax.File) (FileMap.find path (Syntax.files p))).
   destruct (FileMap.find path (Syntax.files p)) as [f'|] at 2 3; intros e.
@@ -2980,7 +2980,7 @@ Qed.
 
 Theorem ref_of_key_source (p : Syntax.Program) (idx : Syntax p) (path : FilePath.T) (f : Syntax.File) (local : positive) :
   find_file path (Syntax.files p) = Some f -> valid_localb f local = true ->
-  exists r, ref_of_key p idx (make_key path local) = Some r
+  exists r, ref_of_key p idx (MakeKey path local) = Some r
             /\ node_ref_local r = local /\ file_ref_source (node_ref_file r) = f.
 Proof.
   intros Hfind Hv.
@@ -3174,14 +3174,14 @@ Proof.
 Qed.
 
 Theorem ref_of_key_invalid_path (p : Syntax.Program) (idx : Syntax p) (fp : FilePath.T) (local : positive) :
-  find_file fp (Syntax.files p) = None -> ref_of_key p idx (make_key fp local) = None.
+  find_file fp (Syntax.files p) = None -> ref_of_key p idx (MakeKey fp local) = None.
 Proof.
   intros H. unfold ref_of_key. cbn [key_path key_local].
   rewrite (file_of_path_none p fp H). reflexivity.
 Qed.
 
 Theorem ref_of_key_invalid_local (p : Syntax.Program) (idx : Syntax p) (fp : FilePath.T) (f : Syntax.File) (local : positive) :
-  find_file fp (Syntax.files p) = Some f -> valid_localb f local = false -> ref_of_key p idx (make_key fp local) = None.
+  find_file fp (Syntax.files p) = Some f -> valid_localb f local = false -> ref_of_key p idx (MakeKey fp local) = None.
 Proof.
   intros Hf Hv. destruct (file_of_path_source p fp f Hf) as [fr [Hfp [_ Hfs]]].
   assert (Hvi : valid_in_index idx fr local = false) by (rewrite valid_in_index_eq, Hfs; exact Hv).
@@ -3202,7 +3202,7 @@ Defined.
 (* --- the file-root reference + the canonical preorder enumeration of ALL a file's references. --- *)
 
 Definition file_root_ref {p} (fr : FileRef p) : NodeRef p :=
-  make_node_ref p fr root_id (root_valid (file_ref_source fr)).
+  MakeNodeRef p fr root_id (root_valid (file_ref_source fr)).
 Lemma file_root_ref_local (p : Syntax.Program) (fr : FileRef p) : node_ref_local (file_root_ref fr) = root_id.
 Proof. reflexivity. Qed.
 Lemma file_root_ref_file (p : Syntax.Program) (fr : FileRef p) : node_ref_file (file_root_ref fr) = fr.
@@ -3307,7 +3307,7 @@ Fixpoint visit_lift {p} (fr : FileRef p) (l : list (positive * Occurrence))
   match l with
   | [] => fun _ => []
   | (id, occ) :: rest => fun H =>
-      (make_node_ref p fr id (H id occ (or_introl eq_refl)), occ)
+      (MakeNodeRef p fr id (H id occ (or_introl eq_refl)), occ)
         :: visit_lift fr rest (fun i o Hin => H i o (or_intror Hin))
   end.
 
@@ -3334,7 +3334,7 @@ Lemma visit_lift_mem {p} (fr : FileRef p) l H (id : positive) (occ : Occurrence)
 Proof.
   revert H. induction l as [|[id0 occ0] rest IH]; intros H Hin; simpl in Hin; [destruct Hin|].
   destruct Hin as [Heq|Hin].
-  - injection Heq as <- <-. exists (make_node_ref p fr id0 (H id0 occ0 (or_introl eq_refl))).
+  - injection Heq as <- <-. exists (MakeNodeRef p fr id0 (H id0 occ0 (or_introl eq_refl))).
     cbn [node_ref_file node_ref_local]. split; [reflexivity | split; [reflexivity | left; reflexivity]].
   - destruct (IH (fun i o Hi => H i o (or_intror Hi)) Hin) as [r [Hf [Hl Hin']]].
     exists r. split; [exact Hf | split; [exact Hl | right; exact Hin']].
@@ -3413,9 +3413,9 @@ End Snapshot.
 
 (* negative ABSTRACTION checks: the raw index map and raw record constructors are NOT reachable through the
    sealed [Snapshot] interface (each [Check] FAILS, so [Fail Check] succeeds). *)
-Fail Check Snapshot.make_syntax.
-Fail Check Snapshot.make_file_ref.
-Fail Check Snapshot.make_node_ref.
+Fail Check Snapshot.MakeSyntax.
+Fail Check Snapshot.MakeFileRef.
+Fail Check Snapshot.MakeNodeRef.
 Fail Check Snapshot.outer.
 Fail Check Snapshot.ref_fi.
 Fail Check Snapshot.file_index.
@@ -3498,9 +3498,9 @@ Qed.
 
 (** ** snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
 
-Definition main_file_path : FilePath.T := FilePath.make "main.go"%string eq_refl.
-Definition ms_gen : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated"%string eq_refl) Version.Go1_23.
-Definition ms_com : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/common"%string eq_refl) Version.Go1_23.
+Definition main_file_path : FilePath.T := FilePath.Make "main.go"%string eq_refl.
+Definition ms_gen : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated"%string eq_refl) Version.Go1_23.
+Definition ms_com : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/common"%string eq_refl) Version.Go1_23.
 
 (* --- helper: recover a minted reference's exact source occurrence by computing the source spec. --- *)
 Lemma soor_compute {p} (r : Snapshot.NodeRef p) (f : Syntax.File) (local : positive) (occ0 : Occurrence) :
@@ -3526,22 +3526,22 @@ Ltac valid_via_source := unfold valid_localb; rewrite build_file_source_exact; v
 Lemma valid11_5 : valid_localb sf11 5%positive = true. Proof. valid_via_source. Qed.
 Lemma valid11_6 : valid_localb sf11 6%positive = true. Proof. valid_via_source. Qed.
 Lemma src11_5 : source_occurrence_at sf11 5%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
 Proof. vm_compute. reflexivity. Qed.
 Lemma src11_6 : source_occurrence_at sf11 6%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 1) 6%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 1) 6%positive).
 Proof. vm_compute. reflexivity. Qed.
 
 (* the two args, minted as validated ExprRefs through the sealed key-minting boundary. *)
 Theorem regression_println_1_1 :
   exists (r5 r6 : Snapshot.NodeRef prog11),
-    Snapshot.ref_of_key prog11 (Snapshot.index_program prog11) (make_key main_file_path 5%positive) = Some r5 /\
-    Snapshot.ref_of_key prog11 (Snapshot.index_program prog11) (make_key main_file_path 6%positive) = Some r6 /\
+    Snapshot.ref_of_key prog11 (Snapshot.index_program prog11) (MakeKey main_file_path 5%positive) = Some r5 /\
+    Snapshot.ref_of_key prog11 (Snapshot.index_program prog11) (MakeKey main_file_path 6%positive) = Some r6 /\
     (* both source fragments are EQUAL... *)
     Snapshot.node_at r5 = Some (Syntax.IntegerLiteral 1%N) /\ Snapshot.node_at r6 = Some (Syntax.IntegerLiteral 1%N) /\
     (* ...yet the two references are DISTINCT (distinct keys / local ids), NOT deduplicated... *)
     r5 <> r6 /\
-    Snapshot.node_ref_key r5 = make_key main_file_path 5%positive /\ Snapshot.node_ref_key r6 = make_key main_file_path 6%positive /\
+    Snapshot.node_ref_key r5 = MakeKey main_file_path 5%positive /\ Snapshot.node_ref_key r6 = MakeKey main_file_path 6%positive /\
     (* ...with the correct per-argument role. *)
     Snapshot.node_role (Snapshot.index_program prog11) r5 = PrintlnArgument 0 /\
     Snapshot.node_role (Snapshot.index_program prog11) r6 = PrintlnArgument 1.
@@ -3552,8 +3552,8 @@ Proof.
     as [r6 [Hk6 [Hl6 Hf6]]].
   pose proof (soor_compute r5 sf11 5%positive _ Hf5 Hl5 src11_5) as Ho5.
   pose proof (soor_compute r6 sf11 6%positive _ Hf6 Hl6 src11_6) as Ho6.
-  pose proof (Snapshot.ref_of_key_sound prog11 (Snapshot.index_program prog11) (make_key main_file_path 5%positive) r5 Hk5) as Hkey5.
-  pose proof (Snapshot.ref_of_key_sound prog11 (Snapshot.index_program prog11) (make_key main_file_path 6%positive) r6 Hk6) as Hkey6.
+  pose proof (Snapshot.ref_of_key_sound prog11 (Snapshot.index_program prog11) (MakeKey main_file_path 5%positive) r5 Hk5) as Hkey5.
+  pose proof (Snapshot.ref_of_key_sound prog11 (Snapshot.index_program prog11) (MakeKey main_file_path 6%positive) r6 Hk6) as Hkey6.
   exists r5, r6. repeat split; try assumption.
   - rewrite (Snapshot.node_at_matches_source_view r5), Ho5. reflexivity.
   - rewrite (Snapshot.node_at_matches_source_view r6), Ho6. reflexivity.
@@ -3576,14 +3576,14 @@ Proof. unfold find_file, program_b, sf_b, singleton_program, Syntax.files. apply
 Lemma valid_a5 : valid_localb sf_a 5%positive = true. Proof. valid_via_source. Qed.
 Lemma valid_b5 : valid_localb sf_b 5%positive = true. Proof. valid_via_source. Qed.
 Lemma src_a5 : source_occurrence_at sf_a 5%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 5%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 5%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
 Proof. vm_compute. reflexivity. Qed.
 Lemma src_b5 : source_occurrence_at sf_b 5%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 6%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 6%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
 Proof. vm_compute. reflexivity. Qed.
 
 (* the SAME Key recovers each snapshot's OWN payload: Syntax.IntegerLiteral 5 in program_a, Syntax.IntegerLiteral 6 in program_b. *)
-Theorem regression_payload_a : exists r, Snapshot.ref_of_key program_a (Snapshot.index_program program_a) (make_key main_file_path 5%positive) = Some r
+Theorem regression_payload_a : exists r, Snapshot.ref_of_key program_a (Snapshot.index_program program_a) (MakeKey main_file_path 5%positive) = Some r
                                   /\ Snapshot.node_at r = Some (Syntax.IntegerLiteral 5%N).
 Proof.
   destruct (Snapshot.ref_of_key_source program_a (Snapshot.index_program program_a) main_file_path sf_a 5%positive find_a valid_a5)
@@ -3591,7 +3591,7 @@ Proof.
   exists r. split; [exact Hk|].
   rewrite (Snapshot.node_at_matches_source_view r), (soor_compute r sf_a 5%positive _ Hf Hl src_a5). reflexivity.
 Qed.
-Theorem regression_payload_b : exists r, Snapshot.ref_of_key program_b (Snapshot.index_program program_b) (make_key main_file_path 5%positive) = Some r
+Theorem regression_payload_b : exists r, Snapshot.ref_of_key program_b (Snapshot.index_program program_b) (MakeKey main_file_path 5%positive) = Some r
                                   /\ Snapshot.node_at r = Some (Syntax.IntegerLiteral 6%N).
 Proof.
   destruct (Snapshot.ref_of_key_source program_b (Snapshot.index_program program_b) main_file_path sf_b 5%positive find_b valid_b5)
@@ -3637,36 +3637,36 @@ Definition wf : Syntax.File := main_source
   ; Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5%N)) ] ] ].
 
 Ltac wf_meta := rewrite build_file_source_exact; vm_compute; reflexivity.
-Example well_formed_meta_file  : Table.get 1%positive  (table (build_file wf)) = Some (make_meta FileKind         None      FileRoot        15). Proof. wf_meta. Qed.
-Example well_formed_meta_pkg   : Table.get 2%positive  (table (build_file wf)) = Some (make_meta PackageClauseKind (Some 1)  FilePackage      2). Proof. wf_meta. Qed.
-Example well_formed_meta_decl0 : Table.get 3%positive  (table (build_file wf)) = Some (make_meta DeclarationKind  (Some 1)  (FileDeclaration 0)     8). Proof. wf_meta. Qed.
-Example well_formed_meta_stmt0 : Table.get 4%positive  (table (build_file wf)) = Some (make_meta StatementKind     (Some 3)  (DeclarationStatement 0)     6). Proof. wf_meta. Qed.
-Example well_formed_meta_arg0  : Table.get 5%positive  (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 4)  (PrintlnArgument 0)   5). Proof. wf_meta. Qed.
-Example well_formed_meta_arg1  : Table.get 6%positive  (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 4)  (PrintlnArgument 1)   6). Proof. wf_meta. Qed.
-Example well_formed_meta_stmt1 : Table.get 7%positive  (table (build_file wf)) = Some (make_meta StatementKind     (Some 3)  (DeclarationStatement 1)     8). Proof. wf_meta. Qed.
-Example well_formed_meta_bool  : Table.get 8%positive  (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 7)  (PrintlnArgument 0)   8). Proof. wf_meta. Qed.
-Example well_formed_meta_decl1 : Table.get 9%positive  (table (build_file wf)) = Some (make_meta DeclarationKind  (Some 1)  (FileDeclaration 1)    15). Proof. wf_meta. Qed.
-Example well_formed_meta_stmt2 : Table.get 10%positive (table (build_file wf)) = Some (make_meta StatementKind     (Some 9)  (DeclarationStatement 0)    15). Proof. wf_meta. Qed.
-Example well_formed_meta_conv0  : Table.get 11%positive (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 10) (PrintlnArgument 0)     15). Proof. wf_meta. Qed.
-Example well_formed_meta_tname0 : Table.get 12%positive (table (build_file wf)) = Some (make_meta TypeNameKind      (Some 11) ConversionTarget  12). Proof. wf_meta. Qed.
-Example well_formed_meta_conv1  : Table.get 13%positive (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 11) ConversionOperand 15). Proof. wf_meta. Qed.
-Example well_formed_meta_tname1 : Table.get 14%positive (table (build_file wf)) = Some (make_meta TypeNameKind      (Some 13) ConversionTarget  14). Proof. wf_meta. Qed.
-Example well_formed_meta_leaf   : Table.get 15%positive (table (build_file wf)) = Some (make_meta ExpressionKind    (Some 13) ConversionOperand 15). Proof. wf_meta. Qed.
+Example well_formed_meta_file  : Table.get 1%positive  (table (build_file wf)) = Some (MakeMeta FileKind         None      FileRoot        15). Proof. wf_meta. Qed.
+Example well_formed_meta_pkg   : Table.get 2%positive  (table (build_file wf)) = Some (MakeMeta PackageClauseKind (Some 1)  FilePackage      2). Proof. wf_meta. Qed.
+Example well_formed_meta_decl0 : Table.get 3%positive  (table (build_file wf)) = Some (MakeMeta DeclarationKind  (Some 1)  (FileDeclaration 0)     8). Proof. wf_meta. Qed.
+Example well_formed_meta_stmt0 : Table.get 4%positive  (table (build_file wf)) = Some (MakeMeta StatementKind     (Some 3)  (DeclarationStatement 0)     6). Proof. wf_meta. Qed.
+Example well_formed_meta_arg0  : Table.get 5%positive  (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 4)  (PrintlnArgument 0)   5). Proof. wf_meta. Qed.
+Example well_formed_meta_arg1  : Table.get 6%positive  (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 4)  (PrintlnArgument 1)   6). Proof. wf_meta. Qed.
+Example well_formed_meta_stmt1 : Table.get 7%positive  (table (build_file wf)) = Some (MakeMeta StatementKind     (Some 3)  (DeclarationStatement 1)     8). Proof. wf_meta. Qed.
+Example well_formed_meta_bool  : Table.get 8%positive  (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 7)  (PrintlnArgument 0)   8). Proof. wf_meta. Qed.
+Example well_formed_meta_decl1 : Table.get 9%positive  (table (build_file wf)) = Some (MakeMeta DeclarationKind  (Some 1)  (FileDeclaration 1)    15). Proof. wf_meta. Qed.
+Example well_formed_meta_stmt2 : Table.get 10%positive (table (build_file wf)) = Some (MakeMeta StatementKind     (Some 9)  (DeclarationStatement 0)    15). Proof. wf_meta. Qed.
+Example well_formed_meta_conv0  : Table.get 11%positive (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 10) (PrintlnArgument 0)     15). Proof. wf_meta. Qed.
+Example well_formed_meta_tname0 : Table.get 12%positive (table (build_file wf)) = Some (MakeMeta TypeNameKind      (Some 11) ConversionTarget  12). Proof. wf_meta. Qed.
+Example well_formed_meta_conv1  : Table.get 13%positive (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 11) ConversionOperand 15). Proof. wf_meta. Qed.
+Example well_formed_meta_tname1 : Table.get 14%positive (table (build_file wf)) = Some (MakeMeta TypeNameKind      (Some 13) ConversionTarget  14). Proof. wf_meta. Qed.
+Example well_formed_meta_leaf   : Table.get 15%positive (table (build_file wf)) = Some (MakeMeta ExpressionKind    (Some 13) ConversionOperand 15). Proof. wf_meta. Qed.
 Example well_formed_meta_absent : Table.get 16%positive (table (build_file wf)) = None. Proof. wf_meta. Qed.
 
 (* source-VIEW recovery: the INDEPENDENT spec recovers the exact original fragment (the [occurrence_view] that
    [occurrence_meta] erases) for each occurrence kind — package clause / an argument / the innermost leaf. *)
 Example well_formed_view_pkg  : source_occurrence_at wf 2%positive
-  = Some (make_occurrence PackageClauseKind (PackageClauseView Syntax.MainPackage) (Some 1%positive) FilePackage 2%positive).
+  = Some (MakeOccurrence PackageClauseKind (PackageClauseView Syntax.MainPackage) (Some 1%positive) FilePackage 2%positive).
 Proof. vm_compute. reflexivity. Qed.
 Example well_formed_view_arg0 : source_occurrence_at wf 5%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 1%N)) (Some 4%positive) (PrintlnArgument 0) 5%positive).
 Proof. vm_compute. reflexivity. Qed.
 Example well_formed_view_leaf : source_occurrence_at wf 15%positive
-  = Some (make_occurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 5%N)) (Some 13%positive) ConversionOperand 15%positive).
+  = Some (MakeOccurrence ExpressionKind (ExpressionView (Syntax.IntegerLiteral 5%N)) (Some 13%positive) ConversionOperand 15%positive).
 Proof. vm_compute. reflexivity. Qed.
 Example well_formed_view_tname0 : source_occurrence_at wf 12%positive
-  = Some (make_occurrence TypeNameKind (TypeNameView (Syntax.type_expr_of_name Names.Int)) (Some 11%positive) ConversionTarget 12%positive).
+  = Some (MakeOccurrence TypeNameKind (TypeNameView (Syntax.type_expr_of_name Names.Int)) (Some 11%positive) ConversionTarget 12%positive).
 Proof. vm_compute. reflexivity. Qed.
 
 (* the retained Program phase boundary.
@@ -3676,11 +3676,11 @@ Proof. vm_compute. reflexivity. Qed.
    the sole field.  Every downstream query works through [indexed_syntax]; nothing reconstructs
    [Snapshot.index_program p].  Semantic-free, axiom-free. *)
 
-Record Program (p : Syntax.Program) : Type := make_program { index : Snapshot.Syntax p }.
-Arguments make_program {p} _.
+Record Program (p : Syntax.Program) : Type := MakeProgram { index : Snapshot.Syntax p }.
+Arguments MakeProgram {p} _.
 Arguments index {p} _.
 
-Definition index_program (p : Syntax.Program) : Program p := make_program (Snapshot.index_program p).
+Definition index_program (p : Syntax.Program) : Program p := MakeProgram (Snapshot.index_program p).
 
 Definition indexed_syntax {p} (ip : Program p) : Snapshot.Syntax p := index ip.
 

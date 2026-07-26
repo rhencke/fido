@@ -24,8 +24,8 @@ Definition alias_file : list Syntax.Decl :=
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Rune)  (Syntax.IntegerLiteral 2147483647)
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.NegatedIntegerLiteral 2147483648)
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.IntegerLiteral 2147483647) ] ] ].
-Definition alias_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
-Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.make "main.go" eq_refl) alias_file.
+Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
+Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 
 Lemma alias_valid : Admissible alias_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.

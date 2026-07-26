@@ -44,7 +44,6 @@ EXCLUDED_FILES = (
     'tools/naming-gate.py',                       # this file necessarily spells every retired name
     '.review/C4_IMPLEMENTATION_REPAIR_15.md',     # installed VERBATIM; markers cannot be added to it
     '.review/C4_IMPLEMENTATION_REPAIR_16.md',     # installed VERBATIM; markers cannot be added to it
-    '.review/C4_REPAIR_15_RENAME_LEDGER.tsv',     # the ledger's whole content is old -> new pairs
 )
 BINARY_SUFFIXES = {'.png', '.jpg', '.jpeg', '.gif', '.zip', '.gz', '.pdf', '.vo', '.glob', '.hex'}
 
@@ -116,7 +115,7 @@ HISTORY_MARKERS = ('a005', 'renamed', 'formerly', 'superseded', 'historical', 'b
                    'old name', 'pre-migration', 'retired', 'was the', 'no longer')
 
 # ───────────────────────────────────────────────────────────── declaration kinds
-UPPER_KINDS = {'Inductive', 'Record', 'Class', 'Module', 'Variant'}
+UPPER_KINDS = {'Inductive', 'Record', 'Class', 'Module', 'Variant', 'constructor'}
 SNAKE_KINDS = {'Theorem', 'Lemma', 'Corollary', 'Example', 'Instance'}
 DECL_KEYWORDS = (r'Definition|Fixpoint|CoFixpoint|Inductive|Variant|Record|Theorem|Lemma|Corollary'
                  r'|Example|Instance|Class|Module\s+Type|Module|Notation')
@@ -172,13 +171,21 @@ def declared(code: str):
         kind = 'Module' if m.group(1).startswith('Module') else m.group(1)
         name = m.group(2).strip('"')
         yield line, kind, name
+        # Constructors are parsed as GENERAL Rocq identifiers and judged afterwards.  Matching only
+        # `[A-Z]...` here was the false-green: a lower-case constructor was never extracted, so no rule
+        # could reject it — the gate could not see the declarations it existed to catch.
         if kind in ('Inductive', 'Variant'):
             body = stmt.split(':=', 1)[1] if ':=' in stmt else ''
-            for c in re.findall(r"(?:\||:=)\s*([A-Z][A-Za-z0-9_']*)", body):
-                yield line, 'constructor', c
+            # split on the bar and take the LEADING identifier of each alternative.  The old form required a
+            # `|` or `:=` immediately before the name, which silently skipped the FIRST constructor of every
+            # `Inductive T := First | ...` — a second blind spot on top of the case one.
+            for piece in body.split('|'):
+                m = re.match(r"\s*([A-Za-z_][A-Za-z0-9_']*)", piece)
+                if m:
+                    yield line, 'constructor', m.group(1)
         if kind == 'Record':
             body = stmt.split(':=', 1)[1] if ':=' in stmt else ''
-            ctor = re.match(r'\s*([A-Z][A-Za-z0-9_\']*)\s*\{', body)
+            ctor = re.match(r'\s*([A-Za-z_][A-Za-z0-9_\']*)\s*\{', body)
             if ctor:
                 yield line, 'constructor', ctor.group(1)
             for f in re.findall(r"[{;]\s*([a-z_][A-Za-z0-9_']*)\s*:", body):
@@ -317,9 +324,26 @@ def selected(root: Path, rels):
         yield rel, p
 
 
+def rocq_scope(root: Path):
+    """Every Rocq source the gate MUST have parsed: the certified modules dune declares, plus the gate and
+    e2e sources.  A file silently skipped — unreadable, mis-enumerated, excluded by accident — would make
+    'no violation' mean 'nothing looked at', which is the failure mode this whole rebuild exists to remove."""
+    expected = set()
+    dune = root / 'dune'
+    if dune.is_file():
+        m = re.search(r'\(modules\s+([^)]*)\)', dune.read_text(encoding='utf-8'))
+        if m:
+            expected |= {f'{mod}.v' for mod in m.group(1).split()}
+    for sub in ('gate', 'e2e'):
+        d = root / sub
+        if d.is_dir():
+            expected |= {f'{sub}/{f.name}' for f in d.iterdir() if f.suffix == '.v'}
+    return expected
+
+
 def run(root: Path, snapshot: bool):
     rels = enumerate_snapshot(root) if snapshot else enumerate_worktree(root)
-    violations, examined = [], 0
+    violations, examined, parsed = [], 0, set()
     for rel, path in selected(root, rels):
         try:
             text = path.read_text(encoding='utf-8')
@@ -328,7 +352,13 @@ def run(root: Path, snapshot: bool):
         examined += 1
         if rel.endswith('.v'):
             violations += check_code(rel, text)
+            parsed.add(rel)
         violations += check_prose(rel, text)   # comments are prose with no verifier
+    missed = sorted(rocq_scope(root) - parsed)
+    if missed:
+        raise EnumerationError(
+            'the gate did not parse every Rocq source in its stated scope — missing: '
+            + ', '.join(missed))
     return violations, examined
 
 
@@ -348,6 +378,13 @@ SELF_TESTS = [
     ('multiline inductive constructor',   check_code,
      'Inductive T :=\n| EOConvFail : T\n| Other : T.\n', True),
     ('lower-case inductive',              check_code, 'Inductive thing := A.\n', True),
+    # the false-green the reviewer found: these were ACCEPTED because the parser never saw them
+    ('lower-case record constructor',     check_code, 'Record GoodType := make_bad { value : nat }.\n', True),
+    ('lower-case inductive constructor',  check_code, 'Inductive GoodType := make_bad : GoodType.\n', True),
+    ('lower-case ctor, multiline record', check_code,
+     'Record GoodType := make_bad {\n  value : nat\n}.\n', True),
+    ('lower-case ctor among good ones',   check_code, 'Inductive T := Good | make_bad | AlsoGood.\n', True),
+    ('lower-case variant constructor',    check_code, 'Variant V := make_bad.\n', True),
     ('Go-domain repetition',              check_code, 'Record GoWidget := mk { a : nat }.\n', True),
     ('deleted Q-08 surface',              check_code, 'Definition g := pe_result_on_core.\n', True),
     ('retired qualified name',            check_code, 'Definition f := Integer.IntegerType.\n', True),
@@ -364,6 +401,11 @@ SELF_TESTS = [
     ('legitimate semantic compound',      check_code, 'Lemma package_clause_eq_dec : True.\n', False),
     ('actual Go token',                   check_code, 'Inductive T := Go1_23.\n', False),
     ('Go artefact allowlisted',           check_code, 'Inductive T := GoModuleEntry.\n', False),
+    # …and the must-ACCEPT twins, so the new rule cannot pass by rejecting everything
+    ('UpperCamelCase record ctor',        check_code, 'Record GoodType := MakeGood { value : nat }.\n', False),
+    ('UpperCamelCase inductive ctor',     check_code, 'Inductive GoodType := MakeGood : GoodType.\n', False),
+    ('several UpperCamelCase ctors',      check_code, 'Inductive T := First | Second | Third.\n', False),
+    ('anonymous record constructor',      check_code, 'Record GoodType := { value : nat }.\n', False),
 ]
 
 

@@ -1,4 +1,4 @@
-(** T — the intrinsic canonical relative source-path domain.  A raw [string] is NOT a file path:
+(** FilePath — the intrinsic canonical relative source-path domain [T].  A raw [string] is NOT a file path:
     Go package discovery for `go build ./...` depends on the path, so the path is a SEMANTIC compiler
     input, and only a deliberately NARROW canonical grammar is representable.
 
@@ -76,7 +76,7 @@ Definition path_ok (s : string) : bool :=
 
 (** ---- the intrinsic type ---- *)
 
-Record T : Type := make { text : string ; valid : path_ok text = true }.
+Record T : Type := Make { text : string ; valid : path_ok text = true }.
 
 (** The on-disk relative path text (the proved canonical conversion to output). *)
 

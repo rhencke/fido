@@ -11,7 +11,7 @@
     public `Fido Emit`), which before any effect (i)
     typechecks its argument's [transport] projection (rejecting a wrong-typed raw transport) and (ii)
     rejects any argument whose assumption closure is non-empty (rejecting an axiom/variable-backed proof).
-    [make_image] is a public constructor demanding the provenance; [of_safe] is the canonical closed
+    [MakeImage] is a public constructor demanding the provenance; [of_safe] is the canonical closed
     construction.  The fields stay reducible (no opaque module) so the command can evaluate them.
 
     `go.mod` is NOT a [FilePath.T] (it is not a `.go` source path — [FilePath.T] deliberately cannot represent
@@ -47,16 +47,16 @@ Definition file_map (sp : Safe.Program) : FileMap.t string := file_map_of (Safe.
 Definition module_file (sp : Safe.Program) : string := module_file_of (Safe.source sp).
 
 (** The abstract image: the complete module (go.mod + `.go` map) that PROVABLY came from one Safe.Program. *)
-Record Image : Type := make_image {
+Record Image : Type := MakeImage {
   module_bytes   : string;
   files : FileMap.t string;
   provenance     : exists sp, module_bytes = module_file sp /\ files = file_map sp
 }.
 
-(** The canonical construction (Safe.Program-gated by provenance).  [make_image] is also public but demands
+(** The canonical construction (Safe.Program-gated by provenance).  [MakeImage] is also public but demands
     the provenance proof; the `Fido Materialize` command additionally rejects any image whose proof is axiomatic. *)
 Definition of_safe (sp : Safe.Program) : Image :=
-  make_image (module_file sp) (file_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
+  MakeImage (module_file sp) (file_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
 
 (** The same image, formed from a source program ALREADY KNOWN to be the certificate's own.  The certificate
     still gates emission — [H] cannot be had without one — but the bytes are computed from [p] directly, so a
@@ -64,7 +64,7 @@ Definition of_safe (sp : Safe.Program) : Image :=
     forcing the capability's whole elaboration to recover a program it was handed.  The image is the SAME
     image: [of_safe_at_transport] below. *)
 Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
-  make_image (module_file_of p) (file_map_of p)
+  MakeImage (module_file_of p) (file_map_of p)
     (ex_intro _ sp (conj (f_equal module_file_of (eq_sym H)) (f_equal file_map_of (eq_sym H)))).
 
 (** [of_safe] IS the reflexive case, so there is one construction, not two. *)

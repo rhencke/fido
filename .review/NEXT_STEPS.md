@@ -14,9 +14,9 @@
      retained in the core input; `package_bucket_diagnostics` likewise rebuilds a package map rather than
      consuming the retained one. The stored equality connects the values extensionally, but the production
      causal chain still begins from a rerun — which A001 rejects as provenance.
-  2. **`Compilable.Core` and `make_core` are still public.** A client cannot mint a `Program`, but can still
+  2. **`Compilable.Core` and `MakeCore` are still public.** A client cannot mint a `Program`, but can still
      construct an independently built peer `Core` — the exact topology A001 exists to prevent. The negative
-     client fixtures cover `make_program` / `make_failure` / `make_facts` and do not cover `make_core`.
+     client fixtures cover `MakeProgram` / `MakeFailure` / `MakeFacts` and do not cover `MakeCore`.
   3. **The A005 naming gate is false-green for constructors.** Its parser extracts inductive and record
      constructors only when the first character is already uppercase, and `constructor` is not a casing-checked
      declaration kind — so the declarations it exists to reject are never seen. Verified directly:

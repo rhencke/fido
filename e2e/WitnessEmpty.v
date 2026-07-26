@@ -9,7 +9,7 @@ From Stdlib Require Import List NArith String.
 From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.
 
-Definition empty_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
+Definition empty_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition empty_prog : Syntax.Program := empty_program empty_module.
 
 Lemma empty_valid : Admissible empty_prog.

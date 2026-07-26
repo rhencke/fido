@@ -49,7 +49,7 @@ Definition identifier_ok (s : string) : bool := identifier_shape_ok s && negb (i
 
 (** a source identifier carries its own validity proof (bool UIP -> proof-irrelevant), so equality reduces to
     the underlying string and no unchecked string can construct one. *)
-Record Identifier : Type := make_identifier { spelling : string ; valid : identifier_ok spelling = true }.
+Record Identifier : Type := MakeIdentifier { spelling : string ; valid : identifier_ok spelling = true }.
 
 Lemma identifier_ok_irrel : forall s (p q : identifier_ok s = true), p = q.
 Proof. intros; apply (UIP_dec Bool.bool_dec). Qed.
@@ -145,7 +145,7 @@ Proof. intros a b; unfold type_name_equalb; destruct (type_name_eq_dec a b); spl
 (** every spelling is a valid identifier, so a type name RETAINS an [Identifier]. *)
 Lemma type_name_spelling_ok : forall t, identifier_ok (type_name_spelling t) = true.
 Proof. intro t; destruct t; reflexivity. Qed.
-Definition type_name_identifier (t : TypeName) : Identifier := make_identifier (type_name_spelling t) (type_name_spelling_ok t).
+Definition type_name_identifier (t : TypeName) : Identifier := MakeIdentifier (type_name_spelling t) (type_name_spelling_ok t).
 
 (** rendering a type name is its source spelling — equivalently its retained identifier's text. *)
 Definition render_type_name (t : TypeName) : string := type_name_spelling t.
@@ -193,7 +193,7 @@ Proof. discriminate. Qed.
     identifier (not a bare enum): the renderer reads [identifier], the compiler binds via [symbol], and
     [classify] constrains the symbol so ONLY the sixteen names inhabit this type — no arbitrary-string bypass,
     and no semantic ([Typing.SemanticType]/[Integer.Kind]/…) tag lives here. *)
-Record SupportedType : Type := make_supported_type {
+Record SupportedType : Type := MakeSupportedType {
   identifier : Identifier ;
   symbol     : TypeName ;
   exact      : classify (render_identifier identifier) = Some symbol
@@ -203,7 +203,7 @@ Lemma classify_type_name_identifier : forall t, classify (render_identifier (typ
 Proof. intro t. apply classify_spelling. Qed.
 
 (** the smart constructor: derive the retained identifier from the ONE spelling authority. *)
-Definition supported_of (t : TypeName) : SupportedType := make_supported_type (type_name_identifier t) t (classify_type_name_identifier t).
+Definition supported_of (t : TypeName) : SupportedType := MakeSupportedType (type_name_identifier t) t (classify_type_name_identifier t).
 Lemma supported_of_symbol : forall t, symbol (supported_of t) = t.
 Proof. intro t; reflexivity. Qed.
 

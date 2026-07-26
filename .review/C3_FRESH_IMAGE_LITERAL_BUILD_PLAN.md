@@ -1207,7 +1207,7 @@ Provenance becomes:
   cp_prov :
     elaborate Compilable.source
     =
-    Compilable.make_elaboration Compilable.program_index (ElaborationOK Compilable.facts)
+    Compilable.MakeElaboration Compilable.program_index (ElaborationOK Compilable.facts)
 
 Delete dead generic result/bool helpers if no call site remains.
 
@@ -1223,7 +1223,7 @@ Conceptual flow:
 
   elaborate p :=
     let ip := Index.index_program p in
-    Compilable.make_elaboration ip (elaborate_indexed p ip)
+    Compilable.MakeElaboration ip (elaborate_indexed p ip)
 
   elaborate_indexed p ip :=
     let idx          := indexed_syntax ip in

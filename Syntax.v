@@ -119,7 +119,7 @@ Definition TopLevelDecl := Decl.
 
 (** One source file's abstract structure (package clause + imports + top-level declarations, in order).
     A declaration list REMAINS — as the [declarations] field — but is no longer the entire file. *)
-Record File : Type := make_file {
+Record File : Type := MakeFile {
   package : PackageClause;
   imports : list ImportSpec;
   declarations   : list TopLevelDecl
@@ -128,7 +128,7 @@ Record File : Type := make_file {
 (** A CONSTRUCTION / VIEW value pairing a placement path with its source — the input to the duplicate-rejecting
     builder and a derived view of a map binding, NEVER the stored map value.  The ONE path authority is the
     [Files] KEY (below), not this node's [path] field. *)
-Record FileNode : Type := make_file_node {
+Record FileNode : Type := MakeFileNode {
   path   : FilePath.T;
   source : File
 }.
@@ -184,7 +184,7 @@ Proof.
   - apply IH; exact Hnd.
 Qed.
 Definition file_nodes (fm : Files) : list FileNode :=
-  List.map (fun b => make_file_node (fst b) (snd b)) (file_bindings fm).
+  List.map (fun b => MakeFileNode (fst b) (snd b)) (file_bindings fm).
 Definition map_file_values {B} (f : File -> B) (fm : Files) : FileMap.t B := FileMap.map f fm.
 (** SEMANTIC file-map equality — the standard map [Equal]. *)
 Definition FilesEqual (fm1 fm2 : Files) : Prop := FileMap.Equal fm1 fm2.
@@ -311,7 +311,7 @@ Qed.
 
 (** a repeated path REJECTS the build whether the two sources are EQUAL … *)
 Lemma files_of_nodes_duplicate_rejects : forall p sf,
-  files_of_nodes (make_file_node p sf :: make_file_node p sf :: nil) = None.
+  files_of_nodes (MakeFileNode p sf :: MakeFileNode p sf :: nil) = None.
 Proof.
   intros p sf. apply files_of_nodes_none_iff_duplicate. simpl.
   intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
@@ -319,7 +319,7 @@ Qed.
 
 (** … or DIFFER — the standard-map overwrite never silently erases the earlier source. *)
 Lemma files_of_nodes_duplicate_different_source_rejects : forall p sf1 sf2,
-  files_of_nodes (make_file_node p sf1 :: make_file_node p sf2 :: nil) = None.
+  files_of_nodes (MakeFileNode p sf1 :: MakeFileNode p sf2 :: nil) = None.
 Proof.
   intros p sf1 sf2. apply files_of_nodes_none_iff_duplicate. simpl.
   intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
@@ -349,14 +349,14 @@ Qed.
 
 (** ---- the module spec: intrinsic facts about the GENERATED module (not environment config) ---- *)
 
-Record ModuleSpec : Type := make_module_spec {
+Record ModuleSpec : Type := MakeModuleSpec {
   module_path       : ModulePath.T;
   module_version : Version
 }.
 
 (** ---- the program: a module spec + a (possibly empty) standard `FilePath.T`-keyed source map ([Files]) ---- *)
 
-Record Program : Type := make_program {
+Record Program : Type := MakeProgram {
   module_spec : ModuleSpec;
   files  : Files
 }.
@@ -371,19 +371,19 @@ Definition program_find (path : FilePath.T) (p : Program) : option File := find_
 
 (** the canonical `package main` source file holding a declaration list (a CONVENIENCE that creates ordinary
     source syntax — the renderer never synthesizes source behind the AST's back). *)
-Definition main_source (decls : list Decl) : File := make_file MainPackage [] decls.
+Definition main_source (decls : list Decl) : File := MakeFile MainPackage [] decls.
 
 (** the canonical `package main` file ROOT at a path (convenience node builder). *)
 Definition main_file_node (path : FilePath.T) (decls : list Decl) : FileNode :=
-  make_file_node path (main_source decls).
+  MakeFileNode path (main_source decls).
 
 (** A single-file program under a module spec. *)
 Definition singleton_program (ms : ModuleSpec) (path : FilePath.T) (decls : list Decl) : Program :=
-  make_program ms (FileMap.add path (main_source decls) empty_files).
+  MakeProgram ms (FileMap.add path (main_source decls) empty_files).
 
 (** A module-only program: a valid [ModuleSpec] with NO source files. *)
 Definition empty_program (ms : ModuleSpec) : Program :=
-  make_program ms empty_files.
+  MakeProgram ms empty_files.
 
 (** The construction API (Master Plan 3.5): from a module spec + a list of specification-shaped file roots,
     [None] ONLY when the collection cannot describe one source tree (chiefly duplicate paths); the EMPTY list
@@ -391,7 +391,7 @@ Definition empty_program (ms : ModuleSpec) : Program :=
 Definition build_program (ms : ModuleSpec) (nodes : list FileNode) : option Program :=
   match files_of_nodes nodes with
   | None => None
-  | Some fm => Some (make_program ms fm)
+  | Some fm => Some (MakeProgram ms fm)
   end.
 
 (** [build_program] is EXACT over the duplicate-rejecting builder: it succeeds IFF the file paths are unique

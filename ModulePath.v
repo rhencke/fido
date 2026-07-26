@@ -1,4 +1,4 @@
-(** T — the intrinsic canonical module-path domain (the `module` directive of the generated
+(** ModulePath — the intrinsic canonical module-path domain [T] (the `module` directive of the generated
     `go.mod`).  A raw [string] is NOT a module path: the path is a SEMANTIC program fact (it is the prefix
     of every future closed-world package import path), so only a deliberately NARROW canonical grammar is
     representable — this is not an ambitious model of every path any Go release accepts.
@@ -198,7 +198,7 @@ Qed.
 
 (** ---- the intrinsic type ---- *)
 
-Record T : Type := make { text : string ; valid : path_ok text = true }.
+Record T : Type := Make { text : string ; valid : path_ok text = true }.
 
 (** The canonical `module` directive text (the proved conversion to output bytes). *)
 

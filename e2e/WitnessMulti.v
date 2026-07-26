@@ -7,10 +7,10 @@ From Stdlib Require Import List NArith String.
 From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.
 
-Definition multi_module : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Go1_23.
-Definition m_root  : FilePath.T := FilePath.make "main.go" eq_refl.
-Definition m_extra : FilePath.T := FilePath.make "extra.go" eq_refl.          (* same (root) package, no main *)
-Definition m_sub   : FilePath.T := FilePath.make "sub/main.go" eq_refl.       (* a second main package *)
+Definition multi_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
+Definition m_root  : FilePath.T := FilePath.Make "main.go" eq_refl.
+Definition m_extra : FilePath.T := FilePath.Make "extra.go" eq_refl.          (* same (root) package, no main *)
+Definition m_sub   : FilePath.T := FilePath.Make "sub/main.go" eq_refl.       (* a second main package *)
 
 (** specification-shaped file roots (the construction API takes [Syntax.FileNode]s, not path/decl pairs). *)
 Definition multi_nodes : list Syntax.FileNode :=

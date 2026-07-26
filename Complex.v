@@ -43,7 +43,7 @@ Lemma component_c128 : component_kind C128 = F64. Proof. reflexivity. Qed.
 (** an EXACT complex constant: two exact canonical rational [Float.Constant] components — real and imaginary.  It
     carries NO signed zero, infinity, NaN, runtime [spec_float], or source spelling; each component's
     canonicality already lives in its [Float.Constant], so no aggregate proof field is added. *)
-Record Constant := make_constant { exact_real : Float.Constant ; exact_imaginary : Float.Constant }.
+Record Constant := MakeConstant { exact_real : Float.Constant ; exact_imaginary : Float.Constant }.
 
 (** decidable equality DERIVED from [Float.Constant] equality, componentwise (canonical, so it is Leibniz). *)
 Definition constant_equalb (a b : Constant) : bool :=
@@ -59,8 +59,8 @@ Proof.
 Qed.
 
 (** the exact complex zero (both components the unsigned canonical zero) and the real embedding. *)
-Definition zero : Constant := make_constant Float.constant_zero Float.constant_zero.
-Definition of_real (q : Float.Constant) : Constant := make_constant q Float.constant_zero.
+Definition zero : Constant := MakeConstant Float.constant_zero Float.constant_zero.
+Definition of_real (q : Float.Constant) : Constant := MakeConstant q Float.constant_zero.
 
 Lemma constant_real_of_real : forall q, exact_real (of_real q) = q. Proof. reflexivity. Qed.
 Lemma constant_imaginary_of_real : forall q, exact_imaginary (of_real q) = Float.constant_zero. Proof. reflexivity. Qed.
@@ -83,10 +83,10 @@ Qed.
 (** the intrinsic raw finite-decimal complex literal: two [Float.Decimal] components.  Its exact meaning is
     [Float.decimal_value] applied independently to each component — the internal [Constant] domain is WIDER
     than this raw decimal-literal domain. *)
-Record Decimal := make_decimal { decimal_real : Float.Decimal ; decimal_imaginary : Float.Decimal }.
+Record Decimal := MakeDecimal { decimal_real : Float.Decimal ; decimal_imaginary : Float.Decimal }.
 
 Definition decimal_value (d : Decimal) : Constant :=
-  make_constant (Float.decimal_value (decimal_real d)) (Float.decimal_value (decimal_imaginary d)).
+  MakeConstant (Float.decimal_value (decimal_real d)) (Float.decimal_value (decimal_imaginary d)).
 
 Lemma decimal_value_real : forall d, exact_real (decimal_value d) = Float.decimal_value (decimal_real d).
 Proof. reflexivity. Qed.
@@ -99,31 +99,31 @@ Proof. reflexivity. Qed.
     Because each component is a general [Float.Value], a runtime complex value MAY contain finite, +/-0,
     infinity, or NaN components.  This domain is NOT narrowed to constant-origin values (future runtime
     complex operations need the full IEEE component domain). *)
-Record Value (ct : Kind) := make_value {
+Record Value (ct : Kind) := MakeValue {
   runtime_real : Float.Value (component_kind ct) ;
   runtime_imaginary : Float.Value (component_kind ct)
 }.
-Arguments make_value {ct} _ _.
+Arguments MakeValue {ct} _ _.
 Arguments runtime_real {ct} _.
 Arguments runtime_imaginary {ct} _.
 
 (** the INTRINSIC typed complex constant: two coherent [Float.TypedConstant] components.  Each component already
     carries exact destination-rounded rational meaning, its stored canonical runtime IEEE value, exact/runtime
     coherence, AND the finite-or-+0 constant shape — so NO coherence field is duplicated here. *)
-Record TypedConstant (ct : Kind) := make_typed_constant {
+Record TypedConstant (ct : Kind) := MakeTypedConstant {
   typed_real : Float.TypedConstant (component_kind ct) ;
   typed_imaginary : Float.TypedConstant (component_kind ct)
 }.
-Arguments make_typed_constant {ct} _ _.
+Arguments MakeTypedConstant {ct} _ _.
 Arguments typed_real {ct} _.
 Arguments typed_imaginary {ct} _.
 
 (** the exact/runtime projections — BOTH are pure component projections (no rounding, no reconstruction). *)
 Definition typed_exact {ct} (tc : TypedConstant ct) : Constant :=
-  make_constant (Float.exact (typed_real tc)) (Float.exact (typed_imaginary tc)).
+  MakeConstant (Float.exact (typed_real tc)) (Float.exact (typed_imaginary tc)).
 
 Definition typed_runtime {ct} (tc : TypedConstant ct) : Value ct :=
-  make_value (Float.runtime (typed_real tc)) (Float.runtime (typed_imaginary tc)).
+  MakeValue (Float.runtime (typed_real tc)) (Float.runtime (typed_imaginary tc)).
 
 (** ---- componentwise projection laws (short, definitional) ---- *)
 Lemma typed_exact_real : forall ct (tc : TypedConstant ct),
@@ -179,7 +179,7 @@ Definition round_typed (ct : Kind) (c : Constant)
     : option (TypedConstant ct) :=
   match round_typed_float (component_kind ct) (exact_real c),
         round_typed_float (component_kind ct) (exact_imaginary c) with
-  | Some tr, Some ti => Some (make_typed_constant tr ti)
+  | Some tr, Some ti => Some (MakeTypedConstant tr ti)
   | _, _ => None
   end.
 

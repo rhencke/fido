@@ -1,4 +1,4 @@
-(** Property — the exact ABSTRACT println-trace semantics of the admitted fragment, and [Program], the
+(** Safe — the exact ABSTRACT println-trace semantics of the admitted fragment, and [Program], the
     permanent safety capability boundary over a [Compilable.Program].
 
     This is NOT a full Go operational semantics — it is a deterministic abstract-trace mapping for the
@@ -201,13 +201,13 @@ Qed.
 (** concrete general-domain complex runtime values that denote NO constant: a NaN real component, an infinity
     imaginary component, a negative-zero component (item 48). *)
 Example complex_nan_real_no_denotes : forall c,
-  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.make_value C128 (Float.value_nan F64) (Float.value_inf F64 false))) c.
+  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.MakeValue C128 (Float.value_nan F64) (Float.value_inf F64 false))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
 Example complex_inf_imag_no_denotes : forall c,
-  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.make_value C128 Float.value_neg_zero_F64 (Float.value_inf F64 true))) c.
+  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.MakeValue C128 Float.value_neg_zero_F64 (Float.value_inf F64 true))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; right; reflexivity. Qed.
 Example complex_neg_zero_no_denotes : forall c,
-  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.make_value C128 Float.value_neg_zero_F64 (Float.value_nan F64))) c.
+  ~ ValueDenotesConstant (ComplexValue C128 (@Complex.MakeValue C128 Float.value_neg_zero_F64 (Float.value_nan F64))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
 
 (** Evaluation IS the one constant-status analysis RESOLVED to a validated typed constant and PROJECTED —
@@ -220,21 +220,21 @@ Definition eval_expr (e : Syntax.Expr) : option Value :=
   | Some ci =>
       match Typing.resolve_constant_info ci with
       | None => None
-      | Some (pack_resolved _ tc) => Some (typed_constant_to_value tc)
+      | Some (PackResolved _ tc) => Some (typed_constant_to_value tc)
       end
   end.
 
 (** the runtime value STORED IN a resolved typed constant — evaluation returns EXACTLY this, no re-derivation:
     for a float it is the packaged [Float.runtime], never a second rounding. *)
 Definition resolved_constant_value (rc : Typing.ResolvedConstant) : Value :=
-  match rc with pack_resolved _ tc => typed_constant_to_value tc end.
+  match rc with PackResolved _ tc => typed_constant_to_value tc end.
 
 Lemma resolved_constant_value_float : forall ft (tfc : Float.TypedConstant ft),
-  resolved_constant_value (pack_resolved (Typing.FloatType ft) (Typing.TypedFloat ft tfc)) = FloatValue ft (Float.runtime tfc).
+  resolved_constant_value (PackResolved (Typing.FloatType ft) (Typing.TypedFloat ft tfc)) = FloatValue ft (Float.runtime tfc).
 Proof. intros ft tfc; cbn [resolved_constant_value]; apply typed_constant_to_value_float. Qed.
 
 Lemma resolved_constant_value_complex : forall ct (tcc : Complex.TypedConstant ct),
-  resolved_constant_value (pack_resolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) = ComplexValue ct (Complex.typed_runtime tcc).
+  resolved_constant_value (PackResolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) = ComplexValue ct (Complex.typed_runtime tcc).
 Proof. intros ct tcc; cbn [resolved_constant_value]; apply typed_constant_to_value_complex. Qed.
 
 (** A RESOLVED expression always evaluates to a well-formed value whose runtime type is EXACTLY the resolved
@@ -273,7 +273,7 @@ Qed.
     exactly its packaged [Float.runtime] — the value built at the single construction rounding, never rounded
     again. *)
 Corollary eval_projects_stored_float_runtime : forall u e ft (tfc : Float.TypedConstant ft),
-  resolve_constant u e = Some (pack_resolved (Typing.FloatType ft) (Typing.TypedFloat ft tfc)) ->
+  resolve_constant u e = Some (PackResolved (Typing.FloatType ft) (Typing.TypedFloat ft tfc)) ->
   eval_expr e = Some (FloatValue ft (Float.runtime tfc)).
 Proof.
   intros u e ft tfc H.
@@ -284,7 +284,7 @@ Qed.
     exactly its packaged pair of component [Float.runtime]s ([Complex.typed_runtime]) — no component is
     reconstructed or re-rounded. *)
 Corollary eval_projects_stored_complex_runtime : forall u e ct (tcc : Complex.TypedConstant ct),
-  resolve_constant u e = Some (pack_resolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) ->
+  resolve_constant u e = Some (PackResolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) ->
   eval_expr e = Some (ComplexValue ct (Complex.typed_runtime tcc)).
 Proof.
   intros u e ct tcc H.
@@ -304,8 +304,8 @@ Proof.
   intros u e t H; destruct H as [ u0 e0 ci rc Hci Hrc Hua ].
   apply use_allowsb_iff in Hua.
   destruct rc as [ t' tc ]; cbn [Typing.resolved_constant_type Typing.resolved_constant_exact] in *.
-  exists (pack_resolved t' tc), (typed_constant_to_value tc).
-  assert (Hrec : resolve_constant u0 e0 = Some (pack_resolved t' tc)).
+  exists (PackResolved t' tc), (typed_constant_to_value tc).
+  assert (Hrec : resolve_constant u0 e0 = Some (PackResolved t' tc)).
   { unfold Typing.resolve_constant; rewrite Hci, Hrc; cbn [Typing.resolved_constant_type]; rewrite Hua; reflexivity. }
   unfold eval_expr; rewrite Hci, Hrc.
   split; [ exact Hrec | split; [ reflexivity |
@@ -366,27 +366,27 @@ Proof. rewrite eval_single_rounding_direct, eval_single_rounding_nested; discrim
    complex64 as uint64, the DIRECT F32 rounding differs from the NESTED complex128-then-complex64 double round.
    Evaluation PROJECTS the stored runtime component — no hidden reround — so the two stored runtimes differ. *)
 Example eval_complex_single_rounding_direct :
-  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0))))
+  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0))))
     = Some (IntegerValue Integer.Uint64 2305843284091600896).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_complex_single_rounding_nested :
-  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0)))))
+  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0)))))
     = Some (IntegerValue Integer.Uint64 2305843009213693952).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_complex_single_rounding_differ :
-  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0))))
-    <> eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0))))).
+  eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0))))
+    <> eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0))))).
 Proof. rewrite eval_complex_single_rounding_direct, eval_complex_single_rounding_nested; discriminate. Qed.
 (* constant underflow produces POSITIVE zero at runtime (never -0) *)
 Example eval_underflow_pos_zero :
   option_map (fun v => match v with FloatValue _ fv => Float.ieee fv | _ => S754_nan end)
-             (eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.make_decimal 1 (-330) eq_refl))))
+             (eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.MakeDecimal 1 (-330) eq_refl))))
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
 (* ★a bare NEGATIVE underflow also produces +0 (never -0) — the constant zero has no sign. *)
 Example eval_neg_underflow_pos_zero :
   option_map (fun v => match v with FloatValue _ fv => Float.ieee fv | _ => S754_nan end)
-             (eval_expr (Syntax.FloatLiteral (Float.make_decimal (-1) (-330) eq_refl)))
+             (eval_expr (Syntax.FloatLiteral (Float.MakeDecimal (-1) (-330) eq_refl)))
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
 
@@ -395,14 +395,14 @@ Proof. vm_compute. reflexivity. Qed.
 (** Trivial TODAY (the fragment has no unsafe operation), kept as the permanent extension point. *)
 Definition Property (cp : Compilable.Program) : Prop := True.
 
-Record Program : Type := make {
+Record Program : Type := Make {
   compiled : Compilable.Program;
   proof     : Property compiled
 }.
 
 (** A compilation certificate suffices for the current fragment; [compiled] carries the genuine
     whole-program compile proof, so nothing uncompilable is certified. *)
-Definition certify (cp : Compilable.Program) : Program := make cp I.
+Definition certify (cp : Compilable.Program) : Program := Make cp I.
 
 (** The certified program (what the public renderer/emitter traverse — only through Program). *)
 Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled sp).

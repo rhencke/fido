@@ -1,4 +1,4 @@
-(** Admissible — the EXACT acceptance model for the pinned one-shot `go build ./...`, as EVIDENCE over the ONE
+(** Compilable — the EXACT acceptance model for the pinned one-shot `go build ./...`, as EVIDENCE over the ONE
     raw program (the [Syntax.Program]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath.T] map of files
     [Syntax.Files]): [Admissible p := fresh_build_preflight_ok p /\ SourceProgramValid p] — the cmd/go default-
     OUTPUT fresh-build preflight AND the LIVE factored source judgment [SourceProgramValid]
@@ -88,12 +88,12 @@ Module PackageProperties := Collections.PackageProperties.
 
 (** a package (directory) SUMMARY carries only the LIVE fact the current fragment needs — the package's total
     `main` declaration count.  (No speculative method/import/type fields; a new fact lands with its proofs.) *)
-Record PackageSummary : Type := make_package_summary { summary_main_count : nat }.
+Record PackageSummary : Type := MakePackageSummary { summary_main_count : nat }.
 Definition summary_count (o : option PackageSummary) : nat := match o with Some s => summary_main_count s | None => 0 end.
 
 (** accumulate one file's `main` count into its parent-directory package summary. *)
 Definition package_map_add_main (dir : string) (n : nat) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
-  PackageMap.add dir (make_package_summary (n + summary_count (PackageMap.find dir acc))) acc.
+  PackageMap.add dir (MakePackageSummary (n + summary_count (PackageMap.find dir acc))) acc.
 Definition package_step (path : FilePath.T) (sf : Syntax.File) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
   package_map_add_main (FilePath.parent path) (file_main_count (Syntax.declarations sf)) acc.
 
@@ -235,7 +235,7 @@ Proof. intro fm. unfold package_summaries, package_foldl. rewrite Syntax.FileMap
 Lemma package_foldl_find : forall l acc dir,
   PackageMap.find dir (package_foldl l acc)
   = (if list_dir_mem dir l
-     then Some (make_package_summary (list_dir_count dir l + summary_count (PackageMap.find dir acc)))
+     then Some (MakePackageSummary (list_dir_count dir l + summary_count (PackageMap.find dir acc)))
      else PackageMap.find dir acc).
 Proof.
   induction l as [|[k e] rest IH]; intros acc dir; [ reflexivity | ].
@@ -256,7 +256,7 @@ Definition package_main_count (dir : string) (fm : Syntax.Files) : nat := list_d
 Lemma package_summaries_find : forall fm dir,
   PackageMap.find dir (package_summaries fm)
   = (if list_dir_mem dir (Syntax.file_bindings fm)
-     then Some (make_package_summary (package_main_count dir fm)) else None).
+     then Some (MakePackageSummary (package_main_count dir fm)) else None).
 Proof.
   intros fm dir. rewrite package_summaries_foldl, package_foldl_find. unfold package_main_count.
   rewrite PackageFacts.empty_o. cbn [summary_count].
@@ -271,7 +271,7 @@ Proof.
   assert (Hin : In (path, sf) (Syntax.file_bindings fm)).
   { unfold Syntax.file_bindings. apply Syntax.FileFacts.elements_mapsto_iff in Hmt. apply InA_alt in Hmt.
     destruct Hmt as [[k' e'] [[Hk He] Hin']]. cbn in Hk, He. subst. exact Hin'. }
-  exists (make_package_summary (package_main_count (FilePath.parent path) fm)).
+  exists (MakePackageSummary (package_main_count (FilePath.parent path) fm)).
   apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find.
   assert (Hmem : list_dir_mem (FilePath.parent path) (Syntax.file_bindings fm) = true).
   { unfold list_dir_mem. apply existsb_exists. exists (path, sf).
@@ -373,7 +373,7 @@ Qed.
 Definition package_present_b (p : Syntax.Program) (key : string) : bool :=
   list_dir_mem key (Syntax.file_bindings (Syntax.files p)).
 
-Record PackageRef (p : Syntax.Program) : Type := make_package_ref {
+Record PackageRef (p : Syntax.Program) : Type := MakePackageRef {
   package_ref_key : string ;
   package_ref_ok  : package_present_b p package_ref_key = true
 }.
@@ -410,7 +410,7 @@ Defined.
 Definition package_ref_of_binding (p : Syntax.Program) (b : FilePath.T * Syntax.File)
   (Hin : In b (Syntax.file_bindings (Syntax.files p))) : PackageRef p.
 Proof.
-  refine (make_package_ref p (FilePath.parent (fst b)) _).
+  refine (MakePackageRef p (FilePath.parent (fst b)) _).
   unfold package_present_b, list_dir_mem. apply existsb_exists.
   exists b. split; [ exact Hin | apply String.eqb_refl ].
 Defined.
@@ -422,7 +422,7 @@ Proof. reflexivity. Qed.
 (** construction from a validated file reference: the ref's own path witnesses its package. *)
 Definition package_ref_of_fileref {p} (fr : Index.Snapshot.FileRef p) : PackageRef p.
 Proof.
-  refine (make_package_ref p (FilePath.parent (Index.Snapshot.file_ref_path fr)) _).
+  refine (MakePackageRef p (FilePath.parent (Index.Snapshot.file_ref_path fr)) _).
   unfold package_present_b, list_dir_mem. apply existsb_exists.
   exists (Index.Snapshot.file_ref_path fr, Index.Snapshot.file_ref_source fr). split.
   - apply Syntax.find_file_bindings.
@@ -531,7 +531,7 @@ Definition erase_anchor {p} (a : DiagnosticAnchor p) : ErasedAnchor :=
   | AtProgram    => AnchorProgram
   end.
 
-Record ErasedDiagnostic : Type := make_erased {
+Record ErasedDiagnostic : Type := MakeErased {
   erased_code    : DiagnosticCode ;
   erased_primary : ErasedAnchor ;
   erased_related : list ErasedAnchor ;
@@ -580,7 +580,7 @@ Definition erased_source_target {p} (d : DiagnosticReason p) : option Syntax.Typ
   end.
 
 Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
-  make_erased (diagnostic_code d) (erase_anchor (diagnostic_primary d))
+  MakeErased (diagnostic_code d) (erase_anchor (diagnostic_primary d))
     (map erase_anchor (diagnostic_related d)) (erased_target d) (erased_output d) (erased_source_target d).
 
 (* intra-snapshot preservation: erasing keeps the CODE, the primary anchor's KEY identity, and the related
@@ -620,7 +620,7 @@ Proof. destruct d; cbn; split; try (intros [nm H]; discriminate); try discrimina
    [Typing.ResolvedConstant] — no parallel type map that could disagree.  Facts store semantic values only (never a
    Syntax.Expr / Index.Occurrence / rewritten syntax). *)
 
-Record ExpressionFact : Type := make_expression_fact {
+Record ExpressionFact : Type := MakeExpressionFact {
   const_status : Typing.ConstantInfo ;
   use_resolved : option Typing.ResolvedConstant
 }.
@@ -667,7 +667,7 @@ Qed.
 Definition occurrence_expr_fact (o : Index.Occurrence) : option ExpressionFact :=
   match Index.view_expr o with
   | Some e => match constant_info e with
-              | Some ci => Some (make_expression_fact ci (occurrence_use_resolved o))
+              | Some ci => Some (MakeExpressionFact ci (occurrence_use_resolved o))
               | None => None
               end
   | None => None
@@ -677,7 +677,7 @@ Definition occurrence_expr_fact (o : Index.Occurrence) : option ExpressionFact :
     that [constant_info], and its resolved field is exactly the occurrence's use-context resolution. *)
 Lemma occurrence_expr_fact_status : forall o e ci,
   Index.view_expr o = Some e -> constant_info e = Some ci ->
-  occurrence_expr_fact o = Some (make_expression_fact ci (occurrence_use_resolved o)).
+  occurrence_expr_fact o = Some (MakeExpressionFact ci (occurrence_use_resolved o)).
 Proof. intros o e ci Hv Hc. unfold occurrence_expr_fact. rewrite Hv, Hc. reflexivity. Qed.
 
 Lemma occurrence_expr_fact_none_nonexpr : forall o,
@@ -721,12 +721,12 @@ Lemma visit_file_key_nodup {p} (fr : Index.Snapshot.FileRef p) :
   NoDup (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) (Index.Snapshot.visit_file fr)).
 Proof.
   assert (Hmap : map (fun ro => Index.Snapshot.node_ref_key (fst ro)) (Index.Snapshot.visit_file fr)
-    = map (fun ro => Index.make_key (Index.Snapshot.file_ref_path fr) (Index.Snapshot.node_ref_local (fst ro)))
+    = map (fun ro => Index.MakeKey (Index.Snapshot.file_ref_path fr) (Index.Snapshot.node_ref_local (fst ro)))
           (Index.Snapshot.visit_file fr)).
   { apply map_ext_in. intros [r occ] Hin. cbn [fst]. rewrite Index.Snapshot.node_ref_key_eq.
     destruct (Index.Snapshot.visit_file_view p fr r occ Hin) as [_ Hf]. rewrite Hf. reflexivity. }
   rewrite Hmap, <- (map_map (fun ro => Index.Snapshot.node_ref_local (fst ro))
-                            (Index.make_key (Index.Snapshot.file_ref_path fr))).
+                            (Index.MakeKey (Index.Snapshot.file_ref_path fr))).
   apply no_duplicates_map_inj; [ intros x y H; injection H as H; exact H | apply Index.Snapshot.visit_file_nodup ].
 Qed.
 
@@ -1432,7 +1432,7 @@ Qed.
    visited occurrence at [operand_key] whose view is the conversion's operand (the soundness of the minted ref). *)
 
 Definition operand_key {p} (r : Index.Snapshot.NodeRef p) : Index.Key :=
-  Index.make_key (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Pos.succ (Index.Snapshot.node_ref_local r))).
+  Index.MakeKey (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Pos.succ (Index.Snapshot.node_ref_local r))).
 
 (* the operand of a visited conversion is ITSELF a visited occurrence whose key is [operand_key] and whose view is the
    operand expression (minted through the index from its exact local id). *)
@@ -1483,7 +1483,7 @@ Qed.
 (* the SOURCE type-name occurrence of a conversion at [r] has key [type_name_key r] (same file, [Pos.succ local]
    — the target child, one before the operand). *)
 Definition type_name_key {p} (r : Index.Snapshot.NodeRef p) : Index.Key :=
-  Index.make_key (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Index.Snapshot.node_ref_local r)).
+  Index.MakeKey (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Index.Snapshot.node_ref_local r)).
 
 (* the target child key is INJECTIVE in the conversion's own key: two conversions at DISTINCT keys have DISTINCT
    target type-name keys (so distinct target refs) — occurrence identity, not name identity. *)
@@ -1725,18 +1725,18 @@ Proof. intros ts x. reflexivity. Qed.
    carry source identity, so [byte]/[uint8] stay distinct SOURCES with EQUAL facts).  One sealed Index.Key-keyed
    standard map, built by the ONE retained visit fold (never a second AST walk), analogous to [ExpressionFactTable]. *)
 
-Record TypeNameFact : Type := make_type_name_fact { fact_type : Typing.SemanticType }.
+Record TypeNameFact : Type := MakeTypeNameFact { fact_type : Typing.SemanticType }.
 
 (* the type-name fact of a single occurrence: [Some] EXACTLY for a Index.TypeNameKind occurrence, resolving its retained
    source [Syntax.TypeExpr] through the predeclared context; non-type-name occurrences contribute nothing. *)
 Definition occurrence_type_name_fact (o : Index.Occurrence) : option TypeNameFact :=
   match Index.view_typename o with
-  | Some ts => Some (make_type_name_fact (predeclared_type ts))
+  | Some ts => Some (MakeTypeNameFact (predeclared_type ts))
   | None => None
   end.
 
 Lemma occurrence_type_name_fact_some : forall o ts,
-  Index.view_typename o = Some ts -> occurrence_type_name_fact o = Some (make_type_name_fact (predeclared_type ts)).
+  Index.view_typename o = Some ts -> occurrence_type_name_fact o = Some (MakeTypeNameFact (predeclared_type ts)).
 Proof. intros o ts H. unfold occurrence_type_name_fact. rewrite H. reflexivity. Qed.
 Lemma occurrence_type_name_fact_none : forall o,
   Index.view_typename o = None -> occurrence_type_name_fact o = None.
@@ -1827,7 +1827,7 @@ Qed.
 (* [ip] is intentionally ABSENT: the Index.table's contents and its domain/completeness proofs speak only of [p] (the
    snapshot), so a single Index.table object serves any indexing of [p].  This is what lets the production outcome path
    and the diagnostics thread the SAME [idx]-parameterized authority without an [Index.Program] cascade. *)
-Record TypeNameFacts (p : Syntax.Program) : Type := make_type_name_facts {
+Record TypeNameFacts (p : Syntax.Program) : Type := MakeTypeNameFacts {
   type_name_map      : Index.KeyMap.t TypeNameFact ;
   type_name_domain   : forall k f, Index.KeyMap.find k type_name_map = Some f ->
                     exists (r : Index.Snapshot.NodeRef p) occ, In (r, occ) (program_visit p)
@@ -1835,7 +1835,7 @@ Record TypeNameFacts (p : Syntax.Program) : Type := make_type_name_facts {
   type_name_complete : forall r occ, In (r, occ) (program_visit p) ->
                     Index.KeyMap.find (Index.Snapshot.node_ref_key r) type_name_map = occurrence_type_name_fact occ
 }.
-Arguments make_type_name_facts {p} _ _ _.
+Arguments MakeTypeNameFacts {p} _ _ _.
 Arguments type_name_map {p} _.
 Arguments type_name_domain {p} _.
 Arguments type_name_complete {p} _.
@@ -1861,7 +1861,7 @@ Lemma type_name_fact_at_table_find {p} (tnft : TypeNameFacts p) (tr : Index.Type
   type_name_fact_at_table tnft tr = f.
 Proof. intro Hf. unfold type_name_fact_at_table. apply from_some_eq. exact Hf. Qed.
 Lemma type_name_fact_at_table_resolves {p} (tnft : TypeNameFacts p) (tr : Index.TypeNameRef p) ts :
-  Index.type_name_ref_syntax tr = Some ts -> type_name_fact_at_table tnft tr = make_type_name_fact (predeclared_type ts).
+  Index.type_name_ref_syntax tr = Some ts -> type_name_fact_at_table tnft tr = MakeTypeNameFact (predeclared_type ts).
 Proof.
   intro Hts. unfold Index.type_name_ref_syntax in Hts. apply type_name_fact_at_table_find.
   rewrite (type_name_complete tnft (Index.erase_ref tr) (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr))
@@ -1973,7 +1973,7 @@ Definition conv_outcome {p} (tnft : TypeNameFacts p) (er : Index.ExprRef p)
   match oo with
   | ExpressionSuccess opf =>
       match Typing.convert_constant (fact_type (type_name_fact_at_table tnft tr)) (const_status opf) with
-      | Some tc => ExpressionSuccess (make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft tr)) tc)
+      | Some tc => ExpressionSuccess (MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft tr)) tc)
                           (use_resolved_of_input (expression_ref_role er)
                              (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft tr)) tc)))
       | None    => ConversionFailure er tr opr (fact_type (type_name_fact_at_table tnft tr)) (const_status opf)
@@ -1999,7 +1999,7 @@ Proof. destruct e as [ b|n|n0|s|d|dc| ts x ]; try reflexivity. exfalso. exact (e
 
 (* a leaf occurrence's outcome — its untyped fact + its use-context resolution from that same status. *)
 Definition leaf_outcome {p} (er : Index.ExprRef p) (ci : Typing.ConstantInfo) : ExpressionOutcome p :=
-  ExpressionSuccess (make_expression_fact ci (use_resolved_of_input (expression_ref_role er) ci)).
+  ExpressionSuccess (MakeExpressionFact ci (use_resolved_of_input (expression_ref_role er) ci)).
 
 (** a conversion whose operand succeeds but whose own conversion step fails — returns (target, operand status).
     (Moved above the outcome accumulator so the accumulator invariant can name the LOCAL invalid-conversion
@@ -2060,14 +2060,14 @@ Proof. destruct out as [f|? ? ? ? ?| ]; cbn [outcome_matches outcome_proj_fact];
     [index_program].  Specification theorems compare the stored values to the canonical helpers by [input_blocks_ok].
     (Placed BEFORE the outcome layer so the ONE retained work forest — built from this input — precedes and is
     CONSUMED by outcome construction, §4/§6.) *)
-Record Input (p : Syntax.Program) : Type := make_input {
+Record Input (p : Syntax.Program) : Type := MakeInput {
   indexed     : Index.Program p ;
   input_blocks : list (list (Index.Snapshot.NodeRef p * Index.Occurrence)) ;
   input_visit  : list (Index.Snapshot.NodeRef p * Index.Occurrence) ;   (* STORED once, consumed by every builder *)
   input_blocks_ok    : input_blocks = program_blocks p ;   (* PROVENANCE (spec): the stored blocks ARE the snapshot's *)
   input_visit_blocks : input_visit  = concat input_blocks  (* COHERENCE: the stored visit IS its blocks' flattening *)
 }.
-Arguments make_input {p} _ _ _ _ _.
+Arguments MakeInput {p} _ _ _ _ _.
 Arguments indexed {p} _.  Arguments input_blocks {p} _.  Arguments input_visit {p} _.
 Arguments input_blocks_ok {p} _.  Arguments input_visit_blocks {p} _.
 
@@ -2087,7 +2087,7 @@ Proof. unfold program_visit. rewrite (input_visit_blocks input), (input_blocks_o
    [input_visit_ok]. *)
 Definition build_compilation_input (p : Syntax.Program) (ip : Index.Program p) : Input p :=
   let blocks := program_blocks p in
-  make_input ip blocks (concat blocks) eq_refl eq_refl.
+  MakeInput ip blocks (concat blocks) eq_refl eq_refl.
 
 (* an outcome that is NOT a success — used to state a conversion child-failure ([ChildFailureCause] carries
    [outcome_is_fail] of the operand's outcome read through the operand suffix member). *)
@@ -2258,7 +2258,7 @@ Proof. unfold program_type_name_facts. rewrite (input_visit_ok input). reflexivi
 
 Definition build_type_name_fact_table {p} (input : Input p) : TypeNameFacts p.
 Proof.
-  refine (make_type_name_facts
+  refine (MakeTypeNameFacts
             (fold_right add_tn_fact (Index.KeyMap.empty TypeNameFact) (input_visit input)) _ _).
   - intros k f Hf. rewrite (type_name_input_map_eq input) in Hf. exact (program_type_name_facts_domain p k f Hf).
   - intros r occ Hin. rewrite (type_name_input_map_eq input). exact (program_type_name_facts_find p r occ Hin).
@@ -2307,7 +2307,7 @@ Definition ConvRefinement {p} (input : Input p) (er : Index.ExprRef p) (e : Synt
     annotation) reads [work_expr_ref]/the carried conversion refs directly and NEVER calls an optional [as_expr]
     with a fail-open [None] branch nor remints a conversion's target/operand ref.  The work builder is the SINGLE
     place that inspects a raw occurrence and decides expression-ness. *)
-Record Work {p} (input : Input p) : Type := make_work {
+Record Work {p} (input : Input p) : Type := MakeWork {
   work_node_ref   : Index.Snapshot.NodeRef p ;
   work_occurrence : Index.Occurrence ;
   work_expr_ref   : Index.ExprRef p ;
@@ -2318,7 +2318,7 @@ Record Work {p} (input : Input p) : Type := make_work {
   work_erase_exact   : Index.erase_ref work_expr_ref = work_node_ref ;
   work_conv          : ConvRefinement input work_expr_ref work_expr
 }.
-Arguments make_work {p input} _ _ _ _ _ _ _ _ _.
+Arguments MakeWork {p input} _ _ _ _ _ _ _ _ _.
 Arguments work_node_ref {p input} _.  Arguments work_occurrence {p input} _.
 Arguments work_expr_ref {p input} _.  Arguments work_expr {p input} _.
 Arguments work_in_visit {p input} _.  Arguments work_view_exact {p input} _.
@@ -2388,7 +2388,7 @@ Proof.
     destruct (Index.view_expr occ) as [e|] eqn:Hv.
     + assert (Hinp : In (r, occ) (program_visit p)) by (rewrite <- (input_visit_ok input); exact Hin).
       destruct (program_visit_expr_ref (index input) r occ e Hinp Hv) as [er [Hae Her]].
-      exists (make_work r occ er e Hin Hv Hae Her (build_work_conversion input r occ er e Hin Hv Hae) :: items_rest).
+      exists (MakeWork r occ er e Hin Hv Hae Her (build_work_conversion input r occ er e Hin Hv Hae) :: items_rest).
       cbn [map filter work_node_ref work_occurrence]. rewrite (occurrence_is_expr_true r occ e Hv), Hrest. reflexivity.
     + exists items_rest.
       cbn [filter]. rewrite (occurrence_is_expr_false r occ Hv). exact Hrest.
@@ -2510,13 +2510,13 @@ Qed.
     list it indexes.  [index_domain] and [index_key_inj] are DERIVED below — never stored, so there is no second
     authority for the domain or for key uniqueness. *)
 Record WorkIndex {p} {input : Input p} (items : list (Work input)) : Type :=
-  make_work_index {
+  MakeWorkIndex {
     index_map   : Index.KeyMap.t (Work input) ;
     index_exact : forall k w,
       Index.KeyMap.find k index_map = Some w
       <-> (In w items /\ Index.Snapshot.node_ref_key (work_node_ref w) = k)
   }.
-Arguments make_work_index {p input items} _ _.
+Arguments MakeWorkIndex {p input items} _ _.
 Arguments index_map {p input items} _.  Arguments index_exact {p input items} _.
 
 (* the ONE index build: from the ALREADY-RETAINED item list and its key-[NoDup].  Total (no option, no fallback,
@@ -2524,7 +2524,7 @@ Arguments index_map {p input items} _.  Arguments index_exact {p input items} _.
    list cannot be handed to this builder at all. *)
 Definition build_work_index {p} {input : Input p} (items : list (Work input))
     (Hnd : NoDup (map (fun w => Index.Snapshot.node_ref_key (work_node_ref w)) items)) : WorkIndex items :=
-  make_work_index (work_index_map items) (work_index_exact items Hnd).
+  MakeWorkIndex (work_index_map items) (work_index_exact items Hnd).
 
 (* DERIVED domain: the index holds exactly the retained items' keys. *)
 Lemma index_domain {p} {input : Input p} {items : list (Work input)}
@@ -2594,7 +2594,7 @@ Qed.
     builder re-calls [build_forest_blocks]/[build_forest_sig].  The reverse domain, forward domain, and key-NoDup
     are RETAINED fields (not re-recovered); [forest_split]/[forest_operand_in_tail] are laws DERIVED from these fields,
     never from a second construction.  This is a proof-backed VIEW over the one AST, not a second AST. *)
-Record WorkForest {p} (input : Input p) : Type := make_forest {
+Record WorkForest {p} (input : Input p) : Type := MakeForest {
   forest_blocks : list (list (Work input)) ;
   forest_items  : list (Work input) ;
   forest_flat   : forest_items = concat forest_blocks ;
@@ -2613,7 +2613,7 @@ Record WorkForest {p} (input : Input p) : Type := make_forest {
     forall nr occ e, In (nr, occ) (input_visit input) -> Index.view_expr occ = Some e ->
       exists w, In w forest_items /\ work_node_ref w = nr /\ work_occurrence w = occ
 }.
-Arguments make_forest {p input} _ _ _ _ _ _ _ _ _.
+Arguments MakeForest {p input} _ _ _ _ _ _ _ _ _.
 Arguments forest_blocks {p input} _.  Arguments forest_items {p input} _.  Arguments forest_flat {p input} _.
 Arguments forest_blocks_exact {p input} _.  Arguments forest_items_exact {p input} _.
 Arguments forest_keys_nodup {p input} _.  Arguments forest_index {p input} _.
@@ -2633,7 +2633,7 @@ Proof.
       by (rewrite <- Hitems, map_map; reflexivity).
     apply nodup_map_filter. rewrite (input_visit_ok input). exact (program_visit_key_nodup p). }
   (* the ONE index build, over the item list ALREADY built above — no second discovery, no re-traversal. *)
-  refine (make_forest bs (concat bs) eq_refl Hbs Hitems Hnd (build_work_index (concat bs) Hnd) _ _).
+  refine (MakeForest bs (concat bs) eq_refl Hbs Hitems Hnd (build_work_index (concat bs) Hnd) _ _).
   - (* forest_reverse *)
     intros w Hw. pose proof (in_map (fun w0 => (work_node_ref w0, work_occurrence w0)) _ _ Hw) as Hp.
     rewrite Hitems in Hp. apply filter_In in Hp. exact (proj1 Hp).
@@ -2760,7 +2760,7 @@ Proof.
 Qed.
 
 Record Conversion {p} {input : Input p} (forest : WorkForest input)
-    (w : Work input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Type := make_conversion {
+    (w : Work input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Type := MakeConversion {
   conversion_target_node_ref   : Index.TypeNameRef p ;
   conversion_operand_work : WorkMember forest ;
   conversion_target_ref_eq  : conversion_target_ref (index input) (work_expr_ref w) = Some conversion_target_node_ref ;
@@ -2779,7 +2779,7 @@ Record Conversion {p} {input : Input p} (forest : WorkForest input)
   conversion_target_before_op : Pos.lt (Index.key_local (type_name_key (work_node_ref w)))
                                (Index.key_local (operand_key (work_node_ref w)))
 }.
-Arguments make_conversion {p input forest w ts x} _ _ _ _ _ _ _ _ _ _ _.
+Arguments MakeConversion {p input forest w ts x} _ _ _ _ _ _ _ _ _ _ _.
 Arguments conversion_target_node_ref {p input forest w ts x} _.  Arguments conversion_operand_work {p input forest w ts x} _.
 Arguments conversion_target_ref_eq {p input forest w ts x} _.  Arguments conversion_operand_ref_eq {p input forest w ts x} _.
 Arguments conversion_target_syntax {p input forest w ts x} _.  Arguments conversion_target_role {p input forest w ts x} _.
@@ -2848,7 +2848,7 @@ Proof.
     rewrite (as_expr_erase (index input) opr) in Hae2. injection Hae2 as He2. exact (eq_sym He2). }
   assert (Hexpr : work_expr wopr = x).
   { pose proof (work_view_exact wopr) as Hv2. rewrite Hocc, Hopr_view in Hv2. injection Hv2 as Hx. exact (eq_sym Hx). }
-  refine (make_conversion tr (exist _ wopr Hwopr_in) Htr_ref _ Htsyn Htr_role _ Hexpr Htr_key Hwopr_key _).
+  refine (MakeConversion tr (exist _ wopr Hwopr_in) Htr_ref _ Htsyn Htr_role _ Hexpr Htr_key Hwopr_key _).
   - cbn [proj1_sig]. rewrite Href. exact Hopr_ref.
   - cbn [proj1_sig]. rewrite Hocc. exact Hopr_role.
   - unfold type_name_key, operand_key. cbn [Index.key_local]. apply Pos.lt_succ_diag_r.
@@ -2878,14 +2878,14 @@ Definition sm_key {p} {input : Input p} {forest : WorkForest input} {items}
    SuffixMember of the exact CURRENT REST list — the semantic interface the fold consumes for a conversion head. *)
 Record ConversionStep {p} {input : Input p} (forest : WorkForest input)
     (current : Work input) (rest : list (Work input)) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Type :=
-  make_conversion_step {
+  MakeConversionStep {
     step_current        : WorkMember forest ;
     step_current_exact  : proj1_sig step_current = current ;
     step_conversion     : Conversion forest current ts x ;
     step_operand_suffix : SuffixMember forest rest ;
     step_operand_exact  : proj1_sig (proj1_sig step_operand_suffix) = proj1_sig (conversion_operand_work step_conversion)
   }.
-Arguments make_conversion_step {p input forest current rest ts x} _ _ _ _ _.
+Arguments MakeConversionStep {p input forest current rest ts x} _ _ _ _ _.
 Arguments step_current {p input forest current rest ts x} _.
 Arguments step_current_exact {p input forest current rest ts x} _.
 Arguments step_conversion {p input forest current rest ts x} _.
@@ -2916,7 +2916,7 @@ Proof.
     { apply (forest_key_inj forest _ _ Hopin Hw'_in).
       rewrite (conversion_operand_key cwk), Hkeyw'. reflexivity. }
     rewrite Hsame. exact Hinw'. }
-  exact (make_conversion_step (exist _ w Hin_w) eq_refl cwk (exist _ (conversion_operand_work cwk) Hopin_rest) eq_refl).
+  exact (MakeConversionStep (exist _ w Hin_w) eq_refl cwk (exist _ (conversion_operand_work cwk) Hopin_rest) eq_refl).
 Defined.
 
 (* §4 the PROOF-CARRYING OUTCOME ACCUMULATOR over the exact suffix [items]: the map, a coverage proof making the
@@ -2924,13 +2924,13 @@ Defined.
    option escapes), and the exact domain. *)
 Record Accumulator {p} {input : Input p} (forest : WorkForest input)
     (tnft : TypeNameFacts p) (items : list (Work input)) : Type :=
-  make_accumulator {
+  MakeAccumulator {
     accumulator_map    : Index.KeyMap.t (ExpressionOutcome p) ;
     accumulator_covers : forall w, In w items ->
                   Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w)) accumulator_map <> None ;
     accumulator_domain : outcome_dom_exact (map (fun w0 => (work_node_ref w0, work_occurrence w0)) items) accumulator_map
   }.
-Arguments make_accumulator {p input forest tnft items} _ _ _.
+Arguments MakeAccumulator {p input forest tnft items} _ _ _.
 Arguments accumulator_map {p input forest tnft items} _.
 Arguments accumulator_covers {p input forest tnft items} _.
 Arguments accumulator_domain {p input forest tnft items} _.
@@ -2959,7 +2959,7 @@ Inductive StepCause {p} {input : Input p} (forest : WorkForest input)
     Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
       (const_status opf) = Some tc ->
     StepCause forest tnft current rest acc_rest
-      (ExpressionSuccess (make_expression_fact
+      (ExpressionSuccess (MakeExpressionFact
                (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
                (use_resolved_of_input (expression_ref_role (work_expr_ref current))
                   (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc))))
@@ -3081,7 +3081,7 @@ Qed.
 Definition empty_acc {p} {input : Input p} {forest : WorkForest input} {tnft}
   : Accumulator forest tnft [].
 Proof.
-  refine (make_accumulator (items := @nil (Work input))
+  refine (MakeAccumulator (items := @nil (Work input))
             (Index.KeyMap.empty (ExpressionOutcome p)) _ outcome_dom_exact_empty).
   intros w0 Hin0. destruct Hin0.
 Defined.
@@ -3121,7 +3121,7 @@ Definition extend_acc {p} {input : Input p} {forest : WorkForest input} {tnft}
     {rest : list (Work input)} (acc_rest : Accumulator forest tnft rest)
     (current : Work input) (o : ExpressionOutcome p)
   : Accumulator forest tnft (current :: rest) :=
-  make_accumulator
+  MakeAccumulator
     (Index.KeyMap.add (Index.Snapshot.node_ref_key (work_node_ref current)) o (accumulator_map acc_rest))
     (extend_covers acc_rest current o)
     (extend_domain acc_rest current o).
@@ -3341,11 +3341,11 @@ Definition wm_suffix {p} {input : Input p} {forest : WorkForest input} (wm : Wor
    carrying the tail-to-final query preservation; they are NOT stored freely-pairable fields. *)
 Record Outcomes {p} {input : Input p} (forest : WorkForest input)
     (tnft : TypeNameFacts p) : Type :=
-  make_outcomes {
+  MakeOutcomes {
     outcomes_acc : Accumulator forest tnft (forest_items forest) ;
     outcomes_trace : Trace forest tnft (forest_items forest) outcomes_acc
   }.
-Arguments make_outcomes {p input forest tnft} _ _.
+Arguments MakeOutcomes {p input forest tnft} _ _.
 Arguments outcomes_acc {p input forest tnft} _.  Arguments outcomes_trace {p input forest tnft} _.
 
 (* the underlying map + exact domain, projected from the retained accumulator (preserving the downstream interface —
@@ -3361,7 +3361,7 @@ Definition build_forest_outcome_table {p} {input : Input p} (forest : WorkForest
     (tnft : TypeNameFacts p) : Outcomes forest tnft :=
   let bt := build_outcome_trace forest tnft (forest_items forest)
               (ex_intro _ (@nil (Work input)) eq_refl) in
-  make_outcomes (projT1 bt) (projT2 bt).
+  MakeOutcomes (projT1 bt) (projT2 bt).
 
 (* §2.10 a RETAINED member's key is present — its pair is in the forest projection, covered by the accumulator.
    No equal-key search over an arbitrary [Work]: membership in [forest_items] is the hypothesis. *)
@@ -3552,7 +3552,7 @@ Lemma conversion_success_cause_yields_step {p} {input : Input p} {forest : WorkF
        accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
     /\ Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
          (const_status opf) = Some tc
-    /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
+    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
              (use_resolved_of_input (expression_ref_role (work_expr_ref current))
                 (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)).
 Proof.
@@ -3733,7 +3733,7 @@ Proof.
   exists r, occ. cbn [fst snd] in *. split; [exact Hin | split; [exact Hk | exact Hfe]].
 Qed.
 
-Record ExpressionFactTable (p : Syntax.Program) (ip : Index.Program p) : Type := make_expression_fact_table {
+Record ExpressionFactTable (p : Syntax.Program) (ip : Index.Program p) : Type := MakeExpressionFactTable {
   fact_table_map      : Index.KeyMap.t ExpressionFact ;
   fact_table_domain   : forall k f, Index.KeyMap.find k fact_table_map = Some f ->
                    exists (r : Index.Snapshot.NodeRef p) occ, In (r, occ) (program_visit p)
@@ -3741,7 +3741,7 @@ Record ExpressionFactTable (p : Syntax.Program) (ip : Index.Program p) : Type :=
   fact_table_complete : forall r occ, In (r, occ) (program_visit p) ->
                    Index.KeyMap.find (Index.Snapshot.node_ref_key r) fact_table_map = occurrence_expr_fact occ
 }.
-Arguments make_expression_fact_table {p ip} _ _ _.
+Arguments MakeExpressionFactTable {p ip} _ _ _.
 Arguments fact_table_map {p ip} _.
 Arguments fact_table_domain {p ip} _.
 Arguments fact_table_complete {p ip} _.
@@ -3772,15 +3772,15 @@ Definition occurrence_arg_typedb (o : Index.Occurrence) : bool :=
 
 (* a conversion's TYPE-NAME occurrence (kind Index.TypeNameKind, no expression view) is vacuously typed. *)
 Lemma occurrence_arg_typedb_typename : forall ts par sub,
-  occurrence_arg_typedb (Index.make_occurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
+  occurrence_arg_typedb (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
 
 Lemma occurrence_arg_typedb_operand : forall e par sub,
-  occurrence_arg_typedb (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) Index.ConversionOperand sub) = true.
+  occurrence_arg_typedb (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) Index.ConversionOperand sub) = true.
 Proof. reflexivity. Qed.
 
 Lemma occurrence_arg_typedb_printlnarg : forall e par aidx sub,
-  occurrence_arg_typedb (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) (Index.PrintlnArgument aidx) sub)
+  occurrence_arg_typedb (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) (Index.PrintlnArgument aidx) sub)
   = expression_typedb Typing.PrintlnArgument e.
 Proof. reflexivity. Qed.
 
@@ -4684,7 +4684,7 @@ Qed.
     forest] re-call).  Erasure→source determinism is [annotated_forest_erased_source], placed with [erase_annot]/
     [annotate_source] at their own layer. *)
 Record AnnotatedWork {p} {input : Input p} (forest : WorkForest input) : Type :=
-  make_annotated_work {
+  MakeAnnotatedWork {
   annotated_items : list (WorkMember forest * list (Index.ExprRef p)) ;
   annotated_members : map (fun x => proj1_sig (fst x)) annotated_items = forest_items forest ;
   annotated_diag_fold :
@@ -4708,7 +4708,7 @@ Record AnnotatedWork {p} {input : Input p} (forest : WorkForest input) : Type :=
                                        (Index.Snapshot.node_ref_local (Index.erase_ref a))) (snd x) ;
   annotated_context_nodup : forall x, In x annotated_items -> NoDup (snd x)
 }.
-Arguments make_annotated_work {p input forest} _ _ _ _ _ _ _.
+Arguments MakeAnnotatedWork {p input forest} _ _ _ _ _ _ _.
 Arguments annotated_items {p input forest} _.  Arguments annotated_members {p input forest} _.
 Arguments annotated_diag_fold {p input forest} _.  Arguments annotated_context_sound {p input forest} _.
 Arguments annotated_context_same_file {p input forest} _.  Arguments annotated_context_nearest_first {p input forest} _.
@@ -4752,7 +4752,7 @@ Proof.
   { intros x Hx.
     assert (Hxm : In (work_pair_ctx x) (map work_pair_ctx aw)) by (apply in_map; exact Hx).
     rewrite Halign in Hxm. apply filter_In in Hxm. exact (proj1 Hxm). }
-  refine (make_annotated_work aw _ Hprog _ _ _ _).
+  refine (MakeAnnotatedWork aw _ Hprog _ _ _ _).
   - exact (eq_trans Hmem (eq_sym (forest_flat forest))).
   - intros x er Hx Her.
     exact (annotate_program_ctx_sound (index input)
@@ -4811,17 +4811,17 @@ Qed.
     total ExpressionSuccess projection [forest_facts] of the exact [ot] over the exact [forest].  Indexed by [forest]/[ot], so
     a foreign equal-map Index.table is UNREPRESENTABLE (type mismatch), not merely discouraged. *)
 Record ExpressionFacts {p} {input : Input p} (forest : WorkForest input)
-    {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : Type := make_expression_facts {
+    {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : Type := MakeExpressionFacts {
   expression_facts_table   : ExpressionFactTable p (indexed input) ;
   expression_facts_is_facts : fact_table_map expression_facts_table = forest_facts forest tnft ot
 }.
-Arguments make_expression_facts {p input forest tnft ot} _ _.
+Arguments MakeExpressionFacts {p input forest tnft ot} _ _.
 Arguments expression_facts_table {p input forest tnft ot} _.  Arguments expression_facts_is_facts {p input forest tnft ot} _.
 
 Definition build_forest_expr_fact_table {p} {input : Input p} (forest : WorkForest input)
     {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : ExpressionFacts forest ot.
 Proof.
-  refine (make_expression_facts (make_expression_fact_table (forest_facts forest tnft ot) _ _) eq_refl).
+  refine (MakeExpressionFacts (MakeExpressionFactTable (forest_facts forest tnft ot) _ _) eq_refl).
   - intros k f Hf. rewrite (forest_facts_eq_spec forest tnft ot) in Hf.
     exact (program_expr_facts_domain p k f Hf).
   - intros r occ Hin. rewrite (forest_facts_eq_spec forest tnft ot).
@@ -4833,17 +4833,17 @@ Defined.
     [AnnotatedWork] and [ot], so a foreign annotated object / diagnostic list cannot be inserted. *)
 Record Diagnostics {p} {input : Input p} {forest : WorkForest input}
     (aw : AnnotatedWork forest)
-    {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : Type := make_diagnostics {
+    {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : Type := MakeDiagnostics {
   erased_diagnostics    : list (DiagnosticReason p) ;
   erased_is_diagnostics : erased_diagnostics = flat_map (forest_awork_diags ot) (annotated_items aw)
 }.
-Arguments make_diagnostics {p input forest aw tnft ot} _ _.
+Arguments MakeDiagnostics {p input forest aw tnft ot} _ _.
 Arguments erased_diagnostics {p input forest aw tnft ot} _.  Arguments erased_is_diagnostics {p input forest aw tnft ot} _.
 
 Definition build_expression_diagnostics {p} {input : Input p} {forest : WorkForest input}
     (aw : AnnotatedWork forest)
     {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) : Diagnostics aw ot :=
-  make_diagnostics (flat_map (forest_awork_diags ot) (annotated_items aw)) eq_refl.
+  MakeDiagnostics (flat_map (forest_awork_diags ot) (annotated_items aw)) eq_refl.
 
 (** §9/§10 THE ONE INTRINSIC EXPRESSION PHASE — a DEPENDENT CHAIN of retained objects: each later component is
     TYPED by the exact prior object it consumes, so a phase whose outcome Index.table, fact Index.table, annotation, or
@@ -4855,7 +4855,7 @@ Definition build_expression_diagnostics {p} {input : Input p} {forest : WorkFore
       · [phase_diag]  : [Diagnostics phase_awork phase_ot]        (consumes [phase_awork] + [phase_ot]).
     [build_expression_phase] let-binds each exact object and passes it forward; the concrete builder makes
     [phase_work]/[phase_type_name_facts] DEFINITIONALLY the retained-input builders (no stored equality needed). *)
-Record Phase {p} (input : Input p) : Type := make_phase {
+Record Phase {p} (input : Input p) : Type := MakePhase {
   phase_work  : WorkForest input ;
   phase_type_name_facts  : TypeNameFacts p ;
   phase_ot    : Outcomes phase_work phase_type_name_facts ;
@@ -4863,7 +4863,7 @@ Record Phase {p} (input : Input p) : Type := make_phase {
   phase_fact_table   : ExpressionFacts phase_work phase_ot ;
   phase_diag  : Diagnostics phase_awork phase_ot
 }.
-Arguments make_phase {p input} _ _ _ _ _ _.
+Arguments MakePhase {p input} _ _ _ _ _ _.
 Arguments phase_work {p input} _.  Arguments phase_type_name_facts {p input} _.  Arguments phase_ot {p input} _.
 Arguments phase_awork {p input} _.  Arguments phase_fact_table {p input} _.  Arguments phase_diag {p input} _.
 
@@ -4874,7 +4874,7 @@ Definition build_expression_phase {p} (input : Input p) : Phase input :=
   let awork := build_annotated_work_forest work in
   let eft   := build_forest_expr_fact_table work ot in
   let diag  := build_expression_diagnostics awork ot in
-  make_phase work tnft ot awork eft diag.
+  MakePhase work tnft ot awork eft diag.
 
 (** §11.2/§11.5 NO-RECONSTRUCTION SHARED OBJECT FLOW: each phase component IS the builder applied to the phase's
     OWN prior objects — proven by DEFINITIONAL equality of the concrete [build_expression_phase] (which let-binds
@@ -4985,7 +4985,7 @@ Lemma retained_convsuccess_closure {p} {input : Input p} {forest : WorkForest in
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
     /\ Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
          (const_status opf) = Some tc
-    /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
+    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
              (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
                 (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)).
 Proof.
@@ -5114,13 +5114,13 @@ Definition occurrence_emits_none_pure (occ : Index.Occurrence) : bool :=
 
 (* a conversion's TYPE-NAME occurrence (no expression view) is vacuously local-OK / default-OK / emit-none. *)
 Lemma occurrence_local_ok_typename : forall ts par sub,
-  occurrence_local_ok (Index.make_occurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
+  occurrence_local_ok (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
 Lemma occurrence_default_ok_typename : forall ts par sub,
-  occurrence_default_ok (Index.make_occurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
+  occurrence_default_ok (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
 Lemma occurrence_emits_none_pure_typename : forall ts par sub,
-  occurrence_emits_none_pure (Index.make_occurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
+  occurrence_emits_none_pure (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
 
 (** every use-context type is allowed for a println argument (the type universe is exactly the allowed set). *)
@@ -5155,7 +5155,7 @@ Qed.
 
 (** a conversion-operand occurrence is always default-OK (only a println-arg root can default-fail). *)
 Lemma occurrence_default_ok_operand : forall e par sub,
-  occurrence_default_ok (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) Index.ConversionOperand sub) = true.
+  occurrence_default_ok (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) Index.ConversionOperand sub) = true.
 Proof. reflexivity. Qed.
 
 Lemma occurrence_default_ok_operand_true : forall e parent me,
@@ -5169,7 +5169,7 @@ Qed.
 
 (** a println-argument root occurrence is default-OK IFF its untyped constant defaults (typed / failed = OK). *)
 Lemma occurrence_default_ok_printlnarg : forall e par aidx sub,
-  occurrence_default_ok (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) (Index.PrintlnArgument aidx) sub)
+  occurrence_default_ok (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) (Index.PrintlnArgument aidx) sub)
   = match constant_info e with Some (Typing.UntypedInfo c) => match Typing.default_constant c with Some _ => true | None => false end | _ => true end.
 Proof.
   intros e par aidx sub. unfold occurrence_default_ok.
@@ -5748,7 +5748,7 @@ Proof.
   rewrite (Index.Snapshot.node_kind_matches_source p idx (Index.Snapshot.file_root_ref fr)).
   pose proof (Index.Snapshot.source_occ_of_ref_eq (Index.Snapshot.file_root_ref fr)) as Hso.
   rewrite (Index.Snapshot.file_root_ref_file p fr), (Index.Snapshot.file_root_ref_local p fr) in Hso.
-  assert (Hroot : In (Index.root_id, Index.make_occurrence Index.FileKind (Index.FileView (Index.Snapshot.file_ref_source fr))
+  assert (Hroot : In (Index.root_id, Index.MakeOccurrence Index.FileKind (Index.FileView (Index.Snapshot.file_ref_source fr))
                         None Index.FileRoot (Index.count_file (Index.Snapshot.file_ref_source fr)))
                      (Index.occurrences_file (Index.Snapshot.file_ref_source fr))).
   { unfold Index.occurrences_file. destruct (Syntax.imports (Index.Snapshot.file_ref_source fr)) as [|i tl]; [| destruct i].
@@ -5837,7 +5837,7 @@ Proof.
   pose proof (program_package_refs_bucket_len idx dir l Hfind) as Hlen.
   assert (Hmem : list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true).
   { apply (program_package_refs_present idx dir). apply PackageFacts.in_find_iff. rewrite Hfind. discriminate. }
-  assert (Hmt : PackageMap.MapsTo dir (make_package_summary (package_main_count dir (Syntax.files p))) (package_summaries (Syntax.files p))).
+  assert (Hmt : PackageMap.MapsTo dir (MakePackageSummary (package_main_count dir (Syntax.files p))) (package_summaries (Syntax.files p))).
   { apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
   pose proof (Hall dir _ Hmt) as Hone. cbn [summary_main_count] in Hone.
   rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
@@ -5907,7 +5907,7 @@ Definition package_diag_of_bucket {p} (m : PackageMap.t (list (Index.DeclRef p))
     (dir : string) (l : list (Index.DeclRef p)) (Hmt : PackageMap.MapsTo dir l m)
     : list (DiagnosticReason p) :=
   match l with
-  | nil        => [ MissingMainEntry (make_package_ref p dir (Hpres dir l Hmt)) ]
+  | nil        => [ MissingMainEntry (MakePackageRef p dir (Hpres dir l Hmt)) ]
   | d1 :: rest => map (fun dk => MainRedeclared dk d1) rest
   end.
 
@@ -5997,7 +5997,7 @@ Proof.
   - intros [Hle Hge] kv Hin.
     pose proof (elements_all_mapsto (program_package_refs idx) kv Hin) as Hbmt.
     pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
-    assert (Hms : PackageMap.MapsTo (fst kv) (make_package_summary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
+    assert (Hms : PackageMap.MapsTo (fst kv) (MakePackageSummary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
     { apply PackageMap.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
     pose proof (Hle (fst kv) _ Hms) as Hle1. pose proof (Hge (fst kv) _ Hms) as Hge1.
     cbn [summary_main_count] in Hle1, Hge1.
@@ -6098,7 +6098,7 @@ Proof.
   - intros Hle kv Hin.
     pose proof (elements_all_mapsto (program_package_refs idx) kv Hin) as Hbmt.
     pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
-    assert (Hms : PackageMap.MapsTo (fst kv) (make_package_summary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
+    assert (Hms : PackageMap.MapsTo (fst kv) (MakePackageSummary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
     { apply PackageMap.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
     pose proof (Hle (fst kv) _ Hms) as Hle1. cbn [summary_main_count] in Hle1.
     rewrite (program_package_refs_bucket_len idx (fst kv) (snd kv) (PackageMap.find_1 Hbmt)). lia.
@@ -6120,7 +6120,7 @@ Proof.
   - intros Hge kv Hin.
     pose proof (elements_all_mapsto (program_package_refs idx) kv Hin) as Hbmt.
     pose proof (bucket_key_present idx (fst kv) (snd kv) Hbmt) as Hpres.
-    assert (Hms : PackageMap.MapsTo (fst kv) (make_package_summary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
+    assert (Hms : PackageMap.MapsTo (fst kv) (MakePackageSummary (package_main_count (fst kv) (Syntax.files p))) (package_summaries (Syntax.files p))).
     { apply PackageMap.find_2. rewrite package_summaries_find. unfold package_present_b in Hpres. rewrite Hpres. reflexivity. }
     pose proof (Hge (fst kv) _ Hms) as Hge1. cbn [summary_main_count] in Hge1.
     rewrite (program_package_refs_bucket_len idx (fst kv) (snd kv) (PackageMap.find_1 Hbmt)). lia.
@@ -6585,7 +6585,7 @@ Qed.
    foundation for cross-snapshot report/fact determinism: [FilesEqual] programs have IDENTICAL keyed streams. *)
 Lemma keyed_visit_file {p} (fr : Index.Snapshot.FileRef p) :
   map (fun rc => (Index.Snapshot.node_ref_key (fst rc), snd rc)) (Index.Snapshot.visit_file fr)
-  = map (fun idocc => (Index.make_key (Index.Snapshot.file_ref_path fr) (fst idocc), snd idocc))
+  = map (fun idocc => (Index.MakeKey (Index.Snapshot.file_ref_path fr) (fst idocc), snd idocc))
         (Index.occurrences_file (Index.Snapshot.file_ref_source fr)).
 Proof.
   rewrite <- (Index.Snapshot.visit_file_idocc p fr), map_map.
@@ -6597,7 +6597,7 @@ Qed.
 Lemma keyed_binding_visit (p : Syntax.Program) (b : FilePath.T * Syntax.File) :
   In b (Syntax.file_bindings (Syntax.files p)) ->
   map (fun rc => (Index.Snapshot.node_ref_key (fst rc), snd rc)) (binding_visit p b)
-  = map (fun idocc => (Index.make_key (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b)).
+  = map (fun idocc => (Index.MakeKey (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b)).
 Proof.
   intro Hin. unfold binding_visit.
   pose proof (Syntax.file_bindings_find (Syntax.files p) b Hin) as Hfind.
@@ -6609,7 +6609,7 @@ Definition keyed_visit (p : Syntax.Program) : list (Index.Key * Index.Occurrence
   map (fun rc => (Index.Snapshot.node_ref_key (fst rc), snd rc)) (program_visit p).
 
 Definition source_keyed_visit (fm : Syntax.Files) : list (Index.Key * Index.Occurrence) :=
-  flat_map (fun b => map (fun idocc => (Index.make_key (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b)))
+  flat_map (fun b => map (fun idocc => (Index.MakeKey (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b)))
            (Syntax.file_bindings fm).
 
 Lemma keyed_visit_source (p : Syntax.Program) : keyed_visit p = source_keyed_visit (Syntax.files p).
@@ -6720,7 +6720,7 @@ Qed.
 Definition annotate_source (fm : Syntax.Files)
   : list ((Index.Key * Index.Occurrence) * list Index.Key) :=
   flat_map (fun b => annotate_keyed []
-              (map (fun idocc => (Index.make_key (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b))))
+              (map (fun idocc => (Index.MakeKey (fst b) (fst idocc), snd idocc)) (Index.occurrences_file (snd b))))
            (Syntax.file_bindings fm).
 
 Lemma annotate_program_erased {p} (idx : Index.Snapshot.Syntax p) :
@@ -6773,11 +6773,11 @@ Definition erase_occ_diags (kroc : (Index.Key * Index.Occurrence) * list Index.K
   | None => []
   | Some e =>
       match local_conv_failure e with
-      | Some (t, _) => [ make_erased CodeInvalidConversion (AnchorNode (fst (fst kroc)))
+      | Some (t, _) => [ MakeErased CodeInvalidConversion (AnchorNode (fst (fst kroc)))
                                             (map AnchorNode (snd kroc)) (Some t) None (expression_conv_target e) ]
       | None =>
           match arg_default_failure (snd (fst kroc)) e with
-          | Some (_, dt) => [ make_erased CodeDefaultNotRepresentable (AnchorNode (fst (fst kroc))) [] (Some dt) None None ]
+          | Some (_, dt) => [ MakeErased CodeDefaultNotRepresentable (AnchorNode (fst (fst kroc))) [] (Some dt) None None ]
           | None => []
           end
       end
@@ -6786,7 +6786,7 @@ Definition erase_occ_diags (kroc : (Index.Key * Index.Occurrence) * list Index.K
 (* erasing the two expression diagnostics, computed explicitly (isolating the anchor/target projection). *)
 Lemma erase_diagnostic_invalid {p} (er : Index.ExprRef p) tr opr outer t ci :
   erase_diagnostic (InvalidConversion er tr opr outer t ci)
-  = make_erased CodeInvalidConversion (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er)))
+  = MakeErased CodeInvalidConversion (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er)))
       (map (fun r => AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref r))) outer) (Some t) None
       (Index.type_name_ref_syntax tr).
 Proof.
@@ -6797,7 +6797,7 @@ Qed.
 
 Lemma erase_diagnostic_default {p} (er : Index.ExprRef p) c dt :
   erase_diagnostic (DefaultNotRepresentable er c dt)
-  = make_erased CodeDefaultNotRepresentable (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er))) [] (Some dt) None None.
+  = MakeErased CodeDefaultNotRepresentable (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er))) [] (Some dt) None None.
 Proof. reflexivity. Qed.
 
 (* per VISITED occurrence: erasing the ref-emitted diagnostics equals the keyed emitter on the erased
@@ -6963,8 +6963,8 @@ Qed.
 (* the ERASED package diagnostics of one bucket, over its erased (Index.Key) keys — a pure source function. *)
 Definition erase_bucket_diag (kv : string * list Index.Key) : list ErasedDiagnostic :=
   match snd kv with
-  | nil        => [ make_erased CodeMissingMainEntry (AnchorPackage (fst kv)) [] None None None ]
-  | e1 :: erest => map (fun ek => make_erased CodeMainRedeclared (AnchorNode ek) [AnchorNode e1] None None None) erest
+  | nil        => [ MakeErased CodeMissingMainEntry (AnchorPackage (fst kv)) [] None None None ]
+  | e1 :: erest => map (fun ek => MakeErased CodeMainRedeclared (AnchorNode ek) [AnchorNode e1] None None None) erest
   end.
 
 Lemma package_diag_of_bucket_erased {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres dir l Hmt :
@@ -8014,7 +8014,7 @@ Proof.
   - intros [b [Hin Heq]].
     assert (Hmem : list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true).
     { unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hin | rewrite Heq; apply String.eqb_refl ]. }
-    exists (make_package_summary (package_main_count dir (Syntax.files p))).
+    exists (MakePackageSummary (package_main_count dir (Syntax.files p))).
     apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
 Qed.
 
@@ -8649,7 +8649,7 @@ Proof. rewrite semantic_ok_b_source_spec_valid_b. apply source_spec_valid_b_iff.
 
 Definition sole_package_ref (p : Syntax.Program) (dir : string) : option (PackageRef p) :=
   match Bool.bool_dec (package_present_b p dir) true with
-  | left H  => Some (make_package_ref p dir H)
+  | left H  => Some (MakePackageRef p dir H)
   | right _ => None
   end.
 
@@ -8847,12 +8847,12 @@ Qed.
 Example predeclared_byte_is_uint8 : predeclared_type (Syntax.type_expr_of_name Names.Byte) = Typing.IntegerType Integer.Uint8. Proof. reflexivity. Qed.
 Example predeclared_rune_is_int32 : predeclared_type (Syntax.type_expr_of_name Names.Rune) = Typing.IntegerType Integer.Int32. Proof. reflexivity. Qed.
 Theorem tnfact_byte_uint8_same_type :
-  make_type_name_fact (predeclared_type (Syntax.type_expr_of_name Names.Byte))
-  = make_type_name_fact (predeclared_type (Syntax.type_expr_of_name Names.Uint8)).
+  MakeTypeNameFact (predeclared_type (Syntax.type_expr_of_name Names.Byte))
+  = MakeTypeNameFact (predeclared_type (Syntax.type_expr_of_name Names.Uint8)).
 Proof. reflexivity. Qed.
 Theorem tnfact_rune_int32_same_type :
-  make_type_name_fact (predeclared_type (Syntax.type_expr_of_name Names.Rune))
-  = make_type_name_fact (predeclared_type (Syntax.type_expr_of_name Names.Int32)).
+  MakeTypeNameFact (predeclared_type (Syntax.type_expr_of_name Names.Rune))
+  = MakeTypeNameFact (predeclared_type (Syntax.type_expr_of_name Names.Int32)).
 Proof. reflexivity. Qed.
 Theorem tsyn_byte_neq_uint8 : Syntax.type_expr_of_name Names.Byte <> Syntax.type_expr_of_name Names.Uint8.
 Proof.
@@ -8933,7 +8933,7 @@ Example excl_comparable : Names.classify "comparable" = None.  Proof. reflexivit
 Example excl_foo        : Names.classify "foo" = None.         Proof. reflexivity. Qed.
 Example excl_qualified  : Names.classify "pkg.T" = None.       Proof. reflexivity. Qed.
 Fail Definition excl_bool_target : Syntax.TypeExpr :=
-  Syntax.NamedType (Syntax.Unqualified (Names.make_supported_type (Names.make_identifier "bool" eq_refl) Names.Int eq_refl)).
+  Syntax.NamedType (Syntax.Unqualified (Names.MakeSupportedType (Names.MakeIdentifier "bool" eq_refl) Names.Int eq_refl)).
 
 (** ★§12 representative migrated conversion fixtures (results preserved — one accept + one reject per numeric
     family, a nested and a same-target-identity case, and the load-bearing scalar + complex-component
@@ -8954,13 +8954,13 @@ Example representable_scalar_double_round_single_rounding :
   constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_single_rounding))
   <> constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral Typing.decimal_single_rounding))). Proof. vm_compute. discriminate. Qed.
 Example representable_complex_component_single_rounding :
-  constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0)))
+  constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0)))
   <> constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64)
-        (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0)))). Proof. vm_compute. discriminate. Qed.
+        (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_single_rounding Typing.decimal_0_0)))). Proof. vm_compute. discriminate. Qed.
 (** NO type-name fact on a wrong-kind (expression) occurrence — the fact Index.table's domain is exactly the
     type-name occurrences (mirrors [ef_package]/[ef_expr] domain exactness). *)
 Example representable_no_tnfact_on_expr : forall e par role sub,
-  occurrence_type_name_fact (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) role sub) = None.
+  occurrence_type_name_fact (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) role sub) = None.
 Proof. reflexivity. Qed.
 
 
@@ -9061,7 +9061,7 @@ Module Type ELABORATION.
 End ELABORATION.
 
 Module Elaborations : ELABORATION.
-  Record CoreRepresentation (p : Syntax.Program) : Type := make_core {
+  Record CoreRepresentation (p : Syntax.Program) : Type := MakeCore {
     core_input : Input p ;
     phase : Phase core_input ;
 
@@ -9101,7 +9101,7 @@ Module Elaborations : ELABORATION.
       core_diagnostics = command_diagnostics_of p core_plan
         (bucket_flatten (node_keyed core_raw_diagnostics) ++ package_primary core_raw_diagnostics)
   }.
-  Arguments make_core {p} _ _ _ _ _ _ _ _ _ _ _ _ _ _ _.
+  Arguments MakeCore {p} _ _ _ _ _ _ _ _ _ _ _ _ _ _ _.
   Arguments core_input {p} _.  Arguments phase {p} _.
   Arguments core_package_refs {p} _.  Arguments core_package_refs_from_visit {p} _.
   Arguments core_package_present {p} _.  Arguments core_package_len {p} _.
@@ -9120,11 +9120,11 @@ Module Elaborations : ELABORATION.
 
 
 
-  Record ElaborationRepresentation (p : Syntax.Program) : Type := make_elaboration {
+  Record ElaborationRepresentation (p : Syntax.Program) : Type := MakeElaboration {
     elaboration_core     : Core p;
     decision : Decision elaboration_core
   }.
-  Arguments make_elaboration {p} _ _.
+  Arguments MakeElaboration {p} _ _.
   Arguments elaboration_core {p} _.
   Arguments decision {p} _.
   Definition Elaboration (p : Syntax.Program) : Type := ElaborationRepresentation p.
@@ -9147,7 +9147,7 @@ Module Elaborations : ELABORATION.
     let pl    := fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements refs)) lay in
     let raw   := phase_diags ph
                  ++ package_bucket_diagnostics_from_refs refs (bucket_present_of_domain refs pres) in
-    make_core input ph
+    MakeCore input ph
       refs eq_refl
       pres
       (package_refs_bucket_len_at (index input) (input_visit input) (input_visit_ok input))
@@ -9159,7 +9159,7 @@ Module Elaborations : ELABORATION.
 
   Definition elaborate_at {p : Syntax.Program} (ip : Index.Program p) : Elaboration p :=
     let core := build_elaboration_core p ip in
-    make_elaboration core (decision_of_core core).
+    MakeElaboration core (decision_of_core core).
 
   Definition elaborate (p : Syntax.Program) : Elaboration p :=
     elaborate_at (Index.index_program p).
@@ -9279,13 +9279,13 @@ End ACCEPTED_FACTS.
 
 Module AcceptedFacts : ACCEPTED_FACTS.
   Record FactsRepresentation {p : Syntax.Program} (core : Core p)
-      (accepted : core_diagnostics core = nil) : Type := make_facts {
+      (accepted : core_diagnostics core = nil) : Type := MakeFacts {
     source_valid : SourceProgramValid p ;
     (* the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output preflight
        passes for this program.  With [source_valid] it witnesses [Admissible] (see [admissible]). *)
     preflight    : fresh_build_preflight_ok p
   }.
-  Arguments make_facts {p core accepted} _ _.
+  Arguments MakeFacts {p core accepted} _ _.
   Arguments source_valid {p core accepted} _.
   Arguments preflight {p core accepted} _.
   Definition Facts {p : Syntax.Program} (core : Core p)
@@ -9295,7 +9295,7 @@ Module AcceptedFacts : ACCEPTED_FACTS.
     : Facts core Hnil :=
     let He : elaboration_diagnostics p (core_index core) = nil :=
       eq_trans (eq_sym (core_diagnostics_eq_elaboration core)) Hnil in
-    make_facts
+    MakeFacts
       (elaboration_no_diags_source_valid p (core_index core) He)
       (elaboration_no_diags_preflight p (core_index core) He).
 End AcceptedFacts.
@@ -9345,7 +9345,7 @@ Proof.
               (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) e' Hin Hv) as [ci Hci].
   pose proof (fact_table_complete (expression_facts facts) (Index.erase_ref er)
                 (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) Hin) as Hfind.
-  exists (make_expression_fact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)))).
+  exists (MakeExpressionFact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)))).
   rewrite Hfind. exact (occurrence_expr_fact_status _ e' ci Hv Hci).
 Qed.
 
@@ -9398,7 +9398,7 @@ Proof.
   pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
   pose proof (type_name_complete (type_name_facts facts) (Index.erase_ref tr)
                 (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) Hin) as Hfind.
-  exists (make_type_name_fact (predeclared_type ts)).
+  exists (MakeTypeNameFact (predeclared_type ts)).
   rewrite Hfind. exact (occurrence_type_name_fact_some _ ts Hv).
 Qed.
 
@@ -9440,7 +9440,7 @@ Qed.
     not a recomputation and not a copy of the spelling. *)
 Theorem type_name_fact_at_resolves {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) ts :
   Index.type_name_ref_syntax tr = Some ts ->
-  type_name_fact_at facts tr = make_type_name_fact (predeclared_type ts).
+  type_name_fact_at facts tr = MakeTypeNameFact (predeclared_type ts).
 Proof.
   intro Hts. unfold Index.type_name_ref_syntax in Hts.
   pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
@@ -9486,7 +9486,7 @@ Proof.
   intro E. pose proof (package_len facts dir l E) as Hlen.
   assert (Hmem : list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true).
   { apply (package_present facts dir). apply PackageFacts.in_find_iff. rewrite E. discriminate. }
-  assert (Hmt : PackageMap.MapsTo dir (make_package_summary (package_main_count dir (Syntax.files p))) (package_summaries (Syntax.files p))).
+  assert (Hmt : PackageMap.MapsTo dir (MakePackageSummary (package_main_count dir (Syntax.files p))) (package_summaries (Syntax.files p))).
   { apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity. }
   pose proof (proj1 (current_package_rules_exactly_one p) (proj2 (source_valid facts)) dir _ Hmt) as Hone. cbn [summary_main_count] in Hone.
   rewrite Hone in Hlen. destruct l as [|d [|d2 rest]]; cbn [length] in Hlen; try discriminate. exists d; reflexivity.
@@ -9593,7 +9593,7 @@ Qed.
     authority for a program the compiler never accepted (A001 / D-22).
 
     [Core] deliberately stays TRANSPARENT.  Every one of its fields is either determined by the program or
-    carried with the proof that it IS the canonical value, so [make_core] is a proof obligation rather than a
+    carried with the proof that it IS the canonical value, so [MakeCore] is a proof obligation rather than a
     forgery surface — and concrete fixtures must be able to compute an elaboration.  Sealing the two types
     that carry compiler AUTHORITY is the boundary that means something. *)
 Module Type CAPABILITY.
@@ -9628,18 +9628,18 @@ Module Type CAPABILITY.
 End CAPABILITY.
 
 Module Capability : CAPABILITY.
-  Record ProgramRepresentation : Type := make_program {
+  Record ProgramRepresentation : Type := MakeProgram {
     source : Syntax.Program;
     core    : Core source;
     accepted     : core_diagnostics core = nil
   }.
   Definition Program : Type := ProgramRepresentation.
 
-  Record FailureRepresentation (p : Syntax.Program) : Type := make_failure {
+  Record FailureRepresentation (p : Syntax.Program) : Type := MakeFailure {
     failure_core : Core p ;
     rejected     : core_diagnostics failure_core <> nil
   }.
-  Arguments make_failure {p} _ _.
+  Arguments MakeFailure {p} _ _.
   Arguments failure_core {p} _.
   Arguments rejected {p} _.
   Definition Failure (p : Syntax.Program) : Type := FailureRepresentation p.
@@ -9647,8 +9647,8 @@ Module Capability : CAPABILITY.
   Definition minted (p : Syntax.Program) (a : Elaboration p)
     : { cp : Program | source cp = p } + Failure p :=
     match decision a with
-    | AcceptedDecision Hnil => inl (exist _ (make_program p (elaboration_core a) Hnil) eq_refl)
-    | RejectedDecision Hne  => inr (make_failure (elaboration_core a) Hne)
+    | AcceptedDecision Hnil => inl (exist _ (MakeProgram p (elaboration_core a) Hnil) eq_refl)
+    | RejectedDecision Hne  => inr (MakeFailure (elaboration_core a) Hne)
     end.
 
   Lemma minted_accepted : forall p (a : Elaboration p),
@@ -9902,7 +9902,7 @@ Proof. intro cp. exact (facts_root_layout_ok (facts cp)). Qed.
 
 (** ═══ §7 THE ONE CAPABILITY-MINTING PATH ═══ there is exactly one way a [Program] enters the world: the
     production [compile].  This extractor STRUCTURALLY INSPECTS that one outcome and returns the capability
-    from its [Compiled] branch — it cannot name an elaboration builder, [make_program] or
+    from its [Compiled] branch — it cannot name an elaboration builder, [MakeProgram] or
     [Index.index_program], and never rebuilds or compares a core.  The [Rejected] branch is discharged as
     impossible from admissibility, so a witness cannot mint an artifact the compiler did not produce, and the
     emitted bytes are by construction the bytes of the compiler's own accepted object. *)
@@ -10087,7 +10087,7 @@ Lemma erased_fresh_report_of_sole : forall p dir,
   selected_package_keys p = [dir] ->
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
   map erase_diagnostic (fresh_build_diagnostics p)
-    = [make_erased CodeBuildOutputIsDirectory (AnchorPackage dir) [] None
+    = [MakeErased CodeBuildOutputIsDirectory (AnchorPackage dir) [] None
          (Some (default_exec_name (Syntax.module_spec p) dir)) None].
 Proof.
   intros p dir Hk Hpf.
@@ -10142,8 +10142,8 @@ Qed.
     [Typing] authority. *)
 Definition over_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral (Z.to_N (Integer.platform_maximum + 1)) ] ] ].
 
 (* the whole program fails typing, so [source_spec_valid_b] rejects it and [compile] returns the honest typing
@@ -10175,8 +10175,8 @@ Qed.
     conversion rejects the WHOLE program with the same honest typing error, before any bytes. ---- *)
 Definition int_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)
                        ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)
                        ; Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.IntegerLiteral 127)) ] ] ].
@@ -10189,8 +10189,8 @@ Proof. exact (compile_ok_of_source_spec_valid_b _ int_program_ok ltac:(vm_comput
     the outer [uint8]; the invalid nested conversion cannot be revived, so the whole program is rejected. *)
 Definition bad_convert_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.IntegerLiteral 300)) ] ] ].
 Example bad_convert_untyped     : program_typedb bad_convert_program = false. Proof. vm_compute; reflexivity. Qed.
 Example bad_convert_rejected    : legacy_compile_class (compile bad_convert_program) = LegacyTyping. Proof. exact (compile_untyped _ bad_convert_untyped ltac:(vm_compute; reflexivity)). Qed.
@@ -10201,8 +10201,8 @@ Proof. exact (reject_no_compile bad_convert_program eq_refl). Qed.
     mixes a string literal with a bool and an int is typed and compiles to a [Program]. ---- *)
 Definition str_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.StringLiteral "hello"; Syntax.BoolLiteral true; Syntax.IntegerLiteral 7 ] ] ].
 Example str_program_typed    : program_typedb str_program = true. Proof. vm_compute; reflexivity. Qed.
 Example str_program_ok       : source_spec_valid_b str_program = true.        Proof. vm_compute; reflexivity. Qed.
@@ -10215,11 +10215,11 @@ Proof. exact (compile_ok_of_source_spec_valid_b _ str_program_ok ltac:(vm_comput
     is NO [Program] for it. ---- *)
 Definition float_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
-    [ Syntax.Main [ Syntax.Println [ Syntax.FloatLiteral (Float.make_decimal 15 (-1) eq_refl)
-                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral (Float.make_decimal 15 (-1) eq_refl))
-                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.make_decimal 3 0 eq_refl)) ] ] ].
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    [ Syntax.Main [ Syntax.Println [ Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl)
+                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl))
+                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.MakeDecimal 3 0 eq_refl)) ] ] ].
 Example float_program_typed    : program_typedb float_program = true. Proof. vm_compute. reflexivity. Qed.
 Example float_program_ok       : source_spec_valid_b float_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example float_program_compiles : exists cp Hcp, compile float_program = Compiled cp Hcp.
@@ -10227,9 +10227,9 @@ Proof. exact (compile_ok_of_source_spec_valid_b _ float_program_ok ltac:(vm_comp
 
 Definition float_reject_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
-    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.make_decimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.MakeDecimal 35 (-1) eq_refl)) ] ] ].   (* int(3.5): fractional *)
 Example float_reject_untyped    : program_typedb float_reject_program = false. Proof. vm_compute. reflexivity. Qed.
 Example float_reject_rejected   : legacy_compile_class (compile float_reject_program) = LegacyTyping.
 Proof. exact (compile_untyped _ float_reject_untyped ltac:(vm_compute; reflexivity)). Qed.
@@ -10242,13 +10242,13 @@ Proof. apply (reject_no_compile float_reject_program); vm_compute; reflexivity. 
     [Program]. ---- *)
 Definition complex_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
-    [ Syntax.Main [ Syntax.Println [ Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 15 (-1) eq_refl) (Float.make_decimal (-25) (-1) eq_refl))
-                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Complex64)  (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 15 (-1) eq_refl) (Float.make_decimal 0 0 eq_refl)))
-                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 15 (-1) eq_refl) (Float.make_decimal 0 0 eq_refl)))
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    [ Syntax.Main [ Syntax.Println [ Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal (-25) (-1) eq_refl))
+                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Complex64)  (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
+                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
                        ; Syntax.Convert (Syntax.type_expr_of_name Names.Complex64)  (Syntax.IntegerLiteral 1)
-                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 3 0 eq_refl) (Float.make_decimal 0 0 eq_refl))) ] ] ].
+                       ; Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 3 0 eq_refl) (Float.MakeDecimal 0 0 eq_refl))) ] ] ].
 Example complex_program_typed    : program_typedb complex_program = true. Proof. vm_compute. reflexivity. Qed.
 Example complex_program_ok       : source_spec_valid_b complex_program = true.        Proof. vm_compute. reflexivity. Qed.
 Example complex_program_compiles : exists cp Hcp, compile complex_program = Compiled cp Hcp.
@@ -10256,9 +10256,9 @@ Proof. exact (compile_ok_of_source_spec_valid_b _ complex_program_ok ltac:(vm_co
 
 Definition complex_overflow_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
-    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 1 39 eq_refl) (Float.make_decimal 0 0 eq_refl))) ] ] ].
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 1 39 eq_refl) (Float.MakeDecimal 0 0 eq_refl))) ] ] ].
 Example complex_overflow_untyped    : program_typedb complex_overflow_program = false. Proof. vm_compute. reflexivity. Qed.
 Example complex_overflow_rejected   : legacy_compile_class (compile complex_overflow_program) = LegacyTyping. Proof. exact (compile_untyped _ complex_overflow_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example complex_overflow_no_compile : ~ Admissible complex_overflow_program.
@@ -10266,9 +10266,9 @@ Proof. apply (reject_no_compile complex_overflow_program); vm_compute; reflexivi
 
 Definition complex_nonzero_imag_program : Syntax.Program :=
   singleton_program
-    (Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23)
-    (FilePath.make "main.go" eq_refl)
-    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 3 0 eq_refl) (Float.make_decimal 1 0 eq_refl))) ] ] ].
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 3 0 eq_refl) (Float.MakeDecimal 1 0 eq_refl))) ] ] ].
 Example complex_nonzero_imag_untyped    : program_typedb complex_nonzero_imag_program = false. Proof. vm_compute. reflexivity. Qed.
 Example complex_nonzero_imag_rejected   : legacy_compile_class (compile complex_nonzero_imag_program) = LegacyTyping. Proof. exact (compile_untyped _ complex_nonzero_imag_untyped ltac:(vm_compute; reflexivity)). Qed.
 Example complex_nonzero_imag_no_compile : ~ Admissible complex_nonzero_imag_program.
@@ -10282,13 +10282,13 @@ Proof. apply (reject_no_compile complex_nonzero_imag_program); vm_compute; refle
     ([program_typedb]/[source_spec_package_rules_b], which DO reduce): a rejected program has a provably NON-EMPTY report
     ([*_empty_iff] contrapositive), and every diagnostic in it is pinned by the family soundness theorem. *)
 
-Definition c3_ms : ModuleSpec := Syntax.make_module_spec (ModulePath.make "fido.local/generated" eq_refl) Version.Go1_23.
+Definition c3_ms : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Version.Go1_23.
 
 (** REORDERED CONSTRUCTION: the SAME semantic file map built from PERMUTED [Syntax.FileNode] input has
     a byte-identical erased diagnostic report, the identical success/failure class, and the identical canonical
     fact enumeration — construction order is not observable. *)
-Definition rnode_a : Syntax.FileNode := main_file_node (FilePath.make "a.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ].
-Definition rnode_b : Syntax.FileNode := main_file_node (FilePath.make "b.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ].
+Definition rnode_a : Syntax.FileNode := main_file_node (FilePath.Make "a.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ].
+Definition rnode_b : Syntax.FileNode := main_file_node (FilePath.Make "b.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ].
 
 Example reorder_builds1 : exists p, build_program c3_ms [rnode_a; rnode_b] = Some p.
 Proof. eexists; vm_compute; reflexivity. Qed.
@@ -10332,7 +10332,7 @@ Qed.
     nearest-first, duplicate-free STRICT-ANCESTOR conversion context (the outer [float64] strictly encloses the
     primary [int8] — never fabricated syntax). *)
 Definition nested_conv_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128)) ] ] ].
 
 Example nested_conv_untyped : program_typedb nested_conv_program = false.
@@ -10345,9 +10345,9 @@ Proof. vm_compute. reflexivity. Qed.
    payload. *)
 Theorem nested_conv_erased_report :
   erased_report nested_conv_program (Index.Snapshot.index_program nested_conv_program)
-  = [ make_erased CodeInvalidConversion
-        (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 7%positive))
-        [ AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive) ]
+  = [ MakeErased CodeInvalidConversion
+        (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 7%positive))
+        [ AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) ]
         (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
@@ -10355,7 +10355,7 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
     package report is genuinely NON-EMPTY, and EVERY duplicate-main diagnostic names a strictly-later,
     genuinely-DISTINCT main in the SAME package, with the related [earlier] the unique smallest-Index.Key main. ---- *)
 Definition three_main_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 3 ] ] ].
 
 (* the EXACT whole erased report: EXACTLY TWO CodeMainRedeclared diagnostics — the SECOND main (local 6) and the
@@ -10363,25 +10363,25 @@ Definition three_main_program : Syntax.Program :=
    third diagnostic, no self-relation, no missing-main. *)
 Theorem three_main_erased_report :
   erased_report three_main_program (Index.Snapshot.index_program three_main_program)
-  = [ make_erased CodeMainRedeclared
-        (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 6%positive))
-        [ AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 3%positive) ] None None None
-    ; make_erased CodeMainRedeclared
-        (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 9%positive))
-        [ AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 3%positive) ] None None None ].
+  = [ MakeErased CodeMainRedeclared
+        (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 6%positive))
+        [ AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 3%positive) ] None None None
+    ; MakeErased CodeMainRedeclared
+        (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 9%positive))
+        [ AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 3%positive) ] None None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** PACKAGE WITH NO MAIN: a represented package whose only file declares NO `main` is REJECTED, so
     its package report is genuinely NON-EMPTY, and EVERY missing-main diagnostic anchors a genuinely represented
     package that contains EXACTLY ZERO `main` declarations (no fake file/node primary). *)
 Definition missing_main_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ ].
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ ].
 
 (* the EXACT whole erased report: EXACTLY ONE CodeMissingMainEntry, anchored at the represented package (root "") —
    a PACKAGE anchor, never a fake file/node primary — with no related anchor and no target payload. *)
 Theorem missing_main_erased_report :
   erased_report missing_main_program (Index.Snapshot.index_program missing_main_program)
-  = [ make_erased CodeMissingMainEntry (AnchorPackage "") [] None None None ].
+  = [ MakeErased CodeMissingMainEntry (AnchorPackage "") [] None None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** the EXACT expression-fact query: on ANY valid [Facts], EVERY expression reference's
@@ -10393,7 +10393,7 @@ Lemma expression_fact_at_exact {p} {core : Core p} {acc} (facts : Facts core acc
     Index.view_expr (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Some e
     /\ constant_info e = Some ci
     /\ expression_fact_at facts er
-       = make_expression_fact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er))).
+       = MakeExpressionFact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er))).
 Proof.
   assert (Hkind : Index.occurrence_kind (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Index.ExpressionKind)
     by exact (proj2_sig er).
@@ -10409,7 +10409,7 @@ Proof.
 Qed.
 
 Definition fact_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.IntegerLiteral 5)) ] ] ].
 Example fact_program_ok : source_spec_valid_b fact_program = true. Proof. vm_compute. reflexivity. Qed.
 
@@ -10432,13 +10432,13 @@ Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflex
 (* the two scalar occurrences carry their EXACT constants: the inner literal is the UNTYPED [Typing.IntegerConstant 5] (unresolved
    operand), the inner conversion is the TYPED [int(5)] (unresolved operand). *)
 Theorem fact_program_inner_literal :
-  Index.KeyMap.find (Index.make_key (FilePath.make "main.go" eq_refl) 9%positive) (program_expr_facts fact_program)
-  = Some (make_expression_fact (Typing.UntypedInfo (Typing.IntegerConstant 5)) None).
+  Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 9%positive) (program_expr_facts fact_program)
+  = Some (MakeExpressionFact (Typing.UntypedInfo (Typing.IntegerConstant 5)) None).
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
 Theorem fact_program_inner_conversion :
-  Index.KeyMap.find (Index.make_key (FilePath.make "main.go" eq_refl) 7%positive) (program_expr_facts fact_program)
-  = Some (make_expression_fact (Typing.TypedInfo (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 5 eq_refl)) None).
+  Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 7%positive) (program_expr_facts fact_program)
+  = Some (MakeExpressionFact (Typing.TypedInfo (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 5 eq_refl)) None).
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
 (* the OUTER println argument [float64(int(5))]: its EXACT resolved constant is the rational [5/1] at [Typing.FloatType
@@ -10450,7 +10450,7 @@ Theorem fact_program_outer_arg :
       resolved_type_at f,
       match resolved_constant_at f with Some (Typing.FloatConstant fc) => Some (Float.numerator fc, Float.denominator fc) | _ => None end,
       match use_resolved f with Some _ => true | None => false end))
-     (Index.KeyMap.find (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program))
+     (Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program))
   = Some (Some (Typing.FloatType F64), Some (Typing.FloatType F64), Some (5%Z, 1%positive), true).
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
@@ -10458,7 +10458,7 @@ Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflex
    Typing.TypedConstant carrying the exact rational 5/1 and its once-rounded canonical runtime) and the exact resolved
    constant.  Any DIFFERENT resolved float64 value fails this equation. *)
 Theorem fact_program_outer_fact :
-  Index.KeyMap.find (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program)
+  Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program)
   = Some {| const_status :=
               Typing.TypedInfo (Typing.FloatType F64)
                 (Typing.TypedFloat F64
@@ -10469,7 +10469,7 @@ Theorem fact_program_outer_fact :
                       Float.shape := const_runtime_shape F64 {| Float.numerator := 5; Float.denominator := 1; Float.canonical := gcd_z_1 5 |}
                                      {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |} eq_refl |}) ;
             use_resolved :=
-              Some (pack_resolved (Typing.FloatType F64)
+              Some (PackResolved (Typing.FloatType F64)
                       (Typing.TypedFloat F64
                          {| Float.exact := {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |};
                             Float.runtime := {| Float.ieee := SpecFloat.S754_finite false 5629499534213120 (-50);
@@ -10483,7 +10483,7 @@ Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflex
     OCCURRENCE identity (Index.Key), so two references with DISTINCT keys carry independent facts — each query
     projects its OWN occurrence's exact fact, even when the two expressions are syntactically equal. *)
 Definition dup_lit_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1; Syntax.IntegerLiteral 1 ] ] ].
 Example dup_lit_ok : source_spec_valid_b dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
 
@@ -10492,10 +10492,10 @@ Example dup_lit_ok : source_spec_valid_b dup_lit_program = true. Proof. vm_compu
    occurrence identity, so equal literals are NOT deduplicated by value. *)
 Theorem dup_lit_facts_exact :
   Index.KeyMap.elements (program_expr_facts dup_lit_program)
-  = [ (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive,
-        make_expression_fact (Typing.UntypedInfo (Typing.IntegerConstant 1)) (Some (pack_resolved (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 1 eq_refl))))
-    ; (Index.make_key (FilePath.make "main.go" eq_refl) 6%positive,
-        make_expression_fact (Typing.UntypedInfo (Typing.IntegerConstant 1)) (Some (pack_resolved (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 1 eq_refl)))) ].
+  = [ (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive,
+        MakeExpressionFact (Typing.UntypedInfo (Typing.IntegerConstant 1)) (Some (PackResolved (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 1 eq_refl))))
+    ; (Index.MakeKey (FilePath.Make "main.go" eq_refl) 6%positive,
+        MakeExpressionFact (Typing.UntypedInfo (Typing.IntegerConstant 1)) (Some (PackResolved (Typing.IntegerType Integer.Int) (Typing.TypedInteger Integer.Int 1 eq_refl)))) ].
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
 (** ★§3.5/§6 SINGLE USE-RESOLUTION AT THE USE SITE (nested conversion as a println argument): in
@@ -10506,7 +10506,7 @@ Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflex
     semantic target ([int16] / [int8]) read from the once-built type-name Index.table — the total Index.table query cannot
     miss (§3.3), so every nested conversion is typed. *)
 Definition nested_use_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) ] ] ].
 Example nested_use_ok : source_spec_valid_b nested_use_program = true. Proof. vm_compute. reflexivity. Qed.
 Theorem nested_use_single_resolution :
@@ -10527,12 +10527,12 @@ Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflex
     invalid-conversion outcome carries the inner conversion's OWN refs, so the diagnostic projects them — no
     re-mint (§2.5). *)
 Definition inner_fail_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) ] ] ].
 Theorem inner_fail_one_inner_no_outer :
   erased_report inner_fail_program (Index.Snapshot.index_program inner_fail_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 7%positive))
-        [ AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive) ]
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 7%positive))
+        [ AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) ]
         (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
@@ -10543,7 +10543,7 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
    are blocked-by-child with no outer reason) — the total projection neither drops it (fail-open) nor
    double-counts it per ancestor. ---- *)
 Definition deep_nested_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                           (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                             (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
@@ -10564,7 +10564,7 @@ Theorem deep_nested_no_diags :
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 Definition deep_fail_program : Syntax.Program :=
-  singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+  singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                           (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                             (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
@@ -10626,7 +10626,7 @@ Lemma program_expr_ref_at (p : Syntax.Program) (path : FilePath.T) (f : Syntax.F
   exists (r : Index.Snapshot.NodeRef p) (er : Index.ExprRef p),
     In (r, occ) (program_visit p)
     /\ Index.as_expr (Index.indexed_syntax (Index.index_program p)) r = Some er
-    /\ Index.Snapshot.node_ref_key r = Index.make_key path local.
+    /\ Index.Snapshot.node_ref_key r = Index.MakeKey path local.
 Proof.
   intros Hfind Hsrc Hview.
   destruct (Index.Snapshot.ref_of_key_source p (Index.indexed_syntax (Index.index_program p))
@@ -10641,7 +10641,7 @@ Proof.
   - rewrite Hoccr. apply noderef_in_prog_visit.
   - exact Hae.
   - exact (Index.Snapshot.ref_of_key_sound p (Index.indexed_syntax (Index.index_program p))
-             (Index.make_key path local) r Hrok).
+             (Index.MakeKey path local) r Hrok).
 Qed.
 
 (* the retained target [TypeNameRef] of a REAL source conversion occurrence: minted through the index, keyed at
@@ -10652,7 +10652,7 @@ Lemma program_conv_target_ref (p : Syntax.Program) (path : FilePath.T) (f : Synt
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   exists (er : Index.ExprRef p) tr,
     conversion_target_ref (Index.indexed_syntax (Index.index_program p)) er = Some tr
-    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr) = Index.make_key path (Pos.succ local)
+    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr) = Index.MakeKey path (Pos.succ local)
     /\ Index.type_name_ref_syntax tr = Some ts.
 Proof.
   intros Hfind Hsrc Hview.
@@ -10681,7 +10681,7 @@ Lemma member_at_in_forest (p : Syntax.Program) (input : Input p) (forest : WorkF
   Index.view_expr occ = Some e ->
   exists (wm : WorkMember forest),
     work_occurrence (proj1_sig wm) = occ /\ work_expr (proj1_sig wm) = e
-    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.make_key path local.
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.MakeKey path local.
 Proof.
   intros Hfind Hsrc Hview.
   destruct (program_expr_ref_at p path f local occ e Hfind Hsrc Hview) as [r [er [Hin [Hae Hkey]]]].
@@ -10699,7 +10699,7 @@ Lemma program_member_at (p : Syntax.Program) (path : FilePath.T) (f : Syntax.Fil
   Index.view_expr occ = Some e ->
   exists (wm : WorkMember (phase_work (build_expression_phase (build_compilation_input p (Index.index_program p))))),
     work_occurrence (proj1_sig wm) = occ /\ work_expr (proj1_sig wm) = e
-    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.make_key path local.
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.MakeKey path local.
 Proof. exact (member_at_in_forest p _ _ path f local occ e). Qed.
 
 (** ★§5.3 THE CONCRETE TWO-[uint8] SNAPSHOT: a REAL compiled program with TWO [uint8(...)] conversions at
@@ -10711,7 +10711,7 @@ Proof. exact (member_at_in_forest p _ _ path f local occ e). Qed.
 Definition two_uint8_src : Syntax.File :=
   main_source [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 0)
                                  ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 1) ] ] ].
-Definition two_uint8_program : Syntax.Program := singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+Definition two_uint8_program : Syntax.Program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
   [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 0)
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 1) ] ] ].
 Example two_uint8_ok : source_spec_valid_b two_uint8_program = true. Proof. vm_compute. reflexivity. Qed.
@@ -10722,11 +10722,11 @@ Lemma two_uint8_conv_ref (local : positive) (n : N) occ :
   Index.view_expr occ = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral n)) ->
   exists (er : Index.ExprRef two_uint8_program) tr,
     conversion_target_ref (Index.indexed_syntax (Index.index_program two_uint8_program)) er = Some tr
-    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr) = Index.make_key (FilePath.make "main.go" eq_refl) (Pos.succ local)
+    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr) = Index.MakeKey (FilePath.Make "main.go" eq_refl) (Pos.succ local)
     /\ Index.type_name_ref_syntax tr = Some (Syntax.type_expr_of_name Names.Uint8).
 Proof.
   intros Hsrc Hview.
-  exact (program_conv_target_ref two_uint8_program (FilePath.make "main.go" eq_refl) two_uint8_src local occ
+  exact (program_conv_target_ref two_uint8_program (FilePath.Make "main.go" eq_refl) two_uint8_src local occ
            (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral n) ltac:(vm_compute; reflexivity) Hsrc Hview).
 Qed.
 
@@ -10809,7 +10809,7 @@ Lemma deep_fail_childfail_at (local : positive) ts x occ :
        = ChildFailure.
 Proof.
   intros Hsrc Hview Hnf Hlcf.
-  destruct (program_member_at deep_fail_program (FilePath.make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
+  destruct (program_member_at deep_fail_program (FilePath.Make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
               ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
   exists wm. split; [exact He | ].
   apply (total_forest_outcome_childfail_shape _ wm ts x);
@@ -10831,7 +10831,7 @@ Lemma deep_nested_ok_at (local : positive) e occ :
        = ExpressionSuccess f.
 Proof.
   intros Hsrc Hview [f Hf].
-  destruct (program_member_at deep_nested_program (FilePath.make "main.go" eq_refl) deep_nested_src local occ e
+  destruct (program_member_at deep_nested_program (FilePath.Make "main.go" eq_refl) deep_nested_src local occ e
               ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
   exists wm, f. split; [exact He | ].
   apply (total_forest_outcome_ok_of_fact _ wm f). rewrite Hocc. exact Hf.
@@ -10871,7 +10871,7 @@ Theorem deep_fail_innermost_convfail :
 Proof.
   cbn zeta.
   destruct (Index.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-  destruct (program_member_at deep_fail_program (FilePath.make "main.go" eq_refl) deep_fail_src 11 occ
+  destruct (program_member_at deep_fail_program (FilePath.Make "main.go" eq_refl) deep_fail_src 11 occ
               (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) ltac:(vm_compute; reflexivity) Eo
               ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He _]]].
   destruct (total_forest_outcome_convfail_shape
@@ -11194,7 +11194,7 @@ Definition nested_success_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop
     /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (conversion_target_node_ref (step_conversion step)))) (const_status opf) = Some tc
-    /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
+    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (conversion_target_node_ref (step_conversion step)))) tc)
              (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
@@ -11351,7 +11351,7 @@ Qed.
 Definition twin_expr_src : Syntax.File :=
   main_source [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
                                  ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7) ] ] ].
-Definition twin_expr_program : Syntax.Program := singleton_program c3_ms (FilePath.make "main.go" eq_refl)
+Definition twin_expr_program : Syntax.Program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
   [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7) ] ] ].
 Example twin_expr_ok : source_spec_valid_b twin_expr_program = true. Proof. vm_compute. reflexivity. Qed.
@@ -11377,12 +11377,12 @@ Proof.
     [| vm_compute in Eo1; discriminate Eo1].
   destruct (Index.source_occurrence_at twin_expr_src 8) as [occ2|] eqn:Eo2;
     [| vm_compute in Eo2; discriminate Eo2].
-  destruct (member_at_in_forest twin_expr_program input forest (FilePath.make "main.go" eq_refl) twin_expr_src 5 occ1
+  destruct (member_at_in_forest twin_expr_program input forest (FilePath.Make "main.go" eq_refl) twin_expr_src 5 occ1
               (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7))
               ltac:(vm_compute; reflexivity) Eo1
               ltac:(vm_compute in Eo1; injection Eo1 as <-; vm_compute; reflexivity))
     as [wm1 [Hocc1 [He1 Hk1]]].
-  destruct (member_at_in_forest twin_expr_program input forest (FilePath.make "main.go" eq_refl) twin_expr_src 8 occ2
+  destruct (member_at_in_forest twin_expr_program input forest (FilePath.Make "main.go" eq_refl) twin_expr_src 8 occ2
               (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7))
               ltac:(vm_compute; reflexivity) Eo2
               ltac:(vm_compute in Eo2; injection Eo2 as <-; vm_compute; reflexivity))
@@ -11709,67 +11709,67 @@ Qed.
     the required code, primary anchor (the failing literal/conversion at local 5), and target payload. *)
 
 (* default integer overflow: a bare [Integer.platform_maximum+1] literal cannot default to [Typing.IntegerType Integer.Int]. *)
-Definition over_default_int_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 9223372036854775808 ] ] ].
+Definition over_default_int_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 9223372036854775808 ] ] ].
 Theorem over_default_int_erased :
   erased_report over_default_int_program (Index.Snapshot.index_program over_default_int_program)
-  = [ make_erased CodeDefaultNotRepresentable (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None None ].
+  = [ MakeErased CodeDefaultNotRepresentable (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* default float overflow: a bare finite decimal outside finite [float64]. *)
-Definition over_default_float_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.FloatLiteral (Float.make_decimal 1 400 eq_refl) ] ] ].
+Definition over_default_float_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.FloatLiteral (Float.MakeDecimal 1 400 eq_refl) ] ] ].
 Theorem over_default_float_erased :
   erased_report over_default_float_program (Index.Snapshot.index_program over_default_float_program)
-  = [ make_erased CodeDefaultNotRepresentable (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.FloatType F64)) None None ].
+  = [ MakeErased CodeDefaultNotRepresentable (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.FloatType F64)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* default complex overflow: a bare complex whose component cannot default to [complex128]. *)
-Definition over_default_complex_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 1 400 eq_refl) (Float.make_decimal 0 0 eq_refl)) ] ] ].
+Definition over_default_complex_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 1 400 eq_refl) (Float.MakeDecimal 0 0 eq_refl)) ] ] ].
 Theorem over_default_complex_erased :
   erased_report over_default_complex_program (Index.Snapshot.index_program over_default_complex_program)
-  = [ make_erased CodeDefaultNotRepresentable (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.ComplexType C128)) None None ].
+  = [ MakeErased CodeDefaultNotRepresentable (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.ComplexType C128)) None None ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* invalid explicit integer conversion [int8(128)]: anchored at the conversion, target [Typing.IntegerType Integer.Int8]. *)
-Definition bad_int8_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ].
+Definition bad_int8_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ].
 Theorem bad_int8_erased :
   erased_report bad_int8_program (Index.Snapshot.index_program bad_int8_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* fractional float -> integer [int(3.5)]: anchored at the conversion. *)
-Definition frac_f2i_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.make_decimal 35 (-1) eq_refl)) ] ] ].
+Definition frac_f2i_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.MakeDecimal 35 (-1) eq_refl)) ] ] ].
 Theorem frac_f2i_erased :
   erased_report frac_f2i_program (Index.Snapshot.index_program frac_f2i_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* nonzero-imaginary complex -> scalar [int(complex(3,1))]: anchored at the conversion. *)
-Definition nz_c2s_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.make_decimal (Float.make_decimal 3 0 eq_refl) (Float.make_decimal 1 0 eq_refl))) ] ] ].
+Definition nz_c2s_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 3 0 eq_refl) (Float.MakeDecimal 1 0 eq_refl))) ] ] ].
 Theorem nz_c2s_erased :
   erased_report nz_c2s_program (Index.Snapshot.index_program nz_c2s_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* wrong-kind conversion [int(true)]: anchored at the conversion, no generic unlocated typing error. *)
-Definition wrongkind_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.BoolLiteral true) ] ] ].
+Definition wrongkind_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.BoolLiteral true) ] ] ].
 Theorem wrongkind_erased :
   erased_report wrongkind_program (Index.Snapshot.index_program wrongkind_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (** ★§4 SOURCE-TARGET IN THE ERASED REPORT: an invalid [byte(256)] and an invalid [uint8(256)] resolve to the
     SAME semantic target ([uint8]) but carry DIFFERENT erased source targets ([byte] vs [uint8]) — so the two
     cross-snapshot reports are DISTINGUISHABLE (the source spelling is not lost to the resolved [Typing.SemanticType]).  Same
     for [rune(2147483648)] vs [int32(2147483648)] (both resolve to [int32]). *)
-Definition bad_byte256_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Byte) (Syntax.IntegerLiteral 256) ] ] ].
-Definition bad_uint8_256_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 256) ] ] ].
+Definition bad_byte256_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Byte) (Syntax.IntegerLiteral 256) ] ] ].
+Definition bad_uint8_256_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 256) ] ] ].
 Theorem bad_byte256_erased :
   erased_report bad_byte256_program (Index.Snapshot.index_program bad_byte256_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Uint8)) None (Some (Syntax.type_expr_of_name Names.Byte)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Uint8)) None (Some (Syntax.type_expr_of_name Names.Byte)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Theorem bad_uint8_256_erased :
   erased_report bad_uint8_256_program (Index.Snapshot.index_program bad_uint8_256_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Uint8)) None (Some (Syntax.type_expr_of_name Names.Uint8)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Uint8)) None (Some (Syntax.type_expr_of_name Names.Uint8)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Theorem byte_uint8_erased_differ :
   erased_report bad_byte256_program (Index.Snapshot.index_program bad_byte256_program)
@@ -11779,15 +11779,15 @@ Proof.
   apply tsyn_byte_neq_uint8. congruence.
 Qed.
 
-Definition bad_rune_over_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Rune) (Syntax.IntegerLiteral 2147483648) ] ] ].
-Definition bad_int32_over_program := singleton_program c3_ms (FilePath.make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.IntegerLiteral 2147483648) ] ] ].
+Definition bad_rune_over_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Rune) (Syntax.IntegerLiteral 2147483648) ] ] ].
+Definition bad_int32_over_program := singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.IntegerLiteral 2147483648) ] ] ].
 Theorem bad_rune_over_erased :
   erased_report bad_rune_over_program (Index.Snapshot.index_program bad_rune_over_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int32)) None (Some (Syntax.type_expr_of_name Names.Rune)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int32)) None (Some (Syntax.type_expr_of_name Names.Rune)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Theorem bad_int32_over_erased :
   erased_report bad_int32_over_program (Index.Snapshot.index_program bad_int32_over_program)
-  = [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int32)) None (Some (Syntax.type_expr_of_name Names.Int32)) ].
+  = [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int32)) None (Some (Syntax.type_expr_of_name Names.Int32)) ].
 Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Theorem rune_int32_erased_differ :
   erased_report bad_rune_over_program (Index.Snapshot.index_program bad_rune_over_program)
@@ -11802,10 +11802,10 @@ Qed.
     ([a.go]); construction/insertion order does not change this (both files' mains are at local 3). *)
 Theorem dup_across_files_erased :
   option_map (fun p => erased_report_src (Syntax.files p))
-             (build_program c3_ms [ main_file_node (FilePath.make "a.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
-                                  ; main_file_node (FilePath.make "b.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ] ])
-  = Some [ make_erased CodeMainRedeclared (AnchorNode (Index.make_key (FilePath.make "b.go" eq_refl) 3%positive))
-             [ AnchorNode (Index.make_key (FilePath.make "a.go" eq_refl) 3%positive) ] None None None ].
+             (build_program c3_ms [ main_file_node (FilePath.Make "a.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
+                                  ; main_file_node (FilePath.Make "b.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ] ])
+  = Some [ MakeErased CodeMainRedeclared (AnchorNode (Index.MakeKey (FilePath.Make "b.go" eq_refl) 3%positive))
+             [ AnchorNode (Index.MakeKey (FilePath.Make "a.go" eq_refl) 3%positive) ] None None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** MULTIPLE SIMULTANEOUS FAILURES: two invalid expressions in DIFFERENT files ([a/x.go]'s
@@ -11816,16 +11816,16 @@ Proof. vm_compute. reflexivity. Qed.
 Theorem simultaneous_failures_erased :
   option_map (fun p => erased_report_src (Syntax.files p))
      (build_program c3_ms
-        [ main_file_node (FilePath.make "a/x.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ]
-        ; main_file_node (FilePath.make "b/y.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.make_decimal 35 (-1) eq_refl)) ] ] ]
-        ; main_file_node (FilePath.make "c/p.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
-        ; main_file_node (FilePath.make "c/q.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ]
-        ; main_file_node (FilePath.make "d/z.go" eq_refl) [ ] ])
-  = Some [ make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "a/x.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8))
-         ; make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "b/y.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int))
-         ; make_erased CodeMainRedeclared (AnchorNode (Index.make_key (FilePath.make "c/q.go" eq_refl) 3%positive))
-             [ AnchorNode (Index.make_key (FilePath.make "c/p.go" eq_refl) 3%positive) ] None None None
-         ; make_erased CodeMissingMainEntry (AnchorPackage "d") [] None None None ].
+        [ main_file_node (FilePath.Make "a/x.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ]
+        ; main_file_node (FilePath.Make "b/y.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.FloatLiteral (Float.MakeDecimal 35 (-1) eq_refl)) ] ] ]
+        ; main_file_node (FilePath.Make "c/p.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
+        ; main_file_node (FilePath.Make "c/q.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ]
+        ; main_file_node (FilePath.Make "d/z.go" eq_refl) [ ] ])
+  = Some [ MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "a/x.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8))
+         ; MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "b/y.go" eq_refl) 5%positive)) [] (Some (Typing.IntegerType Integer.Int)) None (Some (Syntax.type_expr_of_name Names.Int))
+         ; MakeErased CodeMainRedeclared (AnchorNode (Index.MakeKey (FilePath.Make "c/q.go" eq_refl) 3%positive))
+             [ AnchorNode (Index.MakeKey (FilePath.Make "c/p.go" eq_refl) 3%positive) ] None None None
+         ; MakeErased CodeMissingMainEntry (AnchorPackage "d") [] None None None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (** MIXED NODE-PRIMARY ORDER: a duplicate-main in package [a] (a later-discovered node diagnostic)
@@ -11836,12 +11836,12 @@ Proof. vm_compute. reflexivity. Qed.
 Theorem mixed_order_erased :
   option_map (fun p => erased_report_src (Syntax.files p))
      (build_program c3_ms
-        [ main_file_node (FilePath.make "a/p.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
-        ; main_file_node (FilePath.make "a/q.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ]
-        ; main_file_node (FilePath.make "z/main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ] ])
-  = Some [ make_erased CodeMainRedeclared (AnchorNode (Index.make_key (FilePath.make "a/q.go" eq_refl) 3%positive))
-             [ AnchorNode (Index.make_key (FilePath.make "a/p.go" eq_refl) 3%positive) ] None None None
-         ; make_erased CodeInvalidConversion (AnchorNode (Index.make_key (FilePath.make "z/main.go" eq_refl) 5%positive))
+        [ main_file_node (FilePath.Make "a/p.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ]
+        ; main_file_node (FilePath.Make "a/q.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ] ]
+        ; main_file_node (FilePath.Make "z/main.go" eq_refl) [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 128) ] ] ] ])
+  = Some [ MakeErased CodeMainRedeclared (AnchorNode (Index.MakeKey (FilePath.Make "a/q.go" eq_refl) 3%positive))
+             [ AnchorNode (Index.MakeKey (FilePath.Make "a/p.go" eq_refl) 3%positive) ] None None None
+         ; MakeErased CodeInvalidConversion (AnchorNode (Index.MakeKey (FilePath.Make "z/main.go" eq_refl) 5%positive))
              [] (Some (Typing.IntegerType Integer.Int8)) None (Some (Syntax.type_expr_of_name Names.Int8)) ].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -11855,7 +11855,7 @@ Local Open Scope string_scope.
     [elaboration_diagnostics_fresh_failure]).  Module paths are valid current [ModulePath.T]s; the pinned Go
     1.23.12 default-executable / directory-collision behaviour is what these encode. *)
 
-Definition ex_ms : ModuleSpec := Syntax.make_module_spec (ModulePath.make "example.com/m" eq_refl) Version.Go1_23.
+Definition ex_ms : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "example.com/m" eq_refl) Version.Go1_23.
 Definition ex_main : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ] ].
 (* a package-local SEMANTIC error: uint8(int(300)) — the inner int(300) is valid, the outer uint8 is not. *)
 Definition ex_bad  : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.IntegerLiteral 300)) ] ] ].
@@ -11869,7 +11869,7 @@ Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_admissible _ idx
 
 (* 20.2 — ONE VALID ROOT PACKAGE, ABSENT OUTPUT: module basename "m" is neither go.mod nor a root file, so the
    single-main plan's output target is absent; preflight succeeds; Admissible. *)
-Definition fixture_root : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl) ex_main.
+Definition fixture_root : Syntax.Program := singleton_program ex_ms (FilePath.Make "main.go" eq_refl) ex_main.
 Example root_main_absent_output_plan      : fresh_build_plan fixture_root = WriteSingleMain "" "example.com/m" "m" None.   Proof. vm_compute. reflexivity. Qed.
 Example root_main_absent_output_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_root) = true.               Proof. vm_compute. reflexivity. Qed.
 Example root_main_absent_output_admissible : Admissible fixture_root.                              Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
@@ -11877,7 +11877,7 @@ Example root_main_absent_output_admissible : Admissible fixture_root.           
 (* 20.3 — SOLE IMMEDIATE CHILD sub/main.go: import path example.com/m/sub, output name "sub", the fresh root
    HAS a directory "sub" -> preflight FAILS; final report is EXACTLY one build-output-directory diagnostic; not
    Admissible. *)
-Definition fixture_sub : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_main.
+Definition fixture_sub : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) ex_main.
 Example child_package_output_collision_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub) = false.   Proof. vm_compute. reflexivity. Qed.
 Example child_package_output_collision_inadmissible   : ~ Admissible fixture_sub.
 Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
@@ -11888,7 +11888,7 @@ Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.4 — IMMEDIATE CHILD WITH A SEMANTIC ERROR + the same output collision: the final report REMAINS only the
    build-output-directory diagnostic (PRECEDENCE — the sole package's typing error is hidden). *)
-Definition fixture_sub_err : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_bad.
+Definition fixture_sub_err : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) ex_bad.
 Example collision_hides_semantic_error_untyped : program_typedb fixture_sub_err = false.                                        Proof. vm_compute. reflexivity. Qed.
 Example collision_hides_semantic_error_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub_err) = false. Proof. vm_compute. reflexivity. Qed.
 Example collision_hides_semantic_error_report_hides_semantic : forall idx, exists pk name, elaboration_diagnostics fixture_sub_err idx = [BuildOutputIsDirectory pk name].
@@ -11898,13 +11898,13 @@ Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.5 — SOLE DEEPER PACKAGE a/b/main.go: output name "b", but the fresh root directory is "a" (not "b"), so
    the output target is absent; preflight succeeds; Admissible. *)
-Definition fixture_ab : Syntax.Program := singleton_program ex_ms (FilePath.make "a/b/main.go" eq_refl) ex_main.
+Definition fixture_ab : Syntax.Program := singleton_program ex_ms (FilePath.Make "a/b/main.go" eq_refl) ex_main.
 Example deep_package_absent_output_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_ab) = true. Proof. vm_compute. reflexivity. Qed.
 Example deep_package_absent_output_admissible : Admissible fixture_ab.                Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.6 — FINAL v2 PACKAGE PATH a/v2/main.go: import example.com/m/a/v2, the /v2 major-version element is
    stripped so the output name is "a"; the fresh root directory "a" EXISTS -> preflight FAILS. *)
-Definition fixture_av2 : Syntax.Program := singleton_program ex_ms (FilePath.make "a/v2/main.go" eq_refl) ex_main.
+Definition fixture_av2 : Syntax.Program := singleton_program ex_ms (FilePath.Make "a/v2/main.go" eq_refl) ex_main.
 Example final_v2_package_collision_output_a       : fresh_build_plan fixture_av2 = WriteSingleMain "a/v2" "example.com/m/a/v2" "a" (Some DirectoryEntry). Proof. vm_compute. reflexivity. Qed.
 Example final_v2_package_collision_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_av2) = false. Proof. vm_compute. reflexivity. Qed.
 Example final_v2_package_collision_inadmissible   : ~ Admissible fixture_av2.
@@ -11913,12 +11913,12 @@ Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf
    (the erased payload distinguishes this collision from one at a different output name). *)
 Example final_v2_package_collision_erased_output :
   map erase_diagnostic (fresh_build_diagnostics fixture_av2)
-  = [ make_erased CodeBuildOutputIsDirectory (AnchorPackage "a/v2") [] None (Some "a") None ].
+  = [ MakeErased CodeBuildOutputIsDirectory (AnchorPackage "a/v2") [] None (Some "a") None ].
 Proof. vm_compute. reflexivity. Qed.
 
 (* 20.7 — IMMEDIATE v2 PACKAGE v2/main.go: import example.com/m/v2 -> output name "m" (the module basename,
    after the /v2 strip); the fresh root directory "v2" does not collide with "m" -> preflight succeeds. *)
-Definition fixture_v2 : Syntax.Program := singleton_program ex_ms (FilePath.make "v2/main.go" eq_refl) ex_main.
+Definition fixture_v2 : Syntax.Program := singleton_program ex_ms (FilePath.Make "v2/main.go" eq_refl) ex_main.
 Example immediate_v2_package_no_collision_output_m   : fresh_build_plan fixture_v2 = WriteSingleMain "v2" "example.com/m/v2" "m" None. Proof. vm_compute. reflexivity. Qed.
 Example immediate_v2_package_no_collision_preflight  : fresh_build_disposition_ok (fresh_build_plan fixture_v2) = true. Proof. vm_compute. reflexivity. Qed.
 Example immediate_v2_package_no_collision_admissible  : Admissible fixture_v2.               Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
@@ -11926,8 +11926,8 @@ Example immediate_v2_package_no_collision_admissible  : Admissible fixture_v2.  
 (* 20.8 — MULTIPLE MAIN PACKAGES a/main.go + b/main.go: DiscardMultiple, NO default-output preflight failure,
    a source-valid program succeeds. *)
 Example multiple_main_packages_discard_outputs : forall p,
-  build_program ex_ms [ main_file_node (FilePath.make "a/main.go" eq_refl) ex_main
-                      ; main_file_node (FilePath.make "b/main.go" eq_refl) ex_main ] = Some p ->
+  build_program ex_ms [ main_file_node (FilePath.Make "a/main.go" eq_refl) ex_main
+                      ; main_file_node (FilePath.Make "b/main.go" eq_refl) ex_main ] = Some p ->
   fresh_build_plan p = DiscardMultiple 2
   /\ fresh_build_disposition_ok (fresh_build_plan p) = true
   /\ Admissible p.
@@ -11939,8 +11939,8 @@ Qed.
 (* 20.9 — MULTIPLE PACKAGES WITH A SEMANTIC FAILURE: no default-output collision branch, so the semantic
    diagnostics ARE exposed (the class is the typing class). *)
 Example multiple_packages_expose_semantic_failure : forall p,
-  build_program ex_ms [ main_file_node (FilePath.make "a/main.go" eq_refl) ex_main
-                      ; main_file_node (FilePath.make "b/main.go" eq_refl) ex_bad ] = Some p ->
+  build_program ex_ms [ main_file_node (FilePath.Make "a/main.go" eq_refl) ex_main
+                      ; main_file_node (FilePath.Make "b/main.go" eq_refl) ex_bad ] = Some p ->
   fresh_build_disposition_ok (fresh_build_plan p) = true /\ compile_class p = LegacyTyping.
 Proof.
   intros p H. vm_compute in H. injection H as <-.
@@ -11949,16 +11949,16 @@ Qed.
 
 (* 20.10 — go.mod OVERWRITE: module final component "go.mod" -> output name "go.mod", whose root target is the
    REGULAR go.mod (GoModuleEntry, not a directory) -> preflight succeeds; the plan RECORDS the overwrite target. *)
-Definition ex_ms_gomod : ModuleSpec := Syntax.make_module_spec (ModulePath.make "example.com/go.mod" eq_refl) Version.Go1_23.
-Definition fixture_gomod : Syntax.Program := singleton_program ex_ms_gomod (FilePath.make "main.go" eq_refl) ex_main.
+Definition ex_ms_gomod : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "example.com/go.mod" eq_refl) Version.Go1_23.
+Definition fixture_gomod : Syntax.Program := singleton_program ex_ms_gomod (FilePath.Make "main.go" eq_refl) ex_main.
 Example go_module_overwrite_plan      : fresh_build_plan fixture_gomod = WriteSingleMain "" "example.com/go.mod" "go.mod" (Some GoModuleEntry). Proof. vm_compute. reflexivity. Qed.
 Example go_module_overwrite_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_gomod) = true. Proof. vm_compute. reflexivity. Qed.
 Example go_module_overwrite_admissible : Admissible fixture_gomod.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.11 — SOURCE OVERWRITE: module final component "main.go" -> output name "main.go", whose root target is a
    REGULAR source file (SourceFileEntry, not a directory) -> preflight succeeds; Admissible. *)
-Definition ex_ms_srcname : ModuleSpec := Syntax.make_module_spec (ModulePath.make "example.com/main.go" eq_refl) Version.Go1_23.
-Definition fixture_srcov : Syntax.Program := singleton_program ex_ms_srcname (FilePath.make "main.go" eq_refl) ex_main.
+Definition ex_ms_srcname : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "example.com/main.go" eq_refl) Version.Go1_23.
+Definition fixture_srcov : Syntax.Program := singleton_program ex_ms_srcname (FilePath.Make "main.go" eq_refl) ex_main.
 Example source_file_overwrite_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_srcov) = true. Proof. vm_compute. reflexivity. Qed.
 Example source_file_overwrite_admissible : Admissible fixture_srcov.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
@@ -11970,8 +11970,8 @@ Example output_name_exact_noncollision : PackageMap.find "m" (root_layout fixtur
    final report HIDES them (LegacyBuildOutput); without a collision the class exposes the package-main-count. *)
 Definition ex_3main : list Syntax.Decl :=
   [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 3 ] ] ].
-Definition three_main_redeclarations_hidden : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_3main.
-Definition three_main_redeclarations_exposed  : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl)     ex_3main.
+Definition three_main_redeclarations_hidden : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) ex_3main.
+Definition three_main_redeclarations_exposed  : Syntax.Program := singleton_program ex_ms (FilePath.Make "main.go" eq_refl)     ex_3main.
 Example three_main_redeclarations_hidden_class  : compile_class three_main_redeclarations_hidden = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 Example three_main_redeclarations_hidden_report : forall idx, exists pk name, elaboration_diagnostics three_main_redeclarations_hidden idx = [BuildOutputIsDirectory pk name].
@@ -11981,8 +11981,8 @@ Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.14 — MISSING MAIN ENTRY (a package file with no Syntax.Main): same two branches — a collision HIDES it, a
    collision-free layout EXPOSES the missing-main (package-main-count) class. *)
-Definition fixture_nomain_hidden : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) nil.
-Definition fixture_nomain_shown  : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl)     nil.
+Definition fixture_nomain_hidden : Syntax.Program := singleton_program ex_ms (FilePath.Make "sub/main.go" eq_refl) nil.
+Definition fixture_nomain_shown  : Syntax.Program := singleton_program ex_ms (FilePath.Make "main.go" eq_refl)     nil.
 Example missing_main_hidden_class : compile_class fixture_nomain_hidden = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 Example missing_main_exposed_class : compile_class fixture_nomain_shown = LegacyPackageMainCount.
@@ -12013,9 +12013,9 @@ Qed.
 (* 20.16 — EQUAL FILES, DIFFERENT MODULE: the source file map is identical, but the two ModuleSpecs give the
    sole package DIFFERENT default executable names, so the FreshBuildPlans DIFFER — full-plan equality does NOT
    follow from FilesEqual alone (this is the counterexample). *)
-Definition fixture_cex_1 : Syntax.Program := singleton_program ex_ms (FilePath.make "v2/main.go" eq_refl) ex_main.
+Definition fixture_cex_1 : Syntax.Program := singleton_program ex_ms (FilePath.Make "v2/main.go" eq_refl) ex_main.
 Definition fixture_cex_2 : Syntax.Program :=
-  singleton_program (Syntax.make_module_spec (ModulePath.make "example.com/other" eq_refl) Version.Go1_23) (FilePath.make "v2/main.go" eq_refl) ex_main.
+  singleton_program (Syntax.MakeModuleSpec (ModulePath.Make "example.com/other" eq_refl) Version.Go1_23) (FilePath.Make "v2/main.go" eq_refl) ex_main.
 Example equal_files_different_modules_files_equal : Syntax.FilesEqual (Syntax.files fixture_cex_1) (Syntax.files fixture_cex_2).
 Proof. assert (Syntax.files fixture_cex_1 = Syntax.files fixture_cex_2) as Heq by (vm_compute; reflexivity).
        rewrite Heq. apply Syntax.files_equal_refl. Qed.

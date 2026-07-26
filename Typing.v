@@ -186,12 +186,12 @@ Definition constant_info_exact (ci : ConstantInfo) : Constant :=
 (** the packed typed result of resolving ONE expression: existential semantic evidence, NOT a typed AST
     and NOT a copy of the raw expression. *)
 Inductive ResolvedConstant : Type :=
-| pack_resolved : forall (t : SemanticType), TypedConstant t -> ResolvedConstant.
+| PackResolved : forall (t : SemanticType), TypedConstant t -> ResolvedConstant.
 
 Definition resolved_constant_type (rc : ResolvedConstant) : SemanticType :=
-  match rc with pack_resolved t _ => t end.
+  match rc with PackResolved t _ => t end.
 Definition resolved_constant_exact (rc : ResolvedConstant) : Constant :=
-  match rc with pack_resolved _ tc => typed_exact tc end.
+  match rc with PackResolved _ tc => typed_exact tc end.
 
 (** same-format float identity: converting a typed float constant to its OWN format returns the existing
     [Float.TypedConstant] unchanged (no reround) — the transport is trivial because [float_kind_eq_dec ft ft]
@@ -228,7 +228,7 @@ Definition reuse_float_as_complex (ct : Complex.Kind) (ci : ConstantInfo) : opti
       | left Heq =>
           option_map
             (fun imz => TypedComplex ct
-               (Complex.make_typed_constant (eq_rect ft' (fun f => Float.TypedConstant f) (typed_float tc)
+               (Complex.MakeTypedConstant (eq_rect ft' (fun f => Float.TypedConstant f) (typed_float tc)
                               (Complex.component_kind ct) Heq) imz))
             (round_typed_float (Complex.component_kind ct) Float.constant_zero)
       | right _ => None
@@ -426,11 +426,11 @@ Proof. intro e; destruct e; reflexivity. Qed.
     (via [round_typed_float]).  A bare overflowing float has no default typed constant. *)
 Definition default_constant (c : Constant) : option ResolvedConstant :=
   match c with
-  | BoolConstant b    => Some (pack_resolved BoolType (TypedBool b))
-  | IntegerConstant z     => option_map (pack_resolved (IntegerType Integer.Int)) (typed_integer_of_Z Integer.Int z)
-  | FloatConstant q   => option_map (pack_resolved (FloatType F64)) (typed_float_of_constant F64 q)
-  | ComplexConstant c => option_map (pack_resolved (ComplexType C128)) (typed_complex_of_constant C128 c)
-  | StringConstant s  => Some (pack_resolved StringType (TypedString s))
+  | BoolConstant b    => Some (PackResolved BoolType (TypedBool b))
+  | IntegerConstant z     => option_map (PackResolved (IntegerType Integer.Int)) (typed_integer_of_Z Integer.Int z)
+  | FloatConstant q   => option_map (PackResolved (FloatType F64)) (typed_float_of_constant F64 q)
+  | ComplexConstant c => option_map (PackResolved (ComplexType C128)) (typed_complex_of_constant C128 c)
+  | StringConstant s  => Some (PackResolved StringType (TypedString s))
   end.
 
 (** resolve a constant status to a validated typed constant: an untyped status defaults; a typed status is
@@ -438,7 +438,7 @@ Definition default_constant (c : Constant) : option ResolvedConstant :=
 Definition resolve_constant_info (ci : ConstantInfo) : option ResolvedConstant :=
   match ci with
   | UntypedInfo c  => default_constant c
-  | TypedInfo t tc => Some (pack_resolved t tc)
+  | TypedInfo t tc => Some (PackResolved t tc)
   end.
 
 (** a successful constant-status resolution is deterministic (a function of the syntax). *)
@@ -476,11 +476,11 @@ Lemma convert_complex_reuses_float_component : forall ct (tc : TypedConstant (Fl
 Proof.
   intros ct tc; destruct ct.
   - destruct (round_typed_float F32 Float.constant_zero) as [imz|] eqn:Hz; [ | vm_compute in Hz; discriminate ].
-    exists (Complex.make_typed_constant (typed_float tc) imz); split; [ | reflexivity ].
+    exists (Complex.MakeTypedConstant (typed_float tc) imz); split; [ | reflexivity ].
     unfold convert_constant, convert_to_complex, same_complex_kind_identity, reuse_float_as_complex;
       cbn [Complex.component_kind float_kind_eq_dec eq_rect option_map]; rewrite Hz; reflexivity.
   - destruct (round_typed_float F64 Float.constant_zero) as [imz|] eqn:Hz; [ | vm_compute in Hz; discriminate ].
-    exists (Complex.make_typed_constant (typed_float tc) imz); split; [ | reflexivity ].
+    exists (Complex.MakeTypedConstant (typed_float tc) imz); split; [ | reflexivity ].
     unfold convert_constant, convert_to_complex, same_complex_kind_identity, reuse_float_as_complex;
       cbn [Complex.component_kind float_kind_eq_dec eq_rect option_map]; rewrite Hz; reflexivity.
 Qed.
@@ -771,19 +771,19 @@ Definition integer_literal (z : Z) : Syntax.Expr :=
   if Z.leb 0 z then Syntax.IntegerLiteral (Z.to_N z) else Syntax.NegatedIntegerLiteral (Z.to_N (- z)).
 
 (** decimal / decimal-complex constant fixtures shared with Property / Render / the e2e witnesses. *)
-Definition decimal_15em1 : Float.Decimal := Float.make_decimal 15 (-1) eq_refl.   (* 1.5 *)
-Definition decimal_3    : Float.Decimal := Float.make_decimal 3 0 eq_refl.        (* 3.0 *)
-Definition decimal_35em1 : Float.Decimal := Float.make_decimal 35 (-1) eq_refl.   (* 3.5 *)
-Definition decimal_128  : Float.Decimal := Float.make_decimal 128 0 eq_refl.      (* 128.0 *)
-Definition decimal_m1   : Float.Decimal := Float.make_decimal (-1) 0 eq_refl.     (* -1.0 *)
-Definition decimal_single_rounding : Float.Decimal := Float.make_decimal 2305843146652647425 0 eq_refl.
-Definition decimal_m25em1 : Float.Decimal := Float.make_decimal (-25) (-1) eq_refl.  (* -2.5 *)
-Definition decimal_127_0  : Float.Decimal := Float.make_decimal 127 0 eq_refl.
-Definition decimal_1_0    : Float.Decimal := Float.make_decimal 1 0 eq_refl.
-Definition decimal_m1_0   : Float.Decimal := Float.make_decimal (-1) 0 eq_refl.
-Definition decimal_0_0    : Float.Decimal := Float.make_decimal 0 0 eq_refl.
-Definition decimal_complex_1p5_m2p5 : Complex.Decimal := Complex.make_decimal decimal_15em1 decimal_m25em1.
-Definition decimal_tiny_imaginary : Float.Decimal := Float.make_decimal 1 (-50) eq_refl.   (* 1e-50: nonzero, underflows binary32 -> +0 *)
+Definition decimal_15em1 : Float.Decimal := Float.MakeDecimal 15 (-1) eq_refl.   (* 1.5 *)
+Definition decimal_3    : Float.Decimal := Float.MakeDecimal 3 0 eq_refl.        (* 3.0 *)
+Definition decimal_35em1 : Float.Decimal := Float.MakeDecimal 35 (-1) eq_refl.   (* 3.5 *)
+Definition decimal_128  : Float.Decimal := Float.MakeDecimal 128 0 eq_refl.      (* 128.0 *)
+Definition decimal_m1   : Float.Decimal := Float.MakeDecimal (-1) 0 eq_refl.     (* -1.0 *)
+Definition decimal_single_rounding : Float.Decimal := Float.MakeDecimal 2305843146652647425 0 eq_refl.
+Definition decimal_m25em1 : Float.Decimal := Float.MakeDecimal (-25) (-1) eq_refl.  (* -2.5 *)
+Definition decimal_127_0  : Float.Decimal := Float.MakeDecimal 127 0 eq_refl.
+Definition decimal_1_0    : Float.Decimal := Float.MakeDecimal 1 0 eq_refl.
+Definition decimal_m1_0   : Float.Decimal := Float.MakeDecimal (-1) 0 eq_refl.
+Definition decimal_0_0    : Float.Decimal := Float.MakeDecimal 0 0 eq_refl.
+Definition decimal_complex_1p5_m2p5 : Complex.Decimal := Complex.MakeDecimal decimal_15em1 decimal_m25em1.
+Definition decimal_tiny_imaginary : Float.Decimal := Float.MakeDecimal 1 (-50) eq_refl.   (* 1e-50: nonzero, underflows binary32 -> +0 *)
 
 (** typed-constant MISMATCH is UNREPRESENTABLE — the dependent index + carried range proof make an
     ill-typed / out-of-range typed constant impossible to CONSTRUCT ([Fail] adds nothing to the env). *)
