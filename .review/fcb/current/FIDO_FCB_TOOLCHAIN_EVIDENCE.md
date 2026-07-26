@@ -20,6 +20,7 @@ This document owns external adequacy evidence only. It does not define Go meanin
 - **Pinned executor report:** `go version go1.23.2 linux/amd64`.
 - **Target profile:** `GOOS=linux`, `GOARCH=amd64`, `GOAMD64=v1`, `CGO_ENABLED=0`.
 - **Terminal evidence status:** `PASS-WITH-PENDING-PROVENANCE`.
+  <!-- FIDO-HUMAN-ACT:TOOLCHAIN-PROVENANCE -->
 - **Reason:** the official `go1.23.2.linux-amd64.tar.gz` bytes were not present; fixtures ran from a sandboxed copy of the local distribution.
 - **Local distribution manifest SHA-256:** `8cd14d7f0cd1a8afe082b43a94d3396895230021bf11022e0f6742304e6eef48`.
 - **Go binary SHA-256:** `caa1b3c015e819aaa1408efe37b2499088bbf986bf30a2883bceab4e07b55b52`.

@@ -134,6 +134,8 @@ carries this registry; baseline and terminal are distinguished by **ref**, not b
 R1 spec-closure bundle, are not held by Git, and their availability is an open human act recorded in the Human
 Review Index. No component silently points at a repository path that does not exist.
 
+<!-- FIDO-HUMAN-ACT:FIXED-POINT-EXTERNAL-EVIDENCE -->
+
 | ARCH-01 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 1. Standard`` | `normalized-section-text` |
 | ARCH-02 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 2. Permanent Public Semantic Base`` | `normalized-section-text` |
 | ARCH-03 | charter | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | `markdown-section: `## 3. Complete Authority Chain`` | `normalized-section-text` |

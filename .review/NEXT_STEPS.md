@@ -3,6 +3,8 @@
 This file alone owns the current checkpoint and candidate state.
 `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` alone owns the set of open human acts.
 
+<!-- FIDO-HUMAN-ACT:C4-REVIEW -->
+
 - **Active work: C4 REPAIR 18 — the sole active C4 task.**
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_18.md` (installed verbatim).
   Human implementation authorization token: `C4-returned-cause-human-index-coherence-repair-18`.

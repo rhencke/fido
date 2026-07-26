@@ -53,7 +53,8 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 | `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-26, amendment register, ADR register, amendment law. |
 | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
 | `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
-| `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Open human decisions and the blocked C4 review state. |
+| `FIDO_FCB_HUMAN_ACTS.tsv` | Canonical rows for the open human acts; the sole authority for that set (D-07). |
+| `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Generated view of the open human acts. Never edited by hand. |
 | `FIDO_FCB_ROADMAP.md` | The C4 boundary and the unchanged C5–C17 foundational order. |
 | `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | Checkpoint contract form, whole-result retention, Git publication duty, fixtures, gates, stop rules. |
 | `FIDO_FCB_MODEL_OPERATIONS.md` | Exact-ref Git bootstrap, model delegation, amendment workflow, shim rule. |
@@ -77,7 +78,7 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 | Can a protected thing change? | `FIDO_FCB_FIXED_POINTS.md`, then `FIDO_FCB_GOVERNANCE.md` | Rob must reopen a protected projection with new information. |
 | Whether a published capability retained enough provenance | `FIDO_FCB_ARCHITECTURE_CHARTER.md` §4 + Governance D-22 + Guide | Exact retained whole-result object; no equality-to-rerun provenance. |
 | Where current documentation lives | `INDEX.md` + Governance D-23/D-24 + Model Operations | One exact Git ref; every reference resolves there; shims only in project libraries. |
-| What is still open for Rob? | `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Never answer from memory. |
+| What is still open for Rob? | `FIDO_FCB_HUMAN_ACTS.tsv`, or its generated view | Never answer from memory. <!-- FIDO-HUMAN-ACT:FCB-SHOWROOM --> |
 | Toolchain/environment question | `FIDO_FCB_TOOLCHAIN_EVIDENCE.md` | One sanctioned profile and evidence status. |
 | How to write the next contract | `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | Required order, frozen surfaces, whole-result retention, fixtures, gates, Git publication. |
 | Which model does what? | `FIDO_FCB_MODEL_OPERATIONS.md` | Exact-ref bootstrap, delegation, amendment workflow, shim duties. |

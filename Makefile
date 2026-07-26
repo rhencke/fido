@@ -4,7 +4,8 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names profile
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names \
+        human-acts human-acts-write profile
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -28,7 +29,7 @@ override PLATFORM := linux/amd64
 # export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
 # exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
-check: names prove e2e builder
+check: names human-acts prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -116,6 +117,17 @@ fmt:
 # has no verifier at all, so this is the only checker the prose gets.  Reports, never rewrites.
 names:
 	@python3 tools/naming-gate.py
+
+# Governance D-07.  The set of open human acts is DISCOVERED from the canonical rows in
+# `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` and never hand-copied: `human-acts` verifies the tracked
+# index is exactly the generated view and that every row's ownership anchor resolves; `human-acts-write`
+# regenerates it.  The adversarial controls run first, so a gate that cannot fail never reports green.
+human-acts:
+	@python3 tools/human-review-index.py --self-test
+	@python3 tools/human-review-index.py --check
+
+human-acts-write:
+	@python3 tools/human-review-index.py --write
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \

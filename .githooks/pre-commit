@@ -31,6 +31,12 @@ sh "$ctx/tools/generated-mode-gate.sh"
 # enforced only on the ordinary working tree is not protection for the proposed commit, and snapshot
 # mode fails closed on an absent or incomplete export rather than scanning nothing and passing.
 python3 "$ctx/tools/naming-gate.py" --root "$ctx" --snapshot
+# the D-07 human-acts gate on the same exported staged tree: the open-act list in the proposed commit must be
+# exactly the generated view of its own canonical rows, with every ownership anchor resolving in that snapshot.
+# Its adversarial controls run first on the STAGED copy of the gate, so a staged edit that neuters the checker
+# is caught by the checker itself rather than reporting a green it can no longer earn.
+python3 "$ctx/tools/human-review-index.py" --root "$ctx" --self-test
+python3 "$ctx/tools/human-review-index.py" --root "$ctx" --check
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).
