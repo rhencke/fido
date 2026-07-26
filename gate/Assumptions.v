@@ -199,7 +199,22 @@ Print Assumptions Compilable.program_of_admissible.
 Print Assumptions Compilable.capability_source.
 Print Assumptions Compilable.capability_is_compile_outcome.
 Print Assumptions Compilable.compile_rejected_not_admissible.
+(* §3 THE SEALED IMAGE: the representation and its constructor are private (Charter §22/§24), so the image
+   RETAINS the exact certificate it was minted from and provenance is a PROJECTION of that certificate rather
+   than an existential a caller supplied.  Constructor inaccessibility is not a Print-Assumptions surface —
+   it is enforced by the negative client tests Y-AB in `make prove`. *)
+Print Assumptions Emit.image_safe.
+Print Assumptions Emit.module_bytes_exact.
+Print Assumptions Emit.files_exact.
+Print Assumptions Emit.provenance.
+Print Assumptions Emit.of_safe.
+Print Assumptions Emit.of_safe_retains.
+Print Assumptions Emit.of_safe_module_bytes.
+Print Assumptions Emit.of_safe_files.
 Print Assumptions Emit.of_safe_at.
+Print Assumptions Emit.of_safe_at_retains.
+Print Assumptions Emit.of_safe_at_module_bytes.
+Print Assumptions Emit.of_safe_at_files.
 Print Assumptions Emit.of_safe_at_refl.
 Print Assumptions Emit.of_safe_at_transport.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file

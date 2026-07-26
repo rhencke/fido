@@ -311,37 +311,34 @@ cat > /tmp/forge/preamble <<'EOF'
 From Stdlib Require Import List String.
 From Fido Require Import FilePath Collections ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.
-Definition fgm : string := "forged"%string.
-Definition ff : Collections.FileMap.t string :=
-  Collections.FileMap.add (FilePath.Make "main.go" eq_refl) "forged"%string (Collections.FileMap.empty string).
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Direct.v <<'EOF'
-Axiom p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Definition img : Emit.Image := Emit.MakeImage fgm ff p.
+Axiom sp : Safe.Program.
+Definition img : Emit.Image := Emit.of_safe sp.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Opaque.v <<'EOF'
-Axiom a : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Lemma p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp. Proof. exact a. Qed.
-Definition img : Emit.Image := Emit.MakeImage fgm ff p.
+Axiom a : Safe.Program.
+Definition sp : Safe.Program := a.
+Definition img : Emit.Image := Emit.of_safe sp.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge-op".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Var.v <<'EOF'
 Declare ML Module "fido.emit".
 Section S.
-Variable p : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Definition img : Emit.Image := Emit.MakeImage fgm ff p.
+Variable sp : Safe.Program.
+Definition img : Emit.Image := Emit.of_safe sp.
 Fido Materialize img To "/workspace/e2e-forge-var".
 End S.
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/VarIndirect.v <<'EOF'
 Declare ML Module "fido.emit".
 Section S.
-Variable v : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp.
-Definition q : exists sp, fgm = Emit.module_file sp /\ ff = Emit.file_map sp := v.
-Definition img : Emit.Image := Emit.MakeImage fgm ff q.
+Variable v : Safe.Program.
+Definition sp : Safe.Program := v.
+Definition img : Emit.Image := Emit.of_safe sp.
 Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
 EOF

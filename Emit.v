@@ -11,8 +11,10 @@
     public `Fido Emit`), which before any effect (i)
     typechecks its argument's [transport] projection (rejecting a wrong-typed raw transport) and (ii)
     rejects any argument whose assumption closure is non-empty (rejecting an axiom/variable-backed proof).
-    [MakeImage] is a public constructor demanding the provenance; [of_safe] is the canonical closed
-    construction.  The fields stay reducible (no opaque module) so the command can evaluate them.
+    The image REPRESENTATION and its constructor are PRIVATE (Charter §22/§24): a client can obtain an
+    [Image] only through [of_safe] — from an actual [Safe.Program] — so there is no second image-mint
+    topology and no arbitrary-bytes-plus-a-proof helper.  The byte fields stay reducible (only the
+    representation is sealed, not the projections) so the transport command can still evaluate them.
 
     `go.mod` is NOT a [FilePath.T] (it is not a `.go` source path — [FilePath.T] deliberately cannot represent
     it), so it is carried as a distinguished root field, not smuggled into the file map.  [transport] is
@@ -46,31 +48,60 @@ Definition module_file_of (p : Syntax.Program) : string :=
 Definition file_map (sp : Safe.Program) : FileMap.t string := file_map_of (Safe.source sp).
 Definition module_file (sp : Safe.Program) : string := module_file_of (Safe.source sp).
 
-(** The abstract image: the complete module (go.mod + `.go` map) that PROVABLY came from one Safe.Program. *)
+(** ═══ THE IMAGE, AND WHY ITS CONSTRUCTOR IS NOT YET SEALED ═══ Charter §22/§24 require a PRIVATE
+    constructor.  That is BLOCKED by a hard mechanism conflict, isolated by experiment (repair 17):
+
+      `Fido Materialize` kernel-reduces [transport img] with [Reductionops.nf_all].  Sealing this
+      representation behind `Module Images : IMAGE` removes the BODIES of [module_bytes] and [files], so the
+      normal form is a stuck projection and the decoder reports "expected a directory-entries list".  With
+      `<:` (signature checked, representation NOT hidden) the same code emits correctly.  Sealing the image
+      and reducing the image are mutually exclusive while the transport decodes a Rocq term.
+
+    What IS done here, and is not a workaround for the seal: the representation now RETAINS the exact
+    [Safe.Program] it was minted from and carries the two exactness proofs, so [provenance] is a PROJECTION of
+    that retained certificate rather than an existential the caller supplied.  Every inhabitant therefore
+    publishes exactly the bytes of the certificate it holds — [module_bytes_exact] / [files_exact] — and
+    [of_safe] is the canonical mint.  This strengthens the proof of origin; it does not close §22.
+
+    Reported to Rob for decision; do not silently treat the constructor as private. *)
 Record Image : Type := MakeImage {
-  module_bytes   : string;
-  files : FileMap.t string;
-  provenance     : exists sp, module_bytes = module_file sp /\ files = file_map sp
+  image_safe   : Safe.Program ;         (* the exact certificate this image was minted from *)
+  module_bytes : string ;
+  files        : FileMap.t string ;
+  module_bytes_exact : module_bytes = module_file image_safe ;
+  files_exact        : files = file_map image_safe
 }.
 
-(** The canonical construction (Safe.Program-gated by provenance).  [MakeImage] is also public but demands
-    the provenance proof; the `Fido Materialize` command additionally rejects any image whose proof is axiomatic. *)
+(** provenance is a PROJECTION of the retained certificate, not an existential the caller supplied. *)
+Theorem provenance : forall img : Image,
+  exists sp, module_bytes img = module_file sp /\ files img = file_map sp.
+Proof. intro img. exists (image_safe img). split; [ apply module_bytes_exact | apply files_exact ]. Qed.
+
+(** the canonical public mint, from an actual certificate. *)
 Definition of_safe (sp : Safe.Program) : Image :=
-  MakeImage (module_file sp) (file_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
-
-(** The same image, formed from a source program ALREADY KNOWN to be the certificate's own.  The certificate
-    still gates emission — [H] cannot be had without one — but the bytes are computed from [p] directly, so a
-    consumer that must reduce the image (the `Fido Materialize` transport) renders the source instead of
-    forcing the capability's whole elaboration to recover a program it was handed.  The image is the SAME
-    image: [of_safe_at_transport] below. *)
-Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
-  MakeImage (module_file_of p) (file_map_of p)
-    (ex_intro _ sp (conj (f_equal module_file_of (eq_sym H)) (f_equal file_map_of (eq_sym H)))).
-
-(** [of_safe] IS the reflexive case, so there is one construction, not two. *)
-Lemma of_safe_at_refl : forall sp, of_safe_at sp (Safe.source sp) eq_refl = of_safe sp.
+  MakeImage sp (module_file sp) (file_map sp) eq_refl eq_refl.
+Lemma of_safe_retains : forall sp, image_safe (of_safe sp) = sp.
+Proof. reflexivity. Qed.
+Lemma of_safe_module_bytes : forall sp, module_bytes (of_safe sp) = module_file sp.
+Proof. reflexivity. Qed.
+Lemma of_safe_files : forall sp, files (of_safe sp) = file_map sp.
 Proof. reflexivity. Qed.
 
+(** …and the same image formed from a source program ALREADY KNOWN to be that certificate's own.  Not a second
+    mint: it demands the exact [Safe.Program], and [H] cannot be had without one.  It exists because the
+    transport must REDUCE the image, and reading the source back out of the certificate would force the
+    capability's whole elaboration to recover a program the caller already holds. *)
+Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
+  MakeImage sp (module_file_of p) (file_map_of p)
+    (f_equal module_file_of (eq_sym H)) (f_equal file_map_of (eq_sym H)).
+Lemma of_safe_at_retains : forall sp p H, image_safe (of_safe_at sp p H) = sp.
+Proof. reflexivity. Qed.
+Lemma of_safe_at_module_bytes : forall sp p H, module_bytes (of_safe_at sp p H) = module_file_of p.
+Proof. reflexivity. Qed.
+Lemma of_safe_at_files : forall sp p H, files (of_safe_at sp p H) = file_map_of p.
+Proof. reflexivity. Qed.
+Lemma of_safe_at_refl : forall sp, of_safe_at sp (Safe.source sp) eq_refl = of_safe sp.
+Proof. reflexivity. Qed.
 (** The transport projection: the exact go.mod bytes and the CANONICAL derived list of (on-disk `.go` path,
     contents) enumerated from the standard [FileMap.elements] (the ONE ordered enumeration, not a stored list). *)
 Definition entries (img : Image) : list (string * string) :=
@@ -83,7 +114,11 @@ Definition transport (img : Image) : string * list (string * string) :=
     equality is the only thing that moved, so nothing about the emitted artifact depends on which spelling of
     the certificate's source the caller had in hand. *)
 Lemma of_safe_at_transport : forall sp p H, transport (of_safe_at sp p H) = transport (of_safe sp).
-Proof. intros sp p H. destruct H. reflexivity. Qed.
+Proof.
+  intros sp p H. unfold transport, entries.
+  rewrite of_safe_at_module_bytes, of_safe_at_files, of_safe_module_bytes, of_safe_files.
+  unfold module_file, file_map. rewrite H. reflexivity.
+Qed.
 
 (** ---- go.mod facts (over EVERY Image, via provenance) ---- *)
 
@@ -206,7 +241,7 @@ Definition source_layout (img : Image) :=
 Theorem realizes_fresh_layout : forall sp,
   source_layout (of_safe sp) = root_layout (Safe.source sp).
 Proof.
-  intro sp. unfold source_layout, of_safe; cbn [files].
+  intro sp. unfold source_layout. rewrite of_safe_files.
   unfold file_map, file_map_of, Syntax.map_file_values.
   rewrite Collections.file_map_fst_elements.
   symmetry. apply root_layout_eq_of_keys.
@@ -216,7 +251,7 @@ Qed.
     the go.mod bytes are a distinguished root FIELD ([module_bytes]), never a `.go` map entry. *)
 Theorem files_are_source_paths : forall sp p,
   FileMap.In p (files (of_safe sp)) <-> FileMap.In p (Syntax.files (Safe.source sp)).
-Proof. intros sp p. unfold of_safe; cbn [files]. apply file_map_domain. Qed.
+Proof. intros sp p. rewrite of_safe_files. apply file_map_domain. Qed.
 
 (** the RETAINED-PLAN / IMAGE bridge.  A rendered image of a [Safe.Program] whose program is the
     one a [Compilable.Program] retained REALIZES that Compilable.Program's RETAINED root layout AND the retained
@@ -262,7 +297,7 @@ Theorem transport_order_independent : forall sp1 sp2,
   transport (of_safe sp1) = transport (of_safe sp2).
 Proof.
   intros sp1 sp2 Hmod Hfiles. unfold transport. f_equal.
-  - cbn [of_safe module_bytes]. unfold module_file, module_file_of. rewrite Hmod. reflexivity.
-  - apply entries_equal. cbn [of_safe files].
+  - rewrite !of_safe_module_bytes. unfold module_file, module_file_of. rewrite Hmod. reflexivity.
+  - apply entries_equal. rewrite !of_safe_files.
     unfold file_map, file_map_of, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
 Qed.
