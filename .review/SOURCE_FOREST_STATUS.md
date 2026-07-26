@@ -174,6 +174,12 @@ plus a Prop equality to rerunning the elaborator does likewise — repair 14. A 
 of `program_visit`, a publicly constructible `Core`, and direct fixtures that recover their result through an
 equality to a rebuilt peer all do likewise — repair 17's findings 1, 2 and 4, every one of them green.
 
+⚠ **Sealing is not one boundary but several, and the reasons differ.** `Compilable.Core`, `Program`,
+`Failure`, `Facts` and `Safe.Program` are abstract outright. `Emit.Image` cannot be: the certified transport
+kernel-reduces it, and a module seal removes the projection bodies that reduction needs. A006 seals the
+AUTHORITY there instead — an opaque value-indexed `Emit.Mint.Token` — and keeps the carrier reducible. The
+rule that decides which applies is whether a certified transport must reduce the representation.
+
 ⚠ **And the sharpest instance is a gate that could not see.** The A005 naming gate parsed constructors only
 when the first character was already uppercase, so 51 live lower-case constructors were never examined and it
 reported success — twice, in two modes, over a defect it existed to find. Fixing that exposed a second blind

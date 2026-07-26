@@ -13,27 +13,23 @@
   diagnostics consume the exact retained package-reference map; the aggregate fixtures no longer state equality
   to `build_elaboration_core`; all 51 lower-case constructors were renamed; generated Go still builds and
   matches the reviewed goldens.
-- **The five findings repair 17 must close.**
-  1. **The direct capability fixtures do not prove the retained causal result.** Neither the accepted nor the
-     rejected fixture exposes the retained work index, outcome table, trace, conversion causes, annotation
-     context, raw diagnostics, safety retention or emission through the returned object. The detailed cause
-     fixtures still stand over freshly rebuilt phases, and the gate prose calls them capability evidence.
-  2. **The naming gate is still false-green.** Record fields are parsed only when the first character is
-     already lower-case, so an upper-case field is invisible — the same pre-validation defect that previously
-     hid lower-case constructors. And a selected text file that fails to decode or read is silently skipped.
-  3. **`Emit.Image` authority.** Charter §22 asked for a private constructor; that is impossible while the
-     certified transport kernel-reduces `Emit.transport` (a module seal removes the projection bodies —
-     isolated by a one-token `:` vs `<:` experiment). Accepted amendment **A006** settles the topology
-     instead: an opaque `Emit.Mint.Token` indexed by the exact `Safe.Program` and exact bytes owns the
-     authority, `Emit.Mint.issue` is the sole authority-producing operation, and the `Emit.Image` carrier
-     stays reducible with a pack constructor that is not a mint. `MakeImage` is deleted outright.
-  4. **A coarse legacy result peer survived** with no production consumer, collapsing the structured
-     `Outcome` and exact `DiagnosticReason` list into four tags. Now retired, with its whole classification
-     closure, and its names are in the gate's retired-surface table so it cannot return.
-  5. **The corpus does not state one truth** — REVIEW_REQUEST, the Roadmap, PROGRESS, SOURCE_FOREST_STATUS and
-     the Charter disagree with the indexes; source comments still claim `Core` is transparent; `ARCHITECTURE.md`
-     cites a deleted theorem and calls `Emit.MakeImage` public; `FIDO_FCB_MODEL_OPERATIONS.md` carries a
-     corrupted sentence.
+- **All five findings are closed.**
+  1. **The returned-object fixtures carry the retained causal history.** The four conversion causes with
+     their operand predecessors and `Typing.convert_constant` steps, the retained work index exact both ways,
+     the outcome table and trace, the exact empty raw and final diagnostics, `Safe.certify` retention and
+     `Emit.of_safe` consumption — all through the object `compile` returned. Seventeen causal declarations plus
+     two bundles were first restated over ANY retained `Input`/`Phase`; the obsolete builder-based peers are
+     deleted, not kept in parallel.
+  2. **The naming gate parses what it judges.** Record fields are read as general identifiers and then
+     validated; a selected text file that cannot be decoded or read fails the gate by path. 47 controls,
+     mutation-tested — with the defects restored, the five new ones fail.
+  3. **The `Emit.Image` authority is sealed under A006 / D-26.** `Emit.Mint.Token` is opaque and indexed by
+     the exact `Safe.Program` and exact bytes; `Mint.issue` is the sole authority-producing operation; the
+     carrier stays reducible and its pack constructor is not a mint. `MakeImage` is deleted.
+  4. **The coarse legacy result peer is gone**, with its whole classification closure; every fixture now
+     asserts exact outcomes and exact diagnostic codes.
+  5. **The corpus states one truth**, and the closure audit additionally sealed `Safe.Program`, which was the
+     last publicly constructible capability.
 - **Amendment A006 is ACCEPTED** (`FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`, Rob, 2026-07-26), resolving Q-08.
   Otherwise A001, A005, `D-22`–`D-26`, Charter §§1, 3, 4, 22, 24, 25 and the
   no-compatibility law already decide the required result. If one of those must change, stop and propose the
