@@ -349,3 +349,39 @@ Proof.
   split; [ exact (Safe.certify_retains cp) | ].
   repeat split; reflexivity.
 Qed.
+
+(** ═══ §10.1 THE ONE ACCEPTED PATH ON A CONCRETE PROGRAM, COMPILE THROUGH EMIT ═══ the theorem above is the
+    general shape; this one is the four-deep conversion chain, end to end, over ONE object.
+
+    It destructs [Compilable.deep_nested_compile_fixture] EXACTLY ONCE and carries that existential witness and
+    its source proof through every later step.  It does NOT re-invoke [Compilable.compile_complete] and then
+    assert the two capabilities coincide — a second invocation would bind a second [cp], and "the same witness"
+    would become a claim rather than a fact.  Because the same [cp] is passed along, [Compilable.AcceptedFixture
+    cp Hcp] arrives here unchanged: the whole accepted causal history the fixture states is a property of the
+    very capability these bytes were minted from. *)
+Theorem deep_nested_emit_fixture :
+  exists cp Hcp,
+    Compilable.compile Compilable.deep_nested_program = Compilable.Compiled cp Hcp
+    (* the ONE accepted root fixture, over THIS capability *)
+    /\ Compilable.AcceptedFixture cp Hcp
+    (* safety certifies THAT capability and retains its exact core *)
+    /\ Safe.compiled (Safe.certify cp) = cp
+    (* the certificate's core IS the core of the capability it wraps — and that capability IS [cp] by the
+       conjunct above, so this is the core [Compilable.AcceptedFixture] just spoke about.  It is spelled
+       through [Safe.compiled] because [Safe.core]'s type is indexed by [Safe.source]. *)
+    /\ Safe.core (Safe.certify cp) = Compilable.core (Safe.compiled (Safe.certify cp))
+    /\ Safe.source (Safe.certify cp) = Compilable.source cp
+    (* and the image is minted from THAT certificate and publishes exactly its bytes *)
+    /\ safe (of_safe (Safe.certify cp)) = Safe.certify cp
+    /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
+    /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
+Proof.
+  destruct Compilable.deep_nested_compile_fixture as [cp [Hcp [Hc Hfix]]].
+  exists cp, Hcp.
+  split; [ exact Hc | ].
+  split; [ exact Hfix | ].
+  split; [ exact (Safe.certify_retains cp) | ].
+  split; [ reflexivity | ].
+  split; [ exact (Safe.certify_source cp) | ].
+  repeat split; reflexivity.
+Qed.

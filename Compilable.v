@@ -5089,6 +5089,127 @@ Proof.
   exact Hf.
 Qed.
 
+(** the REJECTED counterparts, stated over the SAME retained cause object.  A local conversion failure and an
+    enclosing child failure are different constructors of one [StepCause]; both are read off
+    [total_forest_outcome_cause], so neither statement is free to pick its own suffix or tail accumulator. *)
+Definition rejected_conversion_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) (ts : Syntax.TypeExpr) (x : Syntax.Expr)
+    (* [extra] lets a CONCRETE fixture add facts that must live in the SAME existential scope as the step —
+       the stored diagnostic names the step's own refs, so it cannot be stated outside.  Passing a
+       continuation keeps the conjunct list below the ONE statement of what a rejected cause is; a fixture
+       that restated those conjuncts to bolt on its diagnostic would be a second authority for the same
+       thing.  A fixture with nothing to add passes [fun _ _ _ => True]. *)
+    (extra : ConversionStep forest (proj1_sig wm) (projT1 (total_forest_outcome_cause ot wm)) ts x
+             -> ExpressionFact -> Typing.SemanticType -> Prop) : Prop :=
+  let cause    := total_forest_outcome_cause ot wm in
+  let rest     := projT1 cause in
+  let acc_rest := projT1 (projT2 cause) in
+     work_expr (proj1_sig wm) = Syntax.Convert ts x
+  /\ (exists prefix, forest_items forest = prefix ++ proj1_sig wm :: rest)
+  /\ exists (step : ConversionStep forest (proj1_sig wm) rest ts x) opf t,
+       (* the FINAL outcome IS the [ConversionFailure] naming this member's own ref, the step's target ref and
+          the step's operand ref — no separately guessed refs *)
+       total_forest_outcome_at ot wm
+         = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
+             (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
+       (* the operand SUCCEEDED, read through the RETAINED tail accumulator, and that outcome is preserved *)
+    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
+    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
+    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
+       = accumulator_total acc_rest (step_operand_suffix step)
+       (* the ONE [Typing.convert_constant], and it REJECTED *)
+    /\ Typing.convert_constant t (const_status opf) = None
+       (* the resolved target type IS the exact predeclared-context table query for that ref *)
+    /\ t = fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))
+       (* … and whatever the concrete fixture must say about THIS step *)
+    /\ extra step opf t.
+
+Lemma retained_convfail_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) ts x er tr opr t ci extra :
+  work_expr (proj1_sig wm) = Syntax.Convert ts x ->
+  total_forest_outcome_at ot wm = ConversionFailure er tr opr t ci ->
+  (* the caller proves its [extra] for the step the cause supplies, with the cause's own facts in hand *)
+  (forall (step : ConversionStep forest (proj1_sig wm) (projT1 (total_forest_outcome_cause ot wm)) ts x) opf,
+     work_expr (proj1_sig wm) = Syntax.Convert ts x ->
+     total_forest_outcome_at ot wm
+       = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
+           (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf) ->
+     extra step opf t) ->
+  rejected_conversion_cause ot wm ts x extra.
+Proof.
+  intros He Hcv Hextra. unfold rejected_conversion_cause. cbv zeta.
+  destruct (total_forest_outcome_cause ot wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
+  cbn [projT1 projT2].
+  split; [ exact He | split; [ exact Hsplit | ] ].
+  (* same convertibility note as the success side: restate the outcome in the cause's own spelling. *)
+  assert (Hidx : accumulator_total (outcomes_acc ot) (wm_suffix wm) = ConversionFailure er tr opr t ci)
+    by exact Hcv.
+  (* build the restated cause rather than [rewrite … in stepc]: [extra]'s type mentions the cause, so an
+     in-place rewrite would have to change that hypothesis too. *)
+  assert (stepc' : StepCause forest tnft (proj1_sig wm) rest acc_rest (ConversionFailure er tr opr t ci))
+    by (rewrite <- Hidx; exact stepc).
+  destruct (conversion_failure_cause_yields_step _ rest acc_rest er tr opr t ci stepc')
+    as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her [Htr [Hopr [Ht [Hci Hconv]]]]]]]]]]].
+  assert (Heq : Syntax.Convert ts0 x0 = Syntax.Convert ts x) by (rewrite <- Hstep_e; exact He).
+  injection Heq as Hts0 Hx0. subst ts0 x0.
+  pose proof (final_operand_outcome ot rest acc_rest Hpreserve (step_operand_suffix step)) as Hcl.
+  assert (Hout : total_forest_outcome_at ot wm
+                 = ConversionFailure (work_expr_ref (proj1_sig wm))
+                     (conversion_target_node_ref (step_conversion step))
+                     (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+                     t (const_status opf))
+    by (rewrite Hcv, Her, Htr, Hopr, Hci; reflexivity).
+  assert (Hfin : total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf)
+    by (rewrite Hcl; exact Hopf).
+  (* the rejecting query is stated over the OPERAND FACT's status, not over the loose [ci] the shape lemma
+     happened to name — [Hci] is exactly that identification. *)
+  rewrite Hci in Hconv.
+  exists step, opf, t.
+  exact (conj Hout (conj Hopf (conj Hfin (conj Hcl (conj Hconv (conj Ht (Hextra step opf He Hout))))))).
+Qed.
+
+(** an ENCLOSING conversion whose own outcome is [ChildFailure]: no local reason of its own, its operand's
+    outcome already a failure, and the failure preserved into the final table — again over the cause's suffix. *)
+Definition childfail_conversion_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  let cause    := total_forest_outcome_cause ot wm in
+  let rest     := projT1 cause in
+  let acc_rest := projT1 (projT2 cause) in
+     work_expr (proj1_sig wm) = Syntax.Convert ts x
+  /\ total_forest_outcome_at ot wm = ChildFailure
+  /\ (exists prefix, forest_items forest = prefix ++ proj1_sig wm :: rest)
+  /\ exists step : ConversionStep forest (proj1_sig wm) rest ts x,
+       outcome_is_fail (accumulator_total acc_rest (step_operand_suffix step))
+    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
+       = accumulator_total acc_rest (step_operand_suffix step)
+    /\ outcome_is_fail (total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)))
+       (* an enclosing failure contributes NO diagnostic of its own, whatever annotation context it carries *)
+    /\ (forall c, forest_awork_diags ot (wm, c) = []).
+
+Lemma retained_childfail_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) ts x :
+  work_expr (proj1_sig wm) = Syntax.Convert ts x ->
+  total_forest_outcome_at ot wm = ChildFailure ->
+  childfail_conversion_cause ot wm ts x.
+Proof.
+  intros He Hcf. unfold childfail_conversion_cause. cbv zeta.
+  destruct (total_forest_outcome_cause ot wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
+  cbn [projT1 projT2].
+  split; [ exact He | split; [ exact Hcf | split; [ exact Hsplit | ] ] ].
+  assert (Hidx : accumulator_total (outcomes_acc ot) (wm_suffix wm) = ChildFailure) by exact Hcf.
+  rewrite Hidx in stepc.
+  destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts0 [x0 [step [Hstep_e Hfail]]]].
+  assert (Heq : Syntax.Convert ts0 x0 = Syntax.Convert ts x) by (rewrite <- Hstep_e; exact He).
+  injection Heq as Hts0 Hx0. subst ts0 x0.
+  pose proof (final_operand_outcome ot rest acc_rest Hpreserve (step_operand_suffix step)) as Hcl.
+  assert (Hfinfail : outcome_is_fail (total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))))
+    by (rewrite Hcl; exact Hfail).
+  assert (Hnodiag : forall c, forest_awork_diags ot (wm, c) = [])
+    by (intro c; unfold forest_awork_diags; cbn [fst snd]; rewrite Hcf; reflexivity).
+  exists step.
+  exact (conj Hfail (conj Hcl (conj Hfinfail Hnodiag))).
+Qed.
+
 (* §3 the STORED DIAGNOSTIC of an [ConversionFailure] member: [forest_awork_diags] reads the STORED outcome DIRECTLY
    (not via [local_conv_failure]) and emits [InvalidConversion] over the SAME fields with the member's retained
    annotation context [outer].  So the exact reason is a MEMBER of the projected diagnostic list. *)
@@ -9205,6 +9326,25 @@ Theorem core_raw_diagnostics_consume_retained_refs : forall p (core : Core p),
          (bucket_present_of_domain (core_package_refs core) (core_package_present core)).
 Proof. intros p core. exact (core_raw_diagnostics_exact core). Qed.
 
+(** the COMMAND-ORDERED list at a SINGLE node-anchored raw diagnostic IS that same singleton.  A concrete
+    rejected fixture must state its final diagnostics EXACTLY — not [length = 1], not [<> nil], not
+    [exists reason] — and the final list is the command-ordered projection of the raw one, so it needs this
+    bridge.  With one node-keyed reason the bucket map is a single entry, so the ordering is the identity;
+    the fresh-build preflight hypothesis is what rules out the output-directory diagnostic taking precedence. *)
+Lemma core_diagnostics_of_node_singleton {p} (core : Core p) (d : DiagnosticReason p) k :
+  core_raw_diagnostics core = [d] ->
+  diag_node_key d = Some k ->
+  fresh_build_disposition_ok (core_plan core) = true ->
+  core_diagnostics core = [d].
+Proof.
+  intros Hraw Hk Hok.
+  rewrite (core_diagnostics_exact core), Hraw.
+  unfold command_diagnostics_of. rewrite Hok.
+  unfold node_keyed, package_primary, bucket_flatten. cbn [flat_map]. rewrite Hk.
+  cbn [app fold_right]. unfold bucket_add. cbn [fst snd].
+  cbn. reflexivity.
+Qed.
+
 (* the SPECIFICATION bridge (NOT provenance): the core's own accept/reject quantity is the canonical
    [elaboration_diagnostics] of the same program and retained index — for ANY core, not merely a freshly built
    one.  It transports the decision to the source-level validity theorems; no object is ever recovered through
@@ -10707,16 +10847,13 @@ Lemma deep_fail_childfail_at (input : Input deep_fail_program) (ph : Phase input
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   occurrence_expr_fact occ = None ->
   local_conv_failure (Syntax.Convert ts x) = None ->
-  exists (wm : WorkMember (phase_work (ph))),
-    work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ total_forest_outcome_at
-         (phase_ot (ph)) wm
-       = ChildFailure.
+  exists wm : WorkMember (phase_work (ph)), childfail_conversion_cause (phase_ot ph) wm ts x.
 Proof.
   intros Hsrc Hview Hnf Hlcf.
   destruct (member_at_in_forest deep_fail_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
               ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
-  exists wm. split; [exact He | ].
+  exists wm.
+  apply (retained_childfail_cause (phase_ot ph) wm ts x He).
   apply (total_forest_outcome_childfail_shape _ wm ts x);
     [ rewrite Hocc; exact Hview | rewrite Hocc; exact Hnf | exact Hlcf ].
 Qed.
@@ -10816,18 +10953,16 @@ Qed.
 (* the claim of [deep_fail_outer_childfail], named so a returned-object fixture can assert it. *)
 Definition deep_fail_outer_childfail_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
   let ot := phase_ot (ph) in
-  (exists (wm : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
-     /\ total_forest_outcome_at ot wm = ChildFailure)
-  /\ (exists (wm : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
-     /\ total_forest_outcome_at ot wm = ChildFailure)
-  /\ (exists (wm : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                     (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
-     /\ total_forest_outcome_at ot wm = ChildFailure).
+  (exists wm : WorkMember (phase_work (ph)),
+     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int16)
+       (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
+  /\ (exists wm : WorkMember (phase_work (ph)),
+     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int32)
+       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
+  /\ (exists wm : WorkMember (phase_work (ph)),
+     childfail_conversion_cause ot wm (Syntax.type_expr_of_name Names.Int64)
+       (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+         (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))).
 
 Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase input) :
   deep_fail_outer_childfail_claim input ph.
@@ -10876,54 +11011,77 @@ Qed.
    (repair-10 [retained_convfail_diag]), NOT re-derived by [local_conv_failure]; length one (there is no second
    local reason).  The tail operand [ExpressionSuccess opf] closes into the final Index.table and [Typing.convert_constant] rejects. *)
 (* the claim of [deep_fail_innermost_diag], named so a returned-object fixture can assert it. *)
-Definition deep_fail_innermost_diag_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
-  let phase := ph in
-  let ot := phase_ot phase in
-  exists (wm : WorkMember (phase_work phase))
-         (rest : list (Work input))
-         (acc_rest : Accumulator (phase_work phase) (phase_type_name_facts phase) rest)
-         (step : ConversionStep (phase_work phase) (proj1_sig wm) rest (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
-         opf t (wma : WorkMember (phase_work phase)) (outer : list (Index.ExprRef deep_fail_program)),
-       total_forest_outcome_at ot wm
-         = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
-             (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
-       (* the resolved target type of the diagnostic IS the exact predeclared-context Index.table query for that ref *)
-    /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts phase) (conversion_target_node_ref (step_conversion step)))
-    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ Typing.convert_constant t (const_status opf) = None
-       (* the EXACT retained annotated member/context pair that supplied [outer]: a member of the annotated
-          forest whose underlying work item IS this failing conversion's *)
-    /\ In (wma, outer) (annotated_items (phase_awork phase))
-    /\ proj1_sig wma = proj1_sig wm
-    /\ phase_diags phase =
-         [ InvalidConversion (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
-             (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) outer t (const_status opf) ].
+(** the innermost failing conversion, asked of a RETAINED [Core] rather than a loose phase.  The suffix and
+    the tail accumulator are the retained cause's own (see [rejected_conversion_cause]); the annotation pair,
+    the stored reason, and ALL THREE diagnostic lists ride in the SAME existential scope, because the reason
+    names the step's own refs and cannot be stated outside it.  Every list is pinned to the EXACT singleton —
+    not a length, not a non-emptiness, not an [exists reason]. *)
+Definition deep_fail_innermost_diag_claim (c : Core deep_fail_program) : Prop :=
+  exists wm : WorkMember (phase_work (phase c)),
+    rejected_conversion_cause (phase_ot (phase c)) wm
+      (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
+      (fun step opf t =>
+         exists (wma : WorkMember (phase_work (phase c))) (outer : list (Index.ExprRef deep_fail_program)),
+           (* the EXACT retained annotated member/context pair that supplied [outer]: a member of the annotated
+              forest whose underlying work item IS this failing conversion's *)
+           In (wma, outer) (annotated_items (phase_awork (phase c)))
+           /\ proj1_sig wma = proj1_sig wm
+           /\ (let reason :=
+                  InvalidConversion (work_expr_ref (proj1_sig wm))
+                    (conversion_target_node_ref (step_conversion step))
+                    (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+                    outer t (const_status opf) in
+                   phase_diags (phase c) = [reason]
+                /\ core_raw_diagnostics c = [reason]
+                /\ core_diagnostics c = [reason])).
 
-Theorem deep_fail_innermost_diag (input : Input deep_fail_program) (ph : Phase input) :
-  deep_fail_innermost_diag_claim input ph.
+Theorem deep_fail_innermost_diag (c : Core deep_fail_program) : deep_fail_innermost_diag_claim c.
 Proof.
   unfold deep_fail_innermost_diag_claim.
-  cbn zeta.
-  pose proof deep_fail_innermost_convfail input ph as H. cbn zeta in H.
-  destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq [Hcv Ht]]]]]]]]]]]].
-  destruct (retained_convfail_diag
-              (phase_ot (ph))
-              (phase_awork (ph))
-              wm (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
-              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf) Hout)
+  (* the member and its exact ConversionFailure, from the shape fixture over this core's OWN phase *)
+  pose proof deep_fail_innermost_convfail (core_input c) (phase c) as H. cbn zeta in H.
+  destruct H as [wm [rest0 [acc0 [step0 [opf0 [t0 [He [Hout0 _]]]]]]]].
+  exists wm.
+  apply (retained_convfail_cause (phase_ot (phase c)) wm _ _ _ _ _ _ _ _ He Hout0).
+  (* everything below is stated over the step the RETAINED CAUSE supplied, not over [step0] *)
+  intros step opf He' Hout.
+  destruct (retained_convfail_diag (phase_ot (phase c)) (phase_awork (phase c)) wm
+              (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
+              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+              t0 (const_status opf) Hout)
     as [wma [outer [Hinm [Hwma Hin]]]].
-  exists wm, rest, acc_rest, step, opf, t, wma, outer.
-  split; [ exact Hout | split; [ exact Ht | split; [ exact Hopf | split; [ exact Hfinal
-    | split; [ exact Hcv | split; [ exact Hinm | split; [ exact Hwma | ] ] ] ] ] ] ].
-  assert (Hdiageq : phase_diags (ph)
-            = flat_map (forest_awork_diags (phase_ot (ph)))
-                (annotated_items (phase_awork (ph)))).
-  { unfold phase_diags.
-    exact (erased_is_diagnostics (phase_diag (ph))). }
-  apply length_one_in_eq.
-  - exact (deep_fail_exactly_one_diag input ph).
-  - rewrite Hdiageq. exact Hin.
+  exists wma, outer.
+  split; [ exact Hinm | split; [ exact Hwma | ] ]. cbv zeta.
+  (* (1) the retained phase reports EXACTLY this reason *)
+  assert (Hphase : phase_diags (phase c)
+                   = [ InvalidConversion (work_expr_ref (proj1_sig wm))
+                         (conversion_target_node_ref (step_conversion step))
+                         (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+                         outer t0 (const_status opf) ]).
+  { assert (Hdiageq : phase_diags (phase c)
+              = flat_map (forest_awork_diags (phase_ot (phase c)))
+                  (annotated_items (phase_awork (phase c))))
+      by (unfold phase_diags; exact (erased_is_diagnostics (phase_diag (phase c)))).
+    apply length_one_in_eq.
+    - exact (deep_fail_exactly_one_diag (core_input c) (phase c)).
+    - rewrite Hdiageq. exact Hin. }
+  split; [ exact Hphase | ].
+  (* (2) the core's RAW list is the phase's own followed by its package map's, and that map is clean *)
+  assert (Hpkg : package_diags (core_index c) = nil)
+    by (apply (proj2 (package_diags_empty_iff (core_index c))); vm_compute; reflexivity).
+  assert (Hraw : core_raw_diagnostics c
+                 = [ InvalidConversion (work_expr_ref (proj1_sig wm))
+                       (conversion_target_node_ref (step_conversion step))
+                       (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+                       outer t0 (const_status opf) ]).
+  { rewrite (core_raw_diagnostics_exact c), (core_package_diags_canonical c), Hpkg, Hphase.
+    exact (app_nil_r _). }
+  split; [ exact Hraw | ].
+  (* (3) …and the COMMAND-ORDERED list at that one node-anchored reason is the same singleton *)
+  apply (core_diagnostics_of_node_singleton c _
+           (Index.Snapshot.node_ref_key (Index.erase_ref (work_expr_ref (proj1_sig wm)))) Hraw).
+  - reflexivity.
+  - rewrite (core_plan_is_fresh_build_plan c). vm_compute. reflexivity.
 Qed.
 
 (* §12.1 — deep_nested: EVERY conversion of the chain (int64@5, int32@7, int16@9, int8@11) AND the leaf int@13
@@ -10973,47 +11131,6 @@ Proof.
     apply (deep_nested_ok_at input ph 13 (Syntax.IntegerLiteral 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-Qed.
-
-(* §9.2 the CHILD-FAILURE CLOSURE at a conversion occurrence: locate the member, project its RETAINED cause off the
-   trace ([retained_conversion_closure]), invert the child-failure [StepCause], and read the operand's closure —
-   the operand's outcome in the RETAINED tail accumulator is a FAILURE, and that SAME failure is what the FINAL
-   Index.table shows at the operand [WorkMember] (query preservation).  No local reason at the outer conversion. *)
-Lemma deep_fail_childfail_closure_at (input : Input deep_fail_program) (ph : Phase input) (local : positive) ts x occ :
-  Index.source_occurrence_at deep_fail_src local = Some occ ->
-  Index.view_expr occ = Some (Syntax.Convert ts x) ->
-  occurrence_expr_fact occ = None ->
-  local_conv_failure (Syntax.Convert ts x) = None ->
-  exists (wm : WorkMember (phase_work (ph)))
-         (rest : list (Work (input)))
-         (acc_rest : Accumulator (phase_work (ph))
-                       (phase_type_name_facts (ph)) rest)
-         (step : ConversionStep (phase_work (ph))
-                   (proj1_sig wm) rest ts x),
-       work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ total_forest_outcome_at (phase_ot (ph)) wm = ChildFailure
-    /\ outcome_is_fail (accumulator_total acc_rest (step_operand_suffix step))
-    /\ total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ outcome_is_fail (total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)))
-    (* §2.3/§4 NO LOCAL REASON: the current (outer) member emits no diagnostic — [ChildFailure] projects [] *)
-    /\ (forall c, forest_awork_diags (phase_ot (ph)) (wm, c) = []).
-Proof.
-  intros Hsrc Hview Hnf Hlcf.
-  destruct (deep_fail_childfail_at input ph local ts x occ Hsrc Hview Hnf Hlcf) as [wm [He Hcf]].
-  destruct (retained_conversion_closure
-              (phase_ot (ph))
-              wm) as [rest [acc_rest [stepc Hclose]]].
-  rewrite Hcf in stepc.
-  destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts' [x' [step [He' Hfail]]]].
-  assert (Heq : Syntax.Convert ts' x' = Syntax.Convert ts x) by (rewrite <- He'; exact He).
-  injection Heq as Hts Hx. subst ts' x'.
-  pose proof (Hclose (step_operand_suffix step)) as Hcl.
-  exists wm, rest, acc_rest, step.
-  split; [ exact He | split; [ exact Hcf | split; [ exact Hfail | split; [ exact Hcl | split ] ] ] ].
-  - rewrite Hcl. exact Hfail.
-  - intro c. unfold forest_awork_diags. cbn [fst snd]. rewrite Hcf. reflexivity.
 Qed.
 
 (* §9.3 the OPERAND CLOSURE at a valid conversion occurrence: locate the member, project the RETAINED cause, and read
@@ -11178,59 +11295,6 @@ Proof.
   { exact (proj2 (index_exact (forest_index forest)
                     _ (proj1_sig wm2)) (conj (proj2_sig wm2) eq_refl)). }
   intro H. apply Hkne. rewrite H. reflexivity.
-Qed.
-
-(* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [ChildFailure], and its operand's
-   outcome IN THE FINAL TABLE is a FAILURE (closure into the retained Index.table, not just a shape). *)
-(* the claim of [deep_fail_outer_operands_final_fail], named so a returned-object fixture can assert it. *)
-Definition deep_fail_outer_operands_final_fail_claim (input : Input deep_fail_program) (ph : Phase input) : Prop :=
-  let ot := phase_ot (ph) in
-  (exists (wm opw : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
-     /\ total_forest_outcome_at ot wm = ChildFailure
-     /\ outcome_is_fail (total_forest_outcome_at ot opw))
-  /\ (exists (wm opw : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
-     /\ total_forest_outcome_at ot wm = ChildFailure
-     /\ outcome_is_fail (total_forest_outcome_at ot opw))
-  /\ (exists (wm opw : WorkMember (phase_work (ph))),
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                     (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
-     /\ total_forest_outcome_at ot wm = ChildFailure
-     /\ outcome_is_fail (total_forest_outcome_at ot opw)).
-
-Theorem deep_fail_outer_operands_final_fail (input : Input deep_fail_program) (ph : Phase input) :
-  deep_fail_outer_operands_final_fail_claim input ph.
-Proof.
-  unfold deep_fail_outer_operands_final_fail_claim.
-  cbn zeta. split; [ | split ].
-  - destruct (Index.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
-  - destruct (Index.source_occurrence_at deep_fail_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
-  - destruct (Index.source_occurrence_at deep_fail_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                  (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute; reflexivity))
-      as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
 Qed.
 
 (* ═══ THE RETAINED WORK COUNT IS A SOURCE QUANTITY ═══ ANY work forest over ANY input for [p] has exactly as
@@ -11442,63 +11506,96 @@ Qed.
     preservation into the final table, every enclosing child-failure cause, and the singleton diagnostic —
     every one asked of [failure_core fail].  No transport is needed at all here: [Failure] is INDEXED by its
     program, so the returned value's core is already at the right type.  Nothing names a builder. *)
-Theorem deep_fail_capability_retains_rejected_causes :
-  exists fail,
-    compile deep_fail_program = Rejected fail
-    /\ (let c := failure_core fail in
-        (* the retained phase reports, and reports EXACTLY ONE diagnostic *)
-        phase_diags (phase c) <> nil
-        /\ length (phase_diags (phase c)) = 1%nat
-        (* the innermost int8(300) conversion failure: exact refs, exact step, exact operand status *)
-        /\ deep_fail_innermost_diag_claim (core_input c) (phase c)
-        (* every enclosing conversion is a child failure, not a second reason *)
-        /\ deep_fail_outer_childfail_claim (core_input c) (phase c)
-        (* and each enclosing operand's outcome is preserved into the final table *)
-        /\ deep_fail_outer_operands_final_fail_claim (core_input c) (phase c)).
-Proof.
-  destruct (compile_rejected_of_inadmissible deep_fail_program
-              (reject_no_compile deep_fail_program ltac:(vm_compute; reflexivity))) as [fail Hc].
-  exists fail. split; [ exact Hc | ]. cbn zeta.
-  split; [ exact (deep_fail_phase_reports _ _) | ].
-  split; [ exact (deep_fail_exactly_one_diag _ _) | ].
-  split; [ exact (deep_fail_innermost_diag _ _) | ].
-  split; [ exact (deep_fail_outer_childfail _ _) | exact (deep_fail_outer_operands_final_fail _ _) ].
-Qed.
+(** ═══ §10.2 THE ONE REJECTED ROOT FIXTURE ═══ the same discipline on the failing four-deep chain.  There is
+    no transport at all here: [Failure] is INDEXED by its program, so the returned value's [failure_core] is
+    already the core the decision judged, and every field below is a projection of it.
 
-Theorem deep_fail_capability_retains_rejected_elaboration :
+    The innermost cause, the annotation context and all three diagnostic lists live in ONE field because they
+    share one existential: the stored reason names the failing step's own refs, so it cannot be stated outside
+    the scope that binds that step.  Splitting them into separate record fields would mean each one re-binding
+    its own step — the very defect this repair exists to remove. *)
+Record RejectedFixture (fail : Failure deep_fail_program) : Prop := MakeRejectedFixture {
+  (* ── every failure query is a PROJECTION of the retained core, definitionally ── *)
+  rejected_fixture_core : failure_diagnostics fail = core_diagnostics (failure_core fail) ;
+  rejected_fixture_input : failure_input fail = core_input (failure_core fail) ;
+  rejected_fixture_phase : failure_phase fail = phase (failure_core fail) ;
+
+  (* ── buckets: the core's own, folded from THAT failed elaboration's own retained visit ── *)
+  rejected_fixture_package_refs : failure_package_refs fail = core_package_refs (failure_core fail) ;
+  rejected_fixture_package_refs_own_visit :
+    failure_package_refs fail
+    = program_package_refs_from_visit (index (failure_input fail)) (input_visit (failure_input fail)) ;
+
+  (* ── layout and plan: the canonical values that failed decision used ── *)
+  rejected_fixture_layout : failure_layout fail = root_layout deep_fail_program ;
+  rejected_fixture_plan : failure_plan fail = fresh_build_plan deep_fail_program ;
+
+  (* ── the retained FAILED work forest is the real one: five members, four conversions and the leaf ── *)
+  rejected_fixture_forest : length (forest_items (phase_work (phase (failure_core fail)))) = 5%nat ;
+
+  (* ── the retained index and outcome domain, exact over the COMPLETE forest ── *)
+  rejected_fixture_index_exact :
+    forall k w,
+      Index.KeyMap.find k (index_map (forest_index (phase_work (phase (failure_core fail))))) = Some w
+      <-> (In w (forest_items (phase_work (phase (failure_core fail))))
+           /\ Index.Snapshot.node_ref_key (work_node_ref w) = k) ;
+  rejected_fixture_outcomes :
+    forall k,
+      Index.KeyMap.find k (outcomes_map (phase_ot (phase (failure_core fail)))) <> None
+      <-> exists w, In w (forest_items (phase_work (phase (failure_core fail))))
+                 /\ Index.Snapshot.node_ref_key (work_node_ref w) = k ;
+
+  (* ── the retained trace explains EVERY member's position ── *)
+  rejected_fixture_trace :
+    forall wm : WorkMember (phase_work (phase (failure_core fail))),
+      exists prefix,
+        forest_items (phase_work (phase (failure_core fail)))
+        = prefix ++ proj1_sig wm
+                    :: projT1 (total_forest_outcome_cause (phase_ot (phase (failure_core fail))) wm) ;
+
+  (* ── the innermost int8(300) failure: the exact retained cause (suffix, tail accumulator, ConversionStep,
+        operand SuffixMember and its SUCCEEDING prior outcome, tail-to-final preservation, the ONE rejecting
+        Typing.convert_constant, the exact predeclared-context target type), the exact retained annotation
+        context, and phase / raw / final diagnostics ALL equal to the EXACT singleton reason ── *)
+  rejected_fixture_innermost_cause : deep_fail_innermost_diag_claim (failure_core fail) ;
+
+  (* ── every ENCLOSING conversion is a child failure with no reason of its own, again over its own retained
+        cause: operand already failed, failure preserved into the final table, no diagnostic contributed ── *)
+  rejected_fixture_outer_causes :
+    deep_fail_outer_childfail_claim (failure_input fail) (failure_phase fail) ;
+
+  (* ── and the rejection is real: the retained core's own final list is non-empty ── *)
+  rejected_fixture_rejected : failure_diagnostics fail <> nil
+}.
+
+(** the ONE rejected root theorem. *)
+Theorem deep_fail_compile_fixture :
   exists fail,
     compile deep_fail_program = Rejected fail
-    (* every failure query is a projection of the retained core — definitionally, no stored copy *)
-    /\ failure_diagnostics fail = core_diagnostics (failure_core fail)
-    /\ failure_input fail = core_input (failure_core fail)
-    /\ failure_phase fail = phase (failure_core fail)
-    /\ failure_package_refs fail = core_package_refs (failure_core fail)
-    /\ failure_layout fail = core_layout (failure_core fail)
-    /\ failure_plan fail = core_plan (failure_core fail)
-    (* the retained buckets were folded from THAT failed elaboration's own retained visit *)
-    /\ failure_package_refs fail
-       = program_package_refs_from_visit (index (failure_input fail)) (input_visit (failure_input fail))
-    (* and they are the canonical values that failed decision used *)
-    /\ failure_layout fail = root_layout deep_fail_program
-    /\ failure_plan fail = fresh_build_plan deep_fail_program
-    (* the rejection is real, and it is the retained core's own diagnostic list *)
-    /\ failure_diagnostics fail <> nil
-    (* the retained failed work forest is the real one: 5 members, 4 conversions + the leaf *)
-    /\ length (forest_items (phase_work (phase (failure_core fail)))) = 5%nat.
+    /\ RejectedFixture fail.
 Proof.
   destruct (compile_rejected_of_inadmissible deep_fail_program
               (reject_no_compile deep_fail_program ltac:(vm_compute; reflexivity))) as [fail Hc].
-  exists fail.
-  repeat split; try reflexivity.
-  - exact Hc.
+  exists fail. split; [ exact Hc | ].
+  constructor.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
+  - reflexivity.
   - exact (core_refs_fold_own_visit _ (failure_core fail)).
   - exact (core_layout_exact (failure_core fail)).
   - exact (core_plan_is_fresh_build_plan (failure_core fail)).
+  - rewrite (core_work_count_source (failure_core fail)), keyed_visit_source. vm_compute. reflexivity.
+  - exact (index_exact (forest_index (phase_work (phase (failure_core fail))))).
+  - exact (outcomes_domain_iff_forest (phase_ot (phase (failure_core fail)))).
+  - intro wm.
+    destruct (total_forest_outcome_cause (phase_ot (phase (failure_core fail))) wm)
+      as [rest [acc_rest [[Hsplit Hstep] Hpreserve]]].
+    cbn [projT1]. exact Hsplit.
+  - exact (deep_fail_innermost_diag (failure_core fail)).
+  - exact (deep_fail_outer_childfail _ _).
   - exact (failure_nonempty fail).
-  - rewrite (core_work_count_source (failure_core fail)), keyed_visit_source.
-    vm_compute. reflexivity.
 Qed.
-
 
 (* §12.4 — the production phase's outcome Index.table admits NO foreign key (every present key is a RETAINED forest
    member's key) and NO wrong-kind key (a visited non-expression occurrence is absent) — over [phase_work]/[phase_ot],

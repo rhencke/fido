@@ -227,6 +227,12 @@ Print Assumptions Emit.of_safe_at_files.
 Print Assumptions Emit.of_safe_at_refl.
 Print Assumptions Emit.of_safe_at_transport.
 Print Assumptions Emit.accepted_path_emits_from_returned_capability.
+(* the same path on a CONCRETE program, compile through emit: [Emit.deep_nested_emit_fixture] destructs
+   [Compilable.deep_nested_compile_fixture] exactly ONCE and carries that one existential witness and its
+   source proof through certify and mint, so [Compilable.AcceptedFixture] arrives unchanged and the whole
+   accepted causal history is a property of the very capability these bytes were minted from.  It does NOT
+   re-invoke [Compilable.compile_complete] and then assert the two capabilities coincide. *)
+Print Assumptions Emit.deep_nested_emit_fixture.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
    its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
@@ -560,12 +566,17 @@ Print Assumptions Compilable.over_program_failure_retains_rejected_core.
    ExpressionFact), and all three retained diagnostic lists empty.  It is ONE theorem about ONE returned value —
    not a family of theorems each binding its own existential capability. *)
 Print Assumptions Compilable.deep_nested_compile_fixture.
-Print Assumptions Compilable.deep_fail_capability_retains_rejected_elaboration.
 Print Assumptions Compilable.twin_capability_retains_distinct_occurrences.
-(* §10.2 — the RETAINED CAUSAL HISTORY of the REJECTION through the returned failure: the innermost failure,
-   the enclosing child failures and the operand preservation.  The generalised theorems these instantiate are
-   stated over ANY retained phase. *)
-Print Assumptions Compilable.deep_fail_capability_retains_rejected_causes.
+(* §10.2 — THE ONE REJECTED ROOT: [Compilable.deep_fail_compile_fixture] states that [Compilable.compile] REJECTS the failing
+   four-deep chain AND that this exact failure satisfies [Compilable.RejectedFixture].  [Failure] is INDEXED by its
+   program, so there is no transport: every field is a projection of the core the decision judged — the
+   input/phase/bucket/layout/plan projections, the retained failed forest's size, the retained index and outcome
+   domain over the COMPLETE forest, the trace's suffix split at EVERY member, the innermost int8(300) cause with
+   its exact retained annotation context, every ENCLOSING conversion a child failure carrying no reason of its
+   own, and the rejection itself.  The innermost field pins the phase, RAW and FINAL diagnostic lists to the
+   EXACT singleton [Compilable.InvalidConversion] reason — the exact code and the exact retained source references — not a
+   length, not a non-emptiness, not an [exists reason]. *)
+Print Assumptions Compilable.deep_fail_compile_fixture.
 Print Assumptions Compilable.forest_count_source.
 Print Assumptions Compilable.member_at_in_forest.
 Print Assumptions Compilable.core_prop_at_source.
@@ -633,20 +644,32 @@ Print Assumptions Compilable.phase_domain_exact.
      member, ONE Typing.convert_constant success on the exact target fact, and f the exact current Compilable.ExpressionFact.  Its
      instantiation on ALL FOUR valid conversions is [deep_nested_chain_success_evidence];
    - the innermost convfail's retained cause CONNECTED to the exact stored [Compilable.InvalidConversion]
-     ([deep_fail_innermost_diag] — same fields, t = the exact predeclared-context target fact query
+     ([deep_fail_innermost_diag], proving [Compilable.deep_fail_innermost_diag_claim] over a RETAINED [Compilable.Core]): the suffix and
+     tail accumulator are the retained cause's, t = the exact predeclared-context target fact query
      [Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))], the exact retained
-     annotated member/context pair supplying [outer], and [Compilable.phase_diags] EXACTLY that singleton, no second reason);
-   - the strong per-occurrence child-failure closure ([deep_fail_childfail_closure_at]: exact ConversionStep +
-     operand + tail=final failure + current Compilable.ChildFailure + no local reason).
-   The weaker projections are labeled COROLLARIES: [deep_nested_ok_closure_at] states only the operand tail/final
-   Compilable.ExpressionSuccess + query equality (NO Typing.convert_constant success / target fact / current fact); the concrete aggregates
-   [deep_fail_outer_operands_final_fail] and [deep_nested_all_ok] state only the outcome SHAPE. *)
+     annotated member/context pair supplies [outer], and the phase, RAW and FINAL diagnostic lists are EXACTLY
+     that one reason — no second reason and no weakened count;
+   - the per-occurrence child-failure cause ([Compilable.childfail_conversion_cause] via [retained_childfail_cause] and
+     [deep_fail_childfail_at]): exact ConversionStep over the cause's own suffix, operand already failed,
+     tail=final failure, and NO local reason contributed whatever annotation context the member carries.
+   The weaker projection is labeled a COROLLARY: [deep_nested_ok_closure_at] states only the operand tail/final
+   Compilable.ExpressionSuccess + query equality (NO Typing.convert_constant success / target fact / current fact); the concrete
+   aggregate [deep_nested_all_ok] states only the outcome SHAPE. *)
 Print Assumptions Compilable.deep_nested_convsuccess_at.
 Print Assumptions Compilable.deep_nested_chain_success_evidence.
 Print Assumptions Compilable.deep_fail_innermost_diag.
-Print Assumptions Compilable.deep_fail_childfail_closure_at.
+Print Assumptions Compilable.deep_fail_childfail_at.
 Print Assumptions Compilable.deep_nested_ok_closure_at.
-Print Assumptions Compilable.deep_fail_outer_operands_final_fail.
+(* the GENERAL cause-owned predicates the concrete fixtures instantiate, and the lemmas that produce them.
+   Each states its evidence over the projections of [Compilable.total_forest_outcome_cause] — the cause read off the
+   RETAINED [Compilable.outcomes_trace] — so no foreign suffix or tail accumulator satisfies them. *)
+Print Assumptions Compilable.rejected_conversion_cause.
+Print Assumptions Compilable.retained_convfail_cause.
+Print Assumptions Compilable.childfail_conversion_cause.
+Print Assumptions Compilable.retained_childfail_cause.
+(* the command-ordered list at ONE node-anchored raw diagnostic IS that same singleton — the bridge a rejected
+   fixture needs to state its FINAL diagnostics exactly rather than by count. *)
+Print Assumptions Compilable.core_diagnostics_of_node_singleton.
 (* §3/§4/§10 the DIRECT WORK-INDEX fixtures over REAL programs:
    - the operand navigation is no longer a separate fixture: it is part of [Compilable.accepted_conversion_cause] above, so
      EACH conversion's CARRIED operand [ExprRef] queries the retained standard-map index ([KeyMap.find]) to the
