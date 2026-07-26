@@ -2,7 +2,8 @@
     raw program (the [Syntax.Program]: a [ModuleSpec] + a possibly-EMPTY standard [FilePath.T] map of files
     [Syntax.Files]): [Admissible p := fresh_build_preflight_ok p /\ SourceProgramValid p] — the cmd/go default-
     OUTPUT fresh-build preflight AND the LIVE factored source judgment [SourceProgramValid]
-    (= [TypedProgram] /\ the factored package rules [PackageDeclsUnique] + [MainPackagesHaveEntry]) over
+    (= [Typing.Program predeclared_type] /\ the factored package rules [PackageDeclsUnique] +
+    [MainPackagesHaveEntry]) over
     that same program.  It is built by the ONE elaboration root [elaborate] — the single indexed whole-program
     pass over [Index]'s [visit_file] traversal — and [compile] PROJECTS that elaboration (no second
     checker).  The empty program is accepted (no packages, one go.mod).
@@ -60,12 +61,6 @@ Local Notation decl_typedb       := (Typing.decl_typedb predeclared_type) (only 
 Local Notation file_typedb       := (Typing.file_typedb predeclared_type) (only parsing).
 Local Notation source_file_typedb := (Typing.source_file_typedb predeclared_type) (only parsing).
 Local Notation program_typedb    := (Typing.program_typedb predeclared_type) (only parsing).
-Local Notation TypedProgram      := (Typing.Program predeclared_type) (only parsing).
-Local Notation Resolve       := (Typing.Resolve predeclared_type) (only parsing).
-Local Notation Stmt         := (Typing.Stmt predeclared_type) (only parsing).
-Local Notation Decl         := (Typing.Decl predeclared_type) (only parsing).
-Local Notation File         := (Typing.File predeclared_type) (only parsing).
-Local Notation SourceFile   := (Typing.SourceFile predeclared_type) (only parsing).
 
 (** ---- static admissibility is TYPING (Typing, the one type authority) ----
 
@@ -111,7 +106,8 @@ Definition package_summaries (fm : Syntax.Files) : PackageMap.t PackageSummary :
     exactly one `main`".  It survives ONLY as the RHS of the retained universal CONSEQUENCE theorem
     [current_package_rules_exactly_one] and the LENGTH-based diagnostic bridge — it is NEVER the executable
     decision (which reflects the two factored roots below), NEVER a peer source authority.  The SOLE live
-    source-validity judgment is [SourceProgramValid] (= [TypedProgram] /\ [PackageRulesValid]); the decidable
+    source-validity judgment is [SourceProgramValid] (= [Typing.Program predeclared_type] /\
+    [PackageRulesValid]); the decidable
     [source_spec_valid_b] reflects it DIRECTLY via the two factored reflections ([source_spec_valid_b_iff], below).
     There is NO [ProgValid] Prop and NO [prog_ok] bool. *)
 Definition current_grammar_one_main (p : Syntax.Program) : Prop :=
@@ -137,7 +133,8 @@ Definition source_spec_valid_b (p : Syntax.Program) : bool := program_typedb p &
     [source_spec_package_rules_b]) so BOTH the [package_summaries] view (fixtures) AND the retained-bucket production decision
     root DIRECTLY in them (see [package_diags_empty_iff_rules] below).  [PackageDeclsUnique] = at most one `main` per
     package (block uniqueness); [MainPackagesHaveEntry] = at least one (entry); [PackageRulesValid] is their
-    conjunction (the SOURCE half of Admissible, packaged with [TypedProgram] into [SourceProgramValid]).
+    conjunction (the SOURCE half of [Admissible], packaged with [Typing.Program predeclared_type] into
+    [SourceProgramValid]).
     The exactly-one "every package has one main" is ONLY a downstream CONSEQUENCE
     ([current_package_rules_exactly_one]), NEVER the executable decision or a peer authority. *)
 Definition PackageDeclsUnique (p : Syntax.Program) : Prop :=
@@ -1238,7 +1235,8 @@ Qed.
    successful [constant_info] (hence an exact fact).  Three facts compose it: a typed println argument's
    [constant_info] SUCCEEDS ([expression_typedb_const_info]); [constant_info]'s recursion propagates success DOWNWARD to
    every conversion operand ([const_info_child_some], lifted structurally through the occurrence enumeration);
-   and the whole-file / whole-program traversal visits exactly those subexpressions.  So on [TypedProgram]
+   and the whole-file / whole-program traversal visits exactly those subexpressions.  So on a
+   [Typing.Program predeclared_type]
    every visited expression occurrence's [constant_info] is [Some] — the fact query is TOTAL. *)
 
 (* a typed argument's constant status succeeds (its whole conversion chain is representable). *)
@@ -3746,7 +3744,8 @@ Arguments fact_table_map {p ip} _.
 Arguments fact_table_domain {p ip} _.
 Arguments fact_table_complete {p ip} _.
 
-(* ---- the EXPRESSION DECISION: every println argument resolves IFF the program is [TypedProgram] ---- *)
+(* ---- the EXPRESSION DECISION: every println argument resolves IFF the program satisfies
+   [Typing.Program predeclared_type] ---- *)
 
 Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
   forallb f (flat_map g l) = forallb (fun x => forallb f (g x)) l.
@@ -3871,7 +3870,8 @@ Qed.
 Definition expression_all_ok (p : Syntax.Program) : bool :=
   forallb (fun x => occurrence_arg_typedb (snd x)) (program_visit p).
 
-(** DECISION EXACTNESS: [expression_all_ok] is EXACTLY [program_typedb] (hence [TypedProgram]).  This is the
+(** DECISION EXACTNESS: [expression_all_ok] is EXACTLY [program_typedb] (hence
+    [Typing.Program predeclared_type]).  This is the
     expression half of [accepted <-> Admissible]: no expression diagnostic <-> every argument resolves. *)
 Lemma expression_all_ok_program_typedb (p : Syntax.Program) : expression_all_ok p = program_typedb p.
 Proof.
@@ -3882,7 +3882,8 @@ Proof.
   rewrite Hfop, visit_file_arg_typedb, Hsrc. reflexivity.
 Qed.
 
-Lemma expression_all_ok_iff_typed_program (p : Syntax.Program) : expression_all_ok p = true <-> TypedProgram p.
+Lemma expression_all_ok_iff_typed_program (p : Syntax.Program) :
+  expression_all_ok p = true <-> Typing.Program predeclared_type p.
 Proof. rewrite expression_all_ok_program_typedb. apply Typing.program_typedb_iff. Qed.
 
 (* ---- the PACKAGE DECISION: [package_decls_unique_b] + [main_pkgs_have_entry_b] + [source_spec_package_rules_b], the factored
@@ -5472,7 +5473,8 @@ Proof.
   - split; intro H; discriminate H.
 Qed.
 
-(** THE EXPRESSION COMPLETENESS: [expression_diags] is empty IFF the program types ([TypedProgram]). *)
+(** THE EXPRESSION COMPLETENESS: [expression_diags] is empty IFF the program types
+    ([Typing.Program predeclared_type]). *)
 Lemma expression_diags_empty_iff {p} (idx : Index.Snapshot.Syntax p) :
   expression_diags idx = nil <-> program_typedb p = true.
 Proof.
@@ -8669,7 +8671,8 @@ Qed.
     ([package_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_package_rules_valid]) are defined
     early, beside [source_spec_package_rules_b], so BOTH the [package_summaries] view and the retained-bucket production
     decision root DIRECTLY in the two factored roots.  Here we package the SOURCE admission on top. *)
-Definition SourceProgramValid (p : Syntax.Program) : Prop := TypedProgram p /\ PackageRulesValid p.
+Definition SourceProgramValid (p : Syntax.Program) : Prop :=
+  Typing.Program predeclared_type p /\ PackageRulesValid p.
 
 (** the exactly-one property is retained ONLY as the universal CONSEQUENCE of today's two factored rules — a
     grammar coincidence, never the source authority. *)
@@ -9382,7 +9385,8 @@ Definition build_plan_ok {p} {core : Core p} {acc} (f : Facts core acc)
 
 (** the public expression-fact query is TOTAL: on a valid [Facts], EVERY typed [ExprRef]
     has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
-    [kind_view_expr]) whose [constant_info] SUCCEEDS on a [TypedProgram] program ([program_visit_const_info_some],
+    [kind_view_expr]) whose [constant_info] SUCCEEDS on a [Typing.Program predeclared_type] program
+    ([program_visit_const_info_some],
     from [source_valid]); [fact_table_complete] equates the map lookup to that occurrence's [occurrence_expr_fact], which is
     therefore [Some].  So the lookup is never [None] — the query returns an [ExpressionFact], not an option. *)
 Lemma expression_ref_fact_some {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) :
@@ -9803,10 +9807,10 @@ Proof. reflexivity. Qed.
 
 (** The compiled evidence EXPOSES that the same program is typed through [Typing]: an immediate
     canonical projection, not a stored second copy of the typing proof. *)
-Theorem compile_program_typed : forall p, Admissible p -> TypedProgram p.
+Theorem compile_program_typed : forall p, Admissible p -> Typing.Program predeclared_type p.
 Proof. intros p H; exact (proj1 (proj2 H)). Qed.
 
-Theorem compilable_program_typed : forall cp : Program, TypedProgram (source cp).
+Theorem compilable_program_typed : forall cp : Program, Typing.Program predeclared_type (source cp).
 Proof. intro cp; exact (compile_program_typed _ (admissible cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)

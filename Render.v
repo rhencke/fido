@@ -39,7 +39,6 @@ Open Scope string_scope.
 Local Notation constant_info        := (Typing.constant_info Compilable.predeclared_type) (only parsing).
 Local Notation resolve_constant := (Typing.resolve_constant Compilable.predeclared_type) (only parsing).
 Local Notation resolve      := (Typing.resolve Compilable.predeclared_type) (only parsing).
-Local Notation Resolve       := (Typing.Resolve Compilable.predeclared_type) (only parsing).
 
 Definition nl_c : ascii := ascii_of_nat 10.
 Definition tab_c : ascii := ascii_of_nat 9.
@@ -1510,7 +1509,7 @@ Qed.
     value of that type carrying the SAME exact constant.  NOT a claim about the real Go parser — real-Go
     acceptance is external adequacy, exercised differentially by the e2e. *)
 Theorem resolved_expr_denotes : forall e t,
-  Resolve Typing.PrintlnArgument e t ->
+  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument e t ->
   exists ci rc v,
        constant_info e = Some ci
     /\ Typing.resolve_constant_info ci = Some rc
@@ -1544,12 +1543,12 @@ Qed.
     [Typing.IntegerType Integer.Int] (the boundary is representable — the range check uses the one [Integer] authority). *)
 Lemma boundary_max :
   eval_expr (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) = Some (Safe.IntegerValue Integer.Int Integer.platform_maximum)
-  /\ Resolve Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
+  /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
 Proof. split; [ reflexivity | apply Typing.resolve_sound; reflexivity ]. Qed.
 
 Lemma boundary_min :
   eval_expr (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) = Some (Safe.IntegerValue Integer.Int Integer.platform_minimum)
-  /\ Resolve Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
+  /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
 Proof. split; [ reflexivity | apply Typing.resolve_sound; reflexivity ]. Qed.
 
 (** ---- explicit-conversion rendering fixtures: the exact rendered SOURCE spelling of a (possibly nested)
@@ -1565,7 +1564,7 @@ Lemma string_denotes : forall s,
 Proof. intro s; apply const_info_denotes; reflexivity. Qed.
 
 Lemma resolved_string_denotes : forall s t,
-  Resolve Typing.PrintlnArgument (Syntax.StringLiteral s) t ->
+  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.StringLiteral s) t ->
   exists ci rc v, constant_info (Syntax.StringLiteral s) = Some ci /\ Typing.resolve_constant_info ci = Some rc
             /\ Typing.resolved_constant_type rc = t
             /\ ConstantInfoDenotes (expr (Syntax.StringLiteral s)) ci

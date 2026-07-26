@@ -38,7 +38,6 @@ Import ListNotations.
 Local Notation constant_info        := (Typing.constant_info Compilable.predeclared_type) (only parsing).
 Local Notation resolve_constant := (Typing.resolve_constant Compilable.predeclared_type) (only parsing).
 Local Notation resolve      := (Typing.resolve Compilable.predeclared_type) (only parsing).
-Local Notation Resolve       := (Typing.Resolve Compilable.predeclared_type) (only parsing).
 
 Inductive Value : Type :=
 | BoolValue    : bool -> Value
@@ -240,7 +239,7 @@ Proof. intros ct tcc; cbn [resolved_constant_value]; apply typed_constant_to_val
 (** A RESOLVED expression always evaluates to a well-formed value whose runtime type is EXACTLY the resolved
     [Typing.SemanticType] — the compiler's static resolution and the runtime value agree (one [Typing.SemanticType] authority). *)
 Lemma eval_expr_resolved : forall u e t,
-  Resolve u e t -> exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWellFormed v.
+  Typing.Resolve Compilable.predeclared_type u e t -> exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWellFormed v.
 Proof.
   intros u e t H; destruct H as [ u0 e0 ci rc Hci Hrc Hua ].
   unfold eval_expr; rewrite Hci, Hrc.
@@ -251,7 +250,7 @@ Qed.
 
 (** the resolved value has exactly the resolved type (gate-named corollary of [eval_expr_resolved]). *)
 Lemma eval_expr_resolved_type : forall u e t,
-  Resolve u e t -> exists v, eval_expr e = Some v /\ value_type v = t.
+  Typing.Resolve Compilable.predeclared_type u e t -> exists v, eval_expr e = Some v /\ value_type v = t.
 Proof.
   intros u e t H; destruct (eval_expr_resolved u e t H) as [ v [ Hev [ Hvt _ ] ] ];
     exists v; split; assumption.
@@ -295,7 +294,7 @@ Qed.
     the resolved exact constant — the runtime/constant tie, phrased through the honest relation (never a total
     fallback). *)
 Lemma eval_expr_denotes : forall u e t,
-  Resolve u e t ->
+  Typing.Resolve Compilable.predeclared_type u e t ->
   exists rc v, resolve_constant u e = Some rc /\ eval_expr e = Some v
             /\ v = resolved_constant_value rc
             /\ value_type v = Typing.resolved_constant_type rc /\ ValueWellFormed v
@@ -323,7 +322,7 @@ Proof. reflexivity. Qed.
 Lemma eval_string_value : forall s, eval_expr (Syntax.StringLiteral s) = Some (StringValue s).
 Proof. reflexivity. Qed.
 Lemma eval_string_resolved_type : forall s t,
-  Resolve Typing.PrintlnArgument (Syntax.StringLiteral s) t -> exists v, eval_expr (Syntax.StringLiteral s) = Some v /\ value_type v = t.
+  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.StringLiteral s) t -> exists v, eval_expr (Syntax.StringLiteral s) = Some v /\ value_type v = t.
 Proof. intros s t H; exact (eval_expr_resolved_type Typing.PrintlnArgument (Syntax.StringLiteral s) t H). Qed.
 
 (** ---- the file's abstract behaviour: the ordered println calls (partial per argument — an ill-typed

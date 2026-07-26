@@ -255,6 +255,17 @@ def check_code(rel: str, text: str):
         m = re.match(r'\s*Module\s+(' + '|'.join(CRYPTIC_ALIASES) + r')\s*:?=', line)
         if m:
             bad.append((rel, idx, f'cryptic module alias `{m.group(1)}`'))
+        # A005 / D-25: an UpperCamelCase local notation re-creates another module's public type or judgment
+        # under a bare name inside this one.  That is exactly the unqualified surface the scoped-name rule
+        # abolished, rebuilt locally — the reader loses the namespace that says where the thing is defined.
+        # The rule is the CLASS, not a list of today's names: there is no legitimate live example, and a
+        # future exception is a review decision rather than an allowlist entry added for convenience.
+        # Lower-case parsing notations for resolver-specialized executable functions stay allowed.
+        m = re.match(r"\s*Local\s+Notation\s+([A-Z][A-Za-z0-9_']*)\s*:=", line)
+        if m:
+            bad.append((rel, idx,
+                        f'UpperCamelCase local notation `{m.group(1)}` hides the module that owns that '
+                        f'public type or judgment — qualify the use instead'))
     return bad
 
 
@@ -352,12 +363,20 @@ def rocq_scope(root: Path):
     return expected
 
 
-def run(root: Path, snapshot: bool):
+def read_selected(path: Path) -> str:
+    """The one read of a selected text surface. Injectable so the read-failure control can be DETERMINISTIC:
+    `chmod 000` is not a control on a tree that builds as root — the file stays readable, the control skips,
+    and a skipped control counted as passed is exactly the false green this gate exists to prevent."""
+    return path.read_text(encoding='utf-8')
+
+
+def run(root: Path, snapshot: bool, reader=None):
+    read = reader or read_selected
     rels = enumerate_snapshot(root) if snapshot else enumerate_worktree(root)
     violations, examined, parsed = [], 0, set()
     for rel, path in selected(root, rels):
         try:
-            text = path.read_text(encoding='utf-8')
+            text = read(path)
         except (UnicodeDecodeError, OSError) as exc:
             # Selection already classified this as a text surface, so a decode or read failure here is the
             # gate failing to look — not evidence that the file is binary.  Fail closed and name the path.
@@ -430,22 +449,46 @@ SELF_TESTS = [
      'Record Good := MakeGood { good : nat; also_good : nat }.\n', False),
     ('clean multiline fields',            check_code,
      'Record Good := MakeGood {\n  first_field : nat ;\n  second_field : nat\n}.\n', False),
+    # A005 / D-25: an UpperCamelCase local notation rebuilds another module's public surface under a
+    # bare name.  The rule is the CLASS — these four are the exact aliases the migration left behind,
+    # and the fifth shows an arbitrary new one is caught too.
+    ('local alias TypedProgram',          check_code,
+     'Local Notation TypedProgram := (Typing.Program f) (only parsing).\n', True),
+    ('local alias Resolve',               check_code,
+     'Local Notation Resolve := (Typing.Resolve f) (only parsing).\n', True),
+    ('local alias Stmt',                  check_code,
+     'Local Notation Stmt := (Typing.Stmt f) (only parsing).\n', True),
+    ('local alias SourceFile',            check_code,
+     'Local Notation SourceFile := (Typing.SourceFile f) (only parsing).\n', True),
+    ('local alias never seen before',     check_code,
+     'Local Notation WholeProgramThing := (Typing.Whatever f) (only parsing).\n', True),
+    ('indented local alias',              check_code,
+     '  Local Notation Decl := (Typing.Decl f) (only parsing).\n', True),
+    # …and a lower-case resolver-specialized notation stays legitimate: it names an executable
+    # function at a fixed resolver, not another module's public type or judgment.
+    ('lower-case resolver notation',      check_code,
+     'Local Notation resolve_constant := (Typing.resolve_constant f) (only parsing).\n', False),
+    ('lower-case snake notation',         check_code,
+     'Local Notation program_typedb := (Typing.program_typedb f) (only parsing).\n', False),
 ]
 
 
 def self_test() -> int:
     failures = 0
+    executed = 0                 # enumeration/read controls actually run — never a hard-coded total
     for label, checker, content, must_flag in SELF_TESTS:
         flagged = bool(checker('<self-test>', content))
         if flagged != must_flag:
             failures += 1
             print(f"  FAIL  gate {'flags' if must_flag else 'accepts'}: {label}")
     # enumeration controls — the defect this rebuild removes
+    executed += 1
     try:
         enumerate_worktree(Path('/'))
         print('  FAIL  working-tree mode outside Git must raise'); failures += 1
     except EnumerationError:
         pass
+    executed += 1
     try:
         import tempfile
         with tempfile.TemporaryDirectory() as d:
@@ -453,6 +496,7 @@ def self_test() -> int:
             print('  FAIL  snapshot mode on an empty export must raise'); failures += 1
     except EnumerationError:
         pass
+    executed += 1
     try:
         import tempfile
         with tempfile.TemporaryDirectory() as d:
@@ -474,6 +518,7 @@ def self_test() -> int:
     # a COMPLETE snapshot whose only defect is one selected prose file that is not valid UTF-8: the gate must
     # fail and name it.  Skipping it silently is how a stale name hides behind a decode error.
     import tempfile
+    executed += 1
     try:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); complete_snapshot(root)
@@ -483,38 +528,48 @@ def self_test() -> int:
     except EnumerationError:
         pass
 
-    # …and the same for a selected file that cannot be READ.  Where the platform cannot express the condition
-    # (running as root, for instance) the control says so out loud rather than passing quietly.
-    import os
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d); complete_snapshot(root)
-            blocked = root / 'unreadable.md'
-            blocked.write_text('# doc\n', encoding='utf-8')
-            os.chmod(blocked, 0o000)
-            try:
-                blocked.read_text(encoding='utf-8')
-                print('  SKIP  unreadable-file control: this platform still reads a 0o000 file '
-                      '(running as root?) — the condition cannot be expressed here')
-            except OSError:
-                try:
-                    run(root, snapshot=True)
-                    print('  FAIL  a selected file that cannot be read must fail the gate'); failures += 1
-                except EnumerationError:
-                    pass
-            finally:
-                os.chmod(blocked, 0o600)
-    except OSError as exc:
-        print(f'  FAIL  unreadable-file control could not run: {exc}'); failures += 1
+    # …and the same for a selected file that cannot be READ.  This injects the failure instead of using
+    # `chmod 000`, which does nothing on a tree that builds as root: the file stays readable, the control
+    # skips, and a skipped control counted among the passes is the false green this gate exists to prevent.
+    # The injected reader raises for exactly one path, so the gate must fail AND name that path.
+    def failing_reader(path: Path) -> str:
+        if path.name == 'unreadable.md':
+            raise OSError(5, 'Input/output error')
+        return read_selected(path)
 
-    n = len(SELF_TESTS) + 5
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d); complete_snapshot(root)
+        (root / 'unreadable.md').write_text('# doc\n', encoding='utf-8')
+        executed += 1
+        try:
+            run(root, snapshot=True, reader=failing_reader)
+            print('  FAIL  a selected file that cannot be read must fail the gate'); failures += 1
+        except EnumerationError as exc:
+            if 'unreadable.md' not in str(exc):
+                print(f'  FAIL  read-failure control did not name the file: {exc}'); failures += 1
+            elif 'could not be read' not in str(exc):
+                print(f'  FAIL  read-failure control failed for the wrong reason: {exc}'); failures += 1
+
+    # …and the mutation: with the injected failure removed, that same control must NOT fail. Without this,
+    # a gate that failed for some unrelated reason would look like a working read control.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d); complete_snapshot(root)
+        (root / 'unreadable.md').write_text('# doc\n', encoding='utf-8')
+        executed += 1
+        try:
+            run(root, snapshot=True)
+        except EnumerationError as exc:
+            print(f'  FAIL  the read control passes for an unrelated reason: {exc}'); failures += 1
+
+    n = len(SELF_TESTS) + executed
     if failures:
         print(f"fido: NAMING GATE SELF-TEST FAILED — {failures} of {n} controls wrong; "
               f"the gate is not trustworthy")
         return 1
     print(f"fido: naming-gate self-test OK — {n} controls "
           f"({sum(1 for t in SELF_TESTS if t[3])} must-flag, "
-          f"{sum(1 for t in SELF_TESTS if not t[3])} must-accept, 5 enumeration/read fail-closed) ✓")
+          f"{sum(1 for t in SELF_TESTS if not t[3])} must-accept, "
+          f"{executed} enumeration/read fail-closed, all executed) ✓")
     return 0
 
 
