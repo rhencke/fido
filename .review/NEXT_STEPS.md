@@ -1,13 +1,26 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active work: the A005 SCOPED NAMING MIGRATION.** `FCB-A005-SCOPED-NAME-OWNERSHIP` is **ACCEPTED**
-  (Governance `D-25`), and Rob authorized the migration — *"Ruthlessly rename away."* — to run **before** the
-  C4 review resumes. **The C4 Implementation Review is PAUSED** until the renamed candidate is frozen. The
-  migration changes no Go-language meaning, theorem guarantee, accepted program set, generated Go byte,
-  target policy, or proof assumption; it preserves exactly what candidate `3386c02` does, modulo names and
-  the expressly authorized deletion of the thirteen consumer-free Q-08 surfaces. The renamed head becomes the
-  **sixteenth** C4 implementation candidate because the certified source changed, even though the change is
-  semantically neutral. C5 and post-C4 feature work remain **FORBIDDEN**.
+- **A005 SCOPED NAMING MIGRATION — COMPLETE AND FROZEN.** `FCB-A005-SCOPED-NAME-OWNERSHIP` is **ACCEPTED**
+  (Governance `D-25`); Rob authorized it — *"Ruthlessly rename away."* — to run before the C4 review resumes.
+  It is applied: **`20c5ad5c499d5046563471624117b80c737c7157` is the SIXTEENTH C4 implementation candidate**,
+  and the C4 Implementation Review now resumes against it.
+  - **Repair 14's semantic result is preserved exactly.** The retained `Compilable.Core`, the decision indexed
+    by it, the capability retaining it, and the deleted reconstruction root are unchanged in substance; only
+    names moved. The generated `go.mod` and `main.go` are **byte-identical** to the pre-migration baseline.
+  - **What changed:** 17 files renamed, 1015 identifier renames across 16 modules, 37 constructors, and the
+    thirteen consumer-free Q-08 surfaces deleted. No compatibility alias, wrapper or re-export anywhere — Git
+    history is the only compatibility layer.
+  - **Enforcement:** `tools/naming-gate.py` via `make names`, wired into `make check` ahead of the container
+    work, with 22 negative controls proving it both fails and accepts correctly. It exists because the Rocq
+    compiler already verifies code names for free, while documentation and source comments have no verifier.
+  - **Two forced deviations, recorded not hidden.** Rocq refuses to seal a bare inductive against a
+    `Parameter` ("a definition is expected"), so `Index.Snapshot`'s three records keep a distinct private name
+    while the public surface obeys A005 in full. Record projections share one namespace, so `Syntax.ModuleSpec`
+    takes `module_path`/`module_version` rather than colliding with `Syntax.FileNode.path`.
+  - **Verified on this freeze:** `make names`, `make fmt`, `make prove` (486/486 axiom-free, whole-theory
+    assumption audit, self-tests A–E), `make e2e`, `make check`, `make regenerate`, `make regen-guard`, and a
+    byte comparison against the baseline captured at `52dd974`.
+  - C4 is **NOT accepted**. C5 and post-C4 feature work remain **FORBIDDEN**.
 - **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — IMPLEMENTED; awaiting human review.**
   The repair-14 candidate is `3386c023fe10df4ae433726044d61642f219309c` (the FIFTEENTH C4 implementation
   candidate). C4 stays **BLOCKING** until Rob's new human C4 Implementation Review dispositions it; repair 14

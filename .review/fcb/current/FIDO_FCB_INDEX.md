@@ -23,7 +23,8 @@ rerunning the elaborator instead of retaining the exact causal elaboration objec
 **Current C4 state:** the repair-14 authority is installed at `.review/C4_IMPLEMENTATION_REPAIR_14.md`, and
 Rob **AUTHORIZED** its implementation on 2026-07-25 (begin on the current `main` head; do not reset to
 `9d5246e`; preserve the recorded out-of-band changes).  
-**Next authorized C4 work:** implement and freeze intrinsic retained elaboration under that authority.  
+**A005 applied:** the scoped naming migration is complete; the sixteenth C4 implementation candidate is
+`20c5ad5c499d5046563471624117b80c737c7157` and the C4 review resumes against it.  
 **Next permitted sequence:** `C4 repair 14 → human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,
