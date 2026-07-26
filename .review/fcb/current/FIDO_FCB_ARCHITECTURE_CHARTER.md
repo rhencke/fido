@@ -4,7 +4,7 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -313,7 +313,7 @@ The current one-field `Index.Program` wrapper does not pass the deletion test ye
 1. gain a real invariant or capability not present in `Index.Syntax`; or
 2. be deleted, with the retained whole elaboration carrying `Index.Syntax` directly.
 
-This remains an open later foundation decision. Repair 14 may provide new evidence, but neither preservation nor deletion is authorized by this documentation amendment. Any deletion still requires explicit review and authorization.
+This remains an open later foundation decision. It is explicitly OUT OF SCOPE for the active repair: `Index.Program` is retained, and neither preservation nor deletion is authorized by this documentation amendment. Any deletion still requires explicit review and authorization, preferably as a separate post-C4 candidate.
 
 ---
 
@@ -1371,7 +1371,7 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - `Safe.Program` refines the same exact accepted capability.
 - Rendering continues to project the original `Syntax.Program` and does not evaluate elaboration.
 
-This is the active C4 blocking obligation introduced by A001. The repair-13 candidate does not yet satisfy it; repair 14 must establish it before C4 can return for human review.
+This is the C4 blocking obligation introduced by A001, and it is what the active repair 16 must satisfy before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
 
 ### Do Not Do Early
 

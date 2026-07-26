@@ -4,7 +4,7 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -16,7 +16,7 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 ## Current boundary
 
-C4 repair-13 implementation candidate `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` is **BLOCKING** at the final static-capability boundary. FCB Amendment A001 is accepted. C4 repair 14 must retain the exact successful and failed whole-elaboration objects before C4 can return for human review.
+C4 implementation candidate `deda8bd91dbfebf75895c8786732a4ed9d7952f2` is **BLOCKING** — the seventeenth blocked candidate; `25bcd7aa6b53f1e506a32c5077990a884bea8574` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 16 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_16.md`): retained package provenance folded from the elaboration's own visit, an abstract `Compilable.Core`, constructor naming actually enforced by the gate, direct capability fixtures that query only the returned objects, and one coherent current corpus. Repairs 13, 14 and 15 are historical; none of them is the active work.
 
 The out-of-band documentation, header and tooling commits after the blocked candidate are not new
 
@@ -24,7 +24,7 @@ FCB Amendment A002 is accepted: the live FCB is Git-canonical under `.review/fcb
 
 The next permitted sequence is:
 
-`FCB A001 installed → C4 repair 14 → human C4 review → checkpoint-definition Step 0 → C5`.
+`C4 repair 16 → human C4 review → checkpoint-definition Step 0 → C5`.
 
 C5 remains forbidden until C4 is accepted.
 

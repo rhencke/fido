@@ -17,17 +17,17 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Current implementation candidate:** `deda8bd91dbfebf75895c8786732a4ed9d7952f2` — repair 15
-(`.review/C4_IMPLEMENTATION_REPAIR_15.md`) is **IMPLEMENTED and COMPLETE**, awaiting Rob's human C4
-Implementation Review. `Compilable.Core` retains the whole elaboration — buckets, layout, plan and both
-diagnostic lists stored with their exactness evidence; the decision is indexed by that exact core; success and
-failure both retain it; `Compilable.Program` / `Compilable.Failure` / `Compilable.Facts` are sealed so
-`Compilable.compile` is the only mint; and the A005 scoped names are finished and gated.  
-**Last blocked candidate:** `20c5ad5c499d5046563471624117b80c737c7157` — the A005 migration candidate, the
-sixteenth to block at human Implementation Review. The candidate above is the seventeenth and is under review,
-not accepted.  
-**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it.  
-Governance owns `D-01` through `D-25`.  
+**Blocked implementation candidate:** `deda8bd91dbfebf75895c8786732a4ed9d7952f2` — repair 15 made
+substantial, real progress and did **not** close C4. It is the seventeenth blocked candidate;
+`25bcd7aa6b53f1e506a32c5077990a884bea8574` is its documentation-only freeze, not a separate candidate.  
+**Active work: C4 repair 16** (`.review/C4_IMPLEMENTATION_REPAIR_16.md`) — the sole active C4 task. Its five
+findings: package facts and diagnostics must start from the exact retained visit rather than a rerun;
+`Compilable.Core` and its constructor must be abstract to clients; the A005 naming gate must actually see
+constructors; the direct capability fixtures must query only the returned objects; and the live corpus must
+state one current truth.  
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it, by a new human C4 Implementation Review.
+Repairs 13, 14 and 15 are historical; none is the active work, and repair 15 is not complete.  
+Governance owns `D-01` through `D-25`; amendments `A001` through `A005` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,

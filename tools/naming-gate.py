@@ -42,7 +42,6 @@ EXCLUDED_TREES = (
 )
 EXCLUDED_FILES = (
     'tools/naming-gate.py',                       # this file necessarily spells every retired name
-    '.review/C4_IMPLEMENTATION_REPAIR_15.md',     # installed VERBATIM; markers cannot be added to it
     '.review/C4_IMPLEMENTATION_REPAIR_16.md',     # installed VERBATIM; markers cannot be added to it
 )
 BINARY_SUFFIXES = {'.png', '.jpg', '.jpeg', '.gif', '.zip', '.gz', '.pdf', '.vo', '.glob', '.hex'}
