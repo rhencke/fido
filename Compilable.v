@@ -10648,6 +10648,30 @@ Qed.
 (** §12 CONCRETE-SNAPSHOT WORK ITEM: a real source expression occurrence yields a real retained [Work] of the
     program's [Input] — carrying that occurrence, its expression, and its Index.Key — so a §12 phase
     fixture can query [total_forest_outcome_at] on the PRODUCTION work item, not a spec proxy. *)
+(* ═══ THE OCCURRENCE-TO-MEMBER BRIDGE, OVER ANY RETAINED FOREST ═══ a source occurrence mints a real work
+   member of ANY [WorkForest] over ANY [Input] for the program.  The proof only ever uses record FIELDS —
+   [input_visit_ok] of the input, [forest_forward] and [work_view_exact] of the forest — so nothing here is a
+   property of the freshly built objects in particular.  Stating it this way is what lets a fixture ask a
+   RETAINED capability's own forest the question, instead of asking a rebuilt one. *)
+Lemma member_at_in_forest (p : Syntax.Program) (input : Input p) (forest : WorkForest input)
+    (path : FilePath.T) (f : Syntax.File) (local : positive) occ e :
+  find_file path (Syntax.files p) = Some f ->
+  Index.source_occurrence_at f local = Some occ ->
+  Index.view_expr occ = Some e ->
+  exists (wm : WorkMember forest),
+    work_occurrence (proj1_sig wm) = occ /\ work_expr (proj1_sig wm) = e
+    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.make_key path local.
+Proof.
+  intros Hfind Hsrc Hview.
+  destruct (program_expr_ref_at p path f local occ e Hfind Hsrc Hview) as [r [er [Hin [Hae Hkey]]]].
+  assert (Hin' : In (r, occ) (input_visit input)) by (rewrite (input_visit_ok input); exact Hin).
+  destruct (forest_forward forest r occ e Hin' Hview) as [w' [Hinw' [Hnr' Hocc']]].
+  exists (exist _ w' Hinw'). cbn [proj1_sig]. split; [exact Hocc' | split].
+  - pose proof (work_view_exact w') as Hv2. rewrite Hocc', Hview in Hv2. injection Hv2 as Hx. exact (eq_sym Hx).
+  - rewrite Hnr'; exact Hkey.
+Qed.
+
+(* the canonical instantiation the existing specification fixtures use. *)
 Lemma program_member_at (p : Syntax.Program) (path : FilePath.T) (f : Syntax.File) (local : positive) occ e :
   find_file path (Syntax.files p) = Some f ->
   Index.source_occurrence_at f local = Some occ ->
@@ -10655,16 +10679,7 @@ Lemma program_member_at (p : Syntax.Program) (path : FilePath.T) (f : Syntax.Fil
   exists (wm : WorkMember (phase_work (build_expression_phase (build_compilation_input p (Index.index_program p))))),
     work_occurrence (proj1_sig wm) = occ /\ work_expr (proj1_sig wm) = e
     /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.make_key path local.
-Proof.
-  intros Hfind Hsrc Hview.
-  destruct (program_expr_ref_at p path f local occ e Hfind Hsrc Hview) as [r [er [Hin [Hae Hkey]]]].
-  set (input := build_compilation_input p (Index.index_program p)) in *.
-  assert (Hin' : In (r, occ) (input_visit input)) by (rewrite (input_visit_ok input); exact Hin).
-  destruct (forest_forward (phase_work (build_expression_phase input)) r occ e Hin' Hview) as [w' [Hinw' [Hnr' Hocc']]].
-  exists (exist _ w' Hinw'). cbn [proj1_sig]. split; [exact Hocc' | split].
-  - pose proof (work_view_exact w') as Hv2. rewrite Hocc', Hview in Hv2. injection Hv2 as Hx. exact (eq_sym Hx).
-  - rewrite Hnr'; exact Hkey.
-Qed.
+Proof. exact (member_at_in_forest p _ _ path f local occ e). Qed.
 
 (** ★§5.3 THE CONCRETE TWO-[uint8] SNAPSHOT: a REAL compiled program with TWO [uint8(...)] conversions at
     DISTINCT println arguments.  The retained index mints TWO real target [TypeNameRef]s at DISTINCT NodeKeys
@@ -11320,9 +11335,10 @@ Definition twin_expr_program : Syntax.Program := singleton_program c3_ms (FilePa
                      ; Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7) ] ] ].
 Example twin_expr_ok : source_spec_valid_b twin_expr_program = true. Proof. vm_compute. reflexivity. Qed.
 
-Theorem twin_expr_index_distinct :
-  let input := build_compilation_input twin_expr_program (Index.index_program twin_expr_program) in
-  let forest := phase_work (build_expression_phase input) in
+(* ═══ EQUAL VALUE, DISTINCT OCCURRENCE — OVER ANY RETAINED FOREST ═══ generalised from the built forest to
+   any forest over any input for this program, because the proof only uses [member_at_in_forest] and the work
+   index's own [index_exact] field.  A capability can therefore be asked this about the forest IT retains. *)
+Theorem twin_distinct_in_forest (input : Input twin_expr_program) (forest : WorkForest input) :
   exists w1 w2 : Work input,
        In w1 (forest_items forest) /\ In w2 (forest_items forest)
        (* the SAME source expression value at two occurrences *)
@@ -11340,12 +11356,12 @@ Proof.
     [| vm_compute in Eo1; discriminate Eo1].
   destruct (Index.source_occurrence_at twin_expr_src 8) as [occ2|] eqn:Eo2;
     [| vm_compute in Eo2; discriminate Eo2].
-  destruct (program_member_at twin_expr_program (FilePath.make "main.go" eq_refl) twin_expr_src 5 occ1
+  destruct (member_at_in_forest twin_expr_program input forest (FilePath.make "main.go" eq_refl) twin_expr_src 5 occ1
               (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7))
               ltac:(vm_compute; reflexivity) Eo1
               ltac:(vm_compute in Eo1; injection Eo1 as <-; vm_compute; reflexivity))
     as [wm1 [Hocc1 [He1 Hk1]]].
-  destruct (program_member_at twin_expr_program (FilePath.make "main.go" eq_refl) twin_expr_src 8 occ2
+  destruct (member_at_in_forest twin_expr_program input forest (FilePath.make "main.go" eq_refl) twin_expr_src 8 occ2
               (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7))
               ltac:(vm_compute; reflexivity) Eo2
               ltac:(vm_compute in Eo2; injection Eo2 as <-; vm_compute; reflexivity))
@@ -11358,15 +11374,29 @@ Proof.
   split; [exact (proj2_sig wm1) | split; [exact (proj2_sig wm2) | split; [exact He1 | split; [exact He2 |]]]].
   split; [exact Hkne |].
   split.
-  { exact (proj2 (index_exact (forest_index (phase_work (build_expression_phase
-                    (build_compilation_input twin_expr_program (Index.index_program twin_expr_program)))))
+  { exact (proj2 (index_exact (forest_index forest)
                     _ (proj1_sig wm1)) (conj (proj2_sig wm1) eq_refl)). }
   split.
-  { exact (proj2 (index_exact (forest_index (phase_work (build_expression_phase
-                    (build_compilation_input twin_expr_program (Index.index_program twin_expr_program)))))
+  { exact (proj2 (index_exact (forest_index forest)
                     _ (proj1_sig wm2)) (conj (proj2_sig wm2) eq_refl)). }
   intro H. apply Hkne. rewrite H. reflexivity.
 Qed.
+
+(* the canonical instantiation, over the freshly built phase. *)
+Theorem twin_expr_index_distinct :
+  let input := build_compilation_input twin_expr_program (Index.index_program twin_expr_program) in
+  let forest := phase_work (build_expression_phase input) in
+  exists w1 w2 : Work input,
+       In w1 (forest_items forest) /\ In w2 (forest_items forest)
+    /\ work_expr w1 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+    /\ work_expr w2 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+    /\ Index.Snapshot.node_ref_key (work_node_ref w1) <> Index.Snapshot.node_ref_key (work_node_ref w2)
+    /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w1))
+         (index_map (forest_index forest)) = Some w1
+    /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w2))
+         (index_map (forest_index forest)) = Some w2
+    /\ w1 <> w2.
+Proof. exact (twin_distinct_in_forest _ _). Qed.
 
 (* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [ChildFailure], and its operand's
    outcome IN THE FINAL TABLE is a FAILURE (closure into the retained Index.table, not just a shape). *)
@@ -11481,23 +11511,39 @@ Proof.
   exists cp, Hcp. split; [ exact Hgo | exact (compilable_retains_expr_facts cp) ].
 Qed.
 
+(* ═══ THE RETAINED WORK COUNT IS A SOURCE QUANTITY ═══ ANY work forest over ANY input for [p] has exactly as
+   many members as [p] has expression occurrences.  The proof uses only record FIELDS ([forest_items_exact],
+   [input_visit_ok]), so it holds of a RETAINED forest inside a capability, not merely of a freshly built one.
+   The snapshot visit does not [vm_compute]; the right-hand side is the SOURCE-computable [keyed_visit]
+   (= [source_keyed_visit], NodeRefs erased to keys), whose occurrences are the visit's own — so a concrete
+   fixture can compute this side and say something exact about the retained object. *)
+Theorem forest_count_source {p} (input : Input p) (forest : WorkForest input) :
+  length (forest_items forest)
+  = length (filter (fun ko : Index.Key * Index.Occurrence =>
+              match Index.view_expr (snd ko) with Some _ => true | None => false end)
+            (keyed_visit p)).
+Proof.
+  rewrite <- (map_length (fun w => (work_node_ref w, work_occurrence w)) (forest_items forest)).
+  rewrite (forest_items_exact forest), (input_visit_ok input).
+  unfold keyed_visit. rewrite filter_map_length. reflexivity.
+Qed.
+
+(* …and therefore of the work forest a retained [Core] holds. *)
+Theorem core_work_count_source {p} (core : Core p) :
+  length (forest_items (phase_work (phase core)))
+  = length (filter (fun ko : Index.Key * Index.Occurrence =>
+              match Index.view_expr (snd ko) with Some _ => true | None => false end)
+            (keyed_visit p)).
+Proof. exact (forest_count_source (core_input core) (phase_work (phase core))). Qed.
+
 (* §12.1 — the retained work forest of the deep_nested phase has EXACTLY 5 members (4 conversions + 1 leaf). *)
 Theorem deep_nested_work_count :
   length (forest_items (phase_work (build_expression_phase
               (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))) = 5%nat.
 Proof.
-  set (input := build_compilation_input deep_nested_program (Index.index_program deep_nested_program)).
-  change (phase_work (build_expression_phase input)) with (build_expr_work_forest input).
-  set (forest := build_expr_work_forest input).
-  rewrite <- (map_length (fun w => (work_node_ref w, work_occurrence w)) (forest_items forest)).
-  rewrite (forest_items_exact forest), (input_visit_ok input).
-  (* the snapshot visit does not [vm_compute]; count the expression occurrences on the SOURCE-computable
-     [keyed_visit] (= [source_keyed_visit], NodeRefs erased to keys), whose occurrences are the visit's own. *)
-  transitivity (length (filter (fun ko : Index.Key * Index.Occurrence =>
-                  match Index.view_expr (snd ko) with Some _ => true | None => false end)
-                  (keyed_visit deep_nested_program))).
-  - unfold keyed_visit. rewrite filter_map_length. reflexivity.
-  - rewrite keyed_visit_source. vm_compute. reflexivity.
+  rewrite (forest_count_source (build_compilation_input deep_nested_program
+                                  (Index.index_program deep_nested_program)) _).
+  rewrite keyed_visit_source. vm_compute. reflexivity.
 Qed.
 
 (** ═══ §10.1 THE ACCEPTED CAPABILITY, QUERIED ONLY THROUGH ITSELF ═══ [cp] is the capability the production
