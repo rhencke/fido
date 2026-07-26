@@ -5000,6 +5000,95 @@ Proof.
   transitivity (accumulator_total acc_rest (step_operand_suffix step)); [ exact Hcl | exact Hopf ].
 Qed.
 
+(** ═══ §5/§8 THE ACCEPTED CONVERSION CAUSE, STATED OVER THE RETAINED CAUSE OBJECT ITSELF ═══
+    [retained_convsuccess_closure] above carries the right evidence but lets its STATEMENT bind [rest] and
+    [acc_rest] existentially.  Read alone, that statement is satisfied by ANY suffix and ANY tail accumulator
+    obeying equal equations — it does not say the fold retained THESE.  Here the suffix and the tail accumulator
+    are PROJECTIONS of [total_forest_outcome_cause ot wm], the cause read off the retained [outcomes_trace], so
+    no foreign pair can be substituted: there is nothing left to choose.  What stays existential — the
+    [ConversionStep], the operand fact, the current fact, the converted constant — is DETERMINED by that cause,
+    and each equation below pins it to the retained objects. *)
+Definition accepted_conversion_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  let cause    := total_forest_outcome_cause ot wm in
+  let rest     := projT1 cause in
+  let acc_rest := projT1 (projT2 cause) in
+     work_expr (proj1_sig wm) = Syntax.Convert ts x
+  (* the exact suffix split the cause retained — this member sits exactly before that exact tail *)
+  /\ (exists prefix, forest_items forest = prefix ++ proj1_sig wm :: rest)
+  /\ exists (step : ConversionStep forest (proj1_sig wm) rest ts x) opf f tc,
+       (* this member's FINAL outcome … *)
+       total_forest_outcome_at ot wm = ExpressionSuccess f
+       (* … the operand's outcome read through the RETAINED tail accumulator at its exact SuffixMember … *)
+    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
+    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
+       (* … the tail-to-final preservation at that exact operand member … *)
+    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
+       = accumulator_total acc_rest (step_operand_suffix step)
+       (* … the ONE [Typing.convert_constant] on the exact target type-name fact … *)
+    /\ Typing.convert_constant
+         (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
+         (const_status opf) = Some tc
+       (* … the operand [Index.ExprRef] the conversion CARRIES — not a separately guessed source value … *)
+    /\ conversion_operand_ref (index input) (work_expr_ref (proj1_sig wm))
+       = Some (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
+       (* … which the RETAINED index answers with that EXACT retained operand member … *)
+    /\ Index.KeyMap.find
+         (Index.Snapshot.node_ref_key
+            (Index.erase_ref (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))))
+         (index_map (forest_index forest))
+       = Some (proj1_sig (conversion_operand_work (step_conversion step)))
+       (* … that member IS the step's operand [SuffixMember], and it lies in the cause's own processed suffix … *)
+    /\ proj1_sig (proj1_sig (step_operand_suffix step))
+       = proj1_sig (conversion_operand_work (step_conversion step))
+    /\ In (proj1_sig (conversion_operand_work (step_conversion step))) rest
+       (* … and [f] IS the exact current [ExpressionFact]. *)
+    /\ f = MakeExpressionFact
+             (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft
+                (conversion_target_node_ref (step_conversion step)))) tc)
+             (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
+                (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft
+                   (conversion_target_node_ref (step_conversion step)))) tc)).
+
+(* the same hypotheses as [retained_convsuccess_closure], concluding the CAUSE-OWNED form: the proof destructs the
+   ONE retained cause and never introduces a second suffix or accumulator. *)
+Lemma retained_convsuccess_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
+    (ot : Outcomes forest tnft) (wm : WorkMember forest) ts x f :
+  work_expr (proj1_sig wm) = Syntax.Convert ts x ->
+  total_forest_outcome_at ot wm = ExpressionSuccess f ->
+  accepted_conversion_cause ot wm ts x.
+Proof.
+  intros He Hok. unfold accepted_conversion_cause. cbv zeta.
+  destruct (total_forest_outcome_cause ot wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
+  cbn [projT1 projT2].
+  split; [ exact He | split; [ exact Hsplit | ] ].
+  (* [stepc] carries the outcome spelled as the accumulator query; [Hok] spells it as the member query.  The two
+     are CONVERTIBLE (same map, same key, same coverage proof) but not syntactically equal, and [rewrite] is
+     syntactic — so restate [Hok] in the cause's own spelling rather than weakening either side. *)
+  assert (Hok' : accumulator_total (outcomes_acc ot) (wm_suffix wm) = ExpressionSuccess f) by exact Hok.
+  rewrite Hok' in stepc.
+  destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
+    as [step [opf [tc [Hopf [Hconv Hf]]]]].
+  pose proof (final_operand_outcome ot rest acc_rest Hpreserve (step_operand_suffix step)) as Hcl.
+  exists step, opf, f, tc.
+  split; [ exact Hok | ].
+  split; [ exact Hopf | ].
+  split; [ rewrite Hcl; exact Hopf | ].
+  split; [ exact Hcl | ].
+  split; [ exact Hconv | ].
+  (* the operand navigation, over the SAME [step] the cause supplied *)
+  split; [ exact (conversion_operand_ref_eq (step_conversion step)) | ].
+  split.
+  { rewrite (work_erase_exact (proj1_sig (conversion_operand_work (step_conversion step)))).
+    exact (proj2 (index_exact (forest_index forest)
+                    _ (proj1_sig (conversion_operand_work (step_conversion step))))
+                 (conj (proj2_sig (conversion_operand_work (step_conversion step))) eq_refl)). }
+  split; [ exact (step_operand_exact step) | ].
+  split.
+  { rewrite <- (step_operand_exact step). exact (proj2_sig (step_operand_suffix step)). }
+  exact Hf.
+Qed.
+
 (* §3 the STORED DIAGNOSTIC of an [ConversionFailure] member: [forest_awork_diags] reads the STORED outcome DIRECTLY
    (not via [local_conv_failure]) and emits [InvalidConversion] over the SAME fields with the member's retained
    annotation context [outer].  So the exact reason is a MEMBER of the projected diagnostic list. *)
@@ -10969,61 +11058,38 @@ Qed.
    success, and the exact current [ExpressionFact] — is [deep_nested_convsuccess_at] / [deep_nested_chain_success_evidence]
    below — the accepted concrete theorem states everything its proof knows. *)
 
-(* §3 the EXACT per-conversion valid-chain success bundle: the FULL [retained_convsuccess_closure]
-   evidence for one member — current [Syntax.Convert] view, current final [ExpressionSuccess f], exact [ConversionStep], operand
-   [SuffixMember], tail [ExpressionSuccess opf], final [ExpressionSuccess opf], tail=final query equality, ONE [Typing.convert_constant] success on the
-   exact target fact, and [f] the EXACT current final [ExpressionFact]. *)
-Definition nested_success_bundle (input : Input deep_nested_program) (ph : Phase input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
-  exists (wm : WorkMember (phase_work (ph)))
-         (rest : list (Work (input)))
-         (acc_rest : Accumulator (phase_work (ph))
-                       (phase_type_name_facts (ph)) rest)
-         (* the step is the ConversionStep for the EXACT SOURCE [ts]/[x] of this bundle (no existential ts0/x0) *)
-         (step : ConversionStep (phase_work (ph))
-                   (proj1_sig wm) rest ts x) opf f tc,
-       work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ total_forest_outcome_at (phase_ot (ph)) wm = ExpressionSuccess f
-    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
-         (conversion_target_node_ref (step_conversion step)))) (const_status opf) = Some tc
-    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
-         (conversion_target_node_ref (step_conversion step)))) tc)
-             (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
-                (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
-                   (conversion_target_node_ref (step_conversion step)))) tc)).
+(* §3 the EXACT per-conversion valid-chain success evidence at ONE source shape: SOME retained member carries
+   that conversion, and its whole causal history is [accepted_conversion_cause] — the suffix and tail accumulator
+   are the ones [total_forest_outcome_cause] read off the retained [outcomes_trace], not a foreign pair the
+   statement was free to pick.  Only the MEMBER is existential here, and only because the source shape, not the
+   occurrence, is what this bundle names. *)
+Definition nested_conversion_cause (input : Input deep_nested_program) (ph : Phase input)
+    (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  exists wm : WorkMember (phase_work ph), accepted_conversion_cause (phase_ot ph) wm ts x.
 
-(* §3.2 the EXACT concrete helper: any valid deep_nested conversion occurrence instantiates the FULL bundle
-   (via [retained_convsuccess_closure] on the phase's OWN [phase_ot]).  No reduced projection. *)
+(* §3.2 the EXACT concrete helper: any valid deep_nested conversion occurrence instantiates the cause-owned
+   evidence, via [retained_convsuccess_cause] on the phase's OWN [phase_ot].  No reduced projection. *)
 Lemma deep_nested_convsuccess_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  nested_success_bundle input ph ts x.
+  nested_conversion_cause input ph ts x.
 Proof.
   intros Hsrc Hview Hfact.
   destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
-  destruct (retained_convsuccess_closure
-              (phase_ot (ph))
-              wm ts x f He Hok)
-    as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
-  unfold nested_success_bundle.
-  exists wm, rest, acc_rest, step, opf, f, tc.
-  repeat split; try assumption.
+  exists wm. exact (retained_convsuccess_cause (phase_ot ph) wm ts x f He Hok).
 Qed.
 
-(* §3.3 the EXACT concrete aggregate: ALL FOUR valid-chain conversions (int8/int16/int32/int64) instantiate the
-   FULL success bundle — each keeps its exact ConversionStep, target fact, operand member, tail/final equality,
-   Typing.convert_constant result, and current final ExpressionFact.  [deep_nested_all_ok] remains a short shape corollary. *)
+(* §3.3 the EXACT concrete aggregate: ALL FOUR valid-chain conversions (int8/int16/int32/int64) carry the
+   cause-owned evidence — each over the suffix and tail accumulator the RETAINED trace supplies, and each keeping
+   its exact ConversionStep, target fact, operand member, tail/final equality, Typing.convert_constant result, and
+   current final ExpressionFact.  [deep_nested_all_ok] remains a short shape corollary. *)
 Theorem deep_nested_chain_success_evidence (input : Input deep_nested_program) (ph : Phase input) :
-  nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int32)
+  nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int32)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int64)
+  /\ nested_conversion_cause input ph (Syntax.type_expr_of_name Names.Int64)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))).
 Proof.
   split; [ | split; [ | split ] ].
@@ -11054,88 +11120,6 @@ Qed.
    the accepted outcomes are unchanged.  (b) two SYNTACTICALLY EQUAL expression values at DISTINCT occurrences get
    DISTINCT keys and DISTINCT index entries, each answering with its OWN retained member — value equality cannot
    conflate them.  Together these exercise the production index end-to-end with no keyed list scan anywhere. *)
-
-(* (a) the per-conversion index bundle over [deep_nested_program]. *)
-Definition nested_index_bundle (input : Input deep_nested_program) (ph : Phase input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
-  let input := input in
-  let phase := ph in
-  exists (wm : WorkMember (phase_work phase)) (rest : list (Work input))
-         (acc_rest : Accumulator (phase_work phase) (phase_type_name_facts phase) rest)
-         (step : ConversionStep (phase_work phase) (proj1_sig wm) rest ts x)
-         (opr : Index.ExprRef deep_nested_program) opf f,
-       work_expr (proj1_sig wm) = Syntax.Convert ts x
-       (* the operand [ExprRef] the conversion CARRIES (no separately guessed source value) *)
-    /\ conversion_operand_ref (index input) (work_expr_ref (proj1_sig wm)) = Some opr
-       (* the retained index answers THAT ref's key with the EXACT retained operand member *)
-    /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref opr))
-         (index_map (forest_index (phase_work phase)))
-       = Some (proj1_sig (conversion_operand_work (step_conversion step)))
-       (* that exact member is the step's operand [SuffixMember], and it lies in the PROCESSED SUFFIX *)
-    /\ proj1_sig (proj1_sig (step_operand_suffix step)) = proj1_sig (conversion_operand_work (step_conversion step))
-    /\ In (proj1_sig (conversion_operand_work (step_conversion step))) rest
-       (* and the accepted operand/current outcomes are unchanged *)
-    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot phase) (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot phase) wm = ExpressionSuccess f.
-
-Lemma deep_nested_index_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
-  Index.source_occurrence_at deep_nested_src local = Some occ ->
-  Index.view_expr occ = Some (Syntax.Convert ts x) ->
-  (exists f, occurrence_expr_fact occ = Some f) ->
-  nested_index_bundle input ph ts x.
-Proof.
-  intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
-  destruct (retained_convsuccess_closure
-              (phase_ot (ph))
-              wm ts x f He Hok)
-    as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
-  unfold nested_index_bundle.
-  exists wm, rest, acc_rest, step,
-         (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))), opf, f.
-  split; [exact He |].
-  split; [exact (conversion_operand_ref_eq (step_conversion step)) |].
-  split.
-  { rewrite (work_erase_exact (proj1_sig (conversion_operand_work (step_conversion step)))).
-    exact (proj2 (index_exact (forest_index (phase_work (ph)))
-                    _ (proj1_sig (conversion_operand_work (step_conversion step))))
-                 (conj (proj2_sig (conversion_operand_work (step_conversion step))) eq_refl)). }
-  split; [exact (step_operand_exact step) |].
-  split.
-  { rewrite <- (step_operand_exact step). exact (proj2_sig (step_operand_suffix step)). }
-  split; [exact Hopf | split; [exact Hfinal | exact Hok]].
-Qed.
-
-(* all four valid-chain conversions recover their operand member THROUGH the standard-map index. *)
-Theorem deep_nested_chain_index_evidence (input : Input deep_nested_program) (ph : Phase input) :
-  nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int32)
-       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int64)
-       (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))).
-Proof.
-  split; [ | split; [ | split ] ].
-  - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo);
-      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
-      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-  - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
-             (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
-      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
-      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-  - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
-             (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
-      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
-      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-  - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
-             (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo);
-      [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
-      | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
-Qed.
 
 (* (b) the IDENTITY-DISTINCTION fixture: TWO occurrences whose source expression values are LITERALLY THE SAME
    term ([uint8(7)] twice).  They are DIFFERENT work items with DIFFERENT NodeKeys and DIFFERENT index entries,
@@ -11249,69 +11233,6 @@ Proof.
     exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
 Qed.
 
-(* §9.3 CONCRETE: each of the four valid-chain conversions (int64/int32/int16/int8) succeeds, and its operand's
-   outcome IN THE FINAL TABLE is the SAME [ExpressionSuccess opf] the [Typing.convert_constant] consumed (closure into the retained
-   Index.table).  The leaf success + empty diagnostics stay [deep_nested_all_ok]/[deep_fail_exactly_one_diag]. *)
-Theorem deep_nested_chain_operands_final_ok (input : Input deep_nested_program) (ph : Phase input) :
-  let ot := phase_ot (ph) in
-  (exists (wm opw : WorkMember (phase_work (ph))) opf,
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                     (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))))
-     /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-     /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-     /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
-     work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-     /\ total_forest_outcome_at ot opw = ExpressionSuccess opf).
-Proof.
-  cbn zeta. split; [ | split; [ | split ] ].
-  - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                  (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
-      as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
-  - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
-      as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
-  - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
-      as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
-  - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo
-                ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
-                ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
-      as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
-    exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
-Qed.
-
-(* §12.1 — the valid deep chain ELABORATES successfully and the sealed ExpressionFactTable IS the phase's retained
-   [phase_fact_table] object (object identity, not a rebuilt map) — the success-projection seal on a concrete program. *)
-Theorem deep_nested_seals_expression_fact_table :
-  exists cp Hcp,
-    compile deep_nested_program = Compiled cp Hcp
-    /\ expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp)).
-Proof.
-  destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hgo]].
-  exists cp, Hcp. split; [ exact Hgo | exact (compilable_retains_expr_facts cp) ].
-Qed.
-
 (* ═══ THE RETAINED WORK COUNT IS A SOURCE QUANTITY ═══ ANY work forest over ANY input for [p] has exactly as
    many members as [p] has expression occurrences.  The proof uses only record FIELDS ([forest_items_exact],
    [input_visit_ok]), so it holds of a RETAINED forest inside a capability, not merely of a freshly built one.
@@ -11337,109 +11258,143 @@ Theorem core_work_count_source {p} (core : Core p) :
             (keyed_visit p)).
 Proof. exact (forest_count_source (core_input core) (phase_work (phase core))). Qed.
 
-(** ═══ §10.1 THE ACCEPTED CAPABILITY, QUERIED ONLY THROUGH ITSELF ═══ [cp] is the capability the production
-    [compile] returned for a real four-deep conversion program.  Every claim is a PROJECTION of what that one
-    value retains: the input and phase are the core's own, the sealed tables are the phase's own objects, the
-    buckets/layout/plan are the core's own and are the program's canonical values, and acceptance IS the
-    retained final diagnostic list being empty.  The concrete work-forest count reaches the same retained
-    object through [Hcore] — the core identity the OUTCOME ITSELF carried — never by re-elaborating. *)
-Theorem deep_nested_capability_retains_elaboration :
+(** ═══ §10.1 THE ONE ACCEPTED ROOT FIXTURE ═══ ONE proposition over ONE exact returned capability.
+
+    It mints nothing.  Every field is a QUERY of the capability [compile] returned and of the [Core] that
+    capability retains; to inhabit the record you must already hold that value.  [Hcp] is not a fresh source
+    equation invented here — it is the very proof object the [Compiled] branch carries, so the deep fields ask
+    their questions of the capability's OWN core, transported by the decision's OWN evidence.
+
+    The point of collecting them is that a guarantee split across four theorems, each binding its own
+    existential [cp], is not a guarantee about one object: a reader must take on faith that the four witnesses
+    coincide.  Here there is one witness and one statement, so the freeze prose has exactly one thing to say. *)
+Definition accepted_deep_core (cp : Program) (Hcp : source cp = deep_nested_program) : Core deep_nested_program :=
+  eq_rect (source cp) Core (core cp) deep_nested_program Hcp.
+
+Record AcceptedFixture (cp : Program) (Hcp : source cp = deep_nested_program) : Prop := MakeAcceptedFixture {
+  (* ── one chain: the capability's input and phase ARE the retained core's, not copies beside it ── *)
+  accepted_fixture_input : program_input cp = core_input (core cp) ;
+  accepted_fixture_phase : program_phase cp = phase (core cp) ;
+
+  (* ── the sealed fact tables ARE the retained phase's own objects, never rebuilt maps ── *)
+  accepted_fixture_expression_facts :
+    expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp)) ;
+  accepted_fixture_type_name_facts :
+    type_name_facts (facts cp) = phase_type_name_facts (program_phase cp) ;
+
+  (* ── buckets: the core's own, folded from the core's OWN retained visit ── *)
+  accepted_fixture_package_refs : facts_package_refs (facts cp) = core_package_refs (core cp) ;
+  accepted_fixture_package_refs_own_visit :
+    core_package_refs (core cp)
+    = program_package_refs_from_visit (index (core_input (core cp))) (input_visit (core_input (core cp))) ;
+
+  (* ── layout and plan: the values the accepted decision used, and the program's canonical ones ── *)
+  accepted_fixture_layout : program_root_layout cp = root_layout (source cp) ;
+  accepted_fixture_plan : program_build_plan cp = fresh_build_plan (source cp) ;
+
+  (* ── the retained work forest, and its size as a SOURCE quantity ── *)
+  accepted_fixture_forest : length (forest_items (phase_work (phase (core cp)))) = 5%nat ;
+
+  (* ── the retained standard index, exact in BOTH directions over EVERY member and EVERY present key.  This is
+        the whole-object law, not four selected lookups. ── *)
+  accepted_fixture_index_exact :
+    forall k w,
+      Index.KeyMap.find k (index_map (forest_index (phase_work (phase (core cp))))) = Some w
+      <-> (In w (forest_items (phase_work (phase (core cp))))
+           /\ Index.Snapshot.node_ref_key (work_node_ref w) = k) ;
+
+  (* ── the retained outcome domain is EXACTLY the retained forest — again over the complete forest ── *)
+  accepted_fixture_outcomes :
+    forall k,
+      Index.KeyMap.find k (outcomes_map (phase_ot (phase (core cp)))) <> None
+      <-> exists w, In w (forest_items (phase_work (phase (core cp))))
+                 /\ Index.Snapshot.node_ref_key (work_node_ref w) = k ;
+
+  (* ── the retained trace explains EVERY member's position: each member's own cause carries the exact suffix
+        split of the retained item list at that member ── *)
+  accepted_fixture_trace :
+    forall wm : WorkMember (phase_work (phase (core cp))),
+      exists prefix,
+        forest_items (phase_work (phase (core cp)))
+        = prefix ++ proj1_sig wm
+                    :: projT1 (total_forest_outcome_cause (phase_ot (phase (core cp))) wm) ;
+
+  (* ── occurrence identity survives into the returned value: the retained members sit at pairwise DISTINCT
+        keys, so no two occurrences share an index entry ── *)
+  accepted_fixture_distinct_occurrences :
+    NoDup (map (fun w => Index.Snapshot.node_ref_key (work_node_ref w))
+               (forest_items (phase_work (phase (core cp))))) ;
+
+  (* ── the four conversion causes, each the EXACT object projected from that retained trace: exact suffix,
+        exact tail accumulator, exact ConversionStep, exact operand SuffixMember and its prior outcome, the
+        tail-to-final preservation, the operand navigation through the retained index, the ONE
+        [Typing.convert_constant], and the exact current [ExpressionFact] ── *)
+  accepted_fixture_int8_cause :
+    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) ;
+  accepted_fixture_int16_cause :
+    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      (Syntax.type_expr_of_name Names.Int16)
+      (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) ;
+  accepted_fixture_int32_cause :
+    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      (Syntax.type_expr_of_name Names.Int32)
+      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+        (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) ;
+  accepted_fixture_int64_cause :
+    nested_conversion_cause (core_input (accepted_deep_core cp Hcp)) (phase (accepted_deep_core cp Hcp))
+      (Syntax.type_expr_of_name Names.Int64)
+      (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+        (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
+          (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) ;
+
+  (* ── acceptance IS the retained diagnostic lists being empty: the phase's own, the core's RAW list (the
+        phase's followed by its package map's), and the core's FINAL list ── *)
+  accepted_fixture_phase_diagnostics : phase_diags (phase (core cp)) = nil ;
+  accepted_fixture_raw_diagnostics : core_raw_diagnostics (core cp) = nil ;
+  accepted_fixture_final_diagnostics : core_diagnostics (core cp) = nil
+}.
+
+(** the ONE accepted root theorem: the production [compile] returns a capability for the four-deep chain, and
+    THAT capability — the same witness, carried through by its own [Hcp] — satisfies the whole fixture. *)
+Theorem deep_nested_compile_fixture :
   exists cp Hcp,
     compile deep_nested_program = Compiled cp Hcp
-    /\ source cp = deep_nested_program
-    (* one chain: the capability's input and phase ARE the retained core's *)
-    /\ program_input cp = core_input (core cp)
-    /\ program_phase cp = phase (core cp)
-    (* the sealed fact tables ARE the retained phase's own objects, not rebuilt maps *)
-    /\ expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp))
-    /\ type_name_facts (facts cp) = phase_type_name_facts (program_phase cp)
-    (* buckets: the core's own, and folded from the core's OWN retained visit *)
-    /\ facts_package_refs (facts cp) = core_package_refs (core cp)
-    /\ core_package_refs (core cp)
-       = program_package_refs_from_visit (index (core_input (core cp))) (input_visit (core_input (core cp)))
-    (* layout and plan: the values the accepted decision used, and the program's canonical ones *)
-    /\ program_root_layout cp = root_layout (source cp)
-    /\ program_build_plan cp = fresh_build_plan (source cp)
-    (* acceptance IS the retained final diagnostic list, not a rerun of any checker *)
-    /\ core_diagnostics (core cp) = nil
-    (* and the retained work forest really has its five members — proved over [core cp] through a source
-       quantity, never through an equality to a rebuilt core *)
-    /\ length (forest_items (phase_work (phase (core cp)))) = 5%nat.
+    /\ AcceptedFixture cp Hcp.
 Proof.
   destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hc]].
-  exists cp, Hcp.
-  repeat split; try reflexivity.
-  - exact Hc.
-  - exact Hcp.
+  exists cp, Hcp. split; [ exact Hc | ].
+  constructor.
+  - reflexivity.
+  - reflexivity.
+  - exact (compilable_retains_expr_facts cp).
+  - reflexivity.
+  - reflexivity.
   - exact (core_refs_fold_own_visit _ (core cp)).
   - exact (program_root_layout_retained cp).
   - exact (program_build_plan_retained cp).
-  - exact (accepted cp).
   - rewrite (core_work_count_source (core cp)), Hcp, keyed_visit_source. vm_compute. reflexivity.
+  - exact (index_exact (forest_index (phase_work (phase (core cp))))).
+  - exact (outcomes_domain_iff_forest (phase_ot (phase (core cp)))).
+  - intro wm.
+    destruct (total_forest_outcome_cause (phase_ot (phase (core cp))) wm)
+      as [rest [acc_rest [[Hsplit Hstep] Hpreserve]]].
+    cbn [projT1]. exact Hsplit.
+  - exact (forest_keys_nodup (phase_work (phase (core cp)))).
+  - exact (proj1 (deep_nested_chain_success_evidence _ _)).
+  - exact (proj1 (proj2 (deep_nested_chain_success_evidence _ _))).
+  - exact (proj1 (proj2 (proj2 (deep_nested_chain_success_evidence _ _)))).
+  - exact (proj2 (proj2 (proj2 (deep_nested_chain_success_evidence _ _)))).
+  - exact (core_prop_at_source (fun q (c : Core q) => phase_diags (phase c) = nil) (core cp) Hcp
+             (deep_nested_phase_no_diags _ _)).
+  - refine (core_prop_at_source (fun q (c : Core q) => core_raw_diagnostics c = nil) (core cp) Hcp _).
+    set (c := eq_rect (source cp) Core (core cp) deep_nested_program Hcp).
+    rewrite (core_raw_diagnostics_exact c), (core_package_diags_canonical c),
+            (deep_nested_phase_no_diags (core_input c) (phase c)); cbn [app].
+    apply (proj2 (package_diags_empty_iff (core_index c))). vm_compute. reflexivity.
+  - exact (accepted cp).
 Qed.
 
-(** ═══ §10.3 EQUAL VALUE, DISTINCT OCCURRENCE — THROUGH THE RETAINED ACCEPTED CORE ═══ the repair-13 twin
-    fixture, asked of the capability the compiler returned rather than of a builder.  Two occurrences of the
-    SAME source expression are two DISTINCT members of the RETAINED work forest, found at DISTINCT keys in the
-    RETAINED standard index.  Occurrence identity is not a property of the elaborator's scratch work — it
-    survives all the way into the value a client holds. *)
-(** ═══ §10.1 THE RETAINED CAUSAL HISTORY, THROUGH THE RETURNED CAPABILITY ═══ the four conversion causes,
-    their operand predecessors, the final-table preservation, the single [Typing.convert_constant] step each,
-    and the retained work index exact in both directions — all asked of the core the compiler actually
-    returned.  The only bridge is [Hcp], the source equation the [Compiled] branch itself carries: it
-    transports a property OF [core cp], and never replaces [core cp] with an independently rebuilt peer.
-    Nothing here names a builder. *)
-Theorem deep_nested_capability_retains_causes :
-  exists cp (Hcp : source cp = deep_nested_program),
-    compile deep_nested_program = Compiled cp Hcp
-    /\ (let c := eq_rect (source cp) Core (core cp) deep_nested_program Hcp in
-        (* each of the four conversions: exact source occurrence, exact ConversionStep, the operand's
-           predecessor outcome read through its exact SuffixMember, tail-to-final preservation, and ONE
-           rejecting-or-accepting convert_constant *)
-        (nested_success_bundle (core_input c) (phase c)
-           (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-         /\ nested_success_bundle (core_input c) (phase c)
-              (Syntax.type_expr_of_name Names.Int16)
-              (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-         /\ nested_success_bundle (core_input c) (phase c)
-              (Syntax.type_expr_of_name Names.Int32)
-              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-         /\ nested_success_bundle (core_input c) (phase c)
-              (Syntax.type_expr_of_name Names.Int64)
-              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
-                  (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))))
-        (* the retained phase produced NO expression diagnostics, and the retained core's RAW list — the
-           phase's own diagnostics followed by its own package map's — is exactly empty *)
-        /\ phase_diags (phase c) = nil
-        /\ core_raw_diagnostics c = nil
-        (* …and the retained standard work index, exact in both directions, at those same occurrences *)
-        /\ (nested_index_bundle (core_input c) (phase c)
-              (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-            /\ nested_index_bundle (core_input c) (phase c)
-                 (Syntax.type_expr_of_name Names.Int16)
-                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-            /\ nested_index_bundle (core_input c) (phase c)
-                 (Syntax.type_expr_of_name Names.Int32)
-                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-            /\ nested_index_bundle (core_input c) (phase c)
-                 (Syntax.type_expr_of_name Names.Int64)
-                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
-                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
-                     (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))))).
-Proof.
-  destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hc]].
-  exists cp, Hcp. split; [ exact Hc | ]. cbn zeta.
-  set (c := eq_rect (source cp) Core (core cp) deep_nested_program Hcp).
-  split; [ exact (deep_nested_chain_success_evidence _ _) | ].
-  split; [ exact (deep_nested_phase_no_diags _ _) | ].
-  split; [ | exact (deep_nested_chain_index_evidence _ _) ].
-  rewrite (core_raw_diagnostics_exact c), (core_package_diags_canonical c),
-          (deep_nested_phase_no_diags (core_input c) (phase c)); cbn [app].
-  apply (proj2 (package_diags_empty_iff (core_index c))). vm_compute. reflexivity.
-Qed.
 
 Theorem twin_capability_retains_distinct_occurrences :
   exists cp Hcp,

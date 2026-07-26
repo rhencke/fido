@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names \
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
         human-acts human-acts-write profile
 .DEFAULT_GOAL := check
 
@@ -128,6 +128,14 @@ human-acts:
 
 human-acts-write:
 	@python3 tools/human-review-index.py --write
+
+# Just the Rocq File/Error lines from the pinned prover log.  On failure Buildx echoes the ENTIRE prove
+# recipe back as its error trailer — hundreds of lines — which buries the two lines that say what actually
+# broke.  This extracts them.  Never a substitute for `prove`: it reports, it does not verify.
+prove-errors:
+	@$(MAKE) --no-print-directory prover-log > /tmp/fido-prover.log 2>&1 || true
+	@grep -E '(^|[0-9.# ]+)(File "|Error:)' /tmp/fido-prover.log | sed 's/^[0-9.# ]*//' | sort -u | head -40 \
+	  || echo "fido: no File/Error lines — see /tmp/fido-prover.log"
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \

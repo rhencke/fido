@@ -548,16 +548,23 @@ Print Assumptions Compilable.deep_fail_outer_childfail.
 Print Assumptions Compilable.deep_fail_exactly_one_diag.
 Print Assumptions Compilable.deep_nested_all_ok.
 Print Assumptions Compilable.over_program_failure_retains_rejected_core.
-(* §10.1/§10.2/§10.3 — the production fixtures: the capability and the failure answered ONLY through
-   themselves, and occurrence identity surviving into the retained accepted core. *)
-Print Assumptions Compilable.deep_nested_capability_retains_elaboration.
+(* §10.1 — THE ONE ACCEPTED ROOT: [Compilable.deep_nested_compile_fixture] states that [Compilable.compile] returns a capability
+   for the four-deep chain AND that this exact capability — the same witness, carried through by the [Compiled]
+   branch's OWN source proof — satisfies [Compilable.AcceptedFixture].  That record is a single proposition over that one
+   object: the input/phase chain, the sealed fact tables, the buckets folded from the core's own visit, layout,
+   plan, the retained forest's size, the retained index exact in BOTH directions over EVERY member and EVERY
+   present key, the outcome domain exact over the COMPLETE forest, the retained trace's suffix split at EVERY
+   member, pairwise-distinct occurrence keys, the four conversion causes (each the exact object projected from
+   that retained trace, with its exact suffix, tail accumulator, ConversionStep, operand SuffixMember and prior
+   outcome, tail-to-final preservation, index navigation, the ONE Typing.convert_constant, and the exact current
+   ExpressionFact), and all three retained diagnostic lists empty.  It is ONE theorem about ONE returned value —
+   not a family of theorems each binding its own existential capability. *)
+Print Assumptions Compilable.deep_nested_compile_fixture.
 Print Assumptions Compilable.deep_fail_capability_retains_rejected_elaboration.
 Print Assumptions Compilable.twin_capability_retains_distinct_occurrences.
-(* §10.1/§10.2 — the RETAINED CAUSAL HISTORY through the returned objects: the four conversion causes with
-   their operand predecessors and convert_constant steps, the retained work index exact both ways, and on the
-   rejected side the innermost failure, the enclosing child failures and the operand preservation.  These are
-   the capability evidence; the generalised theorems they instantiate are stated over ANY retained phase. *)
-Print Assumptions Compilable.deep_nested_capability_retains_causes.
+(* §10.2 — the RETAINED CAUSAL HISTORY of the REJECTION through the returned failure: the innermost failure,
+   the enclosing child failures and the operand preservation.  The generalised theorems these instantiate are
+   stated over ANY retained phase. *)
 Print Assumptions Compilable.deep_fail_capability_retains_rejected_causes.
 Print Assumptions Compilable.forest_count_source.
 Print Assumptions Compilable.member_at_in_forest.
@@ -612,16 +619,19 @@ Print Assumptions Compilable.capability_is_compile_outcome.
 (* §11.4 FAILURE — the exposed diagnostics ARE the retained core's own, definitionally; the non-emptiness is
    the retained rejection evidence.  The failure carries the CORE; a diagnostic list carries nothing. *)
 Print Assumptions Compilable.failure_nonempty.
-Print Assumptions Compilable.deep_nested_seals_expression_fact_table.
 Print Assumptions Compilable.phase_domain_exact.
 (* §3/§4 the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
    evidence, gated as the accepted public surfaces — each accepted theorem STATES exactly the evidence its proof
    obtains:
-   - the exact per-occurrence valid-chain SUCCESS bundle ([deep_nested_convsuccess_at], proving [nested_success_bundle]:
-     current Syntax.Convert view + current final Compilable.ExpressionSuccess f + the [ConversionStep] for the EXACT SOURCE [ts]/[x] of the bundle
-     (no existential ts0/x0) + operand SuffixMember + tail = final = Compilable.ExpressionSuccess opf + tail=final query equality + ONE
-     Typing.convert_constant success on the exact target fact + f the exact current Compilable.ExpressionFact), and its instantiation on ALL FOUR
-     valid conversions ([deep_nested_chain_success_evidence]);
+   - the exact per-occurrence valid-chain SUCCESS cause ([deep_nested_convsuccess_at], proving
+     [nested_conversion_cause] and so [Compilable.accepted_conversion_cause]): the suffix and the tail accumulator are
+     PROJECTIONS of [Compilable.total_forest_outcome_cause] — the cause read off the RETAINED [Compilable.outcomes_trace] — so no
+     foreign pair can satisfy the statement; over those exact objects it states the current Syntax.Convert view,
+     the retained suffix split, the current final Compilable.ExpressionSuccess f, the [ConversionStep] for the EXACT SOURCE [ts]/[x]
+     (no existential ts0/x0), the operand SuffixMember with tail = final = Compilable.ExpressionSuccess opf and the tail-to-final
+     preservation, the operand [ExprRef] the conversion CARRIES resolving through the retained index to that exact
+     member, ONE Typing.convert_constant success on the exact target fact, and f the exact current Compilable.ExpressionFact.  Its
+     instantiation on ALL FOUR valid conversions is [deep_nested_chain_success_evidence];
    - the innermost convfail's retained cause CONNECTED to the exact stored [Compilable.InvalidConversion]
      ([deep_fail_innermost_diag] — same fields, t = the exact predeclared-context target fact query
      [Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))], the exact retained
@@ -630,27 +640,26 @@ Print Assumptions Compilable.phase_domain_exact.
      operand + tail=final failure + current Compilable.ChildFailure + no local reason).
    The weaker projections are labeled COROLLARIES: [deep_nested_ok_closure_at] states only the operand tail/final
    Compilable.ExpressionSuccess + query equality (NO Typing.convert_constant success / target fact / current fact); the concrete aggregates
-   [deep_fail_outer_operands_final_fail], [deep_nested_chain_operands_final_ok], [deep_nested_all_ok] state only the
-   outcome SHAPE. *)
+   [deep_fail_outer_operands_final_fail] and [deep_nested_all_ok] state only the outcome SHAPE. *)
 Print Assumptions Compilable.deep_nested_convsuccess_at.
 Print Assumptions Compilable.deep_nested_chain_success_evidence.
 Print Assumptions Compilable.deep_fail_innermost_diag.
 Print Assumptions Compilable.deep_fail_childfail_closure_at.
 Print Assumptions Compilable.deep_nested_ok_closure_at.
 Print Assumptions Compilable.deep_fail_outer_operands_final_fail.
-Print Assumptions Compilable.deep_nested_chain_operands_final_ok.
 (* §3/§4/§10 the DIRECT WORK-INDEX fixtures over REAL programs:
-   - [deep_nested_index_at] / [deep_nested_chain_index_evidence] — on the four-deep chain, EACH conversion's
-     CARRIED operand [ExprRef] queries the retained standard-map index ([KeyMap.find]) to the EXACT
-     retained operand member; that member IS the one the [ConversionStep] placed in the processed suffix
-     ([Compilable.step_operand_exact] + [In … rest]); and the operand/current outcomes remain the accepted [Compilable.ExpressionSuccess] values;
+   - the operand navigation is no longer a separate fixture: it is part of [Compilable.accepted_conversion_cause] above, so
+     EACH conversion's CARRIED operand [ExprRef] queries the retained standard-map index ([KeyMap.find]) to the
+     EXACT retained operand member, that member IS the one the [ConversionStep] placed in the cause's own
+     processed suffix ([Compilable.step_operand_exact] + [In … rest]), and the operand/current outcomes remain the accepted
+     [Compilable.ExpressionSuccess] values — all over the ONE retained cause rather than a peer that re-picks a suffix;
    - [twin_expr_index_distinct] — the IDENTITY-DISTINCTION fixture: two occurrences carrying the LITERALLY SAME
      source expression value ([uint8(7)] twice) are DISTINCT work items with DISTINCT NodeKeys and DISTINCT index
      entries, each key answering with its OWN retained member.  Expression-value equality cannot conflate two
      retained members — the index keys OCCURRENCE identity.  (Its type-name-layer counterpart is
      [two_uint8_distinct_target_refs].) *)
-Print Assumptions Compilable.deep_nested_index_at.
-Print Assumptions Compilable.deep_nested_chain_index_evidence.
+Print Assumptions Compilable.accepted_conversion_cause.
+Print Assumptions Compilable.retained_convsuccess_cause.
 (* §4 the typed invalid-conversion reason DENOTES its code end-to-end (primary ExprRef, the exact minted target
    TypeNameRef, operand status, Typing.convert_constant rejects); the erased report RETAINS the source target spelling so
    invalid byte(...) vs uint8(...) (and rune vs int32) — same resolved Typing.SemanticType — erase DISTINGUISHABLY. *)
