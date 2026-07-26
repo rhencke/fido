@@ -5,7 +5,7 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        fcb fcb-write profile
+        fcb fcb-write claims profile
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -29,7 +29,7 @@ override PLATFORM := linux/amd64
 # export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
 # exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
-check: names fcb prove e2e builder
+check: names fcb claims prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -131,6 +131,14 @@ names:
 #         exception list and an exception list is where a dangling path hides.
 #   the spec-closure ledger's human view is regenerated from the canonical 491-row CSV, so its own claim to
 #         be generated is true rather than decorative.
+# The repair-18 claim-to-theorem matrix.  Freeze prose is not gated by anything, so it can drift past what
+# the public statements carry — which is how the previous candidate blocked.  Each load-bearing completion
+# claim names the exact surface, fixture and gate that establish it, and this verifies they EXIST under
+# those exact names.  It does not judge theorem strength; a human does that.
+claims:
+	@python3 tools/claim-matrix-gate.py --self-test
+	@python3 tools/claim-matrix-gate.py
+
 fcb:
 	@python3 tools/human-review-index.py --self-test
 	@python3 tools/human-review-index.py --check

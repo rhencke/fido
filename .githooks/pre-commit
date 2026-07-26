@@ -43,6 +43,11 @@ python3 "$ctx/tools/fcb-reference-gate.py" --root "$ctx" --self-test
 python3 "$ctx/tools/fcb-reference-gate.py" --root "$ctx"
 # and the spec-closure ledger view must be the generated projection of its own canonical CSV.
 python3 "$ctx/tools/closure-ledger-view.py" --root "$ctx" --check
+# the repair-18 claim-to-theorem matrix: every load-bearing completion claim in the proposed commit must
+# name a surface, fixture and gate that EXIST in that snapshot, and no root fixture may name a prohibited
+# builder.  Freeze prose is the one thing no other gate reads.
+python3 "$ctx/tools/claim-matrix-gate.py" --root "$ctx" --self-test
+python3 "$ctx/tools/claim-matrix-gate.py" --root "$ctx"
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).
