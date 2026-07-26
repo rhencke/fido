@@ -5,7 +5,7 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        fcb fcb-write claims profile
+        fcb fcb-write claims audit-fresh profile
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -95,6 +95,16 @@ regenerate: builder
 # Structural regression proving the validate-before-publish DAG edge is load-bearing: with go-e2e forced to
 # FAIL (on a temp Dockerfile copy), `--target sync` must be UNBUILDABLE; on the unmodified tree it must build.
 # So `make regenerate` cannot publish unless the pinned `go build ./...` validated the pristine first.
+# Force the proof gate and the pinned-Go whole-tree e2e to RUN rather than report a Buildx cache hit.  A
+# cached verdict is valid — Buildx caches on identical inputs — but a closure audit should OBSERVE its
+# assertions rather than infer them from a cache key, and a freeze report should quote counts it watched
+# being produced.  For the audit, not the daily loop: `make prove` and `make e2e` stay cached.
+audit-fresh: builder
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
+	  --no-cache-filter prover --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
+	  --no-cache-filter go-e2e --target go-e2e .
+
 regen-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
 
