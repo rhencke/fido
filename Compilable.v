@@ -9063,16 +9063,40 @@ Qed.
     fresh-build preflight); the expression and type-name tables are the retained phase's own objects and the
     buckets, layout and plan are the retained core's, each reached below by a total PROJECTION.  Nothing here
     is a second copy, so there is nothing that can drift. *)
-Record Facts {p : Syntax.Program} (core : Core p) (accepted : core_diagnostics core = nil) : Type :=
-  make_facts {
+(** SEALED (§8): the representation and the raw constructor stay inside [AcceptedFacts], so [core_facts] —
+    which needs an accepted core to build one — is the only way a [Facts] value exists.  A client cannot
+    assemble success evidence for an elaboration that was not accepted. *)
+Module Type ACCEPTED_FACTS.
+  Parameter Facts : forall {p : Syntax.Program} (core : Core p),
+    core_diagnostics core = nil -> Type.
+  Parameter source_valid : forall {p} {core : Core p} {accepted}, Facts core accepted -> SourceProgramValid p.
+  Parameter preflight : forall {p} {core : Core p} {accepted}, Facts core accepted -> fresh_build_preflight_ok p.
+  Parameter core_facts : forall {p} (core : Core p) (Hnil : core_diagnostics core = nil), Facts core Hnil.
+End ACCEPTED_FACTS.
+
+Module AcceptedFacts : ACCEPTED_FACTS.
+  Record FactsRepresentation {p : Syntax.Program} (core : Core p)
+      (accepted : core_diagnostics core = nil) : Type := make_facts {
     source_valid : SourceProgramValid p ;
     (* the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output preflight
        passes for this program.  With [source_valid] it witnesses [Admissible] (see [admissible]). *)
     preflight    : fresh_build_preflight_ok p
   }.
-Arguments make_facts {p core accepted} _ _.
-Arguments source_valid {p core accepted} _.
-Arguments preflight {p core accepted} _.
+  Arguments make_facts {p core accepted} _ _.
+  Arguments source_valid {p core accepted} _.
+  Arguments preflight {p core accepted} _.
+  Definition Facts {p : Syntax.Program} (core : Core p)
+    (accepted : core_diagnostics core = nil) : Type := FactsRepresentation core accepted.
+
+  Definition core_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil)
+    : Facts core Hnil :=
+    let He : elaboration_diagnostics p (core_index core) = nil :=
+      eq_trans (eq_sym (core_diagnostics_eq_elaboration core)) Hnil in
+    make_facts
+      (elaboration_no_diags_source_valid p (core_index core) He)
+      (elaboration_no_diags_preflight p (core_index core) He).
+End AcceptedFacts.
+Include AcceptedFacts.
 
 (** the total projections.  Each takes the [Facts] value ONLY to fix the core it is indexed by, then reads
     that exact core — so no query can reach a different elaboration than the one that was accepted. *)
@@ -9280,14 +9304,6 @@ Proof.
     apply PackageFacts.in_find_iff in Hin. exact (Hin (eq_sym E)).
 Defined.
 
-Definition core_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil)
-  : Facts core Hnil :=
-  let He : elaboration_diagnostics p (core_index core) = nil :=
-    eq_trans (eq_sym (core_diagnostics_eq_elaboration core)) Hnil in
-  make_facts
-    (elaboration_no_diags_source_valid p (core_index core) He)
-    (elaboration_no_diags_preflight p (core_index core) He).
-
 (** ═══ §3 THE DECISION, INDEXED BY THE EXACT CORE ═══ accepted or rejected is a statement ABOUT a
     particular retained core, so an equal recomputed core cannot be substituted for the one that justified the
     result.  Validity and preflight are DERIVED from [Hnil] (see [core_facts]), never stored again. *)
@@ -9394,11 +9410,149 @@ Qed.
     work forest and index, the outcome Index.table and its trace, the annotation, the fact tables and the diagnostics.
     Everything public is a PROJECTION of that retained object; no theorem calls [elaborate] to recover a field. *)
 
-Record Program : Type := make_program {
-  source : Syntax.Program;
-  core    : Core source;      (* THE retained whole elaboration *)
-  accepted     : core_diagnostics core = nil           (* the accepted evidence, over THAT exact core *)
-}.
+(** ═══ §8 THE SEALED CAPABILITY ═══ [Program] and [Failure] are ABSTRACT outside this module.  Their
+    representations and raw constructors never leave it, so the ONLY way either value comes into existence is
+    [minted] — the production decision on a retained [Elaboration].  A client cannot assemble a capability out
+    of a core and a proof, cannot assemble a failure at all, and therefore cannot present the compiler's
+    authority for a program the compiler never accepted (A001 / D-22).
+
+    [Core] deliberately stays TRANSPARENT.  Every one of its fields is either determined by the program or
+    carried with the proof that it IS the canonical value, so [make_core] is a proof obligation rather than a
+    forgery surface — and concrete fixtures must be able to compute an elaboration.  Sealing the two types
+    that carry compiler AUTHORITY is the boundary that means something. *)
+Module Type CAPABILITY.
+  Parameter Program : Type.
+  Parameter source   : Program -> Syntax.Program.
+  Parameter core     : forall cp : Program, Core (source cp).   (* THE retained whole elaboration *)
+  Parameter accepted : forall cp : Program, core_diagnostics (core cp) = nil.
+
+  Parameter Failure : Syntax.Program -> Type.
+  Parameter failure_core : forall {p}, Failure p -> Core p.
+  Parameter rejected : forall {p} (fail : Failure p), core_diagnostics (failure_core fail) <> nil.
+
+  (* the outcome type is TRANSPARENT — a caller must be able to [destruct] it — but both payloads are not,
+     so a constructor cannot be applied to anything the compiler did not produce. *)
+  Inductive Outcome (p : Syntax.Program) : Type :=
+  | Compiled (cp : Program) (Hcp : source cp = p)
+  | Rejected (fail : Failure p).
+
+  (* THE mint, and the ONLY exported one.  The internal [minted] takes an [Elaboration], and an [Elaboration]
+     is assemblable from any core — so exporting it would restore exactly the "constructs an equal core"
+     path §7 deletes.  [compile] takes a PROGRAM and runs the one elaboration itself. *)
+  Parameter compile : forall p : Syntax.Program, Outcome p.
+  Parameter compile_accepted_shape : forall p,
+    core_diagnostics (build_elaboration_core p (Index.index_program p)) = nil ->
+    exists cp Hcp, compile p = Compiled p cp Hcp.
+  Parameter compile_rejected_shape : forall p,
+    core_diagnostics (build_elaboration_core p (Index.index_program p)) <> nil ->
+    exists fail, compile p = Rejected p fail
+              /\ failure_core fail = build_elaboration_core p (Index.index_program p).
+End CAPABILITY.
+
+Module Capability : CAPABILITY.
+  Record ProgramRepresentation : Type := make_program {
+    source : Syntax.Program;
+    core    : Core source;
+    accepted     : core_diagnostics core = nil
+  }.
+  Definition Program : Type := ProgramRepresentation.
+
+  Record FailureRepresentation (p : Syntax.Program) : Type := make_failure {
+    failure_core : Core p ;
+    rejected     : core_diagnostics failure_core <> nil
+  }.
+  Arguments make_failure {p} _ _.
+  Arguments failure_core {p} _.
+  Arguments rejected {p} _.
+  Definition Failure (p : Syntax.Program) : Type := FailureRepresentation p.
+
+  Definition minted (p : Syntax.Program) (a : Elaboration p)
+    : { cp : Program | source cp = p } + Failure p :=
+    match decision a with
+    | AcceptedDecision Hnil => inl (exist _ (make_program p (elaboration_core a) Hnil) eq_refl)
+    | RejectedDecision Hne  => inr (make_failure (elaboration_core a) Hne)
+    end.
+
+  Lemma minted_accepted : forall p (a : Elaboration p),
+    core_diagnostics (elaboration_core a) = nil -> exists s, minted p a = inl s.
+  Proof.
+    intros p a Hnil. unfold minted. destruct (decision a) as [H|Hne].
+    - eexists; reflexivity.
+    - exfalso; exact (Hne Hnil).
+  Qed.
+
+  Lemma minted_rejected : forall p (a : Elaboration p),
+    core_diagnostics (elaboration_core a) <> nil ->
+    exists fail, minted p a = inr fail /\ failure_core fail = elaboration_core a.
+  Proof.
+    intros p a Hne. unfold minted. destruct (decision a) as [Hnil|H].
+    - exfalso; exact (Hne Hnil).
+    - eexists; split; reflexivity.
+  Qed.
+
+  Lemma minted_retains : forall p (a : Elaboration p) s, minted p a = inl s ->
+    eq_rect (source (proj1_sig s)) Core (core (proj1_sig s)) p (proj2_sig s) = elaboration_core a.
+  Proof.
+    intros p a s E. unfold minted in E. destruct (decision a) as [Hnil|Hne].
+    - injection E as <-. reflexivity.
+    - discriminate E.
+  Qed.
+
+  Inductive Outcome (p : Syntax.Program) : Type :=
+  | Compiled (cp : Program) (Hcp : source cp = p)
+  | Rejected (fail : Failure p).
+
+  (** the production compiler READS the retained core's decision and PASSES THE CORE THROUGH.  There is no
+      [elaborate p = a] provenance argument: the accepted [Program] holds the very [Core] whose diagnostics
+      the decision judged, so success needs no equation to a rerun and failure carries that same core's
+      diagnostics.  One match, no convoy, nothing rebuilt. *)
+  Definition outcome_of_elaboration (p : Syntax.Program) (a : Elaboration p) : Outcome p :=
+    match minted p a with
+    | inl s    => Compiled p (proj1_sig s) (proj2_sig s)
+    | inr fail => Rejected p fail
+    end.
+
+  Definition compile (p : Syntax.Program) : Outcome p :=
+    outcome_of_elaboration p (elaborate p).
+
+  Lemma compile_elaboration_core : forall p,
+    elaboration_core (elaborate p) = build_elaboration_core p (Index.index_program p).
+  Proof. reflexivity. Qed.
+
+  Lemma compile_accepted_shape : forall p,
+    core_diagnostics (build_elaboration_core p (Index.index_program p)) = nil ->
+    exists cp Hcp, compile p = Compiled p cp Hcp.
+  Proof.
+    intros p He.
+    destruct (minted_accepted p (elaborate p)
+                (eq_trans (f_equal (@core_diagnostics p) (compile_elaboration_core p)) He)) as [s Hs].
+    exists (proj1_sig s), (proj2_sig s).
+    unfold compile, outcome_of_elaboration. rewrite Hs. reflexivity.
+  Qed.
+
+  Lemma compile_rejected_shape : forall p,
+    core_diagnostics (build_elaboration_core p (Index.index_program p)) <> nil ->
+    exists fail, compile p = Rejected p fail
+              /\ failure_core fail = build_elaboration_core p (Index.index_program p).
+  Proof.
+    intros p Hne.
+    assert (Hne' : core_diagnostics (elaboration_core (elaborate p)) <> nil)
+      by (rewrite (compile_elaboration_core p); exact Hne).
+    destruct (minted_rejected p (elaborate p) Hne') as [fail [Hm Hcore]].
+    exists fail. split.
+    - unfold compile, outcome_of_elaboration. rewrite Hm. reflexivity.
+    - rewrite Hcore. exact (compile_elaboration_core p).
+  Qed.
+End Capability.
+Include Capability.
+Arguments Compiled {p} _ _.
+Arguments Rejected {p} _.
+
+(** the elaboration [compile] runs IS the built core — definitionally, nothing rebuilt.  Stated out here
+    because [elaborate] is public: it is the tie between the sealed compiler and the open builder. *)
+Lemma compile_elaboration_core : forall p,
+  elaboration_core (elaborate p) = build_elaboration_core p (Index.index_program p).
+Proof. reflexivity. Qed.
 
 (* every public component is a projection of the retained core — never a re-elaboration. *)
 Definition program_index (cp : Program) : Index.Program (source cp) := core_indexed (core cp).
@@ -9440,25 +9594,12 @@ Proof. intro cp; exact (compile_program_typed _ (admissible cp)). Qed.
     [Failure] now holds the very [Core] the decision judged, so every failure query (input, phase, work forest
     and index, outcome table and trace, annotated context, package refs, layout, plan, and the diagnostics
     themselves) is a PROJECTION of the retained rejected elaboration.  Nothing is recovered by re-running. *)
-Record Failure (p : Syntax.Program) : Type := make_failure {
-  failure_core : Core p ;
-  rejected     : core_diagnostics failure_core <> nil
-}.
-Arguments make_failure {p} _ _.
-Arguments failure_core {p} _.
-Arguments rejected {p} _.
-
 (* the exposed diagnostics ARE the retained core's own — definitionally, not by a stored equality. *)
 Definition failure_diagnostics {p} (fail : Failure p) : list (DiagnosticReason p) :=
   core_diagnostics (failure_core fail).
 Definition failure_nonempty {p} (fail : Failure p) : failure_diagnostics fail <> nil := rejected fail.
 
 (* the rejected elaboration, projected — the whole causal chain a diagnostic consumer needs. *)
-(* the one reduction fact for a constructed failure — holds by [reflexivity]. *)
-Lemma failure_diagnostics_make {p} (core : Core p) (H : core_diagnostics core <> nil) :
-  failure_diagnostics (make_failure core H) = core_diagnostics core.
-Proof. reflexivity. Qed.
-
 Definition failure_input {p} (fail : Failure p) : Input p := core_input (failure_core fail).
 Definition failure_phase {p} (fail : Failure p) : Phase (failure_input fail) := phase (failure_core fail).
 Definition failure_index {p} (fail : Failure p) : Index.Snapshot.Syntax p := core_index (failure_core fail).
@@ -9467,12 +9608,6 @@ Definition failure_package_refs {p} (fail : Failure p) := core_package_refs (fai
 Definition failure_layout {p} (fail : Failure p) := core_layout (failure_core fail).
 Definition failure_plan {p} (fail : Failure p) := core_plan (failure_core fail).
 Definition failure_raw_diagnostics {p} (fail : Failure p) := core_raw_diagnostics (failure_core fail).
-
-Inductive Outcome (p : Syntax.Program) : Type :=
-| Compiled    (cp : Program) (Hcp : source cp = p)
-| Rejected (fail : Failure p).
-Arguments Compiled {p} _ _.
-Arguments Rejected {p} _.
 
 (** the LEGACY coarse class, a PROJECTION of the elaboration diagnostics (never a separate check): a typing-class
     diagnostic dominates, else a package-class diagnostic, else success. *)
@@ -9486,33 +9621,6 @@ Definition legacy_class_of_diags {p} (ds : list (DiagnosticReason p)) : LegacyCl
 Definition legacy_compile_class {p} (o : Outcome p) : LegacyClass :=
   match o with Compiled _ _ => LegacyOk | Rejected fail => legacy_class_of_diags (failure_diagnostics fail) end.
 
-(** the production compiler READS the retained core's decision and PASSES THE CORE THROUGH.  There is no
-    [elaborate p = a] provenance argument any more: the accepted [Program] holds the very
-    [Core] whose diagnostics the decision judged, so success needs no equation to a rerun and failure
-    carries that same core's diagnostics.  One match, no convoy, nothing rebuilt. *)
-Definition outcome_of_elaboration (p : Syntax.Program) (a : Elaboration p) : Outcome p :=
-  match decision a with
-  | AcceptedDecision Hnil => Compiled (make_program p (elaboration_core a) Hnil) eq_refl
-  | RejectedDecision Hne  => Rejected (make_failure (elaboration_core a) Hne)
-  end.
-
-Definition compile (p : Syntax.Program) : Outcome p :=
-  outcome_of_elaboration p (elaborate p).
-
-(** the ONE reduction fact for the whole pipeline: [compile] IS the decision on the built core.  Every
-    downstream theorem rewrites with this and destructs the single [list_is_nil], instead of threading shape
-    lemmas through a reconstructed whole equation.  Holds by [reflexivity] — the capability is what was built. *)
-Lemma compile_on_core : forall p,
-  compile p =
-    (match list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p))) with
-     | left He   => Compiled (make_program p (build_elaboration_core p (Index.index_program p)) He) eq_refl
-     | right Hne => Rejected (make_failure (build_elaboration_core p (Index.index_program p)) Hne)
-     end).
-Proof.
-  intro p. unfold compile, outcome_of_elaboration, elaborate, elaborate_at, decision_of_core.
-  cbn [elaboration_core decision]; cbv zeta.
-  destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))); reflexivity.
-Qed.
 
 (** admissibility forces the accepted branch: the built core's diagnostics ARE [elaboration_diagnostics]. *)
 Lemma core_diags_nil_of_valid : forall p, Admissible p ->
@@ -9536,10 +9644,7 @@ Qed.
 Theorem compile_complete : forall p,
   Admissible p -> exists cp Hcp, compile p = Compiled cp Hcp.
 Proof.
-  intros p Hvalid. rewrite compile_on_core.
-  destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
-  - eexists; eexists; reflexivity.
-  - exfalso. exact (Hne (core_diags_nil_of_valid p Hvalid)).
+  intros p Hvalid. exact (compile_accepted_shape p (core_diags_nil_of_valid p Hvalid)).
 Qed.
 
 (** fixture helper: acceptance through the theorems — the source decision ([source_spec_valid_b]) AND the fresh-build
@@ -9573,7 +9678,7 @@ Qed.
       E. [elaboration_rejected_iff_inadmissible]          : elaboration fails         <-> ~ Admissible
       F. [elaboration_diagnostics_fresh_failure]       : preflight fails -> final report = [one build-output dir]
       G. [elaboration_diagnostics_eq_semantic]         : preflight succeeds -> final report = semantic report
-      H. [compile_projects_elaborate]               : compile only PROJECTS one elaboration (no re-check)
+      H. [compile_elaboration_core]                 : compile only PROJECTS one elaboration (no re-check)
       I. [compilable_retains_phase]/[compilable_retains_expr_facts]/[program_build_plan] : retention of the core.
 
     (B, C, D, E, G are proved above at their definitions.)  J — the Emit.Image layout bridge — lives in
@@ -9620,11 +9725,6 @@ Proof.
   apply (fresh_build_diagnostics_fail_singleton p Hpf).
 Qed.
 
-(** the production compiler is a PROJECTION of the ONE elaboration: [compile] IS DEFINITIONALLY the
-    outcome of the retained [elaborate p].  It runs no [source_spec_valid_b] and no second checker. *)
-Lemma compile_projects_elaborate : forall p,
-  compile p = outcome_of_elaboration p (elaborate p).
-Proof. intro p. reflexivity. Qed.
 
 (** RETENTION: the capability holds the exact [Core]; program/index/facts/phase are PROJECTIONS of
     it, and the FreshBuildPlan is retained by DERIVATION from the retained program. *)
@@ -9678,7 +9778,7 @@ Lemma compile_untyped : forall p, program_typedb p = false ->
   fresh_build_disposition_ok (fresh_build_plan p) = true ->
   legacy_compile_class (compile p) = LegacyTyping.
 Proof.
-  intros p Hf Hpf. rewrite compile_on_core.
+  intros p Hf Hpf.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
   - exfalso.
     assert (Hgc : Admissible p).
@@ -9686,7 +9786,8 @@ Proof.
                (Index.indexed_syntax (Index.index_program p)))).
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     pose proof (proj2 (program_typedb_iff predeclared_type p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
-  - cbn [legacy_compile_class]. rewrite failure_diagnostics_make. unfold legacy_class_of_diags.
+  - destruct (compile_rejected_shape p Hne) as [fail [Hc Hcore]]. rewrite Hc.
+    cbn [legacy_compile_class]. unfold failure_diagnostics, legacy_class_of_diags. rewrite Hcore.
     rewrite (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p))), (elaboration_diagnostics_eq_semantic p _ Hpf),
             existsb_build_output_semantic, existsb_typing_semantic, Hf. reflexivity.
 Qed.
@@ -9743,16 +9844,17 @@ Lemma compile_class_spec : forall p,
      then (if source_spec_valid_b p then LegacyOk else if program_typedb p then LegacyPackageMainCount else LegacyTyping)
      else LegacyBuildOutput).
 Proof.
-  intro p. unfold compile_class. rewrite compile_on_core.
+  intro p. unfold compile_class.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
-  -
+  - destruct (compile_accepted_shape p He) as [cp [Hcp Hc]]. rewrite Hc.
     assert (Hgc : Admissible p).
     { apply (proj1 (elaboration_diagnostics_nil_iff_admissible p
                (Index.indexed_syntax (Index.index_program p)))).
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     cbn [legacy_compile_class]. rewrite (proj2 (source_spec_valid_b_iff p) Hsv). reflexivity.
-  - cbn [legacy_compile_class]. rewrite failure_diagnostics_make. unfold legacy_class_of_diags.
+  - destruct (compile_rejected_shape p Hne) as [fail [Hc Hcore]]. rewrite Hc.
+    cbn [legacy_compile_class]. unfold failure_diagnostics, legacy_class_of_diags. rewrite Hcore.
     rewrite (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p))).
     destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
     + rewrite (elaboration_diagnostics_eq_semantic p _ Ep), existsb_build_output_semantic,
@@ -9897,11 +9999,10 @@ Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
    the very [Core] the decision judged, and its diagnostics are that core's own — definitionally, not by a
    stored equality.  Everything a diagnostic consumer needs is a projection of [failure_core]. *)
 Theorem over_program_failure_retains_rejected_core :
-  exists Hne,
-    compile over_program
-    = Rejected (make_failure (elaboration_core (elaborate over_program)) Hne).
+  exists fail,
+    compile over_program = Rejected fail
+    /\ failure_core fail = elaboration_core (elaborate over_program).
 Proof.
-  rewrite compile_on_core.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core over_program (Index.index_program over_program))))
     as [He|Hne].
   - exfalso. apply over_program_no_compile.
@@ -9909,7 +10010,8 @@ Proof.
              (Index.indexed_syntax (Index.index_program over_program)))).
     exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration
              (build_elaboration_core over_program (Index.index_program over_program)))) He).
-  - exists Hne. reflexivity.
+  - destruct (compile_rejected_shape over_program Hne) as [fail [Hc Hcore]].
+    exists fail. split; [ exact Hc | rewrite Hcore; exact (eq_sym (compile_elaboration_core over_program)) ].
 Qed.
 
 (** ---- integer-family programs: a concrete accepted integer program compiles; an invalid nested

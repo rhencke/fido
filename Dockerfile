@@ -121,7 +121,39 @@ printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit 
 if ! rocq c -R /tmp/tE Fido -Q _build/default/. Fido /tmp/tE/Check.v > /tmp/tE/c.log 2>&1; then cat /tmp/tE/c.log; fail "self-test E: a closed Section theorem was FALSELY rejected"; fi
 grep -q 'assumption audit OK' /tmp/tE/c.log || { cat /tmp/tE/c.log; fail "self-test E: closed Section theorem not accepted"; }
 echo "fido: audit self-test E — closed Section theorem accepted (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E"
+# (f) SEALED-CAPABILITY negative CLIENT fixtures.  "A client cannot forge a capability" is not a Rocq
+#     theorem — you cannot prove a term fails to typecheck.  It is a BUILD fact, so it is tested the way the
+#     axiom self-tests are: a transient client that names a raw constructor must FAIL to compile, and fail
+#     for the RIGHT reason (the name does not exist), never for an unrelated error.  Note the fixtures name
+#     the QUALIFIED constructor: `make_program` alone also exists in Syntax and Index, so a bare probe would
+#     resolve there and the test would silently prove nothing.
+sealed() { # <label> <qualified term that must NOT resolve>
+  printf 'From Fido Require Import Syntax Compilable.\nDefinition probe := %s.\n' "$2" > /tmp/sealed.v
+  if rocq c -Q _build/default/. Fido /tmp/sealed.v > /tmp/sealed.log 2>&1; then
+    cat /tmp/sealed.log; fail "sealed self-test $1: $2 IS reachable — that constructor is not sealed"
+  fi
+  grep -qE 'was not found|Unbound|Cannot find|No such' /tmp/sealed.log \
+    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but NOT because $2 is absent"; }
+  echo "fido: sealed self-test $1 — $2 unreachable (as required)"; }
+sealed F Compilable.make_program
+sealed G Compilable.make_failure
+sealed H Compilable.make_facts
+sealed I Compilable.Capability.make_program
+sealed J Compilable.Capability.make_failure
+sealed K Compilable.AcceptedFacts.make_facts
+# the internal mint itself: it takes an Elaboration, and an Elaboration is assemblable from any core, so
+# exporting it would restore the "constructs an equal core" path §7 deletes.  compile is the only way in.
+sealed L Compilable.minted
+sealed M Compilable.outcome_of_elaboration
+sealed N Compilable.Capability.minted
+# (g) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
+#     merely because the client failed to load the theory.
+printf 'From Fido Require Import Syntax Compilable.\nDefinition probe (p : Syntax.Program) (H : Compilable.Admissible p) : Compilable.Program := Compilable.capability_of_admissible p H.\nDefinition probe_fail (p : Syntax.Program) (f : Compilable.Failure p) := Compilable.failure_core f.\n' > /tmp/sealed_ok.v
+if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
+  cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
+fi
+echo "fido: sealed positive control — the sealed types and capability_of_admissible are reachable (as required)"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-N + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

@@ -202,7 +202,9 @@ Print Assumptions Compilable.compile_rejected_not_admissible.
 Print Assumptions Emit.of_safe_at.
 Print Assumptions Emit.of_safe_at_refl.
 Print Assumptions Emit.of_safe_at_transport.
-Print Assumptions Compilable.compile_on_core.
+Print Assumptions Compilable.compile_elaboration_core.
+Print Assumptions Compilable.compile_accepted_shape.
+Print Assumptions Compilable.compile_rejected_shape.
 Print Assumptions Compilable.core_diags_nil_of_valid.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
@@ -632,7 +634,6 @@ Print Assumptions Compilable.fresh_build_diagnostics_fail_singleton.
 Print Assumptions Compilable.elaboration_diagnostics_nil_iff_admissible.
 Print Assumptions Compilable.elaboration_diagnostics_eq_semantic.
 Print Assumptions Compilable.elaboration_diagnostics_fresh_failure.
-Print Assumptions Compilable.compile_projects_elaborate.
 (* the FreshBuildPlan / final report / acceptance class depend on the ModuleSpec (the preflight's
    default exec name is a ModulePath.T function), so their determinism needs the FULL ProgramInputEqual, NOT
    FilesEqual alone (the counterexample: equal files, different module -> different plan). *)

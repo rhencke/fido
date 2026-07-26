@@ -87,7 +87,11 @@ DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag'
                     # repair 15 §9/§12 — the stripped result peer and the reconstruction bridges
                     'ElaborationOK', 'ElaborationFailed', 'elaborate_indexed', 'elaborate_phase_raw_eq',
                     'elaborate_diags_eq_elaboration', 'elaborate_failed_not_valid',
-                    'over_program_failure_carries_core_diags']
+                    'over_program_failure_carries_core_diags',
+                    # repair 15 §7 — the second capability-mint path
+                    'elaboration_ok_core', 'compilable_of_valid',
+                    # repair 15 §8 — surfaces that named a now-sealed constructor and could not survive it
+                    'compile_on_core', 'compile_projects_elaborate', 'failure_diagnostics_make']
 
 # Pseudo-qualifier SEGMENTS.  Checked anywhere in an identifier, not merely at position zero: an embedded
 # `cp` is exactly as much a fake namespace as a leading one.
