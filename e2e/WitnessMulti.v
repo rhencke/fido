@@ -50,7 +50,8 @@ Definition multi_safe : Safe.Program := certify multi_compiled.
    that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
    and the transport never has to force the elaboration to rediscover a program it already has. *)
 Definition multi_image : Emit.Image :=
-  Emit.of_safe_at multi_safe multi_program (Compilable.capability_source multi_program multi_valid).
+  Emit.of_safe_at multi_safe multi_program (eq_trans (Safe.certify_source multi_compiled)
+                          (Compilable.capability_source multi_program multi_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize multi_image To "/workspace/generated-multi".

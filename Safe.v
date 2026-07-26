@@ -395,14 +395,30 @@ Proof. vm_compute. reflexivity. Qed.
 (** Trivial TODAY (the fragment has no unsafe operation), kept as the permanent extension point. *)
 Definition Property (cp : Compilable.Program) : Prop := True.
 
-Record Program : Type := Make {
-  compiled : Compilable.Program;
-  proof     : Property compiled
-}.
+(** ═══ THE SEALED SAFETY CAPABILITY ═══ the representation and its constructor stay inside, so [certify] is
+    the only way a [Program] exists.  Unlike [Emit.Image] there is no computation-boundary exception here: no
+    certified transport has to kernel-reduce this representation, so A006's narrow allowance does not apply
+    and the Charter's "remains abstract" is met literally. *)
+Module Type CERTIFICATE.
+  Parameter Program : Type.
+  Parameter compiled : Program -> Compilable.Program.
+  Parameter certify : Compilable.Program -> Program.
+  Parameter certify_retains : forall cp, compiled (certify cp) = cp.
+End CERTIFICATE.
 
-(** A compilation certificate suffices for the current fragment; [compiled] carries the genuine
-    whole-program compile proof, so nothing uncompilable is certified. *)
-Definition certify (cp : Compilable.Program) : Program := Make cp I.
+Module Certificate : CERTIFICATE.
+  Record ProgramRepresentation : Type := Make {
+    compiled : Compilable.Program;
+    proof     : Property compiled
+  }.
+  Definition Program : Type := ProgramRepresentation.
+  (** A compilation certificate suffices for the current fragment; [compiled] carries the genuine
+      whole-program compile proof, so nothing uncompilable is certified. *)
+  Definition certify (cp : Compilable.Program) : Program := Make cp I.
+  Lemma certify_retains : forall cp, compiled (certify cp) = cp.
+  Proof. reflexivity. Qed.
+End Certificate.
+Include Certificate.
 
 (** The certified program (what the public renderer/emitter traverse — only through Program). *)
 Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled sp).
@@ -413,10 +429,18 @@ Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled
     object directly; it never re-elaborates to recover one.  Both facts hold by [reflexivity]. *)
 Definition core (sp : Program) : Compilable.Core (source sp) := Compilable.core (compiled sp).
 
-Theorem certify_retains_capability : forall cp, compiled (certify cp) = cp.
-Proof. reflexivity. Qed.
+(** the certified program's SOURCE is the capability's — needed wherever the source is named explicitly, now
+    that [certify] is opaque and the identity is propositional rather than definitional. *)
+Theorem certify_source : forall cp, source (certify cp) = Compilable.source cp.
+Proof. intro cp. unfold source. rewrite certify_retains. reflexivity. Qed.
 
-Theorem certify_retains_core : forall cp, core (certify cp) = Compilable.core cp.
+Theorem certify_retains_capability : forall cp, compiled (certify cp) = cp.
+Proof. exact certify_retains. Qed.
+
+(** RETENTION, stated over ANY certificate rather than only a freshly certified one — strictly stronger, and
+    it needs no transport: the safety capability's core IS the wrapped capability's core, by [reflexivity].
+    With [certify_retains] above ([compiled (certify cp) = cp]) this is the full retention content. *)
+Theorem certify_retains_core : forall sp, core sp = Compilable.core (compiled sp).
 Proof. reflexivity. Qed.
 
 (** (The package name is no longer a compiler-derived fact: each file's package clause is SOURCE-owned

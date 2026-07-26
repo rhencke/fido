@@ -122,7 +122,8 @@ Definition demo_safe : Safe.Program := certify demo_compiled.
    that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
    and the transport never has to force the elaboration to rediscover a program it already has. *)
 Definition demo_image : Emit.Image :=
-  Emit.of_safe_at demo_safe demo_program (Compilable.capability_source demo_program demo_valid).
+  Emit.of_safe_at demo_safe demo_program (eq_trans (Safe.certify_source demo_compiled)
+                          (Compilable.capability_source demo_program demo_valid)).
 
 Declare ML Module "fido.emit".
 (* AUTHORITATIVE pristine materialization (the pre-build image the pinned `go build ./...` validates and the

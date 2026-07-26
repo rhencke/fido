@@ -336,13 +336,16 @@ Theorem accepted_path_emits_from_returned_capability : forall p (H : Compilable.
     Compilable.compile p = Compilable.Compiled cp Hcp
     (* safety wraps the SAME capability and the SAME retained core *)
     /\ Safe.compiled (Safe.certify cp) = cp
-    /\ Safe.core (Safe.certify cp) = Compilable.core cp
-    /\ Safe.source (Safe.certify cp) = Compilable.source cp
+    /\ Safe.core (Safe.certify cp) = Compilable.core (Safe.compiled (Safe.certify cp))
+    /\ Safe.source (Safe.certify cp) = Compilable.source (Safe.compiled (Safe.certify cp))
     (* and the image retains that exact certificate and publishes exactly its bytes *)
     /\ safe (of_safe (Safe.certify cp)) = Safe.certify cp
     /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
     /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
 Proof.
   intros p H. destruct (Compilable.compile_complete p H) as [cp [Hcp Hc]].
-  exists cp, Hcp. repeat split; try reflexivity. exact Hc.
+  exists cp, Hcp.
+  split; [ exact Hc | ].
+  split; [ exact (Safe.certify_retains cp) | ].
+  repeat split; reflexivity.
 Qed.

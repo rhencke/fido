@@ -165,6 +165,12 @@ sealed X Compilable.Elaborations.MakeElaboration
 sealed Y Emit.Mint.Issue
 sealed Z Emit.Mint.TokenRepresentation
 sealed AA Emit.MakeImage
+# the SAFETY capability.  The whole-system audit (A006 §9) found this one still public while the Charter's
+# A006 paragraph asserts it is abstract; no certified transport reduces its representation, so the narrow
+# carrier allowance does not apply to it and it is now sealed like the rest.
+sealed AE Safe.Make
+sealed AF Safe.ProgramRepresentation
+sealed AG Safe.Certificate.Make
 # …and the payload really is forced by the token's indices.  These must fail to TYPECHECK, not merely be
 # absent, so they get their own control with its own expected reason.
 mintfail() {  # <label> <what> <definition text>
@@ -212,7 +218,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-AA + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-AA/AE-AG + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

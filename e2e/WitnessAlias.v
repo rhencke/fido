@@ -41,7 +41,8 @@ Definition alias_safe : Safe.Program := certify alias_compiled.
    that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
    and the transport never has to force the elaboration to rediscover a program it already has. *)
 Definition alias_image : Emit.Image :=
-  Emit.of_safe_at alias_safe alias_program (Compilable.capability_source alias_program alias_valid).
+  Emit.of_safe_at alias_safe alias_program (eq_trans (Safe.certify_source alias_compiled)
+                          (Compilable.capability_source alias_program alias_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize alias_image To "/workspace/generated-alias".

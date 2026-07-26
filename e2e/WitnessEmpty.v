@@ -23,7 +23,8 @@ Definition empty_safe : Safe.Program := certify empty_compiled.
    that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
    and the transport never has to force the elaboration to rediscover a program it already has. *)
 Definition empty_image : Emit.Image :=
-  Emit.of_safe_at empty_safe empty_prog (Compilable.capability_source empty_prog empty_valid).
+  Emit.of_safe_at empty_safe empty_prog (eq_trans (Safe.certify_source empty_compiled)
+                          (Compilable.capability_source empty_prog empty_valid)).
 
 (* the empty source map builds, compiles, and renders NO .go files *)
 Example empty_builds : exists p, build_program empty_module [] = Some p.
