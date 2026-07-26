@@ -10407,13 +10407,12 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
    occurrence resolves ExpressionSuccess; no fail-open).  Reduced through the phase→spec equality to the SOURCE [program_typedb]
    (so it needs no snapshot [vm_compute]).  The retained [ExpressionFactTable] the phase seals is [phase_fact_table] by object
    identity ([core_seals_facts]). *)
-Theorem deep_nested_phase_no_diags :
-  phase_diags (build_expression_phase
-              (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))) = [].
+Theorem deep_nested_phase_no_diags (input : Input deep_nested_program) (ph : Phase input) :
+  phase_diags (ph) = [].
 Proof.
   rewrite phase_diags_eq_expr_diags.
   apply (proj2 (expression_diags_empty_iff
-                  (index (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))).
+                  (index (input)))).
   vm_compute. reflexivity.
 Qed.
 
@@ -10421,13 +10420,12 @@ Qed.
    is NOT suppressed — the §2.3 fail-open would have dropped it).  The innermost [int8(300)] is the sole ConversionFailure
    and the three enclosing conversions are ChildFailure; the SPEC fixture [deep_fail_one_diag] pins the exact
    count = 1, and the phase projection equals that spec by [core_raw_semantic]. *)
-Theorem deep_fail_phase_reports :
-  phase_diags (build_expression_phase
-              (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))) <> [].
+Theorem deep_fail_phase_reports (input : Input deep_fail_program) (ph : Phase input) :
+  phase_diags (ph) <> [].
 Proof.
   rewrite phase_diags_eq_expr_diags. intro Hnil.
   pose proof (proj1 (expression_diags_empty_iff
-                  (index (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) Hnil) as Htyped.
+                  (index (input))) Hnil) as Htyped.
   vm_compute in Htyped. discriminate Htyped.
 Qed.
 
@@ -10615,21 +10613,19 @@ Definition deep_fail_src : Syntax.File := main_source
 
 (* §12.2 helper — a deep_fail conversion whose OWN step does not locally fail but whose fact is absent (a blocked
    child) is ChildFailure on the production Index.table, queried through a RETAINED [WorkMember] of [phase_work]. *)
-Lemma deep_fail_childfail_at (local : positive) ts x occ :
+Lemma deep_fail_childfail_at (input : Input deep_fail_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_fail_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   occurrence_expr_fact occ = None ->
   local_conv_failure (Syntax.Convert ts x) = None ->
-  exists (wm : WorkMember (phase_work (build_expression_phase
-                  (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))),
+  exists (wm : WorkMember (phase_work (ph))),
     work_expr (proj1_sig wm) = Syntax.Convert ts x
     /\ total_forest_outcome_at
-         (phase_ot (build_expression_phase
-                   (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) wm
+         (phase_ot (ph)) wm
        = ChildFailure.
 Proof.
   intros Hsrc Hview Hnf Hlcf.
-  destruct (program_member_at deep_fail_program (FilePath.Make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
+  destruct (member_at_in_forest deep_fail_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_fail_src local occ (Syntax.Convert ts x)
               ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
   exists wm. split; [exact He | ].
   apply (total_forest_outcome_childfail_shape _ wm ts x);
@@ -10638,20 +10634,18 @@ Qed.
 
 (* §12.1 helper — a deep_nested occurrence whose fact SUCCEEDS is ExpressionSuccess on the production Index.table, queried through a
    RETAINED [WorkMember] of [phase_work]. *)
-Lemma deep_nested_ok_at (local : positive) e occ :
+Lemma deep_nested_ok_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) e occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some e ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  exists (wm : WorkMember (phase_work (build_expression_phase
-                  (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))) f,
+  exists (wm : WorkMember (phase_work (ph))) f,
     work_expr (proj1_sig wm) = e
     /\ total_forest_outcome_at
-         (phase_ot (build_expression_phase
-                   (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) wm
+         (phase_ot (ph)) wm
        = ExpressionSuccess f.
 Proof.
   intros Hsrc Hview [f Hf].
-  destruct (program_member_at deep_nested_program (FilePath.Make "main.go" eq_refl) deep_nested_src local occ e
+  destruct (member_at_in_forest deep_nested_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_nested_src local occ e
               ltac:(vm_compute; reflexivity) Hsrc Hview) as [wm [Hocc [He _]]].
   exists wm, f. split; [exact He | ].
   apply (total_forest_outcome_ok_of_fact _ wm f). rewrite Hocc. exact Hf.
@@ -10664,14 +10658,13 @@ Qed.
    exact [ConversionStep], the operand outcome read THROUGH the exact operand [SuffixMember] via [accumulator_total acc_rest]
    ([= ExpressionSuccess opf]), ONE rejecting [Typing.convert_constant], and an [ConversionFailure] naming the exact operand ref.  No post-hoc
    [Conversion] built after the Index.table result — the cause is the one the fold retained. *)
-Theorem deep_fail_innermost_convfail :
-  let input := build_compilation_input deep_fail_program (Index.index_program deep_fail_program) in
-  let ot := phase_ot (build_expression_phase input) in
-  exists (wm : WorkMember (phase_work (build_expression_phase input)))
+Theorem deep_fail_innermost_convfail (input : Input deep_fail_program) (ph : Phase input) :
+  let ot := phase_ot (ph) in
+  exists (wm : WorkMember (phase_work (ph)))
          (rest : list (Work input))
-         (acc_rest : Accumulator (phase_work (build_expression_phase input))
-                       (phase_type_name_facts (build_expression_phase input)) rest)
-         (step : ConversionStep (phase_work (build_expression_phase input)) (proj1_sig wm) rest
+         (acc_rest : Accumulator (phase_work (ph))
+                       (phase_type_name_facts (ph)) rest)
+         (step : ConversionStep (phase_work (ph)) (proj1_sig wm) rest
                    (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) opf t,
        work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
     /\ total_forest_outcome_at ot wm
@@ -10686,16 +10679,16 @@ Theorem deep_fail_innermost_convfail :
          = accumulator_total acc_rest (step_operand_suffix step)
     /\ Typing.convert_constant t (const_status opf) = None
     (* the resolved target type of the failing conversion IS the exact predeclared-context Index.table query *)
-    /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase input))
+    /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
                        (conversion_target_node_ref (step_conversion step))).
 Proof.
   cbn zeta.
   destruct (Index.source_occurrence_at deep_fail_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-  destruct (program_member_at deep_fail_program (FilePath.Make "main.go" eq_refl) deep_fail_src 11 occ
+  destruct (member_at_in_forest deep_fail_program input (phase_work ph) (FilePath.Make "main.go" eq_refl) deep_fail_src 11 occ
               (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) ltac:(vm_compute; reflexivity) Eo
               ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)) as [wm [Hocc [He _]]].
   destruct (total_forest_outcome_convfail_shape
-              (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+              (phase_ot (ph))
               wm (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
     as [er2 [tr2 [opr2 [t [ci Hout]]]]].
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
@@ -10704,12 +10697,11 @@ Proof.
   (* project the RETAINED cause off the trace: exact tail split, exact tail accumulator, StepCause producing the
      FINAL outcome, AND the tail-to-final preservation [Hpreserve] *)
   destruct (total_forest_outcome_cause
-              (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+              (phase_ot (ph))
               wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
   (* [total_forest_outcome_at ot wm] is definitionally [accumulator_total (outcomes_acc ot) (wm_suffix wm)] (the StepCause's
      index), so [Hout] rewrites the cause's outcome index directly *)
-  assert (Hidx : accumulator_total (outcomes_acc (phase_ot (build_expression_phase
-                     (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))))
+  assert (Hidx : accumulator_total (outcomes_acc (phase_ot (ph)))
                    (wm_suffix wm) = ConversionFailure er2 tr2 opr2 t ci) by exact Hout.
   rewrite Hidx in stepc.
   destruct (conversion_failure_cause_yields_step _ rest acc_rest er2 tr2 opr2 t ci stepc)
@@ -10719,7 +10711,7 @@ Proof.
   injection Heq as Hts0 Hx0. subst ts0 x0.
   (* the final-to-tail closure at the operand member: its FINAL-Index.table query = its retained tail query *)
   pose proof (final_operand_outcome
-                (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+                (phase_ot (ph))
                 rest acc_rest Hpreserve (step_operand_suffix step)) as Hclose.
   exists wm, rest, acc_rest, step, opf, t.
   split; [ exact He | split; [ | split; [ exact Hopf | split; [ | split; [ | split ] ] ] ] ].
@@ -10732,17 +10724,16 @@ Qed.
 
 (* §12.2 — the three ENCLOSING conversions (int16/int32/int64) are each ChildFailure (blocked by the inner fail;
    no outer reason).  Direct production-Index.table queries at the exact work items. *)
-Theorem deep_fail_outer_childfail :
-  let input := build_compilation_input deep_fail_program (Index.index_program deep_fail_program) in
-  let ot := phase_ot (build_expression_phase input) in
-  (exists (wm : WorkMember (phase_work (build_expression_phase input))),
+Theorem deep_fail_outer_childfail (input : Input deep_fail_program) (ph : Phase input) :
+  let ot := phase_ot (ph) in
+  (exists (wm : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
      /\ total_forest_outcome_at ot wm = ChildFailure)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))),
+  /\ (exists (wm : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
      /\ total_forest_outcome_at ot wm = ChildFailure)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))),
+  /\ (exists (wm : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
@@ -10751,18 +10742,18 @@ Proof.
   cbn zeta.
   split; [ | split ].
   - destruct (Index.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_fail_childfail_at 9 (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) occ Eo);
+    apply (deep_fail_childfail_at input ph 9 (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_fail_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_fail_childfail_at 7 (Syntax.type_expr_of_name Names.Int32)
+    apply (deep_fail_childfail_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_fail_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_fail_childfail_at 5 (Syntax.type_expr_of_name Names.Int64)
+    apply (deep_fail_childfail_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
@@ -10771,14 +10762,13 @@ Proof.
 Qed.
 
 (* §12.2 — the STORED diagnostic list of the deep_fail phase is EXACTLY ONE reason (not merely nonempty). *)
-Theorem deep_fail_exactly_one_diag :
-  length (phase_diags (build_expression_phase
-              (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) = 1%nat.
+Theorem deep_fail_exactly_one_diag (input : Input deep_fail_program) (ph : Phase input) :
+  length (phase_diags (ph)) = 1%nat.
 Proof.
   (* the snapshot visit carries opaque validity proofs and does not [vm_compute]; bridge the retained-phase
      diagnostic count to the SOURCE-computable erased report (§11.7 spec bridge), which reduces. *)
   rewrite phase_diags_eq_expr_diags.
-  set (idx0 := index (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))).
+  set (idx0 := index (input)).
   assert (Hpkg : package_diags idx0 = []) by (apply (proj2 (package_diags_empty_iff idx0)); vm_compute; reflexivity).
   assert (Hexpr : expression_diags idx0 ++ package_diags idx0 = expression_diags idx0) by (rewrite Hpkg; apply app_nil_r).
   pose proof (f_equal (@length _) (erased_src_diags_eq idx0)) as H.
@@ -10791,9 +10781,8 @@ Qed.
    retained annotation context [outer].  The reason is read from the STORED outcome via [forest_awork_diags]
    (repair-10 [retained_convfail_diag]), NOT re-derived by [local_conv_failure]; length one (there is no second
    local reason).  The tail operand [ExpressionSuccess opf] closes into the final Index.table and [Typing.convert_constant] rejects. *)
-Theorem deep_fail_innermost_diag :
-  let input := build_compilation_input deep_fail_program (Index.index_program deep_fail_program) in
-  let phase := build_expression_phase input in
+Theorem deep_fail_innermost_diag (input : Input deep_fail_program) (ph : Phase input) :
+  let phase := ph in
   let ot := phase_ot phase in
   exists (wm : WorkMember (phase_work phase))
          (rest : list (Work input))
@@ -10817,73 +10806,72 @@ Theorem deep_fail_innermost_diag :
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) outer t (const_status opf) ].
 Proof.
   cbn zeta.
-  pose proof deep_fail_innermost_convfail as H. cbn zeta in H.
+  pose proof deep_fail_innermost_convfail input ph as H. cbn zeta in H.
   destruct H as [wm [rest [acc_rest [step [opf [t [He [Hout [Hopf [Hfinal [Heqq [Hcv Ht]]]]]]]]]]]].
   destruct (retained_convfail_diag
-              (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
-              (phase_awork (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+              (phase_ot (ph))
+              (phase_awork (ph))
               wm (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
               (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf) Hout)
     as [wma [outer [Hinm [Hwma Hin]]]].
   exists wm, rest, acc_rest, step, opf, t, wma, outer.
   split; [ exact Hout | split; [ exact Ht | split; [ exact Hopf | split; [ exact Hfinal
     | split; [ exact Hcv | split; [ exact Hinm | split; [ exact Hwma | ] ] ] ] ] ] ].
-  assert (Hdiageq : phase_diags (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))
-            = flat_map (forest_awork_diags (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))))
-                (annotated_items (phase_awork (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))))).
+  assert (Hdiageq : phase_diags (ph)
+            = flat_map (forest_awork_diags (phase_ot (ph)))
+                (annotated_items (phase_awork (ph)))).
   { unfold phase_diags.
-    exact (erased_is_diagnostics (phase_diag (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))). }
+    exact (erased_is_diagnostics (phase_diag (ph))). }
   apply length_one_in_eq.
-  - exact deep_fail_exactly_one_diag.
+  - exact (deep_fail_exactly_one_diag input ph).
   - rewrite Hdiageq. exact Hin.
 Qed.
 
 (* §12.1 — deep_nested: EVERY conversion of the chain (int64@5, int32@7, int16@9, int8@11) AND the leaf int@13
    resolve ExpressionSuccess on the production Index.table — all five retained work items, no fail-open anywhere in the valid tree. *)
-Theorem deep_nested_all_ok :
-  let input := build_compilation_input deep_nested_program (Index.index_program deep_nested_program) in
-  let ot := phase_ot (build_expression_phase input) in
-  (exists (wm : WorkMember (phase_work (build_expression_phase input))) f,
+Theorem deep_nested_all_ok (input : Input deep_nested_program) (ph : Phase input) :
+  let ot := phase_ot (ph) in
+  (exists (wm : WorkMember (phase_work (ph))) f,
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))))
      /\ total_forest_outcome_at ot wm = ExpressionSuccess f)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))) f,
+  /\ (exists (wm : WorkMember (phase_work (ph))) f,
         work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                       (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
         /\ total_forest_outcome_at ot wm = ExpressionSuccess f)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))) f,
+  /\ (exists (wm : WorkMember (phase_work (ph))) f,
         work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
         /\ total_forest_outcome_at ot wm = ExpressionSuccess f)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))) f,
+  /\ (exists (wm : WorkMember (phase_work (ph))) f,
         work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
         /\ total_forest_outcome_at ot wm = ExpressionSuccess f)
-  /\ (exists (wm : WorkMember (phase_work (build_expression_phase input))) f,
+  /\ (exists (wm : WorkMember (phase_work (ph))) f,
         work_expr (proj1_sig wm) = Syntax.IntegerLiteral 5 /\ total_forest_outcome_at ot wm = ExpressionSuccess f).
 Proof.
   cbn zeta.
   split; [ | split; [ | split; [ | split ] ] ].
   - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 5 (Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
+    apply (deep_nested_ok_at input ph 5 (Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 7 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
+    apply (deep_nested_ok_at input ph 7 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 9 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
+    apply (deep_nested_ok_at input ph 9 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 11 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
+    apply (deep_nested_ok_at input ph 11 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 13) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_ok_at 13 (Syntax.IntegerLiteral 5) occ Eo);
+    apply (deep_nested_ok_at input ph 13 (Syntax.IntegerLiteral 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
 Qed.
@@ -10892,39 +10880,31 @@ Qed.
    trace ([retained_conversion_closure]), invert the child-failure [StepCause], and read the operand's closure —
    the operand's outcome in the RETAINED tail accumulator is a FAILURE, and that SAME failure is what the FINAL
    Index.table shows at the operand [WorkMember] (query preservation).  No local reason at the outer conversion. *)
-Lemma deep_fail_childfail_closure_at (local : positive) ts x occ :
+Lemma deep_fail_childfail_closure_at (input : Input deep_fail_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_fail_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   occurrence_expr_fact occ = None ->
   local_conv_failure (Syntax.Convert ts x) = None ->
-  exists (wm : WorkMember (phase_work (build_expression_phase
-                  (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))))
-         (rest : list (Work (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
-         (acc_rest : Accumulator (phase_work (build_expression_phase
-                       (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
-                       (phase_type_name_facts (build_expression_phase
-                         (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) rest)
-         (step : ConversionStep (phase_work (build_expression_phase
-                   (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+  exists (wm : WorkMember (phase_work (ph)))
+         (rest : list (Work (input)))
+         (acc_rest : Accumulator (phase_work (ph))
+                       (phase_type_name_facts (ph)) rest)
+         (step : ConversionStep (phase_work (ph))
                    (proj1_sig wm) rest ts x),
        work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) wm = ChildFailure
+    /\ total_forest_outcome_at (phase_ot (ph)) wm = ChildFailure
     /\ outcome_is_fail (accumulator_total acc_rest (step_operand_suffix step))
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+    /\ total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ outcome_is_fail (total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+    /\ outcome_is_fail (total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)))
     (* §2.3/§4 NO LOCAL REASON: the current (outer) member emits no diagnostic — [ChildFailure] projects [] *)
-    /\ (forall c, forest_awork_diags (phase_ot (build_expression_phase
-         (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) (wm, c) = []).
+    /\ (forall c, forest_awork_diags (phase_ot (ph)) (wm, c) = []).
 Proof.
   intros Hsrc Hview Hnf Hlcf.
-  destruct (deep_fail_childfail_at local ts x occ Hsrc Hview Hnf Hlcf) as [wm [He Hcf]].
+  destruct (deep_fail_childfail_at input ph local ts x occ Hsrc Hview Hnf Hlcf) as [wm [He Hcf]].
   destruct (retained_conversion_closure
-              (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
+              (phase_ot (ph))
               wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hcf in stepc.
   destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts' [x' [step [He' Hfail]]]].
@@ -10942,34 +10922,28 @@ Qed.
    Index.table shows at the operand [WorkMember].  Its STATEMENT returns ONLY that operand tail/final [ExpressionSuccess opf] + the
    query equality; the exact current final [ExpressionFact], the target fact, and the ONE [Typing.convert_constant] success (which the
    proof also obtains) are NOT in this statement — that full evidence is [deep_nested_convsuccess_at] below. *)
-Lemma deep_nested_ok_closure_at (local : positive) ts x occ :
+Lemma deep_nested_ok_closure_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  exists (wm : WorkMember (phase_work (build_expression_phase
-                  (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))))
-         (rest : list (Work (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-         (acc_rest : Accumulator (phase_work (build_expression_phase
-                       (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-                       (phase_type_name_facts (build_expression_phase
-                         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) rest)
+  exists (wm : WorkMember (phase_work (ph)))
+         (rest : list (Work (input)))
+         (acc_rest : Accumulator (phase_work (ph))
+                       (phase_type_name_facts (ph)) rest)
          ts0 x0
-         (step : ConversionStep (phase_work (build_expression_phase
-                   (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+         (step : ConversionStep (phase_work (ph))
                    (proj1_sig wm) rest ts0 x0) opf,
        work_expr (proj1_sig wm) = Syntax.Convert ts x
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step).
 Proof.
   intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
+  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
   destruct (retained_conversion_closure
-              (phase_ot (build_expression_phase (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+              (phase_ot (ph))
               wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hok in stepc.
   destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
@@ -10989,51 +10963,41 @@ Qed.
    evidence for one member — current [Syntax.Convert] view, current final [ExpressionSuccess f], exact [ConversionStep], operand
    [SuffixMember], tail [ExpressionSuccess opf], final [ExpressionSuccess opf], tail=final query equality, ONE [Typing.convert_constant] success on the
    exact target fact, and [f] the EXACT current final [ExpressionFact]. *)
-Definition nested_success_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
-  exists (wm : WorkMember (phase_work (build_expression_phase
-                  (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))))
-         (rest : list (Work (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-         (acc_rest : Accumulator (phase_work (build_expression_phase
-                       (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-                       (phase_type_name_facts (build_expression_phase
-                         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) rest)
+Definition nested_success_bundle (input : Input deep_nested_program) (ph : Phase input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  exists (wm : WorkMember (phase_work (ph)))
+         (rest : list (Work (input)))
+         (acc_rest : Accumulator (phase_work (ph))
+                       (phase_type_name_facts (ph)) rest)
          (* the step is the ConversionStep for the EXACT SOURCE [ts]/[x] of this bundle (no existential ts0/x0) *)
-         (step : ConversionStep (phase_work (build_expression_phase
-                   (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+         (step : ConversionStep (phase_work (ph))
                    (proj1_sig wm) rest ts x) opf f tc,
        work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) wm = ExpressionSuccess f
+    /\ total_forest_outcome_at (phase_ot (ph)) wm = ExpressionSuccess f
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ total_forest_outcome_at (phase_ot (ph))
          (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
          (conversion_target_node_ref (step_conversion step)))) (const_status opf) = Some tc
-    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
-         (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
          (conversion_target_node_ref (step_conversion step)))) tc)
              (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
-                (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
-                   (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+                (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
                    (conversion_target_node_ref (step_conversion step)))) tc)).
 
 (* §3.2 the EXACT concrete helper: any valid deep_nested conversion occurrence instantiates the FULL bundle
    (via [retained_convsuccess_closure] on the phase's OWN [phase_ot]).  No reduced projection. *)
-Lemma deep_nested_convsuccess_at (local : positive) ts x occ :
+Lemma deep_nested_convsuccess_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  nested_success_bundle ts x.
+  nested_success_bundle input ph ts x.
 Proof.
   intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
+  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
   destruct (retained_convsuccess_closure
-              (phase_ot (build_expression_phase (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+              (phase_ot (ph))
               wm ts x f He Hok)
     as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
   unfold nested_success_bundle.
@@ -11044,31 +11008,31 @@ Qed.
 (* §3.3 the EXACT concrete aggregate: ALL FOUR valid-chain conversions (int8/int16/int32/int64) instantiate the
    FULL success bundle — each keeps its exact ConversionStep, target fact, operand member, tail/final equality,
    Typing.convert_constant result, and current final ExpressionFact.  [deep_nested_all_ok] remains a short shape corollary. *)
-Theorem deep_nested_chain_success_evidence :
-  nested_success_bundle (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-  /\ nested_success_bundle (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-  /\ nested_success_bundle (Syntax.type_expr_of_name Names.Int32)
+Theorem deep_nested_chain_success_evidence (input : Input deep_nested_program) (ph : Phase input) :
+  nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int32)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-  /\ nested_success_bundle (Syntax.type_expr_of_name Names.Int64)
+  /\ nested_success_bundle input ph (Syntax.type_expr_of_name Names.Int64)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))).
 Proof.
   split; [ | split; [ | split ] ].
   - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_convsuccess_at 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo);
+    apply (deep_nested_convsuccess_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_convsuccess_at 9 (Syntax.type_expr_of_name Names.Int16)
+    apply (deep_nested_convsuccess_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_convsuccess_at 7 (Syntax.type_expr_of_name Names.Int32)
+    apply (deep_nested_convsuccess_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_convsuccess_at 5 (Syntax.type_expr_of_name Names.Int64)
+    apply (deep_nested_convsuccess_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
@@ -11082,9 +11046,9 @@ Qed.
    conflate them.  Together these exercise the production index end-to-end with no keyed list scan anywhere. *)
 
 (* (a) the per-conversion index bundle over [deep_nested_program]. *)
-Definition nested_index_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
-  let input := build_compilation_input deep_nested_program (Index.index_program deep_nested_program) in
-  let phase := build_expression_phase input in
+Definition nested_index_bundle (input : Input deep_nested_program) (ph : Phase input) (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :=
+  let input := input in
+  let phase := ph in
   exists (wm : WorkMember (phase_work phase)) (rest : list (Work input))
          (acc_rest : Accumulator (phase_work phase) (phase_type_name_facts phase) rest)
          (step : ConversionStep (phase_work phase) (proj1_sig wm) rest ts x)
@@ -11104,16 +11068,16 @@ Definition nested_index_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :
     /\ total_forest_outcome_at (phase_ot phase) (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
     /\ total_forest_outcome_at (phase_ot phase) wm = ExpressionSuccess f.
 
-Lemma deep_nested_index_at (local : positive) ts x occ :
+Lemma deep_nested_index_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some (Syntax.Convert ts x) ->
   (exists f, occurrence_expr_fact occ = Some f) ->
-  nested_index_bundle ts x.
+  nested_index_bundle input ph ts x.
 Proof.
   intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
+  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
   destruct (retained_convsuccess_closure
-              (phase_ot (build_expression_phase (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
+              (phase_ot (ph))
               wm ts x f He Hok)
     as [rest [acc_rest [step [opf [tc [Hopf [Hfinal [Heqq [Hconv Hf]]]]]]]]].
   unfold nested_index_bundle.
@@ -11123,8 +11087,7 @@ Proof.
   split; [exact (conversion_operand_ref_eq (step_conversion step)) |].
   split.
   { rewrite (work_erase_exact (proj1_sig (conversion_operand_work (step_conversion step)))).
-    exact (proj2 (index_exact (forest_index (phase_work (build_expression_phase
-                    (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))))
+    exact (proj2 (index_exact (forest_index (phase_work (ph)))
                     _ (proj1_sig (conversion_operand_work (step_conversion step))))
                  (conj (proj2_sig (conversion_operand_work (step_conversion step))) eq_refl)). }
   split; [exact (step_operand_exact step) |].
@@ -11134,31 +11097,31 @@ Proof.
 Qed.
 
 (* all four valid-chain conversions recover their operand member THROUGH the standard-map index. *)
-Theorem deep_nested_chain_index_evidence :
-  nested_index_bundle (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
-  /\ nested_index_bundle (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
-  /\ nested_index_bundle (Syntax.type_expr_of_name Names.Int32)
+Theorem deep_nested_chain_index_evidence (input : Input deep_nested_program) (ph : Phase input) :
+  nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
+  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
+  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int32)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
-  /\ nested_index_bundle (Syntax.type_expr_of_name Names.Int64)
+  /\ nested_index_bundle input ph (Syntax.type_expr_of_name Names.Int64)
        (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))).
 Proof.
   split; [ | split; [ | split ] ].
   - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo);
+    apply (deep_nested_index_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at 9 (Syntax.type_expr_of_name Names.Int16)
+    apply (deep_nested_index_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at 7 (Syntax.type_expr_of_name Names.Int32)
+    apply (deep_nested_index_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
   - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    apply (deep_nested_index_at 5 (Syntax.type_expr_of_name Names.Int64)
+    apply (deep_nested_index_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
              (Syntax.Convert (Syntax.type_expr_of_name Names.Int32) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo);
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
@@ -11241,19 +11204,18 @@ Proof. exact (twin_distinct_in_forest _ _). Qed.
 
 (* §9.2 CONCRETE: each of the three ENCLOSING conversions (int16/int32/int64) is [ChildFailure], and its operand's
    outcome IN THE FINAL TABLE is a FAILURE (closure into the retained Index.table, not just a shape). *)
-Theorem deep_fail_outer_operands_final_fail :
-  let input := build_compilation_input deep_fail_program (Index.index_program deep_fail_program) in
-  let ot := phase_ot (build_expression_phase input) in
-  (exists (wm opw : WorkMember (phase_work (build_expression_phase input))),
+Theorem deep_fail_outer_operands_final_fail (input : Input deep_fail_program) (ph : Phase input) :
+  let ot := phase_ot (ph) in
+  (exists (wm opw : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
      /\ total_forest_outcome_at ot wm = ChildFailure
      /\ outcome_is_fail (total_forest_outcome_at ot opw))
-  /\ (exists (wm opw : WorkMember (phase_work (build_expression_phase input))),
+  /\ (exists (wm opw : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))
      /\ total_forest_outcome_at ot wm = ChildFailure
      /\ outcome_is_fail (total_forest_outcome_at ot opw))
-  /\ (exists (wm opw : WorkMember (phase_work (build_expression_phase input))),
+  /\ (exists (wm opw : WorkMember (phase_work (ph))),
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))))
@@ -11262,7 +11224,7 @@ Theorem deep_fail_outer_operands_final_fail :
 Proof.
   cbn zeta. split; [ | split ].
   - destruct (Index.source_occurrence_at deep_fail_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at 9 (Syntax.type_expr_of_name Names.Int16)
+    destruct (deep_fail_childfail_closure_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
@@ -11270,7 +11232,7 @@ Proof.
       as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
     exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
   - destruct (Index.source_occurrence_at deep_fail_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at 7 (Syntax.type_expr_of_name Names.Int32)
+    destruct (deep_fail_childfail_closure_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
@@ -11278,7 +11240,7 @@ Proof.
       as [wm [rest [acc_rest [step [He [Hcf [_ [_ [Hopfail _]]]]]]]]].
     exists wm, (proj1_sig (step_operand_suffix step)). split; [ exact He | split; [ exact Hcf | exact Hopfail ] ].
   - destruct (Index.source_occurrence_at deep_fail_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_fail_childfail_closure_at 5 (Syntax.type_expr_of_name Names.Int64)
+    destruct (deep_fail_childfail_closure_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)))) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
@@ -11291,28 +11253,27 @@ Qed.
 (* §9.3 CONCRETE: each of the four valid-chain conversions (int64/int32/int16/int8) succeeds, and its operand's
    outcome IN THE FINAL TABLE is the SAME [ExpressionSuccess opf] the [Typing.convert_constant] consumed (closure into the retained
    Index.table).  The leaf success + empty diagnostics stay [deep_nested_all_ok]/[deep_fail_exactly_one_diag]. *)
-Theorem deep_nested_chain_operands_final_ok :
-  let input := build_compilation_input deep_nested_program (Index.index_program deep_nested_program) in
-  let ot := phase_ot (build_expression_phase input) in
-  (exists (wm opw : WorkMember (phase_work (build_expression_phase input))) opf,
+Theorem deep_nested_chain_operands_final_ok (input : Input deep_nested_program) (ph : Phase input) :
+  let ot := phase_ot (ph) in
+  (exists (wm opw : WorkMember (phase_work (ph))) opf,
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int64)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                      (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))))
      /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (build_expression_phase input))) opf,
+  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                    (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))
      /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (build_expression_phase input))) opf,
+  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))
      /\ total_forest_outcome_at ot opw = ExpressionSuccess opf)
-  /\ (exists (wm opw : WorkMember (phase_work (build_expression_phase input))) opf,
+  /\ (exists (wm opw : WorkMember (phase_work (ph))) opf,
      work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)
      /\ total_forest_outcome_at ot opw = ExpressionSuccess opf).
 Proof.
   cbn zeta. split; [ | split; [ | split ] ].
   - destruct (Index.source_occurrence_at deep_nested_src 5) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at 5 (Syntax.type_expr_of_name Names.Int64)
+    destruct (deep_nested_ok_closure_at input ph 5 (Syntax.type_expr_of_name Names.Int64)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int32)
                   (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
@@ -11320,21 +11281,21 @@ Proof.
       as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
     exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
   - destruct (Index.source_occurrence_at deep_nested_src 7) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at 7 (Syntax.type_expr_of_name Names.Int32)
+    destruct (deep_nested_ok_closure_at input ph 7 (Syntax.type_expr_of_name Names.Int32)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5))) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
       as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
     exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
   - destruct (Index.source_occurrence_at deep_nested_src 9) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at 9 (Syntax.type_expr_of_name Names.Int16)
+    destruct (deep_nested_ok_closure_at input ph 9 (Syntax.type_expr_of_name Names.Int16)
                 (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
       as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
     exists wm, (proj1_sig (step_operand_suffix step)), opf. split; [ exact He | exact Hopok ].
   - destruct (Index.source_occurrence_at deep_nested_src 11) as [occ|] eqn:Eo; [| vm_compute in Eo; discriminate Eo].
-    destruct (deep_nested_ok_closure_at 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo
+    destruct (deep_nested_ok_closure_at input ph 11 (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5) occ Eo
                 ltac:(vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity)
                 ltac:(vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity))
       as [wm [rest [acc_rest [ts0 [x0 [step [opf [He [_ [Hopok _]]]]]]]]]].
