@@ -213,8 +213,21 @@ live FCB resolves within the one exact Git ref used for the task, unless it is e
 evidence reference with a recorded availability status. A deleted manifest, renamed file, stale self-version, or
 dangling repository path is a blocking documentation defect.
 
+The relation is COMPLETE IN BOTH DIRECTIONS, and each direction is enforced:
+
+- every row of `FIDO_FCB_REFERENCES.tsv` resolves in this tree (or is explicitly typed off-tree with a stated
+  availability), and its owning document carries exactly one `<!-- FIDO-FCB-REF:<ID> -->` marker on a line that
+  also contains that row's exact path;
+- every repository-rooted operational path appearing anywhere in the live authority corpus is declared by
+  exactly one row.
+
+Validating only the declared rows is not compliance with this decision. A corpus that names a path with no row
+at all still sends a reader at nothing, and a gate that inspects only its own chosen rows reports green while it
+happens.
+
 **Rationale:** Git can be the sole source of truth only when the live corpus is self-consistent and every reader
-is sent to an object that exists.
+is sent to an object that exists. Completeness is what makes that a property of the corpus rather than of the
+list somebody remembered to write down.
 
 ### D-25 — Names are owned by their scope.
 

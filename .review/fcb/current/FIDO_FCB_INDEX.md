@@ -8,8 +8,8 @@
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
 > `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
-> **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task.
-> **Stable bootstrap:** `.review/fcb/current/INDEX.md`.  
+> **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
+> **Stable bootstrap:** `.review/fcb/current/INDEX.md`. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-INDEX-MD -->  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
 > C4 is not accepted and C5 is not authorized; `.review/NEXT_STEPS.md` is the live checkpoint authority.
 
@@ -35,7 +35,7 @@ or target/toolchain policy is changed by A002, A003, or A004.
 
 ## Canonical storage and consultation rule
 
-Git owns the live bytes. ChatGPT and Claude project libraries hold one bootstrap shim only. Root `CLAUDE.md`
+Git owns the live bytes. ChatGPT and Claude project libraries hold one bootstrap shim only. Root `CLAUDE.md` <!-- FIDO-FCB-REF:CLAUDE-MD -->
 gives Claude Code the same bootstrap.
 
 For a serious task: resolve one exact repository ref; read `.review/fcb/current/INDEX.md`; read this Index;
@@ -54,7 +54,7 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
 | `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
 | `FIDO_FCB_HUMAN_ACTS.tsv` | Canonical rows for the open human acts; the sole authority for that set (D-07). |
-| `FIDO_FCB_REFERENCES.tsv` | Typed operational references: every repository path this corpus directs work to, plus each explicitly off-tree reference and its availability (D-24). |
+| `FIDO_FCB_REFERENCES.tsv` | Typed operational references, complete in both directions: every repository path this corpus directs work to has one row and one bound owner marker, and every row resolves here or is explicitly typed off-tree with an availability (D-24). |
 | `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Generated view of the open human acts. Never edited by hand. |
 | `FIDO_FCB_ROADMAP.md` | The C4 boundary and the unchanged C5–C17 foundational order. |
 | `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | Checkpoint contract form, whole-result retention, Git publication duty, fixtures, gates, stop rules. |

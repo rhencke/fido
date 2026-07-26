@@ -6,7 +6,7 @@ This file alone owns the current checkpoint and candidate state.
 <!-- FIDO-HUMAN-ACT:C4-REVIEW -->
 
 - **Active work: C4 REPAIR 19 — the sole active C4 task.**
-  Authority: `.review/C4_IMPLEMENTATION_REPAIR_19.md` (installed verbatim).
+  Authority: `.review/C4_IMPLEMENTATION_REPAIR_19.md` (installed verbatim). <!-- FIDO-FCB-REF:REVIEW-C4-IMPLEMENTATION-REPAIR-19-MD -->
   Implementation base: the reviewed freeze. Do not reset, rebase, rewrite history, or discard accepted
   `A001`–`A006` work.
 - **Candidate status.** `50c3bcc5b8eb2e47074352f5c9f0124e71509396` is **BLOCKING** — the twentieth
@@ -34,7 +34,7 @@ This file alone owns the current checkpoint and candidate state.
      whose only named consumer was its own assumptions-gate line. Being gated is not a semantic purpose.
      Both are now deleted, and the weaker theorem is in the naming gate's deleted-surface table so it
      cannot return unnoticed.
-- **Obligation tracking.** `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` holds one row per repair-19 obligation.
+- **Obligation tracking.** `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` holds one row per repair-19 obligation. <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-19-OBLIGATION-MATRIX-TSV -->
   `make claims` refuses to let `.review/REVIEW_REQUEST.md` request review while any row is open — freezing
   early is a gate failure, not a judgement call.
 - **What repair 17 achieved and must NOT regress.** The A006 authority commit landed before implementation;
@@ -78,8 +78,8 @@ This file alone owns the current checkpoint and candidate state.
   source cleanup and proof-module partitioning remain FORBIDDEN.**
 - **Governing accepted amendments.** `A001` through `A006` remain **ACCEPTED**; Governance owns `D-01` through
   `D-26`.
-- **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
-  **Accepted review basis:** `.review/REVIEW_BASIS.md`.
+- **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-C4-SOURCE-TYPE-NAME-CONVERSION-PLAN-MD -->
+  **Accepted review basis:** `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
 - **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
 - **Blocked C4 implementation candidates (all twenty):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
   `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·

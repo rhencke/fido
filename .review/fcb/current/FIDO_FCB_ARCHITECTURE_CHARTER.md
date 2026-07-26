@@ -423,7 +423,7 @@ There is no numeric `TypeId` registry and no `GoTypeTag`.
 
 ### 6.1 Pinned target and `uintptr`
 
-The current target remains direct rather than threaded through every theorem. This invokes `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`, **ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25): Go 1.23 on `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at C16 or any earlier explicit request to add another target or `uintptr`; `uintptr` stays OUT until a separate reviewed scope change pays its price.
+The current target remains direct rather than threaded through every theorem. This invokes `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`, **ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25): Go 1.23 on `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at C16 or any earlier explicit request to add another target or `uintptr`; `uintptr` stays OUT until a separate reviewed scope change pays its price. <!-- FIDO-FCB-REF:REVIEW-DECISIONS-ADR-0001-PINNED-64-BIT-TARGET-MD -->
 
 `uintptr` is OUT in the Spec-Closure Ledger. ADR-0001 is already **ADOPTED FOR CURRENT BASIS**, so `uintptr` is not waiting on its acceptance: admitting it requires REOPENING ADR-0001 or adopting a replacement scope/target decision, and then paying the full `uintptr` representation, typing, lowering, target-adequacy, and proof price. Ordinary `uintptr` support and `unsafe.Pointer` support are separate decisions.
 
@@ -1771,7 +1771,7 @@ The contract requires:
 
 - every implementation-restriction latitude candidate is classified exactly once as `ACCEPTANCE-ALIGNMENT`, `OUT-COVERED`, or `NOT-LATITUDE`;
 - every `ACCEPTANCE-ALIGNMENT` row has a unique justification, a pinned-toolchain observation, a future Fido elaboration obligation, an exact diagnostic ID and text-or-shape, and an implementing checkpoint;
-- pinned observations run under the closed `PROBE_ENVIRONMENT.tsv` profile and retain raw stdout, stderr, exit status, exact command, effective `go env`, and distribution provenance;
+- pinned observations run under the closed `PROBE_ENVIRONMENT.tsv` profile and retain raw stdout, stderr, exit status, exact command, effective `go env`, and distribution provenance; <!-- FIDO-FCB-REF:PROBE-ENVIRONMENT -->
 - a finite probe set never claims to prove the global subset theorem;
 - the publication path rejects any `Emit.Image` the pinned toolchain rejects;
 - the formal subset theorem is discharged incrementally by the checkpoint that makes each restriction representable;

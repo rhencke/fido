@@ -96,7 +96,9 @@ On Rob’s acceptance:
 
 1. regenerate every affected FCB document from the accepted repository state;
 2. update the Index and stable `INDEX.md` if the file set changed;
-3. confirm every reference in the changed documents resolves at that ref (D-24);
+3. confirm every reference in the changed documents resolves at that ref, AND that any new operational path
+   the checkpoint introduces has a typed row in `FIDO_FCB_REFERENCES.tsv` with one owner marker bound to its
+   exact path (D-24, both directions);
 4. commit the coherent replacement under `.review/fcb/current/` in Git;
 5. retain superseded states through Git history, never as a second live set.
 
@@ -176,7 +178,7 @@ Every checkpoint contract carries a naming section, and it is frozen with the ch
 - resolve any collision with the smallest full semantic distinction, never a restored abbreviation;
 - list the old-name and prefix residue searches the checkpoint must run, and state their expected result.
 
-`make names` (`tools/naming-gate.py`) enforces this. The Rocq compiler already verifies code names for free —
+`make names` (`tools/naming-gate.py`) enforces this. The Rocq compiler already verifies code names for free — <!-- FIDO-FCB-REF:TOOLS-NAMING-GATE-PY -->
 a missed rename fails to build — so the gate exists for documentation and source comments, which have no
 verifier at all.
 

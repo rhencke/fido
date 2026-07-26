@@ -1,27 +1,50 @@
 #!/usr/bin/env python3
-"""Governance D-24 — every operational path the live FCB names must resolve at the SAME exact Git ref,
-unless it is explicitly TYPED as external evidence or ephemeral with a stated availability.
+"""Governance D-24 — a COMPLETE two-way relation between the live authority corpus and its typed references.
 
-One data authority: `.review/fcb/current/FIDO_FCB_REFERENCES.tsv` — id, kind, path, availability, owner.
+One data authority: `.review/fcb/current/FIDO_FCB_REFERENCES.tsv` —
+`id, kind, path, availability, owner, owner_anchor`.
 
-Why a manifest and not a scanner: the corpus is full of backticked strings that merely LOOK like paths
-(`.go`, `linux/amd64`, `gc.go`, `/=`). A scanner over them needs an ad-hoc exception list, and an exception
-list is where a genuinely dangling path hides. So the FCB declares its operational references explicitly and
-this gate checks THOSE. One root object owns the list; there is no second, untyped path authority.
+Validating the declared rows is not enough, and that gap was real: a corpus can name a path that has no row
+at all, and a gate that only checks its own chosen rows reports green while the FCB directs a reader at a
+file that does not exist. So both directions are proved.
+
+  MANIFEST -> CORPUS   every row's path resolves in this tree (or is explicitly typed off-tree with a stated
+                       availability), and its owner document carries EXACTLY ONE `<!-- FIDO-FCB-REF:<ID> -->`
+                       marker on a line that also contains that row's exact path.
+  CORPUS -> MANIFEST   every repository-rooted operational path form appearing anywhere in the live authority
+                       corpus is declared by exactly one row.
+
+The corpus scan is fail-closed and has no exception list: a string shaped like a repository-rooted
+operational path is either a typed reference or a blocking untyped one. It recognises paths by their ROOT
+(`.review/`, `tools/`, `gate/`, `e2e/`, `plugin/`) and the exact root operational files, which is why it does
+not trip over `.go`, `linux/amd64` or `gc.go` the way a backtick scanner would — the earlier version avoided
+an exception list by giving up on completeness instead.
 
 Everything fails closed. A missing file, a renamed target, a directory where a file was declared (or the
-reverse), a symlink, a path escaping the tree, an unknown kind or availability, a duplicate id, a malformed
-row, an owner that is not itself a readable file, a repository path dressed up as external evidence, a
-read/decode error — each is an error naming the exact row and reason.
+reverse), a symlink, a path escaping the tree, an unknown kind or availability, a duplicate id, a duplicate
+or missing marker, a marker whose line does not contain its path, two rows claiming one path, a malformed
+row, an owner that is not a readable file, a repository path dressed up as external evidence, an undeclared
+corpus path, a read/decode error — each is an error naming the exact row or document and the reason.
 """
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 TSV_REL = '.review/fcb/current/FIDO_FCB_REFERENCES.tsv'
-FIELDS = ('id', 'kind', 'path', 'availability', 'owner')
+FIELDS = ('id', 'kind', 'path', 'availability', 'owner', 'owner_anchor')
+
+# The live authority corpus: the documents whose text DIRECTS work. A path named here is operational.
+CORPUS_GLOBS = ('.review/fcb/current/*.md',)
+CORPUS_FILES = ('.review/NEXT_STEPS.md', '.review/OPEN_QUESTIONS.md', '.review/REVIEW_REQUEST.md',
+                'CLAUDE.md')
+# Repository-rooted operational path forms. Recognised by ROOT, not by backticks, so there is no exception
+# list to hide a dangling path in.
+PATH_ROOTS = ('.review/', 'tools/', 'gate/', 'e2e/', 'plugin/')
+ROOT_FILES = ('CLAUDE.md', 'ARCHITECTURE.md', 'PROGRESS.md', 'Makefile', 'Dockerfile', 'dune')
+MARKER = 'FIDO-FCB-REF'
 
 # Closed vocabularies, declared once.
 REPO_KINDS = ('repository-file', 'repository-directory')
@@ -83,6 +106,15 @@ def load_rows(root: Path):
     if [r['id'] for r in rows] != [r['id'] for r in ordered]:
         raise ReferenceError_(f'{TSV_REL}: rows are not in canonical id order; expected '
                               + ', '.join(r['id'] for r in ordered))
+    # exactly one row owns a path — otherwise the corpus->manifest relation is not a function
+    by_path = {}
+    for r in rows:
+        by_path.setdefault(r['path'], []).append(r)
+    for path, owners in by_path.items():
+        if len(owners) > 1:
+            raise ReferenceError_(
+                f'{TSV_REL}: path {path!r} is claimed by {len(owners)} rows '
+                f'({", ".join(o["id"] for o in owners)}) — exactly one row owns a path')
     return rows
 
 
@@ -111,25 +143,97 @@ def resolve(root: Path, row: dict):
         raise ReferenceError_(f'{TSV_REL}:{n}: {row["id"]}: {rel!r} is declared a directory but is not one')
 
 
-def check_owner(root: Path, row: dict):
+def owner_path(root: Path, row: dict) -> Path:
     """The owner names the document that DIRECTS work to this path; it must itself be readable here."""
     owner = row['owner']
-    candidates = [root / owner, root / '.review/fcb/current' / owner]
-    for c in candidates:
+    for c in (root / owner, root / '.review/fcb/current' / owner):
         if c.is_file() and not c.is_symlink():
-            return
+            return c
     raise ReferenceError_(
         f'{TSV_REL}:{row["line"]}: {row["id"]}: owner {owner!r} is not a readable file in this tree')
 
 
+def check_owner_marker(root: Path, row: dict):
+    """EXACTLY ONE `<!-- FIDO-FCB-REF:<ID> -->` in the owner, on a line carrying this row's exact path.
+
+    Naming an owner is not the same as that owner owning the reference. The marker makes ownership a fact in
+    the document rather than a claim in the manifest, and binding it to the path's own line stops a marker
+    drifting onto some unrelated sentence."""
+    if row['owner_anchor'] != f'{MARKER}:{row["id"]}':
+        raise ReferenceError_(
+            f'{TSV_REL}:{row["line"]}: {row["id"]}: owner_anchor must be '
+            f'{MARKER}:{row["id"]!r}, found {row["owner_anchor"]!r}')
+    doc = owner_path(root, row)
+    text = read_text(doc, f'{row["id"]} owner document')
+    marker = f'<!-- {row["owner_anchor"]} -->'
+    hits = [l for l in text.split('\n') if marker in l]
+    if len(hits) == 0:
+        raise ReferenceError_(f'{row["owner"]}: missing owner marker {marker!r} for {row["id"]}')
+    if len(hits) > 1:
+        raise ReferenceError_(
+            f'{row["owner"]}: owner marker {marker!r} for {row["id"]} occurs {len(hits)} times, expected once')
+    if row['path'] not in hits[0]:
+        raise ReferenceError_(
+            f'{row["owner"]}: the marker for {row["id"]} is not on a line carrying its declared path '
+            f'{row["path"]!r} — the marker must bind the exact path it claims to own')
+
+
+def corpus_documents(root: Path):
+    docs = []
+    for pattern in CORPUS_GLOBS:
+        docs.extend(sorted(root.glob(pattern)))
+    for rel in CORPUS_FILES:
+        p = root / rel
+        if p.is_file():
+            docs.append(p)
+    if not docs:
+        raise ReferenceError_('the live authority corpus is empty — refusing to report a complete relation '
+                              'over nothing')
+    return docs
+
+
+def operational_paths(text: str):
+    """Every repository-rooted operational path FORM in a document, normalized."""
+    roots = '|'.join(re.escape(r) for r in PATH_ROOTS)
+    files = '|'.join(re.escape(f) for f in ROOT_FILES)
+    pat = re.compile(rf'(?:{roots})[A-Za-z0-9._/-]*' rf'|(?<![\w./-])(?:{files})(?![\w./-])')
+    out = set()
+    for m in pat.finditer(text):
+        s = m.group(0).rstrip('/.,;:)`')          # normalize a trailing slash and sentence punctuation
+        if s:
+            out.add(s)
+    return out
+
+
+def check_corpus_declared(root: Path, rows, docs):
+    """CORPUS -> MANIFEST: every operational path the live authority names is declared by exactly one row."""
+    by_path = {r['path']: r for r in rows}
+    undeclared = []
+    for doc in docs:
+        rel = str(doc.relative_to(root))
+        text = read_text(doc, 'live authority document')
+        for s in sorted(operational_paths(text)):
+            if s not in by_path:
+                undeclared.append((rel, s))
+    if undeclared:
+        shown = '; '.join(f'{d} names {s!r}' for d, s in undeclared[:8])
+        raise ReferenceError_(
+            f'{len(undeclared)} UNDECLARED operational reference(s) in the live authority corpus — every '
+            f'repository-rooted path a current authority names must have a typed row in {TSV_REL}: {shown}'
+            + ('' if len(undeclared) <= 8 else f' … and {len(undeclared) - 8} more'))
+
+
 def run(root: Path) -> str:
     rows = load_rows(root)
+    docs = corpus_documents(root)          # resolved first: an empty corpus is its own reported failure
     for row in rows:
         resolve(root, row)
-        check_owner(root, row)
+        check_owner_marker(root, row)
+    check_corpus_declared(root, rows, docs)
     repo = sum(1 for r in rows if r['kind'] in REPO_KINDS)
     return (f'{len(rows)} declared reference(s): {repo} resolve in this tree, '
-            f'{len(rows) - repo} explicitly typed off-tree')
+            f'{len(rows) - repo} explicitly typed off-tree; every row has one bound owner marker; '
+            f'{len(docs)} live authority document(s) name no undeclared operational path')
 
 
 # ───────────────────────────────────────────────────────────── adversarial controls
@@ -168,7 +272,7 @@ def self_test(root: Path) -> int:
     def first_repo_row(work: Path):
         for i, l in enumerate(rows_of(work)[1:], start=1):
             c = l.split('\t')
-            if len(c) == 5 and c[1] == 'repository-file':
+            if len(c) == len(FIELDS) and c[1] == 'repository-file':
                 return i, c
         raise AssertionError('no repository-file row in the fixture')
 
@@ -212,7 +316,7 @@ def self_test(root: Path) -> int:
              expect='duplicate id')
     scenario('malformed field count',
              lambda w: trunc_row(w),
-             expect='expected 5 fields')
+             expect='expected 6 fields')
     scenario('rows out of canonical order',
              lambda w: swap_rows(w),
              expect='not in canonical id order')
@@ -221,6 +325,36 @@ def self_test(root: Path) -> int:
              expect='is not a readable file in this tree')
     scenario('invalid UTF-8 in the manifest',
              lambda w: tsv(w).write_bytes(tsv(w).read_bytes() + b'\xff'),
+             expect='is not valid UTF-8')
+    # ── the CORPUS -> MANIFEST direction. The first of these is the reviewer's exact mutation, which the
+    #    row-validating gate passed.
+    scenario('an unmanifested NONEXISTENT .review path in a live authority document',
+             lambda w: append_to_index(w, '**Operational review:** read `.review/NO_SUCH_OPERATIONAL_FILE.md`.'),
+             expect='UNDECLARED operational reference')
+    scenario('an unmanifested EXISTING tools path in a live authority document',
+             lambda w: append_to_index(w, 'Run `tools/rocq-profile.py` before review.'),
+             expect='UNDECLARED operational reference')
+    scenario('one operational path claimed by two rows',
+             lambda w: duplicate_path_row(w),
+             expect='is claimed by 2 rows')
+    scenario('the live authority corpus is empty',
+             lambda w: strip_corpus(w),
+             expect='corpus is empty')
+    # ── owner markers
+    scenario('a manifest row whose owner has no marker',
+             lambda w: strip_marker(w),
+             expect='missing owner marker')
+    scenario('a duplicate owner marker',
+             lambda w: duplicate_marker(w),
+             expect='occurs 2 times, expected once')
+    scenario('a marker whose line does not carry its declared path',
+             lambda w: unbind_marker(w),
+             expect='is not on a line carrying its declared path')
+    scenario('an owner_anchor that does not match its row id',
+             lambda w: set_field(w, first_repo_row(w)[0], 5, 'FIDO-FCB-REF:SOMETHING-ELSE'),
+             expect='owner_anchor must be')
+    scenario('an owner document that cannot be decoded',
+             lambda w: (w / '.review/fcb/current/FIDO_FCB_INDEX.md').write_bytes(b'# x\n\xff'),
              expect='is not valid UTF-8')
 
     total, must_fail = counts['total'], counts['must_fail']
@@ -238,16 +372,65 @@ def dir_row(work: Path):
     lines = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
     for i, l in enumerate(lines[1:], start=1):
         c = l.split('\t')
-        if len(c) == 5 and c[1] == 'repository-directory':
+        if len(c) == len(FIELDS) and c[1] == 'repository-directory':
             return i, c
     raise AssertionError('no repository-directory row in the fixture')
+
+
+def append_to_index(work: Path, line: str):
+    p = work / '.review/fcb/current/FIDO_FCB_INDEX.md'
+    p.write_text(p.read_text(encoding='utf-8') + '\n' + line + '\n', encoding='utf-8')
+
+
+def duplicate_path_row(work: Path):
+    """Two rows claiming one path: the relation stops being a function."""
+    p = work / TSV_REL; L = p.read_text(encoding='utf-8').split('\n')
+    c = L[1].split('\t'); c[0] = 'AAA-' + c[0]; c[5] = f'FIDO-FCB-REF:{c[0]}'
+    p.write_text('\n'.join([L[0], '\t'.join(c)] + L[1:]), encoding='utf-8')
+
+
+def strip_corpus(work: Path):
+    for f in list((work / '.review/fcb/current').glob('*.md')):
+        f.unlink()
+    for rel in CORPUS_FILES:
+        q = work / rel
+        if q.is_file():
+            q.unlink()
+
+
+def _first_row_with_marker(work: Path):
+    L = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
+    for l in L[1:]:
+        c = l.split('\t')
+        if len(c) == len(FIELDS):
+            for cand in (work / c[4], work / '.review/fcb/current' / c[4]):
+                if cand.is_file() and f'<!-- {c[5]} -->' in cand.read_text(encoding='utf-8'):
+                    return c, cand
+    raise AssertionError('no row with a placed marker in the fixture')
+
+
+def strip_marker(work: Path):
+    c, doc = _first_row_with_marker(work)
+    doc.write_text(doc.read_text(encoding='utf-8').replace(f' <!-- {c[5]} -->', '', 1), encoding='utf-8')
+
+
+def duplicate_marker(work: Path):
+    c, doc = _first_row_with_marker(work)
+    doc.write_text(doc.read_text(encoding='utf-8') + f'\n<!-- {c[5]} --> {c[2]}\n', encoding='utf-8')
+
+
+def unbind_marker(work: Path):
+    """Move the marker to a line that does not name its path — ownership must bind the exact path."""
+    c, doc = _first_row_with_marker(work)
+    t = doc.read_text(encoding='utf-8').replace(f' <!-- {c[5]} -->', '', 1)
+    doc.write_text(t + f'\nA sentence with no path at all. <!-- {c[5]} -->\n', encoding='utf-8')
 
 
 def rename_target(work: Path):
     lines = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
     for l in lines[1:]:
         c = l.split('\t')
-        if len(c) == 5 and c[1] == 'repository-file':
+        if len(c) == len(FIELDS) and c[1] == 'repository-file':
             p = work / c[2]
             p.rename(p.with_name(p.name + '.renamed')); return
     raise AssertionError('no repository-file row in the fixture')
@@ -258,7 +441,7 @@ def falsely_externalize(work: Path):
     p = work / TSV_REL; L = p.read_text(encoding='utf-8').split('\n')
     for i, l in enumerate(L[1:], start=1):
         c = l.split('\t')
-        if len(c) == 5 and c[1] == 'repository-file':
+        if len(c) == len(FIELDS) and c[1] == 'repository-file':
             c[1], c[3] = 'external-evidence', 'not-in-repository'
             L[i] = '\t'.join(c)
             p.write_text('\n'.join(L), encoding='utf-8'); return

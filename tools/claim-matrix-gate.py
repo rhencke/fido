@@ -360,22 +360,32 @@ def self_test(root: Path) -> int:
     return 0
 
 
-def open_row_cites_evidence(work: Path):
-    """Make an OPEN row name a real surface — it must be rejected for having evidence it cannot have."""
+def _reopen_first_row(work: Path, pending: bool):
+    """Flip the first row to `open`. With `pending=False` it keeps its real evidence cells, which an open row
+    may not have; with `pending=True` it becomes a well-formed open row. Both controls build their own open
+    row rather than needing one to exist, so they keep working once every obligation is closed."""
     p = work / TSV_REL; L = p.read_text(encoding='utf-8').split('\n')
-    for i, l in enumerate(L[1:], start=1):
-        c = l.split('\t')
-        if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'open':
-            c[FIELDS.index('gate')] = 'Makefile:prove'
-            L[i] = '\t'.join(c); p.write_text('\n'.join(L), encoding='utf-8'); return
-    raise AssertionError('no open row in the fixture')
+    c = L[1].split('\t')
+    assert len(c) == len(FIELDS), 'malformed first row in the fixture'
+    c[FIELDS.index('status')] = 'open'
+    if pending:
+        for k in ('public_surface', 'fixture_or_client_test', 'gate'):
+            c[FIELDS.index(k)] = PENDING + 'a deliberately reopened obligation'
+    L[1] = '\t'.join(c)
+    p.write_text('\n'.join(L), encoding='utf-8')
+
+
+def open_row_cites_evidence(work: Path):
+    """An OPEN row naming real evidence must be rejected: it cannot have evidence it has not produced."""
+    _reopen_first_row(work, pending=False)
 
 
 def request_review(work: Path):
-    """Ask for review while obligations remain open."""
+    """Ask for review while an obligation is open — the executable form of "do not freeze early"."""
+    _reopen_first_row(work, pending=True)
     p = work / REVIEW_REQUEST_REL
-    t = p.read_text(encoding='utf-8').replace('state: closed', 'state: requested', 1)
-    p.write_text(t, encoding='utf-8')
+    p.write_text(p.read_text(encoding='utf-8').replace('state: closed', 'state: requested', 1),
+                 encoding='utf-8')
 
 
 def inject_banned_builder(work: Path):

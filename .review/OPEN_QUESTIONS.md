@@ -9,7 +9,7 @@ of eyes but do not contradict a protected contract.
 
 **What does not.** A genuine conflict with a protected FCB contract goes through the bootstrap rule — stop at
 the boundary, report, the reviewer authors a named amendment, Rob accepts. An open human act (an ADR, a policy
-choice, a countersign) belongs in `.review/fcb/current/FIDO_FCB_HUMAN_REVIEW_INDEX.md`. A request for a review
+choice, a countersign) belongs in `.review/fcb/current/FIDO_FCB_HUMAN_REVIEW_INDEX.md`. A request for a review <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-HUMAN-REVIEW-INDEX-MD -->
 is `.review/REVIEW_REQUEST.md`. This file is none of those and overrides nothing: it is not authority, and
 nothing in it licenses work that an authority forbids.
 

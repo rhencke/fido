@@ -36,7 +36,8 @@ For every serious Fido design, implementation, or review task:
 4. Confirm every file the Index names exists at that same ref.
 5. Read `.review/NEXT_STEPS.md` from the same ref — it is the live checkpoint authority.
 6. Never mix FCB files or checkpoint status from different refs.
-7. Stop on any missing or dangling reference (D-24).
+7. Stop on any missing or dangling reference, and on any operational path the corpus names without a typed
+   row and owner marker — D-24 is a complete two-way relation, not row validation.
 
 There is no checksum manifest and no verification tool: Git content-addresses the bytes, and the ref plus the
 path is the identity. If the repository or ref is unavailable, or a named file does not resolve there, stop and
