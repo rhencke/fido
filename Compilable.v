@@ -8988,6 +8988,21 @@ Arguments core_plan {p} _.  Arguments core_plan_exact {p} _.
 Arguments core_raw_diagnostics {p} _.  Arguments core_raw_diagnostics_exact {p} _.
 Arguments core_diagnostics {p} _.  Arguments core_diagnostics_exact {p} _.
 
+(* [Program] is not indexed by its source — the outcome carries [source cp = p] instead — so an accepted
+   capability's core arrives transported along that identity.  ONE lemma retires the transport for every
+   index-independent query: what you ask of the transported core is what you ask of the core.  Holds by
+   [destruct H], because both endpoints are variables here. *)
+Lemma core_query_transport {A} (f : forall q, Core q -> A) {p q} (c : Core p) (H : p = q) :
+  f q (eq_rect p Core c q H) = f p c.
+Proof. destruct H. reflexivity. Qed.
+
+(* …and the same for a PROPERTY whose statement is itself indexed by the core.  Given the retention the
+   outcome carried — the transported capability core IS the built one — any property of the built core is a
+   property of the retained one.  [destruct] twice; both endpoints are variables. *)
+Lemma core_prop_retained (P : forall q, Core q -> Prop) {p q} (c : Core p) (H : p = q) (b : Core q) :
+  eq_rect p Core c q H = b -> P q b -> P p c.
+Proof. intros Hb Hp. destruct H. destruct Hb. exact Hp. Qed.
+
 (* the retained index and syntax index, projected — never reconstructed by [Index.index_program]. *)
 Definition core_indexed {p} (core : Core p) : Index.Program p := indexed (core_input core).
 Definition core_index {p} (core : Core p) : Index.Snapshot.Syntax p := index (core_input core).
@@ -9440,13 +9455,21 @@ Module Type CAPABILITY.
      is assemblable from any core — so exporting it would restore exactly the "constructs an equal core"
      path §7 deletes.  [compile] takes a PROGRAM and runs the one elaboration itself. *)
   Parameter compile : forall p : Syntax.Program, Outcome p.
+  (* the accepted side RETAINS the same core, transported along the source identity the outcome carries.
+     Retention rides WITH the shape: a caller that has the [Compiled] value has the core it was built from,
+     and cannot be handed one without the other.  (The rejected side below needs no transport — [Failure] is
+     indexed by the program; [Program] is not, because the outcome carries [source cp = p] instead.) *)
   Parameter compile_accepted_shape : forall p,
     core_diagnostics (build_elaboration_core p (Index.index_program p)) = nil ->
-    exists cp Hcp, compile p = Compiled p cp Hcp.
+    exists cp Hcp, compile p = Compiled p cp Hcp
+                /\ eq_rect (source cp) Core (core cp) p Hcp
+                   = build_elaboration_core p (Index.index_program p).
   Parameter compile_rejected_shape : forall p,
     core_diagnostics (build_elaboration_core p (Index.index_program p)) <> nil ->
     exists fail, compile p = Rejected p fail
               /\ failure_core fail = build_elaboration_core p (Index.index_program p).
+  (* the accepted side RETAINS the same core, transported along the source identity the outcome carries.
+     The rejected side needs no transport — [Failure] is indexed by the program, [Program] is not. *)
 End CAPABILITY.
 
 Module Capability : CAPABILITY.
@@ -9521,13 +9544,16 @@ Module Capability : CAPABILITY.
 
   Lemma compile_accepted_shape : forall p,
     core_diagnostics (build_elaboration_core p (Index.index_program p)) = nil ->
-    exists cp Hcp, compile p = Compiled p cp Hcp.
+    exists cp Hcp, compile p = Compiled p cp Hcp
+                /\ eq_rect (source cp) Core (core cp) p Hcp
+                   = build_elaboration_core p (Index.index_program p).
   Proof.
     intros p He.
     destruct (minted_accepted p (elaborate p)
                 (eq_trans (f_equal (@core_diagnostics p) (compile_elaboration_core p)) He)) as [s Hs].
-    exists (proj1_sig s), (proj2_sig s).
-    unfold compile, outcome_of_elaboration. rewrite Hs. reflexivity.
+    exists (proj1_sig s), (proj2_sig s). split.
+    - unfold compile, outcome_of_elaboration. rewrite Hs. reflexivity.
+    - rewrite (minted_retains p (elaborate p) s Hs). exact (compile_elaboration_core p).
   Qed.
 
   Lemma compile_rejected_shape : forall p,
@@ -9543,6 +9569,7 @@ Module Capability : CAPABILITY.
     - unfold compile, outcome_of_elaboration. rewrite Hm. reflexivity.
     - rewrite Hcore. exact (compile_elaboration_core p).
   Qed.
+
 End Capability.
 Include Capability.
 Arguments Compiled {p} _ _.
@@ -9644,7 +9671,9 @@ Qed.
 Theorem compile_complete : forall p,
   Admissible p -> exists cp Hcp, compile p = Compiled cp Hcp.
 Proof.
-  intros p Hvalid. exact (compile_accepted_shape p (core_diags_nil_of_valid p Hvalid)).
+  intros p Hvalid.
+  destruct (compile_accepted_shape p (core_diags_nil_of_valid p Hvalid)) as [cp [Hcp [Hc _]]].
+  exists cp, Hcp; exact Hc.
 Qed.
 
 (** fixture helper: acceptance through the theorems — the source decision ([source_spec_valid_b]) AND the fresh-build
@@ -9846,7 +9875,7 @@ Lemma compile_class_spec : forall p,
 Proof.
   intro p. unfold compile_class.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
-  - destruct (compile_accepted_shape p He) as [cp [Hcp Hc]]. rewrite Hc.
+  - destruct (compile_accepted_shape p He) as [cp [Hcp [Hc _]]]. rewrite Hc.
     assert (Hgc : Admissible p).
     { apply (proj1 (elaboration_diagnostics_nil_iff_admissible p
                (Index.indexed_syntax (Index.index_program p)))).
@@ -11363,6 +11392,139 @@ Proof.
   - unfold keyed_visit. rewrite filter_map_length. reflexivity.
   - rewrite keyed_visit_source. vm_compute. reflexivity.
 Qed.
+
+(** ═══ §10.1 THE ACCEPTED CAPABILITY, QUERIED ONLY THROUGH ITSELF ═══ [cp] is the capability the production
+    [compile] returned for a real four-deep conversion program.  Every claim is a PROJECTION of what that one
+    value retains: the input and phase are the core's own, the sealed tables are the phase's own objects, the
+    buckets/layout/plan are the core's own and are the program's canonical values, and acceptance IS the
+    retained final diagnostic list being empty.  The concrete work-forest count reaches the same retained
+    object through [Hcore] — the core identity the OUTCOME ITSELF carried — never by re-elaborating. *)
+Theorem deep_nested_capability_retains_elaboration :
+  exists cp Hcp,
+    compile deep_nested_program = Compiled cp Hcp
+    /\ source cp = deep_nested_program
+    (* one chain: the capability's input and phase ARE the retained core's *)
+    /\ program_input cp = core_input (core cp)
+    /\ program_phase cp = phase (core cp)
+    (* the sealed fact tables ARE the retained phase's own objects, not rebuilt maps *)
+    /\ expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp))
+    /\ type_name_facts (facts cp) = phase_type_name_facts (program_phase cp)
+    (* buckets, layout and plan: the core's own values, and the program's canonical ones *)
+    /\ facts_package_refs (facts cp) = core_package_refs (core cp)
+    /\ program_root_layout cp = root_layout (source cp)
+    /\ program_build_plan cp = fresh_build_plan (source cp)
+    (* acceptance IS the retained final diagnostic list, not a rerun of any checker *)
+    /\ core_diagnostics (core cp) = nil
+    (* and the retained work forest is the real one: 5 members, 4 conversions + the leaf *)
+    /\ length (forest_items (phase_work (phase (core cp)))) = 5%nat.
+Proof.
+  destruct (compile_accepted_shape deep_nested_program
+              (core_diags_nil_of_valid deep_nested_program deep_nested_compiles))
+    as [cp [Hcp [Hc Hcore]]].
+  exists cp, Hcp.
+  repeat split; try reflexivity.
+  - exact Hc.
+  - exact Hcp.
+  - exact (program_root_layout_retained cp).
+  - exact (program_build_plan_retained cp).
+  - exact (accepted cp).
+  - rewrite <- (core_query_transport
+                  (fun q (c : Core q) => length (forest_items (phase_work (phase c)))) (core cp) Hcp).
+    rewrite Hcore. exact deep_nested_work_count.
+Qed.
+
+(** ═══ §10.3 EQUAL VALUE, DISTINCT OCCURRENCE — THROUGH THE RETAINED ACCEPTED CORE ═══ the repair-13 twin
+    fixture, asked of the capability the compiler returned rather than of a builder.  Two occurrences of the
+    SAME source expression are two DISTINCT members of the RETAINED work forest, found at DISTINCT keys in the
+    RETAINED standard index.  Occurrence identity is not a property of the elaborator's scratch work — it
+    survives all the way into the value a client holds. *)
+Theorem twin_capability_retains_distinct_occurrences :
+  exists cp Hcp,
+    compile twin_expr_program = Compiled cp Hcp
+    /\ exists w1 w2 : Work (core_input (core cp)),
+         In w1 (forest_items (phase_work (phase (core cp))))
+      /\ In w2 (forest_items (phase_work (phase (core cp))))
+      /\ work_expr w1 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+      /\ work_expr w2 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+      /\ Index.Snapshot.node_ref_key (work_node_ref w1) <> Index.Snapshot.node_ref_key (work_node_ref w2)
+      /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w1))
+           (index_map (forest_index (phase_work (phase (core cp))))) = Some w1
+      /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w2))
+           (index_map (forest_index (phase_work (phase (core cp))))) = Some w2
+      /\ w1 <> w2.
+Proof.
+  destruct (compile_accepted_shape twin_expr_program
+              (core_diags_nil_of_valid twin_expr_program
+                 (admissible_of_source_spec_valid_b twin_expr_program twin_expr_ok
+                    ltac:(vm_compute; reflexivity))))
+    as [cp [Hcp [Hc Hcore]]].
+  exists cp, Hcp. split; [ exact Hc | ].
+  apply (core_prop_retained
+           (fun q (c : Core q) =>
+              exists w1 w2 : Work (core_input c),
+                In w1 (forest_items (phase_work (phase c)))
+             /\ In w2 (forest_items (phase_work (phase c)))
+             /\ work_expr w1 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+             /\ work_expr w2 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
+             /\ Index.Snapshot.node_ref_key (work_node_ref w1) <> Index.Snapshot.node_ref_key (work_node_ref w2)
+             /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w1))
+                  (index_map (forest_index (phase_work (phase c)))) = Some w1
+             /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w2))
+                  (index_map (forest_index (phase_work (phase c)))) = Some w2
+             /\ w1 <> w2)
+           (core cp) Hcp _ Hcore).
+  exact twin_expr_index_distinct.
+Qed.
+
+(** ═══ §10.2 THE REJECTED CAPABILITY, QUERIED ONLY THROUGH ITSELF ═══ the same discipline on the failing
+    four-deep chain.  [Failure] IS indexed by the program, so there is no transport at all here: the returned
+    value's [failure_core] is literally the core the decision judged, and input, phase, buckets, layout, plan
+    and the diagnostics themselves are projections of it.  The exact singleton [InvalidConversion] count is
+    read off that retained core, not recomputed from the source. *)
+Theorem deep_fail_capability_retains_rejected_elaboration :
+  exists fail,
+    compile deep_fail_program = Rejected fail
+    (* the returned failure holds the very core the decision judged *)
+    /\ failure_core fail = build_elaboration_core deep_fail_program (Index.index_program deep_fail_program)
+    (* every failure query is a projection of THAT core — definitionally, no stored copy *)
+    /\ failure_diagnostics fail = core_diagnostics (failure_core fail)
+    /\ failure_input fail = core_input (failure_core fail)
+    /\ failure_phase fail = phase (failure_core fail)
+    /\ failure_package_refs fail = core_package_refs (failure_core fail)
+    /\ failure_layout fail = core_layout (failure_core fail)
+    /\ failure_plan fail = core_plan (failure_core fail)
+    (* and they are the canonical values that failed decision used *)
+    /\ failure_layout fail = root_layout deep_fail_program
+    /\ failure_plan fail = fresh_build_plan deep_fail_program
+    (* the rejection is real, and the RETAINED PHASE is what reports it — the failure is not a copied list *)
+    /\ failure_diagnostics fail <> nil
+    /\ phase_diags (phase (failure_core fail)) <> nil.
+Proof.
+  assert (Hne : core_diagnostics (build_elaboration_core deep_fail_program
+                  (Index.index_program deep_fail_program)) <> nil).
+  { intro Hnil.
+    apply (reject_no_compile deep_fail_program ltac:(vm_compute; reflexivity)).
+    apply (proj1 (elaboration_diagnostics_nil_iff_admissible deep_fail_program
+             (Index.indexed_syntax (Index.index_program deep_fail_program)))).
+    exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration
+             (build_elaboration_core deep_fail_program (Index.index_program deep_fail_program)))) Hnil). }
+  destruct (compile_rejected_shape deep_fail_program Hne) as [fail [Hc Hcore]].
+  exists fail.
+  repeat split; try reflexivity.
+  - exact Hc.
+  - exact Hcore.
+  - unfold failure_layout. rewrite Hcore.
+    exact (core_layout_exact (build_elaboration_core deep_fail_program (Index.index_program deep_fail_program))).
+  - unfold failure_plan. rewrite Hcore.
+    exact (core_plan_is_fresh_build_plan
+             (build_elaboration_core deep_fail_program (Index.index_program deep_fail_program))).
+  - unfold failure_diagnostics. rewrite Hcore. exact Hne.
+  - (* [Phase] is indexed by the input, so rewriting ONE occurrence of the core would break typing; move the
+       whole diagnostic list at once through a function of the core. *)
+    pose proof (f_equal (fun c : Core deep_fail_program => phase_diags (phase c)) Hcore) as Hpd.
+    rewrite Hpd. exact deep_fail_phase_reports.
+Qed.
+
 
 (* §12.4 — the production phase's outcome Index.table admits NO foreign key (every present key is a RETAINED forest
    member's key) and NO wrong-kind key (a visited non-expression occurrence is absent) — over [phase_work]/[phase_ot],

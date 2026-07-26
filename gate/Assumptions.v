@@ -530,6 +530,13 @@ Print Assumptions Compilable.deep_fail_outer_childfail.
 Print Assumptions Compilable.deep_fail_exactly_one_diag.
 Print Assumptions Compilable.deep_nested_all_ok.
 Print Assumptions Compilable.over_program_failure_retains_rejected_core.
+(* §10.1/§10.2/§10.3 — the production fixtures: the capability and the failure answered ONLY through
+   themselves, and occurrence identity surviving into the retained accepted core. *)
+Print Assumptions Compilable.deep_nested_capability_retains_elaboration.
+Print Assumptions Compilable.deep_fail_capability_retains_rejected_elaboration.
+Print Assumptions Compilable.twin_capability_retains_distinct_occurrences.
+Print Assumptions Compilable.core_query_transport.
+Print Assumptions Compilable.core_prop_retained.
 (* §11.1/§11.4: the core retains the WHOLE elaboration — buckets, layout, plan and both
    diagnostic lists are stored with their exactness evidence, not recomputed on each query; and the
    rejected capability retains that exact core rather than a copied diagnostic list. *)
