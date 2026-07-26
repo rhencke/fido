@@ -39,14 +39,20 @@ Lemma multi_valid : Admissible multi_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition multi_compiled : Compilable.Program :=
-  compilable_of_valid multi_program multi_valid.
+  Compilable.capability_of_admissible multi_program multi_valid.
 
-(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via Compilable.compile). *)
+(* the compilation artifact IS obtained from the successful elaboration (the accepted decision, via Compilable.compile). *)
 Example multi_compiles : exists cp Hcp, Compilable.compile multi_program = Compilable.Compiled cp Hcp.
 Proof. exact (Compilable.compile_complete multi_program multi_valid). Qed.
 Definition multi_safe : Safe.Program := certify multi_compiled.
 
+(* the image, formed from the source the capability was minted for: [capability_source] is the proof
+   that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
+   and the transport never has to force the elaboration to rediscover a program it already has. *)
+Definition multi_image : Emit.Image :=
+  Emit.of_safe_at multi_safe multi_program (Compilable.capability_source multi_program multi_valid).
+
 Declare ML Module "fido.emit".
-Fido Materialize (Emit.of_safe multi_safe) To "/workspace/generated-multi".
+Fido Materialize multi_image To "/workspace/generated-multi".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

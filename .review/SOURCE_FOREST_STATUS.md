@@ -44,16 +44,13 @@ directives, NOT in this file.** This ledger is the COMPACT CURRENT state only.
 `.review/C4_IMPLEMENTATION_REPAIR_14.md`, token `C4-intrinsic-retained-elaboration-fcb-a001-repair-14`, under
 accepted FCB amendment **A001** and Governance **D-22**.
 
-**The finding is outside the expression phase.** `elaborate_indexed` builds one exact causal chain
-(`Compilable.Input` → `Compilable.Phase` → work forest + index → type-name facts → outcome table + trace →
-annotated forest → fact table → diagnostics) and then discards it. `Compilable.Facts` keeps selected
-projections; `Compilable.Program` keeps `Compilable.source`/`Compilable.program_index`/`Compilable.facts` plus
-`cp_prov : elaborate Compilable.source = Compilable.make_elaboration Compilable.program_index (ElaborationOK Compilable.facts)` — a Prop equality to
-**rerunning the elaborator**, erased at extraction, whose right-hand side contains only the already-stripped
-result. It is not the causal object and cannot project it, which is why the present "object identity" theorems
-rebuild the phase and prove the copies equal. That is the rejected provenance pattern at the final boundary:
-build the exact object, discard it, retain outputs, rerun the builder, use equality as provenance. Later
-`Safe.Program` proofs and user extensions would have to reconstruct what C4 already proved.
+**The retained-elaboration boundary (A001 / D-22).** Repair 14 replaced the reconstruction root with a
+retained `Compilable.Core`; repair 15 completes it. The core now retains the WHOLE elaboration — input,
+phase, package refs tied to its own retained visit, layout, plan, and both diagnostic lists — each built
+once and stored with its exactness evidence rather than recomputed by a query. The accept/reject decision
+is indexed by that exact core, and BOTH outcomes retain it: the capability on success, and
+`Compilable.Failure` on rejection, whose diagnostics are a projection of the core it holds rather than a
+copied list. The stripped result peer and the reconstruction bridges are deleted.
 
 **Required:** one `Compilable.Core` built once; the accept/reject decision indexed by that exact core; success
 and failure both retaining it; `Compilable.Program` retaining the accepted core behind an opaque constructor with

@@ -31,13 +31,19 @@ Lemma alias_valid : Admissible alias_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition alias_compiled : Compilable.Program :=
-  compilable_of_valid alias_program alias_valid.
+  Compilable.capability_of_admissible alias_program alias_valid.
 
 Example alias_compiles : exists cp Hcp, Compilable.compile alias_program = Compilable.Compiled cp Hcp.
 Proof. exact (Compilable.compile_complete alias_program alias_valid). Qed.
 Definition alias_safe : Safe.Program := certify alias_compiled.
 
+(* the image, formed from the source the capability was minted for: [capability_source] is the proof
+   that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
+   and the transport never has to force the elaboration to rediscover a program it already has. *)
+Definition alias_image : Emit.Image :=
+  Emit.of_safe_at alias_safe alias_program (Compilable.capability_source alias_program alias_valid).
+
 Declare ML Module "fido.emit".
-Fido Materialize (Emit.of_safe alias_safe) To "/workspace/generated-alias".
+Fido Materialize alias_image To "/workspace/generated-alias".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish; DISPOSABLE — never the canonical published image. *)

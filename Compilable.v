@@ -815,7 +815,7 @@ Definition binding_visit (p : Syntax.Program) (b : FilePath.T * Syntax.File)
   end.
 
 (** the RETAINED per-file visit blocks: each file's stream, visited ONCE, in canonical FileMap path order.
-    [elaborate_indexed] retains this and derives BOTH the flattened elaboration stream ([program_visit] = [concat])
+    [elaborate] retains this and derives BOTH the flattened elaboration stream ([program_visit] = [concat])
     AND the enclosing-context annotations ([annotate_program]) from it — one [Snapshot.visit_file] per file. *)
 Definition program_blocks (p : Syntax.Program) : list (list (Index.Snapshot.NodeRef p * Index.Occurrence)) :=
   map (binding_visit p) (Syntax.file_bindings (Syntax.files p)).
@@ -3872,7 +3872,7 @@ Definition expression_all_ok (p : Syntax.Program) : bool :=
   forallb (fun x => occurrence_arg_typedb (snd x)) (program_visit p).
 
 (** DECISION EXACTNESS: [expression_all_ok] is EXACTLY [program_typedb] (hence [TypedProgram]).  This is the
-    expression half of [ElaborationOK <-> Admissible]: no expression diagnostic <-> every argument resolves. *)
+    expression half of [accepted <-> Admissible]: no expression diagnostic <-> every argument resolves. *)
 Lemma expression_all_ok_program_typedb (p : Syntax.Program) : expression_all_ok p = program_typedb p.
 Proof.
   unfold expression_all_ok. rewrite program_visit_flat_map, forallb_flat_map. unfold Typing.program_typedb.
@@ -4907,7 +4907,7 @@ Definition phase_facts {p} {input : Input p} (ph : Phase input)
 Definition phase_diags {p} {input : Input p} (ph : Phase input)
   : list (DiagnosticReason p) := erased_diagnostics (phase_diag ph).
 
-(** ═══ REPAIR 10: UNIVERSAL ACCEPTANCE THEOREMS ═══ direct statements over ANY retained [Outcomes] /
+(** ═══ UNIVERSAL ACCEPTANCE THEOREMS ═══ direct statements over ANY retained [Outcomes] /
     member, so the concrete deep fixtures are corollaries that instantiate them.  No production-root change. *)
 
 (* the total query depends only on the member's key: two members with the same [Work] give the same outcome. *)
@@ -8652,7 +8652,7 @@ Definition fresh_build_diagnostics (p : Syntax.Program) : list (DiagnosticReason
 
 (** the ONE command-facing report builder over a plan + the semantic diagnostics: a FAILED fresh-build
     output preflight takes PRECEDENCE (the build-output-directory diagnostic), else the semantic diagnostics.
-    Used by BOTH the readable [elaboration_diagnostics] and the production [elaborate_indexed] (over its retained
+    Used by BOTH the readable [elaboration_diagnostics] and the production [elaborate] (over its retained
     plan), so their reports are the SAME builder on equal inputs — no second handwritten branch. *)
 Definition command_diagnostics_of (p : Syntax.Program) (plan : FreshBuildDisposition)
     (semantic_ds : list (DiagnosticReason p)) : list (DiagnosticReason p) :=
@@ -8773,7 +8773,7 @@ Close Scope string_scope.
 Definition Admissible (p : Syntax.Program) : Prop := fresh_build_preflight_ok p /\ SourceProgramValid p.
 
 (** the command-ordered report is empty EXACTLY on admissible programs.  ([elaboration_diagnostics] is definitionally the
-    [diags] computed inside [elaborate_indexed], so the elaboration-exactness theorems below reduce to this.) *)
+    [diags] computed inside [elaborate], so the elaboration-exactness theorems below reduce to this.) *)
 Lemma elaboration_diagnostics_nil_iff_admissible : forall p idx, elaboration_diagnostics p idx = nil <-> Admissible p.
 Proof.
   intros p idx. unfold Admissible. split.
@@ -8784,10 +8784,10 @@ Proof.
 Qed.
 
 (** the command-ordered report computed on the RETAINED bucket-derived plan (the ONE plan
-    [elaborate_indexed] threads through the disposition test AND the failure branch) IS the canonical
+    [elaborate] threads through the disposition test AND the failure branch) IS the canonical
     [elaboration_diagnostics] (which is phrased over [fresh_build_plan p]).  The only gap is the plan
     presentation — [fresh_build_plan_of_buckets] closes it — so the elaboration's decision and its retained
-    plan are literally the same object.  ([elaborate_indexed]'s local diagnostic term is definitionally this
+    plan are literally the same object.  ([elaborate]'s local diagnostic term is definitionally this
     LHS: its `then` branch is the one-pass raw fold, convertible to [semantic_diagnostics p idx].) *)
 Lemma command_plan_diags_eq (p : Syntax.Program) (ip : Index.Program p) :
   command_diagnostics_of p
@@ -8800,173 +8800,6 @@ Proof.
   unfold elaboration_diagnostics. reflexivity.
 Qed.
 
-(** the SUCCESSFUL elaboration facts, retained over the SAME [Index.Program] the elaboration ran on:
-    the occurrence-keyed [ExpressionFactTable] (standard Index.Key map) + the package main-ref buckets (standard
-    PackageMap), each with its EXACTNESS proof, plus the compiled validity.  Facts are exposed ONLY on
-    success. *)
-Record Facts (p : Syntax.Program) (ip : Index.Program p) : Type := make_facts {
-  (* the SEALED expression-fact Index.table: no non-expression/foreign key, each visited occurrence's fact exact. *)
-  expression_facts      : ExpressionFactTable p ip ;
-  (* the SEALED type-name-fact Index.table (§8): a conversion's SOURCE type name resolved to its semantic [Typing.SemanticType],
-     keyed by Index.Key; domain = exactly the visited type-name occurrences (no expression/foreign key). *)
-  type_name_facts : TypeNameFacts p ;
-  facts_package_refs    : PackageMap.t (list (Index.DeclRef p)) ;
-  (* the bucket map's domain is exactly the represented package set... *)
-  package_present : forall dir, PackageMap.In dir facts_package_refs <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true ;
-  (* ...each present bucket's length is the package's declarative main count... *)
-  package_len     : forall dir l, PackageMap.find dir facts_package_refs = Some l -> length l = package_main_count dir (Syntax.files p) ;
-  (* ...and every main in a bucket BELONGS to that package (its file's parent = the key) — no swap between packages. *)
-  package_belongs : forall dir l, PackageMap.find dir facts_package_refs = Some l ->
-                         forall d, In d l ->
-                         FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir ;
-  source_valid           : SourceProgramValid p ;
-  (* the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output
-     preflight passes for this program.  Together with [source_valid] it witnesses [Admissible] (see [admissible]). *)
-  preflight       : fresh_build_preflight_ok p ;
-  (* the RETAINED fresh ROOT LAYOUT and BUILD PLAN: computed ONCE (from the retained package
-     buckets + the file bindings) and stored here with their coherence to [root_layout]/[fresh_build_plan], so a
-     [Program] PROJECTS the exact plan its elaboration used — never a recompute from the program. *)
-  facts_root_layout     : PackageMap.t FreshRootEntryKind ;
-  facts_root_layout_ok  : facts_root_layout = root_layout p ;
-  build_plan      : FreshBuildDisposition ;
-  build_plan_ok   : build_plan = fresh_build_plan p
-}.
-Arguments make_facts {p ip} _ _ _ _ _ _ _ _ _ _ _ _.
-Arguments expression_facts {p ip} _.
-Arguments type_name_facts {p ip} _.
-Arguments facts_package_refs {p ip} _.
-Arguments package_present {p ip} _.
-Arguments package_len {p ip} _.
-Arguments package_belongs {p ip} _.
-Arguments source_valid {p ip} _.
-Arguments preflight {p ip} _.
-Arguments facts_root_layout {p ip} _.
-Arguments facts_root_layout_ok {p ip} _.
-Arguments build_plan {p ip} _.
-Arguments build_plan_ok {p ip} _.
-
-(** the public expression-fact query is TOTAL: on a valid [Facts], EVERY typed [ExprRef]
-    has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
-    [kind_view_expr]) whose [constant_info] SUCCEEDS on a [TypedProgram] program ([program_visit_const_info_some],
-    from [source_valid]); [fact_table_complete] equates the map lookup to that occurrence's [occurrence_expr_fact], which is
-    therefore [Some].  So the lookup is never [None] — the query returns an [ExpressionFact], not an option. *)
-Lemma expression_ref_fact_some {p ip} (facts : Facts p ip) (er : Index.ExprRef p) :
-  exists f, Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er))
-              (fact_table_map (expression_facts facts)) = Some f.
-Proof.
-  assert (Hkind : Index.occurrence_kind (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Index.ExpressionKind)
-    by exact (proj2_sig er).
-  destruct (Index.kind_view_expr _ Hkind) as [e' Hv].
-  pose proof (noderef_in_prog_visit p (Index.erase_ref er)) as Hin.
-  pose proof (proj2 (Typing.program_typedb_iff predeclared_type p) (proj1 (source_valid facts))) as HPT.
-  destruct (program_visit_const_info_some p HPT (Index.erase_ref er)
-              (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) e' Hin Hv) as [ci Hci].
-  pose proof (fact_table_complete (expression_facts facts) (Index.erase_ref er)
-                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) Hin) as Hfind.
-  exists (make_expression_fact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)))).
-  rewrite Hfind. exact (occurrence_expr_fact_status _ e' ci Hv Hci).
-Qed.
-
-Lemma expression_fact_at_not_none {p ip} (facts : Facts p ip) (er : Index.ExprRef p) :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = None -> False.
-Proof. intro Hn. destruct (expression_ref_fact_some facts er) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
-
-(* the option-free lookup: a genuine match on the (variable) lookup result, discharging [None] by the totality
-   proof — so a defect-shipping [option] result is impossible. *)
-Definition fact_of_find {p ip} (facts : Facts p ip) (er : Index.ExprRef p)
-  (o : option ExpressionFact) :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = o -> ExpressionFact :=
-  match o with
-  | Some f => fun _ => f
-  | None   => fun Hn => False_rect ExpressionFact (expression_fact_at_not_none facts er Hn)
-  end.
-
-Definition expression_fact_at {p ip} (facts : Facts p ip) (er : Index.ExprRef p) : ExpressionFact :=
-  fact_of_find facts er
-    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)))
-    eq_refl.
-
-Lemma fact_of_find_some {p ip} (facts : Facts p ip) (er : Index.ExprRef p) o Ho f :
-  o = Some f -> fact_of_find facts er o Ho = f.
-Proof. intros ->. cbn. reflexivity. Qed.
-
-(** the total query PROJECTS the underlying map: where the map holds a fact, [expression_fact_at] returns exactly it
-    (so the total function is faithful to the sealed Index.table, not a fresh value). *)
-Lemma expression_fact_at_find {p ip} (facts : Facts p ip) (er : Index.ExprRef p) f :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = Some f ->
-  expression_fact_at facts er = f.
-Proof.
-  intro Hf. unfold expression_fact_at.
-  exact (fact_of_find_some facts er
-    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)))
-    eq_refl f Hf).
-Qed.
-
-(** the public TYPE-NAME-fact query is TOTAL (§8): EVERY [TypeNameRef] has an exact stored entry.  Unlike the
-    expression fact this needs NO validity hypothesis — a [TypeNameRef] denotes a VISITED Index.TypeNameKind occurrence
-    ([noderef_in_prog_visit] + [kind_view_typename]) whose source name resolves by construction (§7,
-    [predeclared_type] total), so [occurrence_type_name_fact] is [Some] and [type_name_complete] equates the lookup to it. *)
-Lemma type_name_ref_fact_some {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) :
-  exists f, Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr))
-              (type_name_map (type_name_facts facts)) = Some f.
-Proof.
-  assert (Hkind : Index.occurrence_kind (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) = Index.TypeNameKind)
-    by exact (proj2_sig tr).
-  destruct (Index.kind_view_typename _ Hkind) as [ts Hv].
-  pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
-  pose proof (type_name_complete (type_name_facts facts) (Index.erase_ref tr)
-                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) Hin) as Hfind.
-  exists (make_type_name_fact (predeclared_type ts)).
-  rewrite Hfind. exact (occurrence_type_name_fact_some _ ts Hv).
-Qed.
-
-Lemma type_name_fact_at_not_none {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = None -> False.
-Proof. intro Hn. destruct (type_name_ref_fact_some facts tr) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
-
-Definition tnfact_of_find {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p)
-  (o : option TypeNameFact) :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = o -> TypeNameFact :=
-  match o with
-  | Some f => fun _ => f
-  | None   => fun Hn => False_rect TypeNameFact (type_name_fact_at_not_none facts tr Hn)
-  end.
-
-Definition type_name_fact_at {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) : TypeNameFact :=
-  tnfact_of_find facts tr
-    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)))
-    eq_refl.
-
-Lemma tnfact_of_find_some {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) o Ho f :
-  o = Some f -> tnfact_of_find facts tr o Ho = f.
-Proof. intros ->. cbn. reflexivity. Qed.
-
-(** the total type-name query PROJECTS the sealed Index.table — where the map holds a fact, [type_name_fact_at]
-    returns EXACTLY it (it does not recompute resolution). *)
-Lemma type_name_fact_at_find {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) f :
-  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = Some f ->
-  type_name_fact_at facts tr = f.
-Proof.
-  intro Hf. unfold type_name_fact_at.
-  exact (tnfact_of_find_some facts tr
-    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)))
-    eq_refl f Hf).
-Qed.
-
-(** ★§8 EXACTNESS: the stored fact EQUALS [Admissible] resolution of the SOURCE type name recovered THROUGH the
-    reference ([type_name_ref_syntax]) — the resolved [Typing.SemanticType] is [predeclared_type] of that exact source name,
-    not a recomputation and not a copy of the spelling. *)
-Theorem type_name_fact_at_resolves {p ip} (facts : Facts p ip) (tr : Index.TypeNameRef p) ts :
-  Index.type_name_ref_syntax tr = Some ts ->
-  type_name_fact_at facts tr = make_type_name_fact (predeclared_type ts).
-Proof.
-  intro Hts. unfold Index.type_name_ref_syntax in Hts.
-  pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
-  pose proof (type_name_complete (type_name_facts facts) (Index.erase_ref tr)
-                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) Hin) as Hfind.
-  rewrite (occurrence_type_name_fact_some _ ts Hts) in Hfind.
-  exact (type_name_fact_at_find facts tr _ Hfind).
-Qed.
 
 (** ★§8 byte/uint8 (and rune/int32): DISTINCT source type syntax, but the SAME resolved semantic [Typing.SemanticType]
     ([Typing.IntegerType Integer.Uint8] / [Typing.IntegerType Integer.Int32]) — the fact stores the resolved type only, so a [byte] fact and a
@@ -9012,34 +8845,6 @@ Theorem predeclared_all_sixteen :
   /\ predeclared_type (Syntax.type_expr_of_name Names.Rune)       = Typing.IntegerType Integer.Int32.
 Proof. repeat split; reflexivity. Qed.
 
-(** ★§5.3 REPEATED EQUAL NAMES AT DISTINCT OCCURRENCES: two conversions to the SAME source name ([uint8] here)
-    at DISTINCT occurrences (distinct keys) obtain, THROUGH the retained index, TWO distinct target
-    [TypeNameRef]s (distinct NodeKeys — occurrence identity, not name identity), yet their recovered source
-    [Syntax.TypeExpr] values are EQUAL and their sealed [TypeNameFact]s are EQUAL.  Replaces the tautological
-    [scar_repeated_uint8]; holds for ANY such pair, so any concrete two-[uint8] snapshot instantiates it. *)
-Theorem repeated_name_distinct_refs {p} (ip : Index.Program p) (facts : Facts p ip)
-    (r1 : Index.Snapshot.NodeRef p) occ1 (er1 : Index.ExprRef p) x1
-    (r2 : Index.Snapshot.NodeRef p) occ2 (er2 : Index.ExprRef p) x2 :
-  let idx := Index.indexed_syntax ip in
-  In (r1, occ1) (program_visit p) -> Index.view_expr occ1 = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) x1) ->
-    Index.as_expr idx r1 = Some er1 ->
-  In (r2, occ2) (program_visit p) -> Index.view_expr occ2 = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) x2) ->
-    Index.as_expr idx r2 = Some er2 ->
-  Index.Snapshot.node_ref_key r1 <> Index.Snapshot.node_ref_key r2 ->
-  exists tr1 tr2,
-    conversion_target_ref idx er1 = Some tr1 /\ conversion_target_ref idx er2 = Some tr2
-    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr1) <> Index.Snapshot.node_ref_key (Index.erase_ref tr2)
-    /\ Index.type_name_ref_syntax tr1 = Index.type_name_ref_syntax tr2
-    /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
-Proof.
-  intros idx Hin1 Hv1 Ha1 Hin2 Hv2 Ha2 Hne.
-  destruct (conversion_target_ref_conv idx r1 occ1 er1 (Syntax.type_expr_of_name Names.Uint8) x1 Hin1 Hv1 Ha1) as [tr1 [Hc1 [Hk1 [_ Hs1]]]].
-  destruct (conversion_target_ref_conv idx r2 occ2 er2 (Syntax.type_expr_of_name Names.Uint8) x2 Hin2 Hv2 Ha2) as [tr2 [Hc2 [Hk2 [_ Hs2]]]].
-  exists tr1, tr2. split; [exact Hc1 | split; [exact Hc2 | split; [ | split ]]].
-  - intro Heq. apply Hne. rewrite Hk1, Hk2 in Heq. exact (type_name_key_inj r1 r2 Heq).
-  - rewrite Hs1, Hs2. reflexivity.
-  - rewrite (type_name_fact_at_resolves facts tr1 _ Hs1), (type_name_fact_at_resolves facts tr2 _ Hs2). reflexivity.
-Qed.
 
 (** ★§12 byte / rune ALIAS SCARS (semantic, through the predeclared resolver): [byte] ranges over [uint8]
     ([byte(0)]/[byte(255)] accepted, [byte(256)]/[byte(-1)] rejected), [rune] over [int32] (min/max accepted,
@@ -9118,8 +8923,337 @@ Example representable_no_tnfact_on_expr : forall e par role sub,
   occurrence_type_name_fact (Index.make_occurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) role sub) = None.
 Proof. reflexivity. Qed.
 
+
+(** ═══ §2 THE ONE INTRINSIC WHOLE-ELABORATION OBJECT ═══ the exact causal chain the elaboration builds,
+    RETAINED rather than discarded (D-22 / FCB A001).
+
+    The head of the chain is dependently linked and needs no extra retention: [Input p] itself retains the
+    [Index.Program] ([indexed]) and the visit, [Phase] is INDEXED BY that input — so a phase built from a
+    different input is not storable here — and the phase in turn retains [phase_work] /
+    [phase_type_name_facts] / [phase_ot] (with its [Trace]) / [phase_awork] / [phase_fact_table] /
+    [phase_diag], each dependent on its predecessor.
+
+    The tail was not: the package buckets, the root layout, the fresh-build plan, and the raw and
+    command-ordered diagnostics were once recomputed on every query from a stored spec equality.  The core now
+    stores each of them ONCE, built by [build_elaboration_core] as the elaboration runs, alongside the proof
+    that the stored value IS the canonical one.  So a query PROJECTS the object the elaboration produced, and
+    the equality proofs are evidence ABOUT a retained value rather than a licence to rebuild it. *)
+(* the package-bucket diagnostics of an index, as ONE non-dependent value: [bucket_diags_elems] takes
+   proofs about the specific map, so the canonical fold is packaged here and the core stores its RESULT. *)
+Definition package_bucket_diagnostics {p} (idx : Index.Snapshot.Syntax p) : list (DiagnosticReason p) :=
+  bucket_diags_elems (program_package_refs idx) (bucket_key_present idx)
+    (PackageMap.elements (program_package_refs idx)) (elements_all_mapsto (program_package_refs idx)).
+
+Record Core (p : Syntax.Program) : Type := make_core {
+  core_input : Input p ;
+  phase : Phase core_input ;
+
+  (* the package buckets BUILT ONCE from this core's own retained visit and STORED, with the exactness
+     evidence that ties them to that visit — not a function that refolds them on every query. *)
+  core_package_refs : PackageMap.t (list (Index.DeclRef p)) ;
+  core_package_refs_from_visit :
+    core_package_refs = program_package_refs_from_visit (index core_input) (input_visit core_input) ;
+  core_package_present : forall dir,
+    PackageMap.In dir core_package_refs <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true ;
+  core_package_len : forall dir l,
+    PackageMap.find dir core_package_refs = Some l -> length l = package_main_count dir (Syntax.files p) ;
+  core_package_belongs : forall dir l, PackageMap.find dir core_package_refs = Some l ->
+    forall d, In d l ->
+    FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir ;
+
+  core_layout : PackageMap.t FreshRootEntryKind ;
+  core_layout_exact : core_layout = root_layout p ;
+
+  core_plan : FreshBuildDisposition ;
+  core_plan_exact :
+    core_plan = fresh_build_plan_of (Syntax.module_spec p)
+                  (map fst (PackageMap.elements core_package_refs)) core_layout ;
+
+  core_raw_diagnostics : list (DiagnosticReason p) ;
+  core_raw_diagnostics_exact :
+    core_raw_diagnostics = phase_diags phase ++ package_bucket_diagnostics (index core_input) ;
+
+  core_diagnostics : list (DiagnosticReason p) ;
+  core_diagnostics_exact :
+    core_diagnostics = command_diagnostics_of p core_plan
+      (bucket_flatten (node_keyed core_raw_diagnostics) ++ package_primary core_raw_diagnostics)
+}.
+Arguments make_core {p} _ _ _ _ _ _ _ _ _ _ _ _ _ _ _.
+Arguments core_input {p} _.  Arguments phase {p} _.
+Arguments core_package_refs {p} _.  Arguments core_package_refs_from_visit {p} _.
+Arguments core_package_present {p} _.  Arguments core_package_len {p} _.
+Arguments core_package_belongs {p} _.
+Arguments core_layout {p} _.  Arguments core_layout_exact {p} _.
+Arguments core_plan {p} _.  Arguments core_plan_exact {p} _.
+Arguments core_raw_diagnostics {p} _.  Arguments core_raw_diagnostics_exact {p} _.
+Arguments core_diagnostics {p} _.  Arguments core_diagnostics_exact {p} _.
+
+(* the retained index and syntax index, projected — never reconstructed by [Index.index_program]. *)
+Definition core_indexed {p} (core : Core p) : Index.Program p := indexed (core_input core).
+Definition core_index {p} (core : Core p) : Index.Snapshot.Syntax p := index (core_input core).
+
+(* the stored buckets ARE the canonical fold of the retained index (via the input's own visit evidence). *)
+Lemma core_package_refs_canonical {p} (core : Core p) :
+  core_package_refs core = program_package_refs (core_index core).
+Proof.
+  rewrite (core_package_refs_from_visit core).
+  unfold program_package_refs, core_index. rewrite (input_visit_ok (core_input core)). reflexivity.
+Qed.
+
+(* the ONE core construction: input once, phase once from THAT exact input, buckets once from THAT retained
+   visit, layout once, plan once from the retained buckets and layout, raw diagnostics once, final once. *)
+Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : Core p :=
+  let input := build_compilation_input p ip in
+  let ph    := build_expression_phase input in
+  let refs  := program_package_refs (index input) in
+  let lay   := root_layout p in
+  let pl    := fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements refs)) lay in
+  let raw   := phase_diags ph ++ package_bucket_diagnostics (index input) in
+  make_core input ph
+    refs
+    (eq_sym (eq_trans (f_equal (fun v => program_package_refs_from_visit (index input) v)
+                               (eq_sym (input_visit_ok input)))
+                      eq_refl))
+    (program_package_refs_present (index input))
+    (program_package_refs_bucket_len (index input))
+    (program_package_refs_belongs (index input))
+    lay eq_refl
+    pl eq_refl
+    raw eq_refl
+    (command_diagnostics_of p pl (bucket_flatten (node_keyed raw) ++ package_primary raw)) eq_refl.
+
+(* the built core's retained index IS the one it was built from (definitional — no transport). *)
+Lemma build_core_indexed (p : Syntax.Program) (ip : Index.Program p) :
+  core_indexed (build_elaboration_core p ip) = ip.
+Proof. reflexivity. Qed.
+
+(* the core's raw fold IS the canonical [semantic_diagnostics] — for ANY core, because a phase's diagnostics are
+   determined by its input ([phase_diags_eq_expr_diags] is universal in the phase). *)
+Lemma core_raw_semantic {p} (core : Core p) :
+  bucket_flatten (node_keyed (core_raw_diagnostics core)) ++ package_primary (core_raw_diagnostics core)
+  = semantic_diagnostics p (core_index core).
+Proof.
+  rewrite (core_raw_diagnostics_exact core). unfold package_bucket_diagnostics, core_index.
+  rewrite (phase_diags_eq_expr_diags (core_input core) (phase core)). reflexivity.
+Qed.
+
+(* the SPECIFICATION bridge (NOT provenance): the core's own accept/reject quantity is the canonical
+   [elaboration_diagnostics] of the same program and retained index — for ANY core, not merely a freshly built
+   one.  It transports the decision to the source-level validity theorems; no object is ever recovered through
+   it, and nothing below needs it to obtain a retained value. *)
+Lemma core_diagnostics_eq_elaboration {p} (core : Core p) :
+  core_diagnostics core = elaboration_diagnostics p (core_index core).
+Proof.
+  rewrite (core_diagnostics_exact core), (core_plan_exact core), (core_layout_exact core),
+          (core_package_refs_canonical core), (core_raw_semantic core).
+  exact (command_plan_diags_eq p (core_indexed core)).
+Qed.
+
+(* the stored plan IS the source-level [fresh_build_plan] — a specification bridge over the retained value,
+   never a route by which the plan is recovered. *)
+Lemma core_plan_is_fresh_build_plan {p} (core : Core p) : core_plan core = fresh_build_plan p.
+Proof.
+  rewrite (core_plan_exact core), (core_layout_exact core), (core_package_refs_canonical core).
+  exact (fresh_build_plan_of_buckets p (core_index core)).
+Qed.
+
+(** ═══ §4 THE ACCEPTED VIEW ═══ [Facts] is INDEXED BY the exact core and the evidence that that core was
+    accepted, so a facts value cannot be separated from the elaboration that justified it and cannot be paired
+    with a different core that merely shares the program.  It ADDS only success evidence (source validity,
+    fresh-build preflight); the expression and type-name tables are the retained phase's own objects and the
+    buckets, layout and plan are the retained core's, each reached below by a total PROJECTION.  Nothing here
+    is a second copy, so there is nothing that can drift. *)
+Record Facts {p : Syntax.Program} (core : Core p) (accepted : core_diagnostics core = nil) : Type :=
+  make_facts {
+    source_valid : SourceProgramValid p ;
+    (* the retained fresh-build PREFLIGHT evidence: the pinned one-shot `go build ./...` output preflight
+       passes for this program.  With [source_valid] it witnesses [Admissible] (see [admissible]). *)
+    preflight    : fresh_build_preflight_ok p
+  }.
+Arguments make_facts {p core accepted} _ _.
+Arguments source_valid {p core accepted} _.
+Arguments preflight {p core accepted} _.
+
+(** the total projections.  Each takes the [Facts] value ONLY to fix the core it is indexed by, then reads
+    that exact core — so no query can reach a different elaboration than the one that was accepted. *)
+Definition expression_facts {p} {core : Core p} {acc} (_ : Facts core acc)
+  : ExpressionFactTable p (core_indexed core) :=
+  expression_facts_table (phase_fact_table (phase core)).
+Definition type_name_facts {p} {core : Core p} {acc} (_ : Facts core acc) : TypeNameFacts p :=
+  phase_type_name_facts (phase core).
+Definition facts_package_refs {p} {core : Core p} {acc} (_ : Facts core acc) := core_package_refs core.
+(* each stated over [facts_package_refs] — the SAME map, spelled the way every consumer spells it. *)
+Definition package_present {p} {core : Core p} {acc} (f : Facts core acc) : forall dir,
+  PackageMap.In dir (facts_package_refs f) <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true
+  := core_package_present core.
+Definition package_len {p} {core : Core p} {acc} (f : Facts core acc) : forall dir l,
+  PackageMap.find dir (facts_package_refs f) = Some l -> length l = package_main_count dir (Syntax.files p)
+  := core_package_len core.
+Definition package_belongs {p} {core : Core p} {acc} (f : Facts core acc) : forall dir l,
+  PackageMap.find dir (facts_package_refs f) = Some l -> forall d, In d l ->
+  FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir
+  := core_package_belongs core.
+Definition facts_root_layout {p} {core : Core p} {acc} (_ : Facts core acc) := core_layout core.
+Definition facts_root_layout_ok {p} {core : Core p} {acc} (f : Facts core acc)
+  : facts_root_layout f = root_layout p := core_layout_exact core.
+Definition build_plan {p} {core : Core p} {acc} (_ : Facts core acc) := core_plan core.
+Definition build_plan_ok {p} {core : Core p} {acc} (f : Facts core acc)
+  : build_plan f = fresh_build_plan p := core_plan_is_fresh_build_plan core.
+
+(** the public expression-fact query is TOTAL: on a valid [Facts], EVERY typed [ExprRef]
+    has an exact entry.  The ExprRef denotes a VISITED expression occurrence ([noderef_in_prog_visit] +
+    [kind_view_expr]) whose [constant_info] SUCCEEDS on a [TypedProgram] program ([program_visit_const_info_some],
+    from [source_valid]); [fact_table_complete] equates the map lookup to that occurrence's [occurrence_expr_fact], which is
+    therefore [Some].  So the lookup is never [None] — the query returns an [ExpressionFact], not an option. *)
+Lemma expression_ref_fact_some {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) :
+  exists f, Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er))
+              (fact_table_map (expression_facts facts)) = Some f.
+Proof.
+  assert (Hkind : Index.occurrence_kind (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Index.ExpressionKind)
+    by exact (proj2_sig er).
+  destruct (Index.kind_view_expr _ Hkind) as [e' Hv].
+  pose proof (noderef_in_prog_visit p (Index.erase_ref er)) as Hin.
+  pose proof (proj2 (Typing.program_typedb_iff predeclared_type p) (proj1 (source_valid facts))) as HPT.
+  destruct (program_visit_const_info_some p HPT (Index.erase_ref er)
+              (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) e' Hin Hv) as [ci Hci].
+  pose proof (fact_table_complete (expression_facts facts) (Index.erase_ref er)
+                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) Hin) as Hfind.
+  exists (make_expression_fact ci (occurrence_use_resolved (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)))).
+  rewrite Hfind. exact (occurrence_expr_fact_status _ e' ci Hv Hci).
+Qed.
+
+Lemma expression_fact_at_not_none {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = None -> False.
+Proof. intro Hn. destruct (expression_ref_fact_some facts er) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
+
+(* the option-free lookup: a genuine match on the (variable) lookup result, discharging [None] by the totality
+   proof — so a defect-shipping [option] result is impossible. *)
+Definition fact_of_find {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p)
+  (o : option ExpressionFact) :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = o -> ExpressionFact :=
+  match o with
+  | Some f => fun _ => f
+  | None   => fun Hn => False_rect ExpressionFact (expression_fact_at_not_none facts er Hn)
+  end.
+
+Definition expression_fact_at {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) : ExpressionFact :=
+  fact_of_find facts er
+    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)))
+    eq_refl.
+
+Lemma fact_of_find_some {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) o Ho f :
+  o = Some f -> fact_of_find facts er o Ho = f.
+Proof. intros ->. cbn. reflexivity. Qed.
+
+(** the total query PROJECTS the underlying map: where the map holds a fact, [expression_fact_at] returns exactly it
+    (so the total function is faithful to the sealed Index.table, not a fresh value). *)
+Lemma expression_fact_at_find {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) f :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = Some f ->
+  expression_fact_at facts er = f.
+Proof.
+  intro Hf. unfold expression_fact_at.
+  exact (fact_of_find_some facts er
+    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)))
+    eq_refl f Hf).
+Qed.
+
+(** the public TYPE-NAME-fact query is TOTAL (§8): EVERY [TypeNameRef] has an exact stored entry.  Unlike the
+    expression fact this needs NO validity hypothesis — a [TypeNameRef] denotes a VISITED Index.TypeNameKind occurrence
+    ([noderef_in_prog_visit] + [kind_view_typename]) whose source name resolves by construction (§7,
+    [predeclared_type] total), so [occurrence_type_name_fact] is [Some] and [type_name_complete] equates the lookup to it. *)
+Lemma type_name_ref_fact_some {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) :
+  exists f, Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr))
+              (type_name_map (type_name_facts facts)) = Some f.
+Proof.
+  assert (Hkind : Index.occurrence_kind (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) = Index.TypeNameKind)
+    by exact (proj2_sig tr).
+  destruct (Index.kind_view_typename _ Hkind) as [ts Hv].
+  pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
+  pose proof (type_name_complete (type_name_facts facts) (Index.erase_ref tr)
+                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) Hin) as Hfind.
+  exists (make_type_name_fact (predeclared_type ts)).
+  rewrite Hfind. exact (occurrence_type_name_fact_some _ ts Hv).
+Qed.
+
+Lemma type_name_fact_at_not_none {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = None -> False.
+Proof. intro Hn. destruct (type_name_ref_fact_some facts tr) as [f Hf]. rewrite Hf in Hn; discriminate. Qed.
+
+Definition type_name_fact_of_find {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p)
+  (o : option TypeNameFact) :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = o -> TypeNameFact :=
+  match o with
+  | Some f => fun _ => f
+  | None   => fun Hn => False_rect TypeNameFact (type_name_fact_at_not_none facts tr Hn)
+  end.
+
+Definition type_name_fact_at {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) : TypeNameFact :=
+  type_name_fact_of_find facts tr
+    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)))
+    eq_refl.
+
+Lemma type_name_fact_of_find_some {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) o Ho f :
+  o = Some f -> type_name_fact_of_find facts tr o Ho = f.
+Proof. intros ->. cbn. reflexivity. Qed.
+
+(** the total type-name query PROJECTS the sealed Index.table — where the map holds a fact, [type_name_fact_at]
+    returns EXACTLY it (it does not recompute resolution). *)
+Lemma type_name_fact_at_find {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) f :
+  Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)) = Some f ->
+  type_name_fact_at facts tr = f.
+Proof.
+  intro Hf. unfold type_name_fact_at.
+  exact (type_name_fact_of_find_some facts tr
+    (Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref tr)) (type_name_map (type_name_facts facts)))
+    eq_refl f Hf).
+Qed.
+
+(** ★§8 EXACTNESS: the stored fact EQUALS [Admissible] resolution of the SOURCE type name recovered THROUGH the
+    reference ([type_name_ref_syntax]) — the resolved [Typing.SemanticType] is [predeclared_type] of that exact source name,
+    not a recomputation and not a copy of the spelling. *)
+Theorem type_name_fact_at_resolves {p} {core : Core p} {acc} (facts : Facts core acc) (tr : Index.TypeNameRef p) ts :
+  Index.type_name_ref_syntax tr = Some ts ->
+  type_name_fact_at facts tr = make_type_name_fact (predeclared_type ts).
+Proof.
+  intro Hts. unfold Index.type_name_ref_syntax in Hts.
+  pose proof (noderef_in_prog_visit p (Index.erase_ref tr)) as Hin.
+  pose proof (type_name_complete (type_name_facts facts) (Index.erase_ref tr)
+                (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref tr)) Hin) as Hfind.
+  rewrite (occurrence_type_name_fact_some _ ts Hts) in Hfind.
+  exact (type_name_fact_at_find facts tr _ Hfind).
+Qed.
+
+(** ★§5.3 REPEATED EQUAL NAMES AT DISTINCT OCCURRENCES: two conversions to the SAME source name ([uint8] here)
+    at DISTINCT occurrences (distinct keys) obtain, THROUGH the retained index, TWO distinct target
+    [TypeNameRef]s (distinct NodeKeys — occurrence identity, not name identity), yet their recovered source
+    [Syntax.TypeExpr] values are EQUAL and their sealed [TypeNameFact]s are EQUAL.  Replaces the tautological
+    [scar_repeated_uint8]; holds for ANY such pair, so any concrete two-[uint8] snapshot instantiates it. *)
+Theorem repeated_name_distinct_refs {p} {core : Core p} {acc} (facts : Facts core acc)
+    (r1 : Index.Snapshot.NodeRef p) occ1 (er1 : Index.ExprRef p) x1
+    (r2 : Index.Snapshot.NodeRef p) occ2 (er2 : Index.ExprRef p) x2 :
+  let idx := core_index core in
+  In (r1, occ1) (program_visit p) -> Index.view_expr occ1 = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) x1) ->
+    Index.as_expr idx r1 = Some er1 ->
+  In (r2, occ2) (program_visit p) -> Index.view_expr occ2 = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) x2) ->
+    Index.as_expr idx r2 = Some er2 ->
+  Index.Snapshot.node_ref_key r1 <> Index.Snapshot.node_ref_key r2 ->
+  exists tr1 tr2,
+    conversion_target_ref idx er1 = Some tr1 /\ conversion_target_ref idx er2 = Some tr2
+    /\ Index.Snapshot.node_ref_key (Index.erase_ref tr1) <> Index.Snapshot.node_ref_key (Index.erase_ref tr2)
+    /\ Index.type_name_ref_syntax tr1 = Index.type_name_ref_syntax tr2
+    /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
+Proof.
+  intros idx Hin1 Hv1 Ha1 Hin2 Hv2 Ha2 Hne.
+  destruct (conversion_target_ref_conv idx r1 occ1 er1 (Syntax.type_expr_of_name Names.Uint8) x1 Hin1 Hv1 Ha1) as [tr1 [Hc1 [Hk1 [_ Hs1]]]].
+  destruct (conversion_target_ref_conv idx r2 occ2 er2 (Syntax.type_expr_of_name Names.Uint8) x2 Hin2 Hv2 Ha2) as [tr2 [Hc2 [Hk2 [_ Hs2]]]].
+  exists tr1, tr2. split; [exact Hc1 | split; [exact Hc2 | split; [ | split ]]].
+  - intro Heq. apply Hne. rewrite Hk1, Hk2 in Heq. exact (type_name_key_inj r1 r2 Heq).
+  - rewrite Hs1, Hs2. reflexivity.
+  - rewrite (type_name_fact_at_resolves facts tr1 _ Hs1), (type_name_fact_at_resolves facts tr2 _ Hs2). reflexivity.
+Qed.
+
 (** on SUCCESS each package's bucket is a singleton (length = main count = 1). *)
-Lemma package_singleton {p ip} (facts : Facts p ip) dir l :
+Lemma package_singleton {p} {core : Core p} {acc} (facts : Facts core acc) dir l :
   PackageMap.find dir (facts_package_refs facts) = Some l -> exists d, l = [d].
 Proof.
   intro E. pose proof (package_len facts dir l E) as Hlen.
@@ -9133,7 +9267,7 @@ Qed.
 
 (** the public package-main query, TOTAL on success: the package's ONE canonical main, a PROJECTION of the
     retained facts (the singleton bucket's head) — never recomputed from a separate index. *)
-Definition package_main_at {p ip} (facts : Facts p ip) (r : PackageRef p) : Index.DeclRef p.
+Definition package_main_at {p} {core : Core p} {acc} (facts : Facts core acc) (r : PackageRef p) : Index.DeclRef p.
 Proof.
   remember (PackageMap.find (package_ref_key r) (facts_package_refs facts)) as o eqn:E.
   destruct o as [l|].
@@ -9146,104 +9280,15 @@ Proof.
     apply PackageFacts.in_find_iff in Hin. exact (Hin (eq_sym E)).
 Defined.
 
-(** ═══ §2 (REPAIR 14) THE ONE INTRINSIC WHOLE-ELABORATION OBJECT ═══ the exact causal chain the elaboration
-    builds, RETAINED rather than discarded.  Two fields suffice, because the chain is already dependently
-    linked: [Input p] itself retains the [Index.Program] ([indexed]) and the visit, and
-    [Phase] is INDEXED BY the input — so a phase built from a different input is not storable here,
-    and the phase in turn retains [phase_work] / [phase_type_name_facts] / [phase_ot] (with its [Trace]) / [phase_awork] /
-    [phase_fact_table] / [phase_diag], each dependent on its predecessor.  Everything else an elaboration computes — the
-    package buckets, the root layout, the build plan, the raw and command-ordered diagnostics — is a total
-    PROJECTION of these two and is defined below, never stored: nothing can drift out of sync, and no stored
-    equality stands in for a retained object (D-22 / FCB A001). *)
-Record Core (p : Syntax.Program) : Type := make_core {
-  core_input : Input p ;
-  phase : Phase core_input
-}.
-Arguments make_core {p} _ _.
-Arguments core_input {p} _.  Arguments phase {p} _.
-
-(* the retained index and syntax index, projected — never reconstructed by [Index.index_program]. *)
-Definition core_indexed {p} (core : Core p) : Index.Program p := indexed (core_input core).
-Definition core_index {p} (core : Core p) : Index.Snapshot.Syntax p := index (core_input core).
-
-(* the package buckets of the core's retained index.  [core_package_refs_from_retained_visit] below PROVES this is the
-   fold over the core's OWN retained visit — so this is a projection of what the core already holds, never a
-   second occurrence discovery. *)
-Definition core_package_refs {p} (core : Core p) : PackageMap.t (list (Index.DeclRef p)) :=
-  program_package_refs (core_index core).
-
-Lemma core_package_refs_from_retained_visit {p} (core : Core p) :
-  core_package_refs core = program_package_refs_from_visit (core_index core) (input_visit (core_input core)).
-Proof. unfold core_package_refs, program_package_refs. rewrite (input_visit_ok (core_input core)). reflexivity. Qed.
-
-Definition core_layout {p} (core : Core p) : PackageMap.t FreshRootEntryKind := root_layout p.
-
-Definition core_plan {p} (core : Core p) : FreshBuildDisposition :=
-  fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements (core_package_refs core))) (core_layout core).
-
-(* the raw diagnostics: the phase's OWN total projection ++ the bucket diagnostics of the core's own buckets. *)
-Definition core_raw_diagnostics {p} (core : Core p) : list (DiagnosticReason p) :=
-  phase_diags (phase core)
-    ++ bucket_diags_elems (core_package_refs core) (bucket_key_present (core_index core))
-         (PackageMap.elements (core_package_refs core)) (elements_all_mapsto (core_package_refs core)).
-
-(* the command-ordered diagnostics — the ONE accept/reject quantity. *)
-Definition core_diagnostics {p} (core : Core p) : list (DiagnosticReason p) :=
-  command_diagnostics_of p (core_plan core)
-    (bucket_flatten (node_keyed (core_raw_diagnostics core)) ++ package_primary (core_raw_diagnostics core)).
-
-(* the ONE core construction: the input once, the phase once from THAT exact input.  No other builder call. *)
-Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : Core p :=
-  let input := build_compilation_input p ip in
-  make_core input (build_expression_phase input).
-
-(* the built core's retained index IS the one it was built from (definitional — no transport). *)
-Lemma build_core_indexed (p : Syntax.Program) (ip : Index.Program p) :
-  core_indexed (build_elaboration_core p ip) = ip.
-Proof. reflexivity. Qed.
-
-(* the core's raw fold IS the canonical [semantic_diagnostics] — for ANY core, because a phase's diagnostics are
-   determined by its input ([phase_diags_eq_expr_diags] is universal in the phase). *)
-Lemma core_raw_semantic {p} (core : Core p) :
-  bucket_flatten (node_keyed (core_raw_diagnostics core)) ++ package_primary (core_raw_diagnostics core)
-  = semantic_diagnostics p (core_index core).
-Proof.
-  unfold core_raw_diagnostics, core_package_refs, core_index.
-  rewrite (phase_diags_eq_expr_diags (core_input core) (phase core)). reflexivity.
-Qed.
-
-(* the SPECIFICATION bridge (NOT provenance): the core's own accept/reject quantity is the canonical
-   [elaboration_diagnostics] of the same program and retained index — for ANY core, not merely a freshly built
-   one.  It transports the decision to the source-level validity theorems; no object is ever recovered through
-   it, and nothing below needs it to obtain a retained value. *)
-Lemma core_diagnostics_eq_elaboration {p} (core : Core p) :
-  core_diagnostics core = elaboration_diagnostics p (core_index core).
-Proof.
-  unfold core_diagnostics, core_plan, core_layout, core_package_refs.
-  rewrite (core_raw_semantic core). exact (command_plan_diags_eq p (core_indexed core)).
-Qed.
-
-(** ═══ §4 (REPAIR 14) THE ACCEPTED VIEW ═══ [Facts] built BY PROJECTING the retained core, given the
-    accepted evidence.  It ADDS success evidence (validity, preflight) and duplicates no core data: the fact and
-    type-name tables are the phase's own retained objects, the buckets/layout/plan are the core's projections,
-    and every proof field is derived — none is stored beside the core, so there is nothing that can drift. *)
 Definition core_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil)
-  : Facts p (core_indexed core) :=
+  : Facts core Hnil :=
   let He : elaboration_diagnostics p (core_index core) = nil :=
     eq_trans (eq_sym (core_diagnostics_eq_elaboration core)) Hnil in
   make_facts
-    (expression_facts_table (phase_fact_table (phase core)))      (* the phase's OWN retained expression-fact Index.table object *)
-    (phase_type_name_facts (phase core))                  (* the phase's OWN retained type-name Index.table object *)
-    (core_package_refs core)
-    (program_package_refs_present (core_index core))
-    (program_package_refs_bucket_len (core_index core))
-    (program_package_refs_belongs (core_index core))
     (elaboration_no_diags_source_valid p (core_index core) He)
-    (elaboration_no_diags_preflight p (core_index core) He)
-    (core_layout core) eq_refl
-    (core_plan core) (fresh_build_plan_of_buckets p (core_index core)).
+    (elaboration_no_diags_preflight p (core_index core) He).
 
-(** ═══ §3 (REPAIR 14) THE DECISION, INDEXED BY THE EXACT CORE ═══ accepted or rejected is a statement ABOUT a
+(** ═══ §3 THE DECISION, INDEXED BY THE EXACT CORE ═══ accepted or rejected is a statement ABOUT a
     particular retained core, so an equal recomputed core cannot be substituted for the one that justified the
     result.  Validity and preflight are DERIVED from [Hnil] (see [core_facts]), never stored again. *)
 Inductive Decision {p} (core : Core p) : Type :=
@@ -9252,13 +9297,8 @@ Inductive Decision {p} (core : Core p) : Type :=
 Arguments AcceptedDecision {p core} _.
 Arguments RejectedDecision {p core} _.
 
-Inductive Result (p : Syntax.Program) (ip : Index.Program p) : Type :=
-| ElaborationOK     (facts : Facts p ip)
-| ElaborationFailed (ds : list (DiagnosticReason p)) (Hne : ds <> nil).
-Arguments ElaborationOK {p ip} _.
-Arguments ElaborationFailed {p ip} _ _.
 
-(** ═══ §3 (REPAIR 14) THE ELABORATION RETAINS ITS CORE ═══ the whole causal object survives BOTH branches, and
+(** ═══ §3 THE ELABORATION RETAINS ITS CORE ═══ the whole causal object survives BOTH branches, and
     the accept/reject decision is INDEXED BY it.  [elaboration_indexed] and [result] remain as total PROJECTIONS, so
     every downstream consumer is unchanged — but they now project a retained object instead of being the only
     thing that was kept.  There is no constructor taking a bare index and a stripped result: a
@@ -9273,12 +9313,6 @@ Arguments decision {p} _.
 
 Definition elaboration_indexed {p} (pe : Elaboration p) : Index.Program p := core_indexed (elaboration_core pe).
 
-Definition result {p} (pe : Elaboration p) : Result p (elaboration_indexed pe) :=
-  match decision pe with
-  | AcceptedDecision Hnil => ElaborationOK (core_facts (elaboration_core pe) Hnil)
-  | RejectedDecision Hne  => ElaborationFailed (core_diagnostics (elaboration_core pe)) Hne
-  end.
-
 Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
@@ -9291,38 +9325,6 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
     nothing"; on success the retained facts are exposed with the derived validity, on failure the EXACT
     diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
-(* the phase-projected command-ordered expression + package diagnostics EQUAL the canonical
-   [semantic_diagnostics] (the phase diags are [expression_diags], the bucket diags are [package_diags], both by identity). *)
-Lemma elaborate_phase_raw_eq (p : Syntax.Program) (ip : Index.Program p) :
-  let input := build_compilation_input p ip in
-  let ph := build_expression_phase input in
-  let idx := index input in
-  let buckets := program_package_refs_from_visit idx (input_visit input) in
-  bucket_flatten (node_keyed (phase_diags ph
-      ++ bucket_diags_elems buckets (bucket_key_present idx) (PackageMap.elements buckets) (elements_all_mapsto buckets)))
-    ++ package_primary (phase_diags ph
-      ++ bucket_diags_elems buckets (bucket_key_present idx) (PackageMap.elements buckets) (elements_all_mapsto buckets))
-  = semantic_diagnostics p idx.
-Proof.
-  cbn zeta. rewrite (phase_diags_eq_expr_diags (build_compilation_input p ip) (build_expression_phase (build_compilation_input p ip))).
-  reflexivity.
-Qed.
-
-(* the phase-projected command-ordered diagnostics EQUAL the canonical [elaboration_diagnostics] — the bridge
-   the decision theorems use (so they need not re-derive the transport). *)
-Lemma elaborate_diags_eq_elaboration (p : Syntax.Program) (ip : Index.Program p) :
-  let input := build_compilation_input p ip in
-  let ph := build_expression_phase input in
-  let idx := index input in
-  let buckets := program_package_refs_from_visit idx (input_visit input) in
-  command_diagnostics_of p (fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements buckets)) (root_layout p))
-    (bucket_flatten (node_keyed (phase_diags ph
-        ++ bucket_diags_elems buckets (bucket_key_present idx) (PackageMap.elements buckets) (elements_all_mapsto buckets)))
-     ++ package_primary (phase_diags ph
-        ++ bucket_diags_elems buckets (bucket_key_present idx) (PackageMap.elements buckets) (elements_all_mapsto buckets)))
-  = elaboration_diagnostics p idx.
-Proof. cbn zeta. rewrite (elaborate_phase_raw_eq p ip). exact (command_plan_diags_eq p ip). Qed.
-
 (* the decision is read off the core's OWN diagnostics — the one accept/reject quantity, nothing recomputed. *)
 Definition decision_of_core {p} (core : Core p) : Decision core :=
   match list_is_nil (core_diagnostics core) with
@@ -9340,12 +9342,7 @@ Definition elaborate_at {p : Syntax.Program} (ip : Index.Program p) : Elaboratio
 Definition elaborate (p : Syntax.Program) : Elaboration p :=
   elaborate_at (Index.index_program p).
 
-(* the accepted/rejected VIEW at a given index, kept for the existing consumers: a total projection of the
-   retained elaboration, never a second pass. *)
-Definition elaborate_indexed (p : Syntax.Program) (ip : Index.Program p) : Result p ip :=
-  result (elaborate_at ip).
-
-(** ★§5/§3.8 (REPAIR 14) THE SEALED TABLES ARE THE RETAINED PHASE'S OWN OBJECTS — now BY PROJECTION.  The
+(** ★§5/§3.8 THE SEALED TABLES ARE THE RETAINED PHASE'S OWN OBJECTS — now BY PROJECTION.  The
     accepted view is BUILT from the retained core, so "the sealed table is the constructed-and-consumed table"
     holds DEFINITIONALLY: there is no rebuilt phase to compare against and no equality to a second builder.
     These replace the old [elaborate_ok_seals_*] forms, which had to re-run [build_expression_phase] on a
@@ -9368,73 +9365,34 @@ Proof. reflexivity. Qed.
 (** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([Admissible] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
     diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  (The [diags] computed inside
-    [elaborate_indexed] runs on the RETAINED bucket-derived [plan]; [command_plan_diags_eq] bridges it to the
+    [elaborate] runs on the RETAINED bucket-derived [plan]; [command_plan_diags_eq] bridges it to the
     canonical [elaboration_diagnostics] — the only difference is the plan presentation — so both reduce through
     [elaboration_diagnostics_nil_iff_admissible].) *)
 Theorem elaboration_accepted_iff_admissible (p : Syntax.Program) :
-  (exists facts, result (elaborate p) = ElaborationOK facts) <-> Admissible p.
+  core_diagnostics (elaboration_core (elaborate p)) = nil <-> Admissible p.
 Proof.
-  unfold elaborate, elaborate_at, decision_of_core, result; cbn [elaboration_core decision]; cbv zeta.
-  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
-  - split; intro Hx;
-      [ exact (proj1 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p)))
-                 (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (Index.index_program p))) He))
-      | eexists; reflexivity ].
-  - split; intro Hx.
-    + destruct Hx as [facts Hf]; discriminate Hf.
-    + exfalso. apply Hne.
-      exact (eq_trans (elaborate_diags_eq_elaboration p (Index.index_program p))
-               (proj2 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p))) Hx)).
+  rewrite (core_diagnostics_eq_elaboration (elaboration_core (elaborate p))).
+  exact (elaboration_diagnostics_nil_iff_admissible p
+           (core_index (elaboration_core (elaborate p)))).
 Qed.
 
 Theorem elaboration_rejected_iff_inadmissible (p : Syntax.Program) :
-  (exists ds Hne, result (elaborate p) = ElaborationFailed ds Hne) <-> ~ Admissible p.
+  core_diagnostics (elaboration_core (elaborate p)) <> nil <-> ~ Admissible p.
 Proof.
-  unfold elaborate, elaborate_at, result, decision_of_core; cbn [elaboration_core decision]; cbv zeta.
-  match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end; cbv iota.
-  - split; intro Hx.
-    + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
-    + exfalso. apply Hx.
-      exact (proj1 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p)))
-               (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (Index.index_program p))) He)).
-  - split; intro Hx.
-    + intro Hv. apply Hne.
-      exact (eq_trans (elaborate_diags_eq_elaboration p (Index.index_program p))
-               (proj2 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p))) Hv)).
-    + eexists; eexists; reflexivity.
-Qed.
-
-(** A failed elaboration result is incompatible with validity (used to discharge the impossible branch when
-    minting the provenance sigma from a validity proof). *)
-Lemma elaborate_failed_not_valid (p : Syntax.Program) ds Hne :
-  result (elaborate p) = ElaborationFailed ds Hne -> Admissible p -> False.
-Proof.
-  intros Heq Hv.
-  exact (proj1 (elaboration_rejected_iff_inadmissible p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
+  split; intro H.
+  - intro Hv. exact (H (proj2 (elaboration_accepted_iff_admissible p) Hv)).
+  - intro He. exact (H (proj1 (elaboration_accepted_iff_admissible p) He)).
 Qed.
 
 (* [Admissible] and its [elaboration_diagnostics]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
    exactness theorems below are stated over [Admissible]. *)
 
-(** ═══ §6/§9 (REPAIR 14) THE CAPABILITY RETAINS THE CORE ═══ the whole-equation scaffolding that used to lift a
-    [result] fact to [elaborate p = make_elaboration ip (ElaborationOK facts)] is DELETED along with
+(** ═══ §6/§9 THE CAPABILITY RETAINS THE CORE ═══ the whole-equation scaffolding that used to lift a
+    stripped-result fact to a whole-elaboration equation is DELETED along with
     [cp_prov]: it existed only to reconstruct a discarded whole result and to serve as provenance-by-equality.
     A [Program] now RETAINS the exact accepted [Core] — with it, the input, the phase, the
     work forest and index, the outcome Index.table and its trace, the annotation, the fact tables and the diagnostics.
     Everything public is a PROJECTION of that retained object; no theorem calls [elaborate] to recover a field. *)
-
-(* from admissibility, obtain the retained core together with its accepted evidence.  The elaborator is run
-   ONCE here; the returned core is the one that justified the decision, not an equal rebuild. *)
-Definition elaboration_ok_core (p : Syntax.Program) (H : Admissible p)
-  : { core : Core p | core_diagnostics core = nil } :=
-  let core := build_elaboration_core p (Index.index_program p) in
-  match list_is_nil (core_diagnostics core) with
-  | left He   => exist _ core He
-  | right Hne =>
-      False_rect _ (Hne (eq_trans (core_diagnostics_eq_elaboration core)
-        (proj2 (elaboration_diagnostics_nil_iff_admissible p
-                  (Index.indexed_syntax (Index.index_program p))) H)))
-  end.
 
 Record Program : Type := make_program {
   source : Syntax.Program;
@@ -9446,7 +9404,7 @@ Record Program : Type := make_program {
 Definition program_index (cp : Program) : Index.Program (source cp) := core_indexed (core cp).
 Definition program_input (cp : Program) : Input (source cp) := core_input (core cp).
 Definition program_phase (cp : Program) : Phase (program_input cp) := phase (core cp).
-Definition facts (cp : Program) : Facts (source cp) (program_index cp) :=
+Definition facts (cp : Program) : Facts (core cp) (accepted cp) :=
   core_facts (core cp) (accepted cp).
 
 Definition admissible (cp : Program) : Admissible (source cp) :=
@@ -9477,14 +9435,38 @@ Proof. intro cp; exact (compile_program_typed _ (admissible cp)). Qed.
 
 (** ---- the proof-producing executable compiler ---- *)
 
-(** a structured failure bundle: the EXACT elaboration diagnostics + their nonempty proof. *)
+(** ═══ §6 THE REJECTED CAPABILITY RETAINS ITS CORE ═══ a failure used to store a COPIED
+    diagnostic list and drop the object that produced it — the A001 defect on the failure side.  A returned
+    [Failure] now holds the very [Core] the decision judged, so every failure query (input, phase, work forest
+    and index, outcome table and trace, annotated context, package refs, layout, plan, and the diagnostics
+    themselves) is a PROJECTION of the retained rejected elaboration.  Nothing is recovered by re-running. *)
 Record Failure (p : Syntax.Program) : Type := make_failure {
-  failure_diagnostics    : list (DiagnosticReason p) ;
-  failure_nonempty : failure_diagnostics <> nil
+  failure_core : Core p ;
+  rejected     : core_diagnostics failure_core <> nil
 }.
 Arguments make_failure {p} _ _.
-Arguments failure_diagnostics {p} _.
-Arguments failure_nonempty {p} _.
+Arguments failure_core {p} _.
+Arguments rejected {p} _.
+
+(* the exposed diagnostics ARE the retained core's own — definitionally, not by a stored equality. *)
+Definition failure_diagnostics {p} (fail : Failure p) : list (DiagnosticReason p) :=
+  core_diagnostics (failure_core fail).
+Definition failure_nonempty {p} (fail : Failure p) : failure_diagnostics fail <> nil := rejected fail.
+
+(* the rejected elaboration, projected — the whole causal chain a diagnostic consumer needs. *)
+(* the one reduction fact for a constructed failure — holds by [reflexivity]. *)
+Lemma failure_diagnostics_make {p} (core : Core p) (H : core_diagnostics core <> nil) :
+  failure_diagnostics (make_failure core H) = core_diagnostics core.
+Proof. reflexivity. Qed.
+
+Definition failure_input {p} (fail : Failure p) : Input p := core_input (failure_core fail).
+Definition failure_phase {p} (fail : Failure p) : Phase (failure_input fail) := phase (failure_core fail).
+Definition failure_index {p} (fail : Failure p) : Index.Snapshot.Syntax p := core_index (failure_core fail).
+Definition failure_indexed {p} (fail : Failure p) : Index.Program p := core_indexed (failure_core fail).
+Definition failure_package_refs {p} (fail : Failure p) := core_package_refs (failure_core fail).
+Definition failure_layout {p} (fail : Failure p) := core_layout (failure_core fail).
+Definition failure_plan {p} (fail : Failure p) := core_plan (failure_core fail).
+Definition failure_raw_diagnostics {p} (fail : Failure p) := core_raw_diagnostics (failure_core fail).
 
 Inductive Outcome (p : Syntax.Program) : Type :=
 | Compiled    (cp : Program) (Hcp : source cp = p)
@@ -9511,7 +9493,7 @@ Definition legacy_compile_class {p} (o : Outcome p) : LegacyClass :=
 Definition outcome_of_elaboration (p : Syntax.Program) (a : Elaboration p) : Outcome p :=
   match decision a with
   | AcceptedDecision Hnil => Compiled (make_program p (elaboration_core a) Hnil) eq_refl
-  | RejectedDecision Hne  => Rejected (make_failure (core_diagnostics (elaboration_core a)) Hne)
+  | RejectedDecision Hne  => Rejected (make_failure (elaboration_core a) Hne)
   end.
 
 Definition compile (p : Syntax.Program) : Outcome p :=
@@ -9524,8 +9506,7 @@ Lemma compile_on_core : forall p,
   compile p =
     (match list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p))) with
      | left He   => Compiled (make_program p (build_elaboration_core p (Index.index_program p)) He) eq_refl
-     | right Hne => Rejected (make_failure
-                      (core_diagnostics (build_elaboration_core p (Index.index_program p))) Hne)
+     | right Hne => Rejected (make_failure (build_elaboration_core p (Index.index_program p)) Hne)
      end).
 Proof.
   intro p. unfold compile, outcome_of_elaboration, elaborate, elaborate_at, decision_of_core.
@@ -9661,14 +9642,35 @@ Proof. intro cp. exact (build_plan_ok (facts cp)). Qed.
 Lemma program_root_layout_retained : forall cp, program_root_layout cp = root_layout (source cp).
 Proof. intro cp. exact (facts_root_layout_ok (facts cp)). Qed.
 
-(** the witness builder: from validity, [elaboration_ok_core] runs the elaborator ONCE and returns that exact
-    core with its accepted evidence.  Both constructor arguments project that single object — there is no index
-    to rebuild and no provenance equation to discharge.  [source] stays a direct first-field projection
-    ([= p]) so rendering/emission never reduce the opaque, vm-compute-unfriendly elaboration.  This is the SAME
-    object [compile]'s success value carries — the two artifacts are built ONE way. *)
-Definition compilable_of_valid (p : Syntax.Program) (H : Admissible p) : Program :=
-  let s := elaboration_ok_core p H in
-  make_program p (proj1_sig s) (proj2_sig s).
+(** ═══ §7 THE ONE CAPABILITY-MINTING PATH ═══ there is exactly one way a [Program] enters the world: the
+    production [compile].  This extractor STRUCTURALLY INSPECTS that one outcome and returns the capability
+    from its [Compiled] branch — it never calls [build_elaboration_core], [make_program] or
+    [Index.index_program], and never rebuilds or compares a core.  The [Rejected] branch is discharged as
+    impossible from admissibility, so a witness cannot mint an artifact the compiler did not produce, and the
+    emitted bytes are by construction the bytes of the compiler's own accepted object. *)
+Lemma compile_rejected_not_admissible (p : Syntax.Program) (fail : Failure p) :
+  compile p = Rejected fail -> ~ Admissible p.
+Proof.
+  intros E H. destruct (compile_complete p H) as [cp [Hcp Hc]].
+  rewrite E in Hc. discriminate.
+Qed.
+
+Definition program_of_admissible (p : Syntax.Program) (H : Admissible p)
+  : { cp : Program | source cp = p /\ exists Hcp, compile p = Compiled cp Hcp } :=
+  match compile p as o return compile p = o -> _ with
+  | Compiled cp Hs => fun E => exist _ cp (conj Hs (ex_intro _ Hs E))
+  | Rejected fail  => fun E => False_rect _ (compile_rejected_not_admissible p fail E H)
+  end eq_refl.
+
+(** the capability itself, and the two facts every witness needs about it: it IS the compiler's outcome for
+    that source, and its source is the program asked about. *)
+Definition capability_of_admissible (p : Syntax.Program) (H : Admissible p) : Program :=
+  proj1_sig (program_of_admissible p H).
+Definition capability_source (p : Syntax.Program) (H : Admissible p)
+  : source (capability_of_admissible p H) = p := proj1 (proj2_sig (program_of_admissible p H)).
+Definition capability_is_compile_outcome (p : Syntax.Program) (H : Admissible p)
+  : exists Hcp, compile p = Compiled (capability_of_admissible p H) Hcp
+  := proj2 (proj2_sig (program_of_admissible p H)).
 
 (** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
     diagnostics, never a [program_typedb] rerun. *)
@@ -9684,7 +9686,7 @@ Proof.
                (Index.indexed_syntax (Index.index_program p)))).
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     pose proof (proj2 (program_typedb_iff predeclared_type p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
-  - cbn [legacy_compile_class failure_diagnostics]. unfold legacy_class_of_diags.
+  - cbn [legacy_compile_class]. rewrite failure_diagnostics_make. unfold legacy_class_of_diags.
     rewrite (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p))), (elaboration_diagnostics_eq_semantic p _ Hpf),
             existsb_build_output_semantic, existsb_typing_semantic, Hf. reflexivity.
 Qed.
@@ -9750,7 +9752,7 @@ Proof.
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
     cbn [legacy_compile_class]. rewrite (proj2 (source_spec_valid_b_iff p) Hsv). reflexivity.
-  - cbn [legacy_compile_class failure_diagnostics]. unfold legacy_class_of_diags.
+  - cbn [legacy_compile_class]. rewrite failure_diagnostics_make. unfold legacy_class_of_diags.
     rewrite (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p))).
     destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
     + rewrite (elaboration_diagnostics_eq_semantic p _ Ep), existsb_build_output_semantic,
@@ -9889,14 +9891,15 @@ Example over_program_rejected  : legacy_compile_class (compile over_program) = L
 Example over_program_no_compile : ~ Admissible over_program.
 Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
 
-(* REPAIR 14 — the REJECTED side on a concrete program: the failure value carries the diagnostics of the very
-   [Core] the decision judged ([core_diagnostics (elaboration_core (elaborate …))]), not a recomputed list.  The
-   rejected core is reachable from the elaboration, so a diagnostic consumer can inspect the causal object that
-   produced each message instead of re-running the elaborator to find out why. *)
-Theorem over_program_failure_carries_core_diags :
+(* the directive §10.2 — the REJECTED side on a concrete program.  The previous form proved only that a COPIED
+   list equalled the diagnostics of a core reachable by calling [elaborate] again; the returned value could not
+   project that core, so the claim overreached.  This states the retention itself: the returned [Failure] holds
+   the very [Core] the decision judged, and its diagnostics are that core's own — definitionally, not by a
+   stored equality.  Everything a diagnostic consumer needs is a projection of [failure_core]. *)
+Theorem over_program_failure_retains_rejected_core :
   exists Hne,
     compile over_program
-    = Rejected (make_failure (core_diagnostics (elaboration_core (elaborate over_program))) Hne).
+    = Rejected (make_failure (elaboration_core (elaborate over_program)) Hne).
 Proof.
   rewrite compile_on_core.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core over_program (Index.index_program over_program))))
@@ -10126,7 +10129,7 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
     queried fact is its occurrence's EXACT source-derived fact — the [const_status] IS the occurrence's
     [constant_info] and the [use_resolved] IS its use-context resolution ([resolve_constant], rounded ONCE at
     conversion — no rerounding).  So the query PROJECTS the occurrence, never a recomputed value. *)
-Lemma expression_fact_at_exact {p ip} (facts : Facts p ip) (er : Index.ExprRef p) :
+Lemma expression_fact_at_exact {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) :
   exists e ci,
     Index.view_expr (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Some e
     /\ constant_info e = Some ci
@@ -10338,7 +10341,7 @@ Qed.
 (* PHASE query — deep inner failure: the built phase REPORTS the failure (its projection is NON-empty; the fail
    is NOT suppressed — the §2.3 fail-open would have dropped it).  The innermost [int8(300)] is the sole ConversionFailure
    and the three enclosing conversions are ChildFailure; the SPEC fixture [deep_fail_one_diag] pins the exact
-   count = 1, and the phase projection equals that spec by [elaborate_phase_raw_eq]. *)
+   count = 1, and the phase projection equals that spec by [core_raw_semantic]. *)
 Theorem deep_fail_phase_reports :
   phase_diags (build_expression_phase
               (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))) <> [].
@@ -10463,9 +10466,11 @@ Proof.
 Qed.
 
 Theorem two_uint8_distinct_target_refs :
-  exists facts (er1 er2 : Index.ExprRef two_uint8_program) tr1 tr2,
-    (* the facts come from an ACTUAL successful elaboration — the RETAINED [Facts], not a global builder *)
-    result (elaborate two_uint8_program) = ElaborationOK facts
+  exists (Hnil : core_diagnostics (elaboration_core (elaborate two_uint8_program)) = nil)
+         facts (er1 er2 : Index.ExprRef two_uint8_program) tr1 tr2,
+    (* the facts come from an ACTUAL successful elaboration — projected from the RETAINED core, not a
+       global builder and not a stripped result peer *)
+    facts = core_facts (elaboration_core (elaborate two_uint8_program)) Hnil
     /\ conversion_target_ref (Index.indexed_syntax (Index.index_program two_uint8_program)) er1 = Some tr1
     /\ conversion_target_ref (Index.indexed_syntax (Index.index_program two_uint8_program)) er2 = Some tr2
     /\ Index.Snapshot.node_ref_key (Index.erase_ref tr1) <> Index.Snapshot.node_ref_key (Index.erase_ref tr2)
@@ -10474,15 +10479,16 @@ Theorem two_uint8_distinct_target_refs :
        DISTINCT occurrence refs, EQUAL recovered syntax, EQUAL sealed facts (occurrence identity, not name identity). *)
     /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
 Proof.
-  destruct (proj2 (elaboration_accepted_iff_admissible two_uint8_program) two_uint8_compiles) as [facts Hfacts].
+  pose proof (proj2 (elaboration_accepted_iff_admissible two_uint8_program) two_uint8_compiles) as Hnil.
+  pose (facts := core_facts (elaboration_core (elaborate two_uint8_program)) Hnil).
   destruct (Index.source_occurrence_at two_uint8_src 5) as [occ1|] eqn:Eo1; [| vm_compute in Eo1; discriminate Eo1].
   destruct (Index.source_occurrence_at two_uint8_src 8) as [occ2|] eqn:Eo2; [| vm_compute in Eo2; discriminate Eo2].
   destruct (two_uint8_conv_ref 5 0 occ1 Eo1
               ltac:(vm_compute in Eo1; injection Eo1 as <-; vm_compute; reflexivity)) as [er1 [tr1 [Hc1 [Hk1 Hs1]]]].
   destruct (two_uint8_conv_ref 8 1 occ2 Eo2
               ltac:(vm_compute in Eo2; injection Eo2 as <-; vm_compute; reflexivity)) as [er2 [tr2 [Hc2 [Hk2 Hs2]]]].
-  exists facts, er1, er2, tr1, tr2.
-  split; [ exact Hfacts | split; [ exact Hc1 | split; [ exact Hc2 | split; [ | split ] ] ] ].
+  exists Hnil, facts, er1, er2, tr1, tr2.
+  split; [ reflexivity | split; [ exact Hc1 | split; [ exact Hc2 | split; [ | split ] ] ] ].
   - rewrite Hk1, Hk2. intro Hbad. apply (f_equal Index.key_local) in Hbad. vm_compute in Hbad. discriminate Hbad.
   - rewrite Hs1, Hs2. reflexivity.
   - rewrite (type_name_fact_at_resolves facts tr1 _ Hs1),
@@ -10883,9 +10889,9 @@ Qed.
    tail/final [ExpressionSuccess opf] + query equality.  The EXACT accepted valid-chain success evidence — which additionally
    STATES the exact [ConversionStep], the target fact query, the current final [ExpressionSuccess f], the one [Typing.convert_constant]
    success, and the exact current [ExpressionFact] — is [deep_nested_convsuccess_at] / [deep_nested_chain_success_evidence]
-   below (repair 11: the accepted concrete theorem states everything its proof knows). *)
+   below — the accepted concrete theorem states everything its proof knows. *)
 
-(* §3 (REPAIR 11) the EXACT per-conversion valid-chain success bundle: the FULL [retained_convsuccess_closure]
+(* §3 the EXACT per-conversion valid-chain success bundle: the FULL [retained_convsuccess_closure]
    evidence for one member — current [Syntax.Convert] view, current final [ExpressionSuccess f], exact [ConversionStep], operand
    [SuffixMember], tail [ExpressionSuccess opf], final [ExpressionSuccess opf], tail=final query equality, ONE [Typing.convert_constant] success on the
    exact target fact, and [f] the EXACT current final [ExpressionFact]. *)
@@ -10974,7 +10980,7 @@ Proof.
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
 Qed.
 
-(* ---- §3/§4/§10 (REPAIR 13) THE DIRECT WORK-INDEX FIXTURES ---- (a) on the REAL four-deep chain, the operand
+(* ---- §3/§4/§10 THE DIRECT WORK-INDEX FIXTURES ---- (a) on the REAL four-deep chain, the operand
    [ExprRef] each conversion CARRIES queries the retained STANDARD-MAP index (one [KeyMap.find]) to the
    EXACT retained operand member; that member IS the one the [ConversionStep] placed in the processed suffix; and
    the accepted outcomes are unchanged.  (b) two SYNTACTICALLY EQUAL expression values at DISTINCT occurrences get

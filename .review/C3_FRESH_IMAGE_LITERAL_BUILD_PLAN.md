@@ -1,3 +1,7 @@
+HISTORICAL DOCUMENT — the C3 checkpoint's build plan, accepted and closed at the original C4
+baseline `8c9212a`. It describes the design and names of its own time; A005 and repair 15 renamed
+or retired many of them. Read it as a record, never as current authority.
+
 ★ AMENDMENT (Rob, verbal decision, 2026-07-19) — PLATFORM LIMITS ARE OUT OF SCOPE.
   Fido does NOT model platform-specific filesystem / materialization limits (NAME_MAX, PATH_MAX, disk,
   memory).  For modeling purposes a path is UNLIMITED length.  The "Admissible accepts EXACTLY what the pinned

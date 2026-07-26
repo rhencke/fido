@@ -30,15 +30,21 @@ Import ListNotations.
 Module FileMap := Syntax.FileMap.
 Module FileFacts := Syntax.FileFacts.
 
-(** The raw rendered `.go` map of a safe program (internal): each source file rendered (package clause from
+(** The raw rendered `.go` map of a SOURCE program (internal): each source file rendered (package clause from
     its own [Syntax.package]), keyed by its path — the standard FileMap [map] of [Render.file] over the one
     source forest, so paths stay unique by construction (no re-keying). *)
-Definition file_map (sp : Safe.Program) : FileMap.t string :=
-  Syntax.map_file_values Render.file (Syntax.files (Safe.source sp)).
+Definition file_map_of (p : Syntax.Program) : FileMap.t string :=
+  Syntax.map_file_values Render.file (Syntax.files p).
 
-(** The rendered go.mod of a safe program (from its module spec). *)
-Definition module_file (sp : Safe.Program) : string :=
-  Render.module_file (Syntax.module_spec (Safe.source sp)).
+(** The rendered go.mod of a SOURCE program (from its module spec). *)
+Definition module_file_of (p : Syntax.Program) : string :=
+  Render.module_file (Syntax.module_spec p).
+
+(** …and the same two, read off a safe program.  Rendering depends on the SOURCE alone — safety decides
+    WHETHER a program may be emitted, never WHAT its bytes are — so these are the source renderers applied
+    to [Safe.source]. *)
+Definition file_map (sp : Safe.Program) : FileMap.t string := file_map_of (Safe.source sp).
+Definition module_file (sp : Safe.Program) : string := module_file_of (Safe.source sp).
 
 (** The abstract image: the complete module (go.mod + `.go` map) that PROVABLY came from one Safe.Program. *)
 Record Image : Type := make_image {
@@ -52,6 +58,19 @@ Record Image : Type := make_image {
 Definition of_safe (sp : Safe.Program) : Image :=
   make_image (module_file sp) (file_map sp) (ex_intro _ sp (conj eq_refl eq_refl)).
 
+(** The same image, formed from a source program ALREADY KNOWN to be the certificate's own.  The certificate
+    still gates emission — [H] cannot be had without one — but the bytes are computed from [p] directly, so a
+    consumer that must reduce the image (the `Fido Materialize` transport) renders the source instead of
+    forcing the capability's whole elaboration to recover a program it was handed.  The image is the SAME
+    image: [of_safe_at_transport] below. *)
+Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
+  make_image (module_file_of p) (file_map_of p)
+    (ex_intro _ sp (conj (f_equal module_file_of (eq_sym H)) (f_equal file_map_of (eq_sym H)))).
+
+(** [of_safe] IS the reflexive case, so there is one construction, not two. *)
+Lemma of_safe_at_refl : forall sp, of_safe_at sp (Safe.source sp) eq_refl = of_safe sp.
+Proof. reflexivity. Qed.
+
 (** The transport projection: the exact go.mod bytes and the CANONICAL derived list of (on-disk `.go` path,
     contents) enumerated from the standard [FileMap.elements] (the ONE ordered enumeration, not a stored list). *)
 Definition entries (img : Image) : list (string * string) :=
@@ -60,6 +79,12 @@ Definition entries (img : Image) : list (string * string) :=
 Definition transport (img : Image) : string * list (string * string) :=
   (module_bytes img, entries img).
 
+(** the transported form emits the SAME bytes and the SAME entries as the canonical one — the source
+    equality is the only thing that moved, so nothing about the emitted artifact depends on which spelling of
+    the certificate's source the caller had in hand. *)
+Lemma of_safe_at_transport : forall sp p H, transport (of_safe_at sp p H) = transport (of_safe sp).
+Proof. intros sp p H. destruct H. reflexivity. Qed.
+
 (** ---- go.mod facts (over EVERY Image, via provenance) ---- *)
 
 (** The go.mod begins with the exact header AS THE FIRST LINE. *)
@@ -67,14 +92,14 @@ Lemma of_safe_module_file_header : forall img,
   exists rest, module_bytes img = header ++ String nl_c rest.
 Proof.
   intro img. destruct (provenance img) as [ sp [ Hgm _ ] ].
-  rewrite Hgm. unfold module_file. apply Render.module_file_first_line.
+  rewrite Hgm. unfold module_file, module_file_of. apply Render.module_file_first_line.
 Qed.
 
 (** The go.mod is ASCII. *)
 Lemma of_safe_module_file_ascii : forall img, str_ascii (module_bytes img) = true.
 Proof.
   intro img. destruct (provenance img) as [ sp [ Hgm _ ] ].
-  rewrite Hgm. unfold module_file. apply Render.module_file_ascii.
+  rewrite Hgm. unfold module_file, module_file_of. apply Render.module_file_ascii.
 Qed.
 
 (** ---- `.go` file facts (over EVERY Image, via provenance) ---- *)
@@ -86,7 +111,7 @@ Proof.
   intros sp k b Hin.
   assert (Hmt : FileMap.MapsTo k b (file_map sp)).
   { apply FileFacts.elements_mapsto_iff, InA_alt. exists (k, b). split; [ split; reflexivity | exact Hin ]. }
-  unfold file_map, Syntax.map_file_values in Hmt.
+  unfold file_map, file_map_of, Syntax.map_file_values in Hmt.
   apply FileFacts.map_mapsto_iff in Hmt. destruct Hmt as [ sf [ Hb _ ] ]. exists sf; exact Hb.
 Qed.
 
@@ -153,13 +178,13 @@ Qed.
 (** the rendered map has the SAME key domain as the source file map (the standard [map] preserves keys). *)
 Lemma file_map_domain : forall sp p,
   FileMap.In p (file_map sp) <-> FileMap.In p (Syntax.files (Safe.source sp)).
-Proof. intros sp p. unfold file_map, Syntax.map_file_values. apply FileFacts.map_in_iff. Qed.
+Proof. intros sp p. unfold file_map, file_map_of, Syntax.map_file_values. apply FileFacts.map_in_iff. Qed.
 
 (** every rendered binding is EXACTLY [Render.file] of the source at that path (the standard [map] law). *)
 Lemma file_map_binding : forall sp p bytes,
   FileMap.MapsTo p bytes (file_map sp)
   <-> exists sf, bytes = Render.file sf /\ FileMap.MapsTo p sf (Syntax.files (Safe.source sp)).
-Proof. intros sp p bytes. unfold file_map, Syntax.map_file_values. apply FileFacts.map_mapsto_iff. Qed.
+Proof. intros sp p bytes. unfold file_map, file_map_of, Syntax.map_file_values. apply FileFacts.map_mapsto_iff. Qed.
 
 (** [FilesEqual] source maps render to [FileMap.Equal] rendered maps — rendering respects semantic map equality. *)
 Lemma file_map_equal : forall fm1 fm2,
@@ -182,7 +207,7 @@ Theorem realizes_fresh_layout : forall sp,
   source_layout (of_safe sp) = root_layout (Safe.source sp).
 Proof.
   intro sp. unfold source_layout, of_safe; cbn [files].
-  unfold file_map, Syntax.map_file_values.
+  unfold file_map, file_map_of, Syntax.map_file_values.
   rewrite Collections.file_map_fst_elements.
   symmetry. apply root_layout_eq_of_keys.
 Qed.
@@ -237,7 +262,7 @@ Theorem transport_order_independent : forall sp1 sp2,
   transport (of_safe sp1) = transport (of_safe sp2).
 Proof.
   intros sp1 sp2 Hmod Hfiles. unfold transport. f_equal.
-  - cbn [of_safe module_bytes]. unfold module_file. rewrite Hmod. reflexivity.
+  - cbn [of_safe module_bytes]. unfold module_file, module_file_of. rewrite Hmod. reflexivity.
   - apply entries_equal. cbn [of_safe files].
-    unfold file_map, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
+    unfold file_map, file_map_of, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
 Qed.

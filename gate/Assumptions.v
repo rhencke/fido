@@ -189,13 +189,19 @@ Print Assumptions Syntax.files_equal_trans.
 Print Assumptions Compilable.semantic_ok_b_source_program_valid.
 Print Assumptions Compilable.compile_ok_valid.
 Print Assumptions Compilable.compile_complete.
-(* PROVENANCE + RETENTION: every Compilable.Program's facts ARE elaborate's exact ElaborationOK output
+(* PROVENANCE + RETENTION: every Compilable.Program's facts ARE elaborate's exact accepted core
    (no parallel capability path), and it RETAINS the exact elaborated index (the projection retains, never
    reconstructs). *)
 Print Assumptions Compilable.compilable_retains_phase.
 Print Assumptions Compilable.compilable_retains_expr_facts.
 Print Assumptions Compilable.compilable_retains_tnfacts.
-Print Assumptions Compilable.elaboration_ok_core.
+Print Assumptions Compilable.program_of_admissible.
+Print Assumptions Compilable.capability_source.
+Print Assumptions Compilable.capability_is_compile_outcome.
+Print Assumptions Compilable.compile_rejected_not_admissible.
+Print Assumptions Emit.of_safe_at.
+Print Assumptions Emit.of_safe_at_refl.
+Print Assumptions Emit.of_safe_at_transport.
 Print Assumptions Compilable.compile_on_core.
 Print Assumptions Compilable.core_diags_nil_of_valid.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file
@@ -306,7 +312,7 @@ Print Assumptions Compilable.forest_reverse.
 Print Assumptions Compilable.forest_forward.
 Print Assumptions Compilable.forest_keys_nodup.
 Print Assumptions Compilable.forest_operand_in_tail.
-(* §3/§4/§10 (REPAIR 13) THE EXACT STANDARD WORK-MEMBER INDEX — the retained ordered [Compilable.forest_items] list is the
+(* §3/§4/§10 THE EXACT STANDARD WORK-MEMBER INDEX — the retained ordered [Compilable.forest_items] list is the
    SOURCE-ORDER authority ONLY; the IDENTITY role is a DERIVED index whose storage and lookup delegate ENTIRELY to
    the pinned-stdlib [FMapAVL] map [Index.KeyMap].  NO keyed list scan — no [List.find], no [existsb]
    membership test, no recursive key search — occurs anywhere in the work-member lookup path
@@ -376,7 +382,7 @@ Print Assumptions Compilable.trace_retained_cause.
 Print Assumptions Compilable.trace_match.
 Print Assumptions Compilable.build_conversion_step.
 Print Assumptions Compilable.build_forest_outcome_table.
-(* §4/§5 (REPAIR 10; §3 REPAIR 12) the UNIVERSAL acceptance theorems over ANY retained Index.table/member: the direct
+(* §3/§4/§5 the UNIVERSAL acceptance theorems over ANY retained Index.table/member: the direct
    conversion-success closure ([retained_convsuccess_closure] — the [ConversionStep] for the EXACT SOURCE [ts]/[x]
    (no existential ts0/x0) + target fact + operand SuffixMember + tail = final = Compilable.ExpressionSuccess opf + one Typing.convert_constant success
    + exact current fact), the direct child-failure closure +
@@ -521,11 +527,20 @@ Print Assumptions Compilable.deep_fail_innermost_convfail.
 Print Assumptions Compilable.deep_fail_outer_childfail.
 Print Assumptions Compilable.deep_fail_exactly_one_diag.
 Print Assumptions Compilable.deep_nested_all_ok.
-Print Assumptions Compilable.over_program_failure_carries_core_diags.
+Print Assumptions Compilable.over_program_failure_retains_rejected_core.
+(* §11.1/§11.4: the core retains the WHOLE elaboration — buckets, layout, plan and both
+   diagnostic lists are stored with their exactness evidence, not recomputed on each query; and the
+   rejected capability retains that exact core rather than a copied diagnostic list. *)
+Print Assumptions Compilable.core_package_refs_canonical.
+Print Assumptions Compilable.core_plan_is_fresh_build_plan.
+Print Assumptions Compilable.core_raw_semantic.
+Print Assumptions Compilable.core_diagnostics_eq_elaboration.
+Print Assumptions Compilable.failure_diagnostics.
+Print Assumptions Compilable.failure_core.
 Print Assumptions Compilable.deep_nested_seals_expression_fact_table.
 Print Assumptions Compilable.deep_nested_work_count.
 Print Assumptions Compilable.phase_domain_exact.
-(* §3/§4 (REPAIR 11; source-step identity §3 REPAIR 12) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
+(* §3/§4 the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
    evidence, gated as the accepted public surfaces — each accepted theorem STATES exactly the evidence its proof
    obtains:
    - the exact per-occurrence valid-chain SUCCESS bundle ([deep_nested_convsuccess_at], proving [nested_success_bundle]:
@@ -550,7 +565,7 @@ Print Assumptions Compilable.deep_fail_childfail_closure_at.
 Print Assumptions Compilable.deep_nested_ok_closure_at.
 Print Assumptions Compilable.deep_fail_outer_operands_final_fail.
 Print Assumptions Compilable.deep_nested_chain_operands_final_ok.
-(* §3/§4/§10 (REPAIR 13) the DIRECT WORK-INDEX fixtures over REAL programs:
+(* §3/§4/§10 the DIRECT WORK-INDEX fixtures over REAL programs:
    - [deep_nested_index_at] / [deep_nested_chain_index_evidence] — on the four-deep chain, EACH conversion's
      CARRIED operand [ExprRef] queries the retained standard-map index ([KeyMap.find]) to the EXACT
      retained operand member; that member IS the one the [ConversionStep] placed in the processed suffix

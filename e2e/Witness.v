@@ -111,18 +111,24 @@ Lemma demo_valid : Admissible demo_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition demo_compiled : Compilable.Program :=
-  compilable_of_valid demo_program demo_valid.
+  Compilable.capability_of_admissible demo_program demo_valid.
 
-(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via Compilable.compile). *)
+(* the compilation artifact IS obtained from the successful elaboration (the accepted decision, via Compilable.compile). *)
 Example demo_compiles : exists cp Hcp, Compilable.compile demo_program = Compilable.Compiled cp Hcp.
 Proof. exact (Compilable.compile_complete demo_program demo_valid). Qed.
 Definition demo_safe : Safe.Program := certify demo_compiled.
+
+(* the image, formed from the source the capability was minted for: [capability_source] is the proof
+   that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
+   and the transport never has to force the elaboration to rediscover a program it already has. *)
+Definition demo_image : Emit.Image :=
+  Emit.of_safe_at demo_safe demo_program (Compilable.capability_source demo_program demo_valid).
 
 Declare ML Module "fido.emit".
 (* AUTHORITATIVE pristine materialization (the pre-build image the pinned `go build ./...` validates and the
    committed canonical artifact is copied from) — written DIRECTLY from the decoded image, never from a sink
    directory. *)
-Fido Materialize (Emit.of_safe demo_safe) To "/workspace/generated".
+Fido Materialize demo_image To "/workspace/generated".
 (* the witness ONLY materializes the authoritative pristine image (which the go-e2e stage then validates
    with a fresh `go build ./...`).  It does NOT sink/publish: there is no public `Fido Emit` command, and the
    sink is exercised separately (e2e/sink_test.ml) and reached in production only through the validated

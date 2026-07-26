@@ -1171,9 +1171,9 @@ determinism requires `ProgramInputEqual` (the file map AND the module), not `Fil
 
 The permanent direction is:
 
-  Compilable.Result p :=
-    ElaborationOK (Compilable.Facts p)
-    ElaborationFailed (NonEmpty (Diagnostic p))
+  Compilable.Outcome p :=
+    Compiled (Compilable.Program p) (source = p)
+    Rejected (Compilable.Failure p)     (* which RETAINS the exact rejected Compilable.Core *)
 
 The proof-producing compiler remains exact against one declarative whole-program judgment.
 
@@ -1972,11 +1972,11 @@ C3.6 Exactness theorems
 
 Prove:
 
-- `ElaborationOK facts` iff declarative compile judgment;
-- `ElaborationFailed ds` yields nonempty valid diagnostics;
-- no valid facts exist on failure, under the selected theorem;
+- accepted (retained core diagnostics nil) iff declarative compile judgment;
+- rejected yields nonempty valid diagnostics, projected from the retained rejected core;
+- no accepted facts exist on failure, under the selected theorem;
 - success has no diagnostics;
-- current `Compilable.Program` is produced only from `ElaborationOK`;
+- current `Compilable.Program` is produced only through `Compilable.compile`;
 - renderer/emitter still require compiled/safe evidence.
 
 C3.7 No typed AST

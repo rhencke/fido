@@ -25,14 +25,20 @@ Lemma bytes_valid : Admissible bytes_program.
 Proof. apply Compilable.admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 Definition bytes_compiled : Compilable.Program :=
-  compilable_of_valid bytes_program bytes_valid.
+  Compilable.capability_of_admissible bytes_program bytes_valid.
 
-(* the compilation artifact IS obtained from the successful elaboration (ElaborationOK via Compilable.compile). *)
+(* the compilation artifact IS obtained from the successful elaboration (the accepted decision, via Compilable.compile). *)
 Example bytes_compiles : exists cp Hcp, Compilable.compile bytes_program = Compilable.Compiled cp Hcp.
 Proof. exact (Compilable.compile_complete bytes_program bytes_valid). Qed.
 Definition bytes_safe : Safe.Program := certify bytes_compiled.
 
+(* the image, formed from the source the capability was minted for: [capability_source] is the proof
+   that this IS the certificate's own source, so the emitted bytes are the compiler-accepted program's
+   and the transport never has to force the elaboration to rediscover a program it already has. *)
+Definition bytes_image : Emit.Image :=
+  Emit.of_safe_at bytes_safe bytes_program (Compilable.capability_source bytes_program bytes_valid).
+
 Declare ML Module "fido.emit".
-Fido Materialize (Emit.of_safe bytes_safe) To "/workspace/generated-bytes".
+Fido Materialize bytes_image To "/workspace/generated-bytes".
 (* witness ONLY materializes the pristine (validated by the go-e2e fresh `go build`); no public
    sink/publish — the sink is exercised by e2e/sink_test.ml + the validated `make regenerate` workflow. *)

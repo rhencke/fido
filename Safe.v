@@ -407,7 +407,7 @@ Definition certify (cp : Compilable.Program) : Program := make cp I.
 (** The certified program (what the public renderer/emitter traverse — only through Program). *)
 Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled sp).
 
-(** RETENTION ACROSS THE SAFETY BOUNDARY (repair 14): safety wraps the capability, so a [Program]
+(** RETENTION ACROSS THE SAFETY BOUNDARY: safety wraps the capability, so a [Program]
     transitively retains the EXACT [Compilable.Core] that justified admissibility — [certify] passes the object
     through untouched and [core] projects it.  A future safety proof therefore consumes the accepted causal
     object directly; it never re-elaborates to recover one.  Both facts hold by [reflexivity]. *)

@@ -83,7 +83,11 @@ RETIRED_COMPOUNDS = ['goexpr', 'gostmt', 'godecl', 'gosourcefile', 'gosource', '
 DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag',
                     'semantic_ok_flag_of_valid', 'elaboration_ok_sig', 'elaboration_result_cases',
                     'elaborate_failed_ds', 'cp_work', 'cp_trace', 'cp_layout', 'cp_plan', 'cp_diags',
-                    'pe_result_on_core']
+                    'pe_result_on_core',
+                    # repair 15 §9/§12 — the stripped result peer and the reconstruction bridges
+                    'ElaborationOK', 'ElaborationFailed', 'elaborate_indexed', 'elaborate_phase_raw_eq',
+                    'elaborate_diags_eq_elaboration', 'elaborate_failed_not_valid',
+                    'over_program_failure_carries_core_diags']
 
 # Pseudo-qualifier SEGMENTS.  Checked anywhere in an identifier, not merely at position zero: an embedded
 # `cp` is exactly as much a fake namespace as a leading one.
@@ -227,9 +231,17 @@ def check_code(rel: str, text: str):
     return bad
 
 
+HISTORICAL_DOC = re.compile(r'^\s*(?:<!--\s*)?HISTORICAL DOCUMENT\b', re.M)
+
+
 def check_prose(rel: str, text: str):
-    """A live document may describe a retired name; it may not present one as current."""
+    """A live document may describe a retired name; it may not present one as current.
+
+    A document may declare ITSELF historical with a `HISTORICAL DOCUMENT` line in its first 20 lines —
+    visible to a reader, auditable in the diff, and never a silent entry in an exclusion list."""
     bad = []
+    if HISTORICAL_DOC.search('\n'.join(text.splitlines()[:20])):
+        return bad
     for idx, line in enumerate(text.splitlines(), 1):
         if re.match(r'\s*From\s+Stdlib\s+Require', line):
             continue
