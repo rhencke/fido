@@ -5883,6 +5883,25 @@ Proof.
   apply (proj1 (program_package_refs_present idx dir)). exists l. exact Hmt.
 Qed.
 
+(* ═══ THE RETAINED-VISIT FORMS ═══ the three package facts over an EXPLICIT visit stream.  The elaboration
+   folds its OWN retained [input_visit] and needs these facts ABOUT THAT FOLD; [Hv] is the retained input's own
+   coherence field, not a second traversal.  The canonical-visit forms above stay as the specification. *)
+Lemma package_refs_present_at {p} (idx : Index.Snapshot.Syntax p) visit (Hv : visit = program_visit p) :
+  forall dir, PackageMap.In dir (program_package_refs_from_visit idx visit)
+              <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true.
+Proof. intro dir. rewrite Hv. exact (program_package_refs_present idx dir). Qed.
+
+Lemma package_refs_bucket_len_at {p} (idx : Index.Snapshot.Syntax p) visit (Hv : visit = program_visit p) :
+  forall dir l, PackageMap.find dir (program_package_refs_from_visit idx visit) = Some l ->
+                length l = package_main_count dir (Syntax.files p).
+Proof. intros dir l. rewrite Hv. exact (program_package_refs_bucket_len idx dir l). Qed.
+
+Lemma package_refs_belongs_at {p} (idx : Index.Snapshot.Syntax p) visit (Hv : visit = program_visit p) :
+  forall dir l, PackageMap.find dir (program_package_refs_from_visit idx visit) = Some l ->
+  forall d, In d l ->
+  FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir.
+Proof. intros dir l. rewrite Hv. exact (program_package_refs_belongs idx dir l). Qed.
+
 Definition package_diag_of_bucket {p} (m : PackageMap.t (list (Index.DeclRef p)))
     (Hpres : forall dir l, PackageMap.MapsTo dir l m -> package_present_b p dir = true)
     (dir : string) (l : list (Index.DeclRef p)) (Hmt : PackageMap.MapsTo dir l m)
@@ -5910,6 +5929,27 @@ Fixpoint bucket_diags_elems {p} (m : PackageMap.t (list (Index.DeclRef p)))
       package_diag_of_bucket m Hpres (fst kv) (snd kv) (H kv (or_introl eq_refl))
       ++ bucket_diags_elems m Hpres rest (fun kv' Hin => H kv' (or_intror Hin))
   end Hall.
+
+(* a [PackageRef] IS its key ([package_ref_key_inj], UIP over bool — no axiom), so the emitted diagnostic does
+   not depend on WHICH presence proof produced the ref.  [revert] before [destruct]: the membership proof's
+   type mentions the bucket, so the list must be abstracted in the binders too. *)
+Lemma package_diag_of_bucket_proof_irrelevant {p} (m : PackageMap.t (list (Index.DeclRef p)))
+    H1 H2 dir l Hmt1 Hmt2 :
+  @package_diag_of_bucket p m H1 dir l Hmt1 = @package_diag_of_bucket p m H2 dir l Hmt2.
+Proof.
+  revert Hmt1 Hmt2. destruct l as [|d1 rest]; intros Hmt1 Hmt2; unfold package_diag_of_bucket.
+  - do 2 f_equal. apply package_ref_key_inj. reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma bucket_diags_elems_proof_irrelevant {p} (m : PackageMap.t (list (Index.DeclRef p)))
+    H1 H2 es Hall1 Hall2 :
+  @bucket_diags_elems p m H1 es Hall1 = @bucket_diags_elems p m H2 es Hall2.
+Proof.
+  revert Hall1 Hall2. induction es as [|kv rest IH]; intros Hall1 Hall2; cbn [bucket_diags_elems].
+  - reflexivity.
+  - f_equal; [ apply package_diag_of_bucket_proof_irrelevant | apply IH ].
+Qed.
 
 Lemma bucket_diags_elems_nil_iff {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres es Hall :
   @bucket_diags_elems p m Hpres es Hall = nil <-> (forall kv, In kv es -> length (snd kv) = 1%nat).
@@ -8938,11 +8978,21 @@ Proof. reflexivity. Qed.
     stores each of them ONCE, built by [build_elaboration_core] as the elaboration runs, alongside the proof
     that the stored value IS the canonical one.  So a query PROJECTS the object the elaboration produced, and
     the equality proofs are evidence ABOUT a retained value rather than a licence to rebuild it. *)
-(* the package-bucket diagnostics of an index, as ONE non-dependent value: [bucket_diags_elems] takes
-   proofs about the specific map, so the canonical fold is packaged here and the core stores its RESULT. *)
-Definition package_bucket_diagnostics {p} (idx : Index.Snapshot.Syntax p) : list (DiagnosticReason p) :=
-  bucket_diags_elems (program_package_refs idx) (bucket_key_present idx)
-    (PackageMap.elements (program_package_refs idx)) (elements_all_mapsto (program_package_refs idx)).
+(* the package-bucket diagnostics OF A GIVEN MAP.  It takes the retained [refs] object and the presence fact
+   ABOUT THAT MAP; it never names a package-map builder, so it cannot rebuild what the elaboration already
+   holds.  [bucket_diags_elems] was already generic over the map — the only thing that used to force a rerun
+   was where the map came from. *)
+Definition package_bucket_diagnostics_from_refs {p} (refs : PackageMap.t (list (Index.DeclRef p)))
+    (Hpres : forall dir l, PackageMap.MapsTo dir l refs -> package_present_b p dir = true)
+    : list (DiagnosticReason p) :=
+  bucket_diags_elems refs Hpres (PackageMap.elements refs) (elements_all_mapsto refs).
+
+(* the presence fact in the shape the fold wants, derived from a map's own domain characterisation. *)
+Definition bucket_present_of_domain {p} (refs : PackageMap.t (list (Index.DeclRef p)))
+    (Hdom : forall dir, PackageMap.In dir refs
+                        <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true)
+    : forall dir l, PackageMap.MapsTo dir l refs -> package_present_b p dir = true :=
+  fun dir l Hmt => proj1 (Hdom dir) (ex_intro _ l Hmt).
 
 Record Core (p : Syntax.Program) : Type := make_core {
   core_input : Input p ;
@@ -8970,8 +9020,14 @@ Record Core (p : Syntax.Program) : Type := make_core {
                   (map fst (PackageMap.elements core_package_refs)) core_layout ;
 
   core_raw_diagnostics : list (DiagnosticReason p) ;
+  (* the raw list IS the retained phase's diagnostics followed by the diagnostics of THIS core's own retained
+     package map — the presence fact handed to the fold is derived from this core's own [core_package_present],
+     so nothing here can consult a rebuilt map. *)
   core_raw_diagnostics_exact :
-    core_raw_diagnostics = phase_diags phase ++ package_bucket_diagnostics (index core_input) ;
+    core_raw_diagnostics
+    = phase_diags phase
+      ++ package_bucket_diagnostics_from_refs core_package_refs
+           (bucket_present_of_domain core_package_refs core_package_present) ;
 
   core_diagnostics : list (DiagnosticReason p) ;
   core_diagnostics_exact :
@@ -9017,21 +9073,25 @@ Qed.
 
 (* the ONE core construction: input once, phase once from THAT exact input, buckets once from THAT retained
    visit, layout once, plan once from the retained buckets and layout, raw diagnostics once, final once. *)
+(* ═══ ONE DIRECT CAUSAL CHAIN ═══ retained input -> its OWN retained visit -> the package refs folded from
+   that visit -> the package facts ABOUT that fold -> the diagnostics of that stored map -> raw -> final ->
+   the decision over this same core.  No step re-derives a value an earlier step already produced: [refs] is
+   folded from [input_visit input], never from a second [program_visit]; the diagnostics consume [refs] itself.
+   Every construction law below therefore holds by [eq_refl] — retention, not an equality to a rerun. *)
 Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : Core p :=
   let input := build_compilation_input p ip in
   let ph    := build_expression_phase input in
-  let refs  := program_package_refs (index input) in
+  let refs  := program_package_refs_from_visit (index input) (input_visit input) in
+  let pres  := package_refs_present_at (index input) (input_visit input) (input_visit_ok input) in
   let lay   := root_layout p in
   let pl    := fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements refs)) lay in
-  let raw   := phase_diags ph ++ package_bucket_diagnostics (index input) in
+  let raw   := phase_diags ph
+               ++ package_bucket_diagnostics_from_refs refs (bucket_present_of_domain refs pres) in
   make_core input ph
-    refs
-    (eq_sym (eq_trans (f_equal (fun v => program_package_refs_from_visit (index input) v)
-                               (eq_sym (input_visit_ok input)))
-                      eq_refl))
-    (program_package_refs_present (index input))
-    (program_package_refs_bucket_len (index input))
-    (program_package_refs_belongs (index input))
+    refs eq_refl
+    pres
+    (package_refs_bucket_len_at (index input) (input_visit input) (input_visit_ok input))
+    (package_refs_belongs_at (index input) (input_visit input) (input_visit_ok input))
     lay eq_refl
     pl eq_refl
     raw eq_refl
@@ -9042,15 +9102,54 @@ Lemma build_core_indexed (p : Syntax.Program) (ip : Index.Program p) :
   core_indexed (build_elaboration_core p ip) = ip.
 Proof. reflexivity. Qed.
 
+(* the SPECIFICATION bridge (NOT provenance): the diagnostics of the core's OWN retained package map agree
+   with the canonical source-level [package_diags].  Nothing recovers a retained object through this — the
+   production fold already consumed the stored map; this only transports the result to the source theorems. *)
+Lemma core_package_diags_canonical {p} (core : Core p) :
+  package_bucket_diagnostics_from_refs (core_package_refs core)
+    (bucket_present_of_domain (core_package_refs core) (core_package_present core))
+  = package_diags (core_index core).
+Proof.
+  unfold package_bucket_diagnostics_from_refs, package_diags.
+  generalize (bucket_present_of_domain (core_package_refs core) (core_package_present core)).
+  generalize (elements_all_mapsto (core_package_refs core)).
+  rewrite (core_package_refs_canonical core).
+  intros Ha Hp. apply bucket_diags_elems_proof_irrelevant.
+Qed.
+
 (* the core's raw fold IS the canonical [semantic_diagnostics] — for ANY core, because a phase's diagnostics are
    determined by its input ([phase_diags_eq_expr_diags] is universal in the phase). *)
 Lemma core_raw_semantic {p} (core : Core p) :
   bucket_flatten (node_keyed (core_raw_diagnostics core)) ++ package_primary (core_raw_diagnostics core)
   = semantic_diagnostics p (core_index core).
 Proof.
-  rewrite (core_raw_diagnostics_exact core). unfold package_bucket_diagnostics, core_index.
+  rewrite (core_raw_diagnostics_exact core), (core_package_diags_canonical core). unfold core_index.
   rewrite (phase_diags_eq_expr_diags (core_input core) (phase core)). reflexivity.
 Qed.
+
+(** ═══ §1 RETAINED PACKAGE PROVENANCE, AS THEOREMS ═══ the production chain is direct, and these say so
+    without appealing to any equality-to-a-rerun.  All hold by [reflexivity]: the built core's map IS the fold
+    of its own retained visit, and its raw diagnostics ARE that stored map's diagnostics. *)
+Theorem built_core_refs_fold_own_visit : forall p ip,
+  core_package_refs (build_elaboration_core p ip)
+  = program_package_refs_from_visit (index (core_input (build_elaboration_core p ip)))
+                                    (input_visit (core_input (build_elaboration_core p ip))).
+Proof. reflexivity. Qed.
+
+Theorem core_raw_diagnostics_consume_retained_refs : forall p (core : Core p),
+  core_raw_diagnostics core
+  = phase_diags (phase core)
+    ++ package_bucket_diagnostics_from_refs (core_package_refs core)
+         (bucket_present_of_domain (core_package_refs core) (core_package_present core)).
+Proof. intros p core. exact (core_raw_diagnostics_exact core). Qed.
+
+Theorem built_core_raw_diagnostics_direct : forall p ip,
+  core_raw_diagnostics (build_elaboration_core p ip)
+  = phase_diags (phase (build_elaboration_core p ip))
+    ++ package_bucket_diagnostics_from_refs
+         (core_package_refs (build_elaboration_core p ip))
+         (bucket_present_of_domain _ (core_package_present (build_elaboration_core p ip))).
+Proof. reflexivity. Qed.
 
 (* the SPECIFICATION bridge (NOT provenance): the core's own accept/reject quantity is the canonical
    [elaboration_diagnostics] of the same program and retained index — for ANY core, not merely a freshly built
@@ -9604,6 +9703,12 @@ Theorem compilable_retains_tnfacts : forall cp : Program,
   type_name_facts (facts cp) = phase_type_name_facts (program_phase cp).
 Proof. reflexivity. Qed.
 
+(** the accepted and rejected queries project the SAME package object the decision used — the capability and
+    the failure each read their own retained core, never a refold.  Both by [reflexivity]. *)
+Theorem accepted_package_refs_are_decision_refs : forall cp : Program,
+  facts_package_refs (facts cp) = core_package_refs (core cp).
+Proof. reflexivity. Qed.
+
 (** The compiled evidence EXPOSES that the same program is typed through [Typing]: an immediate
     canonical projection, not a stored second copy of the typing proof. *)
 Theorem compile_program_typed : forall p, Admissible p -> TypedProgram p.
@@ -9636,6 +9741,10 @@ Definition failure_raw_diagnostics {p} (fail : Failure p) := core_raw_diagnostic
 
 (** the LEGACY coarse class, a PROJECTION of the elaboration diagnostics (never a separate check): a typing-class
     diagnostic dominates, else a package-class diagnostic, else success. *)
+Theorem rejected_package_refs_are_decision_refs : forall p (fail : Failure p),
+  failure_package_refs fail = core_package_refs (failure_core fail).
+Proof. reflexivity. Qed.
+
 Inductive LegacyClass : Type := LegacyOk | LegacyTyping | LegacyPackageMainCount | LegacyBuildOutput.
 (* the build-output failure takes PRECEDENCE: a preflight failure reports ONLY the
    build-output-directory diagnostic, so its class dominates. *)
