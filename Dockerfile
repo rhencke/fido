@@ -146,14 +146,46 @@ sealed K Compilable.AcceptedFacts.make_facts
 sealed L Compilable.minted
 sealed M Compilable.outcome_of_elaboration
 sealed N Compilable.Capability.minted
+# the WHOLE-ELABORATION representation and its production builder.  A client that can assemble a peer Core —
+# even a well-formed one — has the topology A001 exists to prevent, so the raw record, its constructor, the
+# builder, and every helper that would take a core and hand back a capability must all be absent.
+sealed O Compilable.make_core
+sealed P Compilable.CoreRepresentation
+sealed Q Compilable.build_elaboration_core
+sealed R Compilable.Elaborations.make_core
+sealed S Compilable.Elaborations.CoreRepresentation
+sealed T Compilable.Elaborations.build_elaboration_core
+sealed U Compilable.elaborate_at
+sealed V Compilable.decision_of_core
+sealed W Compilable.make_elaboration
+sealed X Compilable.Elaborations.make_elaboration
 # (g) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
-printf 'From Fido Require Import Syntax Compilable.\nDefinition probe (p : Syntax.Program) (H : Compilable.Admissible p) : Compilable.Program := Compilable.capability_of_admissible p H.\nDefinition probe_fail (p : Syntax.Program) (f : Compilable.Failure p) := Compilable.failure_core f.\n' > /tmp/sealed_ok.v
+cat > /tmp/sealed_ok.v <<'CLIENT'
+From Fido Require Import Syntax Compilable Safe Emit.
+(* a client can still do EVERYTHING the pipeline needs, using only the sealed public surface. *)
+Definition mint (p : Syntax.Program) (H : Compilable.Admissible p) : Compilable.Program :=
+  Compilable.capability_of_admissible p H.
+Definition outcome_case (p : Syntax.Program) : nat :=
+  match Compilable.compile p with Compilable.Compiled _ _ => 0 | Compilable.Rejected _ => 1 end.
+(* query the exact ACCEPTED core through the returned capability *)
+Definition accepted_core (cp : Compilable.Program) : Compilable.Core (Compilable.source cp) :=
+  Compilable.core cp.
+Definition accepted_layout (cp : Compilable.Program) := Compilable.core_layout (Compilable.core cp).
+Definition accepted_plan (cp : Compilable.Program) := Compilable.core_plan (Compilable.core cp).
+Definition accepted_diags (cp : Compilable.Program) := Compilable.core_diagnostics (Compilable.core cp).
+(* query the exact REJECTED core through the returned failure *)
+Definition rejected_core {p} (f : Compilable.Failure p) : Compilable.Core p := Compilable.failure_core f.
+Definition rejected_diags {p} (f : Compilable.Failure p) := Compilable.failure_diagnostics f.
+(* certify and emit through the accepted capability *)
+Definition certify_it (cp : Compilable.Program) : Safe.Program := Safe.certify cp.
+Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
+CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
-echo "fido: sealed positive control — the sealed types and capability_of_admissible are reachable (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-N + positive control"
+echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
+echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; sealed-capability self-tests F-X + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

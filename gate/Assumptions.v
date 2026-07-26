@@ -494,7 +494,6 @@ Print Assumptions Compilable.core_seals_facts.
 (* §5/§2.9 the sealed type-name Index.table has RETAINED-INPUT PROVENANCE: it IS build_type_name_fact_table of the
    phase's own Compilable.Input — the phase's [Compilable.phase_type_name_facts] is DEFINITIONALLY that builder (no stored provenance
    equality; the concrete [build_expression_phase] let-binds it). *)
-Print Assumptions Compilable.built_core_tnfacts_from_input.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
    recovered syntax and EQUAL sealed facts (occurrence identity, not name identity) — the universal (conditional)
    property AND its CONCRETE non-hypothetical instance on a real compiled two-[uint8] program (the two occurrences

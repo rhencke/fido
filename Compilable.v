@@ -8994,60 +8994,180 @@ Definition bucket_present_of_domain {p} (refs : PackageMap.t (list (Index.DeclRe
     : forall dir l, PackageMap.MapsTo dir l refs -> package_present_b p dir = true :=
   fun dir l Hmt => proj1 (Hdom dir) (ex_intro _ l Hmt).
 
-Record Core (p : Syntax.Program) : Type := make_core {
-  core_input : Input p ;
-  phase : Phase core_input ;
+(** ═══ §2 THE SEALED WHOLE-ELABORATION OBJECT ═══ [Core] is ABSTRACT outside this module.  Its
+    representation, its raw constructor, and the production builder never leave, so a client cannot assemble a
+    peer [Core] — not even a well-formed one.  That is the point: A001 is about the TOPOLOGY of the authority
+    chain, not merely about whether a forged value would be caught.  A capability's core is reached only
+    through [Compilable.core] or [Compilable.failure_core], and interrogated only through the total queries
+    exported below.
 
-  (* the package buckets BUILT ONCE from this core's own retained visit and STORED, with the exactness
-     evidence that ties them to that visit — not a function that refolds them on every query. *)
-  core_package_refs : PackageMap.t (list (Index.DeclRef p)) ;
-  core_package_refs_from_visit :
-    core_package_refs = program_package_refs_from_visit (index core_input) (input_visit core_input) ;
-  core_package_present : forall dir,
-    PackageMap.In dir core_package_refs <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true ;
-  core_package_len : forall dir l,
-    PackageMap.find dir core_package_refs = Some l -> length l = package_main_count dir (Syntax.files p) ;
-  core_package_belongs : forall dir l, PackageMap.find dir core_package_refs = Some l ->
+    [build_elaboration_core] is internal because nothing outside needs it any more: every fact once obtained
+    by rebuilding a peer and equating to it is now either a field of the retained object or a theorem over ANY
+    retained object.  [elaborate] is exported because the decision theorems are stated over it; it takes a
+    PROGRAM and returns the one elaboration, and there is no way to hand it a core of your own. *)
+Module Type ELABORATION.
+  Parameter Core : Syntax.Program -> Type.
+
+  Parameter core_input : forall {p}, Core p -> Input p.
+  Parameter phase : forall {p} (core : Core p), Phase (core_input core).
+
+  Parameter core_package_refs : forall {p}, Core p -> PackageMap.t (list (Index.DeclRef p)).
+  Parameter core_package_refs_from_visit : forall {p} (core : Core p),
+    core_package_refs core
+    = program_package_refs_from_visit (index (core_input core)) (input_visit (core_input core)).
+  Parameter core_package_present : forall {p} (core : Core p) dir,
+    PackageMap.In dir (core_package_refs core)
+    <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true.
+  Parameter core_package_len : forall {p} (core : Core p) dir l,
+    PackageMap.find dir (core_package_refs core) = Some l ->
+    length l = package_main_count dir (Syntax.files p).
+  Parameter core_package_belongs : forall {p} (core : Core p) dir l,
+    PackageMap.find dir (core_package_refs core) = Some l ->
     forall d, In d l ->
-    FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir ;
+    FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir.
 
-  core_layout : PackageMap.t FreshRootEntryKind ;
-  core_layout_exact : core_layout = root_layout p ;
+  Parameter core_layout : forall {p}, Core p -> PackageMap.t FreshRootEntryKind.
+  Parameter core_layout_exact : forall {p} (core : Core p), core_layout core = root_layout p.
 
-  core_plan : FreshBuildDisposition ;
-  core_plan_exact :
-    core_plan = fresh_build_plan_of (Syntax.module_spec p)
-                  (map fst (PackageMap.elements core_package_refs)) core_layout ;
+  Parameter core_plan : forall {p}, Core p -> FreshBuildDisposition.
+  Parameter core_plan_exact : forall {p} (core : Core p),
+    core_plan core = fresh_build_plan_of (Syntax.module_spec p)
+                       (map fst (PackageMap.elements (core_package_refs core))) (core_layout core).
 
-  core_raw_diagnostics : list (DiagnosticReason p) ;
-  (* the raw list IS the retained phase's diagnostics followed by the diagnostics of THIS core's own retained
-     package map — the presence fact handed to the fold is derived from this core's own [core_package_present],
-     so nothing here can consult a rebuilt map. *)
-  core_raw_diagnostics_exact :
-    core_raw_diagnostics
-    = phase_diags phase
-      ++ package_bucket_diagnostics_from_refs core_package_refs
-           (bucket_present_of_domain core_package_refs core_package_present) ;
+  Parameter core_raw_diagnostics : forall {p}, Core p -> list (DiagnosticReason p).
+  Parameter core_raw_diagnostics_exact : forall {p} (core : Core p),
+    core_raw_diagnostics core
+    = phase_diags (phase core)
+      ++ package_bucket_diagnostics_from_refs (core_package_refs core)
+           (bucket_present_of_domain (core_package_refs core) (core_package_present core)).
 
-  core_diagnostics : list (DiagnosticReason p) ;
-  core_diagnostics_exact :
-    core_diagnostics = command_diagnostics_of p core_plan
-      (bucket_flatten (node_keyed core_raw_diagnostics) ++ package_primary core_raw_diagnostics)
-}.
-Arguments make_core {p} _ _ _ _ _ _ _ _ _ _ _ _ _ _ _.
-Arguments core_input {p} _.  Arguments phase {p} _.
-Arguments core_package_refs {p} _.  Arguments core_package_refs_from_visit {p} _.
-Arguments core_package_present {p} _.  Arguments core_package_len {p} _.
-Arguments core_package_belongs {p} _.
-Arguments core_layout {p} _.  Arguments core_layout_exact {p} _.
-Arguments core_plan {p} _.  Arguments core_plan_exact {p} _.
-Arguments core_raw_diagnostics {p} _.  Arguments core_raw_diagnostics_exact {p} _.
-Arguments core_diagnostics {p} _.  Arguments core_diagnostics_exact {p} _.
+  Parameter core_diagnostics : forall {p}, Core p -> list (DiagnosticReason p).
+  Parameter core_diagnostics_exact : forall {p} (core : Core p),
+    core_diagnostics core
+    = command_diagnostics_of p (core_plan core)
+        (bucket_flatten (node_keyed (core_raw_diagnostics core))
+         ++ package_primary (core_raw_diagnostics core)).
 
-(* [Program] is not indexed by its source — the outcome carries [source cp = p] instead — so an accepted
-   capability's core arrives transported along that identity.  ONE lemma retires the transport for every
-   index-independent query: what you ask of the transported core is what you ask of the core.  Holds by
-   [destruct H], because both endpoints are variables here. *)
+  (* the decision is TRANSPARENT — a caller must be able to [destruct] it — but it is INDEXED BY the exact
+     core it judges, so it cannot be moved to another one. *)
+  Inductive Decision {p} (core : Core p) : Type :=
+  | AcceptedDecision (Hnil : core_diagnostics core = nil)
+  | RejectedDecision (Hne : core_diagnostics core <> nil).
+
+  Parameter Elaboration : Syntax.Program -> Type.
+  Parameter elaboration_core : forall {p}, Elaboration p -> Core p.
+  Parameter decision : forall {p} (a : Elaboration p), Decision (elaboration_core a).
+  Parameter elaborate : forall p : Syntax.Program, Elaboration p.
+End ELABORATION.
+
+Module Elaborations : ELABORATION.
+  Record CoreRepresentation (p : Syntax.Program) : Type := make_core {
+    core_input : Input p ;
+    phase : Phase core_input ;
+
+    (* the package buckets BUILT ONCE from this core's own retained visit and STORED, with the exactness
+       evidence that ties them to that visit — not a function that refolds them on every query. *)
+    core_package_refs : PackageMap.t (list (Index.DeclRef p)) ;
+    core_package_refs_from_visit :
+      core_package_refs = program_package_refs_from_visit (index core_input) (input_visit core_input) ;
+    core_package_present : forall dir,
+      PackageMap.In dir core_package_refs <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true ;
+    core_package_len : forall dir l,
+      PackageMap.find dir core_package_refs = Some l -> length l = package_main_count dir (Syntax.files p) ;
+    core_package_belongs : forall dir l, PackageMap.find dir core_package_refs = Some l ->
+      forall d, In d l ->
+      FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref d))) = dir ;
+
+    core_layout : PackageMap.t FreshRootEntryKind ;
+    core_layout_exact : core_layout = root_layout p ;
+
+    core_plan : FreshBuildDisposition ;
+    core_plan_exact :
+      core_plan = fresh_build_plan_of (Syntax.module_spec p)
+                    (map fst (PackageMap.elements core_package_refs)) core_layout ;
+
+    core_raw_diagnostics : list (DiagnosticReason p) ;
+    (* the raw list IS the retained phase's diagnostics followed by the diagnostics of THIS core's own retained
+       package map — the presence fact handed to the fold is derived from this core's own [core_package_present],
+       so nothing here can consult a rebuilt map. *)
+    core_raw_diagnostics_exact :
+      core_raw_diagnostics
+      = phase_diags phase
+        ++ package_bucket_diagnostics_from_refs core_package_refs
+             (bucket_present_of_domain core_package_refs core_package_present) ;
+
+    core_diagnostics : list (DiagnosticReason p) ;
+    core_diagnostics_exact :
+      core_diagnostics = command_diagnostics_of p core_plan
+        (bucket_flatten (node_keyed core_raw_diagnostics) ++ package_primary core_raw_diagnostics)
+  }.
+  Arguments make_core {p} _ _ _ _ _ _ _ _ _ _ _ _ _ _ _.
+  Arguments core_input {p} _.  Arguments phase {p} _.
+  Arguments core_package_refs {p} _.  Arguments core_package_refs_from_visit {p} _.
+  Arguments core_package_present {p} _.  Arguments core_package_len {p} _.
+  Arguments core_package_belongs {p} _.
+  Arguments core_layout {p} _.  Arguments core_layout_exact {p} _.
+  Arguments core_plan {p} _.  Arguments core_plan_exact {p} _.
+  Arguments core_raw_diagnostics {p} _.  Arguments core_raw_diagnostics_exact {p} _.
+  Arguments core_diagnostics {p} _.  Arguments core_diagnostics_exact {p} _.
+  Definition Core (p : Syntax.Program) : Type := CoreRepresentation p.
+
+  Inductive Decision {p} (core : Core p) : Type :=
+  | AcceptedDecision (Hnil : core_diagnostics core = nil)
+  | RejectedDecision (Hne : core_diagnostics core <> nil).
+  Arguments AcceptedDecision {p core} _.
+  Arguments RejectedDecision {p core} _.
+
+
+
+  Record ElaborationRepresentation (p : Syntax.Program) : Type := make_elaboration {
+    elaboration_core     : Core p;
+    decision : Decision elaboration_core
+  }.
+  Arguments make_elaboration {p} _ _.
+  Arguments elaboration_core {p} _.
+  Arguments decision {p} _.
+  Definition Elaboration (p : Syntax.Program) : Type := ElaborationRepresentation p.
+
+  Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
+  Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
+
+  Definition decision_of_core {p} (core : Core p) : Decision core :=
+    match list_is_nil (core_diagnostics core) with
+    | left He   => AcceptedDecision He
+    | right Hne => RejectedDecision Hne
+    end.
+
+  Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : Core p :=
+    let input := build_compilation_input p ip in
+    let ph    := build_expression_phase input in
+    let refs  := program_package_refs_from_visit (index input) (input_visit input) in
+    let pres  := package_refs_present_at (index input) (input_visit input) (input_visit_ok input) in
+    let lay   := root_layout p in
+    let pl    := fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements refs)) lay in
+    let raw   := phase_diags ph
+                 ++ package_bucket_diagnostics_from_refs refs (bucket_present_of_domain refs pres) in
+    make_core input ph
+      refs eq_refl
+      pres
+      (package_refs_bucket_len_at (index input) (input_visit input) (input_visit_ok input))
+      (package_refs_belongs_at (index input) (input_visit input) (input_visit_ok input))
+      lay eq_refl
+      pl eq_refl
+      raw eq_refl
+      (command_diagnostics_of p pl (bucket_flatten (node_keyed raw) ++ package_primary raw)) eq_refl.
+
+  Definition elaborate_at {p : Syntax.Program} (ip : Index.Program p) : Elaboration p :=
+    let core := build_elaboration_core p ip in
+    make_elaboration core (decision_of_core core).
+
+  Definition elaborate (p : Syntax.Program) : Elaboration p :=
+    elaborate_at (Index.index_program p).
+End Elaborations.
+Include Elaborations.
+Arguments AcceptedDecision {p core} _.
+Arguments RejectedDecision {p core} _.
+
 (* [Program] is not indexed by its source — the outcome carries [source cp = p] instead — so a capability's
    core arrives at [source cp] while a concrete claim is stated at the program.  ONE lemma bridges that, and
    it needs NO second core to compare against: transport the property, not the object.  Holds by [destruct H],
@@ -9075,24 +9195,7 @@ Qed.
    the decision over this same core.  No step re-derives a value an earlier step already produced: [refs] is
    folded from [input_visit input], never from a second [program_visit]; the diagnostics consume [refs] itself.
    Every construction law below therefore holds by [eq_refl] — retention, not an equality to a rerun. *)
-Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : Core p :=
-  let input := build_compilation_input p ip in
-  let ph    := build_expression_phase input in
-  let refs  := program_package_refs_from_visit (index input) (input_visit input) in
-  let pres  := package_refs_present_at (index input) (input_visit input) (input_visit_ok input) in
-  let lay   := root_layout p in
-  let pl    := fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements refs)) lay in
-  let raw   := phase_diags ph
-               ++ package_bucket_diagnostics_from_refs refs (bucket_present_of_domain refs pres) in
-  make_core input ph
-    refs eq_refl
-    pres
-    (package_refs_bucket_len_at (index input) (input_visit input) (input_visit_ok input))
-    (package_refs_belongs_at (index input) (input_visit input) (input_visit_ok input))
-    lay eq_refl
-    pl eq_refl
-    raw eq_refl
-    (command_diagnostics_of p pl (bucket_flatten (node_keyed raw) ++ package_primary raw)) eq_refl.
+
 
 (* the built core's retained index IS the one it was built from (definitional — no transport). *)
 (* the SPECIFICATION bridge (NOT provenance): the diagnostics of the core's OWN retained package map agree
@@ -9407,11 +9510,7 @@ Defined.
 (** ═══ §3 THE DECISION, INDEXED BY THE EXACT CORE ═══ accepted or rejected is a statement ABOUT a
     particular retained core, so an equal recomputed core cannot be substituted for the one that justified the
     result.  Validity and preflight are DERIVED from [Hnil] (see [core_facts]), never stored again. *)
-Inductive Decision {p} (core : Core p) : Type :=
-| AcceptedDecision (Hnil : core_diagnostics core = nil)
-| RejectedDecision (Hne : core_diagnostics core <> nil).
-Arguments AcceptedDecision {p core} _.
-Arguments RejectedDecision {p core} _.
+
 
 
 (** ═══ §3 THE ELABORATION RETAINS ITS CORE ═══ the whole causal object survives BOTH branches, and
@@ -9419,18 +9518,11 @@ Arguments RejectedDecision {p core} _.
     every downstream consumer is unchanged — but they now project a retained object instead of being the only
     thing that was kept.  There is no constructor taking a bare index and a stripped result: a
     [Elaboration] cannot be built without the core that justifies it. *)
-Record Elaboration (p : Syntax.Program) : Type := make_elaboration {
-  elaboration_core     : Core p;
-  decision : Decision elaboration_core
-}.
-Arguments make_elaboration {p} _ _.
-Arguments elaboration_core {p} _.
-Arguments decision {p} _.
+
 
 Definition elaboration_indexed {p} (pe : Elaboration p) : Index.Program p := core_indexed (elaboration_core pe).
 
-Definition list_is_nil {A} (l : list A) : {l = nil} + {l <> nil}.
-Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
+
 
 (** the ONE elaboration pass.  The shared collections — the index, the visit stream, the occurrence status
     map, and the package buckets — are computed ONCE (let-bound) and feed BOTH the accept/reject decision AND
@@ -9442,21 +9534,12 @@ Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
     diagnostic list.  ([diags] is definitionally [semantic_diagnostics p idx], so the decision theorems below are
     unchanged.) *)
 (* the decision is read off the core's OWN diagnostics — the one accept/reject quantity, nothing recomputed. *)
-Definition decision_of_core {p} (core : Core p) : Decision core :=
-  match list_is_nil (core_diagnostics core) with
-  | left He   => AcceptedDecision He
-  | right Hne => RejectedDecision Hne
-  end.
+
 
 (** the ONE elaboration pass: build the core ONCE (one input, one phase from that exact input), decide from its
     own diagnostics, and RETAIN the core in the result.  The shared collections are still computed once — they
     are now projections of the retained core rather than let-bindings that vanish when the pass returns. *)
-Definition elaborate_at {p : Syntax.Program} (ip : Index.Program p) : Elaboration p :=
-  let core := build_elaboration_core p ip in
-  make_elaboration core (decision_of_core core).
 
-Definition elaborate (p : Syntax.Program) : Elaboration p :=
-  elaborate_at (Index.index_program p).
 
 (** ★§5/§3.8 THE SEALED TABLES ARE THE RETAINED PHASE'S OWN OBJECTS — now BY PROJECTION.  The
     accepted view is BUILT from the retained core, so "the sealed table is the constructed-and-consumed table"
@@ -9471,12 +9554,7 @@ Theorem core_seals_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil
   expression_facts (core_facts core Hnil) = expression_facts_table (phase_fact_table (phase core)).
 Proof. reflexivity. Qed.
 
-(* and the retained-INPUT provenance, for a core the elaborator actually built: its type-name Index.table IS the
-   exact [build_type_name_fact_table] of the core's own retained input. *)
-Corollary built_core_tnfacts_from_input (p : Syntax.Program) (ip : Index.Program p) Hnil :
-  type_name_facts (core_facts (build_elaboration_core p ip) Hnil)
-  = build_type_name_fact_table (core_input (build_elaboration_core p ip)).
-Proof. reflexivity. Qed.
+
 
 (** ELABORATION EXACTNESS: elaboration succeeds (exposes facts) IFF the program is admissible ([Admissible] =
     fresh-build preflight passes AND the source is valid); it fails (exposes nonempty command-ordered
@@ -9615,12 +9693,6 @@ Module Capability : CAPABILITY.
   Definition compile (p : Syntax.Program) : Outcome p :=
     outcome_of_elaboration p (elaborate p).
 
-  (* the elaboration [compile] runs IS the built core — internal only; nothing outside this module may name
-     the builder, which is the whole point of the seal. *)
-  Lemma compile_elaboration_core : forall p,
-    elaboration_core (elaborate p) = build_elaboration_core p (Index.index_program p).
-  Proof. reflexivity. Qed.
-
   Lemma compile_complete : forall p, Admissible p ->
     exists cp Hcp, compile p = Compiled p cp Hcp.
   Proof.
@@ -9644,12 +9716,6 @@ End Capability.
 Include Capability.
 Arguments Compiled {p} _ _.
 Arguments Rejected {p} _.
-
-(** the elaboration [compile] runs IS the built core — definitionally, nothing rebuilt.  Stated out here
-    because [elaborate] is public: it is the tie between the sealed compiler and the open builder. *)
-Lemma compile_elaboration_core : forall p,
-  elaboration_core (elaborate p) = build_elaboration_core p (Index.index_program p).
-Proof. reflexivity. Qed.
 
 (* every public component is a projection of the retained core — never a re-elaboration. *)
 Definition program_index (cp : Program) : Index.Program (source cp) := core_indexed (core cp).
@@ -9836,7 +9902,7 @@ Proof. intro cp. exact (facts_root_layout_ok (facts cp)). Qed.
 
 (** ═══ §7 THE ONE CAPABILITY-MINTING PATH ═══ there is exactly one way a [Program] enters the world: the
     production [compile].  This extractor STRUCTURALLY INSPECTS that one outcome and returns the capability
-    from its [Compiled] branch — it never calls [build_elaboration_core], [make_program] or
+    from its [Compiled] branch — it cannot name an elaboration builder, [make_program] or
     [Index.index_program], and never rebuilds or compares a core.  The [Rejected] branch is discharged as
     impossible from admissibility, so a witness cannot mint an artifact the compiler did not produce, and the
     emitted bytes are by construction the bytes of the compiler's own accepted object. *)
@@ -9925,7 +9991,7 @@ Lemma source_spec_valid_b_eq : forall p, source_spec_valid_b p = program_typedb 
 Proof. reflexivity. Qed.
 
 (** admissibility is DECIDABLE from the two source booleans, so a case analysis never has to split on a
-    built core's diagnostic list — which is what used to drag [build_elaboration_core] into these proofs. *)
+    built core's diagnostic list, so no proof here needs to name an elaboration builder at all. *)
 Lemma admissible_dec : forall p, {Admissible p} + {~ Admissible p}.
 Proof.
   intro p. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
