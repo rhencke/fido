@@ -689,7 +689,6 @@ Print Assumptions Compilable.retained_convsuccess_cause.
 Print Assumptions Compilable.occurrence_expr_diags_conv_sound.
 Print Assumptions Compilable.byte_uint8_erased_differ.
 Print Assumptions Compilable.rune_int32_erased_differ.
-(* the legacy compile class projects the elaboration diagnostics (matches the decision), not a rerun. *)
 (* decision (expression half): every println argument resolves IFF program_typedb / Typing.Program. *)
 Print Assumptions Compilable.expression_all_ok_program_typedb.
 Print Assumptions Compilable.expression_all_ok_iff_typed_program.

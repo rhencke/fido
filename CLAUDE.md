@@ -294,7 +294,12 @@ make prove       # the COMPLETE proof gate
 make emit        # theory+plugin build + Fido Materialize witness/multi/empty pristine + provenance + sink tests
 make e2e         # emit + pristine generated-module + go build ./... + empty + differential + witness vs goldens
 make regenerate  # rebuild + apply the pristine canonical module into the repo via Sink (then git add + commit)
+make fcb         # the live-FCB document gates (D-07 human acts, D-24 references, generated closure-ledger view)
+make fcb-write   # regenerate every generated FCB view from its canonical source
+make names       # the A005 scoped-name policy gate
+make fmt         # the .editorconfig whitespace/format report (reports, never rewrites; not a gate)
 make prover-log  # stream the plain Rocq log
+make prove-errors# just the Rocq File/Error lines (Buildx echoes the whole recipe on failure and buries them)
 make install-hooks
 ```
 
@@ -349,15 +354,23 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
   index for the hook). `tools/fmt-check.py` — the `make fmt` whitespace/format report against `.editorconfig`
   (property resolution delegated to the EditorConfig reference implementation; reports, never rewrites);
   deliberately NOT a gate and NOT wired into `make check` or the hook, which stay code-level.
-  `tools/human-review-index.py` — the Governance D-07 generator: the set of open human acts is DISCOVERED from
-  the canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`, never hand-copied.
-  **To change a human act: edit its TSV row, edit its single `<!-- FIDO-HUMAN-ACT:<ID> -->` anchor in the
-  owning source named by that row, then run `make human-acts-write` and commit both files together. NEVER
-  hand-edit `FIDO_FCB_HUMAN_REVIEW_INDEX.md` — it is generated output — and never restate the act list in
-  another document.** `make human-acts` (in `make check`, and in the hook over the exported staged tree)
-  verifies the tracked view is byte-exact and that every anchor occurs EXACTLY ONCE in its named owning source.
-  Every must-fail control pins the expected failure REASON, so a control that starts failing for an unrelated
-  reason is itself a gate failure rather than a vacuous pass.
+- **The live-FCB document gates — `make fcb` (inside `make check`, and in the hook over the exported staged
+  tree); `make fcb-write` regenerates every generated view.** Each has ONE implementation shared by its writer
+  and its checker, and each runs its adversarial controls FIRST — every must-fail control pins the expected
+  failure REASON, so a control that starts failing for an unrelated reason is a gate failure, not a vacuous
+  pass. **NEVER hand-edit a generated view.**
+  - `tools/human-review-index.py` — Governance D-07. The set of open human acts is DISCOVERED from the
+    canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its
+    generated view. **To change a human act: edit its TSV row, edit its single `<!-- FIDO-HUMAN-ACT:<ID> -->`
+    anchor in the owning source named by that row, then `make fcb-write` and commit both together.** The gate
+    also checks each anchor occurs EXACTLY ONCE in its named owning source.
+  - `tools/fcb-reference-gate.py` — Governance D-24. Every OPERATIONAL path the live FCB names must resolve at
+    the same exact ref, or be explicitly typed off-tree with an availability, in
+    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. The corpus DECLARES its references; the gate does not scan
+    for backticked strings, because a scanner needs an exception list and an exception list is where a
+    dangling path hides.
+  - `tools/closure-ledger-view.py` — `FIDO_FCB_CLOSURE_LEDGER.md` is regenerated from the canonical 491-row
+    `.csv`, so its own claim to be generated is true rather than decorative.
 - `.editorconfig` at the root, plus nested `.review/fcb/.editorconfig` and
   `.review/spec-closure-campaign/.editorconfig` — the byte rules live WITH the documents they govern. Their
   `trim_trailing_whitespace = false` entries are load-bearing: generated Go, reviewed goldens, tabular ledgers

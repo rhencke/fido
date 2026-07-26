@@ -1,7 +1,7 @@
 # Fido — status
 
 A concise inventory of what is DONE and the immediate frontier. Architecture lives in `ARCHITECTURE.md`;
-contributor law in `CLAUDE.md`; live campaign status in `.review/SOURCE_FOREST_STATUS.md`; commit-level history
+contributor law in `CLAUDE.md`; the current checkpoint and candidate in `.review/NEXT_STEPS.md`; commit-level history
 in the git log.
 
 ## GREEN — proved axiom-free (every gated `Print Assumptions` surface + the whole-theory audit)
@@ -86,11 +86,14 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
 ## Source Forest campaign (ACTIVE)
 
 Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) — NOT yet
-accepted; `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is BLOCKING and repair 17 is the sole active C4
-work** (eighteen candidates have now blocked at human Implementation Review; the withdrawn GREEN
-disposition and its documentation-only acceptance commit `37c9597` are superseded — C4 is not human-accepted
-until Rob accepts it). Repair 13's work index is retained and correct. The static-capability boundary now
+Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) is NOT
+accepted — only Rob accepts it.**
+
+> This file does not own current candidate state. The exact candidate, its status, the active repair and the
+> freeze head live in `.review/NEXT_STEPS.md`, and the set of open human acts lives in
+> `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`. What follows is the durable proof and feature inventory.
+
+Repair 13's work index is retained and correct. The static-capability boundary now
 retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,
 the phase, the package buckets, the root layout, the fresh-build plan and both diagnostic lists, each stored
 with the proof that it IS the canonical value; the decision is indexed by that core; success and failure both
@@ -162,20 +165,19 @@ success bundle for all four valid conversions — with the returned `ConversionS
 identity, no existential `ts0`/`x0` (repair 12); `deep_fail_innermost_diag`, stating the exact target fact query `t =
 Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))`, the exact retained annotated
 member, and the stored singleton) are gated in the readable assumption gate, together with the repair-13 work-index
-surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
-fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
-**C4 is NOT yet human-accepted — BLOCKING
-at `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c`, with repair 17 the sole active C4 work**
-(the withdrawn GREEN disposition and its documentation-only acceptance commit `37c9597` are superseded). The
-authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
-PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.
-Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= `uintptr` + rune constants/literals) and the
+surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the operand navigation now carried by the one
+`Compilable.accepted_conversion_cause`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
+**C4 is NOT human-accepted; only Rob accepts it.** The current candidate, its status and the active repair are
+owned by `.review/NEXT_STEPS.md` — not restated here. Scope lives in
+`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`; `ADR-0001` is ADOPTED FOR CURRENT BASIS and `ADR-0002` remains
+OPEN / DEFERRED (FCB Governance ADR register).
+Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= the permanent `Machine` base, per the FCB Roadmap) and the
 separate post-C4 foundation consolidation / ruthless trim remain FORBIDDEN until C4 is accepted.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 
 - `byte`→uint8 / `rune`→int32 SOURCE ALIASES are LANDED in C4 (source-name resolution; distinct source, equal
-  semantic type). `uintptr` + exact rune constants/literals are the next type phase (C5 — needs explicit
+  semantic type). `uintptr` and exact rune constants/literals are priced scope changes, NOT C5 (needs explicit
   sign-off). Bool, the ten integer types, F32/F64, C64/C128, and exact strings are LANDED as static constant roots.
 - The first construct that can panic or not terminate — `Property` grows a real `Panicked`/`Outcome` distinction,
   introduced together with the constructor (`Property` stops being `True`).

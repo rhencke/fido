@@ -5,7 +5,7 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        human-acts human-acts-write profile
+        fcb fcb-write profile
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -29,7 +29,7 @@ override PLATFORM := linux/amd64
 # export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
 # exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
 # generated-output gate's own -L/-f/-x file-type tests are authoritative.)
-check: names human-acts prove e2e builder
+check: names fcb prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -118,16 +118,30 @@ fmt:
 names:
 	@python3 tools/naming-gate.py
 
-# Governance D-07.  The set of open human acts is DISCOVERED from the canonical rows in
-# `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` and never hand-copied: `human-acts` verifies the tracked
-# index is exactly the generated view and that every row's ownership anchor resolves; `human-acts-write`
-# regenerates it.  The adversarial controls run first, so a gate that cannot fail never reports green.
-human-acts:
+# The live-FCB document gates, in one place so they stay one thing rather than three lines that drift.
+# Each has ONE implementation shared by its writer and its checker, so a checker cannot drift from what
+# generates the file, and each runs its adversarial controls FIRST — a gate that has never been shown to
+# fail is not evidence.
+#
+#   D-07  open human acts are DISCOVERED from `FIDO_FCB_HUMAN_ACTS.tsv`, never hand-copied;
+#         `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its generated view.
+#   D-24  every OPERATIONAL path the live FCB names resolves at the same exact ref, or is explicitly typed
+#         off-tree with a stated availability.  The corpus DECLARES those references in
+#         `FIDO_FCB_REFERENCES.tsv`; it is not scanned for backticked strings, because a scanner needs an
+#         exception list and an exception list is where a dangling path hides.
+#   the spec-closure ledger's human view is regenerated from the canonical 491-row CSV, so its own claim to
+#         be generated is true rather than decorative.
+fcb:
 	@python3 tools/human-review-index.py --self-test
 	@python3 tools/human-review-index.py --check
+	@python3 tools/fcb-reference-gate.py --self-test
+	@python3 tools/fcb-reference-gate.py
+	@python3 tools/closure-ledger-view.py --check
 
-human-acts-write:
+# regenerate every generated FCB view from its canonical source
+fcb-write:
 	@python3 tools/human-review-index.py --write
+	@python3 tools/closure-ledger-view.py --write
 
 # Just the Rocq File/Error lines from the pinned prover log.  On failure Buildx echoes the ENTIRE prove
 # recipe back as its error trailer — hundreds of lines — which buries the two lines that say what actually

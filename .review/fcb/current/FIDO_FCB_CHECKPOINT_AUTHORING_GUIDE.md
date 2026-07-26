@@ -163,14 +163,6 @@ the repository identity or stable bootstrap path changes.
 ## 8. FCB update plan
 ```
 
-## 3b. Reducible-carrier duty (D-26 / A006)
-
-A reducible `Emit.Image` carrier is permitted ONLY because an opaque exact-value-indexed `Emit.Mint.Token`
-owns its authority. A checkpoint may not generalise this into permission for public raw constructors
-elsewhere: it is a narrow computation-boundary rule, forced by the certified transport having to kernel-reduce
-`Emit.transport img`. Where no certified transport must reduce a representation, that capability stays
-abstract.
-
 ## 3a. Naming duty (D-25 / A005)
 
 Every checkpoint contract carries a naming section, and it is frozen with the checkpoint:
@@ -187,6 +179,14 @@ Every checkpoint contract carries a naming section, and it is frozen with the ch
 `make names` (`tools/naming-gate.py`) enforces this. The Rocq compiler already verifies code names for free —
 a missed rename fails to build — so the gate exists for documentation and source comments, which have no
 verifier at all.
+
+## 3b. Reducible-carrier duty (D-26 / A006)
+
+A reducible `Emit.Image` carrier is permitted ONLY because an opaque exact-value-indexed `Emit.Mint.Token`
+owns its authority. A checkpoint may not generalise this into permission for public raw constructors
+elsewhere: it is a narrow computation-boundary rule, forced by the certified transport having to kernel-reduce
+`Emit.transport img`. Where no certified transport must reduce a representation, that capability stays
+abstract.
 
 ## 4. Stop conditions
 

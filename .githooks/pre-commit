@@ -37,6 +37,12 @@ python3 "$ctx/tools/naming-gate.py" --root "$ctx" --snapshot
 # is caught by the checker itself rather than reporting a green it can no longer earn.
 python3 "$ctx/tools/human-review-index.py" --root "$ctx" --self-test
 python3 "$ctx/tools/human-review-index.py" --root "$ctx" --check
+# the D-24 operational-reference gate on the same exported staged tree: every repository path the proposed
+# commit's FCB directs work to must resolve IN that snapshot, and an off-tree reference must be typed as one.
+python3 "$ctx/tools/fcb-reference-gate.py" --root "$ctx" --self-test
+python3 "$ctx/tools/fcb-reference-gate.py" --root "$ctx"
+# and the spec-closure ledger view must be the generated projection of its own canonical CSV.
+python3 "$ctx/tools/closure-ledger-view.py" --root "$ctx" --check
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).

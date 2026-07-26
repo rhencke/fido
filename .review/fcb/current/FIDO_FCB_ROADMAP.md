@@ -17,17 +17,15 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 ## Current boundary
 
-C4 implementation candidate `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is **BLOCKING** — the eighteenth blocked candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 17 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`): the returned-object fixtures must carry the retained causal history, the naming gate must stop being false-green for record fields and unreadable text, `Emit.Image` construction must be sealed under Charter §22, the coarse legacy result peer must be deleted, and the corpus must state one truth. Repairs 13 through 16 are historical; none of them is the active work. Accepted amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` (Governance `D-26`) settles the `Emit.Image` authority boundary that repair 17 must implement: an opaque value-indexed `Emit.Mint.Token` owns the authority while the transport carrier stays reducible. C5 remains dependent on C4 acceptance and is unchanged by A006.
+**C4 is not accepted.** Amendments A001 through A006 are accepted; none of them changes a checkpoint assignment or a dependency.
 
-The out-of-band documentation, header and tooling commits after the blocked candidate are not new
-
-FCB Amendment A002 is accepted: the live FCB is Git-canonical under `.review/fcb/current/`; project libraries contain bootstrap shims only. This changes no checkpoint assignment or dependency.
+This roadmap owns checkpoint ORDER and stable dependencies. It does not own the current candidate, its status, or the active repair — `.review/NEXT_STEPS.md` owns those, and restating them here would create a second authority that drifts.
 
 The next permitted sequence is:
 
-`C4 repair 17 → human C4 review → checkpoint-definition Step 0 → C5`.
+`the active C4 repair → human C4 review → checkpoint-definition Step 0 → C5`.
 
-C5 remains forbidden until C4 is accepted.
+C5 remains forbidden until Rob accepts C4.
 
 ## C5 — Machine base
 

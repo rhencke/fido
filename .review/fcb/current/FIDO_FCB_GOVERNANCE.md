@@ -227,6 +227,10 @@ layer. Cross-namespace use is qualified: `Compilable.Program`, `Typing.Program`,
 `Safe.Program` are distinguished by the namespace that owns them, which also shows the reader where each is
 defined.
 
+**Rationale:** Redundant names obscure the authority chain, make qualified names noisy, and let a large
+module simulate structure through prefixes. Scope-relative names expose the actual architecture, so a missing
+abstraction or a bad module boundary becomes visible instead of hiding behind a prefix.
+
 ### D-26 — `Emit.Image` seals authority while its transport carrier remains reducible.
 
 **Standing law:** `Emit.Image` retains the exact `Safe.Program`, exact `go.mod` bytes, exact `.go` file map,
@@ -243,10 +247,6 @@ assumption-closure guard before any filesystem effect.
 **Rationale:** Opaque module sealing removes the projection bodies required by the certified term transport's
 kernel reduction. Sealing the intrinsic mint authority preserves the one-authority law without moving
 rendering into OCaml or weakening payload provenance.
-
-**Rationale:** Redundant names obscure the authority chain, make qualified names noisy, and let a large
-module simulate structure through prefixes. Scope-relative names expose the actual architecture, so a missing
-abstraction or a bad module boundary becomes visible instead of hiding behind a prefix.
 
 ## 6. Amendment register
 
@@ -269,46 +269,6 @@ abstraction or a bad module boundary becomes visible instead of hiding behind a 
 | Acceptance gates changed | None |
 | Target/toolchain policy changed | None |
 
-### FCB-A006-INTRINSIC-EMIT-IMAGE-MINT
-
-| Field | Disposition |
-|---|---|
-| Amendment | `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` |
-| Status | **ACCEPTED** — Rob recorded `FCB-A006-intrinsic-emit-image-mint` |
-| Author | Primary ChatGPT Fido review thread |
-| Human owner | Rob |
-| Date | `2026-07-26` |
-| New information | The certified transport must kernel-reduce `Emit.transport img`. Opaque module sealing removes the image projection bodies and makes that reduction fail. A transparent carrier with an opaque value-indexed mint witness preserves both computation and intrinsic authority. |
-| Settled rule | `Emit.Image` is a reducible carrier retaining the exact `Safe.Program`, exact bytes, and an opaque `Emit.Mint.Token` indexed by those same exact values. The carrier pack constructor is not a mint. `Emit.Mint.issue` is the sole authority-producing operation. |
-| Governance decision added | `D-26` |
-| Reopened fixed point | `ARCH-11`, only the `Emit.Image` bullet inside Charter §24; every other part of the fixed point remains unchanged |
-| Changed documents | Architecture Charter; Fixed Points; Governance; Index; Roadmap; Checkpoint Authoring Guide; Model Operations; Human Review Index; every accepted-amendment banner |
-| Contracts affected | `SC-17`, `SC-21`, `SC-22` |
-| Checkpoints affected | C4 repair 17 acceptance boundary and the C5 dependency |
-| Proof/build gates required | Opaque token-constructor test; foreign-byte construction rejection; postulated-token materialization rejection; positive `nf_all` transport reduction; whole-theory assumption audit; generated-byte identity |
-| Closure / latitude / acceptance-gate rows changed | None |
-| Target/toolchain policy changed | None |
-| OCaml trust boundary changed | None |
-
-### FCB-A005-SCOPED-NAME-OWNERSHIP
-
-| Field | Disposition |
-|---|---|
-| Amendment | `FCB-A005-SCOPED-NAME-OWNERSHIP` |
-| Status | **ACCEPTED** |
-| Author | the reviewer (A005 scoped naming migration directive) |
-| Human owner | Rob |
-| Date | `2026-07-26` |
-| New information | The theory encoded one scope twice — module domain repeated in declaration names, record type repeated through initials — so readers decoded redundancy and large modules simulated structure with prefixes instead of real namespaces. |
-| Settled rule sought | A namespace states its domain once; a declaration names only its role inside that domain; collisions are resolved with the smallest full semantic distinction, never a restored abbreviation. |
-| Governance decision added | `D-25` |
-| Changed documents | Governance; Index; Human Review Index; Checkpoint Authoring Guide; live prose naming a Rocq symbol |
-| Fixed points changed | None |
-| Contracts affected | None — no theorem statement or guarantee changes |
-| Checkpoints affected | C4 review paused for the migration; the renamed head becomes the sixteenth C4 implementation candidate |
-| Closure / latitude / acceptance-gate rows changed | None |
-| Target/toolchain policy changed | None |
-| Enforcement | `tools/naming-gate.py` via `make names`, wired into `make check` |
 ### FCB-A002-GIT-CANONICAL-FCB-STORAGE
 
 | Field | Disposition |
@@ -364,3 +324,44 @@ abstraction or a bad module boundary becomes visible instead of hiding behind a 
 | Checkpoints affected | None; C4 was blocked at `9d5246e` when this amendment was accepted, and C5 remains forbidden |
 | Closure / latitude / acceptance-gate rows changed | None |
 | Target/toolchain policy changed | None |
+
+### FCB-A005-SCOPED-NAME-OWNERSHIP
+
+| Field | Disposition |
+|---|---|
+| Amendment | `FCB-A005-SCOPED-NAME-OWNERSHIP` |
+| Status | **ACCEPTED** |
+| Author | the reviewer (A005 scoped naming migration directive) |
+| Human owner | Rob |
+| Date | `2026-07-26` |
+| New information | The theory encoded one scope twice — module domain repeated in declaration names, record type repeated through initials — so readers decoded redundancy and large modules simulated structure with prefixes instead of real namespaces. |
+| Settled rule sought | A namespace states its domain once; a declaration names only its role inside that domain; collisions are resolved with the smallest full semantic distinction, never a restored abbreviation. |
+| Governance decision added | `D-25` |
+| Changed documents | Governance; Index; Human Review Index; Checkpoint Authoring Guide; live prose naming a Rocq symbol |
+| Fixed points changed | None |
+| Contracts affected | None — no theorem statement or guarantee changes |
+| Checkpoints affected | C4 review paused for the migration; the renamed head becomes the sixteenth C4 implementation candidate |
+| Closure / latitude / acceptance-gate rows changed | None |
+| Target/toolchain policy changed | None |
+| Enforcement | `tools/naming-gate.py` via `make names`, wired into `make check` |
+
+### FCB-A006-INTRINSIC-EMIT-IMAGE-MINT
+
+| Field | Disposition |
+|---|---|
+| Amendment | `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` |
+| Status | **ACCEPTED** — Rob recorded `FCB-A006-intrinsic-emit-image-mint` |
+| Author | Primary ChatGPT Fido review thread |
+| Human owner | Rob |
+| Date | `2026-07-26` |
+| New information | The certified transport must kernel-reduce `Emit.transport img`. Opaque module sealing removes the image projection bodies and makes that reduction fail. A transparent carrier with an opaque value-indexed mint witness preserves both computation and intrinsic authority. |
+| Settled rule | `Emit.Image` is a reducible carrier retaining the exact `Safe.Program`, exact bytes, and an opaque `Emit.Mint.Token` indexed by those same exact values. The carrier pack constructor is not a mint. `Emit.Mint.issue` is the sole authority-producing operation. |
+| Governance decision added | `D-26` |
+| Reopened fixed point | `ARCH-11`, only the `Emit.Image` bullet inside Charter §24; every other part of the fixed point remains unchanged |
+| Changed documents | Architecture Charter; Fixed Points; Governance; Index; Roadmap; Checkpoint Authoring Guide; Model Operations; Human Review Index; every accepted-amendment banner |
+| Contracts affected | `SC-17`, `SC-21`, `SC-22` |
+| Checkpoints affected | C4 repair 17 acceptance boundary and the C5 dependency |
+| Proof/build gates required | Opaque token-constructor test; foreign-byte construction rejection; postulated-token materialization rejection; positive `nf_all` transport reduction; whole-theory assumption audit; generated-byte identity |
+| Closure / latitude / acceptance-gate rows changed | None |
+| Target/toolchain policy changed | None |
+| OCaml trust boundary changed | None |

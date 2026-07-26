@@ -22,23 +22,31 @@ This file alone owns the current checkpoint and candidate state.
   decode errors; the causal fixtures are generalised over arbitrary retained `Input`/`Phase`; generated
   `go.mod` and `main.go` are byte-identical to the reviewed baseline.
 - **The three findings repair 18 must close.**
-  1. **The returned-object theorem topology understates and splits the guarantee.** The accepted evidence is
-     spread across four theorems each binding its own existential `cp`, and the rejected evidence across three.
-     No single public statement retains one exact returned object across the whole guarantee. The cause
-     bundles restate consequences instead of naming the exact `RetainedMemberCause` projected from the exact
-     retained trace; the index and outcome claims are point queries rather than whole-object exactness; and
-     the rejected side proves `<> nil` where the contract requires the exact singleton reason.
-     **The freeze prose claimed more than any one theorem statement carried — a green proof cannot upgrade a
-     weaker statement.**
+  1. **The returned-object theorem topology understates and splits the guarantee.** ✅ **CLOSED.**
+     `Compilable.deep_nested_compile_fixture` and `Compilable.deep_fail_compile_fixture` are one accepted and
+     one rejected root, each over ONE exact returned object, carrying `AcceptedFixture cp Hcp` /
+     `RejectedFixture fail`. `Hcp` is the `Compiled` branch's own source proof, not a fresh equation.
+     `accepted_conversion_cause` / `rejected_conversion_cause` / `childfail_conversion_cause` take their suffix
+     and tail accumulator as PROJECTIONS of `total_forest_outcome_cause`, so no foreign pair satisfies them;
+     the index, outcome-domain and trace claims are whole-object laws over EVERY member and EVERY present key;
+     and the rejected side pins the phase, RAW and FINAL diagnostic lists to the exact singleton
+     `InvalidConversion` reason. `Emit.deep_nested_emit_fixture` destructs the accepted root ONCE and carries
+     that same witness through certify and mint. No prohibited builder appears in either root's statement or
+     proof. The split peers they absorbed are deleted.
   2. **Governance `D-07` is accepted, due, and unimplemented.** ✅ **CLOSED.** The set of open human acts is
      now discovered from `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; the Human Review Index is its
      generated view and the temporary disclaimer is gone. `tools/human-review-index.py` writes and verifies
      it, `make human-acts` gates it in `make check` and in the pre-commit hook over the exported staged tree,
      and nineteen adversarial controls — each must-fail one pinned to the reason it must fail on — keep the
      checker from reporting a green it can no longer earn.
-  3. **The live corpus does not state one truth and violates `D-24`.** Contradictory candidate and repair
-     states across REVIEW_REQUEST, the Roadmap, PROGRESS and SOURCE_FOREST_STATUS; a stale gate count; C5
-     misdescribed as `uintptr` plus rune literals; dangling operational paths; stale legacy-class comments.
+  3. **The live corpus does not state one truth and violates `D-24`.** ✅ **CLOSED.** One thing owns each
+     fact: this file owns the candidate and the active repair; `FIDO_FCB_HUMAN_ACTS.tsv` owns the open human
+     acts; the Roadmap owns checkpoint order; `PROGRESS.md` and `ARCHITECTURE.md` own the proof and feature
+     inventory; Git owns superseded narratives. `REVIEW_REQUEST.md`, the Roadmap, `PROGRESS.md` and
+     `SOURCE_FOREST_STATUS.md` stopped restating candidate state; C5 is the permanent `Machine` base
+     everywhere, with `uintptr` a priced scope change against the ADOPTED ADR-0001; the dangling
+     repair-6 and evidence-sandbox paths are gone; the stale legacy-class comments are gone. `make fcb` now
+     gates all three live-FCB documents, including the D-24 typed-reference manifest.
 - **No new amendment is required.** Repair 18 implements and enforces accepted `A001`–`A006`, Governance
   `D-07` and `D-22`–`D-26`, and the already-accepted repair-17 contract.
 - **C4 is NOT accepted.** Only Rob accepts it. **C5, checkpoint-definition Step 0, post-C4 features, the broad

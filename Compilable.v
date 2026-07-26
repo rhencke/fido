@@ -7356,9 +7356,10 @@ Theorem program_expr_facts_enum_files_equal (p1 p2 : Syntax.Program) :
   Index.KeyMap.elements (program_expr_facts p1) = Index.KeyMap.elements (program_expr_facts p2).
 Proof. intro Heq. rewrite (program_expr_facts_files_equal p1 p2 Heq). reflexivity. Qed.
 
-(* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
-   the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
-   package-class; the two are disjoint. ---- *)
+(* ---- the TWO disjoint diagnostic families: expression diagnostics are TYPING diagnostics, package
+   diagnostics are PACKAGE diagnostics, and the two families never overlap.  Disjointness is what lets a
+   caller attribute a reported reason to one half of the elaboration by reading the retained list — never by
+   running a second check. ---- *)
 
 Lemma existsb_all_false {A} (f : A -> bool) (l : list A) :
   (forall x, In x l -> f x = false) -> existsb f l = false.
@@ -7845,7 +7846,8 @@ Qed.
     ([go env GOVERSION] = go1.23.12) [cmd/go/internal/load/pkg.go]: [isVersionElement] (1288-1298) and
     [exeFromImportPath] (1675-1685) — the [DefaultExecName] path taken by a `go build ./...` (non-CmdlineFiles)
     build.  Pure functions over the import-path STRING; NO filesystem path cleaning (inputs are canonical
-    import paths, per the contract).  Empirically confirmed against the pinned image (see SOURCE_FOREST_STATUS). *)
+    import paths, per the contract).  Empirically confirmed against the pinned image (the pinned-toolchain
+    observations are `.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md`). *)
 
 Local Open Scope string_scope.
 
@@ -7915,7 +7917,8 @@ Proof.
       * reflexivity.
 Qed.
 
-(** is_version_element reflection FIXTURES (pinned Go 1.23.12, SOURCE_FOREST_STATUS-confirmed). *)
+(** is_version_element reflection FIXTURES, against the pinned Go toolchain
+    (`.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md`). *)
 Example version_suffix_v0   : is_version_element "v0"   = false. Proof. reflexivity. Qed.
 Example version_suffix_v00  : is_version_element "v00"  = false. Proof. reflexivity. Qed.
 Example version_suffix_v01  : is_version_element "v01"  = false. Proof. reflexivity. Qed.
@@ -10025,9 +10028,6 @@ Definition capability_source (p : Syntax.Program) (H : Admissible p)
 Definition capability_is_compile_outcome (p : Syntax.Program) (H : Admissible p)
   : exists Hcp, compile p = Compiled (capability_of_admissible p H) Hcp
   := proj2 (proj2_sig (program_of_admissible p H)).
-
-(** fixture helper: a non-typed program is REJECTED at the TYPING legacy class — a projection of the carried
-    diagnostics, never a [program_typedb] rerun. *)
 
 (** A rejected program yields no Program (and hence no Safe.Program, no image). *)
 Lemma reject_no_compile : forall p, source_spec_valid_b p = false -> ~ Admissible p.

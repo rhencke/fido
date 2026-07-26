@@ -18,9 +18,9 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Blocked implementation candidate:** `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` — the nineteenth
-blocked C4 candidate; `e15232d3ef894c2f478e36c736cd701533e224fe` is its documentation-only freeze,
-not a separate candidate.  
+**Blocked implementation candidate:** owned by `.review/NEXT_STEPS.md`, which names the exact commit, its
+freeze head, and its status. This Index states the boundary, not a second copy of the candidate state; at
+freeze it names the candidate offered for review.  
 **Active work: C4 repair 18** (`.review/C4_IMPLEMENTATION_REPAIR_18.md`) — the sole active C4 task: one
 accepted and one rejected root fixture over one exact returned object; Governance `D-07` implemented; and a
 corpus that genuinely states one truth with every operational path resolving under `D-24`.  
@@ -54,6 +54,7 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
 | `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
 | `FIDO_FCB_HUMAN_ACTS.tsv` | Canonical rows for the open human acts; the sole authority for that set (D-07). |
+| `FIDO_FCB_REFERENCES.tsv` | Typed operational references: every repository path this corpus directs work to, plus each explicitly off-tree reference and its availability (D-24). |
 | `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Generated view of the open human acts. Never edited by hand. |
 | `FIDO_FCB_ROADMAP.md` | The C4 boundary and the unchanged C5–C17 foundational order. |
 | `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | Checkpoint contract form, whole-result retention, Git publication duty, fixtures, gates, stop rules. |

@@ -425,7 +425,7 @@ There is no numeric `TypeId` registry and no `GoTypeTag`.
 
 The current target remains direct rather than threaded through every theorem. This invokes `.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md`, **ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25): Go 1.23 on `linux/amd64` with `GOAMD64=v1`; `int`/`uint` 64-bit and distinct from fixed-width types. Reopen at C16 or any earlier explicit request to add another target or `uintptr`; `uintptr` stays OUT until a separate reviewed scope change pays its price.
 
-`uintptr` is OUT in the Spec-Closure Ledger until Rob accepts ADR-0001 or a replacement target decision and the inclusion price is paid. Ordinary `uintptr` support and `unsafe.Pointer` support are separate decisions.
+`uintptr` is OUT in the Spec-Closure Ledger. ADR-0001 is already **ADOPTED FOR CURRENT BASIS**, so `uintptr` is not waiting on its acceptance: admitting it requires REOPENING ADR-0001 or adopting a replacement scope/target decision, and then paying the full `uintptr` representation, typing, lowering, target-adequacy, and proof price. Ordinary `uintptr` support and `unsafe.Pointer` support are separate decisions.
 
 No broad `TargetConfig` is added until more than one proved target exists or a live proof need earns it.
 
@@ -1374,7 +1374,7 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - `Safe.Program` refines the same exact accepted capability.
 - Rendering continues to project the original `Syntax.Program` and does not evaluate elaboration.
 
-This is the C4 blocking obligation introduced by A001, and it is what the active repair 17 must satisfy before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
+This is the C4 blocking obligation introduced by A001, and the active repair named by `.review/NEXT_STEPS.md` must satisfy it before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
 
 ### Do Not Do Early
 
@@ -1849,9 +1849,9 @@ They do not:
 
 - accept C4;
 - authorize C5;
-- modify `.review/C4_IMPLEMENTATION_REPAIR_6.md`;
+- modify the active repair directive named by `.review/NEXT_STEPS.md`;
 - supersede `.review/NEXT_STEPS.md` as the active authority pointer;
-- resolve ADR-0001 or ADR-0002;
+- reopen the adopted ADR-0001, or resolve the still-open ADR-0002;
 - authorize any implementation of an `IN` row;
 - weaken any current unrepresentability frontier.
 

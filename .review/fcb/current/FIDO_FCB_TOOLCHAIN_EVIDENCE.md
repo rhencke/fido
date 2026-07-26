@@ -68,7 +68,7 @@ env	GOCACHE	{SANDBOX}/gocache
 env	GOMODCACHE	{SANDBOX}/gomodcache
 env	GOPATH	{SANDBOX}/gopath
 meta	umask	0022
-meta	sandbox_root	.review/spec-closure-campaign/evidence-sandbox
+meta	sandbox_root	{SANDBOX}
 meta	path_normalization	replace absolute sandbox root with {SANDBOX} in all captured output
 ```
 
