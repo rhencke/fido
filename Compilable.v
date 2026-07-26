@@ -6467,7 +6467,8 @@ Proof.
 Qed.
 
 (* ---- MEMBERSHIP: the bucketing preserves the multiset of values (a reordering), so the report has EXACTLY the
-   diagnostics of [expression_diags ++ package_diags] (needed for the order-independent legacy-class projection). ---- *)
+   diagnostics of [expression_diags ++ package_diags] — the report reorders, it never adds or drops a
+   reason. ---- *)
 
 Lemma flat_map_snd_mapsto {X} (m : Index.KeyMap.t (list X)) (d : X) :
   In d (flat_map snd (Index.KeyMap.elements m)) <->
@@ -11072,48 +11073,6 @@ Proof.
       [ vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity
       | vm_compute in Eo; injection Eo as <-; eexists; vm_compute; reflexivity ].
 Qed.
-
-(* §9.3 the OPERAND CLOSURE at a valid conversion occurrence: locate the member, project the RETAINED cause, and read
-   the operand's closure — the operand's [ExpressionSuccess opf] in the RETAINED tail accumulator is the SAME [ExpressionSuccess opf] the FINAL
-   Index.table shows at the operand [WorkMember].  Its STATEMENT returns ONLY that operand tail/final [ExpressionSuccess opf] + the
-   query equality; the exact current final [ExpressionFact], the target fact, and the ONE [Typing.convert_constant] success (which the
-   proof also obtains) are NOT in this statement — that full evidence is [deep_nested_convsuccess_at] below. *)
-Lemma deep_nested_ok_closure_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) ts x occ :
-  Index.source_occurrence_at deep_nested_src local = Some occ ->
-  Index.view_expr occ = Some (Syntax.Convert ts x) ->
-  (exists f, occurrence_expr_fact occ = Some f) ->
-  exists (wm : WorkMember (phase_work (ph)))
-         (rest : list (Work (input)))
-         (acc_rest : Accumulator (phase_work (ph))
-                       (phase_type_name_facts (ph)) rest)
-         ts0 x0
-         (step : ConversionStep (phase_work (ph))
-                   (proj1_sig wm) rest ts0 x0) opf,
-       work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at (phase_ot (ph))
-         (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step).
-Proof.
-  intros Hsrc Hview Hfact.
-  destruct (deep_nested_ok_at input ph local (Syntax.Convert ts x) occ Hsrc Hview Hfact) as [wm [f [He Hok]]].
-  destruct (retained_conversion_closure
-              (phase_ot (ph))
-              wm) as [rest [acc_rest [stepc Hclose]]].
-  rewrite Hok in stepc.
-  destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
-    as [step [opf [tc [Hopf [Hconv Hf]]]]].
-  pose proof (Hclose (step_operand_suffix step)) as Hcl.
-  exists wm, rest, acc_rest, ts, x, step, opf.
-  split; [ exact He | split; [ exact Hopf | split; [ | exact Hcl ] ] ].
-  transitivity (accumulator_total acc_rest (step_operand_suffix step)); [ exact Hcl | exact Hopf ].
-Qed.
-(* NOTE ([deep_nested_ok_closure_at] is an OPERAND-CLOSURE-ONLY corollary): it exposes only the operand's
-   tail/final [ExpressionSuccess opf] + query equality.  The EXACT accepted valid-chain success evidence — which additionally
-   STATES the exact [ConversionStep], the target fact query, the current final [ExpressionSuccess f], the one [Typing.convert_constant]
-   success, and the exact current [ExpressionFact] — is [deep_nested_convsuccess_at] / [deep_nested_chain_success_evidence]
-   below — the accepted concrete theorem states everything its proof knows. *)
 
 (* §3 the EXACT per-conversion valid-chain success evidence at ONE source shape: SOME retained member carries
    that conversion, and its whole causal history is [accepted_conversion_cause] — the suffix and tail accumulator

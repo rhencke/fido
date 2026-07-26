@@ -14,9 +14,11 @@ This file alone owns the current checkpoint and candidate state.
   **documentation-only freeze**, not a separate candidate.
 - **C4 is NOT accepted.** Only Rob accepts it.
 - **The six blocker classes repair 19 must close.**
-  1. **`A005` is still incomplete.** The UpperCamelCase local notation aliases the naming migration rejected —
-     `TypedProgram`, `Resolve`, `Stmt`, `Decl`, `File`, `SourceFile` — remain live in `Compilable.v`, `Safe.v`
-     and `Render.v`, four of them entirely unused, and the naming gate has no rule or control for the class.
+  1. **`A005` is still incomplete.** The UpperCamelCase local notation aliases the naming migration rejected
+     were still declared in `Compilable.v`, `Safe.v` and `Render.v`, five of them entirely unused, and the
+     naming gate had no rule for the class. All eight are now deleted — `TypedProgram`, `Resolve`, `Stmt`,
+     `Decl`, `File`, `SourceFile` and their duplicates — every use is qualified, and `make names` rejects the
+     whole class rather than a list of those names.
   2. **The public cause theorems erase exact source occurrence identity.** The accepted and rejected proofs
      look up exact source locals (int8 at 11, int16 at 9, int32 at 7, int64 at 5) and then state only that
      SOME work member has a matching expression shape. A syntactically equal conversion at another occurrence
@@ -28,9 +30,10 @@ This file alone owns the current checkpoint and candidate state.
      read/enumeration controls, and still report all 47 passed.
   5. **`D-24` checks declared rows but never proves complete declaration.** Adding a new dangling operational
      path to the FCB Index leaves the gate green, which disproves the repair-18 claim as written.
-  6. **Stale and weaker residue remains:** a live `legacy-class` comment, and `deep_nested_ok_closure_at`, an
-     explicitly weaker theorem whose only named consumer is its own assumptions-gate line. Being gated is not
-     a semantic purpose.
+  6. **Stale and weaker residue remains:** a live `legacy-class` comment, and an explicitly weaker theorem
+     whose only named consumer was its own assumptions-gate line. Being gated is not a semantic purpose.
+     Both are now deleted, and the weaker theorem is in the naming gate's deleted-surface table so it
+     cannot return unnoticed.
 - **Obligation tracking.** `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` holds one row per repair-19 obligation.
   `make claims` refuses to let `.review/REVIEW_REQUEST.md` request review while any row is open — freezing
   early is a gate failure, not a judgement call.

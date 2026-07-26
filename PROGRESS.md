@@ -155,10 +155,13 @@ direct production-object phase fixtures
 query `total_forest_outcome_at` at REAL `WorkMember`s from `Compilable.phase_work` and project the retained cause with FINAL-TO-TAIL
 CLOSURE (innermost `Compilable.ConversionFailure` whose retained cause reads the operand's `Compilable.ExpressionSuccess` through the exact operand `SuffixMember`
 AND closes it into the final table `deep_fail_innermost_convfail`, CONNECTED to the exact stored `Compilable.InvalidConversion`
-diagnostic `deep_fail_innermost_diag`; the outer `Compilable.ChildFailure` operands are failures in the final table
-`deep_fail_outer_operands_final_fail`; the valid-chain conversions' operands are `Compilable.ExpressionSuccess` in the final table
-`deep_nested_chain_operands_final_ok`; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject alias matrix.
-The universal acceptance evidence (`retained_convsuccess_closure` / `retained_childfail_closure` +no-local-reason /
+diagnostic `deep_fail_innermost_diag`; the outer `Compilable.ChildFailure` operands are failures in the final table and the
+valid-chain conversions' operands are `Compilable.ExpressionSuccess` in it, both now conjuncts of the ONE cause-owned
+predicate rather than separate peers; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject
+alias matrix.
+The universal acceptance evidence (`Compilable.retained_convsuccess_cause` / `Compilable.retained_childfail_cause` /
+`Compilable.retained_convfail_cause`, each stating its evidence over the suffix and tail accumulator
+`Compilable.total_forest_outcome_cause` supplies /
 `retained_convfail_diag` returning the exact retained annotated member / `outcome_trace_unique_step`) AND the exact
 concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evidence`, stating the full per-conversion
 success bundle for all four valid conversions — with the returned `ConversionStep` at the EXACT SOURCE `ts`/`x`

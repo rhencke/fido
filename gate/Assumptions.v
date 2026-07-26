@@ -651,14 +651,12 @@ Print Assumptions Compilable.phase_domain_exact.
    - the per-occurrence child-failure cause ([Compilable.childfail_conversion_cause] via [retained_childfail_cause] and
      [deep_fail_childfail_at]): exact ConversionStep over the cause's own suffix, operand already failed,
      tail=final failure, and NO local reason contributed whatever annotation context the member carries.
-   The weaker projection is labeled a COROLLARY: [deep_nested_ok_closure_at] states only the operand tail/final
-   Compilable.ExpressionSuccess + query equality (NO Typing.convert_constant success / target fact / current fact); the concrete
-   aggregate [deep_nested_all_ok] states only the outcome SHAPE. *)
+   The concrete aggregate [deep_nested_all_ok] states only the outcome SHAPE, which is its distinct role:
+   EVERY member of the valid chain resolves, so no fail-open hides anywhere in the accepted tree. *)
 Print Assumptions Compilable.deep_nested_convsuccess_at.
 Print Assumptions Compilable.deep_nested_chain_success_evidence.
 Print Assumptions Compilable.deep_fail_innermost_diag.
 Print Assumptions Compilable.deep_fail_childfail_at.
-Print Assumptions Compilable.deep_nested_ok_closure_at.
 (* the GENERAL cause-owned predicates the concrete fixtures instantiate, and the lemmas that produce them.
    Each states its evidence over the projections of [Compilable.total_forest_outcome_cause] — the cause read off the
    RETAINED [Compilable.outcomes_trace] — so no foreign suffix or tail accumulator satisfies them. *)

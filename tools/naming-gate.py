@@ -102,7 +102,23 @@ DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag'
                     'compile_class_input_equal', 'compile_class_build_permutation', 'compile_untyped',
                     'diag_is_typing', 'diag_is_package', 'diag_is_build_output',
                     'existsb_typing_semantic', 'existsb_package_semantic',
-                    'existsb_build_output_semantic', 'existsb_build_output_fresh']
+                    'existsb_build_output_semantic', 'existsb_build_output_fresh',
+                    # repair 18 §4 — peers absorbed into the one accepted cause, and the existential-suffix
+                    # closures the cause-owned lemmas replaced.
+                    'nested_success_bundle', 'nested_index_bundle', 'deep_nested_index_at',
+                    'deep_nested_chain_index_evidence', 'deep_nested_capability_retains_elaboration',
+                    'deep_nested_capability_retains_causes', 'deep_nested_seals_expression_fact_table',
+                    'deep_nested_chain_operands_final_ok', 'deep_fail_capability_retains_rejected_elaboration',
+                    'deep_fail_capability_retains_rejected_causes', 'deep_fail_outer_operands_final_fail',
+                    'deep_fail_outer_operands_final_fail_claim', 'deep_fail_childfail_closure_at',
+                    'retained_convsuccess_closure', 'retained_childfail_closure', 'program_member_at',
+                    # repair 19 §8 — the weaker consumer-free corollary. Being gated is not a semantic
+                    # purpose, and a theorem kept only because it is gated must not return unnoticed.
+                    'deep_nested_ok_closure_at',
+                    # repair 19 §3 — the fake local type and judgment aliases A005 forbids. Matched as the
+                    # ALIAS declaration by the local-notation rule; listed here so the NAMES cannot return
+                    # in prose as though they were live public surfaces.
+                    'TypedProgram']
 
 # Pseudo-qualifier SEGMENTS.  Checked anywhere in an identifier, not merely at position zero: an embedded
 # `cp` is exactly as much a fake namespace as a leading one.
@@ -119,7 +135,8 @@ CRYPTIC_ALIASES = ['FM', 'FMF', 'PM', 'PMF', 'PMP', 'OFM', 'OFMF', 'NM', 'NMF', 
 GO_ALLOWLIST = {'Go1_23', 'GoModuleEntry'}      # real Go artefacts, not domain repetition
 
 HISTORY_MARKERS = ('a005', 'renamed', 'formerly', 'superseded', 'historical', 'before the migration',
-                   'old name', 'pre-migration', 'retired', 'was the', 'no longer')
+                   'old name', 'pre-migration', 'retired', 'was the', 'no longer', 'deleted',
+                   'deletion')
 
 # ───────────────────────────────────────────────────────────── declaration kinds
 UPPER_KINDS = {'Inductive', 'Record', 'Class', 'Module', 'Variant', 'constructor'}
