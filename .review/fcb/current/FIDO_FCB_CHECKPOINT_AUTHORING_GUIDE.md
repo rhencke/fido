@@ -4,7 +4,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -159,6 +160,14 @@ the repository identity or stable bootstrap path changes.
 
 ## 8. FCB update plan
 ```
+
+## 3b. Reducible-carrier duty (D-26 / A006)
+
+A reducible `Emit.Image` carrier is permitted ONLY because an opaque exact-value-indexed `Emit.Mint.Token`
+owns its authority. A checkpoint may not generalise this into permission for public raw constructors
+elsewhere: it is a narrow computation-boundary rule, forced by the certified transport having to kernel-reduce
+`Emit.transport img`. Where no certified transport must reduce a representation, that capability stays
+abstract.
 
 ## 3a. Naming duty (D-25 / A005)
 

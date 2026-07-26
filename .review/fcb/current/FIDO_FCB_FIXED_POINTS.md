@@ -4,7 +4,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -59,6 +60,15 @@ An empty set of starts does not prove open-world library safety.
 ### ARCH-11 — Do-Not-Do-Early list
 
 No state, feature, or compatibility scaffold lands before its complete vertical feature.
+
+**Narrow reopening (A006, `2026-07-26`).** Amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` reopened **only**
+the `Emit.Image` bullet of Charter §24, which now reads *"seal the `Emit.Mint.Token` authority; keep the
+`Emit.Image` transport carrier reducible, and admit no arbitrary-byte packer"*. Every other projection of this
+fixed point is unchanged. The reopening exists because the certified transport must kernel-reduce
+`Emit.transport img`, and opaque module sealing removes the projection bodies that reduction needs; the
+authority moves into an opaque value-indexed token rather than a hidden carrier representation. It authorizes
+no public raw constructor for `Compilable.Core`, `Compilable.Program`, `Compilable.Failure`,
+`Compilable.Facts` or `Safe.Program`.
 
 ### ARCH-12 — Candidate-only acceptance
 

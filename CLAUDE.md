@@ -26,6 +26,9 @@ Treat hypotheses as testable, not as conclusions. When debugging, the loop is fo
 observe → decide, not assume cause → change code → hope. If a single tool call would tell you whether your guess
 is right, make it.
 
+**A scripted edit must name the exact content it expects, assert the exact expected match count before
+writing, and never select a target by position alone.**
+
 Taking longer to be right beats shipping wrong fast. Rob is not under time pressure on these tasks. Don't trade
 correctness for throughput.
 

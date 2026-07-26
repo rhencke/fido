@@ -4,7 +4,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -16,7 +17,7 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 ## Current boundary
 
-C4 implementation candidate `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is **BLOCKING** — the eighteenth blocked candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 17 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`): the returned-object fixtures must carry the retained causal history, the naming gate must stop being false-green for record fields and unreadable text, `Emit.Image` construction must be sealed under Charter §22, the coarse legacy result peer must be deleted, and the corpus must state one truth. Repairs 13 through 16 are historical; none of them is the active work.
+C4 implementation candidate `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` is **BLOCKING** — the eighteenth blocked candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a separate candidate. FCB Amendments A001 and A005 are accepted. **C4 repair 17 is the sole active C4 work** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`): the returned-object fixtures must carry the retained causal history, the naming gate must stop being false-green for record fields and unreadable text, `Emit.Image` construction must be sealed under Charter §22, the coarse legacy result peer must be deleted, and the corpus must state one truth. Repairs 13 through 16 are historical; none of them is the active work. Accepted amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` (Governance `D-26`) settles the `Emit.Image` authority boundary that repair 17 must implement: an opaque value-indexed `Emit.Mint.Token` owns the authority while the transport carrier stays reducible. C5 remains dependent on C4 acceptance and is unchanged by A006.
 
 The out-of-band documentation, header and tooling commits after the blocked candidate are not new
 

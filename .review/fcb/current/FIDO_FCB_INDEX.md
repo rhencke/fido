@@ -6,7 +6,8 @@
 > commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`;
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task.
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
@@ -26,7 +27,7 @@ this repair: `Emit.Image` construction is **not** sealed and is **BLOCKED** on a
 (`.review/OPEN_QUESTIONS.md` Q-08 — a Rocq module seal removes the projection bodies the transport must
 kernel-reduce).  
 **C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 16 are historical.  
-Governance owns `D-01` through `D-25`; amendments `A001` through `A005` are accepted.  
+Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,
@@ -51,7 +52,7 @@ Every entry below exists in `.review/fcb/current/` at the ref that carries this 
 |---|---|
 | `INDEX.md` | Stable Git bootstrap; names this Index and the live checkpoint authority. |
 | `FIDO_FCB_INDEX.md` | This file: live file set, current boundary, and consultation map. |
-| `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-25, amendment register, ADR register, amendment law. |
+| `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-26, amendment register, ADR register, amendment law. |
 | `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
 | `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
 | `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Open human decisions and the blocked C4 review state. |

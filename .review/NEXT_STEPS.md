@@ -21,12 +21,12 @@
   2. **The naming gate is still false-green.** Record fields are parsed only when the first character is
      already lower-case, so an upper-case field is invisible — the same pre-validation defect that previously
      hid lower-case constructors. And a selected text file that fails to decode or read is silently skipped.
-  3. **`Emit.Image` has a public raw constructor**, although Charter §22 says its constructor is private and
-     §24 says to seal its construction. **BLOCKED — `.review/OPEN_QUESTIONS.md` Q-08.** Sealing the
-     representation makes `module_bytes`/`files` opaque, so the transport's `nf_all` cannot reduce
-     `Emit.transport` and materialization fails; isolated by a one-token `:` vs `<:` experiment. The
-     representation now RETAINS the exact `Safe.Program` and proves its bytes exactly, which strengthens the
-     proof of origin but does not close §22. Awaiting the reviewer's choice of mechanism.
+  3. **`Emit.Image` authority.** Charter §22 asked for a private constructor; that is impossible while the
+     certified transport kernel-reduces `Emit.transport` (a module seal removes the projection bodies —
+     isolated by a one-token `:` vs `<:` experiment). Accepted amendment **A006** settles the topology
+     instead: an opaque `Emit.Mint.Token` indexed by the exact `Safe.Program` and exact bytes owns the
+     authority, `Emit.Mint.issue` is the sole authority-producing operation, and the `Emit.Image` carrier
+     stays reducible with a pack constructor that is not a mint. `MakeImage` is deleted outright.
   4. **A coarse legacy result peer survived** with no production consumer, collapsing the structured
      `Outcome` and exact `DiagnosticReason` list into four tags. Now retired, with its whole classification
      closure, and its names are in the gate's retired-surface table so it cannot return.
@@ -34,13 +34,14 @@
      the Charter disagree with the indexes; source comments still claim `Core` is transparent; `ARCHITECTURE.md`
      cites a deleted theorem and calls `Emit.MakeImage` public; `FIDO_FCB_MODEL_OPERATIONS.md` carries a
      corrupted sentence.
-- **No new amendment is required.** A001, A005, `D-22`–`D-25`, Charter §§1, 3, 4, 22, 24, 25 and the
+- **Amendment A006 is ACCEPTED** (`FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`, Rob, 2026-07-26), resolving Q-08.
+  Otherwise A001, A005, `D-22`–`D-26`, Charter §§1, 3, 4, 22, 24, 25 and the
   no-compatibility law already decide the required result. If one of those must change, stop and propose the
   exact amendment rather than retaining the defect.
 - **C4 is NOT accepted.** Only Rob accepts it. **C5, post-C4 features, the broad source cleanup and
   proof-module partitioning remain FORBIDDEN.**
-- **Governing accepted amendments.** `A001` through `A005` remain **ACCEPTED**; Governance owns `D-01` through
-  `D-25`.
+- **Governing accepted amendments.** `A001` through `A006` remain **ACCEPTED**; Governance owns `D-01`
+  through `D-26`.
 - **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`.
   **Accepted review basis:** `.review/REVIEW_BASIS.md`.
 - **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.

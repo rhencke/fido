@@ -317,77 +317,32 @@ A parse failure, decode failure, read failure, missing expected file, or unclass
 
 ---
 
-# Blocking finding 3 — `Emit.Image` still has a public raw constructor
+# Blocking finding 3 — `Emit.Image` authority — SUPERSEDED BY ACCEPTED AMENDMENT A006
 
-## Governing contract
+This finding asked for a private `Emit.Image` constructor under Charter §22. That is impossible while the
+certified transport kernel-reduces `Emit.transport img`: opaque module ascription removes the projection
+bodies the reduction needs. Isolated by experiment during this repair (`Module Images : IMAGE` fails
+materialization with *"expected a directory-entries list"*; `Module Images <: IMAGE` — same signature,
+checked, representation not hidden — emits correctly).
 
-The live FCB Architecture Charter §22 states:
+Accepted amendment **`FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`** (Rob, `2026-07-26`; Governance `D-26`) settles
+the topology and replaces this finding. The binding contract is now:
 
-> `Emit.Image` remains because it pins the exact byte snapshot used by validation and publication. Its constructor is private.
+- `Emit.Mint.Token` is opaque and indexed by the exact `Safe.Program`, exact `go.mod` bytes and exact `.go`
+  file map; its raw constructor is private and `Emit.Mint.issue` is the sole authority-producing operation;
+- `Emit.Image` is a REDUCIBLE carrier retaining the exact `Safe.Program`, the exact bytes and that exact
+  token; its visible pack constructor is not a mint, because it cannot be applied without an inhabitant of
+  the indexed token type;
+- the image stores no duplicate equality-proof authority fields — exactness is derived from the token;
+- `Emit.of_safe` is the canonical packer and `Emit.of_safe_at` transports the same authority along the exact
+  source equality; `MakeImage` is deleted with no alias, notation, wrapper or compatibility constructor;
+- the full required topology, the mandatory proof-of-mechanism test, and the permanent controls are specified
+  in the accepted disposition and recorded in
+  `.review/fcb/amendments/FCB_AMENDMENT_A006_INTRINSIC_EMIT_IMAGE_MINT.md`.
 
-Charter §24 also says to seal `Emit.Image` construction. Charter SC-17 requires one `Emit.Image` publication path. Repair 16's retained-results section says `Emit.Image` remains sealed.
-
-## Current defect
-
-`Emit.v` currently defines:
-
-```coq
-Record Image : Type := MakeImage {
-  module_bytes : string;
-  files : FileMap.t string;
-  provenance : exists sp,
-    module_bytes = module_file sp /\ files = file_map sp
-}.
-```
-
-`MakeImage` is public. The file header and `ARCHITECTURE.md` explicitly say it is public. Docker's forged-image tests call `Emit.MakeImage` directly.
-
-The plugin's assumption-closure check is useful, but it does not satisfy the private-constructor contract. A post-hoc transport rejection does not authorize a second public image-mint topology.
-
-This defect also makes the repair-16 statement “`Emit.Image` remains sealed” false.
-
-## Required repair
-
-1. Put the image representation behind a sealed public interface.
-
-2. Externally expose only the abstract `Emit.Image` type and approved total operations such as:
-
-   ```text
-   of_safe
-   module_bytes
-   files
-   entries
-   transport
-   provenance theorems and byte/layout facts
-   ```
-
-   The raw record, raw constructor, implementation module constructor, and any helper which accepts arbitrary bytes plus a proof must be unreachable to clients.
-
-3. Make `Emit.of_safe` the canonical public image mint from an actual `Safe.Program`.
-
-4. Prefer a hidden representation which retains the exact `Safe.Program` used to create the image and builds/stores the exact module bytes and file map once from that object. At minimum, do not weaken the current proof of origin. Do not replace exact predecessor retention with equality to rerendering after construction.
-
-5. Keep `of_safe_at` only if it has a distinct current operational need which cannot use `of_safe`. If retained, it must require the exact `Safe.Program`, must be proved to publish the same retained bytes, and must not become an arbitrary-source or arbitrary-byte mint. Otherwise delete it and update the witnesses to use `of_safe`.
-
-6. Add negative client compilation tests for all reachable constructor spellings, including the public and implementation-qualified forms. The test must fail because the name is absent.
-
-7. Preserve the materializer's assumption-closure guard. Test it by postulating a `Safe.Program` and calling the public `Emit.of_safe`, not by reopening a raw image constructor. Axiomatic provenance must still be rejected before any effect.
-
-8. The positive client control must construct an image only through:
-
-   ```coq
-   Emit.of_safe (Safe.certify cp)
-   ```
-
-   where `cp` came from `Compilable.compile`.
-
-9. Keep `Fido Materialize` restricted to the public `Emit.transport` projection. Do not let the plugin inspect a private representation or accept a raw `(go.mod, files)` pair.
-
-10. Update all affected source comments, `ARCHITECTURE.md`, `CLAUDE.md`, Docker tests, gate prose, and witness code. The live FCB text which requires a private constructor is already correct and must not be weakened.
-
-11. Generated `go.mod`, every generated `.go` byte, stdout, stderr, and exit status must remain unchanged.
-
-If sealing the constructor exposes a real Rocq reduction or plugin boundary conflict, stop and report the exact kernel/plugin constraint and proposed architecture change. Do not keep `MakeImage` public as a convenience workaround.
+Definition-of-done items 13, 14 and 20 below are superseded accordingly: what must be inaccessible is the raw
+TOKEN constructor, not the carrier pack constructor, and no current document may describe the carrier
+constructor as private.
 
 ---
 

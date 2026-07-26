@@ -4,7 +4,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -226,6 +227,23 @@ layer. Cross-namespace use is qualified: `Compilable.Program`, `Typing.Program`,
 `Safe.Program` are distinguished by the namespace that owns them, which also shows the reader where each is
 defined.
 
+### D-26 — `Emit.Image` seals authority while its transport carrier remains reducible.
+
+**Standing law:** `Emit.Image` retains the exact `Safe.Program`, exact `go.mod` bytes, exact `.go` file map,
+and one opaque `Emit.Mint.Token` indexed by those same values. The raw token constructor is private.
+`Emit.Mint.issue` is the sole authority-producing operation. The visible image pack constructor is a reducible
+carrier constructor, not a mint: it cannot authorize foreign bytes without an inhabitant of the indexed token
+type. `Emit.of_safe` is the canonical production packer; `Emit.of_safe_at` transports the same authority along
+the exact source equality and is not a second mint.
+
+No helper may accept arbitrary bytes plus an independently supplied equality or provenance proof. A postulated
+token or predecessor remains outside the certified path and must be rejected by the materializer's existing
+assumption-closure guard before any filesystem effect.
+
+**Rationale:** Opaque module sealing removes the projection bodies required by the certified term transport's
+kernel reduction. Sealing the intrinsic mint authority preserves the one-authority law without moving
+rendering into OCaml or weakening payload provenance.
+
 **Rationale:** Redundant names obscure the authority chain, make qualified names noisy, and let a large
 module simulate structure through prefixes. Scope-relative names expose the actual architecture, so a missing
 abstraction or a bad module boundary becomes visible instead of hiding behind a prefix.
@@ -250,6 +268,27 @@ abstraction or a bad module boundary becomes visible instead of hiding behind a 
 | Latitude rows changed | None |
 | Acceptance gates changed | None |
 | Target/toolchain policy changed | None |
+
+### FCB-A006-INTRINSIC-EMIT-IMAGE-MINT
+
+| Field | Disposition |
+|---|---|
+| Amendment | `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT` |
+| Status | **ACCEPTED** — Rob recorded `FCB-A006-intrinsic-emit-image-mint` |
+| Author | Primary ChatGPT Fido review thread |
+| Human owner | Rob |
+| Date | `2026-07-26` |
+| New information | The certified transport must kernel-reduce `Emit.transport img`. Opaque module sealing removes the image projection bodies and makes that reduction fail. A transparent carrier with an opaque value-indexed mint witness preserves both computation and intrinsic authority. |
+| Settled rule | `Emit.Image` is a reducible carrier retaining the exact `Safe.Program`, exact bytes, and an opaque `Emit.Mint.Token` indexed by those same exact values. The carrier pack constructor is not a mint. `Emit.Mint.issue` is the sole authority-producing operation. |
+| Governance decision added | `D-26` |
+| Reopened fixed point | `ARCH-11`, only the `Emit.Image` bullet inside Charter §24; every other part of the fixed point remains unchanged |
+| Changed documents | Architecture Charter; Fixed Points; Governance; Index; Roadmap; Checkpoint Authoring Guide; Model Operations; Human Review Index; every accepted-amendment banner |
+| Contracts affected | `SC-17`, `SC-21`, `SC-22` |
+| Checkpoints affected | C4 repair 17 acceptance boundary and the C5 dependency |
+| Proof/build gates required | Opaque token-constructor test; foreign-byte construction rejection; postulated-token materialization rejection; positive `nf_all` transport reduction; whole-theory assumption audit; generated-byte identity |
+| Closure / latitude / acceptance-gate rows changed | None |
+| Target/toolchain policy changed | None |
+| OCaml trust boundary changed | None |
 
 ### FCB-A005-SCOPED-NAME-OWNERSHIP
 

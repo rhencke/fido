@@ -4,7 +4,8 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -1218,7 +1219,9 @@ Cross-layer theorems belong in a theorem-only module that imports compiler facts
 
 The parser never enters the production path.
 
-`Emit.Image` remains because it pins the exact byte snapshot used by validation and publication. Its constructor is private.
+`Emit.Image` remains because it pins the exact byte snapshot used by validation and publication. It is a reducible carrier retaining the exact `Safe.Program`, exact `go.mod` bytes, exact `.go` file map, and an opaque `Emit.Mint.Token` indexed by those same values. The raw token constructor is private. The visible carrier pack constructor is not an authority mint because it requires that exact indexed token. `Emit.Mint.issue` is the sole authority-producing operation; `Emit.of_safe` is the canonical production packer, and `Emit.of_safe_at` transports the same authority along the exact source equality.
+
+This is a narrow computation-boundary rule. It does not authorize public raw constructors for `Compilable.Core`, `Compilable.Program`, `Compilable.Failure`, `Compilable.Facts`, or `Safe.Program`. Those capabilities remain abstract because no certified transport must reduce their representations.
 
 The Go compiler and runtime remain a named pinned external trust boundary. Fido proves the accepted source, its model, and exact bytes. Differential tests check the external toolchain.
 
@@ -1359,7 +1362,7 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - expose total fact-backed behavior queries;
 - replace production raw source evaluation with retained fact consumption;
 - move cross-layer semantic theorems out of `Render`;
-- seal `Emit.Image` construction;
+- seal the `Emit.Mint.Token` authority; keep the `Emit.Image` transport carrier reducible, and admit no arbitrary-byte packer;
 - replace unindexed runtime values at the first nonconstant runtime feature;
 - add only the source constructors, facts, rules, and tests named by the accepted checkpoint’s Spec-Closure rows.
 
@@ -1671,6 +1674,8 @@ No broad “unsupported” catch-all constructor is allowed where the ledger nam
 
 Prove direct rendering covers every admitted source constructor, preserves exact literal values and grouping, has no raw-text escape, and yields the one `Emit.Image` publication path.
 
+The one authority-producing path is `Emit.Mint.issue` from the exact `Safe.Program`. The reducible carrier pack cannot select a different payload because its token is indexed by the retained program and exact byte values.
+
 For deterministic programs, pinned-Go observations match by the exact terminal tuple `(stdout bytes, stderr projection, exit status)`.
 
 For nondeterministic programs, a concrete pinned-Go observation is accepted only by a proved membership checker against `GoMachine` runs. The checker is sound and complete for the evidence form it accepts and consumes `enabled_dec`; it does not define semantics.
@@ -1759,6 +1764,8 @@ Clinging to an internal form because it is implemented is a contract failure.
 ### 25.23 `SC-22-ACCEPTANCE-ALIGNMENT`
 
 Freeze and discharge `fido_accepts_subset_pinned_gc` without making pinned gc a language-semantics authority.
+
+The transport boundary rejects any image whose retained predecessor or mint token depends on an axiom, admitted fact, parameter, or section variable. Kernel reduction inspects only the final transport; it does not make the opaque token a second OCaml authority.
 
 The contract requires:
 
