@@ -4,7 +4,7 @@ BUILDER := fido-builder
 # toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
 override PLATFORM := linux/amd64
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log fmt names profile
 .DEFAULT_GOAL := check
 
 # The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
@@ -49,6 +49,19 @@ prove: builder
 
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
+
+# Diagnostic only — never a gate, never wired into `check` or the hook.  Recompiles ONE module with
+# `rocq c -time` against the dune-built dependencies and ranks its sentences and declarations by cost, so a
+# slow build can be attributed instead of guessed at.  `make profile FILE=Typing.v TOP=25`.
+FILE ?= Compilable.v
+TOP  ?= 40
+profile: builder
+	@out=$${TMPDIR:-/tmp}/fido-profile; rm -rf "$$out"; mkdir -p "$$out"; \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
+	    --target profile-log --build-arg PROFILE_FILE=$(FILE) --no-cache-filter profile \
+	    --output "type=local,dest=$$out" . && \
+	  python3 tools/rocq-profile.py $(FILE) "$$out/time.log" $(TOP); \
+	  rc=$$?; echo "fido: raw -time log kept at $$out/time.log"; exit $$rc
 
 # The emit stage alone (intermediate): Dune-cached theory + plugin build, then each witness MATERIALIZES its
 # authoritative pristine image (`Fido Materialize`, explicit rocq c on the witness — not a .vo side effect);

@@ -124,6 +124,38 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E"
 SH
 
+# ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
+#    module is recompiled with `rocq c -time`, which prints a per-sentence timing keyed by byte offset.  The
+#    raw log is EXPORTED and ranked on the host by tools/rocq-profile.py (the prover image has no python3, and
+#    it should not grow one for a diagnostic).  Nothing here verifies anything: it exists so "the build is
+#    slow" becomes "this lemma is 40% of the file".
+FROM rocq-base AS profile
+ARG TARGETARCH
+ARG PROFILE_FILE=Compilable.v
+RUN mkdir -p /workspace/profile
+COPY --chown=opam:opam dune-project dune ./
+COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam gate/ gate/
+COPY --chown=opam:opam plugin/ plugin/
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+set -eu
+fail() { echo "fido: profile FAILED — $*"; exit 1; }
+if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
+[ -f "$PROFILE_FILE" ] || fail "no such module: $PROFILE_FILE"
+echo "fido: profiler flags this rocq offers:$(rocq c --help 2>&1 | grep -oE '\-(time|profile)[a-z-]*' | sort -u | sed 's/^/ /' | tr -d '\n')"
+start=$(date +%s.%N)
+if ! rocq c -Q _build/default Fido -time "$PROFILE_FILE" > /workspace/profile/time.log 2>&1; then
+  tail -40 /workspace/profile/time.log; fail "rocq c -time $PROFILE_FILE FAILED"
+fi
+end=$(date +%s.%N)
+echo "fido: $PROFILE_FILE recompiled alone in $(echo "$end $start" | awk '{printf "%.1f", $1-$2}') s (deps already built)"
+SH
+
+# the export surface: the raw -time log only, so the host can rank it without the image growing a toolchain.
+FROM scratch AS profile-log
+COPY --from=profile /workspace/profile/ /
+
 # ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (shared cache id with prover).
 #    Then, in EXPLICIT always-run steps (never .vo side effects): `Fido Materialize` writes each witness's
 #    authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the emit-time assumption-closure guard
