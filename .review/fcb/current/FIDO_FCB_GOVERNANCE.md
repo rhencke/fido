@@ -215,6 +215,21 @@ dangling repository path is a blocking documentation defect.
 **Rationale:** Git can be the sole source of truth only when the live corpus is self-consistent and every reader
 is sent to an object that exists.
 
+### D-25 — Names are owned by their scope.
+
+**Standing law:** A module, nested module, record, or other real namespace supplies a concept's domain.
+Declarations do not repeat that domain through `Go` prefixes, type-name prefixes, or initialisms such as
+`cp_`, `ewf_`, `tnft_`, `di_`. Where two declarations in one Rocq namespace need different names, use full
+semantic words or a real subnamespace; never an abbreviation as a pseudo-namespace. Old names receive no
+aliases, compatibility modules, deprecated wrappers, or re-exports — Git history is the only compatibility
+layer. Cross-namespace use is qualified: `Compilable.Program`, `Typing.Program`, `Syntax.Program` and
+`Safe.Program` are distinguished by the namespace that owns them, which also shows the reader where each is
+defined.
+
+**Rationale:** Redundant names obscure the authority chain, make qualified names noisy, and let a large
+module simulate structure through prefixes. Scope-relative names expose the actual architecture, so a missing
+abstraction or a bad module boundary becomes visible instead of hiding behind a prefix.
+
 ## 6. Amendment register
 
 ### FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE
@@ -235,6 +250,26 @@ is sent to an object that exists.
 | Latitude rows changed | None |
 | Acceptance gates changed | None |
 | Target/toolchain policy changed | None |
+
+### FCB-A005-SCOPED-NAME-OWNERSHIP
+
+| Field | Disposition |
+|---|---|
+| Amendment | `FCB-A005-SCOPED-NAME-OWNERSHIP` |
+| Status | **ACCEPTED** |
+| Author | the reviewer (A005 scoped naming migration directive) |
+| Human owner | Rob |
+| Date | `2026-07-26` |
+| New information | The theory encoded one scope twice — module domain repeated in declaration names, record type repeated through initials — so readers decoded redundancy and large modules simulated structure with prefixes instead of real namespaces. |
+| Settled rule sought | A namespace states its domain once; a declaration names only its role inside that domain; collisions are resolved with the smallest full semantic distinction, never a restored abbreviation. |
+| Governance decision added | `D-25` |
+| Changed documents | Governance; Index; Human Review Index; Checkpoint Authoring Guide; live prose naming a Rocq symbol |
+| Fixed points changed | None |
+| Contracts affected | None — no theorem statement or guarantee changes |
+| Checkpoints affected | C4 review paused for the migration; the renamed head becomes the sixteenth C4 implementation candidate |
+| Closure / latitude / acceptance-gate rows changed | None |
+| Target/toolchain policy changed | None |
+| Enforcement | `tools/naming-gate.py` via `make names`, wired into `make check` |
 ### FCB-A002-GIT-CANONICAL-FCB-STORAGE
 
 | Field | Disposition |

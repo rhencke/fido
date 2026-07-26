@@ -160,6 +160,23 @@ the repository identity or stable bootstrap path changes.
 ## 8. FCB update plan
 ```
 
+## 3a. Naming duty (D-25 / A005)
+
+Every checkpoint contract carries a naming section, and it is frozen with the checkpoint:
+
+- freeze the module and public identifier names alongside the frozen contracts;
+- make every name relative to its real scope — the namespace states the domain once;
+- forbid domain repetition and cryptic pseudo-namespace prefixes (`cp_`, `ewf_`, `tnft_`, `di_`, `Go` on a
+  declaration inside a Go-domain module);
+- require qualification at cross-module boundaries, so `Compilable.Program` and `Typing.Program` are
+  distinguished by the namespace that owns them;
+- resolve any collision with the smallest full semantic distinction, never a restored abbreviation;
+- list the old-name and prefix residue searches the checkpoint must run, and state their expected result.
+
+`make names` (`tools/naming-gate.py`) enforces this. The Rocq compiler already verifies code names for free —
+a missed rename fails to build — so the gate exists for documentation and source comments, which have no
+verifier at all.
+
 ## 4. Stop conditions
 
 Stop and report an architecture conflict when a required result needs a new public authority, a different scope, a weakened theorem, a custom collection where a standard one should fit, a hidden trusted boundary, or a step bound. Do not implement an alternative autonomously.

@@ -4,7 +4,7 @@
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -24,7 +24,7 @@ This index lists current human acts.
 
 | ID | Status | Required human act | Source / owner | Effect |
 |---|---|---|---|---|
-| `C4-REVIEW` | **BLOCKED / AWAITING REPAIR-14 CANDIDATE** | Review the next C4 candidate only after intrinsic retained elaboration repair 14 is implemented and frozen. The prior implementation candidate `9d5246eedf9e9a3c019b85e9dc65ce9e6f867179` is blocked. | `.review/NEXT_STEPS.md`, A001, and the main review thread | C5 and the post-C4 trim remain forbidden. |
+| `C4-REVIEW` | **PAUSED FOR THE A005 SCOPED NAMING MIGRATION** | Review the next C4 candidate only after intrinsic retained elaboration repair 14 is implemented and frozen. Repair 14 is implemented and frozen but not human-accepted; A005 renames the whole repository first, so the review resumes against the renamed candidate. The semantic result of `3386c023fe10df4ae433726044d61642f219309c` is preserved unchanged. | `.review/NEXT_STEPS.md`, A001, A005, and the main review thread | C5 and post-C4 feature work remain forbidden. |
 | `ADR-0002` | **OPEN / DEFERRED** | Choose the DecimalFloat domain after differential and proof-cost evidence. | Governance ADR register | Before C7 broadens floating constant coverage. |
 | `ADR-0004` | **DEFERRED** | Choose the multi-platform 64-bit target set. | Governance ADR register | C16. |
 | `TOOLCHAIN-PROVENANCE` | **PENDING** | Replace pending local-distribution evidence with verified official tarball evidence, or expressly retain pending status for a specific review use. | Toolchain Evidence | Adequacy evidence remains pending; formal architecture is unchanged. |

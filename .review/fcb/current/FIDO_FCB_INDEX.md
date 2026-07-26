@@ -6,7 +6,7 @@
 > commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`;
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`.  
+> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`.  
 > **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task.
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  

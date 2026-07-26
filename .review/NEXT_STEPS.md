@@ -1,5 +1,13 @@
 # NEXT_STEPS — active authority pointer
 
+- **Active work: the A005 SCOPED NAMING MIGRATION.** `FCB-A005-SCOPED-NAME-OWNERSHIP` is **ACCEPTED**
+  (Governance `D-25`), and Rob authorized the migration — *"Ruthlessly rename away."* — to run **before** the
+  C4 review resumes. **The C4 Implementation Review is PAUSED** until the renamed candidate is frozen. The
+  migration changes no Go-language meaning, theorem guarantee, accepted program set, generated Go byte,
+  target policy, or proof assumption; it preserves exactly what candidate `3386c02` does, modulo names and
+  the expressly authorized deletion of the thirteen consumer-free Q-08 surfaces. The renamed head becomes the
+  **sixteenth** C4 implementation candidate because the certified source changed, even though the change is
+  semantically neutral. C5 and post-C4 feature work remain **FORBIDDEN**.
 - **Active checkpoint:** C4 **intrinsic retained elaboration repair 14 — IMPLEMENTED; awaiting human review.**
   The repair-14 candidate is `3386c023fe10df4ae433726044d61642f219309c` (the FIFTEENTH C4 implementation
   candidate). C4 stays **BLOCKING** until Rob's new human C4 Implementation Review dispositions it; repair 14
