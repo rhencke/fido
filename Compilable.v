@@ -4945,65 +4945,10 @@ Proof.
   - rewrite (trace_currents_eq (forest_items forest) acc t). exact (forest_keys_nodup forest).
 Qed.
 
-(* §4/§8.6 UNIVERSAL CHILD-FAILURE CLOSURE: any member whose FINAL outcome is [ChildFailure] has a retained cause
-   whose operand (the exact [SuffixMember]) FAILS in both the retained tail accumulator and the FINAL Index.table, its
-   own final outcome is a failure, and it emits NO local diagnostic (any context) — [ChildFailure] projects []. *)
-Lemma retained_childfail_closure {p} {input : Input p} {forest : WorkForest input} {tnft}
-    (ot : Outcomes forest tnft) (wm : WorkMember forest) :
-  total_forest_outcome_at ot wm = ChildFailure ->
-  exists ts x (rest : list (Work input)) (acc_rest : Accumulator forest tnft rest)
-         (step : ConversionStep forest (proj1_sig wm) rest ts x),
-       work_expr (proj1_sig wm) = Syntax.Convert ts x
-    /\ outcome_is_fail (accumulator_total acc_rest (step_operand_suffix step))
-    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ outcome_is_fail (total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)))
-    /\ (forall c, forest_awork_diags ot (wm, c) = []).
-Proof.
-  intro Hcf.
-  destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
-  rewrite Hcf in stepc.
-  destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts [x [step [He Hfail]]]].
-  pose proof (Hclose (step_operand_suffix step)) as Hcl.
-  exists ts, x, rest, acc_rest, step.
-  split; [ exact He | split; [ exact Hfail | split; [ exact Hcl | split ] ] ].
-  - rewrite Hcl. exact Hfail.
-  - intro c. unfold forest_awork_diags. cbn [fst snd]. rewrite Hcf. reflexivity.
-Qed.
-
-(* §5/§8.4 UNIVERSAL CONVERSION-SUCCESS CLOSURE: any conversion member whose FINAL outcome is [ExpressionSuccess f] has a
-   retained cause with the exact [ConversionStep], the operand [SuffixMember] whose tail query = final query =
-   [ExpressionSuccess opf], ONE succeeding [Typing.convert_constant] on the sealed target fact, and [f] the EXACT current final fact. *)
-Lemma retained_convsuccess_closure {p} {input : Input p} {forest : WorkForest input} {tnft}
-    (ot : Outcomes forest tnft) (wm : WorkMember forest) ts x f :
-  work_expr (proj1_sig wm) = Syntax.Convert ts x ->
-  total_forest_outcome_at ot wm = ExpressionSuccess f ->
-  (* the returned [step] is the ConversionStep for the EXACT SOURCE [ts]/[x] (no existential ts0/x0) *)
-  exists (rest : list (Work input)) (acc_rest : Accumulator forest tnft rest)
-         (step : ConversionStep forest (proj1_sig wm) rest ts x) opf tc,
-       accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-    /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
-         (const_status opf) = Some tc
-    /\ f = MakeExpressionFact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
-             (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
-                (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)).
-Proof.
-  intros He Hok.
-  destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
-  rewrite Hok in stepc.
-  destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
-    as [step [opf [tc [Hopf [Hconv Hf]]]]].
-  pose proof (Hclose (step_operand_suffix step)) as Hcl.
-  exists rest, acc_rest, step, opf, tc.
-  split; [ exact Hopf | split; [ | split; [ exact Hcl | split; [ exact Hconv | exact Hf ] ] ] ].
-  transitivity (accumulator_total acc_rest (step_operand_suffix step)); [ exact Hcl | exact Hopf ].
-Qed.
-
 (** ═══ §5/§8 THE ACCEPTED CONVERSION CAUSE, STATED OVER THE RETAINED CAUSE OBJECT ITSELF ═══
-    [retained_convsuccess_closure] above carries the right evidence but lets its STATEMENT bind [rest] and
-    [acc_rest] existentially.  Read alone, that statement is satisfied by ANY suffix and ANY tail accumulator
-    obeying equal equations — it does not say the fold retained THESE.  Here the suffix and the tail accumulator
+    The earlier closures carried the right evidence but let their STATEMENT bind [rest] and [acc_rest]
+    existentially.  Read alone, such a statement is satisfied by ANY suffix and ANY tail accumulator obeying
+    equal equations — it does not say the fold retained THESE.  Here the suffix and the tail accumulator
     are PROJECTIONS of [total_forest_outcome_cause ot wm], the cause read off the retained [outcomes_trace], so
     no foreign pair can be substituted: there is nothing left to choose.  What stays existential — the
     [ConversionStep], the operand fact, the current fact, the converted constant — is DETERMINED by that cause,
@@ -5050,8 +4995,8 @@ Definition accepted_conversion_cause {p} {input : Input p} {forest : WorkForest 
                 (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft
                    (conversion_target_node_ref (step_conversion step)))) tc)).
 
-(* the same hypotheses as [retained_convsuccess_closure], concluding the CAUSE-OWNED form: the proof destructs the
-   ONE retained cause and never introduces a second suffix or accumulator. *)
+(* from a member's [Syntax.Convert] view and its [ExpressionSuccess] outcome, the CAUSE-OWNED form: the proof
+   destructs the ONE retained cause and never introduces a second suffix or accumulator. *)
 Lemma retained_convsuccess_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) (wm : WorkMember forest) ts x f :
   work_expr (proj1_sig wm) = Syntax.Convert ts x ->
@@ -10740,15 +10685,6 @@ Proof.
 Qed.
 
 (* the canonical instantiation the existing specification fixtures use. *)
-Lemma program_member_at (p : Syntax.Program) (path : FilePath.T) (f : Syntax.File) (local : positive) occ e :
-  find_file path (Syntax.files p) = Some f ->
-  Index.source_occurrence_at f local = Some occ ->
-  Index.view_expr occ = Some e ->
-  exists (wm : WorkMember (phase_work (build_expression_phase (build_compilation_input p (Index.index_program p))))),
-    work_occurrence (proj1_sig wm) = occ /\ work_expr (proj1_sig wm) = e
-    /\ Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm)) = Index.MakeKey path local.
-Proof. exact (member_at_in_forest p _ _ path f local occ e). Qed.
-
 (** ★§5.3 THE CONCRETE TWO-[uint8] SNAPSHOT: a REAL compiled program with TWO [uint8(...)] conversions at
     DISTINCT println arguments.  The retained index mints TWO real target [TypeNameRef]s at DISTINCT NodeKeys
     (occurrence identity — NOT name identity: the same closed source symbol at two occurrences), yet their
@@ -11517,6 +11453,7 @@ Qed.
 Record RejectedFixture (fail : Failure deep_fail_program) : Prop := MakeRejectedFixture {
   (* ── every failure query is a PROJECTION of the retained core, definitionally ── *)
   rejected_fixture_core : failure_diagnostics fail = core_diagnostics (failure_core fail) ;
+  rejected_fixture_raw_diagnostics : failure_raw_diagnostics fail = core_raw_diagnostics (failure_core fail) ;
   rejected_fixture_input : failure_input fail = core_input (failure_core fail) ;
   rejected_fixture_phase : failure_phase fail = phase (failure_core fail) ;
 
@@ -11578,6 +11515,7 @@ Proof.
               (reject_no_compile deep_fail_program ltac:(vm_compute; reflexivity))) as [fail Hc].
   exists fail. split; [ exact Hc | ].
   constructor.
+  - reflexivity.
   - reflexivity.
   - reflexivity.
   - reflexivity.

@@ -409,18 +409,17 @@ Print Assumptions Compilable.trace_retained_cause.
 Print Assumptions Compilable.trace_match.
 Print Assumptions Compilable.build_conversion_step.
 Print Assumptions Compilable.build_forest_outcome_table.
-(* §3/§4/§5 the UNIVERSAL acceptance theorems over ANY retained Index.table/member: the direct
-   conversion-success closure ([retained_convsuccess_closure] — the [ConversionStep] for the EXACT SOURCE [ts]/[x]
-   (no existential ts0/x0) + target fact + operand SuffixMember + tail = final = Compilable.ExpressionSuccess opf + one Typing.convert_constant success
-   + exact current fact), the direct child-failure closure +
-   no-local-reason ([retained_childfail_closure] — operand fails in tail AND final, current Compilable.ChildFailure, current
-   member emits no diagnostic), the stored-diagnostic connection ([retained_convfail_diag] — the exact
+(* §3/§4/§5 the UNIVERSAL acceptance theorems over ANY retained Index.table/member.  The conversion-success,
+   conversion-failure and child-failure closures are now the CAUSE-OWNED forms
+   ([Compilable.retained_convsuccess_cause] / [Compilable.retained_convfail_cause] / [Compilable.retained_childfail_cause], gated below): they
+   state the same evidence over the suffix and tail accumulator that [Compilable.total_forest_outcome_cause] supplies,
+   instead of binding their own.  The earlier existential-suffix closures they superseded are deleted — a peer
+   that states strictly less, over an object the statement was free to pick, is not worth keeping.  Here:
+   the stored-diagnostic connection ([retained_convfail_diag] — the exact
    Compilable.InvalidConversion over the STORED Compilable.ConversionFailure fields is a member of the projected list, read via
    [forest_awork_diags] not [local_conv_failure], returning the exact retained annotated member/context pair whose
    underlying work item IS that member), and UNIQUE trace insertion per work member
    ([outcome_trace_unique_step] — the trace's insertion sequence IS Compilable.forest_items, each once, key-NoDup). *)
-Print Assumptions Compilable.retained_convsuccess_closure.
-Print Assumptions Compilable.retained_childfail_closure.
 Print Assumptions Compilable.retained_convfail_diag.
 Print Assumptions Compilable.outcome_trace_unique_step.
 Print Assumptions Compilable.trace_currents_eq.
