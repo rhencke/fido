@@ -1,6 +1,7 @@
 # NEXT_STEPS — active authority pointer
 
-- **Active work: C4 REPAIR 17 — the sole active C4 task.**
+- **Current candidate: `92fc04e264b56d575e2fd1d65ae5d7940c93dc84`.** C4 repair 17 is **IMPLEMENTED and
+  COMPLETE**, awaiting Rob's human C4 Implementation Review.
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_17.md` (installed verbatim).
   Implementation base: the current head, a documentation-only descendant of the reviewed candidate. Do not
   reset or rewrite history.

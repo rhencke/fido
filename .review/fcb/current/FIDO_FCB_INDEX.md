@@ -18,14 +18,10 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Blocked implementation candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` — the eighteenth
-blocked C4 candidate; `c8ce2d8c6ad1c109c08c44b689b70abbb408ed7a` is its documentation-only freeze, not a
-separate candidate. Repair 16 made real progress and did **not** close C4.  
-**Active work: C4 repair 17** (`.review/C4_IMPLEMENTATION_REPAIR_17.md`) — the sole active C4 task.
-Retained package provenance and the sealed `Compilable.Core` are closed and must not regress. Still open in
-this repair: `Emit.Image` construction is **not** sealed and is **BLOCKED** on a human decision
-(`.review/OPEN_QUESTIONS.md` Q-08 — a Rocq module seal removes the projection bodies the transport must
-kernel-reduce).  
+**Current implementation candidate:** `92fc04e264b56d575e2fd1d65ae5d7940c93dc84` — C4 repair 17 is
+**IMPLEMENTED and COMPLETE**, awaiting Rob's human C4 Implementation Review. All five findings are closed,
+including the `Emit.Image` authority under accepted amendment A006 / Governance D-26.  
+**Last blocked candidate:** `12b1bc998a8a2a6b5ecd2360d734f7e2d56eac7c` — the eighteenth to block.  
 **C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 16 are historical.  
 Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
 **Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
