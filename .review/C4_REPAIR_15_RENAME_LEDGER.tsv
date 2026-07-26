@@ -1,0 +1,179 @@
+# Repair-15 rename ledger — implementation checklist, NOT a second authority.
+# Basis: A005/D-25 as completed by .review/C4_IMPLEMENTATION_REPAIR_15.md.
+# Casing: type/Prop-denoting Definitions keep UpperCamelCase (§3.2 requires Index.Snapshot.Syntax,
+# a Definition, to stay so); PROOFS take lower_snake_case, and a CamelCase concept inside a proof
+# name becomes lower-case words (§3.1: "FilesEqual theorem suffixes -> files_equal").
+# Delete before the final freeze; Git history retains the work.
+file	line	kind	old	old_qualified	new_qualified	basis
+Collections.v	79	Lemma	eqlistA_eqke_eq	Collections.eqlistA_eqke_eq	Collections.equal_list_key_element_eq	derived: §3.1 lower_snake_case proof/value name
+Collections.v	86	Lemma	file_elements_Equal	Collections.file_elements_Equal	Collections.file_elements_equal	derived: §3.1 lower_snake_case proof/value name
+Collections.v	101	Lemma	eqlistA_eqke_eq_str	Collections.eqlistA_eqke_eq_str	Collections.equal_list_key_element_eq_str	derived: §3.1 lower_snake_case proof/value name
+Collections.v	108	Lemma	package_elements_Equal	Collections.package_elements_Equal	Collections.package_elements_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	95	Definition	pm_add_main	Compilable.pm_add_main	Compilable.package_map_add_main	directive §3.2/3.3/3.4
+Compilable.v	184	Lemma	source_spec_package_rules_b_PackageRulesValid	Compilable.source_spec_package_rules_b_PackageRulesValid	Compilable.source_spec_package_rules_b_package_rules_valid	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	314	Instance	PM_Equal_Equiv	Compilable.PM_Equal_Equiv	Compilable.package_map_equal_equivalence	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	321	Lemma	package_step_Proper	Compilable.package_step_Proper	Compilable.package_step_proper	directive §3.2/3.3/3.4
+Compilable.v	343	Theorem	package_summaries_Equal	Compilable.package_summaries_Equal	Compilable.package_summaries_equal	directive §3.2/3.3/3.4
+Compilable.v	647	Definition	use_resolved_of_ci	Compilable.use_resolved_of_ci	Compilable.use_resolved_of_input	directive §3.2/3.3/3.4
+Compilable.v	657	Lemma	use_resolved_of_ci_eq	Compilable.use_resolved_of_ci_eq	Compilable.use_resolved_of_input_eq	directive §3.2/3.3/3.4
+Compilable.v	711	Lemma	NoDup_map_inj	Compilable.NoDup_map_inj	Compilable.no_duplicates_map_inj	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	1875	Lemma	SS_prefix_lt	Compilable.SS_prefix_lt	Compilable.strongly_sorted_prefix_lt	directive §3.2/3.3/3.4
+Compilable.v	1883	Lemma	ss_after_local	Compilable.ss_after_local	Compilable.strongly_sorted_after_local	directive §3.2/3.3/3.4
+Compilable.v	2268	Lemma	build_tnft_map	Compilable.build_tnft_map	Compilable.build_type_name_map	directive §3.2/3.3/3.4
+Compilable.v	2339	Definition	build_ew_conv	Compilable.build_ew_conv	Compilable.build_work_conversion	directive §3.2/3.3/3.4
+Compilable.v	3506	Lemma	StepCause_convfail_inv	Compilable.StepCause_convfail_inv	Compilable.conversion_failure_cause_yields_step	directive §3.2/3.3/3.4
+Compilable.v	3529	Lemma	StepCause_childfail_inv	Compilable.StepCause_childfail_inv	Compilable.child_failure_cause_yields_member	directive §3.2/3.3/3.4
+Compilable.v	3543	Lemma	StepCause_ok_conv_inv	Compilable.StepCause_ok_conv_inv	Compilable.conversion_success_cause_yields_step	directive §3.2/3.3/3.4
+Compilable.v	3885	Lemma	expression_all_ok_ProgramTyped	Compilable.expression_all_ok_ProgramTyped	Compilable.expression_all_ok_iff_typed_program	directive §3.2/3.3/3.4
+Compilable.v	4100	Lemma	StronglySorted_filter	Compilable.StronglySorted_filter	Compilable.strongly_sorted_filter	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4110	Lemma	StronglySorted_map	Compilable.StronglySorted_map	Compilable.strongly_sorted_map	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4120	Lemma	StronglySorted_NoDup	Compilable.StronglySorted_NoDup	Compilable.strongly_sorted_no_duplicates	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4129	Lemma	StronglySorted_impl_in	Compilable.StronglySorted_impl_in	Compilable.strongly_sorted_impl_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4139	Lemma	StronglySorted_app	Compilable.StronglySorted_app	Compilable.strongly_sorted_app	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4221	Lemma	StronglySorted_map_inv	Compilable.StronglySorted_map_inv	Compilable.strongly_sorted_map_inv	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	4894	Lemma	phase_eft_consumes_work_ot	Compilable.phase_eft_consumes_work_ot	Compilable.phase_fact_table_consumes_work_outcomes	directive §3.2/3.3/3.4
+Compilable.v	5061	Lemma	expression_diags_conv_scar_sound	Compilable.expression_diags_conv_scar_sound	Compilable.expression_diags_conversion_single_rounding_sound	directive §3.2/3.3/3.4
+Compilable.v	5081	Lemma	expression_diags_conv_scar_wf	Compilable.expression_diags_conv_scar_wf	Compilable.expression_diags_conversion_single_rounding_well_formed	directive §3.2/3.3/3.4
+Compilable.v	6198	Lemma	nodekey_sorted_map_fst	Compilable.nodekey_sorted_map_fst	Compilable.key_sorted_map_fst	directive §3.2/3.3/3.4
+Compilable.v	6207	Lemma	nodekeymap_map_elements	Compilable.nodekeymap_map_elements	Compilable.key_map_map_elements	directive §3.2/3.3/3.4
+Compilable.v	6319	Lemma	bucket_flatten_In	Compilable.bucket_flatten_In	Compilable.bucket_flatten_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6330	Lemma	existsb_In_eq	Compilable.existsb_In_eq	Compilable.existsb_in_eq	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6342	Lemma	node_pkg_In	Compilable.node_pkg_In	Compilable.node_pkg_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6353	Lemma	collect_diagnostics_In	Compilable.collect_diagnostics_In	Compilable.collect_diagnostics_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6583	Lemma	keyed_visit_FilesEqual	Compilable.keyed_visit_FilesEqual	Compilable.keyed_visit_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6718	Lemma	annotate_source_FilesEqual	Compilable.annotate_source_FilesEqual	Compilable.annotate_source_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	6827	Definition	keyed_ppkg_step	Compilable.keyed_ppkg_step	Compilable.keyed_program_package_step	directive §3.2/3.3/3.4
+Compilable.v	6959	Lemma	erased_pkg_diags_FilesEqual	Compilable.erased_pkg_diags_FilesEqual	Compilable.erased_pkg_diags_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7035	Lemma	erased_src_diags_FilesEqual	Compilable.erased_src_diags_FilesEqual	Compilable.erased_src_diags_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7047	Theorem	erased_report_FilesEqual	Compilable.erased_report_FilesEqual	Compilable.erased_report_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7098	Lemma	program_expr_facts_FilesEqual	Compilable.program_expr_facts_FilesEqual	Compilable.program_expr_facts_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7104	Theorem	program_expr_facts_enum_FilesEqual	Compilable.program_expr_facts_enum_FilesEqual	Compilable.program_expr_facts_enum_files_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7432	Lemma	nodekey_lt_irrefl	Compilable.nodekey_lt_irrefl	Compilable.key_lt_irreflexive	directive §3.2/3.3/3.4
+Compilable.v	7438	Lemma	pm_elements_nodup_fst	Compilable.pm_elements_nodup_fst	Compilable.package_map_elements_no_duplicates_fst	directive §3.2/3.3/3.4
+Compilable.v	7449	Lemma	NoDup_app_disjoint	Compilable.NoDup_app_disjoint	Compilable.no_duplicates_app_disjoint	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7779	Example	version_suffix_v2	Compilable.version_suffix_v2	Compilable.version_suffix_lowercase_accepted	directive §3.2/3.3/3.4
+Compilable.v	7785	Example	version_suffix_V2	Compilable.version_suffix_V2	Compilable.version_suffix_uppercase_rejected	directive §3.2/3.3/3.4
+Compilable.v	7866	Lemma	last_In	Compilable.last_In	Compilable.last_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	7873	Lemma	removelast_In	Compilable.removelast_In	Compilable.removelast_in	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	8603	Lemma	semantic_ok_b_SourceProgramValid	Compilable.semantic_ok_b_SourceProgramValid	Compilable.semantic_ok_b_source_program_valid	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	8708	Lemma	selected_package_keys_Equal	Compilable.selected_package_keys_Equal	Compilable.selected_package_keys_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	8715	Lemma	root_layout_Equal	Compilable.root_layout_Equal	Compilable.root_layout_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	8722	Lemma	fresh_build_plan_InputEqual	Compilable.fresh_build_plan_InputEqual	Compilable.fresh_build_plan_input_equal	directive §3.2/3.3/3.4
+Compilable.v	8729	Lemma	fresh_build_disposition_InputEqual	Compilable.fresh_build_disposition_InputEqual	Compilable.fresh_build_disposition_input_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	8777	Lemma	elaboration_diagnostics_nil_iff_GoCompile	Compilable.elaboration_diagnostics_nil_iff_GoCompile	Compilable.elaboration_diagnostics_nil_iff_admissible	directive §3.2/3.3/3.4
+Compilable.v	9108	Example	representable_scalar_double_round_scar	Compilable.representable_scalar_double_round_scar	Compilable.representable_scalar_double_round_single_rounding	directive §3.2/3.3/3.4
+Compilable.v	9111	Example	representable_complex_component_scar	Compilable.representable_complex_component_scar	Compilable.representable_complex_component_single_rounding	directive §3.2/3.3/3.4
+Compilable.v	9201	Lemma	build_core_ip	Compilable.build_core_ip	Compilable.build_core_indexed	directive §3.2/3.3/3.4
+Compilable.v	9374	Theorem	elaborate_ok_iff_GoCompile	Compilable.elaborate_ok_iff_GoCompile	Compilable.elaboration_accepted_iff_admissible	directive §3.2/3.3/3.4
+Compilable.v	9390	Theorem	elaborate_failed_iff_not_GoCompile	Compilable.elaborate_failed_iff_not_GoCompile	Compilable.elaboration_rejected_iff_inadmissible	directive §3.2/3.3/3.4
+Compilable.v	9707	Theorem	SourceProgramValid_Equal	Compilable.SourceProgramValid_Equal	Compilable.source_program_valid_files_equal	directive §3.2/3.3/3.4
+Compilable.v	9719	Theorem	source_spec_valid_b_Equal	Compilable.source_spec_valid_b_Equal	Compilable.source_spec_valid_files_equal	directive §3.2/3.3/3.4
+Compilable.v	9772	Theorem	compile_class_Equal	Compilable.compile_class_Equal	Compilable.compile_class_input_equal	directive §3.2/3.3/3.4
+Compilable.v	9801	Theorem	root_layout_InputEqual	Compilable.root_layout_InputEqual	Compilable.root_layout_input_equal	directive §3.2/3.3/3.4
+Compilable.v	9808	Theorem	package_import_path_InputEqual	Compilable.package_import_path_InputEqual	Compilable.package_import_path_input_equal	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	9838	Theorem	erased_elaboration_report_InputEqual	Compilable.erased_elaboration_report_InputEqual	Compilable.erased_elaboration_report_input_equal	directive §3.2/3.3/3.4
+Compilable.v	9867	Theorem	SourceProgramValid_empty	Compilable.SourceProgramValid_empty	Compilable.source_program_valid_empty	derived: §3.1 lower_snake_case proof/value name
+Compilable.v	11231	Theorem	deep_nested_seals_eft	Compilable.deep_nested_seals_eft	Compilable.deep_nested_seals_expression_fact_table	directive §3.2/3.3/3.4
+Compilable.v	11431	Example	fixture_2001_plan	Compilable.fixture_2001_plan	Compilable.empty_image_plan	directive §3.4 scenario family
+Compilable.v	11432	Example	fixture_2001_preflight	Compilable.fixture_2001_preflight	Compilable.empty_image_preflight	directive §3.4 scenario family
+Compilable.v	11433	Example	fixture_2001_gocompile	Compilable.fixture_2001_gocompile	Compilable.empty_image_admissible	directive §3.2/3.3/3.4
+Compilable.v	11434	Example	fixture_2001_report	Compilable.fixture_2001_report	Compilable.empty_image_report	directive §3.4 scenario family
+Compilable.v	11440	Example	fixture_2002_plan	Compilable.fixture_2002_plan	Compilable.root_main_absent_output_plan	directive §3.4 scenario family
+Compilable.v	11441	Example	fixture_2002_preflight	Compilable.fixture_2002_preflight	Compilable.root_main_absent_output_preflight	directive §3.4 scenario family
+Compilable.v	11442	Example	fixture_2002_gocompile	Compilable.fixture_2002_gocompile	Compilable.root_main_absent_output_admissible	directive §3.2/3.3/3.4
+Compilable.v	11448	Example	fixture_2003_preflight_fails	Compilable.fixture_2003_preflight_fails	Compilable.child_package_output_collision_preflight_fails	directive §3.4 scenario family
+Compilable.v	11449	Example	fixture_2003_not_gocompile	Compilable.fixture_2003_not_gocompile	Compilable.child_package_output_collision_inadmissible	directive §3.2/3.3/3.4
+Compilable.v	11451	Example	fixture_2003_report	Compilable.fixture_2003_report	Compilable.child_package_output_collision_report	directive §3.4 scenario family
+Compilable.v	11453	Example	fixture_2003_class	Compilable.fixture_2003_class	Compilable.child_package_output_collision_class	directive §3.4 scenario family
+Compilable.v	11459	Example	fixture_2004_untyped	Compilable.fixture_2004_untyped	Compilable.collision_hides_semantic_error_untyped	directive §3.4 scenario family
+Compilable.v	11460	Example	fixture_2004_preflight_fails	Compilable.fixture_2004_preflight_fails	Compilable.collision_hides_semantic_error_preflight_fails	directive §3.4 scenario family
+Compilable.v	11461	Example	fixture_2004_report_hides_semantic	Compilable.fixture_2004_report_hides_semantic	Compilable.collision_hides_semantic_error_report_hides_semantic	directive §3.4 scenario family
+Compilable.v	11463	Example	fixture_2004_class	Compilable.fixture_2004_class	Compilable.collision_hides_semantic_error_class	directive §3.4 scenario family
+Compilable.v	11469	Example	fixture_2005_preflight	Compilable.fixture_2005_preflight	Compilable.deep_package_absent_output_preflight	directive §3.4 scenario family
+Compilable.v	11470	Example	fixture_2005_gocompile	Compilable.fixture_2005_gocompile	Compilable.deep_package_absent_output_admissible	directive §3.2/3.3/3.4
+Compilable.v	11475	Example	fixture_2006_output_a	Compilable.fixture_2006_output_a	Compilable.final_v2_package_collision_output_a	directive §3.4 scenario family
+Compilable.v	11476	Example	fixture_2006_preflight_fails	Compilable.fixture_2006_preflight_fails	Compilable.final_v2_package_collision_preflight_fails	directive §3.4 scenario family
+Compilable.v	11477	Example	fixture_2006_not_gocompile	Compilable.fixture_2006_not_gocompile	Compilable.final_v2_package_collision_inadmissible	directive §3.2/3.3/3.4
+Compilable.v	11481	Example	fixture_2006_erased_output	Compilable.fixture_2006_erased_output	Compilable.final_v2_package_collision_erased_output	directive §3.4 scenario family
+Compilable.v	11489	Example	fixture_2007_output_m	Compilable.fixture_2007_output_m	Compilable.immediate_v2_package_no_collision_output_m	directive §3.4 scenario family
+Compilable.v	11490	Example	fixture_2007_preflight	Compilable.fixture_2007_preflight	Compilable.immediate_v2_package_no_collision_preflight	directive §3.4 scenario family
+Compilable.v	11491	Example	fixture_2007_gocompile	Compilable.fixture_2007_gocompile	Compilable.immediate_v2_package_no_collision_admissible	directive §3.2/3.3/3.4
+Compilable.v	11495	Example	fixture_2008	Compilable.fixture_2008	Compilable.multiple_main_packages_discard_outputs	directive §3.2/3.3/3.4
+Compilable.v	11508	Example	fixture_2009	Compilable.fixture_2009	Compilable.multiple_packages_expose_semantic_failure	directive §3.2/3.3/3.4
+Compilable.v	11521	Example	fixture_2010_plan	Compilable.fixture_2010_plan	Compilable.go_module_overwrite_plan	directive §3.4 scenario family
+Compilable.v	11522	Example	fixture_2010_preflight	Compilable.fixture_2010_preflight	Compilable.go_module_overwrite_preflight	directive §3.4 scenario family
+Compilable.v	11523	Example	fixture_2010_gocompile	Compilable.fixture_2010_gocompile	Compilable.go_module_overwrite_admissible	directive §3.2/3.3/3.4
+Compilable.v	11529	Example	fixture_2011_preflight	Compilable.fixture_2011_preflight	Compilable.source_file_overwrite_preflight	directive §3.4 scenario family
+Compilable.v	11530	Example	fixture_2011_gocompile	Compilable.fixture_2011_gocompile	Compilable.source_file_overwrite_admissible	directive §3.2/3.3/3.4
+Compilable.v	11534	Example	fixture_2012	Compilable.fixture_2012	Compilable.output_name_exact_noncollision	directive §3.2/3.3/3.4
+Compilable.v	11540	Definition	fixture_3main_hidden	Compilable.fixture_3main_hidden	Compilable.three_main_redeclarations_hidden	directive §3.2/3.3/3.4
+Compilable.v	11541	Definition	fixture_3main_shown	Compilable.fixture_3main_shown	Compilable.three_main_redeclarations_exposed	directive §3.2/3.3/3.4
+Compilable.v	11542	Example	fixture_2013a_class	Compilable.fixture_2013a_class	Compilable.three_main_redeclarations_hidden_class	directive §3.2/3.3/3.4
+Compilable.v	11544	Example	fixture_2013a_report	Compilable.fixture_2013a_report	Compilable.three_main_redeclarations_hidden_report	directive §3.2/3.3/3.4
+Compilable.v	11546	Example	fixture_2013b_class	Compilable.fixture_2013b_class	Compilable.three_main_redeclarations_exposed_class	directive §3.2/3.3/3.4
+Compilable.v	11553	Example	fixture_2014a_class	Compilable.fixture_2014a_class	Compilable.missing_main_hidden_class	directive §3.2/3.3/3.4
+Compilable.v	11555	Example	fixture_2014b_class	Compilable.fixture_2014b_class	Compilable.missing_main_exposed_class	directive §3.2/3.3/3.4
+Compilable.v	11560	Theorem	fixture_2015_full_determinism	Compilable.fixture_2015_full_determinism	Compilable.reordered_construction_determinism_full_determinism	directive §3.4 scenario family
+Compilable.v	11586	Example	fixture_2016_files_equal	Compilable.fixture_2016_files_equal	Compilable.equal_files_different_modules_files_equal	directive §3.4 scenario family
+Compilable.v	11589	Example	fixture_2016_plans_differ	Compilable.fixture_2016_plans_differ	Compilable.equal_files_different_modules_plans_differ	directive §3.4 scenario family
+Complex.v	38	Lemma	component_C64	Complex.component_C64	Complex.component_c64	derived: §3.1 lower_snake_case proof/value name
+Complex.v	39	Lemma	component_C128	Complex.component_C128	Complex.component_c128	derived: §3.1 lower_snake_case proof/value name
+Emit.v	114	Lemma	NoDup_map_inj	Emit.NoDup_map_inj	Emit.no_duplicates_map_inj	derived: §3.1 lower_snake_case proof/value name
+Emit.v	126	Lemma	NoDupA_eqk_map_fst	Emit.NoDupA_eqk_map_fst	Emit.no_duplicates_setoid_key_map_fst	derived: §3.1 lower_snake_case proof/value name
+Emit.v	165	Lemma	file_map_Equal	Emit.file_map_Equal	Emit.file_map_equal	derived: §3.1 lower_snake_case proof/value name
+Emit.v	225	Lemma	entries_Equal	Emit.entries_Equal	Emit.entries_equal	derived: §3.1 lower_snake_case proof/value name
+Float.v	28	Lemma	precision_F32	Float.precision_F32	Float.precision_f32	derived: §3.1 lower_snake_case proof/value name
+Float.v	29	Lemma	precision_F64	Float.precision_F64	Float.precision_f64	derived: §3.1 lower_snake_case proof/value name
+Float.v	30	Lemma	maximum_exponent_F32	Float.maximum_exponent_F32	Float.maximum_exponent_f32	derived: §3.1 lower_snake_case proof/value name
+Float.v	31	Lemma	maximum_exponent_F64	Float.maximum_exponent_F64	Float.maximum_exponent_f64	derived: §3.1 lower_snake_case proof/value name
+Float.v	576	Lemma	neg_zero_F64_canonical	Float.neg_zero_F64_canonical	Float.neg_zero_f64_canonical	derived: §3.1 lower_snake_case proof/value name
+Index.v	1027	Lemma	Fresh_weaken	Index.Fresh_weaken	Index.fresh_weaken	derived: §3.1 lower_snake_case proof/value name
+Index.v	1031	Lemma	Fresh_empty	Index.Fresh_empty	Index.fresh_empty	derived: §3.1 lower_snake_case proof/value name
+Index.v	1170	Lemma	pos_seq_In	Index.pos_seq_In	Index.pos_seq_in	derived: §3.1 lower_snake_case proof/value name
+Index.v	1183	Lemma	pos_seq_NoDup	Index.pos_seq_NoDup	Index.pos_seq_no_duplicates	derived: §3.1 lower_snake_case proof/value name
+Index.v	1405	Lemma	child_enum_SS	Index.child_enum_SS	Index.child_enum_strongly_sorted	directive §3.2/3.3/3.4
+Index.v	1572	Definition	decimalfloat_eq_dec	Index.decimalfloat_eq_dec	Index.float_decimal_eq_dec	directive §3.2/3.3/3.4
+Index.v	1577	Definition	decimalcomplex_eq_dec	Index.decimalcomplex_eq_dec	Index.complex_decimal_eq_dec	directive §3.2/3.3/3.4
+Index.v	1579	Definition	supportedtypename_eq_dec	Index.supportedtypename_eq_dec	Index.supported_type_eq_dec	directive §3.2/3.3/3.4
+Index.v	1584	Definition	typesyntax_eq_dec	Index.typesyntax_eq_dec	Index.type_expr_eq_dec	directive §3.2/3.3/3.4
+Index.v	1590	Definition	goexpr_eq_dec	Index.goexpr_eq_dec	Index.expression_eq_dec	directive §3.2/3.3/3.4
+Index.v	1597	Definition	gostmt_eq_dec	Index.gostmt_eq_dec	Index.statement_eq_dec	directive §3.2/3.3/3.4
+Index.v	1599	Definition	godecl_eq_dec	Index.godecl_eq_dec	Index.declaration_eq_dec	directive §3.2/3.3/3.4
+Index.v	1601	Definition	packageclause_eq_dec	Index.packageclause_eq_dec	Index.package_clause_eq_dec	directive §3.2/3.3/3.4
+Index.v	1603	Definition	importspec_eq_dec	Index.importspec_eq_dec	Index.import_spec_eq_dec	directive §3.2/3.3/3.4
+Index.v	1605	Definition	gosourcefile_eq_dec	Index.gosourcefile_eq_dec	Index.source_file_eq_dec	directive §3.2/3.3/3.4
+Index.v	1611	Definition	option_gosourcefile_eq_dec	Index.option_gosourcefile_eq_dec	Index.optional_source_file_eq_dec	directive §3.2/3.3/3.4
+Index.v	1639	Definition	nodekey_eqb	Index.nodekey_eqb	Index.key_equalb	directive §3.2/3.3/3.4
+Index.v	2039	Lemma	SS_app_pos	Index.SS_app_pos	Index.strongly_sorted_append_positive	directive §3.2/3.3/3.4
+Index.v	2169	Lemma	SS_nodup	Index.SS_nodup	Index.strongly_sorted_no_duplicates	directive §3.2/3.3/3.4
+Index.v	2559	Record	FileRef_T	Index.FileRef_T	Index.FileRefRepresentation	directive §3.2/3.3/3.4
+Index.v	2569	Record	NodeRef_T	Index.NodeRef_T	Index.NodeRefRepresentation	directive §3.2/3.3/3.4
+Index.v	2585	Record	SyntaxIndex_T	Index.SyntaxIndex_T	Index.SyntaxRepresentation	directive §3.2/3.3/3.4
+Index.v	2600	Definition	ref_fi_opt	Index.ref_fi_opt	Index.ref_file_index_opt	directive §3.2/3.3/3.4
+Index.v	2602	Lemma	ref_fi_some	Index.ref_fi_some	Index.ref_file_index_some	directive §3.2/3.3/3.4
+Index.v	2605	Lemma	ref_fi_some'	Index.ref_fi_some'	Index.ref_file_index_some'	directive §3.2/3.3/3.4
+Index.v	2607	Definition	ref_fi	Index.ref_fi	Index.ref_file_index	directive §3.2/3.3/3.4
+Index.v	2609	Lemma	ref_fi_eq	Index.ref_fi_eq	Index.ref_file_index_eq	directive §3.2/3.3/3.4
+Index.v	3039	Lemma	ref_fi_table_same_file	Index.ref_fi_table_same_file	Index.ref_file_index_table_same_file	directive §3.2/3.3/3.4
+Index.v	3748	Lemma	nodekey_compare_eq	Index.nodekey_compare_eq	Index.key_compare_equal	directive §3.2/3.3/3.4
+Index.v	3751	Lemma	nodekeymap_add_eq	Index.nodekeymap_add_eq	Index.key_map_add_equal	directive §3.2/3.3/3.4
+Index.v	3755	Lemma	nodekeymap_add_neq	Index.nodekeymap_add_neq	Index.key_map_add_unequal	directive §3.2/3.3/3.4
+Index.v	3762	Lemma	nodekey_eqlistA_eqke_eq	Index.nodekey_eqlistA_eqke_eq	Index.key_equal_list_key_element_equal	directive §3.2/3.3/3.4
+Index.v	3770	Lemma	nodekeymap_elements_Equal	Index.nodekeymap_elements_Equal	Index.key_map_elements_equal	directive §3.2/3.3/3.4
+Integer.v	96	Lemma	Int_neq_Int64	Integer.Int_neq_Int64	Integer.int_neq_int64	derived: §3.1 lower_snake_case proof/value name
+Integer.v	99	Lemma	Uint_neq_Uint64	Integer.Uint_neq_Uint64	Integer.uint_neq_uint64	derived: §3.1 lower_snake_case proof/value name
+Integer.v	102	Lemma	Int_range_eq_Int64	Integer.Int_range_eq_Int64	Integer.int_range_eq_int64	derived: §3.1 lower_snake_case proof/value name
+Integer.v	106	Lemma	Uint_range_eq_Uint64	Integer.Uint_range_eq_Uint64	Integer.uint_range_eq_uint64	derived: §3.1 lower_snake_case proof/value name
+Integer.v	111	Lemma	Int_bits_64	Integer.Int_bits_64	Integer.int_bits_64	derived: §3.1 lower_snake_case proof/value name
+Integer.v	112	Lemma	Uint_bits_64	Integer.Uint_bits_64	Integer.uint_bits_64	derived: §3.1 lower_snake_case proof/value name
+Render.v	981	Lemma	go_int_lit_EInt	Render.go_int_lit_EInt	Render.go_int_lit_integer_literal	derived: §3.1 lower_snake_case proof/value name
+Render.v	988	Lemma	go_int_lit_ENeg	Render.go_int_lit_ENeg	Render.go_int_lit_negated_integer_literal	derived: §3.1 lower_snake_case proof/value name
+Render.v	1199	Lemma	read_go_int_EInt	Render.read_go_int_EInt	Render.read_go_int_integer_literal	derived: §3.1 lower_snake_case proof/value name
+Render.v	1205	Lemma	read_go_int_ENeg	Render.read_go_int_ENeg	Render.read_go_int_negated_integer_literal	derived: §3.1 lower_snake_case proof/value name
+Render.v	1318	Lemma	go_int_lit_decode_decimal_None	Render.go_int_lit_decode_decimal_None	Render.go_int_lit_decode_decimal_none	derived: §3.1 lower_snake_case proof/value name
+Syntax.v	192	Lemma	FilesEqual_refl	Syntax.FilesEqual_refl	Syntax.files_equal_refl	derived: §3.1 lower_snake_case proof/value name
+Syntax.v	194	Lemma	FilesEqual_sym	Syntax.FilesEqual_sym	Syntax.files_equal_sym	derived: §3.1 lower_snake_case proof/value name
+Syntax.v	196	Lemma	FilesEqual_trans	Syntax.FilesEqual_trans	Syntax.files_equal_trans	derived: §3.1 lower_snake_case proof/value name
+Typing.v	665	Lemma	forallb_Forall	Typing.forallb_Forall	Typing.forallb_iff_forall	directive §3.2/3.3/3.4
+Typing.v	717	Lemma	Program_Equal	Typing.Program_Equal	Typing.program_equal	derived: §3.1 lower_snake_case proof/value name
+Typing.v	725	Lemma	program_typedb_Equal	Typing.program_typedb_Equal	Typing.program_typedb_equal	derived: §3.1 lower_snake_case proof/value name

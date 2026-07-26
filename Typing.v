@@ -662,7 +662,7 @@ Definition source_file_typedb (sf : Syntax.File) : bool := file_typedb (Syntax.d
 Definition program_typedb (p : Syntax.Program) : bool :=
   forallb (fun b => source_file_typedb (snd b)) (Syntax.file_bindings (Syntax.files p)).
 
-Lemma forallb_Forall {X} : forall (f : X -> bool) (P : X -> Prop) (l : list X),
+Lemma forallb_iff_forall {X} : forall (f : X -> bool) (P : X -> Prop) (l : list X),
   (forall x, f x = true <-> P x) -> (forallb f l = true <-> Forall P l).
 Proof.
   intros f P l Hpt; induction l as [ | x l' IH ]; simpl.
@@ -675,19 +675,19 @@ Qed.
 Lemma stmt_typedb_iff : forall s, stmt_typedb s = true <-> Stmt s.
 Proof.
   intros [args]; simpl.
-  rewrite (forallb_Forall (expression_typedb PrintlnArgument) (fun e => exists t, Resolve PrintlnArgument e t)
+  rewrite (forallb_iff_forall (expression_typedb PrintlnArgument) (fun e => exists t, Resolve PrintlnArgument e t)
              args (fun e => expression_typedb_iff PrintlnArgument e)).
   split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
 Qed.
 
 Lemma decl_typedb_iff : forall d, decl_typedb d = true <-> Decl d.
 Proof.
-  intros [body]; simpl. rewrite (forallb_Forall stmt_typedb Stmt body stmt_typedb_iff).
+  intros [body]; simpl. rewrite (forallb_iff_forall stmt_typedb Stmt body stmt_typedb_iff).
   split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
 Qed.
 
 Lemma file_typedb_iff : forall f, file_typedb f = true <-> File f.
-Proof. intro f; unfold file_typedb, File; apply forallb_Forall; exact decl_typedb_iff. Qed.
+Proof. intro f; unfold file_typedb, File; apply forallb_iff_forall; exact decl_typedb_iff. Qed.
 
 Lemma source_file_typedb_iff : forall sf, source_file_typedb sf = true <-> SourceFile sf.
 Proof. intro sf; apply file_typedb_iff. Qed.
@@ -697,7 +697,7 @@ Proof. intro sf; apply file_typedb_iff. Qed.
 Lemma program_typedb_iff : forall p, program_typedb p = true <-> Program p.
 Proof.
   intro p. unfold program_typedb, Program.
-  rewrite (forallb_Forall (fun b => source_file_typedb (snd b)) (fun b => SourceFile (snd b))
+  rewrite (forallb_iff_forall (fun b => source_file_typedb (snd b)) (fun b => SourceFile (snd b))
              (Syntax.file_bindings (Syntax.files p)) (fun b => source_file_typedb_iff (snd b))).
   unfold Syntax.maps_to_file, Syntax.file_bindings. split.
   - intros H path sf Hmt.
@@ -714,7 +714,7 @@ Qed.
     [bool], and is therefore invariant under reordered [build_program] construction. ---- *)
 
 (** [Program] respects [FilesEqual] (semantic map equality) — equal maps type identically. *)
-Lemma Program_Equal : forall p1 p2,
+Lemma program_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> Program p1 -> Program p2.
 Proof.
   intros p1 p2 Heq Ht path sf Hmt. apply (Ht path sf). unfold Syntax.maps_to_file in *.
@@ -722,19 +722,19 @@ Proof.
 Qed.
 
 (** the reflected checker agrees on [FilesEqual] maps — no dependence on the backing tree's element order. *)
-Lemma program_typedb_Equal : forall p1 p2,
+Lemma program_typedb_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> program_typedb p1 = program_typedb p2.
 Proof.
   intros p1 p2 Heq.
   destruct (program_typedb p1) eqn:E1; destruct (program_typedb p2) eqn:E2; try reflexivity.
   - exfalso. apply program_typedb_iff in E1.
     assert (program_typedb p2 = true)
-      by (apply program_typedb_iff; exact (Program_Equal p1 p2 Heq E1)).
+      by (apply program_typedb_iff; exact (program_equal p1 p2 Heq E1)).
     rewrite E2 in H; discriminate.
   - exfalso. apply program_typedb_iff in E2.
     assert (program_typedb p1 = true)
       by (apply program_typedb_iff;
-          exact (Program_Equal p2 p1 (Syntax.FilesEqual_sym _ _ Heq) E2)).
+          exact (program_equal p2 p1 (Syntax.files_equal_sym _ _ Heq) E2)).
     rewrite E1 in H; discriminate.
 Qed.
 
@@ -745,7 +745,7 @@ Theorem program_typedb_build_permutation : forall ms nodes1 nodes2 p1 p2,
   build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
   program_typedb p1 = program_typedb p2.
 Proof.
-  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply program_typedb_Equal.
+  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply program_typedb_equal.
   unfold build_program in *.
   destruct (Syntax.files_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
   destruct (Syntax.files_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].

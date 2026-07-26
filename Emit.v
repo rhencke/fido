@@ -111,7 +111,7 @@ Proof.
 Qed.
 
 (** Duplicate on-disk `.go` paths are impossible in any image. *)
-Lemma NoDup_map_inj {A B} (f : A -> B) :
+Lemma no_duplicates_map_inj {A B} (f : A -> B) :
   (forall x y, f x = f y -> x = y) -> forall l, NoDup l -> NoDup (List.map f l).
 Proof.
   intros Hinj l; induction l as [ | x l' IH ]; simpl; intro Hnd.
@@ -123,7 +123,7 @@ Proof.
 Qed.
 
 (** The standard-map [elements] have key-distinct bindings ([elements_3w]), so their key list is [NoDup]. *)
-Lemma NoDupA_eqk_map_fst {A} : forall l : list (FileMap.key * A),
+Lemma no_duplicates_setoid_key_map_fst {A} : forall l : list (FileMap.key * A),
   NoDupA (@FileMap.eq_key A) l -> NoDup (List.map fst l).
 Proof.
   induction l as [ | [k v] l' IH ]; simpl; intro H.
@@ -144,8 +144,8 @@ Proof.
     = List.map FilePath.text (List.map fst l)).
   { induction l as [ | [k v] l' IH ]; simpl; [ reflexivity | rewrite IH; reflexivity ]. }
   unfold entries. rewrite Hrw.
-  apply NoDup_map_inj; [ exact FilePath.equal | ].
-  apply NoDupA_eqk_map_fst, FileMap.elements_3w.
+  apply Compilable.no_duplicates_map_inj; [ exact FilePath.equal | ].
+  apply no_duplicates_setoid_key_map_fst, FileMap.elements_3w.
 Qed.
 
 (** ---- rendering EXACTNESS + ORDER-INDEPENDENCE over the standard file map ---- *)
@@ -162,7 +162,7 @@ Lemma file_map_binding : forall sp p bytes,
 Proof. intros sp p bytes. unfold file_map, Syntax.map_file_values. apply FileFacts.map_mapsto_iff. Qed.
 
 (** [FilesEqual] source maps render to [FileMap.Equal] rendered maps — rendering respects semantic map equality. *)
-Lemma file_map_Equal : forall fm1 fm2,
+Lemma file_map_equal : forall fm1 fm2,
   Syntax.FilesEqual fm1 fm2 -> FileMap.Equal (FileMap.map Render.file fm1) (FileMap.map Render.file fm2).
 Proof. intros fm1 fm2 Heq p. rewrite !FileFacts.map_o. rewrite (Heq p). reflexivity. Qed.
 
@@ -221,12 +221,12 @@ Proof.
 Qed.
 
 (** the CANONICAL derived transport list of two extensionally-equal rendered maps is EQUAL (the standard AVL
-    [elements] is sorted, so it is a function of the map's meaning — [Collections.file_elements_Equal]). *)
-Lemma entries_Equal : forall img1 img2,
+    [elements] is sorted, so it is a function of the map's meaning — [Collections.file_elements_equal]). *)
+Lemma entries_equal : forall img1 img2,
   FileMap.Equal (files img1) (files img2) -> entries img1 = entries img2.
 Proof.
   intros img1 img2 HEq. unfold entries.
-  rewrite (Collections.file_elements_Equal _ _ HEq). reflexivity.
+  rewrite (Collections.file_elements_equal _ _ HEq). reflexivity.
 Qed.
 
 (** the whole transport is INDEPENDENT of the original input-node order: two safe programs over the SAME
@@ -238,6 +238,6 @@ Theorem transport_order_independent : forall sp1 sp2,
 Proof.
   intros sp1 sp2 Hmod Hfiles. unfold transport. f_equal.
   - cbn [of_safe module_bytes]. unfold module_file. rewrite Hmod. reflexivity.
-  - apply entries_Equal. cbn [of_safe files].
-    unfold file_map, Syntax.map_file_values. apply file_map_Equal. exact Hfiles.
+  - apply entries_equal. cbn [of_safe files].
+    unfold file_map, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
 Qed.

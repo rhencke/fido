@@ -98,7 +98,7 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 - **`Admissible` is EXACT whole-PROGRAM compiler admissibility, not a subset filter.** It consumes the whole
   finite map; it aims to accept exactly what `go build ./...` accepts for every representable rendered
   program. Keep two claims distinct: (A) the checker matches the formal judgment is PROVED
-  (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, sound + complete; `elaborate_ok_iff_GoCompile`); (B)
+  (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, sound + complete; `Compilable.elaboration_accepted_iff_admissible`); (B)
   accepted programs are accepted by real Go is the GOAL, attacked by DIFFERENTIAL experiments and the e2e,
   never a kernel theorem about `cmd/go`. A representable program Go accepts but Admissible rejects is a MODEL
   BUG, never a documented limitation.

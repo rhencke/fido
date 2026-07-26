@@ -13,7 +13,7 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
   (+ `dir_components_concat`), over the internal `split_slash` helper.
 - **`Collections`** — the ONE standard-collection foundation: thin wrappers over pinned-stdlib `FMapAVL`
   (`FileMap` over the `FilePath.T` key, `PackageMap` over `String`) and `FMapPositive` (`NodeMap`);
-  Fido authors no map/set. `Collections.file_path_text_inj`, `Collections.file_elements_Equal` axiom-free.
+  Fido authors no map/set. `Collections.file_path_text_inj`, `Collections.file_elements_equal` axiom-free.
 - **`Integer`** — the ten-member `Integer.Kind` family + the ONE representability/range/keyword authority
   (`int`/`uint` pinned 64-bit, distinct from `int64`/`uint64`).
 - **`Float`** — the ONE float-format authority (axiom-free over `SpecFloat`): F32/F64; exact canonical-rational
@@ -130,18 +130,18 @@ OBJECT `build_annotated_work_forest` — members ARE `Compilable.forest_items` i
 them to the one-pass `annotate_program` so diagnostics CONSUME the object (no `proj1_sig` discard, no
 re-annotation), plus context soundness/same-file/nearest-first/nodup; keyed by each work's OWN `Compilable.work_expr_ref`, NO
 `as_expr` and NO fail-open `None` branch) both read that SAME `Compilable.Outcomes` inside the one phase, which
-RETAINS the whole flow as a DEPENDENT CHAIN of objects — `Compilable.phase_ot : Compilable.Outcomes Compilable.phase_work Compilable.phase_tnft`, `Compilable.phase_awork
-: Compilable.AnnotatedWork Compilable.phase_work`, `Compilable.phase_eft : Compilable.ExpressionFacts Compilable.phase_work Compilable.phase_ot`, `Compilable.phase_diag :
+RETAINS the whole flow as a DEPENDENT CHAIN of objects — `Compilable.phase_ot : Compilable.Outcomes Compilable.phase_work Compilable.phase_type_name_facts`, `Compilable.phase_awork
+: Compilable.AnnotatedWork Compilable.phase_work`, `Compilable.phase_fact_table : Compilable.ExpressionFacts Compilable.phase_work Compilable.phase_ot`, `Compilable.phase_diag :
 Compilable.Diagnostics Compilable.phase_awork Compilable.phase_ot` — each TYPED by the exact prior object it consumes, NO provenance-equality
 field (the causal chain is the dependent types, shown definitionally by `phase_ot_consumes_work` etc.), so a
-foreign component is UNREPRESENTABLE by type mismatch (`Compilable.phase_facts = Compilable.fact_table_map (Compilable.expression_facts_table Compilable.phase_eft)`;
+foreign component is UNREPRESENTABLE by type mismatch (`Compilable.phase_facts = Compilable.fact_table_map (Compilable.expression_facts_table Compilable.phase_fact_table)`;
 `facts_and_diags_share_phase`, object identity — no fail-open `find`); the `Compilable.ConversionFailure` outcome carries the exact
 conversion / target / operand refs (the operand ref a field of `Compilable.InvalidConversion`, projected without re-mint)
 with its cause PROJECTED from the retained `Compilable.Trace` keyed by the WORK member (`total_forest_outcome_cause`
 returning each member's exact `RetainedMemberCause` = suffix split + the AUTHENTICATED tail `Compilable.Accumulator` +
 the `StepCause` producing the FINAL outcome + the tail-to-final query preservation, so a foreign tail accumulator
-cannot satisfy it; projected axiom-free by `StepCause_convfail_inv` / `StepCause_childfail_inv` /
-`StepCause_ok_conv_inv`, each reading the operand outcome THROUGH the exact operand `SuffixMember` via `Compilable.accumulator_total
+cannot satisfy it; projected axiom-free by `Compilable.conversion_failure_cause_yields_step` / `Compilable.child_failure_cause_yields_member` /
+`Compilable.conversion_success_cause_yields_step`, each reading the operand outcome THROUGH the exact operand `SuffixMember` via `Compilable.accumulator_total
 acc_rest`; `final_operand_outcome` closes the operand into the final table), and the phase's `Compilable.TypeNameFacts`
 and `Compilable.ExpressionFactTable` are sealed into `Compilable.Facts` by object
 identity (`elaborate_ok_seals_tnfacts` / `elaborate_ok_seals_facts`); direct production-object phase fixtures
@@ -156,7 +156,7 @@ The universal acceptance evidence (`retained_convsuccess_closure` / `retained_ch
 concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evidence`, stating the full per-conversion
 success bundle for all four valid conversions — with the returned `ConversionStep` at the EXACT SOURCE `ts`/`x`
 identity, no existential `ts0`/`x0` (repair 12); `deep_fail_innermost_diag`, stating the exact target fact query `t =
-Compilable.fact_type (type_name_fact_at_table (Compilable.phase_tnft phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))`, the exact retained annotated
+Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))`, the exact retained annotated
 member, and the stored singleton) are gated in the readable assumption gate, together with the repair-13 work-index
 surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
 fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).

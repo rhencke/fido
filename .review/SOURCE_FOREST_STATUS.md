@@ -74,7 +74,7 @@ only the authority file, the answered dispositions, and the current-state docume
 
 **The defect (real production code, now removed).** `Compilable.WorkForest.forest_items` is a legitimate ordered
 per-file-order list, but it was ALSO used as a production `Index.Key` identity lookup table: `forest_member_at`
-searched it with `List.find` on `nodekey_eqb`, using the carried `Compilable.forest_keys_nodup` field as its uniqueness
+searched it with `List.find` on `Index.key_equalb`, using the carried `Compilable.forest_keys_nodup` field as its uniqueness
 mechanism, in the live semantic path `build_outcome_trace → build_conversion_step → build_conversion_work →
 forest_member_at` — once per conversion. That is the `list + NoDup` keyed-table shape the binding collection law
 forbids; it survived proof erasure and made a nested chain's operand recovery avoidably quadratic. The previous
@@ -140,7 +140,7 @@ bundle `deep_nested_convsuccess_at` (proving `nested_success_bundle`) instantiat
 (`deep_nested_chain_success_evidence`) — **the returned `ConversionStep` carries the source `ts`/`x` identity (no
 existential `ts0`/`x0`, repair 12), so the "exact ConversionStep" claim is justified by the public type**;
 the exact `Compilable.ConversionFailure`→`Compilable.InvalidConversion` diagnostic theorem
-`deep_fail_innermost_diag` (stating `t = Compilable.fact_type (type_name_fact_at_table (Compilable.phase_tnft phase) (Compilable.conversion_target_node_ref
+`deep_fail_innermost_diag` (stating `t = Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref
 (Compilable.step_conversion step)))`, the annotated member, and the stored singleton); the outer child-failure closure
 `deep_fail_childfail_closure_at`, `deep_fail_exactly_one_diag`, the exact work count, wrong-kind/foreign exclusion,
 fact-table sealing, and the two-`uint8` retained-fact fixture — all NAMED in the readable assumption gate; the weaker

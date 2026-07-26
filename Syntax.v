@@ -189,11 +189,11 @@ Definition map_file_values {B} (f : File -> B) (fm : Files) : FileMap.t B := Fil
 (** SEMANTIC file-map equality — the standard map [Equal]. *)
 Definition FilesEqual (fm1 fm2 : Files) : Prop := FileMap.Equal fm1 fm2.
 
-Lemma FilesEqual_refl : forall fm, FilesEqual fm fm.
+Lemma files_equal_refl : forall fm, FilesEqual fm fm.
 Proof. intros fm p. reflexivity. Qed.
-Lemma FilesEqual_sym : forall fm1 fm2, FilesEqual fm1 fm2 -> FilesEqual fm2 fm1.
+Lemma files_equal_sym : forall fm1 fm2, FilesEqual fm1 fm2 -> FilesEqual fm2 fm1.
 Proof. intros fm1 fm2 H p. symmetry. apply H. Qed.
-Lemma FilesEqual_trans : forall fm1 fm2 fm3, FilesEqual fm1 fm2 -> FilesEqual fm2 fm3 -> FilesEqual fm1 fm3.
+Lemma files_equal_trans : forall fm1 fm2 fm3, FilesEqual fm1 fm2 -> FilesEqual fm2 fm3 -> FilesEqual fm1 fm3.
 Proof. intros fm1 fm2 fm3 H12 H23 p. rewrite H12. apply H23. Qed.
 
 (** ---- the duplicate-rejecting map builder: standard [mem]/[add], reject a duplicate path before add. ---- *)

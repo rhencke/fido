@@ -978,14 +978,14 @@ Proof.
   unfold go_int_lit. rewrite Ascii.eqb_refl. exact Hdig.
 Qed.
 
-Lemma go_int_lit_EInt : forall n, go_int_lit (Decimal.integer (Z.of_N n)) = true.
+Lemma go_int_lit_integer_literal : forall n, go_int_lit (Decimal.integer (Z.of_N n)) = true.
 Proof.
   intro n. apply go_int_lit_all_digits_nonempty;
     [ apply str_all_digits_print_Z; apply N2Z.is_nonneg
     | apply integer_nonempty; apply N2Z.is_nonneg ].
 Qed.
 
-Lemma go_int_lit_ENeg : forall n, go_int_lit (String "-"%char (Decimal.integer (Z.of_N n))) = true.
+Lemma go_int_lit_negated_integer_literal : forall n, go_int_lit (String "-"%char (Decimal.integer (Z.of_N n))) = true.
 Proof.
   intro n. apply go_int_lit_neg;
     [ apply str_all_digits_print_Z; apply N2Z.is_nonneg
@@ -1196,13 +1196,13 @@ Qed.
 
 (** read a rendered bare integer literal: the decimal reader restores the exact magnitude (nonnegative for
     [Syntax.IntegerLiteral], negated for [Syntax.NegatedIntegerLiteral]) — the parser-free denotation of the two bare literal spellings. *)
-Lemma read_go_int_EInt : forall n, read_go_int (expr (Syntax.IntegerLiteral n)) = Z.of_N n.
+Lemma read_go_int_integer_literal : forall n, read_go_int (expr (Syntax.IntegerLiteral n)) = Z.of_N n.
 Proof.
   intro n. cbn [expr]. rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
   apply integer_decimal_faithful, N2Z.is_nonneg.
 Qed.
 
-Lemma read_go_int_ENeg : forall n, read_go_int (expr (Syntax.NegatedIntegerLiteral n)) = - Z.of_N n.
+Lemma read_go_int_negated_integer_literal : forall n, read_go_int (expr (Syntax.NegatedIntegerLiteral n)) = - Z.of_N n.
 Proof.
   intro n. cbn [expr]. unfold read_go_int; cbn [Ascii.eqb].
   rewrite integer_decimal_faithful by apply N2Z.is_nonneg. reflexivity.
@@ -1235,8 +1235,8 @@ Theorem const_info_denotes : forall e ci,
 Proof.
   induction e as [ b | n | n | s | d | dc | ts e' IHe' ]; intros ci H.
   - simpl in H; injection H as <-; cbn [expr]; destruct b; [ exact (BoolDenotes true) | exact (BoolDenotes false) ].
-  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_EInt | apply read_go_int_EInt ].
-  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_ENeg | apply read_go_int_ENeg ].
+  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_integer_literal | apply read_go_int_integer_literal ].
+  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_negated_integer_literal | apply read_go_int_negated_integer_literal ].
   - simpl in H; injection H as <-; cbn [expr]; apply StringDenotes, string_roundtrip.
   - cbn [Typing.constant_info] in H; injection H as <-; cbn [expr]. apply FloatDenotes, decode_render_decimal.
   - cbn [Typing.constant_info] in H; injection H as <-; cbn [expr]. apply ComplexDenotes, decode_render_complex_literal.
@@ -1315,7 +1315,7 @@ Qed.
 
 (** a bare integer literal is not a decoded decimal float (empty `.0e` remainder; the `0.0` fallback fails on
     the all-digit head). *)
-Lemma go_int_lit_decode_decimal_None : forall s, go_int_lit s = true -> decode_decimal s = None.
+Lemma go_int_lit_decode_decimal_none : forall s, go_int_lit s = true -> decode_decimal s = None.
 Proof.
   intros s H. destruct (go_int_lit_read_signed_dec s H) as [v Hrsd].
   assert (Hb : decode_decimal_body s = None)
@@ -1440,7 +1440,7 @@ Proof.
         | congruence
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hint; vm_compute in Hint; discriminate Hint
-        | rewrite (go_int_lit_decode_decimal_None _ Hint) in Hdec0; discriminate Hdec0
+        | rewrite (go_int_lit_decode_decimal_none _ Hint) in Hdec0; discriminate Hdec0
         | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
             rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint
         | rewrite conv_spelling_go_int_lit_false in Hint; discriminate Hint ].
@@ -1465,7 +1465,7 @@ Proof.
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
       solve
         [ destruct b0; vm_compute in Hdec; discriminate Hdec
-        | rewrite (go_int_lit_decode_decimal_None _ Hint0) in Hdec; discriminate Hdec
+        | rewrite (go_int_lit_decode_decimal_none _ Hint0) in Hdec; discriminate Hdec
         | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
             rewrite Hrs in Hdec; rewrite decode_decimal_dquote in Hdec; discriminate Hdec
         | congruence

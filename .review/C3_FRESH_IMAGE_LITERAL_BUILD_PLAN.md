@@ -1760,7 +1760,7 @@ Use standard collections:
 
 - FileMap for source files;
 - PackageMap for selected package/package facts;
-- NodeKeyMap for occurrence facts/diagnostics;
+- Index.KeyMap for occurrence facts/diagnostics;
 - PackageMap or another pinned standard string map for root entries.
 
 Lists remain appropriate for:

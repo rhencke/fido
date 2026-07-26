@@ -93,23 +93,23 @@ Lemma maximum_succ_not_representable :
 Proof. destruct it; vm_compute; reflexivity. Qed.
 
 (** [int]/[int64] and [uint]/[uint64] are DISTINCT types despite sharing a range on this target. *)
-Lemma Int_neq_Int64 : Int <> Int64.
+Lemma int_neq_int64 : Int <> Int64.
 Proof. discriminate. Qed.
 
-Lemma Uint_neq_Uint64 : Uint <> Uint64.
+Lemma uint_neq_uint64 : Uint <> Uint64.
 Proof. discriminate. Qed.
 
-Lemma Int_range_eq_Int64 :
+Lemma int_range_eq_int64 :
   minimum Int = minimum Int64 /\ maximum Int = maximum Int64.
 Proof. split; reflexivity. Qed.
 
-Lemma Uint_range_eq_Uint64 :
+Lemma uint_range_eq_uint64 :
   minimum Uint = minimum Uint64 /\ maximum Uint = maximum Uint64.
 Proof. split; reflexivity. Qed.
 
 (** the platform types are exactly 64-bit. *)
-Lemma Int_bits_64  : bits Int  = 64. Proof. reflexivity. Qed.
-Lemma Uint_bits_64 : bits Uint = 64. Proof. reflexivity. Qed.
+Lemma int_bits_64  : bits Int  = 64. Proof. reflexivity. Qed.
+Lemma uint_bits_64 : bits Uint = 64. Proof. reflexivity. Qed.
 
 (** ---- derived legacy names (the default-int and platform-uint bounds), kept ONLY as definitions over the
     generic authority above — never a second source of these numeric literals. ---- *)

@@ -37,7 +37,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 - **Benefit obtained:** concrete 64-bit `Integer`; a one-target differential ATTACKING the `Admissible` external
   adequacy target (never proving it); no premature target-config abstraction; a reproducible pinned e2e.
 - **Three distinct claims (do not conflate):** (i) the FORMAL `Admissible` judgment matches Fido's checker is
-  KERNEL-PROVED exact (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, `elaborate_ok_iff_GoCompile`); (ii) that
+  KERNEL-PROVED exact (`Compilable.compile_ok_valid` + `Compilable.compile_complete`, `Compilable.elaboration_accepted_iff_admissible`); (ii) that
   the accepted programs are accepted by real `cmd/go` (`Admissible == go build`) is an EXTERNAL ADEQUACY TARGET,
   not a Rocq theorem; (iii) the pinned differential + e2e are EVIDENCE attacking target (ii) on one toolchain —
   they do not prove it universally.

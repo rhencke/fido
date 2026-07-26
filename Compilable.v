@@ -12,7 +12,7 @@
     COMPILATION RESULTS, all-or-nothing.  The layer charter is ARCHITECTURE.md; it is not restated here.
 
     HONESTY — two distinct claims.  (A) KERNEL-internal exactness, PROVED here: [compile] succeeds exactly
-    for the declarative judgment ([compile_ok_valid] + [compile_complete]; [elaborate_ok_iff_GoCompile])
+    for the declarative judgment ([compile_ok_valid] + [compile_complete]; [elaboration_accepted_iff_admissible])
     — sound + complete.  (B) EXTERNAL adequacy, the GOAL attacked by differential `go build ./...` experiments
     and NEVER a kernel theorem: the judgment matches real cmd/go on every representable rendered program. *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Arith Lia.
@@ -92,10 +92,10 @@ Record PackageSummary : Type := make_package_summary { summary_main_count : nat 
 Definition summary_count (o : option PackageSummary) : nat := match o with Some s => summary_main_count s | None => 0 end.
 
 (** accumulate one file's `main` count into its parent-directory package summary. *)
-Definition pm_add_main (dir : string) (n : nat) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
+Definition package_map_add_main (dir : string) (n : nat) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
   PackageMap.add dir (make_package_summary (n + summary_count (PackageMap.find dir acc))) acc.
 Definition package_step (path : FilePath.T) (sf : Syntax.File) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
-  pm_add_main (FilePath.parent path) (file_main_count (Syntax.declarations sf)) acc.
+  package_map_add_main (FilePath.parent path) (file_main_count (Syntax.declarations sf)) acc.
 
 (** ONE pass over the file MAP: a single [FileMap.fold] over the source forest, each file contributing its
     `main` count EXACTLY ONCE to its parent-directory package summary via one logarithmic [PackageMap] update —
@@ -151,7 +151,7 @@ Definition PackageRulesValid (p : Syntax.Program) : Prop := PackageDeclsUnique p
 Lemma package_decls_unique_b_iff : forall p, package_decls_unique_b p = true <-> PackageDeclsUnique p.
 Proof.
   intro p. unfold package_decls_unique_b, PackageDeclsUnique.
-  rewrite (forallb_Forall (fun b => Nat.leb (summary_main_count (snd b)) 1%nat) (fun b => (summary_main_count (snd b) <= 1)%nat)
+  rewrite (Typing.forallb_iff_forall (fun b => Nat.leb (summary_main_count (snd b)) 1%nat) (fun b => (summary_main_count (snd b) <= 1)%nat)
              (PackageMap.elements (package_summaries (Syntax.files p))) (fun b => Nat.leb_le (summary_main_count (snd b)) 1%nat)).
   split.
   - intros Hf dir s Hmt.
@@ -166,7 +166,7 @@ Qed.
 Lemma main_pkgs_have_entry_b_iff : forall p, main_pkgs_have_entry_b p = true <-> MainPackagesHaveEntry p.
 Proof.
   intro p. unfold main_pkgs_have_entry_b, MainPackagesHaveEntry.
-  rewrite (forallb_Forall (fun b => Nat.leb 1%nat (summary_main_count (snd b))) (fun b => (1 <= summary_main_count (snd b))%nat)
+  rewrite (Typing.forallb_iff_forall (fun b => Nat.leb 1%nat (summary_main_count (snd b))) (fun b => (1 <= summary_main_count (snd b))%nat)
              (PackageMap.elements (package_summaries (Syntax.files p))) (fun b => Nat.leb_le 1%nat (summary_main_count (snd b)))).
   split.
   - intros Hf dir s Hmt.
@@ -181,7 +181,7 @@ Qed.
 (** the SPECIFICATION package decision [source_spec_package_rules_b] reflects the factored [PackageRulesValid]
     DIRECTLY — the conjunction of the two factored reflections, no combined "=1" and no [current_grammar_one_main]
     intermediary. *)
-Lemma source_spec_package_rules_b_PackageRulesValid : forall p, source_spec_package_rules_b p = true <-> PackageRulesValid p.
+Lemma source_spec_package_rules_b_package_rules_valid : forall p, source_spec_package_rules_b p = true <-> PackageRulesValid p.
 Proof.
   intro p. unfold source_spec_package_rules_b, PackageRulesValid.
   rewrite Bool.andb_true_iff, package_decls_unique_b_iff, main_pkgs_have_entry_b_iff. reflexivity.
@@ -243,12 +243,12 @@ Proof.
   unfold list_dir_mem; simpl existsb; simpl list_dir_count; cbn [fst snd].
   destruct (String.eqb (FilePath.parent k) dir) eqn:Edir; cbn [orb].
   - apply String.eqb_eq in Edir.
-    unfold package_step, pm_add_main. rewrite !PackageFacts.add_eq_o by exact Edir.
+    unfold package_step, package_map_add_main. rewrite !PackageFacts.add_eq_o by exact Edir.
     cbn [summary_count summary_main_count]. rewrite !Edir.
     destruct (existsb (fun b => String.eqb (FilePath.parent (fst b)) dir) rest) eqn:Erest;
       [ | rewrite (list_dir_count_0 dir rest Erest) ]; f_equal; f_equal; lia.
   - apply String.eqb_neq in Edir.
-    unfold package_step, pm_add_main. rewrite !PackageFacts.add_neq_o by exact Edir. reflexivity.
+    unfold package_step, package_map_add_main. rewrite !PackageFacts.add_neq_o by exact Edir. reflexivity.
 Qed.
 
 Definition package_main_count (dir : string) (fm : Syntax.Files) : nat := list_dir_count dir (Syntax.file_bindings fm).
@@ -311,18 +311,18 @@ Qed.
 (* THEOREM: map-equal file collections yield map-equal package summaries — order/structure of the
    backing tree never leaks.  Proved by the standard [fold_Equal] (the aggregation is a proper, key-transpose
    fold), so no element-list reasoning is needed. *)
-Instance PM_Equal_Equiv : Equivalence (@PackageMap.Equal PackageSummary).
+Instance package_map_equal_equivalence : Equivalence (@PackageMap.Equal PackageSummary).
 Proof.
   constructor.
   - intros m k; reflexivity.
   - intros m1 m2 H k; symmetry; apply H.
   - intros m1 m2 m3 H1 H2 k; transitivity (PackageMap.find k m2); [ apply H1 | apply H2 ].
 Qed.
-Lemma package_step_Proper : Proper (Syntax.FileMap.E.eq ==> eq ==> PackageMap.Equal ==> PackageMap.Equal) package_step.
+Lemma package_step_proper : Proper (Syntax.FileMap.E.eq ==> eq ==> PackageMap.Equal ==> PackageMap.Equal) package_step.
 Proof.
   intros k1 k2 Hk e1 e2 He a1 a2 Ha dk.
   assert (Hkk : k1 = k2) by exact Hk. subst k2. subst e2.
-  unfold package_step, pm_add_main.
+  unfold package_step, package_map_add_main.
   destruct (String.eqb (FilePath.parent k1) dk) eqn:E.
   - apply String.eqb_eq in E. rewrite !PackageFacts.add_eq_o by exact E. rewrite (Ha (FilePath.parent k1)); reflexivity.
   - apply String.eqb_neq in E. rewrite !PackageFacts.add_neq_o by exact E. apply Ha.
@@ -340,11 +340,11 @@ Proof.
   change (package_step k2 e2 (package_step k1 e1 a)) with (package_foldl ((k1, e1) :: (k2, e2) :: nil) a).
   apply package_foldl_permutation. apply perm_swap.
 Qed.
-Theorem package_summaries_Equal : forall fm1 fm2,
+Theorem package_summaries_equal : forall fm1 fm2,
   Syntax.FilesEqual fm1 fm2 -> PackageMap.Equal (package_summaries fm1) (package_summaries fm2).
 Proof.
   intros fm1 fm2 Heq. unfold package_summaries.
-  apply (Collections.FileProperties.fold_Equal PM_Equal_Equiv package_step_Proper package_step_transpose). exact Heq.
+  apply (Collections.FileProperties.fold_Equal package_map_equal_equivalence package_step_proper package_step_transpose). exact Heq.
 Qed.
 
 (* THEOREM: reordered construction yields map-equal package summaries — a permuted node list builds a
@@ -354,7 +354,7 @@ Theorem package_summaries_build_permutation : forall ms nodes1 nodes2 p1 p2,
   build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
   PackageMap.Equal (package_summaries (Syntax.files p1)) (package_summaries (Syntax.files p2)).
 Proof.
-  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply package_summaries_Equal.
+  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply package_summaries_equal.
   unfold build_program in *.
   destruct (Syntax.files_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
   destruct (Syntax.files_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].
@@ -642,9 +642,9 @@ Definition occurrence_use_resolved (o : Index.Occurrence) : option Typing.Resolv
 (** §3.5 use-context resolution from the ALREADY-COMPUTED status: a println-argument's stored [Typing.ConstantInfo] is
     resolved through [Typing.resolve_constant_info] + [use_allowsb] (NEVER a raw-expression rescan — this touches only the
     role and the given [ci], not the [Syntax.Expr]).  Production fills [use_resolved] with THIS, so it never calls
-    [constant_info]/[resolve_constant] a second time; [use_resolved_of_ci_eq] proves it agrees with the
+    [constant_info]/[resolve_constant] a second time; [use_resolved_of_input_eq] proves it agrees with the
     [occurrence_use_resolved] specification when [ci] is the occurrence's status. *)
-Definition use_resolved_of_ci (role : Index.Role) (ci : Typing.ConstantInfo) : option Typing.ResolvedConstant :=
+Definition use_resolved_of_input (role : Index.Role) (ci : Typing.ConstantInfo) : option Typing.ResolvedConstant :=
   match role with
   | Index.PrintlnArgument _ =>
       match Typing.resolve_constant_info ci with
@@ -654,11 +654,11 @@ Definition use_resolved_of_ci (role : Index.Role) (ci : Typing.ConstantInfo) : o
   | _ => None
   end.
 
-Lemma use_resolved_of_ci_eq : forall o e ci,
+Lemma use_resolved_of_input_eq : forall o e ci,
   Index.view_expr o = Some e -> constant_info e = Some ci ->
-  use_resolved_of_ci (Index.occurrence_role o) ci = occurrence_use_resolved o.
+  use_resolved_of_input (Index.occurrence_role o) ci = occurrence_use_resolved o.
 Proof.
-  intros o e ci Hv Hc. unfold use_resolved_of_ci, occurrence_use_resolved.
+  intros o e ci Hv Hc. unfold use_resolved_of_input, occurrence_use_resolved.
   destruct (Index.occurrence_role o) as [ | | ai | si | ain | | ]; try reflexivity.
   rewrite Hv. unfold resolve_constant. rewrite Hc. reflexivity.
 Qed.
@@ -708,7 +708,7 @@ Definition add_occ_fact {p} (ro : Index.Snapshot.NodeRef p * Index.Occurrence)
   | None => m
   end.
 
-Lemma NoDup_map_inj {A B} (f : A -> B) (l : list A) :
+Lemma no_duplicates_map_inj {A B} (f : A -> B) (l : list A) :
   (forall x y, f x = f y -> x = y) -> NoDup l -> NoDup (map f l).
 Proof.
   intros Hinj H. induction H as [|x l Hx Hnd IH]; simpl; constructor.
@@ -727,7 +727,7 @@ Proof.
     destruct (Index.Snapshot.visit_file_view p fr r occ Hin) as [_ Hf]. rewrite Hf. reflexivity. }
   rewrite Hmap, <- (map_map (fun ro => Index.Snapshot.node_ref_local (fst ro))
                             (Index.make_key (Index.Snapshot.file_ref_path fr))).
-  apply NoDup_map_inj; [ intros x y H; injection H as H; exact H | apply Index.Snapshot.visit_file_nodup ].
+  apply no_duplicates_map_inj; [ intros x y H; injection H as H; exact H | apply Index.Snapshot.visit_file_nodup ].
 Qed.
 
 Lemma facts_not_in_domain {p} (l : list (Index.Snapshot.NodeRef p * Index.Occurrence)) (k : Index.Key) :
@@ -741,7 +741,7 @@ Proof.
     assert (Hrest : ~ In k (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) rest))
       by (intro H; apply Hni; right; exact H).
     unfold add_occ_fact; cbn [snd fst]. destruct (occurrence_expr_fact occ0) as [f|].
-    + rewrite Index.nodekeymap_add_neq by exact Hne. exact (IH Hrest).
+    + rewrite Index.key_map_add_unequal by exact Hne. exact (IH Hrest).
     + exact (IH Hrest).
 Qed.
 
@@ -756,7 +756,7 @@ Proof.
   simpl. destruct Hin as [Heq | Hin].
   - injection Heq as <- <-. unfold add_occ_fact; cbn [snd fst].
     destruct (occurrence_expr_fact occ0) as [f|] eqn:Ef.
-    + rewrite Index.nodekeymap_add_eq. reflexivity.
+    + rewrite Index.key_map_add_equal. reflexivity.
     + apply facts_not_in_domain. exact Hni.
   - assert (Hin' : In (Index.Snapshot.node_ref_key r)
              (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) rest)).
@@ -764,7 +764,7 @@ Proof.
     assert (Hkr : Index.Snapshot.node_ref_key r <> Index.Snapshot.node_ref_key r0)
       by (intro Hk; apply Hni; rewrite <- Hk; exact Hin').
     unfold add_occ_fact; cbn [snd fst]. destruct (occurrence_expr_fact occ0) as [f0|].
-    + rewrite Index.nodekeymap_add_neq by (intro Hk; apply Hkr; symmetry; exact Hk).
+    + rewrite Index.key_map_add_unequal by (intro Hk; apply Hkr; symmetry; exact Hk).
       exact (IH Hnd' Hin).
     + exact (IH Hnd' Hin).
 Qed.
@@ -1760,7 +1760,7 @@ Proof.
     assert (Hrest : ~ In k (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) rest))
       by (intro H; apply Hni; right; exact H).
     unfold add_tn_fact; cbn [snd fst]. destruct (occurrence_type_name_fact occ0) as [f|].
-    + rewrite Index.nodekeymap_add_neq by exact Hne. exact (IH Hrest).
+    + rewrite Index.key_map_add_unequal by exact Hne. exact (IH Hrest).
     + exact (IH Hrest).
 Qed.
 
@@ -1775,7 +1775,7 @@ Proof.
   simpl. destruct Hin as [Heq | Hin].
   - injection Heq as <- <-. unfold add_tn_fact; cbn [snd fst].
     destruct (occurrence_type_name_fact occ0) as [f|] eqn:Ef.
-    + rewrite Index.nodekeymap_add_eq. reflexivity.
+    + rewrite Index.key_map_add_equal. reflexivity.
     + apply type_name_facts_not_in_domain. exact Hni.
   - assert (Hin' : In (Index.Snapshot.node_ref_key r)
              (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) rest)).
@@ -1783,7 +1783,7 @@ Proof.
     assert (Hkr : Index.Snapshot.node_ref_key r <> Index.Snapshot.node_ref_key r0)
       by (intro Hk; apply Hni; rewrite <- Hk; exact Hin').
     unfold add_tn_fact; cbn [snd fst]. destruct (occurrence_type_name_fact occ0) as [f0|].
-    + rewrite Index.nodekeymap_add_neq by (intro Hk; apply Hkr; symmetry; exact Hk).
+    + rewrite Index.key_map_add_unequal by (intro Hk; apply Hkr; symmetry; exact Hk).
       exact (IH Hnd' Hin).
     + exact (IH Hnd' Hin).
 Qed.
@@ -1797,9 +1797,9 @@ Proof.
   - cbn [fold_right] in Hf. unfold add_tn_fact in Hf.
     destruct (occurrence_type_name_fact (snd ro)) as [f0|] eqn:Ef.
     + destruct (Index.key_eq_dec (Index.Snapshot.node_ref_key (fst ro)) k) as [He|Hne].
-      * subst k. rewrite Index.nodekeymap_add_eq in Hf. injection Hf as <-.
+      * subst k. rewrite Index.key_map_add_equal in Hf. injection Hf as <-.
         exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
-      * rewrite Index.nodekeymap_add_neq in Hf by exact Hne.
+      * rewrite Index.key_map_add_unequal in Hf by exact Hne.
         destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
     + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
 Qed.
@@ -1872,7 +1872,7 @@ Qed.
 (* ---- OPERAND-CLOSURE of the visit stream (the bottom-up accumulator's totality): a conversion's operand is a
    LATER preorder node in the SAME file, so it lies in the ALREADY-FOLDED tail [l2] — its outcome is already in
    the accumulator when the conversion step reads it. ---- *)
-Lemma SS_prefix_lt {A} (R : A -> A -> Prop) (a : list A) (v : A) (b : list A) :
+Lemma strongly_sorted_prefix_lt {A} (R : A -> A -> Prop) (a : list A) (v : A) (b : list A) :
   StronglySorted R (a ++ v :: b) -> Forall (fun z => R z v) a.
 Proof.
   induction a as [|y a IH]; intro Hss; [constructor|].
@@ -1880,13 +1880,13 @@ Proof.
   constructor; [ rewrite Forall_forall in Hall; apply Hall, in_or_app; right; left; reflexivity | apply IH; exact Hss ].
 Qed.
 
-Lemma ss_after_local {p} (l : list (Index.Snapshot.NodeRef p * Index.Occurrence)) P y S :
+Lemma strongly_sorted_after_local {p} (l : list (Index.Snapshot.NodeRef p * Index.Occurrence)) P y S :
   StronglySorted Pos.lt (map (fun rc => Index.Snapshot.node_ref_local (fst rc)) l) ->
   l = P ++ y :: S ->
   forall z, In z l -> (Index.Snapshot.node_ref_local (fst y) < Index.Snapshot.node_ref_local (fst z))%positive -> In z S.
 Proof.
   intros Hss Hsplit z Hz Hlt. subst l. rewrite map_app in Hss. cbn [map] in Hss.
-  pose proof (SS_prefix_lt _ (map (fun rc => Index.Snapshot.node_ref_local (fst rc)) P)
+  pose proof (strongly_sorted_prefix_lt _ (map (fun rc => Index.Snapshot.node_ref_local (fst rc)) P)
                 (Index.Snapshot.node_ref_local (fst y))
                 (map (fun rc => Index.Snapshot.node_ref_local (fst rc)) S) Hss) as Hpre.
   apply in_app_or in Hz. destruct Hz as [HzP | [Hzy | HzS]].
@@ -1938,7 +1938,7 @@ Proof.
   pose proof (Index.Snapshot.visit_file_complete p fr r' Hfile') as Hin'block.
   apply in_split in Hrb. destruct Hrb as [P [S Hvfsplit]].
   assert (Hin'S : In (r', Index.Snapshot.source_occurrence_of_ref r') S).
-  { apply (ss_after_local (Index.Snapshot.visit_file fr) P (r, occ) S (Index.Snapshot.visit_file_order p fr) Hvfsplit
+  { apply (strongly_sorted_after_local (Index.Snapshot.visit_file fr) P (r, occ) S (Index.Snapshot.visit_file_order p fr) Hvfsplit
              (r', Index.Snapshot.source_occurrence_of_ref r') Hin'block).
     cbn [fst]. rewrite <- Hloceq. lia. }
   apply in_split in Hb. destruct Hb as [B1 [B2 Hbsplit]].
@@ -1974,7 +1974,7 @@ Definition conv_outcome {p} (tnft : TypeNameFacts p) (er : Index.ExprRef p)
   | ExpressionSuccess opf =>
       match Typing.convert_constant (fact_type (type_name_fact_at_table tnft tr)) (const_status opf) with
       | Some tc => ExpressionSuccess (make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft tr)) tc)
-                          (use_resolved_of_ci (expression_ref_role er)
+                          (use_resolved_of_input (expression_ref_role er)
                              (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft tr)) tc)))
       | None    => ConversionFailure er tr opr (fact_type (type_name_fact_at_table tnft tr)) (const_status opf)
       end
@@ -1999,7 +1999,7 @@ Proof. destruct e as [ b|n|n0|s|d|dc| ts x ]; try reflexivity. exfalso. exact (e
 
 (* a leaf occurrence's outcome — its untyped fact + its use-context resolution from that same status. *)
 Definition leaf_outcome {p} (er : Index.ExprRef p) (ci : Typing.ConstantInfo) : ExpressionOutcome p :=
-  ExpressionSuccess (make_expression_fact ci (use_resolved_of_ci (expression_ref_role er) ci)).
+  ExpressionSuccess (make_expression_fact ci (use_resolved_of_input (expression_ref_role er) ci)).
 
 (** a conversion whose operand succeeds but whose own conversion step fails — returns (target, operand status).
     (Moved above the outcome accumulator so the accumulator invariant can name the LOCAL invalid-conversion
@@ -2160,7 +2160,7 @@ Proof.
   cbn [outcome_matches leaf_outcome].
   rewrite (occurrence_expr_fact_status occ e ci Hv Hci).
   do 2 f_equal. rewrite <- Hrole. symmetry.
-  exact (use_resolved_of_ci_eq occ e ci Hv Hci).
+  exact (use_resolved_of_input_eq occ e ci Hv Hci).
 Qed.
 
 (* a conversion occurrence's stored outcome ([conv_outcome] of the Index.table query + the operand's outcome) matches:
@@ -2192,7 +2192,7 @@ Proof.
       cbn [outcome_matches].
       rewrite (occurrence_expr_fact_status occ (Syntax.Convert ts x) (Typing.TypedInfo (predeclared_type ts) tc) Hv Hci).
       do 2 f_equal. rewrite <- Hrole. symmetry.
-      exact (use_resolved_of_ci_eq occ (Syntax.Convert ts x) (Typing.TypedInfo (predeclared_type ts) tc) Hv Hci).
+      exact (use_resolved_of_input_eq occ (Syntax.Convert ts x) (Typing.TypedInfo (predeclared_type ts) tc) Hv Hci).
     + (* conversion rejects: ConversionFailure carrying a genuine [local_conv_failure] + retained refs *)
       assert (Hlcf : local_conv_failure (Syntax.Convert ts x) = Some (predeclared_type ts, cx))
         by (cbn [local_conv_failure]; rewrite Ecx, Ecv; reflexivity).
@@ -2265,7 +2265,7 @@ Proof.
 Defined.
 
 (* the retained-input Index.table's map IS [program_type_name_facts p] (spec); its total query resolves the source name. *)
-Lemma build_tnft_map {p} (input : Input p) :
+Lemma build_type_name_map {p} (input : Input p) :
   type_name_map (build_type_name_fact_table input) = program_type_name_facts p.
 Proof. exact (type_name_input_map_eq input). Qed.
 
@@ -2336,7 +2336,7 @@ Definition in_program {p} {input : Input p} {ro} (H : In ro (input_visit input))
 (* §5/§2.4 build the conversion refinement for one work item ONCE, from the occurrence's own proofs: a leaf is
    trivial; a conversion mints its target/operand refs via the index facts ([conversion_target_ref_conv] /
    [conversion_operand_ref_conv]) — the SINGLE place these refs are computed, so no later semantic step remints. *)
-Definition build_ew_conv {p} (input : Input p) (nr : Index.Snapshot.NodeRef p)
+Definition build_work_conversion {p} (input : Input p) (nr : Index.Snapshot.NodeRef p)
     (occ : Index.Occurrence) (er : Index.ExprRef p) (e : Syntax.Expr)
     (Hin : In (nr, occ) (input_visit input)) (Hview : Index.view_expr occ = Some e)
     (Hae : Index.as_expr (index input) nr = Some er) : ConvRefinement input er e.
@@ -2388,7 +2388,7 @@ Proof.
     destruct (Index.view_expr occ) as [e|] eqn:Hv.
     + assert (Hinp : In (r, occ) (program_visit p)) by (rewrite <- (input_visit_ok input); exact Hin).
       destruct (program_visit_expr_ref (index input) r occ e Hinp Hv) as [er [Hae Her]].
-      exists (make_work r occ er e Hin Hv Hae Her (build_ew_conv input r occ er e Hin Hv Hae) :: items_rest).
+      exists (make_work r occ er e Hin Hv Hae Her (build_work_conversion input r occ er e Hin Hv Hae) :: items_rest).
       cbn [map filter work_node_ref work_occurrence]. rewrite (occurrence_is_expr_true r occ e Hv), Hrest. reflexivity.
     + exists items_rest.
       cbn [filter]. rewrite (occurrence_is_expr_false r occ Hv). exact Hrest.
@@ -2471,7 +2471,7 @@ Proof.
   - apply Index.KeyFacts.empty_o.
   - assert (Hne : Index.Snapshot.node_ref_key (work_node_ref w) <> k)
       by (intro Heq; apply Hni; left; exact Heq).
-    rewrite (Index.nodekeymap_add_neq _ _ _ _ Hne).
+    rewrite (Index.key_map_add_unequal _ _ _ _ Hne).
     apply IH. intro H. apply Hni. right. exact H.
 Qed.
 
@@ -2495,12 +2495,12 @@ Proof.
   - rewrite Index.KeyFacts.empty_o. split; [discriminate | intros [[] _]].
   - apply NoDup_cons_iff in Hnd. destruct Hnd as [Hni Hnd].
     destruct (Index.key_eq_dec (Index.Snapshot.node_ref_key (work_node_ref w0)) k) as [Heq|Hne].
-    + rewrite <- Heq, Index.nodekeymap_add_eq. split.
+    + rewrite <- Heq, Index.key_map_add_equal. split.
       * intro H. injection H as Hw. subst w. split; [left; reflexivity | reflexivity].
       * intros [Hin Hk]. destruct Hin as [Hw0 | Hin]; [rewrite Hw0; reflexivity |].
         exfalso. apply Hni. rewrite <- Hk.
         exact (in_map (fun w1 => Index.Snapshot.node_ref_key (work_node_ref w1)) rest w Hin).
-    + rewrite (Index.nodekeymap_add_neq _ _ _ _ Hne). rewrite (IH Hnd k w). split.
+    + rewrite (Index.key_map_add_unequal _ _ _ _ Hne). rewrite (IH Hnd k w). split.
       * intros [Hin Hk]. split; [right; exact Hin | exact Hk].
       * intros [Hin Hk]. destruct Hin as [Hw0 | Hin];
           [exfalso; apply Hne; rewrite Hw0; exact Hk | split; [exact Hin | exact Hk]].
@@ -2961,7 +2961,7 @@ Inductive StepCause {p} {input : Input p} (forest : WorkForest input)
     StepCause forest tnft current rest acc_rest
       (ExpressionSuccess (make_expression_fact
                (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
-               (use_resolved_of_ci (expression_ref_role (work_expr_ref current))
+               (use_resolved_of_input (expression_ref_role (work_expr_ref current))
                   (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc))))
 | ConversionFailureCause : forall ts x (step : ConversionStep forest current rest ts x) opf,
     proj1_sig (step_current step) = current ->
@@ -3099,8 +3099,8 @@ Proof.
   intros w0 Hin0.
   destruct (Index.key_eq_dec (Index.Snapshot.node_ref_key (work_node_ref w0))
               (Index.Snapshot.node_ref_key (work_node_ref current))) as [Heq|Hne].
-  - rewrite Heq, Index.nodekeymap_add_eq. discriminate.
-  - rewrite Index.nodekeymap_add_neq by (intro Hbad; apply Hne; symmetry; exact Hbad).
+  - rewrite Heq, Index.key_map_add_equal. discriminate.
+  - rewrite Index.key_map_add_unequal by (intro Hbad; apply Hne; symmetry; exact Hbad).
     destruct Hin0 as [Hcur | Hin0].
     + exfalso. apply Hne. rewrite Hcur. reflexivity.
     + exact (accumulator_covers acc_rest w0 Hin0).
@@ -3148,7 +3148,7 @@ Lemma extend_here_query {p} {input : Input p} {forest : WorkForest input} {tnft}
   accumulator_total (extend_acc acc_rest current o) sm = o.
 Proof.
   intro Hk. unfold accumulator_total. apply from_some_eq.
-  unfold extend_acc; cbn [accumulator_map]. rewrite Hk. apply Index.nodekeymap_add_eq.
+  unfold extend_acc; cbn [accumulator_map]. rewrite Hk. apply Index.key_map_add_equal.
 Qed.
 
 (* the TAIL query PRESERVATION (one step): extending by a FRESH head leaves every tail member's outcome unchanged. *)
@@ -3165,7 +3165,7 @@ Proof.
     exists (sm_work sm). split; [reflexivity | exact (proj2_sig sm)]. }
   unfold accumulator_total at 1. apply from_some_eq.
   unfold extend_acc; cbn [accumulator_map].
-  rewrite Index.nodekeymap_add_neq by (intro Hbad; apply Hne; symmetry; exact Hbad).
+  rewrite Index.key_map_add_unequal by (intro Hbad; apply Hne; symmetry; exact Hbad).
   exact (from_some_some (Index.KeyMap.find (sm_key sm) (accumulator_map acc_rest))
            (accumulator_covers acc_rest (sm_work sm) (proj2_sig sm))).
 Qed.
@@ -3503,7 +3503,7 @@ Defined.
     index selects the constructor; NO dependent-destruction axiom).  These are the production cause forms: they
     carry the exact [ConversionStep] and read the operand outcome THROUGH the exact operand [SuffixMember] via
     [accumulator_total acc_rest], NOT a raw re-derived key. *)
-Lemma StepCause_convfail_inv {p} {input : Input p} {forest : WorkForest input} {tnft}
+Lemma conversion_failure_cause_yields_step {p} {input : Input p} {forest : WorkForest input} {tnft}
     (current : Work input) (rest : list (Work input)) (acc_rest : Accumulator forest tnft rest)
     er2 tr2 opr2 t ci :
   StepCause forest tnft current rest acc_rest (ConversionFailure er2 tr2 opr2 t ci) ->
@@ -3526,7 +3526,7 @@ Proof.
   repeat split; (assumption || reflexivity).
 Qed.
 
-Lemma StepCause_childfail_inv {p} {input : Input p} {forest : WorkForest input} {tnft}
+Lemma child_failure_cause_yields_member {p} {input : Input p} {forest : WorkForest input} {tnft}
     (current : Work input) (rest : list (Work input)) (acc_rest : Accumulator forest tnft rest) :
   StepCause forest tnft current rest acc_rest ChildFailure ->
   exists ts x (step : ConversionStep forest current rest ts x),
@@ -3540,7 +3540,7 @@ Proof.
   exists ts, x, step. split; assumption.
 Qed.
 
-Lemma StepCause_ok_conv_inv {p} {input : Input p} {forest : WorkForest input} {tnft}
+Lemma conversion_success_cause_yields_step {p} {input : Input p} {forest : WorkForest input} {tnft}
     (current : Work input) (rest : list (Work input)) (acc_rest : Accumulator forest tnft rest)
     ts0 x0 f :
   work_expr current = Syntax.Convert ts0 x0 ->
@@ -3553,7 +3553,7 @@ Lemma StepCause_ok_conv_inv {p} {input : Input p} {forest : WorkForest input} {t
     /\ Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
          (const_status opf) = Some tc
     /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
-             (use_resolved_of_ci (expression_ref_role (work_expr_ref current))
+             (use_resolved_of_input (expression_ref_role (work_expr_ref current))
                 (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)).
 Proof.
   intros Hconvcur Hsc. remember (ExpressionSuccess f) as ov eqn:Hov.
@@ -3716,9 +3716,9 @@ Proof.
   - cbn [fold_right] in Hf. unfold add_occ_fact in Hf.
     destruct (occurrence_expr_fact (snd ro)) as [f0|] eqn:Ef.
     + destruct (Index.key_eq_dec (Index.Snapshot.node_ref_key (fst ro)) k) as [He|Hne].
-      * subst k. rewrite Index.nodekeymap_add_eq in Hf. injection Hf as <-.
+      * subst k. rewrite Index.key_map_add_equal in Hf. injection Hf as <-.
         exists ro. split; [left; reflexivity | split; [reflexivity | exact Ef]].
-      * rewrite Index.nodekeymap_add_neq in Hf by exact Hne.
+      * rewrite Index.key_map_add_unequal in Hf by exact Hne.
         destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
     + destruct (IH Hf) as [ro' [Hin [Hk Hfe]]]. exists ro'. split; [right; exact Hin | split; [exact Hk | exact Hfe]].
 Qed.
@@ -3882,12 +3882,12 @@ Proof.
   rewrite Hfop, visit_file_arg_typedb, Hsrc. reflexivity.
 Qed.
 
-Lemma expression_all_ok_ProgramTyped (p : Syntax.Program) : expression_all_ok p = true <-> TypedProgram p.
+Lemma expression_all_ok_iff_typed_program (p : Syntax.Program) : expression_all_ok p = true <-> TypedProgram p.
 Proof. rewrite expression_all_ok_program_typedb. apply Typing.program_typedb_iff. Qed.
 
 (* ---- the PACKAGE DECISION: [package_decls_unique_b] + [main_pkgs_have_entry_b] + [source_spec_package_rules_b], the factored
    roots [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid], and their DIRECT reflections
-   ([package_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are all
+   ([package_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_package_rules_valid]) are all
    defined early, above [source_spec_valid_b] (which reuses [source_spec_package_rules_b] as its package half), so the
    retained-bucket production decision ([package_diags_empty_iff_rules]) can root DIRECTLY in the two factored roots.  The
    exactly-one property is only the downstream CONSEQUENCE [current_package_rules_exactly_one]. ---- *)
@@ -3904,7 +3904,7 @@ Proof. unfold semantic_ok_b, source_spec_valid_b. rewrite expression_all_ok_prog
 
 (* [Admissible p] is defined below as the fresh-build preflight on top of [SourceProgramValid] (the factored
    package rules); this elaboration decision is exactly the SOURCE half, reflected DIRECTLY against
-   [SourceProgramValid] by [semantic_ok_b_SourceProgramValid] below (no [prog_ok]/[ProgValid] intermediary). *)
+   [SourceProgramValid] by [semantic_ok_b_source_program_valid] below (no [prog_ok]/[ProgValid] intermediary). *)
 Lemma semantic_ok_b_split (p : Syntax.Program) :
   semantic_ok_b p = true <-> expression_all_ok p = true /\ source_spec_package_rules_b p = true.
 Proof. unfold semantic_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
@@ -4097,7 +4097,7 @@ Proof.
         exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
 Qed.
 
-Lemma StronglySorted_filter {A} (R : A -> A -> Prop) (P : A -> bool) l :
+Lemma strongly_sorted_filter {A} (R : A -> A -> Prop) (P : A -> bool) l :
   StronglySorted R l -> StronglySorted R (filter P l).
 Proof.
   induction l as [|a l IH]; intro H; [constructor|].
@@ -4107,7 +4107,7 @@ Proof.
   intros x Hx. apply filter_In in Hx. apply Hhd. exact (proj1 Hx).
 Qed.
 
-Lemma StronglySorted_map {A B} (R : B -> B -> Prop) (f : A -> B) l :
+Lemma strongly_sorted_map {A B} (R : B -> B -> Prop) (f : A -> B) l :
   StronglySorted (fun x y => R (f x) (f y)) l -> StronglySorted R (map f l).
 Proof.
   induction l as [|a l IH]; intro H; [constructor|].
@@ -4117,7 +4117,7 @@ Proof.
   destruct Hy as [x [Hxy Hx]]. subst y. exact (Hhd x Hx).
 Qed.
 
-Lemma StronglySorted_NoDup {A} (R : A -> A -> Prop) l :
+Lemma strongly_sorted_no_duplicates {A} (R : A -> A -> Prop) l :
   (forall a, ~ R a a) -> StronglySorted R l -> NoDup l.
 Proof.
   intro Hirr. induction l as [|a l IH]; intro H; [constructor|].
@@ -4126,7 +4126,7 @@ Proof.
   intro Hina. rewrite Forall_forall in Hhd. exact (Hirr a (Hhd a Hina)).
 Qed.
 
-Lemma StronglySorted_impl_in {A} (R R' : A -> A -> Prop) l :
+Lemma strongly_sorted_impl_in {A} (R R' : A -> A -> Prop) l :
   (forall x y, In x l -> In y l -> R x y -> R' x y) -> StronglySorted R l -> StronglySorted R' l.
 Proof.
   intros Himp H. induction l as [|a l IH]; [constructor|].
@@ -4136,7 +4136,7 @@ Proof.
   - rewrite Forall_forall in Hhd |- *. intros x Hx. apply Himp; [left; reflexivity | right; exact Hx | exact (Hhd x Hx)].
 Qed.
 
-Lemma StronglySorted_app {A} (R : A -> A -> Prop) l1 l2 :
+Lemma strongly_sorted_app {A} (R : A -> A -> Prop) l1 l2 :
   StronglySorted R l1 -> StronglySorted R l2 -> (forall a b, In a l1 -> In b l2 -> R a b) ->
   StronglySorted R (l1 ++ l2).
 Proof.
@@ -4161,7 +4161,7 @@ Lemma estack_wf_filter {p} (idx : Index.Snapshot.Syntax p) fr P stack :
 Proof.
   intros [Hf Hs]. split.
   - apply Forall_forall. intros e He. apply filter_In in He. rewrite Forall_forall in Hf. exact (Hf e (proj1 He)).
-  - apply StronglySorted_filter; assumption.
+  - apply strongly_sorted_filter; assumption.
 Qed.
 
 (** the nested scar is SAME-FILE, NEAREST-FIRST, and DUPLICATE-FREE: over a per-file
@@ -4188,7 +4188,7 @@ Proof.
     + rewrite Forall_forall. intros er Herin. apply in_map_iff in Herin.
       destruct Herin as [[e s] [Hes Hin']]. cbn [fst] in Hes. subst er.
       rewrite Forall_forall in Hf. exact (Hf (e, s) Hin').
-    + apply (StronglySorted_map (fun a b => Pos.lt (Index.Snapshot.node_ref_local (Index.erase_ref b))
+    + apply (strongly_sorted_map (fun a b => Pos.lt (Index.Snapshot.node_ref_local (Index.erase_ref b))
                                                    (Index.Snapshot.node_ref_local (Index.erase_ref a)))
               fst open). exact Hs.
   - refine (IH _ Hsort0 (fun ro' Hr => Hval ro' (or_intror Hr)) _ _ roc ctx Hin).
@@ -4218,7 +4218,7 @@ Proof.
         exact (Pos.lt_trans _ _ _ (Hbnd ro0 e s (or_introl eq_refl) (proj1 Ht')) Hlt0).
 Qed.
 
-Lemma StronglySorted_map_inv {A B} (R : B -> B -> Prop) (f : A -> B) (l : list A) :
+Lemma strongly_sorted_map_inv {A B} (R : B -> B -> Prop) (f : A -> B) (l : list A) :
   StronglySorted R (map f l) -> StronglySorted (fun x y => R (f x) (f y)) l.
 Proof.
   induction l as [|a l IH]; intro H; [constructor|].
@@ -4244,7 +4244,7 @@ Proof.
   apply in_map_iff in Hblock. destruct Hblock as [b [Hbv Hb]]. subst block. unfold binding_visit in Hin.
   destruct (Index.Snapshot.file_of_path p (fst b)) as [fr|] eqn:Efr; [| destruct Hin].
   refine (annotate_encl_ctx_sound idx (Index.Snapshot.visit_file fr) [] _ _ _ _ ro ctx Hin er Her).
-  - apply StronglySorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
+  - apply strongly_sorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
   - intros [r occ] Hro. destruct (Index.Snapshot.visit_file_view p fr r occ Hro) as [Ho _]. exact Ho.
   - intros er0 se [].
   - intros ro0 er0 se _ [].
@@ -4269,13 +4269,13 @@ Proof.
                  /\ StronglySorted (fun a b => Pos.lt (Index.Snapshot.node_ref_local (Index.erase_ref b))
                                                       (Index.Snapshot.node_ref_local (Index.erase_ref a))) ctx).
   { refine (annotate_encl_ctx_wf idx fr (Index.Snapshot.visit_file fr) [] _ _ _ _ ro ctx Hin).
-    - apply StronglySorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
+    - apply strongly_sorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
     - intros [r occ] Hro. destruct (Index.Snapshot.visit_file_view p fr r occ Hro) as [Ho Hf]. split; assumption.
     - split; constructor.
     - intros ro0 er0 se _ []. }
   destruct Hprops as [Hfile Hss].
   rewrite Hrf. split; [exact Hfile | split; [exact Hss |]].
-  exact (StronglySorted_NoDup _ ctx (fun a => Pos.lt_irrefl _) Hss).
+  exact (strongly_sorted_no_duplicates _ ctx (fun a => Pos.lt_irrefl _) Hss).
 Qed.
 
 Lemma annotate_program_fst {p} (idx : Index.Snapshot.Syntax p) :
@@ -4849,23 +4849,23 @@ Definition build_expression_diagnostics {p} {input : Input p} {forest : WorkFore
     TYPED by the exact prior object it consumes, so a phase whose outcome Index.table, fact Index.table, annotation, or
     diagnostics came from another forest/Index.table is UNREPRESENTABLE (type mismatch).  NO provenance-equality field
     exists: the causal chain is the DEPENDENT TYPES themselves.
-      · [phase_ot]    : [Outcomes phase_work phase_tnft]         (consumes [phase_work] + [phase_tnft]);
+      · [phase_ot]    : [Outcomes phase_work phase_type_name_facts]         (consumes [phase_work] + [phase_type_name_facts]);
       · [phase_awork] : [AnnotatedWork phase_work]            (the retained annotated object of [phase_work]);
-      · [phase_eft]   : [ExpressionFacts phase_work phase_ot]           (consumes [phase_work] + [phase_ot]);
+      · [phase_fact_table]   : [ExpressionFacts phase_work phase_ot]           (consumes [phase_work] + [phase_ot]);
       · [phase_diag]  : [Diagnostics phase_awork phase_ot]        (consumes [phase_awork] + [phase_ot]).
     [build_expression_phase] let-binds each exact object and passes it forward; the concrete builder makes
-    [phase_work]/[phase_tnft] DEFINITIONALLY the retained-input builders (no stored equality needed). *)
+    [phase_work]/[phase_type_name_facts] DEFINITIONALLY the retained-input builders (no stored equality needed). *)
 Record Phase {p} (input : Input p) : Type := make_phase {
   phase_work  : WorkForest input ;
-  phase_tnft  : TypeNameFacts p ;
-  phase_ot    : Outcomes phase_work phase_tnft ;
+  phase_type_name_facts  : TypeNameFacts p ;
+  phase_ot    : Outcomes phase_work phase_type_name_facts ;
   phase_awork : AnnotatedWork phase_work ;
-  phase_eft   : ExpressionFacts phase_work phase_ot ;
+  phase_fact_table   : ExpressionFacts phase_work phase_ot ;
   phase_diag  : Diagnostics phase_awork phase_ot
 }.
 Arguments make_phase {p input} _ _ _ _ _ _.
-Arguments phase_work {p input} _.  Arguments phase_tnft {p input} _.  Arguments phase_ot {p input} _.
-Arguments phase_awork {p input} _.  Arguments phase_eft {p input} _.  Arguments phase_diag {p input} _.
+Arguments phase_work {p input} _.  Arguments phase_type_name_facts {p input} _.  Arguments phase_ot {p input} _.
+Arguments phase_awork {p input} _.  Arguments phase_fact_table {p input} _.  Arguments phase_diag {p input} _.
 
 Definition build_expression_phase {p} (input : Input p) : Phase input :=
   let work  := build_expr_work_forest input in
@@ -4879,20 +4879,20 @@ Definition build_expression_phase {p} (input : Input p) : Phase input :=
 (** §11.2/§11.5 NO-RECONSTRUCTION SHARED OBJECT FLOW: each phase component IS the builder applied to the phase's
     OWN prior objects — proven by DEFINITIONAL equality of the concrete [build_expression_phase] (which let-binds
     ONE [build_expr_work_forest input] and PASSES that exact object forward; the sub-builders take [forest]/the
-    prior objects as PARAMETERS, so none recomputes the work forest).  [phase_ot] consumed [phase_work]+[phase_tnft];
-    [phase_awork] consumed [phase_work]; [phase_eft] consumed [phase_work]+[phase_ot]; [phase_diag] consumed [phase_awork]+[phase_ot].
+    prior objects as PARAMETERS, so none recomputes the work forest).  [phase_ot] consumed [phase_work]+[phase_type_name_facts];
+    [phase_awork] consumed [phase_work]; [phase_fact_table] consumed [phase_work]+[phase_ot]; [phase_diag] consumed [phase_awork]+[phase_ot].
     So the ONLY production work-discovery call is the single let in [build_expression_phase]; the outcome Index.table,
     annotation, fact Index.table, and diagnostics are all TYPED by (and here shown definitionally equal to the builder
     over) that exact retained object — never a re-run of [build_expr_work_forest]/[build_forest_blocks]. *)
 Lemma phase_ot_consumes_work {p} (input : Input p) :
   phase_ot (build_expression_phase input)
-  = build_forest_outcome_table (phase_work (build_expression_phase input)) (phase_tnft (build_expression_phase input)).
+  = build_forest_outcome_table (phase_work (build_expression_phase input)) (phase_type_name_facts (build_expression_phase input)).
 Proof. reflexivity. Qed.
 Lemma phase_awork_consumes_work {p} (input : Input p) :
   phase_awork (build_expression_phase input) = build_annotated_work_forest (phase_work (build_expression_phase input)).
 Proof. reflexivity. Qed.
-Lemma phase_eft_consumes_work_ot {p} (input : Input p) :
-  phase_eft (build_expression_phase input)
+Lemma phase_fact_table_consumes_work_outcomes {p} (input : Input p) :
+  phase_fact_table (build_expression_phase input)
   = build_forest_expr_fact_table (phase_work (build_expression_phase input)) (phase_ot (build_expression_phase input)).
 Proof. reflexivity. Qed.
 Lemma phase_diag_consumes_awork_ot {p} (input : Input p) :
@@ -4900,9 +4900,9 @@ Lemma phase_diag_consumes_awork_ot {p} (input : Input p) :
   = build_expression_diagnostics (phase_awork (build_expression_phase input)) (phase_ot (build_expression_phase input)).
 Proof. reflexivity. Qed.
 
-(* §2.8 the phase's fact projection IS the retained [phase_eft] object's map — never a separately recomputed value. *)
+(* §2.8 the phase's fact projection IS the retained [phase_fact_table] object's map — never a separately recomputed value. *)
 Definition phase_facts {p} {input : Input p} (ph : Phase input)
-  : Index.KeyMap.t ExpressionFact := fact_table_map (expression_facts_table (phase_eft ph)).
+  : Index.KeyMap.t ExpressionFact := fact_table_map (expression_facts_table (phase_fact_table ph)).
 (* the phase's STORED diagnostic list IS the retained [phase_diag] object's list. *)
 Definition phase_diags {p} {input : Input p} (ph : Phase input)
   : list (DiagnosticReason p) := erased_diagnostics (phase_diag ph).
@@ -4962,7 +4962,7 @@ Proof.
   intro Hcf.
   destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hcf in stepc.
-  destruct (StepCause_childfail_inv _ rest acc_rest stepc) as [ts [x [step [He Hfail]]]].
+  destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts [x [step [He Hfail]]]].
   pose proof (Hclose (step_operand_suffix step)) as Hcl.
   exists ts, x, rest, acc_rest, step.
   split; [ exact He | split; [ exact Hfail | split; [ exact Hcl | split ] ] ].
@@ -4986,13 +4986,13 @@ Lemma retained_convsuccess_closure {p} {input : Input p} {forest : WorkForest in
     /\ Typing.convert_constant (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
          (const_status opf) = Some tc
     /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)
-             (use_resolved_of_ci (expression_ref_role (work_expr_ref (proj1_sig wm)))
+             (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
                 (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))) tc)).
 Proof.
   intros He Hok.
   destruct (retained_conversion_closure ot wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hok in stepc.
-  destruct (StepCause_ok_conv_inv _ rest acc_rest ts x f He stepc)
+  destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
     as [step [opf [tc [Hopf [Hconv Hf]]]]].
   pose proof (Hclose (step_operand_suffix step)) as Hcl.
   exists rest, acc_rest, step, opf, tc.
@@ -5043,8 +5043,8 @@ Theorem facts_and_diags_share_phase {p} (input : Input p) (ph : Phase input) :
   /\ phase_diags ph = flat_map (fun roc => occurrence_expr_diags (index input) (snd roc) (fst roc)) (annotate_program (index input)).
 Proof.
   split.
-  - unfold phase_facts. rewrite (expression_facts_is_facts (phase_eft ph)).
-    exact (forest_facts_eq_spec (phase_work ph) (phase_tnft ph) (phase_ot ph)).
+  - unfold phase_facts. rewrite (expression_facts_is_facts (phase_fact_table ph)).
+    exact (forest_facts_eq_spec (phase_work ph) (phase_type_name_facts ph) (phase_ot ph)).
   - unfold phase_diags. rewrite (erased_is_diagnostics (phase_diag ph)).
     exact (expression_diagnostics_eq_spec (phase_ot ph) (phase_awork ph)).
 Qed.
@@ -5058,7 +5058,7 @@ Proof. rewrite (proj2 (facts_and_diags_share_phase input ph)), (expression_diags
     whole expression report is a genuine CONVERSION whose subtree STRICTLY contains the primary — a real
     strict-ancestor conversion, never fabricated or copied syntax.  (Delivered by the ONE-PASS annotation,
     proved sound by [annotate_program_ctx_sound].) *)
-Lemma expression_diags_conv_scar_sound {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
+Lemma expression_diags_conversion_single_rounding_sound {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
   In (InvalidConversion er tr opr outer t ci) (expression_diags idx) ->
   forall a, In a outer ->
     is_conversion_occ (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref a)) = true
@@ -5078,7 +5078,7 @@ Qed.
 
 (** the nested scar is SAME-FILE (as the primary), NEAREST-FIRST (deepest enclosing
     conversion first), and DUPLICATE-FREE for every invalid-conversion diagnostic in the whole report. *)
-Lemma expression_diags_conv_scar_wf {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
+Lemma expression_diags_conversion_single_rounding_well_formed {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
   In (InvalidConversion er tr opr outer t ci) (expression_diags idx) ->
   Forall (fun a => Index.Snapshot.node_ref_file (Index.erase_ref a) = Index.Snapshot.node_ref_file (Index.erase_ref er)) outer
   /\ StronglySorted (fun a b => Pos.lt (Index.Snapshot.node_ref_local (Index.erase_ref b)) (Index.Snapshot.node_ref_local (Index.erase_ref a))) outer
@@ -5967,9 +5967,9 @@ Qed.
 (** the same production decision, expressed against the SHARED package half [source_spec_package_rules_b] — the two are ONE
     judgment ([PackageRulesValid]), one retained-bucket view (production) and one [package_summaries] view
     (fixtures), each rooted DIRECTLY in the factored roots ([package_diags_empty_iff_rules] /
-    [source_spec_package_rules_b_PackageRulesValid]); neither routes through the exactly-one consequence. *)
+    [source_spec_package_rules_b_package_rules_valid]); neither routes through the exactly-one consequence. *)
 Lemma package_diags_empty_iff {p} (idx : Index.Snapshot.Syntax p) : package_diags idx = nil <-> source_spec_package_rules_b p = true.
-Proof. rewrite package_diags_empty_iff_rules, source_spec_package_rules_b_PackageRulesValid. reflexivity. Qed.
+Proof. rewrite package_diags_empty_iff_rules, source_spec_package_rules_b_package_rules_valid. reflexivity. Qed.
 
 (** the PRODUCTION diagnostics capture EACH factored rule EXACTLY.  The retained bucket pass emits a
     [MainRedeclared] per redundant main (a bucket of length ≥ 2) and a [MissingMainEntry] per empty package
@@ -6107,7 +6107,7 @@ Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
 (* NO project-authored sorting algorithm: a node-primary diagnostic is prepended to its occurrence's
    bucket.  Every occurrence emits AT MOST ONE node-primary diagnostic, so the bucket is a singleton and no
    within-bucket ordering is required (`bucket_singleton` below proves it); the canonical order is entirely the
-   NodeKeyMap's key-sorted `elements` ([bucket_flatten_key_sorted]). *)
+   Index.KeyMap's key-sorted `elements` ([bucket_flatten_key_sorted]). *)
 Definition nkm_find {X} (k : Index.Key) (m : Index.KeyMap.t (list X)) : list X :=
   match Index.KeyMap.find k m with Some l => l | None => [] end.
 
@@ -6115,7 +6115,7 @@ Definition bucket_add {X} (kx : Index.Key * X)
     (m : Index.KeyMap.t (list X)) : Index.KeyMap.t (list X) :=
   Index.KeyMap.add (fst kx) (snd kx :: nkm_find (fst kx) m) m.
 
-(* flatten node-keyed values into the NodeKeyMap-canonical order (path/local id). *)
+(* flatten node-keyed values into the Index.KeyMap-canonical order (path/local id). *)
 Definition bucket_flatten {X} (kxs : list (Index.Key * X)) : list X :=
   flat_map snd (Index.KeyMap.elements
     (fold_right bucket_add (Index.KeyMap.empty (list X)) kxs)).
@@ -6144,7 +6144,7 @@ Proof.
   unfold bucket_flatten. cbn [fold_right]. unfold bucket_add at 1.
   set (m := fold_right bucket_add (Index.KeyMap.empty (list X)) rest).
   apply (nkm_find_flat_nonempty _ (fst kx) (snd kx :: nkm_find (fst kx) m)).
-  - apply nodekeymap_add_eq.
+  - apply Index.key_map_add_equal.
   - discriminate.
 Qed.
 
@@ -6195,7 +6195,7 @@ Qed.
    diagnostics run through the SAME bucketing.  This makes the erased report a source function (deterministic,
    vm-computable), and it is the bridge for the exact fixtures. ---- *)
 
-Lemma nodekey_sorted_map_fst {A B} (f : A -> B) : forall l,
+Lemma key_sorted_map_fst {A B} (f : A -> B) : forall l,
   Sorted (@Index.KeyMap.lt_key A) l ->
   Sorted (@Index.KeyMap.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
 Proof.
@@ -6204,14 +6204,14 @@ Proof.
   destruct l as [|b l']; cbn [map]; [constructor|]. apply HdRel_inv in Hhd. constructor. exact Hhd.
 Qed.
 
-Lemma nodekeymap_map_elements {A B} (f : A -> B) (m : Index.KeyMap.t A) :
+Lemma key_map_map_elements {A B} (f : A -> B) (m : Index.KeyMap.t A) :
   Index.KeyMap.elements (Index.KeyMap.map f m)
   = map (fun kv => (fst kv, f (snd kv))) (Index.KeyMap.elements m).
 Proof.
-  apply Index.nodekey_eqlistA_eqke_eq.
+  apply Index.key_equal_list_key_element_equal.
   apply Index.KeyOrder.sort_equivlistA_eqlistA;
     [ apply Index.KeyMap.elements_3
-    | apply nodekey_sorted_map_fst, Index.KeyMap.elements_3 | ].
+    | apply key_sorted_map_fst, Index.KeyMap.elements_3 | ].
   intros [k e].
   rewrite <- Index.KeyFacts.elements_mapsto_iff, Index.KeyFacts.map_mapsto_iff, InA_alt.
   split.
@@ -6262,8 +6262,8 @@ Lemma bucket_flatten_map {X Y} (g : X -> Y) (kxs : list (Index.Key * X)) :
   map g (bucket_flatten kxs) = bucket_flatten (map (fun kx => (fst kx, g (snd kx))) kxs).
 Proof.
   unfold bucket_flatten.
-  rewrite <- (Index.nodekeymap_elements_Equal _ _ (bucket_fold_map g kxs)).
-  rewrite nodekeymap_map_elements.
+  rewrite <- (Index.key_map_elements_equal _ _ (bucket_fold_map g kxs)).
+  rewrite key_map_map_elements.
   generalize (Index.KeyMap.elements (fold_right bucket_add (Index.KeyMap.empty (list X)) kxs)) as l.
   induction l as [|[k b] l IH]; cbn [flat_map map]; [reflexivity|].
   rewrite map_app, IH. reflexivity.
@@ -6316,7 +6316,7 @@ Proof.
       exists k', b. split; [exact Hmt | exact Hd].
 Qed.
 
-Lemma bucket_flatten_In {X} (kxs : list (Index.Key * X)) (d : X) :
+Lemma bucket_flatten_in {X} (kxs : list (Index.Key * X)) (d : X) :
   In d (bucket_flatten kxs) <-> In d (map snd kxs).
 Proof.
   unfold bucket_flatten. induction kxs as [|kx rest IH]; cbn [fold_right map].
@@ -6327,7 +6327,7 @@ Proof.
     rewrite or_assoc, <- (flat_map_snd_find M (fst kx) d), IH. tauto.
 Qed.
 
-Lemma existsb_In_eq {A} (f : A -> bool) (l1 l2 : list A) :
+Lemma existsb_in_eq {A} (f : A -> bool) (l1 l2 : list A) :
   (forall x, In x l1 <-> In x l2) -> existsb f l1 = existsb f l2.
 Proof.
   intro H. destruct (existsb f l1) eqn:E1; destruct (existsb f l2) eqn:E2; try reflexivity.
@@ -6339,7 +6339,7 @@ Proof.
     rewrite Hc in E1; discriminate.
 Qed.
 
-Lemma node_pkg_In {p} (l : list (DiagnosticReason p)) (d : DiagnosticReason p) :
+Lemma node_pkg_in {p} (l : list (DiagnosticReason p)) (d : DiagnosticReason p) :
   In d (map snd (node_keyed l)) \/ In d (package_primary l) <-> In d l.
 Proof.
   induction l as [|d0 rest IH]; [cbn; tauto|].
@@ -6350,16 +6350,16 @@ Proof.
   rewrite map_app, !in_app_iff. cbn [In]. destruct (diag_node_key d0) as [k|]; cbn [map In]; rewrite <- IH; tauto.
 Qed.
 
-Lemma collect_diagnostics_In {p} (idx : Index.Snapshot.Syntax p) (d : DiagnosticReason p) :
+Lemma collect_diagnostics_in {p} (idx : Index.Snapshot.Syntax p) (d : DiagnosticReason p) :
   In d (semantic_diagnostics p idx) <-> In d (expression_diags idx ++ package_diags idx).
 Proof.
-  unfold semantic_diagnostics. rewrite in_app_iff, bucket_flatten_In. apply node_pkg_In.
+  unfold semantic_diagnostics. rewrite in_app_iff, bucket_flatten_in. apply node_pkg_in.
 Qed.
 
 (** the UNIVERSAL STRICT CANONICAL-ORDER theorem (below, [semantic_diagnostics_node_strict]): the
    node-primary diagnostics appear in STRICTLY ascending Index.Key order (path then local id).  The input keys
    are UNIQUE ([collect_node_input_nodup]) so every bucket is a SINGLETON ([collect_node_buckets_singleton]);
-   there are no within-bucket ties, and the order is entirely the NodeKeyMap's key-sorted [elements]. *)
+   there are no within-bucket ties, and the order is entirely the Index.KeyMap's key-sorted [elements]. *)
 Lemma node_keyed_self {p} (l : list (DiagnosticReason p)) :
   forall kd, In kd (node_keyed l) -> diag_node_key (snd kd) = Some (fst kd).
 Proof.
@@ -6580,12 +6580,12 @@ Qed.
 
 (** the KEYED visit stream depends ONLY on the file map: [FilesEqual] programs have IDENTICAL keyed
     streams (their canonical [file_bindings] are the same list, and each file's [Index.occurrences_file] is source-only). *)
-Lemma keyed_visit_FilesEqual (p1 p2 : Syntax.Program) :
+Lemma keyed_visit_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> keyed_visit p1 = keyed_visit p2.
 Proof.
   intro Heq. rewrite !keyed_visit_source. unfold source_keyed_visit.
   assert (Hb : Syntax.file_bindings (Syntax.files p1) = Syntax.file_bindings (Syntax.files p2)).
-  { unfold Syntax.file_bindings. apply Collections.file_elements_Equal. exact Heq. }
+  { unfold Syntax.file_bindings. apply Collections.file_elements_equal. exact Heq. }
   rewrite Hb. reflexivity.
 Qed.
 
@@ -6715,12 +6715,12 @@ Proof.
   rewrite (annotate_program_erased (index input)). reflexivity.
 Qed.
 
-Lemma annotate_source_FilesEqual (fm1 fm2 : Syntax.Files) :
+Lemma annotate_source_files_equal (fm1 fm2 : Syntax.Files) :
   Syntax.FilesEqual fm1 fm2 -> annotate_source fm1 = annotate_source fm2.
 Proof.
   intro Heq. unfold annotate_source.
   assert (Hb : Syntax.file_bindings fm1 = Syntax.file_bindings fm2)
-    by (unfold Syntax.file_bindings; apply Collections.file_elements_Equal; exact Heq).
+    by (unfold Syntax.file_bindings; apply Collections.file_elements_equal; exact Heq).
   rewrite Hb. reflexivity.
 Qed.
 
@@ -6816,7 +6816,7 @@ Proof.
   rewrite erased_expr_diags_annot, <- (annotate_program_erased idx), flat_map_map. reflexivity.
 Qed.
 
-(** the PACKAGE buckets erase to a SOURCE function of the keyed stream.  [keyed_ppkg_step] runs the
+(** the PACKAGE buckets erase to a SOURCE function of the keyed stream.  [keyed_program_package_step] runs the
    SAME package-grouping over keyed entries (NodeKeys), and the erased ([node_ref_key . erase_ref]) buckets
    equal it (find-wise, hence PackageMap.Equal).  So the erased package diagnostics depend only on the file map. *)
 
@@ -6824,7 +6824,7 @@ Definition erase_dkey {p} (dr : Index.DeclRef p) : Index.Key := Index.Snapshot.n
 Definition occurrence_pkg_key (ke : Index.Key * Index.Occurrence) : string :=
   FilePath.parent (Index.key_path (fst ke)).
 
-Definition keyed_ppkg_step (ke : Index.Key * Index.Occurrence) (acc : PackageMap.t (list Index.Key))
+Definition keyed_program_package_step (ke : Index.Key * Index.Occurrence) (acc : PackageMap.t (list Index.Key))
   : PackageMap.t (list Index.Key) :=
   match Index.occurrence_kind (snd ke) with
   | Index.DeclarationKind =>
@@ -6835,7 +6835,7 @@ Definition keyed_ppkg_step (ke : Index.Key * Index.Occurrence) (acc : PackageMap
   end.
 
 Definition keyed_buckets (l : list (Index.Key * Index.Occurrence)) : PackageMap.t (list Index.Key) :=
-  fold_right keyed_ppkg_step (PackageMap.empty (list Index.Key)) l.
+  fold_right keyed_program_package_step (PackageMap.empty (list Index.Key)) l.
 
 (* the keyed package of an occurrence equals its source parent directory (via [node_ref_key_eq]). *)
 Lemma occurrence_pkg_key_eq {p} (ro : Index.Snapshot.NodeRef p * Index.Occurrence) :
@@ -6858,9 +6858,9 @@ Proof.
       by (rewrite (Index.Snapshot.node_kind_matches_source p idx (fst ro)), <- Hsrc; reflexivity).
     intro k. cbn [fold_right map keyed_buckets].
     set (acc := fold_right (program_package_step idx) (PackageMap.empty (list (Index.DeclRef p))) L) in *.
-    set (kacc := fold_right keyed_ppkg_step (PackageMap.empty (list Index.Key))
+    set (kacc := fold_right keyed_program_package_step (PackageMap.empty (list Index.Key))
                    (map (fun ro => (Index.Snapshot.node_ref_key (fst ro), snd ro)) L)) in *.
-    unfold program_package_step at 1, keyed_ppkg_step at 1. cbn [fst snd]. rewrite occurrence_pkg_key_eq.
+    unfold program_package_step at 1, keyed_program_package_step at 1. cbn [fst snd]. rewrite occurrence_pkg_key_eq.
     destruct (Index.occurrence_kind (snd ro)) eqn:Hok.
     + (* Index.FileKind: as_decl = None, as_kind Index.FileKind = Some — file-root init (presence, not length) *)
       assert (Hd : Index.as_decl idx (fst ro) = None)
@@ -6953,15 +6953,15 @@ Lemma erased_pkg_diags_source {p} (idx : Index.Snapshot.Syntax p) :
 Proof.
   unfold package_diags. rewrite bucket_diags_elems_erased.
   rewrite <- Collections.package_map_elements.
-  rewrite (Collections.package_elements_Equal _ _ (program_package_refs_erased idx)). reflexivity.
+  rewrite (Collections.package_elements_equal _ _ (program_package_refs_erased idx)). reflexivity.
 Qed.
 
-Lemma erased_pkg_diags_FilesEqual (p1 p2 : Syntax.Program)
+Lemma erased_pkg_diags_files_equal (p1 p2 : Syntax.Program)
     (idx1 : Index.Snapshot.Syntax p1) (idx2 : Index.Snapshot.Syntax p2) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) ->
   map erase_diagnostic (package_diags idx1) = map erase_diagnostic (package_diags idx2).
 Proof.
-  intro Heq. rewrite !erased_pkg_diags_source, (keyed_visit_FilesEqual p1 p2 Heq). reflexivity.
+  intro Heq. rewrite !erased_pkg_diags_source, (keyed_visit_files_equal p1 p2 Heq). reflexivity.
 Qed.
 
 (** the WHOLE erased report as a PURE SOURCE function of the file map — expression diagnostics via
@@ -7032,25 +7032,25 @@ Proof.
   - rewrite package_primary_erase, erased_src_diags_eq. reflexivity.
 Qed.
 
-Lemma erased_src_diags_FilesEqual (fm1 fm2 : Syntax.Files) :
+Lemma erased_src_diags_files_equal (fm1 fm2 : Syntax.Files) :
   Syntax.FilesEqual fm1 fm2 -> erased_src_diags fm1 = erased_src_diags fm2.
 Proof.
-  intro Heq. unfold erased_src_diags. rewrite (annotate_source_FilesEqual _ _ Heq). f_equal.
+  intro Heq. unfold erased_src_diags. rewrite (annotate_source_files_equal _ _ Heq). f_equal.
   assert (Hb : Syntax.file_bindings fm1 = Syntax.file_bindings fm2)
-    by (unfold Syntax.file_bindings; apply Collections.file_elements_Equal; exact Heq).
+    by (unfold Syntax.file_bindings; apply Collections.file_elements_equal; exact Heq).
   unfold source_keyed_visit. rewrite Hb. reflexivity.
 Qed.
 
 (** THE cross-snapshot determinism theorem: two programs with the SAME file map (their
     diagnostics live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report — it depends
     ONLY on the file map (the erased report is [erased_report_src (Syntax.files p)], a source function). *)
-Theorem erased_report_FilesEqual (p1 p2 : Syntax.Program)
+Theorem erased_report_files_equal (p1 p2 : Syntax.Program)
     (idx1 : Index.Snapshot.Syntax p1) (idx2 : Index.Snapshot.Syntax p2) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) ->
   erased_report p1 idx1 = erased_report p2 idx2.
 Proof.
   intro Heq. rewrite !erased_report_src_eq. unfold erased_report_src.
-  rewrite (erased_src_diags_FilesEqual _ _ Heq). reflexivity.
+  rewrite (erased_src_diags_files_equal _ _ Heq). reflexivity.
 Qed.
 
 (** CONSTRUCTION-list permutation corollary: building the SAME module from a PERMUTED file-node
@@ -7064,7 +7064,7 @@ Theorem erased_report_build_permutation : forall ms nodes1 nodes2 p1 p2
   erased_report p1 idx1 = erased_report p2 idx2.
 Proof.
   intros ms nodes1 nodes2 p1 p2 idx1 idx2 Hperm Hb1 Hb2.
-  apply erased_report_FilesEqual. unfold build_program in *.
+  apply erased_report_files_equal. unfold build_program in *.
   destruct (Syntax.files_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
   destruct (Syntax.files_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].
   injection Hb1 as <-. injection Hb2 as <-. cbn [Syntax.files].
@@ -7095,16 +7095,16 @@ Qed.
     occurrence's key -> its exact Typing.ConstantInfo + println-use fact) depends ONLY on the file map — its keys are
     source NodeKeys and its values source-derived (a fold-map fusion over the keyed stream) — so FilesEqual
     programs have the IDENTICAL fact Index.table, hence the IDENTICAL canonical fact enumeration. *)
-Lemma program_expr_facts_FilesEqual (p1 p2 : Syntax.Program) :
+Lemma program_expr_facts_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> program_expr_facts p1 = program_expr_facts p2.
 Proof.
-  intro Heq. rewrite !program_expr_facts_source, (keyed_visit_FilesEqual p1 p2 Heq). reflexivity.
+  intro Heq. rewrite !program_expr_facts_source, (keyed_visit_files_equal p1 p2 Heq). reflexivity.
 Qed.
 
-Theorem program_expr_facts_enum_FilesEqual (p1 p2 : Syntax.Program) :
+Theorem program_expr_facts_enum_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) ->
   Index.KeyMap.elements (program_expr_facts p1) = Index.KeyMap.elements (program_expr_facts p2).
-Proof. intro Heq. rewrite (program_expr_facts_FilesEqual p1 p2 Heq). reflexivity. Qed.
+Proof. intro Heq. rewrite (program_expr_facts_files_equal p1 p2 Heq). reflexivity. Qed.
 
 (* ---- the TWO disjoint diagnostic families (typing / package), used to PROJECT a legacy compile class from
    the diagnostics (never a second check).  Expression diagnostics are typing-class; package diagnostics are
@@ -7267,13 +7267,13 @@ Lemma visit_file_key_sorted {p} (fr : Index.Snapshot.FileRef p) :
   StronglySorted (fun x y => Index.KeyOrderedType.lt (Index.Snapshot.node_ref_key (fst x)) (Index.Snapshot.node_ref_key (fst y)))
                  (Index.Snapshot.visit_file fr).
 Proof.
-  apply (StronglySorted_impl_in (fun x y => Pos.lt (Index.Snapshot.node_ref_local (fst x)) (Index.Snapshot.node_ref_local (fst y)))).
+  apply (strongly_sorted_impl_in (fun x y => Pos.lt (Index.Snapshot.node_ref_local (fst x)) (Index.Snapshot.node_ref_local (fst y)))).
   - intros [rx ox] [ry oy] Hx Hy Hlt.
     destruct (Index.Snapshot.visit_file_view p fr rx ox Hx) as [_ Hfx].
     destruct (Index.Snapshot.visit_file_view p fr ry oy Hy) as [_ Hfy].
     cbn [fst] in *. rewrite (Index.Snapshot.node_ref_key_eq rx), (Index.Snapshot.node_ref_key_eq ry).
     right. cbn [Index.key_path Index.key_local]. split; [ rewrite Hfx, Hfy; reflexivity | exact Hlt ].
-  - apply StronglySorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
+  - apply strongly_sorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
 Qed.
 
 (* every node visited in binding [b]'s block has that binding's path as its key's file component. *)
@@ -7294,7 +7294,7 @@ Lemma program_visit_key_sorted_aux (p : Syntax.Program) (L : list (FilePath.T * 
 Proof.
   induction L as [|b L IH]; intro Hbsort; [constructor|].
   apply StronglySorted_inv in Hbsort. destruct Hbsort as [Hbs Hbhd].
-  cbn [map concat]. apply StronglySorted_app.
+  cbn [map concat]. apply strongly_sorted_app.
   { unfold binding_visit. destruct (Index.Snapshot.file_of_path p (fst b)) as [fr|]; [apply visit_file_key_sorted | constructor]. }
   { apply IH; exact Hbs. }
   intros x y Hx Hy. apply in_concat in Hy. destruct Hy as [block [Hblock Hyb]].
@@ -7415,27 +7415,27 @@ Proof.
   assert (Hne : ~ Index.KeyOrderedType.eq (Index.Snapshot.node_ref_key (Index.erase_ref earlier))
                                         (Index.Snapshot.node_ref_key (Index.erase_ref earlier)))
     by (apply Index.KeyOrderedType.lt_not_eq; exact Hlt).
-  apply Hne. apply (proj2 (Index.nodekey_compare_eq _ _)). reflexivity.
+  apply Hne. apply (proj2 (Index.key_compare_equal _ _)). reflexivity.
 Qed.
 
 (** the node-primary diagnostic report is in STRICTLY ascending Index.Key order.
     The chain: (1) the node-keyed INPUT keys are UNIQUE ([collect_node_input_nodup]) — proved from the expr
     keys' NoDup, the pkg keys' NoDup, and their DISJOINTNESS (an occurrence is an expression OR a decl, never
     both, by [node_ref_key_inj] + the kind refinement); (2) so every resulting bucket is a SINGLETON
-    ([collect_node_buckets_singleton]); (3) hence the NodeKeyMap flattening is strictly key-ascending with no
+    ([collect_node_buckets_singleton]); (3) hence the Index.KeyMap flattening is strictly key-ascending with no
     within-bucket ties ([semantic_diagnostics_node_strict]).  No project-authored sort. *)
 
-(* nodekey strict-order lift over [option]: both anchored, strictly ascending (no ties). *)
+(* key strict-order lift over [option]: both anchored, strictly ascending (no ties). *)
 Definition key_lt_opt (oa ob : option Index.Key) : Prop :=
   match oa, ob with Some ka, Some kb => Index.KeyOrderedType.lt ka kb | _, _ => False end.
 
-Lemma nodekey_lt_irrefl : forall a, ~ Index.KeyOrderedType.lt a a.
+Lemma key_lt_irreflexive : forall a, ~ Index.KeyOrderedType.lt a a.
 Proof.
   intros a H. assert (Hne : ~ Index.KeyOrderedType.eq a a) by (apply Index.KeyOrderedType.lt_not_eq; exact H).
-  apply Hne. apply (proj2 (Index.nodekey_compare_eq a a)). reflexivity.
+  apply Hne. apply (proj2 (Index.key_compare_equal a a)). reflexivity.
 Qed.
 
-Lemma pm_elements_nodup_fst {A} (m : PackageMap.t A) : NoDup (map fst (PackageMap.elements m)).
+Lemma package_map_elements_no_duplicates_fst {A} (m : PackageMap.t A) : NoDup (map fst (PackageMap.elements m)).
 Proof.
   pose proof (PackageMap.elements_3w m) as H. generalize dependent (PackageMap.elements m). intro l.
   induction l as [|[k e] l IH]; simpl; intro H; [constructor|].
@@ -7446,7 +7446,7 @@ Proof.
 Qed.
 
 (* NoDup of a disjoint append (stdlib has no direct form). *)
-Lemma NoDup_app_disjoint {A} (l1 l2 : list A) :
+Lemma no_duplicates_app_disjoint {A} (l1 l2 : list A) :
   NoDup l1 -> NoDup l2 -> (forall x, In x l1 -> In x l2 -> False) -> NoDup (l1 ++ l2).
 Proof.
   intros H1 H2 Hd. induction l1 as [|a l1 IH]; [exact H2|].
@@ -7544,8 +7544,8 @@ Proof.
     by (unfold bucket_of; unfold program_package_refs, program_package_refs_from_visit in Hfind; rewrite Hfind; reflexivity).
   rewrite Hb in Hsort. destruct (snd kv) as [|d1 rest]; cbn [bucket_dup_keys]; [constructor|].
   apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort _].
-  apply (StronglySorted_NoDup Index.KeyOrderedType.lt); [ exact nodekey_lt_irrefl |].
-  apply (StronglySorted_map Index.KeyOrderedType.lt (fun dk => Index.Snapshot.node_ref_key (Index.erase_ref dk))).
+  apply (strongly_sorted_no_duplicates Index.KeyOrderedType.lt); [ exact key_lt_irreflexive |].
+  apply (strongly_sorted_map Index.KeyOrderedType.lt (fun dk => Index.Snapshot.node_ref_key (Index.erase_ref dk))).
   exact Hsort.
 Qed.
 
@@ -7563,7 +7563,7 @@ Proof.
     apply in_map_iff in Hk. destruct Hk as [dk [Hdk Hdkin]].
     rewrite <- Hdk, Index.Snapshot.node_ref_key_eq. cbn [Index.key_path].
     apply (program_package_refs_belongs idx (fst kv) (d1 :: rest)); [ exact Hfind | right; exact Hdkin ].
-  - apply pm_elements_nodup_fst.
+  - apply package_map_elements_no_duplicates_fst.
 Qed.
 
 (* each expression-diagnostic key belongs to an EXPRESSION occurrence; each pkg-diagnostic key to a DECL
@@ -7631,7 +7631,7 @@ Qed.
 Theorem collect_node_input_nodup {p} (idx : Index.Snapshot.Syntax p) :
   NoDup (node_keys (expression_diags idx ++ package_diags idx)).
 Proof.
-  rewrite node_keys_app. apply NoDup_app_disjoint;
+  rewrite node_keys_app. apply no_duplicates_app_disjoint;
     [ apply expression_node_keys_nodup | apply package_node_keys_nodup | apply expression_pkg_node_keys_disjoint ].
 Qed.
 
@@ -7645,7 +7645,7 @@ Proof.
 Qed.
 
 (** the WHOLE report's node-primary diagnostics are in STRICTLY ascending Index.Key order (path
-    then local id): the NodeKeyMap flattening IS the canonical enumeration; with unique keys / singleton buckets
+    then local id): the Index.KeyMap flattening IS the canonical enumeration; with unique keys / singleton buckets
     there are NO ties.  No project-authored sort. *)
 Theorem semantic_diagnostics_node_strict {p} (idx : Index.Snapshot.Syntax p) :
   StronglySorted (fun a b => key_lt_opt (diag_node_key a) (diag_node_key b))
@@ -7664,7 +7664,7 @@ Proof. intros d Hin; apply (package_diags_family idx d Hin). Qed.
 Lemma existsb_typing_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
   existsb diag_is_typing (semantic_diagnostics p idx) = negb (program_typedb p).
 Proof.
-  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
+  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
   rewrite (existsb_all_false diag_is_typing (package_diags idx) (package_diags_not_typing idx)), Bool.orb_false_r.
   rewrite (existsb_all_true diag_is_typing (expression_diags idx) (expression_diags_typing idx)).
   destruct (expression_diags idx) as [|d ds] eqn:E.
@@ -7675,7 +7675,7 @@ Qed.
 Lemma existsb_package_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
   existsb diag_is_package (semantic_diagnostics p idx) = negb (source_spec_package_rules_b p).
 Proof.
-  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
+  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
   rewrite (existsb_all_false diag_is_package (expression_diags idx) (expression_diags_not_package idx)), Bool.orb_false_l.
   rewrite (existsb_all_true diag_is_package (package_diags idx) (package_diags_package idx)).
   destruct (package_diags idx) as [|d ds] eqn:E.
@@ -7688,7 +7688,7 @@ Qed.
 Lemma existsb_build_output_semantic (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) :
   existsb diag_is_build_output (semantic_diagnostics p idx) = false.
 Proof.
-  rewrite (existsb_In_eq _ _ _ (collect_diagnostics_In idx)), existsb_app.
+  rewrite (existsb_in_eq _ _ _ (collect_diagnostics_in idx)), existsb_app.
   rewrite (existsb_all_false diag_is_build_output (expression_diags idx)
              (fun d Hin => diag_typing_not_build d (expression_diags_typing idx d Hin))),
           (existsb_all_false diag_is_build_output (package_diags idx)
@@ -7776,13 +7776,13 @@ Example version_suffix_v00  : is_version_element "v00"  = false. Proof. reflexiv
 Example version_suffix_v01  : is_version_element "v01"  = false. Proof. reflexivity. Qed.
 Example version_suffix_v05  : is_version_element "v05"  = false. Proof. reflexivity. Qed.
 Example version_suffix_v1   : is_version_element "v1"   = false. Proof. reflexivity. Qed.
-Example version_suffix_v2   : is_version_element "v2"   = true.  Proof. reflexivity. Qed.
+Example version_suffix_lowercase_accepted   : is_version_element "v2"   = true.  Proof. reflexivity. Qed.
 Example version_suffix_v3   : is_version_element "v3"   = true.  Proof. reflexivity. Qed.
 Example version_suffix_v10  : is_version_element "v10"  = true.  Proof. reflexivity. Qed.
 Example version_suffix_v100 : is_version_element "v100" = true.  Proof. reflexivity. Qed.
 Example version_suffix_v1x  : is_version_element "v1x"  = false. Proof. reflexivity. Qed.
 Example version_suffix_v2x  : is_version_element "v2x"  = false. Proof. reflexivity. Qed.
-Example version_suffix_V2   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
+Example version_suffix_uppercase_rejected   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
 Example version_suffix_v    : is_version_element "v"    = false. Proof. reflexivity. Qed.
 
 (** default_exec_name_c FIXTURES — the exact pinned import-path COMPONENTS -> exe-name rule. *)
@@ -7863,14 +7863,14 @@ Proof.
   destruct (ModulePath.segments (module_path ms)); [ reflexivity | discriminate Hc ].
 Qed.
 
-Lemma last_In : forall (l : list string), l <> [] -> In (List.last l ""%string) l.
+Lemma last_in : forall (l : list string), l <> [] -> In (List.last l ""%string) l.
 Proof.
   induction l as [|x l IH]; intro H; [ contradiction |].
   destruct l as [|y l']; [ left; reflexivity |].
   right. apply IH. discriminate.
 Qed.
 
-Lemma removelast_In : forall (l : list string) x, In x (List.removelast l) -> In x l.
+Lemma removelast_in : forall (l : list string) x, In x (List.removelast l) -> In x l.
 Proof.
   induction l as [|a l IH]; intros x Hin.
   - cbn [List.removelast] in Hin. exact Hin.
@@ -7885,8 +7885,8 @@ Proof.
   intros comps Hne. unfold default_exec_name_c. destruct comps as [|a [|b rest]]; [ contradiction | |].
   - cbn [List.last]. left; reflexivity.
   - destruct (is_version_element (List.last (a :: b :: rest) ""%string)).
-    + apply removelast_In, last_In. cbn [List.removelast]. discriminate.
-    + apply last_In. discriminate.
+    + apply removelast_in, last_in. cbn [List.removelast]. discriminate.
+    + apply last_in. discriminate.
 Qed.
 
 (** the DEFAULT EXECUTABLE NAME is NEVER empty: it is one of the import path's components, and every
@@ -7949,7 +7949,7 @@ Proof.
 Qed.
 
 (** import-path DETERMINISM: an equal module spec and equal package directory key give the SAME import path —
-    the direct API companion to [package_import_path_inj].  The whole-program [package_import_path_InputEqual]
+    the direct API companion to [package_import_path_inj].  The whole-program [package_import_path_input_equal]
     below is a CONSEQUENCE of this (equal program inputs give an equal module path), not a substitute for it. *)
 Theorem package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
   ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
@@ -8573,7 +8573,7 @@ Qed.
     the fresh-build preflight on top. *)
 
 (** [PackageDeclsUnique] / [MainPackagesHaveEntry] / [PackageRulesValid] and their executable reflections
-    ([package_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_PackageRulesValid]) are defined
+    ([package_decls_unique_b_iff] / [main_pkgs_have_entry_b_iff] / [source_spec_package_rules_b_package_rules_valid]) are defined
     early, beside [source_spec_package_rules_b], so BOTH the [package_summaries] view and the retained-bucket production
     decision root DIRECTLY in the two factored roots.  Here we package the SOURCE admission on top. *)
 Definition SourceProgramValid (p : Syntax.Program) : Prop := TypedProgram p /\ PackageRulesValid p.
@@ -8588,19 +8588,19 @@ Proof.
 Qed.
 
 (** the decidable [source_spec_valid_b] reflects the LIVE factored root [SourceProgramValid] DIRECTLY:
-    program typing ([program_typedb_iff]) AND the two factored package reflections ([source_spec_package_rules_b_PackageRulesValid]).
+    program typing ([program_typedb_iff]) AND the two factored package reflections ([source_spec_package_rules_b_package_rules_valid]).
     No fragment/consequence bridge, no [ProgValid], no [prog_ok], no exactly-one intermediary. *)
 Lemma source_spec_valid_b_iff : forall p, source_spec_valid_b p = true <-> SourceProgramValid p.
 Proof.
   intro p. unfold source_spec_valid_b, SourceProgramValid.
-  rewrite Bool.andb_true_iff, program_typedb_iff, source_spec_package_rules_b_PackageRulesValid. reflexivity.
+  rewrite Bool.andb_true_iff, program_typedb_iff, source_spec_package_rules_b_package_rules_valid. reflexivity.
 Qed.
 
 (** the decidable SPECIFICATION decision [semantic_ok_b] reflects the LIVE factored root [SourceProgramValid]
     DIRECTLY (via [semantic_ok_b_source_spec_valid_b] + [source_spec_valid_b_iff]; no [prog_ok] / [ProgValid]).
     It is the public source-validity reflection; production elaboration decides equivalently from its RETAINED
     diagnostics ([semantic_diagnostics_empty_iff]). *)
-Lemma semantic_ok_b_SourceProgramValid (p : Syntax.Program) : semantic_ok_b p = true <-> SourceProgramValid p.
+Lemma semantic_ok_b_source_program_valid (p : Syntax.Program) : semantic_ok_b p = true <-> SourceProgramValid p.
 Proof. rewrite semantic_ok_b_source_spec_valid_b. apply source_spec_valid_b_iff. Qed.
 
 (** the fresh-build COMMAND-level diagnostic list: when the preflight fails (a sole main
@@ -8705,31 +8705,31 @@ Definition ProgramInputEqual (p1 p2 : Syntax.Program) : Prop :=
   Syntax.module_spec p1 = Syntax.module_spec p2 /\ Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2).
 
 (* the selected-package enumeration and the root layout depend only on the file map. *)
-Lemma selected_package_keys_Equal : forall p1 p2,
+Lemma selected_package_keys_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> selected_package_keys p1 = selected_package_keys p2.
 Proof.
   intros p1 p2 Heq. unfold selected_package_keys, selected_packages.
-  rewrite (Collections.package_elements_Equal _ _ (package_summaries_Equal _ _ Heq)). reflexivity.
+  rewrite (Collections.package_elements_equal _ _ (package_summaries_equal _ _ Heq)). reflexivity.
 Qed.
 
-Lemma root_layout_Equal : forall p1 p2,
+Lemma root_layout_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> root_layout p1 = root_layout p2.
 Proof.
   intros p1 p2 Heq. unfold root_layout, Syntax.file_bindings.
-  rewrite (Collections.file_elements_Equal _ _ Heq). reflexivity.
+  rewrite (Collections.file_elements_equal _ _ Heq). reflexivity.
 Qed.
 
-Lemma fresh_build_plan_InputEqual : forall p1 p2,
+Lemma fresh_build_plan_input_equal : forall p1 p2,
   ProgramInputEqual p1 p2 -> fresh_build_plan p1 = fresh_build_plan p2.
 Proof.
   intros p1 p2 [Hm Hf]. unfold fresh_build_plan.
-  rewrite (selected_package_keys_Equal _ _ Hf), Hm, (root_layout_Equal _ _ Hf). reflexivity.
+  rewrite (selected_package_keys_equal _ _ Hf), Hm, (root_layout_equal _ _ Hf). reflexivity.
 Qed.
 
-Lemma fresh_build_disposition_InputEqual : forall p1 p2,
+Lemma fresh_build_disposition_input_equal : forall p1 p2,
   ProgramInputEqual p1 p2 ->
   fresh_build_disposition_ok (fresh_build_plan p1) = fresh_build_disposition_ok (fresh_build_plan p2).
-Proof. intros p1 p2 H. rewrite (fresh_build_plan_InputEqual _ _ H). reflexivity. Qed.
+Proof. intros p1 p2 H. rewrite (fresh_build_plan_input_equal _ _ H). reflexivity. Qed.
 
 (** the COMMAND-ordered diagnostic list: if the fresh-build preflight FAILS, the report
     is EXACTLY the build-output-directory diagnostic (it takes PRECEDENCE, hiding the semantic diagnostics of
@@ -8744,7 +8744,7 @@ Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics 
 Proof.
   intros p idx He.
   unfold elaboration_diagnostics, command_diagnostics_of in He. destruct (fresh_build_disposition_ok (fresh_build_plan p)) eqn:Ep.
-  - exact (proj1 (semantic_ok_b_SourceProgramValid p) (proj1 (semantic_diagnostics_empty_iff p idx) He)).
+  - exact (proj1 (semantic_ok_b_source_program_valid p) (proj1 (semantic_diagnostics_empty_iff p idx) He)).
   - apply (proj1 (fresh_build_diagnostics_nil_iff p)) in He. unfold fresh_build_preflight_ok in He.
     rewrite He in Ep. discriminate Ep.
 Qed.
@@ -8774,13 +8774,13 @@ Definition Admissible (p : Syntax.Program) : Prop := fresh_build_preflight_ok p 
 
 (** the command-ordered report is empty EXACTLY on admissible programs.  ([elaboration_diagnostics] is definitionally the
     [diags] computed inside [elaborate_indexed], so the elaboration-exactness theorems below reduce to this.) *)
-Lemma elaboration_diagnostics_nil_iff_GoCompile : forall p idx, elaboration_diagnostics p idx = nil <-> Admissible p.
+Lemma elaboration_diagnostics_nil_iff_admissible : forall p idx, elaboration_diagnostics p idx = nil <-> Admissible p.
 Proof.
   intros p idx. unfold Admissible. split.
   - intro He. split; [ exact (elaboration_no_diags_preflight p idx He)
                      | exact (elaboration_no_diags_source_valid p idx He) ].
   - intros [Hpf Hsv]. unfold elaboration_diagnostics, command_diagnostics_of. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
-    apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_SourceProgramValid p)). exact Hsv.
+    apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_source_program_valid p)). exact Hsv.
 Qed.
 
 (** the command-ordered report computed on the RETAINED bucket-derived plan (the ONE plan
@@ -9105,10 +9105,10 @@ Example representable_nested_reject   : resolve Typing.PrintlnArgument (Syntax.C
 Example representable_same_f32_identity :
   constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_single_rounding)))
   = constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_single_rounding)). Proof. vm_compute. reflexivity. Qed.
-Example representable_scalar_double_round_scar :
+Example representable_scalar_double_round_single_rounding :
   constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_single_rounding))
   <> constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral Typing.decimal_single_rounding))). Proof. vm_compute. discriminate. Qed.
-Example representable_complex_component_scar :
+Example representable_complex_component_single_rounding :
   constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0)))
   <> constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64)
         (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.make_decimal Typing.decimal_single_rounding Typing.decimal_0_0)))). Proof. vm_compute. discriminate. Qed.
@@ -9150,8 +9150,8 @@ Defined.
     builds, RETAINED rather than discarded.  Two fields suffice, because the chain is already dependently
     linked: [Input p] itself retains the [Index.Program] ([indexed]) and the visit, and
     [Phase] is INDEXED BY the input — so a phase built from a different input is not storable here,
-    and the phase in turn retains [phase_work] / [phase_tnft] / [phase_ot] (with its [Trace]) / [phase_awork] /
-    [phase_eft] / [phase_diag], each dependent on its predecessor.  Everything else an elaboration computes — the
+    and the phase in turn retains [phase_work] / [phase_type_name_facts] / [phase_ot] (with its [Trace]) / [phase_awork] /
+    [phase_fact_table] / [phase_diag], each dependent on its predecessor.  Everything else an elaboration computes — the
     package buckets, the root layout, the build plan, the raw and command-ordered diagnostics — is a total
     PROJECTION of these two and is defined below, never stored: nothing can drift out of sync, and no stored
     equality stands in for a retained object (D-22 / FCB A001). *)
@@ -9198,7 +9198,7 @@ Definition build_elaboration_core (p : Syntax.Program) (ip : Index.Program p) : 
   make_core input (build_expression_phase input).
 
 (* the built core's retained index IS the one it was built from (definitional — no transport). *)
-Lemma build_core_ip (p : Syntax.Program) (ip : Index.Program p) :
+Lemma build_core_indexed (p : Syntax.Program) (ip : Index.Program p) :
   core_indexed (build_elaboration_core p ip) = ip.
 Proof. reflexivity. Qed.
 
@@ -9232,8 +9232,8 @@ Definition core_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil)
   let He : elaboration_diagnostics p (core_index core) = nil :=
     eq_trans (eq_sym (core_diagnostics_eq_elaboration core)) Hnil in
   make_facts
-    (expression_facts_table (phase_eft (phase core)))      (* the phase's OWN retained expression-fact Index.table object *)
-    (phase_tnft (phase core))                  (* the phase's OWN retained type-name Index.table object *)
+    (expression_facts_table (phase_fact_table (phase core)))      (* the phase's OWN retained expression-fact Index.table object *)
+    (phase_type_name_facts (phase core))                  (* the phase's OWN retained type-name Index.table object *)
     (core_package_refs core)
     (program_package_refs_present (core_index core))
     (program_package_refs_bucket_len (core_index core))
@@ -9351,11 +9351,11 @@ Definition elaborate_indexed (p : Syntax.Program) (ip : Index.Program p) : Resul
     These replace the old [elaborate_ok_seals_*] forms, which had to re-run [build_expression_phase] on a
     freshly rebuilt [build_compilation_input] and prove the stored copy equal to it. *)
 Theorem core_seals_tnfacts {p} (core : Core p) (Hnil : core_diagnostics core = nil) :
-  type_name_facts (core_facts core Hnil) = phase_tnft (phase core).
+  type_name_facts (core_facts core Hnil) = phase_type_name_facts (phase core).
 Proof. reflexivity. Qed.
 
 Theorem core_seals_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil) :
-  expression_facts (core_facts core Hnil) = expression_facts_table (phase_eft (phase core)).
+  expression_facts (core_facts core Hnil) = expression_facts_table (phase_fact_table (phase core)).
 Proof. reflexivity. Qed.
 
 (* and the retained-INPUT provenance, for a core the elaborator actually built: its type-name Index.table IS the
@@ -9370,24 +9370,24 @@ Proof. reflexivity. Qed.
     diagnostics) IFF it is inadmissible.  Success and failure are exclusive.  (The [diags] computed inside
     [elaborate_indexed] runs on the RETAINED bucket-derived [plan]; [command_plan_diags_eq] bridges it to the
     canonical [elaboration_diagnostics] — the only difference is the plan presentation — so both reduce through
-    [elaboration_diagnostics_nil_iff_GoCompile].) *)
-Theorem elaborate_ok_iff_GoCompile (p : Syntax.Program) :
+    [elaboration_diagnostics_nil_iff_admissible].) *)
+Theorem elaboration_accepted_iff_admissible (p : Syntax.Program) :
   (exists facts, result (elaborate p) = ElaborationOK facts) <-> Admissible p.
 Proof.
   unfold elaborate, elaborate_at, decision_of_core, result; cbn [elaboration_core decision]; cbv zeta.
   match goal with |- context[list_is_nil ?d] => destruct (list_is_nil d) as [He|Hne] end.
   - split; intro Hx;
-      [ exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (Index.indexed_syntax (Index.index_program p)))
+      [ exact (proj1 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p)))
                  (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (Index.index_program p))) He))
       | eexists; reflexivity ].
   - split; intro Hx.
     + destruct Hx as [facts Hf]; discriminate Hf.
     + exfalso. apply Hne.
       exact (eq_trans (elaborate_diags_eq_elaboration p (Index.index_program p))
-               (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (Index.indexed_syntax (Index.index_program p))) Hx)).
+               (proj2 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p))) Hx)).
 Qed.
 
-Theorem elaborate_failed_iff_not_GoCompile (p : Syntax.Program) :
+Theorem elaboration_rejected_iff_inadmissible (p : Syntax.Program) :
   (exists ds Hne, result (elaborate p) = ElaborationFailed ds Hne) <-> ~ Admissible p.
 Proof.
   unfold elaborate, elaborate_at, result, decision_of_core; cbn [elaboration_core decision]; cbv zeta.
@@ -9395,12 +9395,12 @@ Proof.
   - split; intro Hx.
     + destruct Hx as [ds [Hne Hf]]; discriminate Hf.
     + exfalso. apply Hx.
-      exact (proj1 (elaboration_diagnostics_nil_iff_GoCompile p (Index.indexed_syntax (Index.index_program p)))
+      exact (proj1 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p)))
                (eq_trans (eq_sym (elaborate_diags_eq_elaboration p (Index.index_program p))) He)).
   - split; intro Hx.
     + intro Hv. apply Hne.
       exact (eq_trans (elaborate_diags_eq_elaboration p (Index.index_program p))
-               (proj2 (elaboration_diagnostics_nil_iff_GoCompile p (Index.indexed_syntax (Index.index_program p))) Hv)).
+               (proj2 (elaboration_diagnostics_nil_iff_admissible p (Index.indexed_syntax (Index.index_program p))) Hv)).
     + eexists; eexists; reflexivity.
 Qed.
 
@@ -9410,7 +9410,7 @@ Lemma elaborate_failed_not_valid (p : Syntax.Program) ds Hne :
   result (elaborate p) = ElaborationFailed ds Hne -> Admissible p -> False.
 Proof.
   intros Heq Hv.
-  exact (proj1 (elaborate_failed_iff_not_GoCompile p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
+  exact (proj1 (elaboration_rejected_iff_inadmissible p) (ex_intro _ ds (ex_intro _ Hne Heq)) Hv).
 Qed.
 
 (* [Admissible] and its [elaboration_diagnostics]-emptiness bridge are defined earlier (before [elaborate]), since the elaboration
@@ -9432,7 +9432,7 @@ Definition elaboration_ok_core (p : Syntax.Program) (H : Admissible p)
   | left He   => exist _ core He
   | right Hne =>
       False_rect _ (Hne (eq_trans (core_diagnostics_eq_elaboration core)
-        (proj2 (elaboration_diagnostics_nil_iff_GoCompile p
+        (proj2 (elaboration_diagnostics_nil_iff_admissible p
                   (Index.indexed_syntax (Index.index_program p))) H)))
   end.
 
@@ -9460,11 +9460,11 @@ Theorem compilable_retains_phase : forall cp : Program, program_phase cp = phase
 Proof. reflexivity. Qed.
 
 Theorem compilable_retains_expr_facts : forall cp : Program,
-  expression_facts (facts cp) = expression_facts_table (phase_eft (program_phase cp)).
+  expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp)).
 Proof. reflexivity. Qed.
 
 Theorem compilable_retains_tnfacts : forall cp : Program,
-  type_name_facts (facts cp) = phase_tnft (program_phase cp).
+  type_name_facts (facts cp) = phase_type_name_facts (program_phase cp).
 Proof. reflexivity. Qed.
 
 (** The compiled evidence EXPOSES that the same program is typed through [Typing]: an immediate
@@ -9539,7 +9539,7 @@ Lemma core_diags_nil_of_valid : forall p, Admissible p ->
 Proof.
   intros p Hv.
   exact (eq_trans (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))
-           (proj2 (elaboration_diagnostics_nil_iff_GoCompile p
+           (proj2 (elaboration_diagnostics_nil_iff_admissible p
                      (Index.indexed_syntax (Index.index_program p))) Hv)).
 Qed.
 
@@ -9587,9 +9587,9 @@ Qed.
 
       A. [semantic_diagnostics_empty_iff_source_valid] : semantic report empty  <-> SourceProgramValid
       B. [fresh_build_diagnostics_nil_iff]             : fresh report empty      <-> fresh_build_preflight_ok
-      C. [elaboration_diagnostics_nil_iff_GoCompile]   : final report empty      <-> Admissible
-      D. [elaborate_ok_iff_GoCompile]                  : elaboration exposes facts <-> Admissible
-      E. [elaborate_failed_iff_not_GoCompile]          : elaboration fails         <-> ~ Admissible
+      C. [elaboration_diagnostics_nil_iff_admissible]   : final report empty      <-> Admissible
+      D. [elaboration_accepted_iff_admissible]                  : elaboration exposes facts <-> Admissible
+      E. [elaboration_rejected_iff_inadmissible]          : elaboration fails         <-> ~ Admissible
       F. [elaboration_diagnostics_fresh_failure]       : preflight fails -> final report = [one build-output dir]
       G. [elaboration_diagnostics_eq_semantic]         : preflight succeeds -> final report = semantic report
       H. [compile_projects_elaborate]               : compile only PROJECTS one elaboration (no re-check)
@@ -9599,14 +9599,14 @@ Qed.
     Emit.  The final equivalence to external cmd/go stays DIFFERENTIAL evidence, not a Rocq theorem. *)
 
 (** SOURCE SEMANTICS: the semantic (source/compiler/package) diagnostics are empty EXACTLY on a
-    source-valid program (composes [semantic_diagnostics_empty_iff] with the DIRECT [semantic_ok_b_SourceProgramValid]). *)
+    source-valid program (composes [semantic_diagnostics_empty_iff] with the DIRECT [semantic_ok_b_source_program_valid]). *)
 Theorem semantic_diagnostics_empty_iff_source_valid : forall p idx,
   semantic_diagnostics p idx = nil <-> SourceProgramValid p.
 Proof.
   intros p idx. split.
-  - intro H. apply (proj1 (semantic_ok_b_SourceProgramValid p)),
+  - intro H. apply (proj1 (semantic_ok_b_source_program_valid p)),
                    (proj1 (semantic_diagnostics_empty_iff p idx)); exact H.
-  - intro H. apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_SourceProgramValid p)); exact H.
+  - intro H. apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_source_program_valid p)); exact H.
 Qed.
 
 (** the sole-package plan expressed exactly (iota over the singleton [selected_package_keys]). *)
@@ -9680,7 +9680,7 @@ Proof.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
   - exfalso.
     assert (Hgc : Admissible p).
-    { apply (proj1 (elaboration_diagnostics_nil_iff_GoCompile p
+    { apply (proj1 (elaboration_diagnostics_nil_iff_admissible p
                (Index.indexed_syntax (Index.index_program p)))).
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     pose proof (proj2 (program_typedb_iff predeclared_type p) (compile_program_typed p Hgc)) as Ht. rewrite Ht in Hf; discriminate Hf.
@@ -9698,32 +9698,32 @@ Proof.
 Qed.
 
 (** ---- ORDER-INDEPENDENCE of admissibility: [Admissible] / [compile] depend only on the file MAP,
-    never on construction order (typing respects the map by [Typing.Program_Equal]; the package summaries
-    respect it by [package_summaries_Equal]). ---- *)
+    never on construction order (typing respects the map by [Typing.program_equal]; the package summaries
+    respect it by [package_summaries_equal]). ---- *)
 
 (* the SOURCE admission [SourceProgramValid] depends only on the file MAP (FilesEqual).  The FULL admission
    [Admissible] also depends on the ModuleSpec (via the fresh-build preflight), so it needs [ProgramInputEqual]
    below.  (This is the SOLE map-equality proof; the old [ProgValid_Equal] is deleted.) *)
-Theorem SourceProgramValid_Equal : forall p1 p2,
+Theorem source_program_valid_files_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> SourceProgramValid p1 -> SourceProgramValid p2.
 Proof.
-  intros p1 p2 Heq [Ht [Hdu Hme]]. split; [ exact (Typing.Program_Equal predeclared_type p1 p2 Heq Ht) |].
+  intros p1 p2 Heq [Ht [Hdu Hme]]. split; [ exact (Typing.program_equal predeclared_type p1 p2 Heq Ht) |].
   assert (Hconv : forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p2)) ->
                                 PackageMap.MapsTo dir s (package_summaries (Syntax.files p1))).
   { intros dir s Hmt. apply PackageFacts.find_mapsto_iff.
-    rewrite (package_summaries_Equal (Syntax.files p1) (Syntax.files p2) Heq dir).
+    rewrite (package_summaries_equal (Syntax.files p1) (Syntax.files p2) Heq dir).
     apply PackageFacts.find_mapsto_iff. exact Hmt. }
   split; intros dir s Hmt; [ apply (Hdu dir s) | apply (Hme dir s) ]; apply Hconv; exact Hmt.
 Qed.
 
-Theorem source_spec_valid_b_Equal : forall p1 p2,
+Theorem source_spec_valid_files_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> source_spec_valid_b p1 = source_spec_valid_b p2.
 Proof.
   intros p1 p2 Heq.
   destruct (source_spec_valid_b p1) eqn:E1; destruct (source_spec_valid_b p2) eqn:E2; try reflexivity.
-  - apply (proj1 (source_spec_valid_b_iff p1)) in E1. apply (SourceProgramValid_Equal p1 p2 Heq) in E1.
+  - apply (proj1 (source_spec_valid_b_iff p1)) in E1. apply (source_program_valid_files_equal p1 p2 Heq) in E1.
     apply (proj2 (source_spec_valid_b_iff p2)) in E1. rewrite E1 in E2; discriminate.
-  - apply (proj1 (source_spec_valid_b_iff p2)) in E2. apply (SourceProgramValid_Equal p2 p1 (Syntax.FilesEqual_sym _ _ Heq)) in E2.
+  - apply (proj1 (source_spec_valid_b_iff p2)) in E2. apply (source_program_valid_files_equal p2 p1 (Syntax.files_equal_sym _ _ Heq)) in E2.
     apply (proj2 (source_spec_valid_b_iff p1)) in E2. rewrite E2 in E1; discriminate.
 Qed.
 
@@ -9745,7 +9745,7 @@ Proof.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core p (Index.index_program p)))) as [He|Hne].
   -
     assert (Hgc : Admissible p).
-    { apply (proj1 (elaboration_diagnostics_nil_iff_GoCompile p
+    { apply (proj1 (elaboration_diagnostics_nil_iff_admissible p
                (Index.indexed_syntax (Index.index_program p)))).
       exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration (build_elaboration_core p (Index.index_program p)))) He). }
     destruct Hgc as [Hpf Hsv]. unfold fresh_build_preflight_ok in Hpf. rewrite Hpf.
@@ -9769,11 +9769,11 @@ Qed.
 
 (** the legacy class is invariant under [ProgramInputEqual] (module + files); it depends on the ModuleSpec
     (via the preflight), so FilesEqual ALONE is NOT enough — see [class_input_counterexample] below. *)
-Theorem compile_class_Equal : forall p1 p2,
+Theorem compile_class_input_equal : forall p1 p2,
   ProgramInputEqual p1 p2 -> compile_class p1 = compile_class p2.
 Proof.
   intros p1 p2 H. pose proof (proj2 H) as Hf. rewrite !compile_class_spec.
-  rewrite (fresh_build_disposition_InputEqual _ _ H), (source_spec_valid_b_Equal _ _ Hf), (program_typedb_Equal predeclared_type _ _ Hf).
+  rewrite (fresh_build_disposition_input_equal _ _ H), (source_spec_valid_files_equal _ _ Hf), (Typing.program_typedb_equal predeclared_type _ _ Hf).
   reflexivity.
 Qed.
 
@@ -9787,7 +9787,7 @@ Proof.
   destruct (Syntax.files_of_nodes n1) as [fm1|] eqn:F1; [ | discriminate Hb1 ].
   destruct (Syntax.files_of_nodes n2) as [fm2|] eqn:F2; [ | discriminate Hb2 ].
   injection Hb1 as <-. injection Hb2 as <-.
-  apply compile_class_Equal. split; [ reflexivity | cbn [Syntax.files] ].
+  apply compile_class_input_equal. split; [ reflexivity | cbn [Syntax.files] ].
   exact (Syntax.files_of_nodes_permutation n1 n2 fm1 fm2 Hperm F1 F2).
 Qed.
 
@@ -9798,14 +9798,14 @@ Qed.
     (equal files, different module -> different plan). *)
 
 (** equal inputs -> equal root layout / package import path (the file-map and module halves). *)
-Theorem root_layout_InputEqual : forall p1 p2,
+Theorem root_layout_input_equal : forall p1 p2,
   ProgramInputEqual p1 p2 -> root_layout p1 = root_layout p2.
-Proof. intros p1 p2 H. exact (root_layout_Equal _ _ (proj2 H)). Qed.
+Proof. intros p1 p2 H. exact (root_layout_equal _ _ (proj2 H)). Qed.
 
 (* the whole-program COROLLARY of [package_import_path_deterministic]: equal program inputs give an equal
    module path, hence an equal import path for any package directory.  Retained for full-program determinism;
    the direct API claim above is the load-bearing one (this is a consequence, not a substitute). *)
-Theorem package_import_path_InputEqual : forall p1 p2 dir,
+Theorem package_import_path_input_equal : forall p1 p2 dir,
   ProgramInputEqual p1 p2 ->
   package_import_path (Syntax.module_spec p1) dir = package_import_path (Syntax.module_spec p2) dir.
 Proof. intros p1 p2 dir H. apply package_import_path_deterministic; [ exact (proj1 H) | reflexivity ]. Qed.
@@ -9835,20 +9835,20 @@ Qed.
 
 (** equal PROGRAM INPUTS -> equal ERASED FINAL report (module + files): the preflight branch is
     ModuleSpec-dependent, so this needs [ProgramInputEqual], not [FilesEqual] alone. *)
-Theorem erased_elaboration_report_InputEqual : forall p1 p2 idx1 idx2,
+Theorem erased_elaboration_report_input_equal : forall p1 p2 idx1 idx2,
   ProgramInputEqual p1 p2 ->
   erased_elaboration_report p1 idx1 = erased_elaboration_report p2 idx2.
 Proof.
   intros p1 p2 idx1 idx2 H. pose proof (proj2 H) as Hf.
   unfold erased_elaboration_report, elaboration_diagnostics, command_diagnostics_of.
-  rewrite (fresh_build_disposition_InputEqual _ _ H).
+  rewrite (fresh_build_disposition_input_equal _ _ H).
   destruct (fresh_build_disposition_ok (fresh_build_plan p2)) eqn:Ed.
-  - exact (erased_report_FilesEqual p1 p2 idx1 idx2 Hf).
+  - exact (erased_report_files_equal p1 p2 idx1 idx2 Hf).
   - assert (Ed1 : fresh_build_disposition_ok (fresh_build_plan p1) = false)
-      by (rewrite (fresh_build_disposition_InputEqual _ _ H); exact Ed).
+      by (rewrite (fresh_build_disposition_input_equal _ _ H); exact Ed).
     destruct (proj1 (preflight_fails_iff p1) Ed1) as [dir [Hk1 _]].
     assert (Hk2 : selected_package_keys p2 = [dir])
-      by (rewrite <- (selected_package_keys_Equal _ _ Hf); exact Hk1).
+      by (rewrite <- (selected_package_keys_equal _ _ Hf); exact Hk1).
     fold (fresh_build_diagnostics p1) (fresh_build_diagnostics p2).
     rewrite (erased_fresh_report_of_sole p1 dir Hk1 Ed1),
             (erased_fresh_report_of_sole p2 dir Hk2 Ed).
@@ -9861,10 +9861,10 @@ Qed.
 Lemma source_spec_valid_b_empty : forall ms, source_spec_valid_b (empty_program ms) = true.
 Proof. intro ms. vm_compute. reflexivity. Qed.
 
-(** the LIVE factored-root empty surface (public gate).  [SourceProgramValid_Equal] is proved once,
-    above (the sole map-equality proof); [source_spec_valid_b_Equal]/[source_spec_valid_b_empty] are its decidable
+(** the LIVE factored-root empty surface (public gate).  [source_program_valid_files_equal] is proved once,
+    above (the sole map-equality proof); [source_spec_valid_files_equal]/[source_spec_valid_b_empty] are its decidable
     companions. *)
-Theorem SourceProgramValid_empty : forall ms, SourceProgramValid (empty_program ms).
+Theorem source_program_valid_empty : forall ms, SourceProgramValid (empty_program ms).
 Proof.
   intro ms. apply (proj1 (source_spec_valid_b_iff (empty_program ms))). apply source_spec_valid_b_empty.
 Qed.
@@ -9902,7 +9902,7 @@ Proof.
   destruct (list_is_nil (core_diagnostics (build_elaboration_core over_program (Index.index_program over_program))))
     as [He|Hne].
   - exfalso. apply over_program_no_compile.
-    apply (proj1 (elaboration_diagnostics_nil_iff_GoCompile over_program
+    apply (proj1 (elaboration_diagnostics_nil_iff_admissible over_program
              (Index.indexed_syntax (Index.index_program over_program)))).
     exact (eq_trans (eq_sym (core_diagnostics_eq_elaboration
              (build_elaboration_core over_program (Index.index_program over_program)))) He).
@@ -10049,8 +10049,8 @@ Proof.
     injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [Syntax.files] ].
     exact (Syntax.files_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
   pose proof (proj2 HIE) as HFE.
-  split; [ exact (erased_report_FilesEqual p1 p2 idx1 idx2 HFE) |].
-  split; [ exact (compile_class_Equal p1 p2 HIE) | exact (program_expr_facts_enum_FilesEqual p1 p2 HFE) ].
+  split; [ exact (erased_report_files_equal p1 p2 idx1 idx2 HFE) |].
+  split; [ exact (compile_class_input_equal p1 p2 HIE) | exact (program_expr_facts_enum_files_equal p1 p2 HFE) ].
 Qed.
 
 (** EMPTY PROGRAM: the module-only program is ACCEPTED with an EMPTY erased report and an EMPTY
@@ -10323,7 +10323,7 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 
 (* PHASE query — deep valid 4-conversion chain: the built phase's TOTAL diagnostic projection is EMPTY (every
    occurrence resolves ExpressionSuccess; no fail-open).  Reduced through the phase→spec equality to the SOURCE [program_typedb]
-   (so it needs no snapshot [vm_compute]).  The retained [ExpressionFactTable] the phase seals is [phase_eft] by object
+   (so it needs no snapshot [vm_compute]).  The retained [ExpressionFactTable] the phase seals is [phase_fact_table] by object
    identity ([core_seals_facts]). *)
 Theorem deep_nested_phase_no_diags :
   phase_diags (build_expression_phase
@@ -10474,7 +10474,7 @@ Theorem two_uint8_distinct_target_refs :
        DISTINCT occurrence refs, EQUAL recovered syntax, EQUAL sealed facts (occurrence identity, not name identity). *)
     /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
 Proof.
-  destruct (proj2 (elaborate_ok_iff_GoCompile two_uint8_program) two_uint8_compiles) as [facts Hfacts].
+  destruct (proj2 (elaboration_accepted_iff_admissible two_uint8_program) two_uint8_compiles) as [facts Hfacts].
   destruct (Index.source_occurrence_at two_uint8_src 5) as [occ1|] eqn:Eo1; [| vm_compute in Eo1; discriminate Eo1].
   destruct (Index.source_occurrence_at two_uint8_src 8) as [occ2|] eqn:Eo2; [| vm_compute in Eo2; discriminate Eo2].
   destruct (two_uint8_conv_ref 5 0 occ1 Eo1
@@ -10570,7 +10570,7 @@ Theorem deep_fail_innermost_convfail :
   exists (wm : WorkMember (phase_work (build_expression_phase input)))
          (rest : list (Work input))
          (acc_rest : Accumulator (phase_work (build_expression_phase input))
-                       (phase_tnft (build_expression_phase input)) rest)
+                       (phase_type_name_facts (build_expression_phase input)) rest)
          (step : ConversionStep (phase_work (build_expression_phase input)) (proj1_sig wm) rest
                    (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)) opf t,
        work_expr (proj1_sig wm) = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300)
@@ -10586,7 +10586,7 @@ Theorem deep_fail_innermost_convfail :
          = accumulator_total acc_rest (step_operand_suffix step)
     /\ Typing.convert_constant t (const_status opf) = None
     (* the resolved target type of the failing conversion IS the exact predeclared-context Index.table query *)
-    /\ t = fact_type (type_name_fact_at_table (phase_tnft (build_expression_phase input))
+    /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase input))
                        (conversion_target_node_ref (step_conversion step))).
 Proof.
   cbn zeta.
@@ -10612,7 +10612,7 @@ Proof.
                      (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))))
                    (wm_suffix wm) = ConversionFailure er2 tr2 opr2 t ci) by exact Hout.
   rewrite Hidx in stepc.
-  destruct (StepCause_convfail_inv _ rest acc_rest er2 tr2 opr2 t ci stepc)
+  destruct (conversion_failure_cause_yields_step _ rest acc_rest er2 tr2 opr2 t ci stepc)
     as [ts0 [x0 [step [opf [Hstep_e [Hopf [Her2 [Htr2 [Hopr2 [Ht [Hci Hcv]]]]]]]]]]].
   assert (Heq : Syntax.Convert ts0 x0 = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
     by (rewrite <- Hstep_e; exact He).
@@ -10697,14 +10697,14 @@ Theorem deep_fail_innermost_diag :
   let ot := phase_ot phase in
   exists (wm : WorkMember (phase_work phase))
          (rest : list (Work input))
-         (acc_rest : Accumulator (phase_work phase) (phase_tnft phase) rest)
+         (acc_rest : Accumulator (phase_work phase) (phase_type_name_facts phase) rest)
          (step : ConversionStep (phase_work phase) (proj1_sig wm) rest (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
          opf t (wma : WorkMember (phase_work phase)) (outer : list (Index.ExprRef deep_fail_program)),
        total_forest_outcome_at ot wm
          = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
        (* the resolved target type of the diagnostic IS the exact predeclared-context Index.table query for that ref *)
-    /\ t = fact_type (type_name_fact_at_table (phase_tnft phase) (conversion_target_node_ref (step_conversion step)))
+    /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts phase) (conversion_target_node_ref (step_conversion step)))
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
     /\ Typing.convert_constant t (const_status opf) = None
@@ -10802,7 +10802,7 @@ Lemma deep_fail_childfail_closure_at (local : positive) ts x occ :
          (rest : list (Work (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
          (acc_rest : Accumulator (phase_work (build_expression_phase
                        (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
-                       (phase_tnft (build_expression_phase
+                       (phase_type_name_facts (build_expression_phase
                          (build_compilation_input deep_fail_program (Index.index_program deep_fail_program)))) rest)
          (step : ConversionStep (phase_work (build_expression_phase
                    (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
@@ -10827,7 +10827,7 @@ Proof.
               (phase_ot (build_expression_phase (build_compilation_input deep_fail_program (Index.index_program deep_fail_program))))
               wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hcf in stepc.
-  destruct (StepCause_childfail_inv _ rest acc_rest stepc) as [ts' [x' [step [He' Hfail]]]].
+  destruct (child_failure_cause_yields_member _ rest acc_rest stepc) as [ts' [x' [step [He' Hfail]]]].
   assert (Heq : Syntax.Convert ts' x' = Syntax.Convert ts x) by (rewrite <- He'; exact He).
   injection Heq as Hts Hx. subst ts' x'.
   pose proof (Hclose (step_operand_suffix step)) as Hcl.
@@ -10851,7 +10851,7 @@ Lemma deep_nested_ok_closure_at (local : positive) ts x occ :
          (rest : list (Work (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (acc_rest : Accumulator (phase_work (build_expression_phase
                        (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-                       (phase_tnft (build_expression_phase
+                       (phase_type_name_facts (build_expression_phase
                          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) rest)
          ts0 x0
          (step : ConversionStep (phase_work (build_expression_phase
@@ -10872,7 +10872,7 @@ Proof.
               (phase_ot (build_expression_phase (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
               wm) as [rest [acc_rest [stepc Hclose]]].
   rewrite Hok in stepc.
-  destruct (StepCause_ok_conv_inv _ rest acc_rest ts x f He stepc)
+  destruct (conversion_success_cause_yields_step _ rest acc_rest ts x f He stepc)
     as [step [opf [tc [Hopf [Hconv Hf]]]]].
   pose proof (Hclose (step_operand_suffix step)) as Hcl.
   exists wm, rest, acc_rest, ts, x, step, opf.
@@ -10895,7 +10895,7 @@ Definition nested_success_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop
          (rest : list (Work (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (acc_rest : Accumulator (phase_work (build_expression_phase
                        (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
-                       (phase_tnft (build_expression_phase
+                       (phase_type_name_facts (build_expression_phase
                          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program)))) rest)
          (* the step is the ConversionStep for the EXACT SOURCE [ts]/[x] of this bundle (no existential ts0/x0) *)
          (step : ConversionStep (phase_work (build_expression_phase
@@ -10911,14 +10911,14 @@ Definition nested_success_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop
     /\ total_forest_outcome_at (phase_ot (build_expression_phase
          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (proj1_sig (step_operand_suffix step)) = accumulator_total acc_rest (step_operand_suffix step)
-    /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_tnft (build_expression_phase
+    /\ Typing.convert_constant (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (conversion_target_node_ref (step_conversion step)))) (const_status opf) = Some tc
-    /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_tnft (build_expression_phase
+    /\ f = make_expression_fact (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
          (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
          (conversion_target_node_ref (step_conversion step)))) tc)
-             (use_resolved_of_ci (expression_ref_role (work_expr_ref (proj1_sig wm)))
-                (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_tnft (build_expression_phase
+             (use_resolved_of_input (expression_ref_role (work_expr_ref (proj1_sig wm)))
+                (Typing.TypedInfo (fact_type (type_name_fact_at_table (phase_type_name_facts (build_expression_phase
                    (build_compilation_input deep_nested_program (Index.index_program deep_nested_program))))
                    (conversion_target_node_ref (step_conversion step)))) tc)).
 
@@ -10986,7 +10986,7 @@ Definition nested_index_bundle (ts : Syntax.TypeExpr) (x : Syntax.Expr) : Prop :
   let input := build_compilation_input deep_nested_program (Index.index_program deep_nested_program) in
   let phase := build_expression_phase input in
   exists (wm : WorkMember (phase_work phase)) (rest : list (Work input))
-         (acc_rest : Accumulator (phase_work phase) (phase_tnft phase) rest)
+         (acc_rest : Accumulator (phase_work phase) (phase_type_name_facts phase) rest)
          (step : ConversionStep (phase_work phase) (proj1_sig wm) rest ts x)
          (opr : Index.ExprRef deep_nested_program) opf f,
        work_expr (proj1_sig wm) = Syntax.Convert ts x
@@ -11227,11 +11227,11 @@ Proof.
 Qed.
 
 (* §12.1 — the valid deep chain ELABORATES successfully and the sealed ExpressionFactTable IS the phase's retained
-   [phase_eft] object (object identity, not a rebuilt map) — the success-projection seal on a concrete program. *)
-Theorem deep_nested_seals_eft :
+   [phase_fact_table] object (object identity, not a rebuilt map) — the success-projection seal on a concrete program. *)
+Theorem deep_nested_seals_expression_fact_table :
   exists cp Hcp,
     compile deep_nested_program = Compiled cp Hcp
-    /\ expression_facts (facts cp) = expression_facts_table (phase_eft (program_phase cp)).
+    /\ expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp)).
 Proof.
   destruct (compile_complete deep_nested_program deep_nested_compiles) as [cp [Hcp Hgo]].
   exists cp, Hcp. split; [ exact Hgo | exact (compilable_retains_expr_facts cp) ].
@@ -11399,7 +11399,7 @@ Proof. vm_compute. reflexivity. Qed.
     and an invalid-conversion in package [z] (an earlier-discovered expression diagnostic).  The canonical
     report orders BOTH node-primary diagnostics by Index.Key — the duplicate-main at [a/q.go:3] precedes the
     invalid-conversion at [z/main.go:5] (path [a] < [z]) — NOT by discovery phase (which would put the
-    expression scar first).  This is the NodeKeyMap-canonical order the naive `expr ++ pkg` violated. *)
+    expression scar first).  This is the Index.KeyMap-canonical order the naive `expr ++ pkg` violated. *)
 Theorem mixed_order_erased :
   option_map (fun p => erased_report_src (Syntax.files p))
      (build_program c3_ms
@@ -11428,57 +11428,57 @@ Definition ex_main : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax
 Definition ex_bad  : list Syntax.Decl := [ Syntax.Main [ Syntax.Println [ Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int) (Syntax.IntegerLiteral 300)) ] ] ].
 
 (* 20.1 — EMPTY IMAGE: no packages -> NoPackages, preflight succeeds vacuously, Admissible, no diagnostics. *)
-Example fixture_2001_plan      : fresh_build_plan (empty_program ex_ms) = NoPackages.                    Proof. vm_compute. reflexivity. Qed.
-Example fixture_2001_preflight : fresh_build_disposition_ok (fresh_build_plan (empty_program ex_ms)) = true. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2001_gocompile : Admissible (empty_program ex_ms).                Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
-Example fixture_2001_report    : forall idx, elaboration_diagnostics (empty_program ex_ms) idx = nil.
-Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_GoCompile _ idx)). exact fixture_2001_gocompile. Qed.
+Example empty_image_plan      : fresh_build_plan (empty_program ex_ms) = NoPackages.                    Proof. vm_compute. reflexivity. Qed.
+Example empty_image_preflight : fresh_build_disposition_ok (fresh_build_plan (empty_program ex_ms)) = true. Proof. vm_compute. reflexivity. Qed.
+Example empty_image_admissible : Admissible (empty_program ex_ms).                Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example empty_image_report    : forall idx, elaboration_diagnostics (empty_program ex_ms) idx = nil.
+Proof. intro idx. apply (proj2 (elaboration_diagnostics_nil_iff_admissible _ idx)). exact empty_image_admissible. Qed.
 
 (* 20.2 — ONE VALID ROOT PACKAGE, ABSENT OUTPUT: module basename "m" is neither go.mod nor a root file, so the
    single-main plan's output target is absent; preflight succeeds; Admissible. *)
 Definition fixture_root : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl) ex_main.
-Example fixture_2002_plan      : fresh_build_plan fixture_root = WriteSingleMain "" "example.com/m" "m" None.   Proof. vm_compute. reflexivity. Qed.
-Example fixture_2002_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_root) = true.               Proof. vm_compute. reflexivity. Qed.
-Example fixture_2002_gocompile : Admissible fixture_root.                              Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example root_main_absent_output_plan      : fresh_build_plan fixture_root = WriteSingleMain "" "example.com/m" "m" None.   Proof. vm_compute. reflexivity. Qed.
+Example root_main_absent_output_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_root) = true.               Proof. vm_compute. reflexivity. Qed.
+Example root_main_absent_output_admissible : Admissible fixture_root.                              Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.3 — SOLE IMMEDIATE CHILD sub/main.go: import path example.com/m/sub, output name "sub", the fresh root
    HAS a directory "sub" -> preflight FAILS; final report is EXACTLY one build-output-directory diagnostic; not
    Admissible. *)
 Definition fixture_sub : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_main.
-Example fixture_2003_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub) = false.   Proof. vm_compute. reflexivity. Qed.
-Example fixture_2003_not_gocompile   : ~ Admissible fixture_sub.
+Example child_package_output_collision_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub) = false.   Proof. vm_compute. reflexivity. Qed.
+Example child_package_output_collision_inadmissible   : ~ Admissible fixture_sub.
 Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
-Example fixture_2003_report : forall idx, exists pk name, elaboration_diagnostics fixture_sub idx = [BuildOutputIsDirectory pk name].
+Example child_package_output_collision_report : forall idx, exists pk name, elaboration_diagnostics fixture_sub idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example fixture_2003_class  : compile_class fixture_sub = LegacyBuildOutput.
+Example child_package_output_collision_class  : compile_class fixture_sub = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.4 — IMMEDIATE CHILD WITH A SEMANTIC ERROR + the same output collision: the final report REMAINS only the
    build-output-directory diagnostic (PRECEDENCE — the sole package's typing error is hidden). *)
 Definition fixture_sub_err : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_bad.
-Example fixture_2004_untyped : program_typedb fixture_sub_err = false.                                        Proof. vm_compute. reflexivity. Qed.
-Example fixture_2004_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub_err) = false. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2004_report_hides_semantic : forall idx, exists pk name, elaboration_diagnostics fixture_sub_err idx = [BuildOutputIsDirectory pk name].
+Example collision_hides_semantic_error_untyped : program_typedb fixture_sub_err = false.                                        Proof. vm_compute. reflexivity. Qed.
+Example collision_hides_semantic_error_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_sub_err) = false. Proof. vm_compute. reflexivity. Qed.
+Example collision_hides_semantic_error_report_hides_semantic : forall idx, exists pk name, elaboration_diagnostics fixture_sub_err idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example fixture_2004_class : compile_class fixture_sub_err = LegacyBuildOutput.
+Example collision_hides_semantic_error_class : compile_class fixture_sub_err = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.5 — SOLE DEEPER PACKAGE a/b/main.go: output name "b", but the fresh root directory is "a" (not "b"), so
    the output target is absent; preflight succeeds; Admissible. *)
 Definition fixture_ab : Syntax.Program := singleton_program ex_ms (FilePath.make "a/b/main.go" eq_refl) ex_main.
-Example fixture_2005_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_ab) = true. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2005_gocompile : Admissible fixture_ab.                Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example deep_package_absent_output_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_ab) = true. Proof. vm_compute. reflexivity. Qed.
+Example deep_package_absent_output_admissible : Admissible fixture_ab.                Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.6 — FINAL v2 PACKAGE PATH a/v2/main.go: import example.com/m/a/v2, the /v2 major-version element is
    stripped so the output name is "a"; the fresh root directory "a" EXISTS -> preflight FAILS. *)
 Definition fixture_av2 : Syntax.Program := singleton_program ex_ms (FilePath.make "a/v2/main.go" eq_refl) ex_main.
-Example fixture_2006_output_a       : fresh_build_plan fixture_av2 = WriteSingleMain "a/v2" "example.com/m/a/v2" "a" (Some DirectoryEntry). Proof. vm_compute. reflexivity. Qed.
-Example fixture_2006_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_av2) = false. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2006_not_gocompile   : ~ Admissible fixture_av2.
+Example final_v2_package_collision_output_a       : fresh_build_plan fixture_av2 = WriteSingleMain "a/v2" "example.com/m/a/v2" "a" (Some DirectoryEntry). Proof. vm_compute. reflexivity. Qed.
+Example final_v2_package_collision_preflight_fails : fresh_build_disposition_ok (fresh_build_plan fixture_av2) = false. Proof. vm_compute. reflexivity. Qed.
+Example final_v2_package_collision_inadmissible   : ~ Admissible fixture_av2.
 Proof. intros [Hpf _]. unfold fresh_build_preflight_ok in Hpf. vm_compute in Hpf. discriminate. Qed.
 (* b — the ERASED build-output report carries the exact colliding output NAME "a" as [diagnostic_output]
    (the erased payload distinguishes this collision from one at a different output name). *)
-Example fixture_2006_erased_output :
+Example final_v2_package_collision_erased_output :
   map erase_diagnostic (fresh_build_diagnostics fixture_av2)
   = [ make_erased CodeBuildOutputIsDirectory (AnchorPackage "a/v2") [] None (Some "a") None ].
 Proof. vm_compute. reflexivity. Qed.
@@ -11486,13 +11486,13 @@ Proof. vm_compute. reflexivity. Qed.
 (* 20.7 — IMMEDIATE v2 PACKAGE v2/main.go: import example.com/m/v2 -> output name "m" (the module basename,
    after the /v2 strip); the fresh root directory "v2" does not collide with "m" -> preflight succeeds. *)
 Definition fixture_v2 : Syntax.Program := singleton_program ex_ms (FilePath.make "v2/main.go" eq_refl) ex_main.
-Example fixture_2007_output_m   : fresh_build_plan fixture_v2 = WriteSingleMain "v2" "example.com/m/v2" "m" None. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2007_preflight  : fresh_build_disposition_ok (fresh_build_plan fixture_v2) = true. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2007_gocompile  : Admissible fixture_v2.               Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example immediate_v2_package_no_collision_output_m   : fresh_build_plan fixture_v2 = WriteSingleMain "v2" "example.com/m/v2" "m" None. Proof. vm_compute. reflexivity. Qed.
+Example immediate_v2_package_no_collision_preflight  : fresh_build_disposition_ok (fresh_build_plan fixture_v2) = true. Proof. vm_compute. reflexivity. Qed.
+Example immediate_v2_package_no_collision_admissible  : Admissible fixture_v2.               Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.8 — MULTIPLE MAIN PACKAGES a/main.go + b/main.go: DiscardMultiple, NO default-output preflight failure,
    a source-valid program succeeds. *)
-Example fixture_2008 : forall p,
+Example multiple_main_packages_discard_outputs : forall p,
   build_program ex_ms [ main_file_node (FilePath.make "a/main.go" eq_refl) ex_main
                       ; main_file_node (FilePath.make "b/main.go" eq_refl) ex_main ] = Some p ->
   fresh_build_plan p = DiscardMultiple 2
@@ -11505,7 +11505,7 @@ Qed.
 
 (* 20.9 — MULTIPLE PACKAGES WITH A SEMANTIC FAILURE: no default-output collision branch, so the semantic
    diagnostics ARE exposed (the class is the typing class). *)
-Example fixture_2009 : forall p,
+Example multiple_packages_expose_semantic_failure : forall p,
   build_program ex_ms [ main_file_node (FilePath.make "a/main.go" eq_refl) ex_main
                       ; main_file_node (FilePath.make "b/main.go" eq_refl) ex_bad ] = Some p ->
   fresh_build_disposition_ok (fresh_build_plan p) = true /\ compile_class p = LegacyTyping.
@@ -11518,46 +11518,46 @@ Qed.
    REGULAR go.mod (GoModuleEntry, not a directory) -> preflight succeeds; the plan RECORDS the overwrite target. *)
 Definition ex_ms_gomod : ModuleSpec := Syntax.make_module_spec (ModulePath.make "example.com/go.mod" eq_refl) Version.Go1_23.
 Definition fixture_gomod : Syntax.Program := singleton_program ex_ms_gomod (FilePath.make "main.go" eq_refl) ex_main.
-Example fixture_2010_plan      : fresh_build_plan fixture_gomod = WriteSingleMain "" "example.com/go.mod" "go.mod" (Some GoModuleEntry). Proof. vm_compute. reflexivity. Qed.
-Example fixture_2010_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_gomod) = true. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2010_gocompile : Admissible fixture_gomod.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example go_module_overwrite_plan      : fresh_build_plan fixture_gomod = WriteSingleMain "" "example.com/go.mod" "go.mod" (Some GoModuleEntry). Proof. vm_compute. reflexivity. Qed.
+Example go_module_overwrite_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_gomod) = true. Proof. vm_compute. reflexivity. Qed.
+Example go_module_overwrite_admissible : Admissible fixture_gomod.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.11 — SOURCE OVERWRITE: module final component "main.go" -> output name "main.go", whose root target is a
    REGULAR source file (SourceFileEntry, not a directory) -> preflight succeeds; Admissible. *)
 Definition ex_ms_srcname : ModuleSpec := Syntax.make_module_spec (ModulePath.make "example.com/main.go" eq_refl) Version.Go1_23.
 Definition fixture_srcov : Syntax.Program := singleton_program ex_ms_srcname (FilePath.make "main.go" eq_refl) ex_main.
-Example fixture_2011_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_srcov) = true. Proof. vm_compute. reflexivity. Qed.
-Example fixture_2011_gocompile : Admissible fixture_srcov.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
+Example source_file_overwrite_preflight : fresh_build_disposition_ok (fresh_build_plan fixture_srcov) = true. Proof. vm_compute. reflexivity. Qed.
+Example source_file_overwrite_admissible : Admissible fixture_srcov.             Proof. apply admissible_of_source_spec_valid_b; vm_compute; reflexivity. Qed.
 
 (* 20.12 — ROOT SOURCE NAME COLLISION WITHOUT EXACT MODULE MATCH: the output target lookup is EXACT string
    identity — output name "m" does NOT match the root source file "main.go" (no prefix/substring match). *)
-Example fixture_2012 : PackageMap.find "m" (root_layout fixture_root) = None. Proof. vm_compute. reflexivity. Qed.
+Example output_name_exact_noncollision : PackageMap.find "m" (root_layout fixture_root) = None. Proof. vm_compute. reflexivity. Qed.
 
 (* 20.13 — THREE MAINS in one package (n-1 = 2 redeclarations): with a build-output directory collision the
    final report HIDES them (LegacyBuildOutput); without a collision the class exposes the package-main-count. *)
 Definition ex_3main : list Syntax.Decl :=
   [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 3 ] ] ].
-Definition fixture_3main_hidden : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_3main.
-Definition fixture_3main_shown  : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl)     ex_3main.
-Example fixture_2013a_class  : compile_class fixture_3main_hidden = LegacyBuildOutput.
+Definition three_main_redeclarations_hidden : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) ex_3main.
+Definition three_main_redeclarations_exposed  : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl)     ex_3main.
+Example three_main_redeclarations_hidden_class  : compile_class three_main_redeclarations_hidden = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
-Example fixture_2013a_report : forall idx, exists pk name, elaboration_diagnostics fixture_3main_hidden idx = [BuildOutputIsDirectory pk name].
+Example three_main_redeclarations_hidden_report : forall idx, exists pk name, elaboration_diagnostics three_main_redeclarations_hidden idx = [BuildOutputIsDirectory pk name].
 Proof. intro idx. apply elaboration_diagnostics_fresh_failure. vm_compute. reflexivity. Qed.
-Example fixture_2013b_class  : compile_class fixture_3main_shown = LegacyPackageMainCount.
+Example three_main_redeclarations_exposed_class  : compile_class three_main_redeclarations_exposed = LegacyPackageMainCount.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.14 — MISSING MAIN ENTRY (a package file with no Syntax.Main): same two branches — a collision HIDES it, a
    collision-free layout EXPOSES the missing-main (package-main-count) class. *)
 Definition fixture_nomain_hidden : Syntax.Program := singleton_program ex_ms (FilePath.make "sub/main.go" eq_refl) nil.
 Definition fixture_nomain_shown  : Syntax.Program := singleton_program ex_ms (FilePath.make "main.go" eq_refl)     nil.
-Example fixture_2014a_class : compile_class fixture_nomain_hidden = LegacyBuildOutput.
+Example missing_main_hidden_class : compile_class fixture_nomain_hidden = LegacyBuildOutput.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
-Example fixture_2014b_class : compile_class fixture_nomain_shown = LegacyPackageMainCount.
+Example missing_main_exposed_class : compile_class fixture_nomain_shown = LegacyPackageMainCount.
 Proof. rewrite compile_class_spec. vm_compute. reflexivity. Qed.
 
 (* 20.15 — REORDERED CONSTRUCTION under the SAME ModuleSpec -> equal full plan, erased final report, and class
    (permuted file-node input is [ProgramInputEqual]). *)
-Theorem fixture_2015_full_determinism :
+Theorem reordered_construction_determinism_full_determinism :
   forall p1 p2 (idx1 : Index.Snapshot.Syntax p1) (idx2 : Index.Snapshot.Syntax p2),
     build_program c3_ms [rnode_a; rnode_b] = Some p1 ->
     build_program c3_ms [rnode_b; rnode_a] = Some p2 ->
@@ -11572,9 +11572,9 @@ Proof.
     destruct (Syntax.files_of_nodes [rnode_b; rnode_a]) as [fm2|] eqn:F2; [ | discriminate ].
     injection H1 as <-. injection H2 as <-. split; [ reflexivity | cbn [Syntax.files] ].
     exact (Syntax.files_of_nodes_permutation _ _ fm1 fm2 (perm_swap rnode_b rnode_a []) F1 F2). }
-  split; [ exact (fresh_build_plan_InputEqual _ _ HIE) |].
-  split; [ exact (erased_elaboration_report_InputEqual _ _ idx1 idx2 HIE)
-         | exact (compile_class_Equal _ _ HIE) ].
+  split; [ exact (fresh_build_plan_input_equal _ _ HIE) |].
+  split; [ exact (erased_elaboration_report_input_equal _ _ idx1 idx2 HIE)
+         | exact (compile_class_input_equal _ _ HIE) ].
 Qed.
 
 (* 20.16 — EQUAL FILES, DIFFERENT MODULE: the source file map is identical, but the two ModuleSpecs give the
@@ -11583,9 +11583,9 @@ Qed.
 Definition fixture_cex_1 : Syntax.Program := singleton_program ex_ms (FilePath.make "v2/main.go" eq_refl) ex_main.
 Definition fixture_cex_2 : Syntax.Program :=
   singleton_program (Syntax.make_module_spec (ModulePath.make "example.com/other" eq_refl) Version.Go1_23) (FilePath.make "v2/main.go" eq_refl) ex_main.
-Example fixture_2016_files_equal : Syntax.FilesEqual (Syntax.files fixture_cex_1) (Syntax.files fixture_cex_2).
+Example equal_files_different_modules_files_equal : Syntax.FilesEqual (Syntax.files fixture_cex_1) (Syntax.files fixture_cex_2).
 Proof. assert (Syntax.files fixture_cex_1 = Syntax.files fixture_cex_2) as Heq by (vm_compute; reflexivity).
-       rewrite Heq. apply Syntax.FilesEqual_refl. Qed.
-Example fixture_2016_plans_differ : fresh_build_plan fixture_cex_1 <> fresh_build_plan fixture_cex_2.
+       rewrite Heq. apply Syntax.files_equal_refl. Qed.
+Example equal_files_different_modules_plans_differ : fresh_build_plan fixture_cex_1 <> fresh_build_plan fixture_cex_2.
 Proof. vm_compute. discriminate. Qed.
 

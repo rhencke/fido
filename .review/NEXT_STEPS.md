@@ -10,8 +10,8 @@
   `c5b67495fb5f5af4bfc289fd50248f6436c1c376` is **documentation-only** and is not a separate candidate.
   **Repair 14 is NOT accepted; it is subsumed by repair 15.**
 - **The three blocking classes (reviewer, 2026-07-26).**
-  1. **A005 is not complete.** Forbidden old stems (`goexpr_eq_dec`, `nodekey_eqb`, `decimalfloat_eq_dec`,
-     `elaborate_ok_iff_GoCompile`, `expression_all_ok_ProgramTyped`), numbered fixture names
+  1. **A005 is not complete.** Forbidden old stems (`Index.expression_eq_dec`, `Index.key_equalb`, `Index.float_decimal_eq_dec`,
+     `Compilable.elaboration_accepted_iff_admissible`, `Compilable.expression_all_ok_iff_typed_program`), numbered fixture names
      (`fixture_2001…2016`), type-derived theorem names, fake local aliases (`TypedProgram`, `Resolve`, `Stmt`,
      `Decl`, `File`, `SourceFile`), cryptic private `_T` names, and stale prose all survive. **The naming gate
      accepts several of them by design and can return a false green when Git enumeration fails** — it checks
@@ -46,7 +46,7 @@
 - **Retained results — do NOT regress.** Repair 13: the exact standard work-member index (`WorkIndex` /
   `forest_index`, built once, overwrite-free, total because the key-`NoDup` is a proof argument, exact in both
   directions), `index_member_at` / `forest_index_member_at`, and zero production keyed list scan. Repair 12:
-  exact source-step identity — `StepCause_ok_conv_inv`, `retained_convsuccess_closure` and
+  exact source-step identity — `Compilable.conversion_success_cause_yields_step`, `retained_convsuccess_closure` and
   `nested_success_bundle` return the `ConversionStep` at the EXACT source `ts`/`x`, no existential.
   A005: the module rename, the deleted old modules, the thirteen Q-08 deletions, and byte-identical output.
 - **Scope decision (reviewer, standing):** **do NOT delete `Index.Program` during a repair.** If the retained

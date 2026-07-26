@@ -1024,11 +1024,11 @@ Proof.
       destruct (sub_nest HS a ma ltac:(lia) ltac:(lia) Hget_a) as [_ Hb]. lia.
 Qed.
 
-Lemma Fresh_weaken (t : Table.table Meta) from from' :
+Lemma fresh_weaken (t : Table.table Meta) from from' :
   from <= from' -> Fresh t from -> Fresh t from'.
 Proof. intros H HF k Hk. apply HF. lia. Qed.
 
-Lemma Fresh_empty (from : positive) : Fresh Table.empty from.
+Lemma fresh_empty (from : positive) : Fresh Table.empty from.
 Proof. intros k _; apply Table.get_empty. Qed.
 
 (* --- the real builders satisfy the WF machinery (grammar-aware). --- *)
@@ -1044,18 +1044,18 @@ Proof.
     try (injection Hbuild as Ht Hse; subst t; subst se;
          eapply subtree_from_forest;
            [ reflexivity | exact Hf0 | apply forest_nil
-           | (eapply Fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
+           | (eapply fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
     (* conversion: a type-name leaf child at [me+1], then the operand subtree from [me+2] *)
     (destruct (build_expr me ConversionOperand (Pos.succ (Pos.succ me)) x
                 (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0))
        as [t1 e1] eqn:E1;
      injection Hbuild as Ht Hse; subst t; subst se;
-     assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply Fresh_weaken; [|exact Hf0]; lia);
+     assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply fresh_weaken; [|exact Hf0]; lia);
      assert (Htn : Fresh (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Pos.succ (Pos.succ me))
                 /\ SubtreeWF t0 (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0) (Some me) (Pos.succ me) (Pos.succ me))
        by (eapply subtree_from_forest;
             [ reflexivity | exact Hf0' | apply forest_nil
-            | (eapply Fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
+            | (eapply fresh_weaken; [|exact Hf0]; lia) | reflexivity | reflexivity ]);
      destruct Htn as [Hfrtn HStn];
      destruct (IHx me ConversionOperand (Pos.succ (Pos.succ me))
                 (Table.set (Pos.succ me) (make_meta TypeNameKind (Some me) ConversionTarget (Pos.succ me)) t0)
@@ -1104,7 +1104,7 @@ Proof.
   intros parent sidx me [args] t0 t se Hf0 Hbuild; cbn [build_stmt] in Hbuild.
   destruct (build_seq build_arg me 0 (Pos.succ me) args t0) as [t1 nx1] eqn:E1.
   injection Hbuild as Ht Hse; subst t; subst se.
-  assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply Fresh_weaken; [|exact Hf0]; lia).
+  assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply fresh_weaken; [|exact Hf0]; lia).
   destruct (build_seq_spec build_arg build_arg_spec args me 0 (Pos.succ me) t0 t1 nx1 Hf0' E1) as [Hfr1 HF1].
   assert (Hge : Pos.succ me <= nx1) by (apply (for_le HF1)).
   assert (Hnx : Pos.succ (Pos.pred nx1) = nx1)
@@ -1125,7 +1125,7 @@ Proof.
   intros parent didx me [body] t0 t se Hf0 Hbuild; cbn [build_decl] in Hbuild.
   destruct (build_seq build_stmt me 0 (Pos.succ me) body t0) as [t1 nx1] eqn:E1.
   injection Hbuild as Ht Hse; subst t; subst se.
-  assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply Fresh_weaken; [|exact Hf0]; lia).
+  assert (Hf0' : Fresh t0 (Pos.succ me)) by (eapply fresh_weaken; [|exact Hf0]; lia).
   destruct (build_seq_spec build_stmt build_stmt_spec body me 0 (Pos.succ me) t0 t1 nx1 Hf0' E1) as [Hfr1 HF1].
   assert (Hge : Pos.succ me <= nx1) by (apply (for_le HF1)).
   assert (Hnx : Pos.succ (Pos.pred nx1) = nx1)
@@ -1146,7 +1146,7 @@ Proof.
   set (tp := Table.set package_id pmeta Table.empty).
   assert (HSpkg : Fresh tp (Pos.succ package_id) /\ SubtreeWF Table.empty tp (Some root_id) package_id package_id).
   { unfold tp, pmeta. eapply subtree_from_forest;
-      [ reflexivity | apply Fresh_empty | apply forest_nil | apply Fresh_empty | reflexivity | reflexivity ]. }
+      [ reflexivity | apply fresh_empty | apply forest_nil | apply fresh_empty | reflexivity | reflexivity ]. }
   destruct HSpkg as [Hfrpkg HSpkg].
   destruct (build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f) tp) as [t1 nx] eqn:E.
   cbn [table count].
@@ -1161,13 +1161,13 @@ Proof.
               SubtreeWF Table.empty (Table.set root_id (make_meta FileKind None FileRoot (Pos.pred nx)) t1)
                         None root_id (Pos.pred nx)).
   { eapply subtree_from_forest;
-      [ symmetry; exact Hnx | apply Fresh_empty | exact HF | exact Hfr | reflexivity | reflexivity ]. }
+      [ symmetry; exact Hnx | apply fresh_empty | exact HF | exact Hfr | reflexivity | reflexivity ]. }
   destruct H as [_ HS]. exact HS.
 Qed.
 
 (* --- enumeration helpers over the preorder id interval (grammar-agnostic; verbatim). --- *)
 
-Lemma pos_seq_In (start c : positive) (len : nat) :
+Lemma pos_seq_in (start c : positive) (len : nat) :
   In c (pos_seq start len) <-> (Pos.to_nat start <= Pos.to_nat c < Pos.to_nat start + len)%nat.
 Proof.
   revert start; induction len as [|n IH]; intros start; simpl.
@@ -1180,11 +1180,11 @@ Proof.
       lia.
 Qed.
 
-Lemma pos_seq_NoDup (start : positive) (len : nat) : NoDup (pos_seq start len).
+Lemma pos_seq_no_duplicates (start : positive) (len : nat) : NoDup (pos_seq start len).
 Proof.
   revert start; induction len as [|n IH]; intros start; simpl.
   - constructor.
-  - constructor; [| apply IH]. intro H. apply pos_seq_In in H. rewrite Pos2Nat.inj_succ in H. lia.
+  - constructor; [| apply IH]. intro H. apply pos_seq_in in H. rewrite Pos2Nat.inj_succ in H. lia.
 Qed.
 
 (* --- the navigation theorem set; grammar-agnostic given [build_file_wf]. --- *)
@@ -1402,7 +1402,7 @@ Proof.
   - apply IHl in Hin. lia.
 Qed.
 
-Lemma child_enum_SS : forall t pid limit cursor,
+Lemma child_enum_strongly_sorted : forall t pid limit cursor,
   StronglySorted Pos.lt (child_enum t pid limit cursor).
 Proof.
   intros t pid limit cursor.
@@ -1471,7 +1471,7 @@ Theorem children_sorted (f : Syntax.File) p :
   StronglySorted Pos.lt (child_ids (table (build_file f)) p).
 Proof.
   unfold child_ids. destruct (Table.get p (table (build_file f))) as [m|] eqn:Ep; [|constructor].
-  apply child_enum_SS.
+  apply child_enum_strongly_sorted.
 Qed.
 
 (* parent/child are inverse (interval-jump enumeration is sound + complete). *)
@@ -1506,13 +1506,13 @@ Qed.
 Definition all_ids (fi : File) : list positive := pos_seq root_id (Pos.to_nat (count fi)).
 
 Theorem enumeration_nodup (f : Syntax.File) : NoDup (all_ids (build_file f)).
-Proof. apply pos_seq_NoDup. Qed.
+Proof. apply pos_seq_no_duplicates. Qed.
 
 Theorem enumeration_complete (f : Syntax.File) k m :
   Table.get k (table (build_file f)) = Some m -> In k (all_ids (build_file f)).
 Proof.
   intros H. destruct (in_domain f k m H) as [Hlo Hhi]. unfold all_ids.
-  apply pos_seq_In. unfold root_id. rewrite Pos2Nat.inj_1.
+  apply pos_seq_in. unfold root_id. rewrite Pos2Nat.inj_1.
   assert (Pos.to_nat k <= Pos.to_nat (count (build_file f)))%nat by (apply Pos2Nat.inj_le; exact Hhi).
   assert (1 <= Pos.to_nat k)%nat by (pose proof (Pos2Nat.is_pos k); lia).
   lia.
@@ -1521,7 +1521,7 @@ Qed.
 Theorem enumeration_sound (f : Syntax.File) k :
   In k (all_ids (build_file f)) -> Table.get k (table (build_file f)) <> None.
 Proof.
-  unfold all_ids. intros Hin. apply pos_seq_In in Hin. unfold root_id in Hin. rewrite Pos2Nat.inj_1 in Hin.
+  unfold all_ids. intros Hin. apply pos_seq_in in Hin. unfold root_id in Hin. rewrite Pos2Nat.inj_1 in Hin.
   pose proof (build_file_wf f) as WF. apply (sub_pres WF).
   - unfold root_id. apply Pos2Nat.inj_le. rewrite Pos2Nat.inj_1. lia.
   - apply Pos2Nat.inj_le. lia.
@@ -1569,47 +1569,47 @@ Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H
 (* guaranteed queries are TOTAL; only [parent_of] is optional (a file root has no parent).            *)
 
 (* decidable equality for the raw syntax (for UIP over the reference proof fields). *)
-Definition decimalfloat_eq_dec (a b : Float.Decimal) : {a = b} + {a <> b}.
+Definition float_decimal_eq_dec (a b : Float.Decimal) : {a = b} + {a <> b}.
 Proof.
   destruct (Float.decimal_equalb a b) eqn:E; [ left; apply Float.decimal_equalb_spec; exact E | right ].
   intro H; subst; rewrite (proj2 (Float.decimal_equalb_spec b b) eq_refl) in E; discriminate.
 Defined.
-Definition decimalcomplex_eq_dec (a b : Complex.Decimal) : {a = b} + {a <> b}.
-Proof. decide equality; apply decimalfloat_eq_dec. Defined.
-Definition supportedtypename_eq_dec (a b : Names.SupportedType) : {a = b} + {a <> b}.
+Definition complex_decimal_eq_dec (a b : Complex.Decimal) : {a = b} + {a <> b}.
+Proof. decide equality; apply float_decimal_eq_dec. Defined.
+Definition supported_type_eq_dec (a b : Names.SupportedType) : {a = b} + {a <> b}.
 Proof.
   destruct (Names.supported_equalb a b) eqn:E; [left; apply Names.supported_equalb_spec; exact E|right].
   intro H; subst; rewrite (proj2 (Names.supported_equalb_spec b b) eq_refl) in E; discriminate.
 Defined.
-Definition typesyntax_eq_dec (a b : Syntax.TypeExpr) : {a = b} + {a <> b}.
+Definition type_expr_eq_dec (a b : Syntax.TypeExpr) : {a = b} + {a <> b}.
 Proof.
   destruct a as [[sa]]; destruct b as [[sb]];
-    destruct (supportedtypename_eq_dec sa sb) as [->|Hne];
+    destruct (supported_type_eq_dec sa sb) as [->|Hne];
     [ left; reflexivity | right; intro H; injection H as ->; apply Hne; reflexivity ].
 Defined.
-Definition goexpr_eq_dec (a b : Syntax.Expr) : {a = b} + {a <> b}.
+Definition expression_eq_dec (a b : Syntax.Expr) : {a = b} + {a <> b}.
 Proof.
   decide equality;
     first [ apply Bool.bool_dec | apply N.eq_dec | apply string_dec
-          | apply typesyntax_eq_dec
-          | apply decimalfloat_eq_dec | apply decimalcomplex_eq_dec ].
+          | apply type_expr_eq_dec
+          | apply float_decimal_eq_dec | apply complex_decimal_eq_dec ].
 Defined.
-Definition gostmt_eq_dec (a b : Syntax.Stmt) : {a = b} + {a <> b}.
-Proof. decide equality; apply (list_eq_dec goexpr_eq_dec). Defined.
-Definition godecl_eq_dec (a b : Syntax.Decl) : {a = b} + {a <> b}.
-Proof. decide equality; apply (list_eq_dec gostmt_eq_dec). Defined.
-Definition packageclause_eq_dec (a b : Syntax.PackageClause) : {a = b} + {a <> b}.
+Definition statement_eq_dec (a b : Syntax.Stmt) : {a = b} + {a <> b}.
+Proof. decide equality; apply (list_eq_dec expression_eq_dec). Defined.
+Definition declaration_eq_dec (a b : Syntax.Decl) : {a = b} + {a <> b}.
+Proof. decide equality; apply (list_eq_dec statement_eq_dec). Defined.
+Definition package_clause_eq_dec (a b : Syntax.PackageClause) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
-Definition importspec_eq_dec (a b : Syntax.ImportSpec) : {a = b} + {a <> b}.
+Definition import_spec_eq_dec (a b : Syntax.ImportSpec) : {a = b} + {a <> b}.
 Proof. destruct a. Defined.
-Definition gosourcefile_eq_dec (a b : Syntax.File) : {a = b} + {a <> b}.
+Definition source_file_eq_dec (a b : Syntax.File) : {a = b} + {a <> b}.
 Proof.
   decide equality;
-    first [ apply (list_eq_dec godecl_eq_dec) | apply (list_eq_dec importspec_eq_dec)
-          | apply packageclause_eq_dec ].
+    first [ apply (list_eq_dec declaration_eq_dec) | apply (list_eq_dec import_spec_eq_dec)
+          | apply package_clause_eq_dec ].
 Defined.
-Definition option_gosourcefile_eq_dec (a b : option Syntax.File) : {a = b} + {a <> b}.
-Proof. decide equality; apply gosourcefile_eq_dec. Defined.
+Definition optional_source_file_eq_dec (a b : option Syntax.File) : {a = b} + {a <> b}.
+Proof. decide equality; apply source_file_eq_dec. Defined.
 
 Lemma file_path_eq_dec (a b : FilePath.T) : {a = b} + {a <> b}.
 Proof.
@@ -1636,7 +1636,7 @@ Definition valid_localb (f : Syntax.File) (local : positive) : bool :=
 
 (* the public raw occurrence key: file PATH (the map-key identity) + file-local preorder id. *)
 Record Key := make_key { key_path : FilePath.T ; key_local : positive }.
-Definition nodekey_eqb (a b : Key) : bool :=
+Definition key_equalb (a b : Key) : bool :=
   FilePath.equalb (key_path a) (key_path b) && Pos.eqb (key_local a) (key_local b).
 
 Theorem key_eq_dec (a b : Key) : {a = b} + {a <> b}.
@@ -1647,9 +1647,9 @@ Proof.
   right; intro H; injection H as <-; apply Hl; reflexivity.
 Qed.
 
-Theorem key_equalb_spec (a b : Key) : nodekey_eqb a b = true <-> a = b.
+Theorem key_equalb_spec (a b : Key) : key_equalb a b = true <-> a = b.
 Proof.
-  unfold nodekey_eqb. rewrite andb_true_iff. split.
+  unfold key_equalb. rewrite andb_true_iff. split.
   - intros [Hf Hl]. apply FilePath.equalb_spec in Hf. apply Pos.eqb_eq in Hl.
     destruct a, b; simpl in *; subst; reflexivity.
   - intros ->. split; [apply FilePath.equalb_spec; reflexivity | apply Pos.eqb_eq; reflexivity].
@@ -1664,7 +1664,7 @@ Proof. unfold child_ids. destruct (Table.get pid t) as [m|]; [|intros []]. apply
 Lemma pos_seq_sorted (start : positive) (len : nat) : StronglySorted Pos.lt (pos_seq start len).
 Proof.
   revert start; induction len as [|n IH]; intros start; cbn [pos_seq]; [constructor|].
-  constructor; [apply IH|]. apply Forall_forall. intros y Hy. apply pos_seq_In in Hy.
+  constructor; [apply IH|]. apply Forall_forall. intros y Hy. apply pos_seq_in in Hy.
   rewrite Pos2Nat.inj_succ in Hy. apply Pos2Nat.inj_lt. lia.
 Qed.
 
@@ -2036,7 +2036,7 @@ Proof. intros f id occ. split; [apply occurrences_file_sound | apply occurrences
 
 (* --- CANONICAL PREORDER ORDER: the emitted ids are strictly increasing. --- *)
 
-Lemma SS_app_pos : forall (l1 l2 : list positive),
+Lemma strongly_sorted_append_positive : forall (l1 l2 : list positive),
   StronglySorted Pos.lt l1 -> StronglySorted Pos.lt l2 ->
   (forall x y, In x l1 -> In y l2 -> (x < y)%positive) ->
   StronglySorted Pos.lt (l1 ++ l2).
@@ -2105,7 +2105,7 @@ Qed.
 Lemma occurrences_args_sorted : forall es parent aidx me, StronglySorted Pos.lt (map fst (occurrences_args parent aidx me es)).
 Proof.
   induction es as [|e rest IH]; intros parent aidx me; cbn [occurrences_args]; [constructor|].
-  rewrite map_app. apply SS_app_pos.
+  rewrite map_app. apply strongly_sorted_append_positive.
   - unfold occurrences_arg. apply occurrences_expr_sorted.
   - apply IH.
   - intros x y Hx Hy. pose proof (occurrences_expr_fst e parent (PrintlnArgument aidx) me x Hx) as [_ Hxle].
@@ -2124,7 +2124,7 @@ Qed.
 Lemma occurrences_stmts_sorted : forall ss parent sidx me, StronglySorted Pos.lt (map fst (occurrences_stmts parent sidx me ss)).
 Proof.
   induction ss as [|s rest IH]; intros parent sidx me; cbn [occurrences_stmts]; [constructor|].
-  rewrite map_app. apply SS_app_pos.
+  rewrite map_app. apply strongly_sorted_append_positive.
   - apply occurrences_stmt_sorted.
   - apply IH.
   - intros x y Hx Hy. pose proof (occurrences_stmt_fst s parent sidx me x Hx) as [_ Hxle].
@@ -2143,7 +2143,7 @@ Qed.
 Lemma occurrences_decls_sorted : forall ds parent didx me, StronglySorted Pos.lt (map fst (occurrences_decls parent didx me ds)).
 Proof.
   induction ds as [|d rest IH]; intros parent didx me; cbn [occurrences_decls]; [constructor|].
-  rewrite map_app. apply SS_app_pos.
+  rewrite map_app. apply strongly_sorted_append_positive.
   - apply occurrences_decl_sorted.
   - apply IH.
   - intros x y Hx Hy. pose proof (occurrences_decl_fst d parent didx me x Hx) as [_ Hxle].
@@ -2166,7 +2166,7 @@ Proof.
 Qed.
 
 (* NoDup of the emitted ids follows from strict sortedness. *)
-Lemma SS_nodup : forall (l : list positive), StronglySorted Pos.lt l -> NoDup l.
+Lemma strongly_sorted_no_duplicates : forall (l : list positive), StronglySorted Pos.lt l -> NoDup l.
 Proof.
   induction l as [|x rest IH]; intros HS; [constructor|].
   inversion HS as [|a0 l0 HSS HF]; subst. constructor.
@@ -2174,7 +2174,7 @@ Proof.
   - apply IH. exact HSS.
 Qed.
 Theorem occurrences_file_nodup : forall f, NoDup (map fst (occurrences_file f)).
-Proof. intros f. apply SS_nodup, occurrences_file_sorted. Qed.
+Proof. intros f. apply strongly_sorted_no_duplicates, occurrences_file_sorted. Qed.
 
 (* SINGLE-PASS TRAVERSAL — the honest hot-path implementation of the occurrence stream.
 
@@ -2556,7 +2556,7 @@ Module Snapshot : SNAPSHOT_SIG.
 
 (* a file-root handle for ONE file occurrence of program [p]: the file's PATH (its public identity) + its
    source + a STANDARD-MAP membership proof.  No hidden slot: the path IS the map key. *)
-Record FileRef_T (p : Syntax.Program) := make_file_ref {
+Record FileRefRepresentation (p : Syntax.Program) := make_file_ref {
   file_ref_path   : FilePath.T;
   file_ref_source : Syntax.File;
   file_ref_at     : FileMap.find file_ref_path (Syntax.files p) = Some file_ref_source
@@ -2564,9 +2564,9 @@ Record FileRef_T (p : Syntax.Program) := make_file_ref {
 Arguments file_ref_path   {p} _.
 Arguments file_ref_source {p} _.
 Arguments file_ref_at     {p} _.
-Definition FileRef := FileRef_T.
+Definition FileRef := FileRefRepresentation.
 
-Record NodeRef_T (p : Syntax.Program) := make_node_ref {
+Record NodeRefRepresentation (p : Syntax.Program) := make_node_ref {
   node_ref_file  : FileRef p;
   node_ref_local : positive;
   node_ref_valid : valid_localb (file_ref_source node_ref_file) node_ref_local = true
@@ -2574,7 +2574,7 @@ Record NodeRef_T (p : Syntax.Program) := make_node_ref {
 Arguments node_ref_file  {p} _.
 Arguments node_ref_local {p} _.
 Arguments node_ref_valid {p} _.
-Definition NodeRef := NodeRef_T.
+Definition NodeRef := NodeRefRepresentation.
 
 Definition node_ref_key {p} (r : NodeRef p) : Key :=
   make_key (file_ref_path (node_ref_file r)) (node_ref_local r).
@@ -2582,13 +2582,13 @@ Theorem node_ref_key_eq {p} (r : NodeRef p) :
   node_ref_key r = make_key (file_ref_path (node_ref_file r)) (node_ref_local r).
 Proof. reflexivity. Qed.
 
-Record SyntaxIndex_T (p : Syntax.Program) := make_syntax {
+Record SyntaxRepresentation (p : Syntax.Program) := make_syntax {
   outer : FileMap.t File;
   valid    : outer = outer_of (Syntax.files p)
 }.
 Arguments outer {p} _.
 Arguments valid    {p} _.
-Definition Syntax := SyntaxIndex_T.
+Definition Syntax := SyntaxRepresentation.
 Definition index_program (p : Syntax.Program) : Syntax p :=
   make_syntax p (outer_of (Syntax.files p)) eq_refl.
 
@@ -2597,24 +2597,24 @@ Lemma valid_at {p} (idx : Syntax p) path f :
   FileMap.find path (outer idx) = Some (build_file f).
 Proof. intros H. rewrite (valid idx). apply outer_get_at. exact H. Qed.
 
-Definition ref_fi_opt {p} (idx : Syntax p) (r : NodeRef p) : option File :=
+Definition ref_file_index_opt {p} (idx : Syntax p) (r : NodeRef p) : option File :=
   FileMap.find (file_ref_path (node_ref_file r)) (outer idx).
-Lemma ref_fi_some {p} (idx : Syntax p) (r : NodeRef p) :
-  ref_fi_opt idx r = Some (build_file (file_ref_source (node_ref_file r))).
-Proof. unfold ref_fi_opt. apply (valid_at idx). apply (file_ref_at (node_ref_file r)). Qed.
-Lemma ref_fi_some' {p} (idx : Syntax p) (r : NodeRef p) : ref_fi_opt idx r <> None.
-Proof. rewrite ref_fi_some. discriminate. Qed.
-Definition ref_fi {p} (idx : Syntax p) (r : NodeRef p) : File :=
-  option_get (ref_fi_opt idx r) (ref_fi_some' idx r).
-Lemma ref_fi_eq {p} (idx : Syntax p) (r : NodeRef p) :
-  ref_fi idx r = build_file (file_ref_source (node_ref_file r)).
-Proof. unfold ref_fi. apply option_get_eq, ref_fi_some. Qed.
+Lemma ref_file_index_some {p} (idx : Syntax p) (r : NodeRef p) :
+  ref_file_index_opt idx r = Some (build_file (file_ref_source (node_ref_file r))).
+Proof. unfold ref_file_index_opt. apply (valid_at idx). apply (file_ref_at (node_ref_file r)). Qed.
+Lemma ref_file_index_some' {p} (idx : Syntax p) (r : NodeRef p) : ref_file_index_opt idx r <> None.
+Proof. rewrite ref_file_index_some. discriminate. Qed.
+Definition ref_file_index {p} (idx : Syntax p) (r : NodeRef p) : File :=
+  option_get (ref_file_index_opt idx r) (ref_file_index_some' idx r).
+Lemma ref_file_index_eq {p} (idx : Syntax p) (r : NodeRef p) :
+  ref_file_index idx r = build_file (file_ref_source (node_ref_file r)).
+Proof. unfold ref_file_index. apply option_get_eq, ref_file_index_some. Qed.
 
 Definition ref_meta_opt {p} (idx : Syntax p) (r : NodeRef p) : option Meta :=
-  Table.get (node_ref_local r) (table (ref_fi idx r)).
+  Table.get (node_ref_local r) (table (ref_file_index idx r)).
 Lemma ref_meta_some {p} (idx : Syntax p) (r : NodeRef p) : ref_meta_opt idx r <> None.
 Proof.
-  unfold ref_meta_opt. rewrite ref_fi_eq.
+  unfold ref_meta_opt. rewrite ref_file_index_eq.
   pose proof (node_ref_valid r) as Hv. unfold valid_localb in Hv.
   destruct (Table.get (node_ref_local r) (table (build_file (file_ref_source (node_ref_file r)))));
     [discriminate | discriminate Hv].
@@ -2626,7 +2626,7 @@ Definition ref_meta {p} (idx : Syntax p) (r : NodeRef p) : Meta :=
 Lemma ref_meta_spec {p} (idx : Syntax p) (r : NodeRef p) m :
   Table.get (node_ref_local r) (table (build_file (file_ref_source (node_ref_file r)))) = Some m ->
   ref_meta idx r = m.
-Proof. intros H. unfold ref_meta. apply option_get_eq. unfold ref_meta_opt. rewrite ref_fi_eq. exact H. Qed.
+Proof. intros H. unfold ref_meta. apply option_get_eq. unfold ref_meta_opt. rewrite ref_file_index_eq. exact H. Qed.
 
 Definition node_kind        {p} (idx : Syntax p) (r : NodeRef p) : Kind := kind (ref_meta idx r).
 Definition node_role        {p} (idx : Syntax p) (r : NodeRef p) : Role   := role (ref_meta idx r).
@@ -2681,13 +2681,13 @@ Fixpoint refine_children {p} (fr : FileRef p) (ids : list positive)
   end.
 
 Lemma children_valid {p} (idx : Syntax p) (r : NodeRef p) c :
-  In c (child_ids (table (ref_fi idx r)) (node_ref_local r)) ->
+  In c (child_ids (table (ref_file_index idx r)) (node_ref_local r)) ->
   valid_localb (file_ref_source (node_ref_file r)) c = true.
-Proof. rewrite ref_fi_eq. apply child_valid. Qed.
+Proof. rewrite ref_file_index_eq. apply child_valid. Qed.
 
 Definition children_of {p} (idx : Syntax p) (r : NodeRef p) : list (NodeRef p) :=
   refine_children (node_ref_file r)
-    (child_ids (table (ref_fi idx r)) (node_ref_local r)) (children_valid idx r).
+    (child_ids (table (ref_file_index idx r)) (node_ref_local r)) (children_valid idx r).
 
 Definition file_of_path (p : Syntax.Program) (fp : FilePath.T) : option (FileRef p) :=
   (match FileMap.find fp (Syntax.files p) as o
@@ -2783,7 +2783,7 @@ Lemma file_ref_ext (p : Syntax.Program) (fr1 fr2 : FileRef p) :
 Proof.
   destruct fr1 as [p1 f1 h1], fr2 as [p2 f2 h2]; simpl; intros Hp. subst p2.
   assert (f1 = f2) by (pose proof h1 as q; rewrite h2 in q; injection q as <-; reflexivity).
-  subst f2. f_equal. apply (UIP_dec option_gosourcefile_eq_dec).
+  subst f2. f_equal. apply (UIP_dec optional_source_file_eq_dec).
 Qed.
 
 (* --- total-API correctness. --- *)
@@ -2897,7 +2897,7 @@ Proof.
 Qed.
 
 Theorem children_sound (p : Syntax.Program) (idx : Syntax p) (r cr : NodeRef p) :
-  In cr (children_of idx r) -> In (node_ref_local cr) (child_ids (table (ref_fi idx r)) (node_ref_local r)).
+  In cr (children_of idx r) -> In (node_ref_local cr) (child_ids (table (ref_file_index idx r)) (node_ref_local r)).
 Proof. unfold children_of. apply refine_children_local. Qed.
 
 Lemma refine_children_map_local (p : Syntax.Program) (fr : FileRef p) ids
@@ -2918,7 +2918,7 @@ Qed.
 Theorem children_of_source_order (p : Syntax.Program) (idx : Syntax p) (r : NodeRef p) :
   StronglySorted Pos.lt (map node_ref_local (children_of idx r)).
 Proof.
-  unfold children_of. rewrite refine_children_map_local, (ref_fi_eq idx r). apply children_sorted.
+  unfold children_of. rewrite refine_children_map_local, (ref_file_index_eq idx r). apply children_sorted.
 Qed.
 
 Theorem children_of_nodup (p : Syntax.Program) (idx : Syntax p) (r : NodeRef p) :
@@ -3005,7 +3005,7 @@ Proof.
   pose proof (children_sound p idx r cr Hin) as Hsound.
   apply child_ids_parent in Hsound.
   pose proof (ref_meta_get idx cr) as Hget.
-  rewrite Hf in Hget. rewrite <- (ref_fi_eq idx r) in Hget.
+  rewrite Hf in Hget. rewrite <- (ref_file_index_eq idx r) in Hget.
   unfold parent_id in Hsound. rewrite Hget in Hsound.
   destruct (parent_of_some p idx cr (node_ref_local r) Hsound) as [pr [Hpr [Hpf Hpl]]].
   rewrite Hpr. f_equal. apply node_ref_ext; [ rewrite Hpf; exact Hf | exact Hpl ].
@@ -3024,9 +3024,9 @@ Proof.
   pose proof (ref_meta_get idx r) as Hgetr. rewrite <- Hf in Hgetr.
   pose proof (parent_has_child (file_ref_source (node_ref_file pr))
                 (node_ref_local pr) (node_ref_local r) (ref_meta idx r) Hgetr Hp') as Hchild.
-  rewrite <- (ref_fi_eq idx pr) in Hchild.
+  rewrite <- (ref_file_index_eq idx pr) in Hchild.
   destruct (refine_children_complete p (node_ref_file pr)
-              (child_ids (table (ref_fi idx pr)) (node_ref_local pr))
+              (child_ids (table (ref_file_index idx pr)) (node_ref_local pr))
               (children_valid idx pr) (node_ref_local r) Hchild) as [cr [Hcr Hcl]].
   pose proof (refine_children_file p (node_ref_file pr) _ (children_valid idx pr) cr Hcr) as Hcrf.
   assert (Hcreq : cr = r).
@@ -3036,14 +3036,14 @@ Qed.
 
 (* --- NodeRef-level ancestry: the O(1) interval test, certified through the sealed API. --- *)
 
-Lemma ref_fi_table_same_file (p : Syntax.Program) (idx : Syntax p) (x y : NodeRef p) :
-  node_ref_file x = node_ref_file y -> table (ref_fi idx x) = table (ref_fi idx y).
-Proof. intros H. rewrite (ref_fi_eq idx x), (ref_fi_eq idx y), H. reflexivity. Qed.
+Lemma ref_file_index_table_same_file (p : Syntax.Program) (idx : Syntax p) (x y : NodeRef p) :
+  node_ref_file x = node_ref_file y -> table (ref_file_index idx x) = table (ref_file_index idx y).
+Proof. intros H. rewrite (ref_file_index_eq idx x), (ref_file_index_eq idx y), H. reflexivity. Qed.
 
 Lemma parentof_to_parentid (p : Syntax.Program) (idx : Syntax p) (d a : NodeRef p) :
   parent_of idx d = Some a ->
   node_ref_file a = node_ref_file d /\
-  parent_id (table (ref_fi idx d)) (node_ref_local d) = Some (node_ref_local a).
+  parent_id (table (ref_file_index idx d)) (node_ref_local d) = Some (node_ref_local a).
 Proof.
   intros Hpar. pose proof (parent_same_file p idx d a Hpar) as Hf. split; [exact Hf|].
   assert (Hnp : parent (ref_meta idx d) = Some (node_ref_local a)).
@@ -3051,16 +3051,16 @@ Proof.
     - destruct (parent_of_some p idx d pid Hp) as [a' [Ha' [_ Hal]]].
       rewrite Hpar in Ha'. injection Ha' as <-. rewrite Hal. reflexivity.
     - rewrite (parent_of_none p idx d Hp) in Hpar. discriminate Hpar. }
-  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_file_index_eq idx d) in Hget.
   unfold parent_id. rewrite Hget. exact Hnp.
 Qed.
 
 Lemma parentid_to_parentof (p : Syntax.Program) (idx : Syntax p) (d : NodeRef p) pa :
-  parent_id (table (ref_fi idx d)) (node_ref_local d) = Some pa ->
+  parent_id (table (ref_file_index idx d)) (node_ref_local d) = Some pa ->
   exists a, parent_of idx d = Some a /\ node_ref_local a = pa /\ node_ref_file a = node_ref_file d.
 Proof.
   intros Hpid.
-  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_fi_eq idx d) in Hget.
+  pose proof (ref_meta_get idx d) as Hget. rewrite <- (ref_file_index_eq idx d) in Hget.
   unfold parent_id in Hpid. rewrite Hget in Hpid.
   destruct (parent_of_some p idx d pa Hpid) as [a [Ha [Hf Hal]]].
   exists a. split; [exact Ha | split; [exact Hal | exact Hf]].
@@ -3079,13 +3079,13 @@ Proof.
 Qed.
 
 Lemma refanc_to_anc (p : Syntax.Program) (idx : Syntax p) (a d : NodeRef p) :
-  RefAncestor p idx a d -> Ancestor (table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+  RefAncestor p idx a d -> Ancestor (table (ref_file_index idx d)) (node_ref_local a) (node_ref_local d).
 Proof.
   intros H. induction H as [a d Hpar | a q d Hanc IH Hpar].
   - apply Anc_dir. apply (proj2 (parentof_to_parentid p idx d a Hpar)).
   - pose proof (proj1 (parentof_to_parentid p idx d q Hpar)) as Hf.
-    rewrite (ref_fi_table_same_file p idx q d Hf) in IH.
-    apply (Anc_step (table (ref_fi idx d)) (node_ref_local a) (node_ref_local q) (node_ref_local d) IH).
+    rewrite (ref_file_index_table_same_file p idx q d Hf) in IH.
+    apply (Anc_step (table (ref_file_index idx d)) (node_ref_local a) (node_ref_local q) (node_ref_local d) IH).
     apply (proj2 (parentof_to_parentid p idx d q Hpar)).
 Qed.
 
@@ -3095,12 +3095,12 @@ Lemma ancestor_to_ref_ancestor_aux (p : Syntax.Program) (idx : Syntax p) (fr : F
   exists a, node_ref_file a = fr /\ node_ref_local a = al /\ RefAncestor p idx a d.
 Proof.
   induction Hanc as [al dl Hpid | al pl dl Hanc_ap IH Hpid_d]; intros d Hdf Hdl.
-  - assert (Hpd : parent_id (table (ref_fi idx d)) (node_ref_local d) = Some al)
-      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid).
+  - assert (Hpd : parent_id (table (ref_file_index idx d)) (node_ref_local d) = Some al)
+      by (rewrite (ref_file_index_eq idx d), Hdf, Hdl; exact Hpid).
     destruct (parentid_to_parentof p idx d al Hpd) as [a [Ha [Hal Haf]]].
     exists a. split; [rewrite Haf; exact Hdf | split; [exact Hal | apply RAnc_dir; exact Ha]].
-  - assert (Hpd : parent_id (table (ref_fi idx d)) (node_ref_local d) = Some pl)
-      by (rewrite (ref_fi_eq idx d), Hdf, Hdl; exact Hpid_d).
+  - assert (Hpd : parent_id (table (ref_file_index idx d)) (node_ref_local d) = Some pl)
+      by (rewrite (ref_file_index_eq idx d), Hdf, Hdl; exact Hpid_d).
     destruct (parentid_to_parentof p idx d pl Hpd) as [pr [Hp [Hpl Hpf]]].
     destruct (IH pr (eq_trans Hpf Hdf) Hpl) as [a [Haf [Hal Hra]]].
     exists a. split; [exact Haf | split; [exact Hal | apply (RAnc_step p idx a pr d Hra Hp)]].
@@ -3120,7 +3120,7 @@ Qed.
 
 Definition is_ancestor_ref {p} (idx : Syntax p) (a d : NodeRef p) : bool :=
   FilePath.equalb (file_ref_path (node_ref_file a)) (file_ref_path (node_ref_file d)) &&
-  is_ancestor_local (table (ref_fi idx d)) (node_ref_local a) (node_ref_local d).
+  is_ancestor_local (table (ref_file_index idx d)) (node_ref_local a) (node_ref_local d).
 
 Lemma ref_local_present (p : Syntax.Program) (idx : Syntax p) (a d : NodeRef p) :
   node_ref_file a = node_ref_file d ->
@@ -3136,7 +3136,7 @@ Proof.
   - intros Hb. apply andb_true_iff in Hb as [Hpath Hloc]. apply FilePath.equalb_spec in Hpath.
     assert (Hf : node_ref_file a = node_ref_file d) by (apply file_ref_ext; exact Hpath).
     apply (ancestor_to_ref_ancestor p idx a d Hf).
-    rewrite (ref_fi_eq idx d) in Hloc.
+    rewrite (ref_file_index_eq idx d) in Hloc.
     apply (proj1 (interval_ancestry (file_ref_source (node_ref_file d))
                     (node_ref_local a) (node_ref_local d) (ref_local_present p idx a d Hf))).
     exact Hloc.
@@ -3145,7 +3145,7 @@ Proof.
     pose proof (refanc_to_anc p idx a d Hra) as Hanc.
     apply andb_true_iff. split.
     + apply FilePath.equalb_spec. rewrite Hf. reflexivity.
-    + rewrite (ref_fi_eq idx d). rewrite (ref_fi_eq idx d) in Hanc.
+    + rewrite (ref_file_index_eq idx d). rewrite (ref_file_index_eq idx d) in Hanc.
       apply (proj2 (interval_ancestry (file_ref_source (node_ref_file d))
                       (node_ref_local a) (node_ref_local d) (ref_local_present p idx a d Hf))).
       exact Hanc.
@@ -3257,7 +3257,7 @@ Qed.
 
 Theorem file_refs_nodup (p : Syntax.Program) (idx : Syntax p) (fr : FileRef p) : NoDup (file_refs idx fr).
 Proof.
-  apply (NoDup_map_inv node_ref_local). rewrite file_refs_map_local, (file_index_eq idx fr). apply pos_seq_NoDup.
+  apply (NoDup_map_inv node_ref_local). rewrite file_refs_map_local, (file_index_eq idx fr). apply pos_seq_no_duplicates.
 Qed.
 
 Theorem file_refs_source_order (p : Syntax.Program) (idx : Syntax p) (fr : FileRef p) :
@@ -3745,21 +3745,21 @@ Module KeyProperties := FMapFacts.WProperties_fun KeyOrderedType KeyMap.
 Module KeyOrder   := FMapFacts.OrdProperties KeyMap.
 
 (* the ordered-key laws Fido depends on (all delegate to the standard map). *)
-Lemma nodekey_compare_eq : forall a b, KeyOrderedType.eq a b <-> a = b.
+Lemma key_compare_equal : forall a b, KeyOrderedType.eq a b <-> a = b.
 Proof. reflexivity. Qed.
 
-Lemma nodekeymap_add_eq {A} : forall (m : KeyMap.t A) k v,
+Lemma key_map_add_equal {A} : forall (m : KeyMap.t A) k v,
   KeyMap.find k (KeyMap.add k v m) = Some v.
 Proof. intros; apply KeyFacts.add_eq_o; reflexivity. Qed.
 
-Lemma nodekeymap_add_neq {A} : forall (m : KeyMap.t A) k k' v,
+Lemma key_map_add_unequal {A} : forall (m : KeyMap.t A) k k' v,
   k <> k' -> KeyMap.find k' (KeyMap.add k v m) = KeyMap.find k' m.
 Proof. intros m k k' v Hne; apply KeyFacts.add_neq_o; intro H; apply Hne; exact H. Qed.
 
 (* canonical elements: key-sorted, and a FUNCTION of the map's meaning ([Equal] maps have equal [elements]) —
    the permanent basis for deterministic fact/diagnostic enumeration.  (Key equality is Leibniz, so
    [eqlistA eq_key_elt] collapses to list equality.) *)
-Lemma nodekey_eqlistA_eqke_eq {A} : forall (l1 l2 : list (Key * A)),
+Lemma key_equal_list_key_element_equal {A} : forall (l1 l2 : list (Key * A)),
   eqlistA (@KeyMap.eq_key_elt A) l1 l2 -> l1 = l2.
 Proof.
   induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
@@ -3767,10 +3767,10 @@ Proof.
   unfold KeyOrderedType.eq in Hk. subst. f_equal. apply IH; exact Htl.
 Qed.
 
-Lemma nodekeymap_elements_Equal {A} : forall (m1 m2 : KeyMap.t A),
+Lemma key_map_elements_equal {A} : forall (m1 m2 : KeyMap.t A),
   KeyMap.Equal m1 m2 -> KeyMap.elements m1 = KeyMap.elements m2.
 Proof.
-  intros m1 m2 Heq. apply nodekey_eqlistA_eqke_eq.
+  intros m1 m2 Heq. apply key_equal_list_key_element_equal.
   apply KeyOrder.sort_equivlistA_eqlistA;
     [ apply KeyMap.elements_3 | apply KeyMap.elements_3 | ].
   intros [k e]. rewrite <- !KeyFacts.elements_mapsto_iff, !KeyFacts.find_mapsto_iff, (Heq k).

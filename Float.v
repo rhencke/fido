@@ -25,10 +25,10 @@ Proof. intros [] []; simpl; split; congruence. Qed.
 Definition precision (ft : Kind) : Z := match ft with F32 => 24 | F64 => 53 end.
 Definition maximum_exponent (ft : Kind) : Z := match ft with F32 => 128 | F64 => 1024 end.
 
-Lemma precision_F32 : precision F32 = 24.   Proof. reflexivity. Qed.
-Lemma precision_F64 : precision F64 = 53.   Proof. reflexivity. Qed.
-Lemma maximum_exponent_F32 : maximum_exponent F32 = 128.  Proof. reflexivity. Qed.
-Lemma maximum_exponent_F64 : maximum_exponent F64 = 1024. Proof. reflexivity. Qed.
+Lemma precision_f32 : precision F32 = 24.   Proof. reflexivity. Qed.
+Lemma precision_f64 : precision F64 = 53.   Proof. reflexivity. Qed.
+Lemma maximum_exponent_f32 : maximum_exponent F32 = 128.  Proof. reflexivity. Qed.
+Lemma maximum_exponent_f64 : maximum_exponent F64 = 1024. Proof. reflexivity. Qed.
 
 (** ---- the exact untyped floating constant: an exact rational, INTRINSICALLY canonical ----
     A [Constant] is a numerator over a POSITIVE denominator that are COPRIME by construction ([canonical] — a
@@ -573,9 +573,9 @@ Definition value_inf (ft : Kind) (s : bool) : Value ft :=
   make_value (S754_infinity s) (or_intror (or_intror (ex_intro _ s eq_refl))).
 (* the negative-zero image of a negative underflow (proved once via vm_compute so the Definition needs no
    heavy kernel conversion). *)
-Lemma neg_zero_F64_canonical : FloatCanonical F64 (S754_zero true).
+Lemma neg_zero_f64_canonical : FloatCanonical F64 (S754_zero true).
 Proof. left; exists (reduce_constant (-1) (10 ^ 330)%positive); vm_compute; reflexivity. Qed.
-Definition value_neg_zero_F64 : Value F64 := make_value (S754_zero true) neg_zero_F64_canonical.
+Definition value_neg_zero_F64 : Value F64 := make_value (S754_zero true) neg_zero_f64_canonical.
 
 (** a typed float constant whose runtime is NaN / negative zero is UNREPRESENTABLE — the [coherent] and
     [shape] fields cannot be satisfied (NaN reads back as [None], -0 fails the +0-or-finite shape).  [Fail]

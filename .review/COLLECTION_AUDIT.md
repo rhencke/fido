@@ -12,7 +12,7 @@ generic COLLECTION machinery — map/set/dictionary/trie/balanced-tree storage a
 
 **What repair 13 changed.** The previous revision of this file classified `Compilable.WorkForest.forest_items` as an
 ordered view that was "not identity storage" — and that was FALSE. `forest_member_at` searched `Compilable.forest_items` with
-`List.find` on `nodekey_eqb`, keyed by `Index.Key`, using the carried `Compilable.forest_keys_nodup` field as its uniqueness
+`List.find` on `Index.key_equalb`, keyed by `Index.Key`, using the carried `Compilable.forest_keys_nodup` field as its uniqueness
 mechanism, in the live path `build_outcome_trace → build_conversion_step → build_conversion_work →
 forest_member_at` — once per conversion. That was a `list + NoDup` keyed table: it survived proof erasure and
 made a nested conversion chain's operand recovery quadratic. `forest_member_at` and its `List.find` are DELETED.
@@ -80,7 +80,7 @@ and ZERO in OCaml.** Do not restate this as "no `List.find` anywhere" — one si
 | site | what it scans | classification |
 |---|---|---|
 | **`Names.classify`** (`Names.v`) — `find (fun t => String.eqb s (Names.type_name_spelling t)) all_type_names` | the FIXED CLOSED sixteen-element `all_type_names` descriptor enumeration | **RETAINED, not a collection defect.** This is spelling CLASSIFICATION of a source token against a closed literal enumeration of a sixteen-constructor inductive — it is decision, not persistent keyed storage. Nothing is stored in it, nothing is inserted into it, and it does not grow with program size; the whole enumeration is a compile-time constant. Its correctness is pinned by a proved inverse (`classify_spelling`, `classify_sound`, `Names.type_name_spelling_inj`), so it is a total decidable classifier, not a lookup table standing in for a map. A map keyed by `string` would add storage machinery with no semantic gain over a closed sixteen-way decision |
-| **`Compilable.forest_member_at`** — `List.find (fun w => nodekey_eqb (node_ref_key (Compilable.work_node_ref w)) k) (Compilable.forest_items forest)` | the retained work item list, keyed by `Index.Key` | **DELETED (repair 13).** This WAS the defect: a persistent identity-keyed lookup implemented as a list scan, in the production conversion path, surviving proof erasure and quadratic in a nested chain. Replaced by `Compilable.WorkIndex` + `index_member_at` (one `KeyMap.find`) |
+| **`Compilable.forest_member_at`** — `List.find (fun w => Index.key_equalb (node_ref_key (Compilable.work_node_ref w)) k) (Compilable.forest_items forest)` | the retained work item list, keyed by `Index.Key` | **DELETED (repair 13).** This WAS the defect: a persistent identity-keyed lookup implemented as a list scan, in the production conversion path, surviving proof erasure and quadratic in a nested chain. Replaced by `Compilable.WorkIndex` + `index_member_at` (one `KeyMap.find`) |
 
 **The work-member lookup path now contains no keyed scan of any kind:**
 `build_outcome_trace → build_conversion_step → build_conversion_work → forest_index_member_at →
@@ -103,7 +103,7 @@ Exactly **two** `NoDup` facts are carried as RECORD FIELDS in the whole theory; 
 | **`Compilable.annotated_context_nodup`** | `forall x, In x Compilable.annotated_items -> NoDup (snd x)` | a fact about each annotated item's enclosing-conversion CONTEXT ref list — a derived per-item list consumed positionally by the diagnostic fold. No key, no lookup, no storage |
 
 Non-field `NoDup` occurrences (`Index.occurrences_file_nodup`, `Index.children_of_nodup`, `file_refs_nodup`,
-`visit_file_nodup`, `Emit.image_keys_nodup`, `Compilable.forest_pairs_nodup`, the `SS_nodup` /
+`visit_file_nodup`, `Emit.image_keys_nodup`, `Compilable.forest_pairs_nodup`, the `Index.strongly_sorted_no_duplicates` /
 `sorted_lt_nodup` helpers) are theorems about derived enumerations. **No `list + NoDup` identity table remains
 anywhere in the repository.**
 
@@ -115,7 +115,7 @@ anywhere in the repository.**
   (`program_typedb`, `source_spec_valid_b`, `list_dir_count`, `Compilable.package_foldl`) — not collection storage or
   repeated-scan lookup.
 - `Decimal` digit list, `FilePath.T` path components, runtime `Syntax.Println` argument order: ordered source/leaf sequences.
-- `Record`/`Inductive` names containing Map/Set/Table/Index (`Syntax.Files`, `PackageSummary`, `SyntaxIndex_T`,
+- `Record`/`Inductive` names containing Map/Set/Table/Index (`Syntax.Files`, `PackageSummary`, `Index.SyntaxRepresentation`,
   `Index.File`, `Table`, `Compilable.WorkIndex`): all are aliases / thin wrappers / domain records over standard
   maps — none defines a recursive storage tree (the old `FMap.v` association list and the old `Table` radix
   trie are deleted).

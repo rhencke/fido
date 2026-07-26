@@ -27,6 +27,10 @@ sh "$ctx/tools/generated-output-gate.sh" "$ctx"
 # so it catches a mode-120000/100755 generated entry that a `core.symlinks=false` export would hide from the
 # exported-object checks above.  Run the STAGED copy, but from the repo cwd so `git` reads the repo index.
 sh "$ctx/tools/generated-mode-gate.sh"
+# the A005 scoped-name gate on the EXPORTED STAGED TREE, in snapshot mode (no .git present).  A gate
+# enforced only on the ordinary working tree is not protection for the proposed commit, and snapshot
+# mode fails closed on an absent or incomplete export rather than scanning nothing and passing.
+python3 "$ctx/tools/naming-gate.py" --root "$ctx" --snapshot
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).

@@ -76,17 +76,17 @@ Module FileOrder := FMapFacts.OrdProperties FileMap.
     equal ([Equal]) file maps have the very SAME canonical [elements] list — the derived enumeration is a true
     function of the map's meaning, not of its balancing history.  (The FilePath.T key equality is Leibniz, so
     [eqlistA eq_key_elt] collapses to list equality.) ---- *)
-Lemma eqlistA_eqke_eq {A} : forall (l1 l2 : list (FilePath.T * A)),
+Lemma equal_list_key_element_eq {A} : forall (l1 l2 : list (FilePath.T * A)),
   eqlistA (@FileMap.eq_key_elt A) l1 l2 -> l1 = l2.
 Proof.
   induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
   destruct y as [k' e']. destruct Hxy as [Hk He]. cbn in Hk, He. subst. f_equal. apply IH; exact Htl.
 Qed.
 
-Lemma file_elements_Equal {A} : forall (m1 m2 : FileMap.t A),
+Lemma file_elements_equal {A} : forall (m1 m2 : FileMap.t A),
   FileMap.Equal m1 m2 -> FileMap.elements m1 = FileMap.elements m2.
 Proof.
-  intros m1 m2 Heq. apply eqlistA_eqke_eq.
+  intros m1 m2 Heq. apply equal_list_key_element_eq.
   apply FileOrder.sort_equivlistA_eqlistA;
     [ apply FileMap.elements_3 | apply FileMap.elements_3 | ].
   intros [k e]. rewrite <- !FileFacts.elements_mapsto_iff, !FileFacts.find_mapsto_iff, (Heq k).
@@ -98,17 +98,17 @@ Qed.
     preserved).  Used by the cross-snapshot determinism to compare erased package buckets. ---- *)
 Module PackageOrder := FMapFacts.OrdProperties PackageMap.
 
-Lemma eqlistA_eqke_eq_str {A} : forall (l1 l2 : list (string * A)),
+Lemma equal_list_key_element_eq_str {A} : forall (l1 l2 : list (string * A)),
   eqlistA (@PackageMap.eq_key_elt A) l1 l2 -> l1 = l2.
 Proof.
   induction l1 as [|[k e] l1' IH]; intros l2 H; inversion H as [|x y l l' Hxy Htl]; subst; [ reflexivity | ].
   destruct y as [k' e']. destruct Hxy as [Hk He]. cbn in Hk, He. subst. f_equal. apply IH; exact Htl.
 Qed.
 
-Lemma package_elements_Equal {A} : forall (m1 m2 : PackageMap.t A),
+Lemma package_elements_equal {A} : forall (m1 m2 : PackageMap.t A),
   PackageMap.Equal m1 m2 -> PackageMap.elements m1 = PackageMap.elements m2.
 Proof.
-  intros m1 m2 Heq. apply eqlistA_eqke_eq_str.
+  intros m1 m2 Heq. apply equal_list_key_element_eq_str.
   apply PackageOrder.sort_equivlistA_eqlistA;
     [ apply PackageMap.elements_3 | apply PackageMap.elements_3 | ].
   intros [k e]. rewrite <- !PackageFacts.elements_mapsto_iff, !PackageFacts.find_mapsto_iff, (Heq k).
@@ -128,7 +128,7 @@ Lemma package_map_elements {A B} (f : A -> B) : forall (m : PackageMap.t A),
   PackageMap.elements (PackageMap.map f m)
   = map (fun kv => (fst kv, f (snd kv))) (PackageMap.elements m).
 Proof.
-  intro m. apply eqlistA_eqke_eq_str.
+  intro m. apply equal_list_key_element_eq_str.
   apply PackageOrder.sort_equivlistA_eqlistA;
     [ apply PackageMap.elements_3
     | apply sorted_map_fst, PackageMap.elements_3 | ].
@@ -164,7 +164,7 @@ Lemma file_map_elements {A B} (f : A -> B) : forall (m : FileMap.t A),
   FileMap.elements (FileMap.map f m)
   = map (fun kv => (fst kv, f (snd kv))) (FileMap.elements m).
 Proof.
-  intro m. apply eqlistA_eqke_eq.
+  intro m. apply equal_list_key_element_eq.
   apply FileOrder.sort_equivlistA_eqlistA;
     [ apply FileMap.elements_3
     | apply sorted_map_fst_file, FileMap.elements_3 | ].
@@ -193,7 +193,7 @@ Proof. rewrite package_map_elements, map_map. reflexivity. Qed.
 
 (** ---- two package maps with the SAME key DOMAIN (possibly different value types) have the SAME canonical key
     list.  (Map each to a common unit value; equal domains give [PackageMap.Equal] unit maps, so
-    [package_elements_Equal] gives equal elements, hence equal keys.)  Used by the retention: the
+    [package_elements_equal] gives equal elements, hence equal keys.)  Used by the retention: the
     fresh-build plan derived from the RETAINED package buckets equals the one over [package_summaries]. ---- *)
 Lemma package_same_domain_keys {A B} (m1 : PackageMap.t A) (m2 : PackageMap.t B) :
   (forall k, PackageMap.In k m1 <-> PackageMap.In k m2) ->
@@ -201,7 +201,7 @@ Lemma package_same_domain_keys {A B} (m1 : PackageMap.t A) (m2 : PackageMap.t B)
 Proof.
   intro Hdom.
   rewrite <- (package_map_fst_elements (fun _ => tt) m1), <- (package_map_fst_elements (fun _ => tt) m2).
-  f_equal. apply package_elements_Equal.
+  f_equal. apply package_elements_equal.
   intro k. rewrite !PackageFacts.map_o.
   destruct (PackageMap.find k m1) as [a|] eqn:E1; destruct (PackageMap.find k m2) as [b|] eqn:E2;
     cbn [option_map]; try reflexivity.

@@ -35,8 +35,8 @@ Proof. intros [] []; cbn; split; congruence. Qed.
 Definition component_kind (ct : Kind) : Float.Kind :=
   match ct with C64 => F32 | C128 => F64 end.
 
-Lemma component_C64 : component_kind C64 = F32. Proof. reflexivity. Qed.
-Lemma component_C128 : component_kind C128 = F64. Proof. reflexivity. Qed.
+Lemma component_c64 : component_kind C64 = F32. Proof. reflexivity. Qed.
+Lemma component_c128 : component_kind C128 = F64. Proof. reflexivity. Qed.
 
 (** exact untyped complex constants *)
 

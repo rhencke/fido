@@ -14,14 +14,14 @@ From Fido Require Import Integer Float Complex FilePath Collections ModulePath V
    int<>int64 and uint<>uint64 distinct despite equal ranges; the derived default-int bounds. *)
 Print Assumptions Integer.equalb_spec.
 Print Assumptions Integer.representableb_spec.
-Print Assumptions Integer.Int_bits_64.
-Print Assumptions Integer.Uint_bits_64.
+Print Assumptions Integer.int_bits_64.
+Print Assumptions Integer.uint_bits_64.
 Print Assumptions Integer.minimum_representable.
 Print Assumptions Integer.maximum_representable.
 Print Assumptions Integer.minimum_pred_not_representable.
 Print Assumptions Integer.maximum_succ_not_representable.
-Print Assumptions Integer.Int_neq_Int64.
-Print Assumptions Integer.Uint_neq_Uint64.
+Print Assumptions Integer.int_neq_int64.
+Print Assumptions Integer.uint_neq_uint64.
 Print Assumptions Integer.platform_minimum_val.
 Print Assumptions Integer.platform_maximum_val.
 Print Assumptions Integer.platform_unsigned_maximum_val.
@@ -30,10 +30,10 @@ Print Assumptions Integer.platform_unsigned_maximum_val.
    precision/exponent settings; direct binary32/binary64 rounding of exact rationals; the double-rounding
    counterexample (direct F32 differs from binary64-then-binary32); precision boundaries 2^24+1 / 2^53+1. *)
 Print Assumptions Float.kind_equalb_spec.
-Print Assumptions Float.precision_F32.
-Print Assumptions Float.precision_F64.
-Print Assumptions Float.maximum_exponent_F32.
-Print Assumptions Float.maximum_exponent_F64.
+Print Assumptions Float.precision_f32.
+Print Assumptions Float.precision_f64.
+Print Assumptions Float.maximum_exponent_f32.
+Print Assumptions Float.maximum_exponent_f64.
 (* exact-rational canonicality + equality: every Float.Constant is INTRINSICALLY canonical (coprime by the record's
    own well-formedness field), so it is fixed by its numerator/denominator (Float.numerator_denominator_eq) and reflected equality
    IS Leibniz equality (Float.constant_equalb_eq); cross-multiplication decides value equality; reduction yields a coprime form
@@ -84,8 +84,8 @@ Print Assumptions Safe.float_nonconstant_no_denotes.
    underflow-to-+0 + no-NaN/Inf/-0 runtime component shape (inherited from Float.TypedConstant); the runtime
    component read-back coherence. *)
 Print Assumptions Complex.kind_equalb_spec.
-Print Assumptions Complex.component_C64.
-Print Assumptions Complex.component_C128.
+Print Assumptions Complex.component_c64.
+Print Assumptions Complex.component_c128.
 Print Assumptions Complex.constant_equalb_spec.
 Print Assumptions Complex.decimal_value_real.
 Print Assumptions Complex.decimal_value_imaginary.
@@ -115,9 +115,9 @@ Print Assumptions Version.equalb_spec.
 (* the ONE standard-collection foundation: the [FilePath.T] ordered key and the standard AVL/positive
    map wrappers are backed by pinned rocq-stdlib [FMapAVL]/[FMapPositive] — Fido authors no map/set.  The
    [FilePath.T] ordered-type law ([Collections.file_path_text_inj]) that keys the standard file map is axiom-free, and the sorted
-   AVL [elements] of extensionally-equal maps are the SAME canonical list ([Collections.file_elements_Equal]). *)
+   AVL [elements] of extensionally-equal maps are the SAME canonical list ([Collections.file_elements_equal]). *)
 Print Assumptions Collections.file_path_text_inj.
-Print Assumptions Collections.file_elements_Equal.
+Print Assumptions Collections.file_elements_equal.
 
 (* Typing — the ONE type authority (EVIDENCE over the raw AST): zero-sign constant equality; default-type
    exactness (int / FLOAT->float64); representability reflection; the constant-status analysis [Typing.constant_info]
@@ -133,8 +133,8 @@ Print Assumptions Typing.stmt_typedb_iff.
 Print Assumptions Typing.program_typedb_iff.
 (* map-based typing is ORDER-INDEPENDENT: it respects semantic map equality (as a Prop and reflected as a
    bool) and is therefore invariant under reordered [build_program] construction. *)
-Print Assumptions Typing.Program_Equal.
-Print Assumptions Typing.program_typedb_Equal.
+Print Assumptions Typing.program_equal.
+Print Assumptions Typing.program_typedb_equal.
 Print Assumptions Typing.program_typedb_build_permutation.
 (* the per-occurrence typing predicate folded over the canonical source occurrence stream equals the
    existing [source_file_typedb].  This occurrence/traversal bridge lives in Admissible (the sole Index+Typing
@@ -176,9 +176,9 @@ Print Assumptions Syntax.files_of_nodes_duplicate_rejects.
 Print Assumptions Syntax.files_of_nodes_duplicate_different_source_rejects.
 Print Assumptions Syntax.files_of_nodes_permutation.
 Print Assumptions Syntax.build_program_some_iff_unique.
-Print Assumptions Syntax.FilesEqual_refl.
-Print Assumptions Syntax.FilesEqual_sym.
-Print Assumptions Syntax.FilesEqual_trans.
+Print Assumptions Syntax.files_equal_refl.
+Print Assumptions Syntax.files_equal_sym.
+Print Assumptions Syntax.files_equal_trans.
 
 (* Admissible (A) internal exactness: the executable source decision reflects the LIVE factored source root
    [SourceProgramValid]; Compilable.compile sound + complete against it; a rejected program yields no
@@ -186,7 +186,7 @@ Print Assumptions Syntax.FilesEqual_trans.
    accepted; a concrete integer-family program compiles; an out-of-range and an invalid-nested-conversion
    program are rejected with the honest typing error (and have no Compilable.Program); a concrete string
    program compiles. *)
-Print Assumptions Compilable.semantic_ok_b_SourceProgramValid.
+Print Assumptions Compilable.semantic_ok_b_source_program_valid.
 Print Assumptions Compilable.compile_ok_valid.
 Print Assumptions Compilable.compile_complete.
 (* PROVENANCE + RETENTION: every Compilable.Program's facts ARE elaborate's exact ElaborationOK output
@@ -207,14 +207,14 @@ Print Assumptions Compilable.file_in_package.
 Print Assumptions Compilable.package_no_empty.
 Print Assumptions Compilable.package_summary_main_count.
 Print Assumptions Compilable.package_summaries_empty.
-Print Assumptions Compilable.package_summaries_Equal.
+Print Assumptions Compilable.package_summaries_equal.
 Print Assumptions Compilable.package_summaries_build_permutation.
-Print Assumptions Compilable.SourceProgramValid_Equal.
-Print Assumptions Compilable.compile_class_Equal.
+Print Assumptions Compilable.source_program_valid_files_equal.
+Print Assumptions Compilable.compile_class_input_equal.
 Print Assumptions Compilable.compile_class_build_permutation.
 Print Assumptions Compilable.reject_no_compile.
 Print Assumptions Compilable.compilable_program_typed.
-Print Assumptions Compilable.SourceProgramValid_empty.
+Print Assumptions Compilable.source_program_valid_empty.
 (* PackageRef: a validated package-key absence anchor.  Key identity determines the ref (UIP over the
    boolean membership proof), the key names a represented package, and construction from a binding / file
    reference yields the right key. *)
@@ -241,8 +241,8 @@ Print Assumptions Compilable.occurrence_expr_diags_default_sound.
    delivered by the one-pass annotation and proved sound; never fabricated or copied syntax. *)
 Print Assumptions Compilable.annotate_program_ctx_sound.
 Print Assumptions Compilable.annotate_program_ctx_wf.
-Print Assumptions Compilable.expression_diags_conv_scar_sound.
-Print Assumptions Compilable.expression_diags_conv_scar_wf.
+Print Assumptions Compilable.expression_diags_conversion_single_rounding_sound.
+Print Assumptions Compilable.expression_diags_conversion_single_rounding_well_formed.
 Print Assumptions Compilable.package_diag_of_bucket_missing_sound.
 Print Assumptions Compilable.package_diag_of_bucket_dup_sound.
 Print Assumptions Compilable.package_diags_dup_sound.
@@ -251,7 +251,7 @@ Print Assumptions Compilable.package_diags_missing_sound.
 (* cross-snapshot determinism FOUNDATION: the KEYED visit stream (each visited reference's Index.Key
    + its source occurrence) depends ONLY on the file map, so FilesEqual programs have IDENTICAL keyed streams
    (the basis for equal erased reports / fact enumerations). *)
-Print Assumptions Compilable.keyed_visit_FilesEqual.
+Print Assumptions Compilable.keyed_visit_files_equal.
 (* THE cross-snapshot determinism theorem: two programs with the SAME file map (whose diagnostics
    live in DIFFERENT dependent snapshot types) produce the IDENTICAL erased report — it depends ONLY on the
    file map, never on the snapshot index or the backing AVL shape.  The expression half factors through
@@ -260,8 +260,8 @@ Print Assumptions Compilable.keyed_visit_FilesEqual.
 Print Assumptions Compilable.annotate_encl_erased.
 Print Assumptions Compilable.program_package_erased_find.
 Print Assumptions Compilable.erased_expr_diags_source.
-Print Assumptions Compilable.erased_pkg_diags_FilesEqual.
-Print Assumptions Compilable.erased_report_FilesEqual.
+Print Assumptions Compilable.erased_pkg_diags_files_equal.
+Print Assumptions Compilable.erased_report_files_equal.
 (* the erased build-OUTPUT NAME payload: [Compilable.diagnostic_output] is the reason's exact planned output name
    for a build-output-directory reason and none elsewhere; the erased fresh report of a sole colliding package
    CARRIES that name (so cross-snapshot comparison distinguishes different collision names); concrete "a". *)
@@ -274,7 +274,7 @@ Print Assumptions Compilable.erased_report_build_permutation.
 (* SUCCESSFUL-fact enumeration determinism: the expression fact Index.table depends ONLY on the
    file map (source NodeKeys + source-derived values, a fold-map fusion over the keyed stream), so FilesEqual
    programs have the IDENTICAL canonical fact enumeration. *)
-Print Assumptions Compilable.program_expr_facts_enum_FilesEqual.
+Print Assumptions Compilable.program_expr_facts_enum_files_equal.
 (* occurrence-keyed expression facts, built by the SINGLE bottom-up pass: visit_file refs have
    distinct NodeKeys, and the fact stored at a visited ref's key is EXACTLY that occurrence's fact (no
    overwrite; map-level exactness) — the single-pass fact map agrees with the per-node specification. *)
@@ -284,7 +284,7 @@ Print Assumptions Compilable.program_expr_facts_find.
 Print Assumptions Compilable.program_expr_facts_eq_spec.
 (* §3/§4/§5/§6 the retained-phase production path: the ONE [Compilable.Input] retains the visit as a STORED value
    that IS the snapshot's traversal ([Compilable.input_visit_ok]); the [Compilable.TypeNameFacts] is built from THAT retained visit
-   ([build_tnft_map]); the ONE proof-carrying [Compilable.WorkForest] OBJECT is built ONCE and RETAINS in its fields the
+   ([Compilable.build_type_name_map]); the ONE proof-carrying [Compilable.WorkForest] OBJECT is built ONCE and RETAINS in its fields the
    exact pair-projection ([Compilable.forest_items_exact]), BOTH domains ([Compilable.forest_reverse] reverse / [Compilable.forest_forward] forward), the
    key-NoDup ([Compilable.forest_keys_nodup]), with a conversion's operand MEMBER in the PROCESSED suffix
    ([Compilable.forest_operand_in_tail]) — no [proj1_sig] discards its proof; the PROOF-CARRYING FOREST-INDEXED
@@ -296,11 +296,11 @@ Print Assumptions Compilable.program_expr_facts_eq_spec.
    the sealed Index.table's stored fact, the operand's outcome is read THROUGH the exact operand [SuffixMember]
    ([Compilable.accumulator_total acc_rest]) as a success whose status IS the reported one, and [Typing.convert_constant] genuinely rejects
    ([total_forest_outcome_cause] retaining the member/suffix-indexed [StepCause], inverted by
-   [StepCause_convfail_inv]). *)
+   [Compilable.conversion_failure_cause_yields_step]). *)
 Print Assumptions Compilable.occurrences_file_operand.
 Print Assumptions Compilable.input_visit_ok.
 Print Assumptions Compilable.type_name_fact_at_table_resolves.
-Print Assumptions Compilable.build_tnft_map.
+Print Assumptions Compilable.build_type_name_map.
 Print Assumptions Compilable.forest_items_exact.
 Print Assumptions Compilable.forest_reverse.
 Print Assumptions Compilable.forest_forward.
@@ -361,16 +361,16 @@ Print Assumptions Compilable.build_conversion_work.
    pairable).  [total_forest_outcome_cause] PROJECTS the trace ([trace_retained_cause]) to each member's exact
    insertion [RetainedMemberCause] — the exact suffix split, the AUTHENTICATED tail [Compilable.Accumulator], the
    [StepCause] producing the FINAL outcome, and the tail-to-final QUERY PRESERVATION.  The direct cause is projected
-   by inverting the [StepCause] (axiom-free) — [StepCause_ok_conv_inv] returns the [ConversionStep] at the EXACT
+   by inverting the [StepCause] (axiom-free) — [Compilable.conversion_success_cause_yields_step] returns the [ConversionStep] at the EXACT
    SOURCE [ts0]/[x0] supplied (the Compilable.ConversionSuccessCause constructor's own [Compilable.work_expr current = Syntax.Convert ts x] is injected against
    the premise, so no existential source-type distinction survives); [final_operand_outcome] specializes preservation
    to a conversion's operand, proving its FINAL-Index.table query EQUALS its retained tail query — the final-to-tail closure. *)
 Print Assumptions Compilable.total_forest_outcome_cause.
 Print Assumptions Compilable.final_operand_outcome.
 Print Assumptions Compilable.retained_conversion_closure.
-Print Assumptions Compilable.StepCause_convfail_inv.
-Print Assumptions Compilable.StepCause_childfail_inv.
-Print Assumptions Compilable.StepCause_ok_conv_inv.
+Print Assumptions Compilable.conversion_failure_cause_yields_step.
+Print Assumptions Compilable.child_failure_cause_yields_member.
+Print Assumptions Compilable.conversion_success_cause_yields_step.
 Print Assumptions Compilable.build_outcome_trace.
 Print Assumptions Compilable.trace_retained_cause.
 Print Assumptions Compilable.trace_match.
@@ -463,7 +463,7 @@ Print Assumptions Compilable.conversion_target_ref_conv.
 Print Assumptions Compilable.conversion_operand_ref_conv.
 (* §8/§3.8 ONE EXPRESSION PHASE (OBJECT IDENTITY): the sealed FACTS and the DIAGNOSTICS are BOTH projections of
    the SAME retained [Compilable.phase_ot] outcome Index.table inside one [Compilable.Phase] ([facts_and_diags_share_phase]); and the
-   type-name TABLE OBJECT sealed into a successful Compilable.Facts IS the [Compilable.phase_tnft] of the phase actually built
+   type-name TABLE OBJECT sealed into a successful Compilable.Facts IS the [Compilable.phase_type_name_facts] of the phase actually built
    ([core_seals_tnfacts]) — quantified over the CONSTRUCTED object, not a global helper. *)
 Print Assumptions Compilable.facts_and_diags_share_phase.
 Print Assumptions Compilable.core_seals_tnfacts.
@@ -477,18 +477,18 @@ Print Assumptions Compilable.erased_is_diagnostics.
 (* §11.2/§11.5 NO-RECONSTRUCTION SHARED OBJECT FLOW: each phase component IS the builder applied to the phase's OWN
    prior objects (definitional equality of the concrete [build_expression_phase] — one work-discovery let, passed
    forward; the sub-builders are forest/object-parameterized, so none re-runs [build_expr_work_forest]).  [Compilable.phase_ot]
-   consumed [Compilable.phase_work]+[Compilable.phase_tnft]; [Compilable.phase_awork] consumed [Compilable.phase_work]; [Compilable.phase_eft] consumed [Compilable.phase_work]+[Compilable.phase_ot]; [Compilable.phase_diag]
+   consumed [Compilable.phase_work]+[Compilable.phase_type_name_facts]; [Compilable.phase_awork] consumed [Compilable.phase_work]; [Compilable.phase_fact_table] consumed [Compilable.phase_work]+[Compilable.phase_ot]; [Compilable.phase_diag]
    consumed [Compilable.phase_awork]+[Compilable.phase_ot]. *)
 Print Assumptions Compilable.phase_ot_consumes_work.
 Print Assumptions Compilable.phase_awork_consumes_work.
-Print Assumptions Compilable.phase_eft_consumes_work_ot.
+Print Assumptions Compilable.phase_fact_table_consumes_work_outcomes.
 Print Assumptions Compilable.phase_diag_consumes_awork_ot.
 (* §9/§2.8 the fact-side seal by OBJECT IDENTITY: the Compilable.ExpressionFactTable OBJECT sealed into a successful
-   Compilable.Facts IS [Compilable.expression_facts_table (Compilable.phase_eft)] of the phase actually built (not a fresh Index.table whose map merely
+   Compilable.Facts IS [Compilable.expression_facts_table (Compilable.phase_fact_table)] of the phase actually built (not a fresh Index.table whose map merely
    equals the projection). *)
 Print Assumptions Compilable.core_seals_facts.
 (* §5/§2.9 the sealed type-name Index.table has RETAINED-INPUT PROVENANCE: it IS build_type_name_fact_table of the
-   phase's own Compilable.Input — the phase's [Compilable.phase_tnft] is DEFINITIONALLY that builder (no stored provenance
+   phase's own Compilable.Input — the phase's [Compilable.phase_type_name_facts] is DEFINITIONALLY that builder (no stored provenance
    equality; the concrete [build_expression_phase] let-binds it). *)
 Print Assumptions Compilable.built_core_tnfacts_from_input.
 (* §5.3 repeated equal source names at DISTINCT occurrences -> DISTINCT target refs (distinct keys) with EQUAL
@@ -522,7 +522,7 @@ Print Assumptions Compilable.deep_fail_outer_childfail.
 Print Assumptions Compilable.deep_fail_exactly_one_diag.
 Print Assumptions Compilable.deep_nested_all_ok.
 Print Assumptions Compilable.over_program_failure_carries_core_diags.
-Print Assumptions Compilable.deep_nested_seals_eft.
+Print Assumptions Compilable.deep_nested_seals_expression_fact_table.
 Print Assumptions Compilable.deep_nested_work_count.
 Print Assumptions Compilable.phase_domain_exact.
 (* §3/§4 (REPAIR 11; source-step identity §3 REPAIR 12) the DIRECT FINAL-TO-TAIL CLOSURE + STORED-DIAGNOSTIC
@@ -535,7 +535,7 @@ Print Assumptions Compilable.phase_domain_exact.
      valid conversions ([deep_nested_chain_success_evidence]);
    - the innermost convfail's retained cause CONNECTED to the exact stored [Compilable.InvalidConversion]
      ([deep_fail_innermost_diag] — same fields, t = the exact predeclared-context target fact query
-     [Compilable.fact_type (type_name_fact_at_table (Compilable.phase_tnft phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))], the exact retained
+     [Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))], the exact retained
      annotated member/context pair supplying [outer], and [Compilable.phase_diags] EXACTLY that singleton, no second reason);
    - the strong per-occurrence child-failure closure ([deep_fail_childfail_closure_at]: exact ConversionStep +
      operand + tail=final failure + current Compilable.ChildFailure + no local reason).
@@ -573,7 +573,7 @@ Print Assumptions Compilable.rune_int32_erased_differ.
 Print Assumptions Compilable.compile_class_spec.
 (* decision (expression half): every println argument resolves IFF program_typedb / Typing.Program. *)
 Print Assumptions Compilable.expression_all_ok_program_typedb.
-Print Assumptions Compilable.expression_all_ok_ProgramTyped.
+Print Assumptions Compilable.expression_all_ok_iff_typed_program.
 (* EXPRESSION COMPLETENESS: no expression diagnostic IFF the program types (the diagnostics<->decision
    equivalence for the expression half). *)
 Print Assumptions Compilable.emits_none_program_typedb.
@@ -592,19 +592,19 @@ Print Assumptions Compilable.missing_diags_empty_iff_rules.
    the exactly-one CONSEQUENCE) it supersedes stays an internal lemma, covered by the whole-theory audit. *)
 Print Assumptions Compilable.package_diags_empty_iff_rules.
 Print Assumptions Compilable.semantic_diagnostics_empty_iff.
-Print Assumptions Compilable.elaborate_ok_iff_GoCompile.
-Print Assumptions Compilable.elaborate_failed_iff_not_GoCompile.
+Print Assumptions Compilable.elaboration_accepted_iff_admissible.
+Print Assumptions Compilable.elaboration_rejected_iff_inadmissible.
 
 (* the LIVE source root is the FACTORED [SourceProgramValid] (= Typing.Program /\ PackageRulesValid,
    i.e. package-block uniqueness AND main-package entry as separate roots).  The retained universal theorem
    [current_package_rules_exactly_one] states the CURRENT-grammar consequence (the factored rules coincide with
    "every package has one main").  The DECIDABLE reflection is [source_spec_valid_b_iff] (and the decision-side
-   [semantic_ok_b_SourceProgramValid], gated above) — DIRECT, with no [prog_ok]/[ProgValid]. *)
+   [Compilable.semantic_ok_b_source_program_valid], gated above) — DIRECT, with no [prog_ok]/[ProgValid]. *)
 Print Assumptions Compilable.current_package_rules_exactly_one.
 (* the readable SPECIFICATION package reflection (for fixtures / proof convenience — NOT the production decision):
    [source_spec_package_rules_b] decides the two factored roots DIRECTLY (block uniqueness ↔ [PackageDeclsUnique],
    entry ↔ [MainPackagesHaveEntry]) — no combined "=1". *)
-Print Assumptions Compilable.source_spec_package_rules_b_PackageRulesValid.
+Print Assumptions Compilable.source_spec_package_rules_b_package_rules_valid.
 Print Assumptions Compilable.source_spec_valid_b_iff.
 (* Admissible INCLUDES the pinned one-shot `go build ./...` output PREFLIGHT.  The three
    diagnostic layers each have an emptiness/equivalence characterization (source, fresh, final); a failed
@@ -614,16 +614,16 @@ Print Assumptions Compilable.preflight_fails_iff.
 Print Assumptions Compilable.semantic_diagnostics_empty_iff_source_valid.
 Print Assumptions Compilable.fresh_build_diagnostics_nil_iff.
 Print Assumptions Compilable.fresh_build_diagnostics_fail_singleton.
-Print Assumptions Compilable.elaboration_diagnostics_nil_iff_GoCompile.
+Print Assumptions Compilable.elaboration_diagnostics_nil_iff_admissible.
 Print Assumptions Compilable.elaboration_diagnostics_eq_semantic.
 Print Assumptions Compilable.elaboration_diagnostics_fresh_failure.
 Print Assumptions Compilable.compile_projects_elaborate.
 (* the FreshBuildPlan / final report / acceptance class depend on the ModuleSpec (the preflight's
    default exec name is a ModulePath.T function), so their determinism needs the FULL ProgramInputEqual, NOT
    FilesEqual alone (the counterexample: equal files, different module -> different plan). *)
-Print Assumptions Compilable.root_layout_InputEqual.
-Print Assumptions Compilable.fresh_build_plan_InputEqual.
-Print Assumptions Compilable.erased_elaboration_report_InputEqual.
+Print Assumptions Compilable.root_layout_input_equal.
+Print Assumptions Compilable.fresh_build_plan_input_equal.
+Print Assumptions Compilable.erased_elaboration_report_input_equal.
 (* the fresh BUILD PLAN and ROOT LAYOUT are RETAINED in Compilable.Facts (derived ONCE from
    the retained package buckets, whose keys ARE the selected package set), so a Compilable.Program PROJECTS the
    exact plan its elaboration used — never a recompute from the program. *)
@@ -755,8 +755,8 @@ Print Assumptions Emit.image_keys_nodup.
    CANONICAL transport lists are EQUAL; and the whole [Emit.transport] is INDEPENDENT of input-node order. *)
 Print Assumptions Emit.file_map_domain.
 Print Assumptions Emit.file_map_binding.
-Print Assumptions Emit.file_map_Equal.
-Print Assumptions Emit.entries_Equal.
+Print Assumptions Emit.file_map_equal.
+Print Assumptions Emit.entries_equal.
 Print Assumptions Emit.transport_order_independent.
 (* the Emit.Image BRIDGE: the rendered image REALIZES the fresh root layout the plan is
    computed over ([Emit.source_layout] over the image's own keys = [root_layout] over the source program), and
@@ -914,17 +914,17 @@ Print Assumptions Index.index_program_syntax.
 Print Assumptions Index.indexed_syntax_proj.
 (* the canonical Index.Key ordered key + standard AVL map: ordered equality, add/find laws, and canonical
    elements as a function of the map's meaning (Equal maps enumerate identically). *)
-Print Assumptions Index.nodekey_compare_eq.
-Print Assumptions Index.nodekeymap_add_eq.
-Print Assumptions Index.nodekeymap_add_neq.
-Print Assumptions Index.nodekeymap_elements_Equal.
+Print Assumptions Index.key_compare_equal.
+Print Assumptions Index.key_map_add_equal.
+Print Assumptions Index.key_map_add_unequal.
+Print Assumptions Index.key_map_elements_equal.
 (* the UNIVERSAL query-projection bridge: every typed expression query PROJECTS its occurrence's
    EXACT analyzed fact (the const-status the fact Index.table stores).  (The concrete per-program erased-report /
    fact-enumeration / single-failure-scar fixtures stay COMPILED as tests + covered by the whole-theory audit,
    but are NOT gated surfaces — they are fixed-program witnesses, not universal claims.) *)
 Print Assumptions Compilable.expression_fact_at_exact.
 (* the UNIVERSAL STRICT canonical-order theorem: the report's node-primary diagnostics appear in
-   STRICTLY ascending Index.Key order (path then local id) via the standard NodeKeyMap's key-sorted elements —
+   STRICTLY ascending Index.Key order (path then local id) via the standard Index.KeyMap's key-sorted elements —
    NO project-authored sort.  Backed by the two supporting claims the order rests on: the node-keyed INPUT has
    UNIQUE keys (expr keys NoDup + pkg keys NoDup + their disjointness), so every bucket is a SINGLETON — hence
    there are NO within-bucket ties to reorder; the bucketing is a REORDERING and the report has exactly the
@@ -932,7 +932,7 @@ Print Assumptions Compilable.expression_fact_at_exact.
 Print Assumptions Compilable.collect_node_input_nodup.
 Print Assumptions Compilable.collect_node_buckets_singleton.
 Print Assumptions Compilable.semantic_diagnostics_node_strict.
-Print Assumptions Compilable.collect_diagnostics_In.
+Print Assumptions Compilable.collect_diagnostics_in.
 (* the SOURCE characterization of the erased report (ties the report to its source form; the universal
    diagnostic-exactness claims above rest on it). *)
 Print Assumptions Compilable.erased_report_src_eq.
