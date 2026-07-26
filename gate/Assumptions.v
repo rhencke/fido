@@ -202,10 +202,6 @@ Print Assumptions Compilable.compile_rejected_not_admissible.
 Print Assumptions Emit.of_safe_at.
 Print Assumptions Emit.of_safe_at_refl.
 Print Assumptions Emit.of_safe_at_transport.
-Print Assumptions Compilable.compile_elaboration_core.
-Print Assumptions Compilable.compile_accepted_shape.
-Print Assumptions Compilable.compile_rejected_shape.
-Print Assumptions Compilable.core_diags_nil_of_valid.
 (* map-based PACKAGE GROUPING via a standard [PackageMap] in ONE [FileMap.fold]: EXACTNESS (every file
    contributes to its own parent package; no package without a file; a summary's main count IS the sum over
    its files; empty file map -> empty package map) and ORDER-INDEPENDENCE (map-equal file collections and
@@ -535,8 +531,7 @@ Print Assumptions Compilable.over_program_failure_retains_rejected_core.
 Print Assumptions Compilable.deep_nested_capability_retains_elaboration.
 Print Assumptions Compilable.deep_fail_capability_retains_rejected_elaboration.
 Print Assumptions Compilable.twin_capability_retains_distinct_occurrences.
-Print Assumptions Compilable.core_query_transport.
-Print Assumptions Compilable.core_prop_retained.
+Print Assumptions Compilable.core_prop_at_source.
 (* §11.1/§11.4: the core retains the WHOLE elaboration — buckets, layout, plan and both
    diagnostic lists are stored with their exactness evidence, not recomputed on each query; and the
    rejected capability retains that exact core rather than a copied diagnostic list. *)
@@ -544,9 +539,14 @@ Print Assumptions Compilable.core_prop_retained.
    its raw diagnostics ARE that stored map's diagnostics — no step reruns [program_visit] or rebuilds the
    map.  The two canonical lemmas below are SPECIFICATION bridges only; no production query or capability
    fixture recovers a retained object through them. *)
-Print Assumptions Compilable.built_core_refs_fold_own_visit.
+Print Assumptions Compilable.core_refs_fold_own_visit.
 Print Assumptions Compilable.core_raw_diagnostics_consume_retained_refs.
-Print Assumptions Compilable.built_core_raw_diagnostics_direct.
+Print Assumptions Compilable.admissible_dec.
+Print Assumptions Compilable.compile_rejected_of_inadmissible.
+Print Assumptions Compilable.forest_count_source.
+Print Assumptions Compilable.core_work_count_source.
+Print Assumptions Compilable.member_at_in_forest.
+Print Assumptions Compilable.twin_distinct_in_forest.
 Print Assumptions Compilable.accepted_package_refs_are_decision_refs.
 Print Assumptions Compilable.rejected_package_refs_are_decision_refs.
 Print Assumptions Compilable.package_bucket_diagnostics_from_refs.
