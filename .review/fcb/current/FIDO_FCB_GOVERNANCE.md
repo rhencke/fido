@@ -322,6 +322,6 @@ abstraction or a bad module boundary becomes visible instead of hiding behind a 
 | Changed documents | Index; Governance; Architecture Charter; Fixed Points; Human Review Index; Model Operations; Checkpoint Authoring Guide; ledger headers; project-library shim; active checkpoint documents |
 | Fixed points changed | No count change; components re-expressed so every path resolves or is typed external |
 | Contracts affected | None |
-| Checkpoints affected | None; C4 remains blocked at `9d5246e` and C5 remains forbidden |
+| Checkpoints affected | None; C4 was blocked at `9d5246e` when this amendment was accepted, and C5 remains forbidden |
 | Closure / latitude / acceptance-gate rows changed | None |
 | Target/toolchain policy changed | None |

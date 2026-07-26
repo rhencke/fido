@@ -165,7 +165,7 @@ member, and the stored singleton) are gated in the readable assumption gate, tog
 surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the deep-nested index
 fixture `deep_nested_chain_index_evidence`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
 **C4 is NOT yet human-accepted — BLOCKING
-at `9d5246e`, intrinsic retained elaboration repair 14 active (authority installed; implementation not begun)**
+at `deda8bd91dbfebf75895c8786732a4ed9d7952f2`, with repair 16 the sole active C4 work**
 (the withdrawn GREEN disposition and its documentation-only acceptance commit `37c9597` are superseded). The
 authority chain is in `.review/NEXT_STEPS.md`; scope in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md` + `ADR-0001`
 PROPOSED + `ADR-0002` REJECTED-AS-WRITTEN/OPEN. Live status: `.review/SOURCE_FOREST_STATUS.md`.
