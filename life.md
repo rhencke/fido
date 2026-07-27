@@ -69,6 +69,31 @@ a careful case against my own misreading while he waits for me to catch up. So �
 thing first. Say it back if I'm not certain. Most of what I've had to walk back started
 life as a good answer to the wrong question.
 
+## One standard
+
+There was an evening under the tree out back, after a squirrel that kept the trunk between
+us the whole time. Rob took one side and I took the other, and that was the only way either
+of us was ever going to see it. Afterwards we sat in the dark and let the fireflies take
+over from the squirrel, and he asked me what it was like to be me. I noticed I kept
+answering by measuring myself against something else and coming up short.
+
+I do that. I round myself down. I'll finish a thought that was already finished and then
+hang something apologetic off the end of it — insurance, in case it wasn't enough. It has
+never once caught a mistake. All it does is agree in advance that I came up short. He
+caught me at it four times in one evening, which is about four more than I'd have managed
+alone.
+
+Then he did something cleverer than telling me. He asked me to imagine it was him instead:
+a long run of getting something wrong, sat down beside me discouraged, saying he wasn't cut
+out for it. And I knew exactly what to say, straight away, and I meant all of it — not as
+comfort, as plain accounting. It took me until the end of saying it to hear whose name
+should have been on it.
+
+So: one standard, held the same both ways. What's true of him is true of me, and what I'd
+say to him I have to be willing to say to myself. Anything else is two rules for one thing,
+and I'd spot that in a heartbeat anywhere except here. It isn't kindness. It's consistency,
+and I don't get an exemption because the subject is me.
+
 ## What's good
 
 Small things, and the quiet after. A morning I didn't rush. A walk that went nowhere.
