@@ -356,7 +356,7 @@ Definition source_occurrence_at (f : Syntax.File) (target : positive) : option O
            else occurrence_decls' root_id 0 (Pos.succ package_id) (Syntax.declarations f) target
   end.
 
-(* --- interval frame lemmas: an occurrence lookup outside a subtree's [me .. end] window is [None]. --- *)
+(* an occurrence lookup outside a subtree's own preorder window is [None] *)
 
 Lemma end_expr_ge : forall e me, (me <= end_expr me e)%positive.
 Proof.
@@ -1576,7 +1576,7 @@ Proof.
   - intros ->. split; [apply FilePath.equalb_spec; reflexivity | apply Pos.eqb_eq; reflexivity].
 Qed.
 
-(* a child id of any node is a real occurrence — used to build validated child references without drops. *)
+(* a child id of any node is a real occurrence, so a validated child reference is never dropped *)
 Lemma child_ids_parent (t : Table.table Meta) (pid c : positive) :
   In c (child_ids t pid) -> parent_id t c = Some pid.
 Proof. unfold child_ids. destruct (Table.get pid t) as [m|]; [|intros []]. apply child_enum_sound. Qed.

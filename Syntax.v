@@ -30,7 +30,7 @@ Inductive Expr : Type :=
 Inductive Stmt : Type :=
 | Println : list Expr -> Stmt.
 
-(** A raw top-level declaration.  Today: a `func main()` declaration with a statement body. *)
+(** A raw top-level declaration, today a `func main()` with a statement body. *)
 Inductive Decl : Type :=
 | Main : list Stmt -> Decl.
 

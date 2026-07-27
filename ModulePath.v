@@ -94,7 +94,7 @@ Definition path_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
 Fixpoint all_path_chars (s : string) : bool :=
   match s with EmptyString => true | String c s' => path_char c && all_path_chars s' end.
 
-(** Go reads a dotless first element as a standard-library candidate, so a required dot keeps paths outside it. *)
+(** Go reads a dotless first element as standard library, so a required dot keeps paths outside it. *)
 Fixpoint before_slash (s : string) : string :=
   match s with
   | EmptyString => EmptyString

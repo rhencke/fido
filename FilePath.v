@@ -15,7 +15,7 @@ Fixpoint tail_ok (s : string) : bool :=
 Definition component_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => is_lower c && tail_ok s' end.
 
-(** Directory names `go build ./...` ignores, so a file beneath one would be certified and never built. *)
+(** A file beneath one of these directories would be certified and never built by `go build ./...`. *)
 Definition reserved_dir (s : string) : bool := String.eqb s "testdata" || String.eqb s "vendor".
 
 Definition dir_component_ok (s : string) : bool := component_ok s && negb (reserved_dir s).
