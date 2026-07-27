@@ -316,13 +316,6 @@ Proof.
   f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec).
 Qed.
 
-Definition package_ref_eq_dec : forall p (r1 r2 : PackageRef p), {r1 = r2} + {r1 <> r2}.
-Proof.
-  intros p r1 r2. destruct (string_dec (package_ref_key r1) (package_ref_key r2)) as [He|Hne].
-  - left. apply package_ref_key_inj; exact He.
-  - right. intro H; apply Hne; rewrite H; reflexivity.
-Defined.
-
 (** construction from a real file binding: its package (parent directory) is present (the binding witnesses it). *)
 Definition package_ref_of_binding (p : Syntax.Program) (b : FilePath.T * Syntax.File)
   (Hin : In b (Syntax.file_bindings (Syntax.files p))) : PackageRef p.
@@ -2057,10 +2050,6 @@ Arguments work_in_visit {p input} _.  Arguments work_view_exact {p input} _.
 Arguments work_as_expr_exact {p input} _.  Arguments work_erase_exact {p input} _.
 Arguments work_conv {p input} _.
 
-(* the work item's role, DERIVED from its exact ExprRef (not a stored duplicate). *)
-Definition work_role {p} {input : Input p} (w : Work input) : Index.Role :=
-  expression_ref_role (work_expr_ref w).
-
 (* whole-visit membership transports to [program_visit] membership through the retained coherence [input_visit_ok]. *)
 Definition in_program {p} {input : Input p} {ro} (H : In ro (input_visit input)) : In ro (program_visit p) :=
   eq_ind (input_visit input) (fun L => In ro L) H (program_visit p) (input_visit_ok input).
@@ -3462,11 +3451,6 @@ Definition semantic_ok_b (p : Syntax.Program) : bool := expression_all_ok p && s
 Lemma semantic_ok_b_source_spec_valid_b (p : Syntax.Program) : semantic_ok_b p = source_spec_valid_b p.
 Proof. unfold semantic_ok_b, source_spec_valid_b. rewrite expression_all_ok_program_typedb. reflexivity. Qed.
 
-(* this elaboration decision is the source half, reflected directly against the factored source root *)
-Lemma semantic_ok_b_split (p : Syntax.Program) :
-  semantic_ok_b p = true <-> expression_all_ok p = true /\ source_spec_package_rules_b p = true.
-Proof. unfold semantic_ok_b. rewrite Bool.andb_true_iff. reflexivity. Qed.
-
 (* the expression diagnostic per occurrence: its primary is the occurrence's own reference, never minted *)
 
 Definition default_target_of (c : Typing.Constant) : Typing.SemanticType :=
@@ -4143,18 +4127,6 @@ Lemma flat_map_occ_is_expr_filter {p}
 Proof.
   induction l as [|[ro c] l IH]; [reflexivity|].
   cbn [flat_map filter fst snd]. destruct (occurrence_is_expr ro); cbn [app]; rewrite IH; reflexivity.
-Qed.
-
-(* dropping a filter under flat_map when the removed elements contribute nothing. *)
-Lemma flat_map_filter_dead {A B} (f : A -> bool) (g : A -> list B) (l : list A) :
-  (forall x, In x l -> f x = false -> g x = []) ->
-  flat_map g (filter f l) = flat_map g l.
-Proof.
-  induction l as [|a l IH]; intro H; [reflexivity|]. cbn [filter].
-  destruct (f a) eqn:Ef; cbn [flat_map].
-  - rewrite (IH (fun x Hx => H x (or_intror Hx))); reflexivity.
-  - rewrite (H a (or_introl eq_refl) Ef); cbn [app];
-      rewrite (IH (fun x Hx => H x (or_intror Hx))); reflexivity.
 Qed.
 
 (** the one retained annotated forest object, its members exactly the forest's items in forest order *)
@@ -4999,13 +4971,6 @@ Definition decl_count_list {A} (l : list (A * Index.Occurrence)) : nat :=
 Lemma decl_count_list_cons {A} (x : A * Index.Occurrence) (l : list (A * Index.Occurrence)) :
   decl_count_list (x :: l) = (decl_kind_count (snd x) + decl_count_list l)%nat.
 Proof. reflexivity. Qed.
-
-Lemma decl_count_list_app {A} (a b : list (A * Index.Occurrence)) :
-  decl_count_list (a ++ b) = (decl_count_list a + decl_count_list b)%nat.
-Proof.
-  induction a as [|x a IH]; [reflexivity|].
-  rewrite <- app_comm_cons, (decl_count_list_cons x (a ++ b)), (decl_count_list_cons x a), IH. lia.
-Qed.
 
 (** [decl_count_list] depends only on the OCCURRENCE component (the [snd]-projection). *)
 Lemma decl_count_list_snd {A B} (l1 : list (A * Index.Occurrence)) (l2 : list (B * Index.Occurrence)) :
@@ -5858,18 +5823,6 @@ Proof.
     rewrite or_assoc, <- (flat_map_snd_find M (fst kx) d), IH. tauto.
 Qed.
 
-Lemma existsb_in_eq {A} (f : A -> bool) (l1 l2 : list A) :
-  (forall x, In x l1 <-> In x l2) -> existsb f l1 = existsb f l2.
-Proof.
-  intro H. destruct (existsb f l1) eqn:E1; destruct (existsb f l2) eqn:E2; try reflexivity.
-  - apply existsb_exists in E1. destruct E1 as [x [Hin Hf]].
-    assert (Hc : existsb f l2 = true) by (apply existsb_exists; exists x; split; [apply H; exact Hin | exact Hf]).
-    rewrite Hc in E2; discriminate.
-  - apply existsb_exists in E2. destruct E2 as [x [Hin Hf]].
-    assert (Hc : existsb f l1 = true) by (apply existsb_exists; exists x; split; [apply H; exact Hin | exact Hf]).
-    rewrite Hc in E1; discriminate.
-Qed.
-
 Lemma node_pkg_in {p} (l : list (DiagnosticReason p)) (d : DiagnosticReason p) :
   In d (map snd (node_keyed l)) \/ In d (package_primary l) <-> In d l.
 Proof.
@@ -6590,15 +6543,6 @@ Theorem program_expr_facts_enum_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) ->
   Index.KeyMap.elements (program_expr_facts p1) = Index.KeyMap.elements (program_expr_facts p2).
 Proof. intro Heq. rewrite (program_expr_facts_files_equal p1 p2 Heq). reflexivity. Qed.
-
-(* the two diagnostic families never overlap, so a reported reason attributes to one half *)
-
-Lemma existsb_all_false {A} (f : A -> bool) (l : list A) :
-  (forall x, In x l -> f x = false) -> existsb f l = false.
-Proof.
-  induction l as [|x xs IH]; [reflexivity|]. intro H. cbn [existsb].
-  rewrite (H x (or_introl eq_refl)), IH by (intros y Hy; apply H; right; exact Hy). reflexivity.
-Qed.
 
 (** a missing-main diagnostic comes from an empty bucket and anchors at that represented package *)
 Lemma package_diag_of_bucket_missing_sound {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres dir l Hmt pk :
@@ -8937,10 +8881,6 @@ Proof.
   - apply (proj1 (source_spec_valid_b_iff p2)) in E2. apply (source_program_valid_files_equal p2 p1 (Syntax.files_equal_sym _ _ Heq)) in E2.
     apply (proj2 (source_spec_valid_b_iff p1)) in E2. rewrite E2 in E1; discriminate.
 Qed.
-
-(* [source_spec_valid_b] is exactly the conjunction of the two decision halves. *)
-Lemma source_spec_valid_b_eq : forall p, source_spec_valid_b p = program_typedb p && source_spec_package_rules_b p.
-Proof. reflexivity. Qed.
 
 (** admissibility is decidable from the two source booleans, so no proof here names a builder *)
 Lemma admissible_dec : forall p, {Admissible p} + {~ Admissible p}.
