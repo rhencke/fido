@@ -8,17 +8,21 @@ carries a candidate identity.
 
 - **REPAIR 21 IS THE SOLE ACTIVE C4 IMPLEMENTATION TASK.**
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_21.md`. <!-- FIDO-FCB-REF:REVIEW-C4-IMPLEMENTATION-REPAIR-21-MD -->
-- **C4 is NOT accepted.** Only Rob accepts it. `964575286acdb3c16df4bb9a11f1194a9418978c` is the
+- **Candidate offered for human review.** `39ea7e3b012ec798c6a756c971c10bb363557ef8` is the C4 implementation
+  candidate; both blocker classes are closed and the obligation matrix reads 13 of 13.
+- **C4 is still NOT accepted.** Only Rob accepts it. `964575286acdb3c16df4bb9a11f1194a9418978c` is the
   twenty-second blocked candidate; `d17fbe37d28a71c6f64e166409b494b30287c8b6` was its documentation-only
   freeze and is not a separate candidate.
-- **The two blocker classes repair 21 must close.**
-  1. **`D-24` still proves a self-selected subset.** The gate encoded the repository path grammar in Python —
+- **The two blocker classes repair 21 closed.** Both were reproduced against the previous candidate before
+  anything was edited, and every root helper was then mutation-tested by deleting its effect and requiring
+  its own named controls to fail.
+  1. **`D-24` proved a self-selected subset.** The gate encoded the repository path grammar in Python —
      hard-coded namespace roots and root files, substring marker binding, unchecked path spellings, owner
      paths that could leave the tree, and a repository path that could be exempted by retyping it as external
      evidence. A gate that chooses which namespaces exist can only prove the subset it recognised. The path
-     universe must come from the repository inventory of the exact snapshot being checked, through one
+     universe now comes from the repository inventory of the exact snapshot being checked, through one
      canonical repository-path parser shared by manifest targets, owners, live-set entries, Index table cells
-     and paths found in authority prose.
+     and paths found in authority prose. 131 files, 94 rows, 23 authorities, 62 controls, 14 mutants.
   2. **The canonical human-act data contradicted this file.** The `C4-REVIEW` row carried a candidate SHA and
      a "no candidate is offered" state while this file offered one. `NEXT_STEPS` alone owns mutable candidate
      identity; the human act states only the durable act, and the generator refuses any Git object ID in open
@@ -29,7 +33,8 @@ carries a candidate identity.
   cleanup and proof-module partitioning.
 - **Obligation tracking.** `.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv` holds one row per repair-21 <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-21-OBLIGATION-MATRIX-TSV -->
   obligation. `make claims` refuses to let `.review/REVIEW_REQUEST.md` request review while any row is
-  absent, duplicate, malformed or open.
+  absent, duplicate, malformed or open. The whole-system closure audit is
+  `.review/C4_REPAIR_21_CLOSURE_AUDIT.md`. <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-21-CLOSURE-AUDIT-MD -->
 - **Retained results — do NOT regress.** Repair 20: A007 and the M-series authority installed before
   implementation, `Local Notation` judged over Rocq statements, corpus membership carried by the manifest's
   `corpus_role`, and the live FCB set declared. Repair 19: the exact source occurrence in the public cause
