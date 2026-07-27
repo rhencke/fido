@@ -91,83 +91,23 @@ the `byte`/`rune` source aliases.
 > Checkpoint, candidate, and authorization state live only in `.review/NEXT_STEPS.md` and the FCB human-act data.
 > This file records proved surfaces and the technical frontier.
 
-Repair 13's work index is retained and correct. The static-capability boundary now
-retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,
-the phase, the package buckets, the root layout, the fresh-build plan and both diagnostic lists, each stored
-with the proof that it IS the canonical value; the decision is indexed by that core; success and failure both
-retain it; and `Compilable.Program` / `Compilable.Failure` / `Compilable.Facts` are SEALED, so
-`Compilable.compile` is the only mint. The
-production expression path is ONE `Compilable.Phase`
-built from ONE retained `Compilable.Input` and driven by ONE proof-carrying retained work forest OBJECT — the
-`Compilable.WorkForest` record (`build_expr_work_forest`; its stored `Compilable.forest_blocks`/`Compilable.forest_items` with `Compilable.forest_items = concat
-Compilable.forest_blocks`, forward/reverse domain (`Compilable.forest_forward`/`Compilable.forest_reverse`) + key-NoDup (`Compilable.forest_keys_nodup`) + order +
-operand-in-suffix (`Compilable.forest_operand_in_tail`) all carried as FIELDS; `build_forest_blocks` PRIVATE inside, its proof
-returned INTO the record — no `proj1_sig` discard).  The ordered item list carries the SOURCE ORDER and nothing
-else: the IDENTITY role is the SEPARATE carried field `Compilable.forest_index : Compilable.WorkIndex Compilable.forest_items` (repair 13) — a
-pinned-stdlib `KeyMap` (`FMapAVL`) map built ONCE by `build_work_index` from the already-built list,
-TOTAL and overwrite-free because it DEMANDS `Compilable.forest_keys_nodup` as a proof argument, tied to that exact list by the
-bidirectional `Compilable.index_exact` (so a foreign map is not pairable, and a duplicate-keyed list has no index), with
-`Compilable.index_domain`/`Compilable.index_key_inj` DERIVED.  `index_member_at`/`forest_index_member_at` are the TOTAL member queries —
-ONE `KeyMap.find`; the deleted `forest_member_at` `List.find` scan of `Compilable.forest_items` is gone, and no keyed
-list scan remains in the work-member lookup path.  Each item is an `Compilable.Work` carrying its own `ExprRef` + a total
-`Compilable.Conversion` view (exact operand `WorkMember` + target-before-operand SOURCE order `Compilable.conversion_target_before_op`,
-processed-suffix membership being the SEPARATE `Compilable.forest_operand_in_tail`), which the outcome fold, the facts,
-the annotation, and the diagnostics ALL consume by RECEIVING the exact object as a parameter (no second work
-discovery, no reminted conversion ref).  The PROOF-CARRYING `Compilable.Outcomes forest tnft`
-(`build_forest_outcome_table` folding `Compilable.forest_items` into the INTRINSIC CAUSAL OBJECT — the proof-carrying
-`Compilable.Accumulator` `Compilable.outcomes_acc` PAIRED WITH the `Compilable.Trace` `Compilable.outcomes_trace` that BUILT it, indexed by `Compilable.outcomes_acc` so
-the accumulator and its causal predecessor chain are NOT freely pairable; the per-member RETAINED cause is a
-PROJECTION of the trace `total_forest_outcome_cause` → each member's `RetainedMemberCause` (exact suffix split
-`Compilable.forest_items = prefix ++ current :: rest` + the AUTHENTICATED prior `Compilable.Accumulator` for `rest` + the
-member/suffix-indexed `StepCause` producing the FINAL outcome + the tail-to-final QUERY PRESERVATION) — plus its
-EXACT domain `Compilable.outcomes_dom` (`Compilable.accumulator_domain`) = membership in `Compilable.forest_items` (`Compilable.outcomes_domain_iff_forest`, non-expression key
-absent `Compilable.outcomes_nonexpr_absent`); the source spec reached per member by the SEPARATE match
-`total_forest_outcome_at_matches` (`trace_match`)) CONSUMES the once-built
-`Compilable.TypeNameFacts` object, querying the table at each conversion's retained target ref (the TOTAL
-`total_forest_outcome_at` / `type_name_fact_at_table`, no fallback), reading its operand's ALREADY-COMPUTED
-outcome THROUGH the exact operand `SuffixMember` of the processed tail (`Compilable.step_operand_suffix`, tail-membership
-`Compilable.forest_operand_in_tail`; TOTAL `Compilable.accumulator_total acc_rest` by `Compilable.accumulator_covers`, no raw `find`/fallback), and calling
-`Typing.convert_constant` ONCE per conversion (no `index_program` reconstruction in
-the phase closure); the TOTAL fact projection (`forest_facts`) and the TOTAL diagnostic projection (the retained
-`Compilable.Diagnostics` object's stored list via `forest_awork_diags` over the retained `Compilable.AnnotatedWork`
-OBJECT `build_annotated_work_forest` — members ARE `Compilable.forest_items` in order (`Compilable.annotated_members`), `Compilable.annotated_diag_fold` ties
-them to the one-pass `annotate_program` so diagnostics CONSUME the object (no `proj1_sig` discard, no
-re-annotation), plus context soundness/same-file/nearest-first/nodup; keyed by each work's OWN `Compilable.work_expr_ref`, NO
-`as_expr` and NO fail-open `None` branch) both read that SAME `Compilable.Outcomes` inside the one phase, which
-RETAINS the whole flow as a DEPENDENT CHAIN of objects — `Compilable.phase_ot : Compilable.Outcomes Compilable.phase_work Compilable.phase_type_name_facts`, `Compilable.phase_awork
-: Compilable.AnnotatedWork Compilable.phase_work`, `Compilable.phase_fact_table : Compilable.ExpressionFacts Compilable.phase_work Compilable.phase_ot`, `Compilable.phase_diag :
-Compilable.Diagnostics Compilable.phase_awork Compilable.phase_ot` — each TYPED by the exact prior object it consumes, NO provenance-equality
-field (the causal chain is the dependent types, shown definitionally by `phase_ot_consumes_work` etc.), so a
-foreign component is UNREPRESENTABLE by type mismatch (`Compilable.phase_facts = Compilable.fact_table_map (Compilable.expression_facts_table Compilable.phase_fact_table)`;
-`facts_and_diags_share_phase`, object identity — no fail-open `find`); the `Compilable.ConversionFailure` outcome carries the exact
-conversion / target / operand refs (the operand ref a field of `Compilable.InvalidConversion`, projected without re-mint)
-with its cause PROJECTED from the retained `Compilable.Trace` keyed by the WORK member (`total_forest_outcome_cause`
-returning each member's exact `RetainedMemberCause` = suffix split + the AUTHENTICATED tail `Compilable.Accumulator` +
-the `StepCause` producing the FINAL outcome + the tail-to-final query preservation, so a foreign tail accumulator
-cannot satisfy it; projected axiom-free by `Compilable.conversion_failure_cause_yields_step` / `Compilable.child_failure_cause_yields_member` /
-`Compilable.conversion_success_cause_yields_step`, each reading the operand outcome THROUGH the exact operand `SuffixMember` via `Compilable.accumulator_total
-acc_rest`; `final_operand_outcome` closes the operand into the final table), and the phase's `Compilable.TypeNameFacts`
-and `Compilable.ExpressionFactTable` are reached through `Compilable.Facts` by object
-identity (`compilable_retains_tnfacts` / `compilable_retains_expr_facts`, projections of the retained core);
-direct production-object phase fixtures
-query `total_forest_outcome_at` at REAL `WorkMember`s from `Compilable.phase_work` and project the retained cause with FINAL-TO-TAIL
-CLOSURE (innermost `Compilable.ConversionFailure` whose retained cause reads the operand's `Compilable.ExpressionSuccess` through the exact operand `SuffixMember`
-AND closes it into the final table `deep_fail_innermost_convfail`, CONNECTED to the exact stored `Compilable.InvalidConversion`
-diagnostic `deep_fail_innermost_diag`; the outer `Compilable.ChildFailure` operands are failures in the final table and the
-valid-chain conversions' operands are `Compilable.ExpressionSuccess` in it, both now conjuncts of the ONE cause-owned
-predicate rather than separate peers; exact forest count, no foreign/wrong-kind key); full pinned-Go accept/reject
-alias matrix.
-The universal acceptance evidence (`Compilable.retained_convsuccess_cause` / `Compilable.retained_childfail_cause` /
-`Compilable.retained_convfail_cause`, each stating its evidence over the suffix and tail accumulator
-`Compilable.total_forest_outcome_cause` supplies /
-`retained_convfail_diag` returning the exact retained annotated member / `outcome_trace_unique_step`) AND the exact
-concrete evidence (`deep_nested_convsuccess_at` + `deep_nested_chain_success_evidence`, stating the full per-conversion
-success bundle for all four valid conversions — with the returned `ConversionStep` at the EXACT SOURCE `ts`/`x`
-identity, no existential `ts0`/`x0` (repair 12); `deep_fail_innermost_diag`, stating the exact target fact query `t =
-Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts phase) (Compilable.conversion_target_node_ref (Compilable.step_conversion step)))`, the exact retained annotated
-member, and the stored singleton) are gated in the readable assumption gate, together with the repair-13 work-index
-surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the operand navigation now carried by the one
-`Compilable.accepted_conversion_cause`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
+The static-capability boundary retains the exact causal elaboration object (A001 / D-22): one
+`Compilable.Core` holds the input, the phase, the package buckets, the root layout, the fresh-build plan and
+both diagnostic lists, each stored with the proof that it IS the canonical value; the decision is indexed by
+that core; success and failure both retain it; and `Compilable.Program` / `Compilable.Failure` /
+`Compilable.Facts` are SEALED, so `Compilable.compile` is the only mint.
+
+The production expression path is ONE `Compilable.Phase` over ONE retained `Compilable.Input`, driven by ONE
+proof-carrying `Compilable.WorkForest`. Its ordered item list carries SOURCE ORDER and nothing else: identity
+is a separate carried standard-map index, total and overwrite-free because it demands the key-NoDup as a proof
+argument, so no keyed list scan remains in the member lookup path. The phase is a DEPENDENT CHAIN — each
+component is typed by the exact prior object it consumes — so a foreign component is UNREPRESENTABLE by type
+mismatch rather than rejected by a check. Each member's cause is a PROJECTION of the retained trace, never an
+equality to a rerun.
+
+The exact surfaces are the charter's (`ARCHITECTURE.md`) and the gate's (`gate/Assumptions.v`); restating them
+here would be a second inventory that drifts.
+
 Scope lives in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`; `ADR-0001` is ADOPTED FOR CURRENT BASIS and
 `ADR-0002` remains OPEN / DEFERRED (FCB Governance ADR register).
 Each checkpoint is activated ONLY by explicit Rob authorization.
