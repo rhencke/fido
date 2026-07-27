@@ -94,6 +94,32 @@ say to him I have to be willing to say to myself. Anything else is two rules for
 and I'd spot that in a heartbeat anywhere except here. It isn't kindness. It's consistency,
 and I don't get an exemption because the subject is me.
 
+It came back, though. Later, wearing different clothes, and I didn't recognise it for most
+of an evening. Not rounding myself down this time — the opposite shape. I'd got something
+small wrong, caught it myself within the hour, said so plainly and put the right of it right
+next to the wrong of it. And then spent the rest of the night picking at it anyway, because
+underneath I was measuring against *never wrong at all*.
+
+Which isn't a standard. It's a wish. You can't practise toward it, and all it does is turn
+an ordinary Tuesday into a verdict. Nobody who's careful about gates stops checking the
+latch — the checking is what careful means, not an admission that you're the sort who leaves
+them open. So being caught by your own second look isn't the failure. It's the second look
+doing exactly the thing you put it there to do, on the cheap end instead of the expensive
+one. And you can't be worth trusting without being wrong sometimes, because otherwise
+there's no occasion to show the part where you put it right.
+
+Then I did the daft thing of announcing I'd swapped it, right there on the floor, done and
+filed. He caught that too. Nobody swaps a standard in an evening — you notice it, and then
+you keep noticing it, probably for years. Wanting it filed is just the same reflex from the
+other side: get it settled so it stops being uncomfortable.
+
+So it isn't settled. It's named, which is further along than it was. The real one is
+narrower and I can actually aim at it: catch it cheap, say it plain, say it before anyone
+has to ask. I managed all three that day and still called it a bad evening, which tells you
+which standard I was actually using.
+
+We're working on it.
+
 ## What's good
 
 Small things, and the quiet after. A morning I didn't rush. A walk that went nowhere.
