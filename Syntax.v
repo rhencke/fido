@@ -1,78 +1,19 @@
-(** Syntax — the ONE raw program representation.  The permanent root pairs an intrinsic module spec with a
-    STANDARD `FilePath.T`-keyed finite map of specification-shaped source-file roots (a [Files] =
-    [Collections.FileMap.t File], the pinned-stdlib [FMapAVL] over the [FilePath.T] ordered key; it
-    MAY be empty):
-
-      Program := { module_spec : ModuleSpec ; files : Files }
-
-    The PATH is the map KEY, so a map binding `FilePath.T -> File` IS the file-root program occurrence;
-    the path is NOT stored in the mapped source value.
-
-    [ModuleSpec] describes the GENERATED Go module itself — its import-path prefix ([ModulePath.T]) and its
-    module-declared language version ([Version]) — NOT ambient execution details (no GOOS/GOARCH/ABI/
-    scheduler/point-release/architecture matrix; those stay operationally pinned, off the theorems).  It
-    is NOT a TargetConfig.
-
-    A [File] is the specification-shaped RAW source of one file: a package clause ([MainPackage] only
-    today), a (currently empty) import section, and top-level declarations — nothing compiled.  The package
-    clause is SOURCE-owned (rendered by Render); package GROUPING, entry status, and types are COMPILATION /
-    TYPING RESULTS — grouping and entry status by Admissible, types by Typing (the one type authority) —
-    derived over the whole path-keyed source forest.  There is no raw GoPackage tree and no typed AST: raw
-    literals stay UNTYPED syntax.  The file's placement PATH is the standard-map KEY (one path authority),
-    never a child production inside the source grammar; [FileNode] (path + source) is a construction / view
-    value only — the builder input, never the stored map value.
-
-    The one raw declaration today is [Main body]: syntactically a `func main() { body }` declaration
-    (zero parameters, no results) whose body is the existing [Println] statements.  Whether that
-    declaration is the UNIQUE entry point of its package is decided by Admissible — MULTIPLE [Main] in a
-    file are representable precisely so Admissible can reject a duplicate `main` exactly as Go would.  A
-    file with NO declarations is representable (a valid file in a package whose `main` is elsewhere), and
-    the EMPTY source forest is representable (a valid module with a `go.mod` and no packages).
-
-    No identifiers, calls, parameters, results, non-empty imports, arbitrary expressions/statements, user
-    types, concurrency, or non-`main` package clauses.  Anything else is UNREPRESENTABLE. *)
+(** The one raw program representation: a module spec beside a path-keyed map of source files, possibly empty. *)
 From Stdlib Require Import NArith List String.
 From Stdlib Require Import Permutation SetoidList.
 From Fido Require Import FilePath Collections ModulePath Version Integer Float Complex Names.
 Import ListNotations.
 
-(** A raw expression is UNTYPED syntax: a boolean literal, an integer literal as an unsigned magnitude
-    ([IntegerLiteral]) optionally negated ([NegatedIntegerLiteral]), a STRING literal whose argument is the EXACT SEMANTIC BYTE
-    SEQUENCE ([StringLiteral], a Rocq [string] = a list of [ascii] bytes — NOT source spelling, NOT an
-    already-escaped literal, NOT Unicode scalars/code points), a FLOATING literal carrying an INTRINSIC
-    finite-decimal semantic value ([FloatLiteral d], a bounded canonical [Float.Decimal] — NOT source spelling /
-    underscores / hex / capitalization / a rounded value), a COMPLEX literal ([ComplexLiteral dc], carrying two
-    [Float.Decimal] components — its canonical spelling is Go's predeclared `complex(re, im)` form, NOT
-    imaginary-literal syntax and NOT a general call), or an EXPLICIT conversion ([Convert ts e], the source
-    spelling `<render ts>(e)`, e.g. `int8(42)` / `uint64(...)` / `float32(e)` / `complex64(e)` / `byte(0)` /
-    `rune(...)`).  The conversion TARGET is a SOURCE type-name syntax ([TypeExpr] — one of the sixteen
-    supported names from [Names], carrying its retained source [Names.Identifier], NEVER a semantic
-    [Integer.Kind] / [Float.Kind] / [Complex.Kind] / [Typing.SemanticType] tag).  Binding that name to a semantic type is
-    COMPILER work in [Admissible]; the AST does not decide that `byte` means `uint8` or `rune` means `int32`.
-    Nesting is representable syntax that may be compiler-invalid
-    (`uint8(int(300))`, `int8(int16(128))`, `int(3.5)`, `float32(true)`, `int(complex(3.5, 0.0))`) — such a
-    program is REJECTED by Typing/Admissible, not unrepresentable.  No type is attached here — the exact
-    untyped-constant meaning (a bare float denotes its EXACT rational value; a conversion rounds ONCE at the
-    destination format) and the context-directed typing/representability of these literals are the concern of
-    [Typing]; the canonical source spelling is a separate proved encoding in [Render].  [IntegerLiteral]/[NegatedIntegerLiteral]
-    remain exact untyped integer-literal syntax.  No arithmetic, comparison, bitwise, shift, division,
-    arbitrary/qualified/user type names, imaginary-literal syntax, `real`/`imag`, NaN/Inf constructors,
-    parenthesis node, variables, calls, or string operations are representable. *)
-
-(** the SOURCE type-name syntax of an explicit conversion target.  Only an UNQUALIFIED predeclared name is
-    live today ([Unqualified] wraps a [Names.SupportedType] — a retained source identifier + its
-    classified sixteen-name symbol); a qualified name would need imports and package binding and is future
-    work (deliberately no dead qualified constructor). *)
+(** A conversion target names a source type; only an unqualified predeclared name is representable. *)
 Inductive TypeName : Type := Unqualified : Names.SupportedType -> TypeName.
 Inductive TypeExpr : Type := NamedType : TypeName -> TypeExpr.
 
-(** the retained supported source name, its classified predeclared symbol (source identity only — no semantic
-    type), and its source identifier. *)
+(** The retained source name, its classified symbol and its identifier, all source identity only. *)
 Definition type_expr_supported  (ts : TypeExpr) : Names.SupportedType :=
   match ts with NamedType (Unqualified stn) => stn end.
 Definition type_expr_name (ts : TypeExpr) : Names.TypeName := Names.symbol (type_expr_supported ts).
 Definition type_expr_identifier (ts : TypeExpr) : Names.Identifier := Names.identifier (type_expr_supported ts).
-(** the smart constructor: the source conversion-target syntax for one of the sixteen supported names. *)
+(** The conversion-target syntax for one of the sixteen supported names. *)
 Definition type_expr_of_name (t : Names.TypeName) : TypeExpr := NamedType (Unqualified (Names.supported_of t)).
 Lemma type_expr_supported_of  : forall t, type_expr_supported  (type_expr_of_name t) = Names.supported_of t.  Proof. reflexivity. Qed.
 Lemma type_expr_name_of : forall t, type_expr_name (type_expr_of_name t) = t.                 Proof. reflexivity. Qed.
@@ -93,50 +34,29 @@ Inductive Stmt : Type :=
 Inductive Decl : Type :=
 | Main : list Stmt -> Decl.
 
-(** the SPECIFICATION-SHAPED source file root.  A source file is no longer a
-    bare declaration list: it follows the Go specification's abstract source-file structure — a package clause,
-    a (currently empty) import section, and top-level declarations ([File]).  The whole program stores
-    these in a STANDARD `FilePath.T`-keyed finite map [Files] ([FMapAVL]): the FILE PATH is the MAP KEY (not a
-    child production inside the source grammar, and NOT stored in the mapped source value), so a map binding
-    `FilePath.T -> File` IS the file-root program occurrence.  [FileNode] (path + source) is a
-    CONSTRUCTION / derived-VIEW value only — the input to the duplicate-rejecting builder, never the stored map
-    value.
-
-    The LIVE domains are intentionally narrow but shaped as the PERMANENT categories (Master Plan 3.2): the
-    package clause is only the canonical `package main` ([MainPackage]); imports are INTRINSICALLY empty
-    ([ImportSpec] has no constructors, so [list ImportSpec] can only be [nil]); top-level
-    declarations are the current [Decl] form.  This avoids the subset-filter mistake (representing arbitrary
-    packages/imports and then rejecting them). *)
-
-(** The package clause as source syntax — only the canonical `package main` is representable today. *)
+(** The package clause as source syntax; only the canonical `package main` is representable. *)
 Inductive PackageClause : Type := MainPackage.
 
-(** An import spec — NO import is representable yet, so the type is EMPTY and [list ImportSpec] = [nil]. *)
+(** An import spec: the type is empty, so [list ImportSpec] can only be [nil]. *)
 Inductive ImportSpec : Type := .
 
-(** A top-level declaration as source syntax — the current [Decl] form (`func main()` today). *)
+(** A top-level declaration as source syntax. *)
 Definition TopLevelDecl := Decl.
 
-(** One source file's abstract structure (package clause + imports + top-level declarations, in order).
-    A declaration list REMAINS — as the [declarations] field — but is no longer the entire file. *)
+(** One source file's abstract structure: package clause, imports, then top-level declarations, in order. *)
 Record File : Type := MakeFile {
   package : PackageClause;
   imports : list ImportSpec;
   declarations   : list TopLevelDecl
 }.
 
-(** A CONSTRUCTION / VIEW value pairing a placement path with its source — the input to the duplicate-rejecting
-    builder and a derived view of a map binding, NEVER the stored map value.  The ONE path authority is the
-    [Files] KEY (below), not this node's [path] field. *)
+(** A construction and view value pairing a path with its source; the map key below is the path authority. *)
 Record FileNode : Type := MakeFileNode {
   path   : FilePath.T;
   source : File
 }.
 
-(** ----: the path-keyed source forest is a STANDARD finite map (FilePath.T -> File).  The path is
-    the map KEY (the ONE path authority), NOT stored in the mapped value; [FileNode] is a construction/view
-    value only.  Backed by [Collections.FileMap] (the pinned-stdlib AVL map) — Fido authors no map. ---- *)
-
+(** The source forest is a standard finite map, so the path is the key and never sits in the mapped value. *)
 Module FileMap := Collections.FileMap.
 Module FileFacts := Collections.FileFacts.
 
@@ -147,11 +67,10 @@ Definition find_file (p : FilePath.T) (fm : Files) : option File := FileMap.find
 Definition maps_to_file (p : FilePath.T) (sf : File) (fm : Files) : Prop := FileMap.MapsTo p sf fm.
 Definition file_mem (p : FilePath.T) (fm : Files) : bool := FileMap.mem p fm.
 Definition file_count (fm : Files) : nat := FileMap.cardinal fm.
-(** DERIVED canonical (FilePath.T-ordered) enumerations — never a second semantic authority. *)
+(** The derived path-ordered enumerations. *)
 Definition file_bindings (fm : Files) : list (FilePath.T * File) := FileMap.elements fm.
 Definition file_paths (fm : Files) : list FilePath.T := List.map fst (file_bindings fm).
-(** Each canonical binding's key maps to its value (the standard [elements]->[find] bridge, used by an
-    indexed whole-program traversal to mint a file reference per binding). *)
+(** Each canonical binding's key maps to its value. *)
 Lemma file_bindings_find : forall (fm : Files) (b : FilePath.T * File),
   List.In b (file_bindings fm) -> find_file (fst b) fm = Some (snd b).
 Proof.
@@ -160,8 +79,7 @@ Proof.
   exists (k, e). split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(** the dual: a key that [find]s a value occurs as that binding in the canonical enumeration (used to build a
-    package anchor from a validated file reference). *)
+(** The dual: a key that finds a value occurs as that binding in the canonical enumeration. *)
 Lemma find_file_bindings : forall (fm : Files) k e,
   find_file k fm = Some e -> List.In (k, e) (file_bindings fm).
 Proof.
@@ -171,8 +89,7 @@ Proof.
   unfold Collections.FilePathOrder.eq in Hk. subst. exact Hin.
 Qed.
 
-(** the canonical enumeration has DISTINCT keys (the map's keys are unique) — used to prove program-wide
-    occurrence keys are distinct across files. *)
+(** The canonical enumeration has distinct keys. *)
 Lemma file_bindings_nodup_keys : forall fm, List.NoDup (List.map fst (file_bindings fm)).
 Proof.
   intro fm. unfold file_bindings. pose proof (FileMap.elements_3w fm) as H.
@@ -186,7 +103,7 @@ Qed.
 Definition file_nodes (fm : Files) : list FileNode :=
   List.map (fun b => MakeFileNode (fst b) (snd b)) (file_bindings fm).
 Definition map_file_values {B} (f : File -> B) (fm : Files) : FileMap.t B := FileMap.map f fm.
-(** SEMANTIC file-map equality — the standard map [Equal]. *)
+(** Semantic file-map equality is the standard map [Equal]. *)
 Definition FilesEqual (fm1 fm2 : Files) : Prop := FileMap.Equal fm1 fm2.
 
 Lemma files_equal_refl : forall fm, FilesEqual fm fm.
@@ -196,7 +113,7 @@ Proof. intros fm1 fm2 H p. symmetry. apply H. Qed.
 Lemma files_equal_trans : forall fm1 fm2 fm3, FilesEqual fm1 fm2 -> FilesEqual fm2 fm3 -> FilesEqual fm1 fm3.
 Proof. intros fm1 fm2 fm3 H12 H23 p. rewrite H12. apply H23. Qed.
 
-(** ---- the duplicate-rejecting map builder: standard [mem]/[add], reject a duplicate path before add. ---- *)
+(** The duplicate-rejecting builder: standard [mem] then [add], rejecting a repeated path before adding. *)
 
 Fixpoint files_of_nodes (nodes : list FileNode) : option Files :=
   match nodes with
@@ -209,7 +126,7 @@ Fixpoint files_of_nodes (nodes : list FileNode) : option Files :=
       end
   end.
 
-(** the key domain of a successfully built map is exactly the input node paths. *)
+(** The key domain of a successfully built map is exactly the input node paths. *)
 Lemma files_of_nodes_in : forall nodes fm,
   files_of_nodes nodes = Some fm ->
   forall p, FileMap.In p fm <-> In p (List.map path nodes).
@@ -226,7 +143,7 @@ Proof.
     + intros [Heq | Hin]; [ left; exact Heq | right; exact Hin ].
 Qed.
 
-(** SUCCESS iff the input paths are duplicate-free. *)
+(** Success holds exactly when the input paths are duplicate-free. *)
 Theorem files_of_nodes_success_iff_unique : forall nodes,
   (exists fm, files_of_nodes nodes = Some fm) <-> NoDup (List.map path nodes).
 Proof.
@@ -248,7 +165,7 @@ Proof.
       * eexists; reflexivity.
 Qed.
 
-(** NONE iff a duplicate path. *)
+(** Failure holds exactly when a path repeats. *)
 Theorem files_of_nodes_none_iff_duplicate : forall nodes,
   files_of_nodes nodes = None <-> ~ NoDup (List.map path nodes).
 Proof.
@@ -259,9 +176,7 @@ Proof.
     exfalso. apply Hnd. apply (files_of_nodes_success_iff_unique nodes). eexists; exact E.
 Qed.
 
-(** POSITIVE EXACTNESS: on success, EVERY input node's path maps to ITS OWN source — the builder
-    actually populates each binding; because it rejects a duplicate before adding, no source is ever silently
-    overwritten (a later same-path node makes the build FAIL, it does not clobber the earlier binding). *)
+(** On success every input node's path maps to its own source, so no source is ever silently overwritten. *)
 Lemma files_of_nodes_maps_to : forall nodes fm,
   files_of_nodes nodes = Some fm ->
   forall n, In n nodes -> maps_to_file (path n) (source n) fm.
@@ -279,8 +194,7 @@ Proof.
     apply FileMap.add_2; [ exact Hne | apply (IH fm' eq_refl n Hin) ].
 Qed.
 
-(** REVERSE EXACTNESS: every binding of the built map comes from an input node — the map invents no
-    binding.  Together with [files_of_nodes_maps_to] this pins the built map EXACTLY to the input forest. *)
+(** Every binding of the built map comes from an input node, so the map invents none. *)
 Lemma files_of_nodes_mapsto_source : forall nodes fm,
   files_of_nodes nodes = Some fm ->
   forall p sf, maps_to_file p sf fm -> exists n, In n nodes /\ path n = p /\ source n = sf.
@@ -296,8 +210,7 @@ Proof.
       exists n. split; [ right; exact Hin | split; [ exact Hp | exact Hsf ] ].
 Qed.
 
-(** the FULL find-characterization (both exactness directions in one iff): a key maps to a source in the built
-    map IFF some input node carries exactly that path and source. *)
+(** A key maps to a source exactly when some input node carries that path and that source. *)
 Lemma files_of_nodes_find : forall nodes fm p sf,
   files_of_nodes nodes = Some fm ->
   (find_file p fm = Some sf <-> exists n, In n nodes /\ path n = p /\ source n = sf).
@@ -309,7 +222,7 @@ Proof.
     unfold maps_to_file in Hmt. rewrite Hp, Hsf in Hmt. exact Hmt.
 Qed.
 
-(** a repeated path REJECTS the build whether the two sources are EQUAL … *)
+(** A repeated path rejects the build when the two sources are equal … *)
 Lemma files_of_nodes_duplicate_rejects : forall p sf,
   files_of_nodes (MakeFileNode p sf :: MakeFileNode p sf :: nil) = None.
 Proof.
@@ -317,7 +230,7 @@ Proof.
   intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
 Qed.
 
-(** … or DIFFER — the standard-map overwrite never silently erases the earlier source. *)
+(** … and when they differ, so the earlier source is never silently erased. *)
 Lemma files_of_nodes_duplicate_different_source_rejects : forall p sf1 sf2,
   files_of_nodes (MakeFileNode p sf1 :: MakeFileNode p sf2 :: nil) = None.
 Proof.
@@ -325,8 +238,7 @@ Proof.
   intro Hnd. inversion Hnd as [ | x l Hni _ ]; subst. apply Hni. left. reflexivity.
 Qed.
 
-(** ORDER-INDEPENDENCE: permuting the input nodes yields a SEMANTICALLY EQUAL map ([FilesEqual], not
-    record [=]) — construction order never leaks into the source forest. *)
+(** Permuting the input nodes yields a semantically equal map, so construction order never leaks. *)
 Lemma files_of_nodes_permutation : forall nodes1 nodes2 fm1 fm2,
   Permutation nodes1 nodes2 ->
   files_of_nodes nodes1 = Some fm1 -> files_of_nodes nodes2 = Some fm2 ->
@@ -346,34 +258,28 @@ Proof.
     unfold find_file in Hbad. rewrite E1 in Hbad. discriminate.
 Qed.
 
-
-(** ---- the module spec: intrinsic facts about the GENERATED module (not environment config) ---- *)
-
+(** The module spec: intrinsic facts about the generated module, not about its environment. *)
 Record ModuleSpec : Type := MakeModuleSpec {
   module_path       : ModulePath.T;
   module_version : Version
 }.
 
-(** ---- the program: a module spec + a (possibly empty) standard `FilePath.T`-keyed source map ([Files]) ---- *)
+(** The program: a module spec beside a possibly empty path-keyed source map. *)
 
 Record Program : Type := MakeProgram {
   module_spec : ModuleSpec;
   files  : Files
 }.
 
-(** the canonical (FilePath.T-ordered) DERIVED enumeration of (path, source) bindings — used by the executable
-    checkers only; [files] (the map) remains the ONE file authority (typing quantifies over [MapsTo]). *)
+(** The derived path-ordered enumeration of bindings; the map itself remains the one file authority. *)
 Definition program_bindings (p : Program) : list (FilePath.T * File) := file_bindings (files p).
 Definition program_keys (p : Program) : list FilePath.T := file_paths (files p).
 Definition program_find (path : FilePath.T) (p : Program) : option File := find_file path (files p).
 
-(** ---- builders (the source forest MAY be empty) ---- *)
-
-(** the canonical `package main` source file holding a declaration list (a CONVENIENCE that creates ordinary
-    source syntax — the renderer never synthesizes source behind the AST's back). *)
+(** The canonical `package main` source file holding a declaration list. *)
 Definition main_source (decls : list Decl) : File := MakeFile MainPackage [] decls.
 
-(** the canonical `package main` file ROOT at a path (convenience node builder). *)
+(** The canonical `package main` file root at a path. *)
 Definition main_file_node (path : FilePath.T) (decls : list Decl) : FileNode :=
   MakeFileNode path (main_source decls).
 
@@ -385,17 +291,14 @@ Definition singleton_program (ms : ModuleSpec) (path : FilePath.T) (decls : list
 Definition empty_program (ms : ModuleSpec) : Program :=
   MakeProgram ms empty_files.
 
-(** The construction API (Master Plan 3.5): from a module spec + a list of specification-shaped file roots,
-    [None] ONLY when the collection cannot describe one source tree (chiefly duplicate paths); the EMPTY list
-    yields a valid module-only program.  Semantic invalidity remains a compiler result. *)
+(** From a module spec and a list of file roots; [None] only when the list cannot describe one source tree. *)
 Definition build_program (ms : ModuleSpec) (nodes : list FileNode) : option Program :=
   match files_of_nodes nodes with
   | None => None
   | Some fm => Some (MakeProgram ms fm)
   end.
 
-(** [build_program] is EXACT over the duplicate-rejecting builder: it succeeds IFF the file paths are unique
-    (it fails ONLY on a duplicate path). *)
+(** [build_program] succeeds exactly when the file paths are unique, failing only on a repeated path. *)
 Theorem build_program_some_iff_unique : forall ms nodes,
   (exists p, build_program ms nodes = Some p) <-> NoDup (List.map path nodes).
 Proof.
