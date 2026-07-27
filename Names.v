@@ -1,25 +1,9 @@
-(** Names — the intrinsic SOURCE-NAME foundation.
-
-    This module owns SOURCE identity only: a bounded, proof-carrying Go identifier domain
-    ([Identifier]) and the CLOSED lexical class of the sixteen supported conversion type names
-    ([TypeName]).  It knows NO semantic type — there is no [Typing.SemanticType], no width/signedness, no representability
-    bound, no conversion or defaulting rule, and no renderer semantic tag here.  Name-to-semantic-type binding
-    is COMPILER work and lives in [Admissible]; this module supplies only the source spelling and its identity.
-
-    [Identifier] is a bounded ASCII subset — a first character that is an ASCII letter or underscore, then
-    ASCII letters/digits/underscores, with every pinned Go keyword excluded — carried WITH its well-formedness
-    proof, so no unchecked [string] can inhabit it and non-ASCII Go identifiers are honestly UNREPRESENTABLE.
-
-    The sixteen type names are the ONE source-spelling authority: a single descriptor [TypeName] with its
-    spelling [type_name_spelling] and the proved inverse [classify]; construction, classification, equality, rendering,
-    and every proof derive from it — there is no repeated sixteen-string Index.table.  Only the sixteen approved names
-    are representable ([TypeName] has exactly sixteen constructors), and [byte]/[uint8] and [rune]/[int32] are
-    DISTINCT source symbols by construction even though a later compiler stage resolves them to equal semantics. *)
+(** The source-name foundation: a proof-carrying identifier domain and the closed sixteen-name conversion class. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith Lia.
 Import ListNotations.
 Local Open Scope string_scope.
 
-(** ---- character classes for Go source identifiers (ASCII only) ---- *)
+(** The character classes for Go source identifiers, ASCII only. *)
 
 Definition is_alpha (c : ascii) : bool :=
   let n := nat_of_ascii c in
@@ -34,7 +18,7 @@ Definition identifier_cont  (c : ascii) : bool := is_alpha c || is_digit c || is
 Fixpoint identifier_rest_ok (s : string) : bool :=
   match s with EmptyString => true | String c s' => identifier_cont c && identifier_rest_ok s' end.
 
-(** an identifier SHAPE: nonempty, a start char, then continuation chars. *)
+(** An identifier shape: nonempty, a start character, then continuation characters. *)
 Definition identifier_shape_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => identifier_start c && identifier_rest_ok s' end.
 
@@ -47,8 +31,7 @@ Definition is_keyword (s : string) : bool := existsb (String.eqb s) go_keywords.
 
 Definition identifier_ok (s : string) : bool := identifier_shape_ok s && negb (is_keyword s).
 
-(** a source identifier carries its own validity proof (bool UIP -> proof-irrelevant), so equality reduces to
-    the underlying string and no unchecked string can construct one. *)
+(** A source identifier carries its own validity proof, so no unchecked string can construct one. *)
 Record Identifier : Type := MakeIdentifier { spelling : string ; valid : identifier_ok spelling = true }.
 
 Lemma identifier_ok_irrel : forall s (p q : identifier_ok s = true), p = q.
@@ -65,10 +48,10 @@ Proof.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
-(** rendering an identifier is EXACTLY its stored source text. *)
+(** Rendering an identifier is exactly its stored source text. *)
 Definition render_identifier (i : Identifier) : string := spelling i.
 
-(** ---- every valid identifier char, hence every rendered identifier, is ASCII ---- *)
+(** Every valid identifier character, and hence every rendered identifier, is ASCII. *)
 
 Definition is_ascii_c (c : ascii) : bool := Nat.ltb (nat_of_ascii c) 128.
 Fixpoint str_ascii (s : string) : bool :=
@@ -107,7 +90,6 @@ Proof.
   cbn [str_ascii]. rewrite (identifier_cont_ascii c Hc), (IH Hr). reflexivity.
 Qed.
 
-(** every rendered identifier is ASCII. *)
 Lemma identifier_ascii : forall i, str_ascii (render_identifier i) = true.
 Proof.
   intros [s Hs]. unfold render_identifier; cbn.
@@ -117,7 +99,7 @@ Proof.
   cbn [str_ascii]. rewrite (identifier_start_ascii c Hst), (identifier_rest_ascii s' Hr). reflexivity.
 Qed.
 
-(** ---- the CLOSED lexical class of the sixteen supported conversion type names ---- *)
+(** The closed lexical class of the sixteen supported conversion type names. *)
 
 Inductive TypeName : Type :=
   | Int | Int8 | Int16 | Int32 | Int64
@@ -126,7 +108,7 @@ Inductive TypeName : Type :=
   | Complex64 | Complex128
   | Byte | Rune.
 
-(** the ONE source-spelling authority. *)
+(** The one source-spelling authority. *)
 Definition type_name_spelling (t : TypeName) : string :=
   match t with
   | Int => "int" | Int8 => "int8" | Int16 => "int16" | Int32 => "int32" | Int64 => "int64"
@@ -142,20 +124,19 @@ Definition type_name_equalb (a b : TypeName) : bool := if type_name_eq_dec a b t
 Lemma type_name_equalb_spec : forall a b, type_name_equalb a b = true <-> a = b.
 Proof. intros a b; unfold type_name_equalb; destruct (type_name_eq_dec a b); split; congruence. Qed.
 
-(** every spelling is a valid identifier, so a type name RETAINS an [Identifier]. *)
+(** Every spelling is a valid identifier, so a type name retains an [Identifier]. *)
 Lemma type_name_spelling_ok : forall t, identifier_ok (type_name_spelling t) = true.
 Proof. intro t; destruct t; reflexivity. Qed.
 Definition type_name_identifier (t : TypeName) : Identifier := MakeIdentifier (type_name_spelling t) (type_name_spelling_ok t).
 
-(** rendering a type name is its source spelling — equivalently its retained identifier's text. *)
+(** Rendering a type name is its source spelling, equivalently its retained identifier's text. *)
 Definition render_type_name (t : TypeName) : string := type_name_spelling t.
 Lemma render_type_name_identifier : forall t, render_type_name t = render_identifier (type_name_identifier t).
 Proof. intro t; reflexivity. Qed.
 Lemma render_type_name_ascii : forall t, str_ascii (render_type_name t) = true.
 Proof. intro t; destruct t; reflexivity. Qed.
 
-(** the closed enumeration and the proved inverse [classify]: spelling and classification are inverse, so the
-    descriptor is one authority (a name round-trips through its spelling). *)
+(** Spelling and classification are inverse, so a name round-trips and the descriptor stays one authority. *)
 Definition all_type_names : list TypeName :=
   [ Int; Int8; Int16; Int32; Int64; Uint; Uint8; Uint16; Uint32; Uint64;
     Float32; Float64; Complex64; Complex128; Byte; Rune ].
@@ -177,8 +158,7 @@ Proof.
   apply String.eqb_eq in Hb. exact Hb.
 Qed.
 
-(** alias source-distinctness: [byte]/[uint8] and [rune]/[int32] are DISTINCT source symbols and render to
-    DISTINCT spellings (their equal semantic resolution is a separate compiler fact, proved in [Admissible]). *)
+(** [byte]/[uint8] and [rune]/[int32] are distinct source symbols rendering to distinct spellings. *)
 Lemma type_name_byte_neq_uint8 : Byte <> Uint8.        Proof. discriminate. Qed.
 Lemma render_byte_neq_uint8 : render_type_name Byte <> render_type_name Uint8.
 Proof. discriminate. Qed.
@@ -186,13 +166,7 @@ Lemma type_name_rune_neq_int32 : Rune <> Int32.        Proof. discriminate. Qed.
 Lemma render_rune_neq_int32 : render_type_name Rune <> render_type_name Int32.
 Proof. discriminate. Qed.
 
-(** ---- the raw type-name VALUE: a retained source identifier + its classified lexical symbol ---- *)
-
-(** the raw conversion-target value RETAINS a source [Identifier] together with the closed lexical
-    [TypeName] it classifies to and a proof they match.  So the raw AST carries a valid bounded SOURCE
-    identifier (not a bare enum): the renderer reads [identifier], the compiler binds via [symbol], and
-    [classify] constrains the symbol so ONLY the sixteen names inhabit this type — no arbitrary-string bypass,
-    and no semantic ([Typing.SemanticType]/[Integer.Kind]/…) tag lives here. *)
+(** A raw conversion target retains its source identifier beside the lexical symbol [classify] maps it to. *)
 Record SupportedType : Type := MakeSupportedType {
   identifier : Identifier ;
   symbol     : TypeName ;
@@ -202,12 +176,12 @@ Record SupportedType : Type := MakeSupportedType {
 Lemma classify_type_name_identifier : forall t, classify (render_identifier (type_name_identifier t)) = Some t.
 Proof. intro t. apply classify_spelling. Qed.
 
-(** the smart constructor: derive the retained identifier from the ONE spelling authority. *)
+(** The smart constructor derives the retained identifier from the one spelling authority. *)
 Definition supported_of (t : TypeName) : SupportedType := MakeSupportedType (type_name_identifier t) t (classify_type_name_identifier t).
 Lemma supported_of_symbol : forall t, symbol (supported_of t) = t.
 Proof. intro t; reflexivity. Qed.
 
-(** the retained identifier's text IS the symbol's spelling (the one source-spelling authority). *)
+(** The retained identifier's text is the symbol's spelling. *)
 Lemma supported_render : forall s, render_identifier (identifier s) = type_name_spelling (symbol s).
 Proof. intros [id sym Hx]; cbn in *; apply classify_sound in Hx; exact Hx. Qed.
 Definition render_supported (s : SupportedType) : string := render_identifier (identifier s).
@@ -216,7 +190,7 @@ Proof. intro t; reflexivity. Qed.
 Lemma render_supported_ascii : forall s, str_ascii (render_supported s) = true.
 Proof. intro s; apply identifier_ascii. Qed.
 
-(** only the sixteen names inhabit [SupportedType]; the symbol is determined by the identifier. *)
+(** Only the sixteen names inhabit [SupportedType], and the symbol is determined by the identifier. *)
 Lemma symbol_in : forall s, In (symbol s) all_type_names.
 Proof. intro s; apply all_type_names_complete. Qed.
 
@@ -237,8 +211,7 @@ Proof.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
-(** alias source-distinctness at the raw-value level: [byte]/[uint8] and [rune]/[int32] are distinct raw
-    supported names and render to distinct text. *)
+(** The alias pairs stay distinct raw supported names, rendering to distinct text. *)
 Lemma supported_byte_neq_uint8 : supported_of Byte <> supported_of Uint8.
 Proof. intro H; assert (Hs := f_equal symbol H); cbn in Hs; discriminate Hs. Qed.
 Lemma render_supported_byte_neq_uint8 : render_supported (supported_of Byte) <> render_supported (supported_of Uint8).
@@ -248,8 +221,7 @@ Proof. intro H; assert (Hs := f_equal symbol H); cbn in Hs; discriminate Hs. Qed
 Lemma render_supported_rune_neq_int32 : render_supported (supported_of Rune) <> render_supported (supported_of Int32).
 Proof. discriminate. Qed.
 
-(** an ordinary identifier that is not one of the sixteen names is a valid [Identifier] but NOT a type
-    name; a keyword is not even a valid identifier — so the type-name class cannot be bypassed by a raw string. *)
+(** An ordinary identifier is not a type name, and a keyword is not even an identifier. *)
 Example identifier_foo_ok : identifier_ok "foo" = true.                Proof. reflexivity. Qed.
 Example classify_foo_none : classify "foo" = None.                Proof. reflexivity. Qed.
 Example keyword_type_not_ident : identifier_ok "type" = false.    Proof. reflexivity. Qed.

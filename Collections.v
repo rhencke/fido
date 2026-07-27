@@ -1,19 +1,4 @@
-(** Collections — the ONE standard-collection foundation.  Fido authors NO general-purpose map/set
-    implementation: every identity-keyed collection is backed by a mature pinned-Rocq-stdlib map, and every
-    membership-only collection by a mature standard set, behind a thin domain wrapper.  This module only
-    instantiates standard functors and re-exports the facts Fido needs — it defines no tree/list-backed
-    map/set.
-
-    Selected implementations (pinned rocq-stdlib 9.1.0):
-    - general string/ordered-key finite map: [FMapAVL] (Rocq's mature standard ordered map; the standard
-      implementation uses AVL-tree operations);
-    - positive-key finite map: [FMapPositive.PositiveMap] (Rocq's mature standard positive-key map).
-
-    Honest claim: Fido PROVES the functional map semantics it consumes (and the project-specific facts below);
-    Fido does NOT claim a project kernel theorem for the AVL balance invariant or a machine-level O(log n)
-    complexity.  [FMapFullAVL] is the standard layer that additionally packages/proves the balance invariant —
-    NOT redundant; it is the appropriate candidate if formally-packaged balance ever becomes a required Fido
-    theorem (do not switch merely for wording). *)
+(** The one standard-collection foundation: thin domain wrappers over pinned-stdlib maps, with no storage here. *)
 From Stdlib Require Import String.
 From Stdlib Require Import Structures.OrderedType Structures.OrderedTypeEx.
 From Stdlib Require Import FSets.FMapInterface FSets.FMapAVL FSets.FMapFacts.
@@ -21,18 +6,15 @@ From Stdlib Require Import FSets.FMapPositive.
 From Stdlib Require Import SetoidList.
 From Fido Require Import FilePath.
 
-(** the standard positive-key map (a certified stdlib binary-trie map) — for per-file local-node indexes. *)
+(** The standard positive-key map, keyed for the per-file local-node index. *)
 Module NodeMap := FMapPositive.PositiveMap.
 
-(** the standard AVL map over the standard String ordered key — for the package-directory map. *)
+(** The standard AVL map over the standard string key, for the package-directory map. *)
 Module PackageMap := FMapAVL.Make String_as_OT.
 Module PackageFacts := FMapFacts.WFacts_fun String_as_OT PackageMap.
 Module PackageProperties := FMapFacts.WProperties_fun String_as_OT PackageMap.
 
-(** ---- the [FilePath.T] ordered key: a total lexicographic order via [FilePath.text], reusing the pinned
-    standard [String_as_OT].  The exposed equality is Leibniz [FilePath.T] equality (paths are proof-irrelevant
-    on their well-formedness field), so map keys behave as identities. ---- *)
-
+(** Path equality is Leibniz, so a [FilePath.T] map key behaves as an identity rather than a setoid class. *)
 Lemma file_path_text_inj : forall a b : FilePath.T, FilePath.text a = FilePath.text b -> a = b.
 Proof. intros a b H. apply (proj1 (FilePath.equalb_spec a b)). unfold FilePath.equalb. rewrite H. apply String.eqb_refl. Qed.
 
@@ -66,16 +48,13 @@ Module FilePathOrder <: OrderedType.OrderedType.
   Defined.
 End FilePathOrder.
 
-(** ---- the standard AVL file map keyed by [FilePath.T], plus its standard facts. ---- *)
+(** The standard AVL file map keyed by [FilePath.T], with its standard facts. *)
 Module FileMap := FMapAVL.Make FilePathOrder.
 Module FileFacts := FMapFacts.WFacts_fun FilePathOrder FileMap.
 Module FileProperties := FMapFacts.WProperties_fun FilePathOrder FileMap.
 Module FileOrder := FMapFacts.OrdProperties FileMap.
 
-(** ---- wrapper theorem: because the standard AVL map's [elements] is SORTED by key, two SEMANTICALLY
-    equal ([Equal]) file maps have the very SAME canonical [elements] list — the derived enumeration is a true
-    function of the map's meaning, not of its balancing history.  (The FilePath.T key equality is Leibniz, so
-    [eqlistA eq_key_elt] collapses to list equality.) ---- *)
+(** [elements] is sorted by key, so equal maps enumerate identically — a function of meaning, not of balancing. *)
 Lemma equal_list_key_element_eq {A} : forall (l1 l2 : list (FilePath.T * A)),
   eqlistA (@FileMap.eq_key_elt A) l1 l2 -> l1 = l2.
 Proof.
@@ -93,9 +72,7 @@ Proof.
   reflexivity.
 Qed.
 
-(** ---- the same canonical-elements facts for the PACKAGE map (String key, Leibniz eq): [Equal] maps have the
-    SAME [elements], and [map]ping a value function commutes with [elements] (keys preserved, sorted order
-    preserved).  Used by the cross-snapshot determinism to compare erased package buckets. ---- *)
+(** The same canonical-elements facts for the package map, whose string key is also Leibniz. *)
 Module PackageOrder := FMapFacts.OrdProperties PackageMap.
 
 Lemma equal_list_key_element_eq_str {A} : forall (l1 l2 : list (string * A)),
@@ -147,10 +124,7 @@ Proof.
     split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(** ---- the same [map]-commutes-with-[elements] facts for the FILE map (FilePath.T key): [FMapAVL.map] preserves
-    the key domain AND their canonical sorted order, so the elements of a mapped file map are exactly the source
-    elements with the value function applied.  Consumed by the Emit.Image layout bridge (the rendered
-    image's `.go` file KEYS are exactly the source FilePaths, in the same order). ---- *)
+(** [FMapAVL.map] preserves the key domain and its sorted order, so a mapped file map enumerates the same keys. *)
 Lemma sorted_map_fst_file {A B} (f : A -> B) : forall l,
   Sorted (@FileMap.lt_key A) l ->
   Sorted (@FileMap.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
@@ -191,10 +165,7 @@ Lemma package_map_fst_elements {A B} (f : A -> B) (m : PackageMap.t A) :
   map fst (PackageMap.elements (PackageMap.map f m)) = map fst (PackageMap.elements m).
 Proof. rewrite package_map_elements, map_map. reflexivity. Qed.
 
-(** ---- two package maps with the SAME key DOMAIN (possibly different value types) have the SAME canonical key
-    list.  (Map each to a common unit value; equal domains give [PackageMap.Equal] unit maps, so
-    [package_elements_equal] gives equal elements, hence equal keys.)  Used by the retention: the
-    fresh-build plan derived from the RETAINED package buckets equals the one over [package_summaries]. ---- *)
+(** Equal key domains give the same canonical key list, whatever the two value types are. *)
 Lemma package_same_domain_keys {A B} (m1 : PackageMap.t A) (m2 : PackageMap.t B) :
   (forall k, PackageMap.In k m1 <-> PackageMap.In k m2) ->
   map fst (PackageMap.elements m1) = map fst (PackageMap.elements m2).

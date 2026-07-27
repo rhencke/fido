@@ -1,49 +1,24 @@
-(** FilePath — the intrinsic canonical relative source-path domain [T].  A raw [string] is NOT a file path:
-    Go package discovery for `go build ./...` depends on the path, so the path is a SEMANTIC compiler
-    input, and only a deliberately NARROW canonical grammar is representable.
-
-    A [T] is a validated relative path: slash-separated lowercase-ASCII directory components and
-    an ordinary lowercase-ASCII `.go` basename, with NO empty/`.`/`..` component, NO absolute or
-    trailing/leading/repeated slash, NO underscore or leading dot (so NO hidden file/dir, NO `_test.go`,
-    NO `_GOOS`/`_GOARCH` build-selection suffix, NO Fido control-name collision), NO directory named
-    `testdata` or `vendor` (which `go build ./...` IGNORES).  A path is of ARBITRARY LENGTH — there is
-    deliberately NO magic length cap (a numeric bound is not a correctness invariant, and a fixed limit is
-    the fuel anti-pattern; if the host filesystem cannot materialize an over-long path that is a fail-loud
-    runtime error, not a grammar restriction).  Every representable path is therefore DISCOVERED by
-    `go build ./...` (the e2e additionally compares `go list ./...` to the emitted package set), independent
-    of case-folding and platform source selection.  Strange-but-filesystem-valid paths are deliberately
-    UNREPRESENTABLE — narrowness is the point, not an ambitious model of every OS path.
-
-    Validity is intrinsic: [T] carries the proof [path_ok text = true], so a value cannot exist
-    for a bad path.  Equality is decidable and reduces to string equality (the proof is unique by bool
-    UIP).  [parent] is the parent-directory identity used to group files into packages. *)
+(** The canonical relative source-path domain: a raw string is not a path, and a value carries its own proof. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
 Import ListNotations.
 
-(** ---- character classes ---- *)
-
 Definition is_lower (c : ascii) : bool :=
-  let n := nat_of_ascii c in (97 <=? n) && (n <=? 122).                (* a..z *)
+  let n := nat_of_ascii c in (97 <=? n) && (n <=? 122).
 
 Definition is_lower_digit (c : ascii) : bool :=
-  let n := nat_of_ascii c in ((97 <=? n) && (n <=? 122)) || ((48 <=? n) && (n <=? 57)).  (* a..z 0..9 *)
+  let n := nat_of_ascii c in ((97 <=? n) && (n <=? 122)) || ((48 <=? n) && (n <=? 57)).
 
-(** a component / basename-stem: nonempty, first char lowercase, rest lowercase-or-digit. *)
 Fixpoint tail_ok (s : string) : bool :=
   match s with EmptyString => true | String c s' => is_lower_digit c && tail_ok s' end.
 
+(** A component or basename stem: nonempty, first character lowercase, the rest lowercase or digit. *)
 Definition component_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => is_lower c && tail_ok s' end.
 
-(** Directory names `go build ./...` IGNORES (so a file beneath one would be certified but never built):
-    `testdata` at any level, and the `vendor` tree.  (Leading `.`/`_` dirs are already excluded by
-    [component_ok] requiring a lowercase-letter first char.)  A DIRECTORY component must avoid these; a
-    filename stem may still be `testdata`/`vendor` (e.g. [vendor.go]). *)
+(** Directory names `go build ./...` ignores, so a file beneath one would be certified and never built. *)
 Definition reserved_dir (s : string) : bool := String.eqb s "testdata" || String.eqb s "vendor".
 
 Definition dir_component_ok (s : string) : bool := component_ok s && negb (reserved_dir s).
-
-(** ---- path grammar ---- *)
 
 Fixpoint split_slash (s : string) : list string :=
   match s with
@@ -62,23 +37,17 @@ Definition ends_go (s : string) : bool :=
 
 Definition strip_go (s : string) : string := String.substring 0 (String.length s - 3) s.
 
-(** an ordinary Go source basename: an admissible component stem followed by ".go". *)
+(** An ordinary Go source basename: an admissible component stem followed by ".go". *)
 Definition filename_ok (s : string) : bool := ends_go s && component_ok (strip_go s).
 
-(** the whole path: directory components (all but the last segment) are admissible AND not `go build`-
-    ignored; the last segment is an admissible `.go` filename.  ARBITRARY LENGTH — no length cap (see the
-    header: a numeric bound is not a correctness invariant).  A single segment (root-level file) is allowed. *)
+(** Every directory component is admissible and not ignored, and the last segment is an admissible `.go` name. *)
 Definition path_ok (s : string) : bool :=
   match rev (split_slash s) with
   | last :: rdirs => forallb dir_component_ok rdirs && filename_ok last
   | [] => false
   end.
 
-(** ---- the intrinsic type ---- *)
-
 Record T : Type := Make { text : string ; valid : path_ok text = true }.
-
-(** The on-disk relative path text (the proved canonical conversion to output). *)
 
 (** Validity proofs are unique (bool UIP), so equality reduces to the underlying string. *)
 Lemma path_ok_pi : forall s (p q : path_ok s = true), p = q.
@@ -96,23 +65,14 @@ Proof.
   - intro H; subst b; apply String.eqb_refl.
 Qed.
 
-(** ---- parent-directory identity (package grouping key) ---- *)
-
 Definition parent_of (s : string) : string :=
   match rev (split_slash s) with
   | _ :: rdirs => String.concat "/" (rev rdirs)
   | [] => EmptyString
   end.
 
-(** The parent directory of a file — files with the SAME parent form one package. *)
+(** The parent directory of a file: files sharing one parent form one package. *)
 Definition parent (p : T) : string := parent_of (text p).
-
-(** The canonical DIRECTORY-COMPONENT AUTHORITY over a parent path.  [split_slash] is the split view and
-    its "/"-join is its inverse ([split_slash_concat]); a valid [dir_component_ok] directory component
-    contains no separator, so it is a SINGLE component ([dir_component_ok_single]) and nonempty.  For a
-    package key that is some file's [parent], every directory component is nonempty
-    ([parent_dir_components_nonempty]).  This is the lower-layer authority [Admissible] composes for
-    package import-path and executable-name reasoning — no character-level scan in the consumer. *)
 
 Lemma split_slash_nonempty : forall s, split_slash s <> [].
 Proof.
@@ -236,7 +196,7 @@ Proof.
   apply Hdirs. apply in_rev in Hin. exact Hin.
 Qed.
 
-(** ---- positive / negative fixtures (the grammar, kernel-checked) ---- *)
+(** The grammar's positive and negative fixtures, kernel-checked. *)
 
 Example ok_main    : path_ok "main.go" = true.        Proof. reflexivity. Qed.
 Example ok_a       : path_ok "a.go" = true.           Proof. reflexivity. Qed.

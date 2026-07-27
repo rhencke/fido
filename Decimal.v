@@ -1,29 +1,22 @@
-(** Decimal — the ONE decimal-digit authority (Stdlib-only leaf; consumed by Render's
-    printer and its all-ASCII proof).  Structural double-and-add over the positive's bits:
-    total by the number's own structure, no step budget. *)
+(** The one decimal-digit authority: double-and-add over a positive's own bits. *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool.
 Import ListNotations.
 Local Open Scope string_scope.
 
 Definition digit (n : nat) : ascii := ascii_of_nat (48 + n).
 
-(** LSB-first base-[B] digits of a [positive], by STRUCTURAL recursion on its BITS:
-    digits(2p) = double(digits p), digits(2p+1) = double + carry — the recursion is the
-    positive's own structure, so rendering is total with no step budget of any kind.
-    [double] doubles a digit list with an incoming carry (the carry stays <= 1 when
-    every digit is < B and B >= 2 — [double_bound]). *)
 Fixpoint double (B : nat) (ds : list nat) (carry : nat) : list nat :=
   match ds with
   | nil => match carry with O => nil | _ => carry :: nil end
   | d :: tl => (2 * d + carry) mod B :: double B tl ((2 * d + carry) / B)
   end.
+(** LSB-first base-[B] digits, recursing on the positive's own bits, so this is total with no step budget. *)
 Fixpoint positive_digits (B : nat) (p : positive) : list nat :=
   match p with
   | xH => 1 :: nil
   | xO p' => double B (positive_digits B p') 0
   | xI p' => double B (positive_digits B p') 1
   end.
-(** The digit list's VALUE (LSB-first, base [B]) — the semantic anchor of every render proof. *)
 Fixpoint value (B : nat) (ds : list nat) : Z :=
   match ds with
   | nil => 0%Z
@@ -72,9 +65,7 @@ Proof.
     [ exact (double_nonnil B _ 1 IH) | exact (double_nonnil B _ 0 IH) | discriminate ].
 Qed.
 
-(** The MOST significant digit (the LAST of the LSB-first list) is never 0 — so the printed
-    decimal has no leading zero (a leading zero would be Go's octal form).  Invariant through
-    [double]: doubling keeps the last digit >= 1, or carries out a new last digit 1. *)
+(** The last digit stays >= 1, so the printed decimal carries no leading zero — which Go would read as octal. *)
 Lemma double_last : forall B ds carry, (2 <= B)%nat -> (carry <= 1)%nat ->
   Forall (fun d => (d < B)%nat) ds ->
   ds <> nil -> (1 <= last ds O)%nat ->
@@ -113,8 +104,7 @@ Proof.
   - cbn [last]. lia.
 Qed.
 
-(** Render an LSB-first digit list onto a suffix: the fold prepends, so the MOST significant
-    digit ends up first — the printed order. *)
+(** The fold prepends, so the most significant digit ends up first — the printed order. *)
 Definition render (dig : nat -> ascii) (ds : list nat) (s : string) : string :=
   fold_left (fun acc d => String (dig d) acc) ds s.
 Definition positive (p : positive) : string :=
