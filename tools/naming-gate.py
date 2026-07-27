@@ -220,6 +220,30 @@ def declared(code: str):
                 yield line, 'field', f
 
 
+# A `Local Notation` STATEMENT, in any layout.  `\s` spans newlines, so `Local`, `Notation`, the alias and
+# `:=` may sit on four separate lines with any indentation; Rocq attributes may precede it, and `#[local]` is
+# the attribute spelling of the `Local` keyword.  The alias is captured as a GENERAL identifier and judged
+# afterwards — a parser that constrains the first character is doing validation, and a name it refuses to
+# parse is a name no rule can reject.  That is the same defect that hid lower-case constructors, then the
+# first constructor after `:=`, then upper-case fields; here it hid every alias that was not on one line.
+LOCAL_NOTATION_RE = re.compile(
+    r"^\s*(?P<attrs>(?:\#\[[^\]]*\]\s*)*)(?P<keyword>Local\s+)?Notation\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_']*)\s*:=")
+
+
+def local_notations(code: str):
+    """(line, name) for every `Local Notation` binding an IDENTIFIER, parsed as a statement.
+
+    Reads the same stripped-code statement stream as `declared`, so a symbolic notation — whose `"..."` the
+    lexical pass has already blanked — simply has no identifier to bind and yields nothing."""
+    for line, stmt in statements(code):
+        m = LOCAL_NOTATION_RE.match(stmt)
+        if not m:
+            continue
+        if m.group('keyword') or 'local' in m.group('attrs'):
+            yield line, m.group('name')
+
+
 def segments(name: str):
     """Identifier split into semantic segments across underscores AND camelCase boundaries."""
     parts = []
@@ -272,16 +296,19 @@ def check_code(rel: str, text: str):
         m = re.match(r'\s*Module\s+(' + '|'.join(CRYPTIC_ALIASES) + r')\s*:?=', line)
         if m:
             bad.append((rel, idx, f'cryptic module alias `{m.group(1)}`'))
-        # A005 / D-25: an UpperCamelCase local notation re-creates another module's public type or judgment
-        # under a bare name inside this one.  That is exactly the unqualified surface the scoped-name rule
-        # abolished, rebuilt locally — the reader loses the namespace that says where the thing is defined.
-        # The rule is the CLASS, not a list of today's names: there is no legitimate live example, and a
-        # future exception is a review decision rather than an allowlist entry added for convenience.
-        # Lower-case parsing notations for resolver-specialized executable functions stay allowed.
-        m = re.match(r"\s*Local\s+Notation\s+([A-Z][A-Za-z0-9_']*)\s*:=", line)
-        if m:
-            bad.append((rel, idx,
-                        f'UpperCamelCase local notation `{m.group(1)}` hides the module that owns that '
+    # A005 / D-25: an UpperCamelCase local notation re-creates another module's public type or judgment
+    # under a bare name inside this one.  That is exactly the unqualified surface the scoped-name rule
+    # abolished, rebuilt locally — the reader loses the namespace that says where the thing is defined.
+    # The rule is the CLASS, not a list of today's names: there is no legitimate live example, and a
+    # future exception is a review decision rather than an allowlist entry added for convenience.
+    # Lower-case parsing notations for resolver-specialized executable functions stay allowed.
+    #
+    # Judged over STATEMENTS, not lines.  A declaration split across lines is valid Rocq and an equally valid
+    # violation; checking one physical line at a time made every layout but the single-line one invisible.
+    for line, name in local_notations(code):
+        if re.match(r'[A-Z]', name):
+            bad.append((rel, line,
+                        f'UpperCamelCase local notation `{name}` hides the module that owns that '
                         f'public type or judgment — qualify the use instead'))
     return bad
 
@@ -487,6 +514,38 @@ SELF_TESTS = [
      'Local Notation resolve_constant := (Typing.resolve_constant f) (only parsing).\n', False),
     ('lower-case snake notation',         check_code,
      'Local Notation program_typedb := (Typing.program_typedb f) (only parsing).\n', False),
+    # A declaration split across lines is valid Rocq and an equally valid violation.  Judging one physical
+    # line at a time made every one of these invisible, and every negative control put `Local Notation`, the
+    # alias and `:=` on one line — so the rule looked enforced and was not.
+    ('multiline: break before the name',  check_code,
+     'Local Notation\n  HiddenAlias := nat (only parsing).\n', True),
+    ('multiline: break after Local',      check_code,
+     'Local\nNotation HiddenAlias := nat (only parsing).\n', True),
+    ('multiline: break before :=',        check_code,
+     'Local Notation HiddenAlias\n  := nat (only parsing).\n', True),
+    ('multiline: indented, three breaks', check_code,
+     '  Local Notation\n    HiddenAlias\n      := nat (only parsing).\n', True),
+    ('multiline after another statement', check_code,
+     'Definition ok := 0.\nLocal Notation\n  HiddenAlias := nat.\n', True),
+    ('attributed #[local] Notation',      check_code,
+     '#[local] Notation\n  HiddenAlias := nat (only parsing).\n', True),
+    # …and the must-ACCEPT twins in the same layouts, so the new rule cannot pass by rejecting every
+    # multiline notation it sees.
+    ('multiline lower-case: before name', check_code,
+     'Local Notation\n  resolve_constant := (Typing.resolve_constant f) (only parsing).\n', False),
+    ('multiline lower-case: after Local', check_code,
+     'Local\nNotation resolve_constant := (Typing.resolve_constant f) (only parsing).\n', False),
+    ('multiline lower-case: before :=',   check_code,
+     'Local Notation resolve_constant\n  := (Typing.resolve_constant f) (only parsing).\n', False),
+    ('multiline lower-case: three breaks', check_code,
+     '  Local Notation\n    resolve_constant\n      := (Typing.resolve_constant f) (only parsing).\n', False),
+    # a symbolic notation binds no identifier at all — the lexical pass blanks its string, and nothing is
+    # extracted, which is right rather than lucky.
+    ('symbolic multiline notation',       check_code,
+     'Local Notation\n  "x +++ y" := (plus x y) (at level 50).\n', False),
+    # a GLOBAL notation is a different declaration; the accepted class rule is about `Local Notation`.
+    ('global UpperCamelCase notation',    check_code,
+     'Notation\n  GlobalThing := nat (only parsing).\n', False),
 ]
 
 
@@ -578,7 +637,60 @@ def self_test() -> int:
         except EnumerationError as exc:
             print(f'  FAIL  the read control passes for an unrelated reason: {exc}'); failures += 1
 
-    n = len(SELF_TESTS) + executed
+    # A005 at REPOSITORY level, in BOTH input modes.  A rule proved only against string fixtures is a rule
+    # proved against the checker, not against the tree it governs: the alias has to survive real enumeration,
+    # real selection and a real tracked file before "the gate rejects the class" means anything.
+    MULTILINE_ALIAS = ('Local Notation\n'
+                       '  HiddenAlias\n'
+                       '    := (Typing.Program f) (only parsing).\n')
+
+    def certified_tree(d: Path, alias: bool) -> Path:
+        root = Path(d)
+        complete_snapshot(root)
+        body = '(* the certified module *)\nDefinition compile (p : nat) := p.\n'
+        (root / 'Compilable.v').write_text(body + (MULTILINE_ALIAS if alias else ''), encoding='utf-8')
+        return root
+
+    def flags_alias(violations) -> bool:
+        return any(rel == 'Compilable.v' and 'HiddenAlias' in msg for rel, _line, msg in violations)
+
+    def check_mode(label: str, snapshot: bool, alias: bool):
+        """`alias=True` must flag it naming the alias AND the file; `alias=False` is the mutation twin that
+        proves the control is not firing for some unrelated reason."""
+        nonlocal failures
+        with tempfile.TemporaryDirectory() as d:
+            root = certified_tree(Path(d), alias)
+            if not snapshot:
+                for cmd in (['git', 'init', '-q'], ['git', 'add', '-A']):
+                    p = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+                    if p.returncode != 0:
+                        print(f'  FAIL  {label}: could not build a Git worktree ({p.stderr.strip()})')
+                        failures += 1
+                        return
+            try:
+                violations, _ = run(root, snapshot=snapshot)
+            except EnumerationError as exc:
+                print(f'  FAIL  {label}: enumeration failed, so nothing was judged: {exc}')
+                failures += 1
+                return
+            if alias and not flags_alias(violations):
+                print(f'  FAIL  {label}: the multiline alias in a tracked certified module was not flagged')
+                failures += 1
+            if not alias and violations:
+                print(f'  FAIL  {label}: the clean tree was flagged, so the control proves nothing: '
+                      f'{violations[:3]}')
+                failures += 1
+
+    repository = 0
+    for _label, _snapshot, _alias in (
+            ('working-tree mode, mutated tracked module', False, True),
+            ('working-tree mode, clean tracked module',   False, False),
+            ('snapshot mode, mutated tracked module',     True,  True),
+            ('snapshot mode, clean tracked module',       True,  False)):
+        repository += 1
+        check_mode(_label, _snapshot, _alias)
+
+    n = len(SELF_TESTS) + executed + repository
     if failures:
         print(f"fido: NAMING GATE SELF-TEST FAILED — {failures} of {n} controls wrong; "
               f"the gate is not trustworthy")
@@ -586,7 +698,8 @@ def self_test() -> int:
     print(f"fido: naming-gate self-test OK — {n} controls "
           f"({sum(1 for t in SELF_TESTS if t[3])} must-flag, "
           f"{sum(1 for t in SELF_TESTS if not t[3])} must-accept, "
-          f"{executed} enumeration/read fail-closed, all executed) ✓")
+          f"{executed} enumeration/read fail-closed, "
+          f"{repository} repository-level over both input modes, all executed) ✓")
     return 0
 
 

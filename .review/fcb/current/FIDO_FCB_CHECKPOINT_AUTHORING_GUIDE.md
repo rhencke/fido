@@ -182,6 +182,14 @@ Every checkpoint contract carries a naming section, and it is frozen with the ch
 a missed rename fails to build — so the gate exists for documentation and source comments, which have no
 verifier at all.
 
+The declaration rules are judged over Rocq STATEMENTS, not physical lines, and every extractor parses a
+general identifier before any rule looks at it. A parser that constrains the first character is doing
+validation, and a name it refuses to parse is a name no rule can reject — that defect has hidden lower-case
+constructors, the first constructor after `:=`, upper-case record fields, and an UpperCamelCase
+`Local Notation` split across lines. A repository-level control runs each rule against a mutated tracked
+module in both the working-tree and the exported-snapshot mode, because a rule proved only against string
+fixtures is proved against the checker rather than the tree it governs.
+
 ## 3b. Reducible-carrier duty (D-26 / A006)
 
 A reducible `Emit.Image` carrier is permitted ONLY because an opaque exact-value-indexed `Emit.Mint.Token`

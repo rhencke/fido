@@ -221,13 +221,26 @@ The relation is COMPLETE IN BOTH DIRECTIONS, and each direction is enforced:
 - every repository-rooted operational path appearing anywhere in the live authority corpus is declared by
   exactly one row.
 
+**The same manifest owns CORPUS MEMBERSHIP.** Each row carries a closed `corpus_role`: an `authority` is a
+current normative source, and a `reference` resolves and is owned without becoming one. Only a present,
+readable, UTF-8 repository FILE may be an authority — never a directory, a symlink, or an off-tree reference.
+Generated human and ledger views are references, because their canonical data source carries the authority. The
+scanned corpus IS the set of `authority` rows, so a new authority is scanned by declaring a row, never by
+editing a checker. The declarations that ASSIGN authority are themselves checked: the live-file table in the
+FCB Index states a role for every file beside the manifest and must agree with it in both directions; the
+document `NEXT_STEPS` names after `Authority:`, and the `contract:` and `review_basis:` paths in
+`REVIEW_REQUEST`, and the M-series plan the Index names, must all be authorities.
+
 Validating only the declared rows is not compliance with this decision. A corpus that names a path with no row
 at all still sends a reader at nothing, and a gate that inspects only its own chosen rows reports green while it
-happens.
+happens. Neither is a hard-coded scan list compliance: a typed row proves the target EXISTS, and proves nothing
+about whether that document's own references are complete. The active repair, the functional contract and the
+accepted review basis are exactly where an unscanned authority hides, because they are the documents that
+assign the current work.
 
 **Rationale:** Git can be the sole source of truth only when the live corpus is self-consistent and every reader
 is sent to an object that exists. Completeness is what makes that a property of the corpus rather than of the
-list somebody remembered to write down.
+list somebody remembered to write down — and membership has to be data for the same reason the references are.
 
 ### D-25 — Names are owned by their scope.
 

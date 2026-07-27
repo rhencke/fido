@@ -26,8 +26,8 @@ Governance owns `D-01` through `D-27`; amendments `A001` through `A007` are acce
 **Next permitted sequence:** `repair 20 → human C4 review → C4 acceptance closeout → M1 → M2 → M3 → Rob
 approves the exact M4 plan → M4 → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. **M1 through M4 implementation is likewise forbidden until C4
-is accepted** — A007 installs their authority, not permission to run them. Their contracts are
-`.review/M_SERIES_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-M-SERIES-PLAN-MD -->  
+is accepted** — A007 installs their authority, not permission to run them.  
+**M-series authority:** `.review/M_SERIES_PLAN.md` <!-- FIDO-FCB-REF:REVIEW-M-SERIES-PLAN-MD -->  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,
 or target/toolchain policy is changed by A002, A003, A004 or A007.  
 **Policy choice:** `LAT-X004` — option (ii), the proved rounding-invariant accepted domain.  
