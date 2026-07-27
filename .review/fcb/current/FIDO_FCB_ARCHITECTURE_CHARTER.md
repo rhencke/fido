@@ -315,7 +315,7 @@ The current one-field `Index.Program` wrapper does not pass the deletion test ye
 1. gain a real invariant or capability not present in `Index.Syntax`; or
 2. be deleted, with the retained whole elaboration carrying `Index.Syntax` directly.
 
-This remains an open later foundation decision. It is explicitly OUT OF SCOPE for the active repair: `Index.Program` is retained, and neither preservation nor deletion is authorized by this documentation amendment. Any deletion still requires explicit review and authorization, preferably as a separate post-C4 candidate.
+This remains an open later foundation decision. `Index.Program` is retained. Any preservation or deletion decision requires a separate reviewed contract and Rob's authorization.
 
 ---
 
@@ -1375,7 +1375,7 @@ Bulk deletion commits are forbidden because they hide surviving paths.
 - `Safe.Program` refines the same exact accepted capability.
 - Rendering continues to project the original `Syntax.Program` and does not evaluate elaboration.
 
-This is the C4 blocking obligation introduced by A001, and the active repair named by `.review/NEXT_STEPS.md` must satisfy it before C4 can return for human review. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
+A001 made whole-result retention and opacity C4 acceptance obligations. Rob accepted C4 after the implementation discharged them. Every later checkpoint must preserve the exact accepted and rejected whole elaborations and their sealed authority boundary. Under A001 the retained whole elaboration must also be OPAQUE: the raw record, its constructor and the production builder stay inside the sealed implementation, because a client able to assemble a peer core has the topology the amendment exists to prevent, whether or not that peer would be well-formed.
 
 ### Do Not Do Early
 
@@ -1385,7 +1385,7 @@ This is the C4 blocking obligation introduced by A001, and the active repair nam
 - do not add empty future modules or state fields;
 - do not retain old demo paths after the general path exists.
 
-The current C4 source forest, exact work index, and causal outcome trace follow the one-construction rule inside the compiler. They must remain internal compiler forms, and A001 now requires their exact accepted or rejected whole elaboration to survive the final capability boundary rather than be rebuilt later.
+The accepted C4 source forest, exact work index, and causal outcome trace follow the one-construction rule inside the compiler. They must remain internal compiler forms, and A001 now requires their exact accepted or rejected whole elaboration to survive the final capability boundary rather than be rebuilt later.
 
 ---
 
@@ -1848,12 +1848,13 @@ This plan and its companion ledgers are development-discussion artifacts only un
 
 They do not:
 
-- accept C4;
-- authorize C5;
-- modify the active repair directive named by `.review/NEXT_STEPS.md`;
+- accept a checkpoint or amendment;
+- authorize implementation;
 - supersede `.review/NEXT_STEPS.md` as the active authority pointer;
-- reopen the adopted ADR-0001, or resolve the still-open ADR-0002;
-- authorize any implementation of an `IN` row;
-- weaken any current unrepresentability frontier.
+- change the active checkpoint contract;
+- reopen an adopted ADR or resolve an open ADR;
+- authorize implementation of an `IN` row;
+- weaken an unrepresentability frontier.
 
-The main review thread remains authoritative for C4 acceptance. The latest repair directive remains the active implementation authority.
+Rob owns human acceptance. `.review/NEXT_STEPS.md` owns current work, and the contract it names owns the
+active implementation boundary.
