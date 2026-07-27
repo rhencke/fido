@@ -307,6 +307,28 @@ def check_index_table_roles(root: Path, rows, reader=None) -> int:
     return len(declared)
 
 
+def check_live_set_complete(root: Path, rows) -> int:
+    """Every file sitting IN the canonical live FCB directory is declared by a row.
+
+    A document's LOCATION is a claim. Dropped into the live set it reads as current authority to any human
+    browsing the directory — but without a row it has no role, therefore no scan, which is the same
+    unscanned-authority shape this repair exists to remove, one level further out. Checking the table against
+    the manifest is not enough when both can simply omit the same file."""
+    live_dir = root / Path(TSV_REL).parent
+    if not live_dir.is_dir():
+        raise ReferenceError_(f'{Path(TSV_REL).parent}: the canonical live FCB directory is not a directory')
+    declared = {r['path'] for r in rows}
+    present = sorted(str(p.relative_to(root)) for p in live_dir.iterdir() if not p.is_dir())
+    if not present:
+        raise ReferenceError_(f'{Path(TSV_REL).parent}: the canonical live FCB directory is empty')
+    missing = [p for p in present if p not in declared]
+    if missing:
+        raise ReferenceError_(
+            f'{len(missing)} file(s) sit in the canonical live FCB directory with NO row in {TSV_REL}, so '
+            f'they carry no corpus role and are never scanned: ' + ', '.join(missing))
+    return len(present)
+
+
 def check_declaration_sites(root: Path, rows, reader=None) -> int:
     """Every structural declaration that ASSIGNS authority must point at a row that carries it.
 
@@ -377,15 +399,16 @@ def run(root: Path, reader=None) -> str:
     for row in rows:
         resolve(root, row)
         check_owner_marker(root, row, reader)
+    live = check_live_set_complete(root, rows)
     declared_roles = check_index_table_roles(root, rows, reader)
     sites = check_declaration_sites(root, rows, reader)
     check_corpus_declared(root, rows, authorities, reader)
     repo = sum(1 for r in rows if r['kind'] in REPO_KINDS)
     return (f'{len(rows)} declared reference(s): {repo} resolve in this tree, '
             f'{len(rows) - repo} explicitly typed off-tree; every row has one bound owner marker; '
-            f'{declared_roles} live-set role(s) agree with the FCB Index table; {sites} structural '
-            f'declaration(s) point at an authority; {len(authorities)} current authority document(s) name no '
-            f'undeclared operational path')
+            f'all {live} file(s) in the canonical live set are declared and {declared_roles} role(s) agree '
+            f'with the FCB Index table; {sites} structural declaration(s) point at an authority; '
+            f'{len(authorities)} current authority document(s) name no undeclared operational path')
 
 
 # ───────────────────────────────────────────────────────────── adversarial controls
@@ -570,6 +593,13 @@ def self_test(root: Path) -> int:
     scenario('the Index table names a path with no manifest row',
              lambda w: append_to(w, INDEX_ID, '| `.review/fcb/current/NO_SUCH_LIVE_FILE.md` | authority | x |'),
              expect='no manifest row')
+    # …and the direction neither the table nor the manifest can catch on its own: a file dropped into the
+    # canonical live set that BOTH of them omit.  Its location claims current authority; without a row it has
+    # no role and is never scanned.
+    scenario('an undeclared file sitting in the canonical live set',
+             lambda w: (w / Path(TSV_REL).parent / 'FIDO_FCB_STOWAWAY.md').write_text(
+                 '# Stowaway\n\nConsult `.review/NO_SUCH_STOWAWAY_TARGET.md`.\n', encoding='utf-8'),
+             expect='carry no corpus role and are never scanned')
     # ── the structural declarations themselves.  Each mutation keeps the path and the owner marker intact,
     #    so the failure is attributable to the declaration check and not to a marker the mutation broke.
     scenario('NEXT_STEPS names no active repair',

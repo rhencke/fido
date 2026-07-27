@@ -70,7 +70,7 @@ prove it fires. The banned set is `build_elaboration_core`, `build_compilation_i
 ## 5. Compatibility and collapsed-result peers
 
 None survives. The naming gate's deleted-surface table carries every surface removed across repairs 17–20, so
-a compatibility projection cannot return unnoticed; `make names` scans 93 files and reports no live hit for
+a compatibility projection cannot return unnoticed; `make names` scans 94 files and reports no live hit for
 any of them. No collapsed outcome peer, old result classifier, second diagnostic or cause authority, second
 source or typed tree, second evaluator, or compatibility view exists.
 
@@ -131,10 +131,15 @@ Current state:
 
 ```text
 69 declared reference(s): 67 resolve in this tree, 2 explicitly typed off-tree;
-every row has one bound owner marker; 17 live-set role(s) agree with the FCB Index table;
-4 structural declaration(s) point at an authority;
+every row has one bound owner marker; all 17 file(s) in the canonical live set are declared
+and 17 role(s) agree with the FCB Index table; 4 structural declaration(s) point at an authority;
 23 current authority document(s) name no undeclared operational path
 ```
+
+One residual hole of the same shape was found by this audit rather than by the directive, and closed: the
+table and the manifest could both simply OMIT a file sitting in the canonical live FCB directory, which would
+then have no role and never be scanned even though its location claims current authority. The filesystem
+direction is now checked too, and its control drops a stowaway document into the live set.
 
 The manifest grew from 53 rows to 69 and the scanned corpus from 17 documents to 23. The additions are the
 live FCB set named by full path with a stated role, the active repair, the M-series plan, the obligation
@@ -145,7 +150,7 @@ which `CLAUDE.md` calls the binding charter and which was never scanned.
 matrix and this audit are evidence, the generated human and ledger views are projections of canonical data —
 all `reference`. The canonical `.csv` and `.tsv` ledgers behind those views are `authority`.
 
-**48 controls, 45 must-fail with the reason pinned**, including the reviewer's exact mutation, a dangling path
+**49 controls, 46 must-fail with the reason pinned**, including the reviewer's exact mutation, a dangling path
 injected into each of the three documents the old gate never read, each of those three rows downgraded to
 `reference`, an authority that is a directory, one that cannot be decoded, one that cannot be read (injected,
 because `chmod 000` is not a control on a tree that builds as root), a live-set role disagreeing with the FCB
@@ -209,7 +214,7 @@ Observed on this candidate:
 | Command | Result |
 |---|---|
 | `make names` | 72 controls (38 must-flag, 24 must-accept, 6 enumeration/read fail-closed, 4 repository-level over both input modes, **all executed**); 94 files, no violation |
-| `make fcb` | human acts 19 controls; references **48 controls, 69 rows, 23 authorities**; closure ledger 491 rows |
+| `make fcb` | human acts 19 controls; references **49 controls, 69 rows, 23 authorities**; closure ledger 491 rows |
 | `make claims` | 18 controls; **12 obligations, 12 closed, 0 open** |
 | `make prove` (forced uncached) | readable gate **540/540 axiom-free**; module coverage; whole-certified-theory audit over constants, inductives and named assumptions; self-tests A–E; 25 two-stage sealed controls + 3 helper meta-controls + 3 mint typing controls |
 | `make e2e` (forced uncached) | pinned Go built the whole tree in a fresh root with the rendered `go.mod`, accepted the empty module, ran the witness vs goldens, the multi-package and go-list differential, and the full rejection matrix |

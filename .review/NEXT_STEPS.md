@@ -22,7 +22,7 @@ This file alone owns the current checkpoint and candidate state.
      the gate green. Corpus membership now comes from the canonical typed manifest through a closed
      `corpus_role` field, the four declarations that ASSIGN authority are themselves checked, the FCB Index
      live-file table states a role for every live-set file and must agree with the manifest both ways, and a
-     new authority row causes its target to be scanned with no Python edit. 69 rows, 23 authorities, 48
+     new authority row causes its target to be scanned with no Python edit. 69 rows, 23 authorities, 49
      controls.
   2. **`A005` missed a multiline `Local Notation`.** The class rule was checked one physical line at a time,
      so an UpperCamelCase alias split across lines was invisible — and every negative control had put the
