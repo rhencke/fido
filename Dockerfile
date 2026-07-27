@@ -1,12 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# Fido build stages (the certified pipeline itself is the charter, ARCHITECTURE.md).  `Fido Materialize` is
-# the SOLE Rocq transport vernac; the publication SINK is internal (sink_test + the `make regenerate` CLI).
+# The build stages, in the order the DAG forces:
 #   prover:  dune-compiles the theory; the always-run gate confirms every declared surface axiom-free.
-#   emit:    compiles theory+plugin (shared cache), MATERIALIZES each witness image DIRECTLY into a pristine
-#            root, and exercises the sink SEPARATELY on dirty/adversarial trees (sink_test).
-#   go-e2e:  the pinned Go toolchain VALIDATES the pristine with `go build ./...` (rendered go.mod) + goldens.
-#   sync:    only after that validation marker does `make regenerate` publish the SAME validated bytes via the sink.
+#   emit:    compiles theory and plugin, materializes each witness image, and exercises the sink separately.
+#   go-e2e:  the pinned Go toolchain validates the pristine image with `go build ./...` and the goldens.
+#   sync:    only after that validation marker may `make regenerate` publish the same validated bytes.
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
@@ -128,12 +126,11 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 #     the QUALIFIED constructor: `MakeProgram` alone also exists in Syntax and Index, so a bare probe would
 #     resolve there and the test would silently prove nothing.
 #
-#     TWO STAGES, and the first is the one that matters.  The earlier single-stage helper imported only
-#     `Syntax Compilable`, so every `Safe.*` and `Emit.*` probe could fail because the module was never
-#     loaded rather than because its constructor is hidden — the tests passed and proved nothing.  Stage 1
-#     therefore compiles the prelude plus a PUBLIC SENTINEL from the module under test and must SUCCEED;
-#     only then does stage 2 add the hidden term and require a failure that NAMES that hidden component.
-#     The prelude imports the whole public chain, because `Compilable` cannot import its own downstream
+#     TWO STAGES, and the first is the one that matters.  A probe can fail because the module never
+#     loaded rather than because its constructor is hidden, and that failure looks identical.  So stage 1
+#     compiles the prelude plus a PUBLIC SENTINEL from the module under test and must SUCCEED; only then
+#     does stage 2 add the hidden term and require a failure that NAMES that hidden component.  The
+#     prelude imports the whole public chain, because `Compilable` cannot import its own downstream
 #     modules and no transitive loading can supply them.
 SEALED_PRELUDE='From Fido Require Import Syntax Compilable Safe Emit.'
 sealed() { # <label> <public sentinel in the module under test> <qualified term that must NOT resolve>
@@ -157,8 +154,8 @@ sealed H Compilable.compile Compilable.MakeFacts
 sealed I Compilable.compile Compilable.Capability.MakeProgram
 sealed J Compilable.compile Compilable.Capability.MakeFailure
 sealed K Compilable.compile Compilable.AcceptedFacts.MakeFacts
-# the internal mint itself: it takes an Elaboration.  Both it and the Elaboration constructor are sealed, so
-# exporting it would restore the "constructs an equal core" path §7 deletes.  compile is the only way in.
+# the internal mint itself: it takes an Elaboration, and both it and that constructor are sealed, so
+# exporting it would reopen a path that constructs an equal core.  `compile` is the only way in.
 sealed L Compilable.compile Compilable.minted
 sealed M Compilable.compile Compilable.outcome_of_elaboration
 sealed N Compilable.compile Compilable.Capability.minted
@@ -175,15 +172,14 @@ sealed U Compilable.compile Compilable.elaborate_at
 sealed V Compilable.compile Compilable.decision_of_core
 sealed W Compilable.compile Compilable.MakeElaboration
 sealed X Compilable.compile Compilable.Elaborations.MakeElaboration
-# A006 / D-26: the MINT authority.  The raw token constructor and its representation are private; the
-# retired MakeImage name is gone.  The carrier pack constructor is deliberately NOT in this list — it is a
-# reducible carrier, not a mint, and cannot be applied without an inhabitant of the indexed token type.
+# the MINT authority: the raw token constructor and its representation are private.  The carrier pack
+# constructor is deliberately NOT in this list — it is a reducible carrier rather than a mint, and cannot
+# be applied without an inhabitant of the indexed token type.
 sealed Y Emit.Mint.issue Emit.Mint.Issue
 sealed Z Emit.Mint.issue Emit.Mint.TokenRepresentation
 sealed AA Emit.of_safe Emit.MakeImage
-# the SAFETY capability.  The whole-system audit (A006 §9) found this one still public while the Charter's
-# A006 paragraph asserts it is abstract; no certified transport reduces its representation, so the narrow
-# carrier allowance does not apply to it and it is now sealed like the rest.
+# the SAFETY capability.  No certified transport reduces its representation, so the narrow carrier
+# allowance does not apply to it and it is sealed like the rest.
 sealed AE Safe.certify Safe.Make
 sealed AF Safe.certify Safe.ProgramRepresentation
 sealed AG Safe.certify Safe.Certificate.Make
@@ -198,8 +194,8 @@ meta_reject() { # <label> <prelude> <sentinel> <hidden term> <expected rejection
     *"$5"*) echo "fido: sealed meta-control $1 — helper rejected it, as required ($5)" ;;
     *) echo "$out"; fail "sealed meta-control $1: helper rejected for the WRONG reason (wanted: $5)" ;;
   esac; }
-# (1) exactly the defect this repair fixes: a prelude that never loads the module under test. The helper must
-#     call that invalid evidence, not a sealed constructor.
+# (1) a prelude that never loads the module under test.  The helper must call that invalid evidence,
+#     rather than reporting a sealed constructor.
 meta_reject omitted-safe 'From Fido Require Import Syntax Compilable.' Safe.certify Safe.Make \
   'did not load or its public sentinel'
 meta_reject omitted-emit 'From Fido Require Import Syntax Compilable.' Emit.Mint.issue Emit.Mint.Issue \

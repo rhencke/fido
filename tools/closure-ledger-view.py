@@ -2,9 +2,9 @@
 """Generate and verify the human view of the spec-closure ledger.
 
 `FIDO_FCB_CLOSURE_LEDGER.csv` is the canonical 491-row table. `FIDO_FCB_CLOSURE_LEDGER.md` says of itself
-that it is "generated from" that CSV — and until this tool existed, nothing made that true. A view that
-merely claims to be derived is the same defect Governance D-07 names for the human-acts list: the claim
-carries no weight, and the two can drift while both look authoritative.
+that it is "generated from" that CSV, and this tool is what makes that true. A view that merely claims to
+be derived is the defect Governance D-07 names for the human-acts list: the claim carries no weight, and
+the two can drift while both look authoritative.
 
 `--write` regenerates the view; `--check` compares exact bytes and never writes. One implementation does
 both, so the checker cannot drift from the writer. Everything fails closed and names the exact input.

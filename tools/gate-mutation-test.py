@@ -2,9 +2,8 @@
 """Mutation tests for the document gates: prove every root helper is load-bearing.
 
 A gate's own self-test proves its controls PASS. It cannot prove they would FAIL if the rule they protect were
-removed — and a control that survives the deletion of its rule is not evidence, it is decoration. Both D-24
-blockers reached a freeze that way: the rule was real and the control had never been watched failing in the
-shape that mattered.
+removed — and a control that survives the deletion of its rule is not evidence, it is decoration. A rule
+can be real while the control protecting it has never been watched failing in the shape that matters.
 
 So each mutant below deletes exactly one root helper's effect, reruns that gate's own self-test in a copy of
 the tree, and asserts BOTH that the self-test fails AND that the specific controls which depend on that rule

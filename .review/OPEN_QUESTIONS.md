@@ -20,4 +20,18 @@ is the archive.
 
 ---
 
-**There are currently no open implementation questions.**
+## Q-M1-01 — a dead exclusion row in `tools/naming-gate.py`
+
+**Owner:** the reviewer. **Blocks:** no.
+
+`EXCLUDED_FILES` still lists a C4 repair directive that no longer exists. The row is inert — the test is
+`rel in EXCLUDED_FILES`, so an entry naming an absent file can never match — but nothing in the gate asserts
+its own exclusions resolve, so a dead exclusion sits there looking deliberate.
+
+Two readings of the M1 contract disagree about whose work this is. §7 says M1 deletes dead helpers and dead
+files and keeps behaviour unchanged, which removing it would. §2 says M1 may not alter a checker beyond the
+narrow M1 gate and the active-matrix subject, and a data row is not a comment.
+
+**Default if nobody answers:** leave the row, and record it as an M3 finding. M3 owns tool architecture and
+would in any case want the stronger fix, which is that the gate should reject an exclusion resolving to
+nothing rather than carrying it silently.

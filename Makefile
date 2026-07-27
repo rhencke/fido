@@ -1,34 +1,22 @@
 BUILDER := fido-builder
-# The build platform is pinned to linux/amd64 — the 64-bit target the theory assumes (Integer: int/uint are
-# 64-bit).  SEALED: `override` makes any command-line/env change inert (the e2e also asserts the running
-# toolchain's GOOS/GOARCH/word size).  This is an operational pin, not a certified TargetConfig.
+# The 64-bit target the theory assumes; `override` makes a command-line or environment change inert.
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
         fcb fcb-write claims audit-fresh profile
 .DEFAULT_GOAL := check
 
-# The certified pipeline and the transport boundary are the charter (ARCHITECTURE.md); they are not restated
-# here.  ALL Rocq/Go work runs in the PINNED container via buildx — host Rocq is NOT supported.
+# All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
 
-# `make check` verifies the WORKING TREE, coherently and in ONE place.  It materializes the working-tree
-# content of every relevant file — `git ls-files --cached --others --exclude-standard` enumerates candidate
-# paths (tracked files WITH their uncommitted edits, PLUS untracked files that are not gitignored, so a rogue
-# untracked `foreign.go` / `.ml` is caught; the gitignored local residue .fido/, *.fido-tmp-v1, *.vo, _build/
-# is excluded, which a raw `find .` would instead wrongly flag); a `python3` filter keeps ONLY the candidate
-# paths that EXIST ON DISK (so a tracked file DELETED in the working tree is NOT reintroduced from the index —
-# its absence then surfaces in the byte-compare; PRESENCE is disk-determined, not index membership), and then
-# PLAIN `tar` (NO --ignore-failed-read) archives them into a temp tree — so an existing-but-UNREADABLE `.go`
-# makes tar FAIL loudly rather than being silently omitted (a rogue that would otherwise pass).  Over that
-# temp tree it runs the lightweight
-# repository-policy gates over THAT tree (transport-only OCaml; tracked Go/go.mod Fido-headed, no nested
-# go.mod), and byte-compares its generated go.mod + recursive .go against a pristine `generated-module` layer
-# built from the SAME working-tree proof inputs (`.dockerignore` excludes the committed go.mod/.go, so the
-# pristine is independent of the tracked bytes — this closes the byte-drift hole a header-preserving `main.go`
-# edit would otherwise slip through).  `prove`/`e2e` build from the working-tree Buildx context.  It does NOT
-# export or compare the staged INDEX snapshot — that is the pre-commit hook's coherent, separate job.  (The
-# exact-Git-mode-100644 gate is a committed-policy check and runs ONLY in the hook; on the working tree the
-# generated-output gate's own -L/-f/-x file-type tests are authoritative.)
+# `make check` verifies the WORKING TREE.  Three choices in the recipe below are load-bearing:
+#   `git ls-files --cached --others --exclude-standard` catches a rogue untracked `.go`/`.ml` that `find`
+#     would miss, and skips the gitignored residue that `find` would wrongly flag;
+#   the python3 filter keeps only paths that exist ON DISK, so a tracked file deleted in the working tree is
+#     not reintroduced from the index — its absence surfaces in the byte-compare instead;
+#   plain `tar` (no --ignore-failed-read) makes an existing-but-unreadable file fail loudly.
+# `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
+# tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
+# and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
 check: names fcb claims prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
@@ -51,8 +39,7 @@ prove: builder
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# Diagnostic only — never a gate, never wired into `check` or the hook.  Recompiles ONE module with
-# `rocq c -time` against the dune-built dependencies and ranks its sentences and declarations by cost, so a
+# Diagnostic only, never a gate.  Recompiles ONE module with `-time` and ranks its sentences by cost, so a
 # slow build can be attributed instead of guessed at.  `make profile FILE=Typing.v TOP=25`.
 FILE ?= Compilable.v
 TOP  ?= 40
@@ -64,91 +51,59 @@ profile: builder
 	  python3 tools/rocq-profile.py $(FILE) "$$out/time.log" $(TOP); \
 	  rc=$$?; echo "fido: raw -time log kept at $$out/time.log"; exit $$rc
 
-# The emit stage alone (intermediate): Dune-cached theory + plugin build, then each witness MATERIALIZES its
-# authoritative pristine image (`Fido Materialize`, explicit rocq c on the witness — not a .vo side effect);
-# the INTERNAL publication sink is exercised SEPARATELY against dirty + adversarial trees (sink_test).  There
-# is NO public `Fido Emit` command — the sink is reached in production only through the validated `make
-# regenerate` workflow.  The FRESH-BUILD VALIDATION that gates real publication runs in `e2e` (`go build
-# ./...`); this intermediate stage is wired into `check` via `e2e`.
+# The emit stage alone: theory and plugin, then each witness materializes its pristine image through an
+# explicit `rocq c`, not a .vo side effect.  The internal sink is exercised separately, against dirty and
+# adversarial trees.  The fresh-build validation that gates real publication is in `e2e`.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
 
-# The full last-mile e2e (part of `check`): emit the whole tree, then the pinned Go toolchain runs
-# `go build ./...` over it and runs the witness, comparing stdout/stderr/exit to the reviewed goldens.
+# Emit the whole tree, then the pinned Go toolchain builds it and runs the witness against the goldens.
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
 
-# Regenerate the tracked canonical Go module through the ONE supported validate-before-publish workflow.  Building
-# the `sync` target FORCES the go-e2e stage (the pinned `go build ./...`) via the Docker DAG (`sync` COPYs
-# go-e2e's /fresh-build-ok) — so a failed fresh build makes `sync` unbuildable and no sink effect occurs.  The
-# sync image bakes in the pristine `generated-module` layer + the tiny internal apply adapter; run with the
-# repository root bind-mounted at /dest, Sink synchronizes /generated into the repo (preserving foreign
-# non-Go files, rejecting foreign Go/module + nested .fido, updating tracked go.mod + recursive .go, removing
-# stale Fido-owned .go).  It publishes the ORIGINAL generated-module bytes, never a post-build byte.  After it
-# runs, stage go.mod + recursive *.go and commit; the pre-commit staged-index check verifies byte-exactness.
+# Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` FORCES
+# the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's /fresh-build-ok), so a failed
+# fresh build makes `sync` unbuildable and no sink effect occurs.  It publishes the original pristine bytes,
+# never a post-build one.
 regenerate: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
 	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
-# Structural regression proving the validate-before-publish DAG edge is load-bearing: with go-e2e forced to
-# FAIL (on a temp Dockerfile copy), `--target sync` must be UNBUILDABLE; on the unmodified tree it must build.
-# So `make regenerate` cannot publish unless the pinned `go build ./...` validated the pristine first.
-# Force the proof gate and the pinned-Go whole-tree e2e to RUN rather than report a Buildx cache hit.  A
-# cached verdict is valid — Buildx caches on identical inputs — but a closure audit should OBSERVE its
-# assertions rather than infer them from a cache key, and a freeze report should quote counts it watched
-# being produced.  For the audit, not the daily loop: `make prove` and `make e2e` stay cached.
+# Force the proof gate and the whole-tree e2e to RUN rather than report a Buildx cache hit.  A cached
+# verdict is valid, but an audit should observe its assertions rather than infer them from a cache key.
 audit-fresh: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
 	  --no-cache-filter prover --target prover .
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
 	  --no-cache-filter go-e2e --target go-e2e .
 
+# With go-e2e forced to FAIL on a temp Dockerfile copy, `--target sync` must be unbuildable, and on the
+# unmodified tree it must build — so `make regenerate` cannot publish without a validated fresh build.
 regen-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
 
-# The INDEX-authoritative Git-mode gate (tools/generated-mode-gate.sh — every tracked generated go.mod + .go
-# has EXACT stage-0 index mode 100644, read from `git ls-files -s`, catching a mode-120000/100755 entry a
-# `core.symlinks=false` export would hide) is a STAGED/committed-policy check, so it runs ONLY in the
-# pre-commit hook.  `make check` verifies the WORKING TREE, where the generated-output gate's own
-# `-L`/`-f`/`-x` file-type tests on the real files are authoritative for mode.
-
-# Whitespace/format check against `.editorconfig`.  Property resolution is delegated to the EditorConfig
-# reference implementation (apt: `editorconfig`), so glob matching, nesting and inheritance are the spec's.
-# It REPORTS and never rewrites — this tree is full of byte-exact artifacts (generated Go byte-compared against
-# the pristine build, reviewed goldens pinning control characters, frozen evidence cited by hash elsewhere).
-# Deliberately NOT wired into `check` or the pre-commit hook: those stay code-level gates, and every whitespace
-# case that can actually break something is already caught by a stronger, semantic check.
+# Whitespace check against `.editorconfig`, with property resolution delegated to the EditorConfig reference
+# implementation.  It reports and never rewrites, because this tree is full of byte-exact artifacts.
+# Deliberately not a gate: every whitespace case that can break something is caught by a stronger check.
 fmt:
 	@python3 tools/fmt-check.py
 
-# A005 scoped-name policy gate.  The compiler verifies Rocq names for free; documentation
-# has no verifier at all, so this is the only checker the prose gets.  Reports, never rewrites.
+# The scoped-name policy gate.  The compiler verifies Rocq names for free; prose has no verifier at all,
+# so this is the only one it gets.
 names:
 	@python3 tools/naming-gate.py
 
-# The live-FCB document gates, in one place so they stay one thing rather than three lines that drift.
-# Each has ONE implementation shared by its writer and its checker, so a checker cannot drift from what
-# generates the file, and each runs its adversarial controls FIRST — a gate that has never been shown to
-# fail is not evidence.
-#
-#   D-07  open human acts are DISCOVERED from `FIDO_FCB_HUMAN_ACTS.tsv`, never hand-copied;
-#         `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its generated view.
-#   D-24  every OPERATIONAL path the live FCB names resolves at the same exact ref, or is explicitly typed
-#         off-tree with a stated availability.  The corpus DECLARES those references in
-#         `FIDO_FCB_REFERENCES.tsv`; it is not scanned for backticked strings, because a scanner needs an
-#         exception list and an exception list is where a dangling path hides.
-#   the spec-closure ledger's human view is regenerated from the canonical 491-row CSV, so its own claim to
-#         be generated is true rather than decorative.
-# The repair-18 claim-to-theorem matrix.  Freeze prose is not gated by anything, so it can drift past what
-# the public statements carry — which is how the previous candidate blocked.  Each load-bearing completion
-# claim names the exact surface, fixture and gate that establish it, and this verifies they EXIST under
-# those exact names.  It does not judge theorem strength; a human does that.
+# The claim-to-theorem matrix.  Freeze prose is gated by nothing else, so it can drift past what the public
+# statements carry.  Each completion claim names the exact surface, fixture and gate that establish it, and
+# this verifies they exist under those exact names.  It does not judge theorem strength; a human does that.
 claims:
 	@python3 tools/claim-matrix-gate.py --self-test
 	@python3 tools/claim-matrix-gate.py
 
+# The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
+# runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
 fcb:
 	@python3 tools/human-review-index.py --self-test
 	@python3 tools/human-review-index.py --check
@@ -162,9 +117,8 @@ fcb-write:
 	@python3 tools/human-review-index.py --write
 	@python3 tools/closure-ledger-view.py --write
 
-# Just the Rocq File/Error lines from the pinned prover log.  On failure Buildx echoes the ENTIRE prove
-# recipe back as its error trailer — hundreds of lines — which buries the two lines that say what actually
-# broke.  This extracts them.  Never a substitute for `prove`: it reports, it does not verify.
+# Just the Rocq File/Error lines.  On failure Buildx echoes the entire recipe back as its error trailer,
+# hundreds of lines, which buries the two that say what broke.  It reports; it does not verify.
 prove-errors:
 	@$(MAKE) --no-print-directory prover-log > /tmp/fido-prover.log 2>&1 || true
 	@grep -E '(^|[0-9.# ]+)(File "|Error:)' /tmp/fido-prover.log | sed 's/^[0-9.# ]*//' | sort -u | head -40 \

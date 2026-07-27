@@ -19,8 +19,8 @@ proposed commit:
                  scans a complete exported tree with no .git present; fails if required roots or source
                  files are absent.  Never silently falls back to an empty set.
 
-Enumeration that fails open is the defect this rebuild exists to remove: the previous gate ignored a
-`git ls-files` failure and would scan zero files while reporting success.
+Enumeration that fails open is the defect both modes exist to prevent: a gate that ignores a
+`git ls-files` failure scans zero files and reports success.
 
 Run `--self-test` for the negative controls.  A gate that cannot fail is not a gate; a gate that cannot
 prove it fails is not evidence.
@@ -78,33 +78,33 @@ RETIRED_COMPOUNDS = ['goexpr', 'gostmt', 'godecl', 'gosourcefile', 'gosource', '
                      'nodekeymap', 'nodekey', 'typesyntax', 'supportedtypename',
                      'decimalfloat', 'decimalcomplex', 'programtyped', 'compilableprogram']
 
-# Q-08's thirteen deleted surfaces must have zero live hits.
+# Every deleted surface below must have zero live hits.
 DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag',
                     'semantic_ok_flag_of_valid', 'elaboration_ok_sig', 'elaboration_result_cases',
                     'elaborate_failed_ds', 'cp_work', 'cp_trace', 'cp_layout', 'cp_plan', 'cp_diags',
                     'pe_result_on_core',
-                    # repair 15 §9/§12 — the stripped result peer and the reconstruction bridges
+                    # the stripped result peer and the reconstruction bridges
                     'ElaborationOK', 'ElaborationFailed', 'elaborate_indexed', 'elaborate_phase_raw_eq',
                     'elaborate_diags_eq_elaboration', 'elaborate_failed_not_valid',
                     'over_program_failure_carries_core_diags',
-                    # repair 15 §7 — the second capability-mint path
+                    # the second capability-mint path
                     'elaboration_ok_core', 'compilable_of_valid',
-                    # repair 15 §8 — surfaces that named a now-sealed constructor and could not survive it
+                    # surfaces that named a sealed constructor and could not survive it
                     'compile_on_core', 'compile_projects_elaborate', 'failure_diagnostics_make',
-                    # repair 14's deletions, which never entered this table — which is exactly how
-                    # ARCHITECTURE.md went on citing `cp_prov` as current for a whole repair cycle
+                    # deletions that never entered this table, which is how the charter went on citing
+                    # `cp_prov` as current long after it was gone
                     'cp_prov', 'compilable_prov', 'elaboration_ok_full', 'elaborate_ok_whole',
                     'elaborate_failed_whole', 'elaborate_ok_seals_facts', 'elaborate_ok_seals_tnfacts',
-                    # repair 17 §4 — the coarse legacy result peer and its whole classification closure.
-                    # A compatibility projection must not be able to return under a later repair.
+                    # the coarse result peer and its whole classification closure.  A compatibility
+                    # projection must not be able to return.
                     'LegacyClass', 'LegacyOk', 'LegacyTyping', 'LegacyPackageMainCount', 'LegacyBuildOutput',
                     'legacy_class_of_diags', 'legacy_compile_class', 'compile_class', 'compile_class_spec',
                     'compile_class_input_equal', 'compile_class_build_permutation', 'compile_untyped',
                     'diag_is_typing', 'diag_is_package', 'diag_is_build_output',
                     'existsb_typing_semantic', 'existsb_package_semantic',
                     'existsb_build_output_semantic', 'existsb_build_output_fresh',
-                    # repair 18 §4 — peers absorbed into the one accepted cause, and the existential-suffix
-                    # closures the cause-owned lemmas replaced.
+                    # peers absorbed into the one accepted cause, and the existential-suffix closures the
+                    # cause-owned lemmas replaced.
                     'nested_success_bundle', 'nested_index_bundle', 'deep_nested_index_at',
                     'deep_nested_chain_index_evidence', 'deep_nested_capability_retains_elaboration',
                     'deep_nested_capability_retains_causes', 'deep_nested_seals_expression_fact_table',
@@ -112,11 +112,11 @@ DELETED_SURFACES = ['program_elaboration_eta', 'result_ok_b', 'semantic_ok_flag'
                     'deep_fail_capability_retains_rejected_causes', 'deep_fail_outer_operands_final_fail',
                     'deep_fail_outer_operands_final_fail_claim', 'deep_fail_childfail_closure_at',
                     'retained_convsuccess_closure', 'retained_childfail_closure', 'program_member_at',
-                    # repair 19 §8 — the weaker consumer-free corollary. Being gated is not a semantic
-                    # purpose, and a theorem kept only because it is gated must not return unnoticed.
+                    # the weaker consumer-free corollary.  Being gated is not a semantic purpose, and a
+                    # theorem kept only because it is gated must not return unnoticed.
                     'deep_nested_ok_closure_at',
-                    # repair 19 §3 — the fake local type and judgment aliases A005 forbids. Matched as the
-                    # ALIAS declaration by the local-notation rule; listed here so the NAMES cannot return
+                    # the fake local type and judgment aliases A005 forbids.  Matched as the alias
+                    # declaration by the local-notation rule, and listed here so the names cannot return
                     # in prose as though they were live public surfaces.
                     'TypedProgram']
 
@@ -494,8 +494,8 @@ SELF_TESTS = [
     ('clean multiline fields',            check_code,
      'Record Good := MakeGood {\n  first_field : nat ;\n  second_field : nat\n}.\n', False),
     # A005 / D-25: an UpperCamelCase local notation rebuilds another module's public surface under a
-    # bare name.  The rule is the CLASS — these four are the exact aliases the migration left behind,
-    # and the fifth shows an arbitrary new one is caught too.
+    # bare name.  The rule is the CLASS — these four are the exact aliases it forbids, and the fifth
+    # shows an arbitrary new one is caught too.
     ('local alias TypedProgram',          check_code,
      'Local Notation TypedProgram := (Typing.Program f) (only parsing).\n', True),
     ('local alias Resolve',               check_code,

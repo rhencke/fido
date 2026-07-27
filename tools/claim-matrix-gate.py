@@ -2,8 +2,8 @@
 """Obligation matrix checker for the active checkpoint.
 
 A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem or
-control carries — which is how candidates have blocked before: green gates and a completion narrative that had
-drifted past the evidence. Green gates cannot upgrade a weaker statement.
+control carries: green gates beside a completion narrative that has drifted past the evidence. Green gates
+cannot upgrade a weaker statement.
 
 So every accepted obligation gets a row naming the authority that owns it, the implementation that satisfies
 it, the positive evidence, the adversarial control that must fail without it, the mutation that proves that
