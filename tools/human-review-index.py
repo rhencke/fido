@@ -17,6 +17,7 @@ The list of open acts lives ONLY in the TSV.  This tool must never contain one.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -96,6 +97,7 @@ def load_rows(root: Path):
         seen.add(row['id'])
         if row['status'] not in STATUSES:
             raise DataError(f'{TSV_REL}:{n}: status {row["status"]!r} is not one of {", ".join(STATUSES)}')
+        check_no_mutable_candidate_state(row, n)
         rows.append(row)
     if not rows:
         raise DataError(f'{TSV_REL}: no rows; an empty act list must be stated deliberately, not implied')
@@ -104,6 +106,28 @@ def load_rows(root: Path):
         raise DataError(f'{TSV_REL}: rows are not in canonical id order; expected '
                         + ', '.join(r['id'] for r in ordered))
     return rows
+
+
+# A Git object ID: 7 to 40 lowercase hex characters, delimited by non-hex on BOTH sides.  Both boundaries are
+# load-bearing.  Without them a 64-character SHA-256 would match a 40-character window inside itself, and a
+# CONTENT DIGEST is a legitimate durable fact — the pinned toolchain and the spec bundle are identified that
+# way.  What this rejects is a COMMIT: mutable state, whose owner is `.review/NEXT_STEPS.md` alone.
+GIT_OBJECT_ID = re.compile(r'(?<![0-9a-fA-F])[0-9a-f]{7,40}(?![0-9a-fA-F])')
+
+
+def check_no_mutable_candidate_state(row: dict, n: int):
+    """An open human act states the DURABLE act, never which candidate happens to be offered today.
+
+    The act outlives every candidate; a SHA copied into it goes stale the moment the next one is pushed, and
+    then two documents disagree about the current state. That is not a formatting rule — it is the one-owner
+    law applied to the one field that changes most often. Name the owning authority; let it hold the value."""
+    for k in FIELDS:
+        m = GIT_OBJECT_ID.search(row[k])
+        if m:
+            raise DataError(
+                f'{TSV_REL}:{n}: {row["id"]}: field {k!r} carries {m.group(0)!r}, which is a Git object ID. '
+                f'Open human-act data may not carry mutable candidate state — state the durable act and name '
+                f'the authority that owns the value.')
 
 
 def validate_anchor(root: Path, row: dict):
@@ -198,6 +222,22 @@ def self_test(root: Path) -> int:
         p = tsv(work); lines = p.read_text(encoding='utf-8').split('\n')
         p.write_text(fn(lines), encoding='utf-8')
 
+    def set_cell(work: Path, field: int, value: str, row: int = 1):
+        """Change one cell of one act row AND regenerate the view, so the only thing under test is the rule.
+
+        Without the regeneration a must-accept control would fail on the byte-compare instead, and would look
+        like the rule rejecting text it actually accepts."""
+        p = tsv(work); lines = p.read_text(encoding='utf-8').split('\n')
+        cells = lines[row].split('\t')
+        assert len(cells) == len(FIELDS), 'malformed row in the fixture'
+        cells[field] = value
+        lines[row] = '\t'.join(cells)
+        p.write_text('\n'.join(lines), encoding='utf-8')
+        try:
+            run(work, write=True)
+        except DataError:
+            pass                       # the rule under test rejects it; the control reports that itself
+
     scenario('canonical fixture passes', lambda _w: None)
     # the two core false-green classes: the view must track the rows in BOTH directions
     scenario('a live row omitted from the generated view',
@@ -220,6 +260,23 @@ def self_test(root: Path) -> int:
              lambda w: edit(w, lambda L: '\n'.join([L[0], '\t'.join(
                  [c if i != 2 else '' for i, c in enumerate(L[1].split('\t'))])] + L[2:])),
              expect="field 'required_human_act' is blank")
+    # D-07 state ownership: an act may not carry the candidate identity that `NEXT_STEPS` owns …
+    scenario('a candidate SHA copied into an act',
+             lambda w: set_cell(w, 2, 'Review candidate 964575286acdb3c16df4bb9a11f1194a9418978c.'),
+             expect='which is a Git object ID')
+    scenario('a short candidate SHA copied into an act',
+             lambda w: set_cell(w, 6, 'Superseded by 9645752.'),
+             expect='which is a Git object ID')
+    scenario('a candidate SHA hidden in the effect column',
+             lambda w: set_cell(w, 6, 'Blocked at d17fbe37d28a71c6f64e166409b494b30287c8b6 until accepted.'),
+             expect='which is a Git object ID')
+    # … but a CONTENT DIGEST is a durable fact, and an over-broad pattern that rejected one would push a real
+    # provenance record out of the data authority. Both directions, or the rule is a guess.
+    scenario('a SHA-256 content digest stays accepted',
+             lambda w: set_cell(w, 6, 'Pinned bytes '
+                                      'd8f8d4f62b5b574067a4e4bf64a298bbe2cb5bc9a28d8f9c321c776e838cf1fa.'))
+    scenario('an ordinary dated act stays accepted',
+             lambda w: set_cell(w, 6, 'Decided 2026-07-26; revisit at C16.'))
     scenario('missing source file',
              lambda w: (w / L1_path(w)).unlink(),
              expect='is not a regular file in this tree')

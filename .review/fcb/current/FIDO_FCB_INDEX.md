@@ -8,7 +8,7 @@
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
 > `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
-> **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
+> **Canonical live location:** `.review/fcb/current`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
 > **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
 > C4 is not accepted and C5 is not authorized; `.review/NEXT_STEPS.md` is the live checkpoint authority.
@@ -18,12 +18,12 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Active C4 repair:** repair 20, in `.review/C4_IMPLEMENTATION_REPAIR_20.md`, which `.review/NEXT_STEPS.md`
+**Active C4 repair:** repair 21, in `.review/C4_IMPLEMENTATION_REPAIR_21.md`, which `.review/NEXT_STEPS.md`
 names as its authority. `NEXT_STEPS` owns candidate state; this Index names the boundary, not the candidate.  
-**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 19 are historical; Git
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 20 are historical; Git
 history is their archive.  
 Governance owns `D-01` through `D-27`; amendments `A001` through `A007` are accepted.  
-**Next permitted sequence:** `repair 20 → human C4 review → C4 acceptance closeout → M1 → M2 → M3 → Rob
+**Next permitted sequence:** `repair 21 → human C4 review → C4 acceptance closeout → M1 → M2 → M3 → Rob
 approves the exact M4 plan → M4 → checkpoint-definition Step 0 → C5`.  
 **C5 status:** forbidden until C4 is accepted. **M1 through M4 implementation is likewise forbidden until C4
 is accepted** — A007 installs their authority, not permission to run them.  

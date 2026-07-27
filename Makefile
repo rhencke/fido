@@ -155,6 +155,7 @@ fcb:
 	@python3 tools/fcb-reference-gate.py --self-test
 	@python3 tools/fcb-reference-gate.py
 	@python3 tools/closure-ledger-view.py --check
+	@python3 tools/gate-mutation-test.py
 
 # regenerate every generated FCB view from its canonical source
 fcb-write:

@@ -60,7 +60,7 @@ env	GOTRACEBACK	single
 env	LANG	C.UTF-8
 env	LC_ALL	C.UTF-8
 env	TZ	UTC
-env	PATH	{SANDBOX}/go/bin:/usr/bin:/bin <!-- FIDO-FCB-REF:EVIDENCE-SANDBOX -->
+env	PATH	{SANDBOX}/go/bin:/usr/bin:/bin	the ephemeral probe sandbox, identity external:sandbox <!-- FIDO-FCB-REF:EVIDENCE-SANDBOX -->
 env	GOROOT	{SANDBOX}/go
 env	HOME	{SANDBOX}/home
 env	TMPDIR	{SANDBOX}/tmp

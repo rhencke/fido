@@ -231,6 +231,43 @@ FCB Index states a role for every file beside the manifest and must agree with i
 document `NEXT_STEPS` names after `Authority:`, and the `contract:` and `review_basis:` paths in
 `REVIEW_REQUEST`, and the M-series plan the Index names, must all be authorities.
 
+**The PATH UNIVERSE comes from the repository, not from the checker.** A gate that decides which namespaces
+exist can only prove the relation over the subset it recognised. The inventory is therefore derived from the
+exact snapshot being checked — Git enumeration in a working tree, the exported tree in a snapshot — and no
+repository namespace or root file is written into a tool.
+
+**One canonical repository path.** A repository path is POSIX, relative to the root, with no leading slash, no
+leading `./` in stored form, no empty, `.` or `..` segment, no backslash and no NUL, and it resolves inside
+the root without passing through a symlink. Those rules together ARE canonicality: split-then-join is the
+identity, so nothing is left for a separate normalized comparison to catch. Malformed input is REJECTED, never
+normalized and accepted, because normalizing lets two spellings name one target. One canonical target has
+exactly one row. The same parser governs manifest targets, manifest owners, live-set entries, Index table
+cells, and paths found in authority prose.
+
+**How a document NAMES a path.** Four exact forms, all derived from the inventory: a token that IS an existing
+repository path; a token rooted at a discovered top-level DIRECTORY, which is how a missing path under a
+namespace is found; a dot-prefixed repository name carrying a directory part or an extension; and the explicit
+root-relative form, a dot and a slash before the file name. That fourth form is the rule for MISSING ROOT
+paths: a bare word is never a path, so an authority that means to name a root file which does not exist must
+write it with that prefix or it is indistinguishable from ordinary prose. A slash-containing phrase is not a
+path either — a top-level FILE is not a namespace.
+
+That rule binds this document too. Prose may not use the dot-slash form as a placeholder for "some path",
+because by this decision that spelling IS a reference to a file of that name.
+
+**External evidence lives in a distinct namespace.** An off-tree row uses an `external:` identity that cannot
+parse as a repository path, does not begin with a repository top-level entry, and does not resolve under the
+root. Retyping a missing repository file as external evidence can therefore never make it pass.
+
+**An owner marker binds an exact token.** The marker line must carry the row's canonical path delimited on
+both sides. One path is never proved by a longer path that contains it: `dune` is not present because
+`dune-project` is.
+
+**The live FCB set is flat and closed.** Every immediate entry of the canonical live directory is a regular
+non-symlink file with exactly one manifest row and exactly one live-file table line. A directory, a symlink or
+any other entry there is an undeclared subtree, and admitting one silently would be an FCB change made by
+accident rather than by amendment.
+
 Validating only the declared rows is not compliance with this decision. A corpus that names a path with no row
 at all still sends a reader at nothing, and a gate that inspects only its own chosen rows reports green while it
 happens. Neither is a hard-coded scan list compliance: a typed row proves the target EXISTS, and proves nothing

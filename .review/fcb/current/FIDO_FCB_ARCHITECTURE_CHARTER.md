@@ -1771,7 +1771,7 @@ The contract requires:
 
 - every implementation-restriction latitude candidate is classified exactly once as `ACCEPTANCE-ALIGNMENT`, `OUT-COVERED`, or `NOT-LATITUDE`;
 - every `ACCEPTANCE-ALIGNMENT` row has a unique justification, a pinned-toolchain observation, a future Fido elaboration obligation, an exact diagnostic ID and text-or-shape, and an implementing checkpoint;
-- pinned observations run under the closed `PROBE_ENVIRONMENT.tsv` profile and retain raw stdout, stderr, exit status, exact command, effective `go env`, and distribution provenance; <!-- FIDO-FCB-REF:PROBE-ENVIRONMENT -->
+- pinned observations run under the closed `PROBE_ENVIRONMENT.tsv` profile — off-tree evidence, identity `external:PROBE_ENVIRONMENT.tsv` — and retain raw stdout, stderr, exit status, exact command, effective `go env`, and distribution provenance; <!-- FIDO-FCB-REF:PROBE-ENVIRONMENT -->
 - a finite probe set never claims to prove the global subset theorem;
 - the publication path rejects any `Emit.Image` the pinned toolchain rejects;
 - the formal subset theorem is discharged incrementally by the checkpoint that makes each restriction representable;

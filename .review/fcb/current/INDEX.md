@@ -3,7 +3,7 @@
 Git is the sole canonical FCB store. This stable file is the entry point for models and tools.
 
 - **Index:** `FIDO_FCB_INDEX.md`
-- **Live checkpoint authority:** `../../NEXT_STEPS.md`
+- **Live checkpoint authority:** `.review/NEXT_STEPS.md`, from the repository root
 
 Use all files from one exact Git ref. If a task specifies a candidate commit or repository snapshot, use that exact
 ref. Otherwise use the latest accessible `main`. Never mix FCB files across refs.

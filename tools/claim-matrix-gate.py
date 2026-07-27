@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
-"""Repair-20 obligation matrix checker.
+"""Repair-21 obligation matrix checker.
 
-A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem
-states — which is exactly how the previous candidate blocked: green proofs and a completion narrative that
-had drifted past what the public statements carried. Green proofs cannot upgrade a weaker statement.
+A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem or
+control carries — which is how candidates have blocked before: green gates and a completion narrative that had
+drifted past the evidence. Green gates cannot upgrade a weaker statement.
 
-So every load-bearing completion claim gets a row naming the exact public surface that establishes it, the
-fixture or client test that exercises it, and the gate that keeps it honest. This tool does not read Rocq
-types and does not judge whether a theorem is strong enough — a human does that. It enforces the part a
-human reviewer cannot do reliably by eye: that every named surface, fixture and gate actually EXISTS under
-that exact name, and that no claim is marked closed while any evidence cell is empty or dangling.
+So every accepted obligation gets a row naming the authority that owns it, the implementation that satisfies
+it, the positive evidence, the adversarial control that must fail without it, the mutation that proves that
+control is load-bearing, and the gate that runs them. This tool does not read Rocq types and does not judge
+whether an implementation is strong enough — a human does that. It enforces the part a human reviewer cannot
+do reliably by eye: that every named surface, token and gate EXISTS under that exact name, that the required
+obligations are all present exactly once, and that no row is marked closed while any cell is empty, dangling
+or still pending.
 
 That is a narrow guarantee, and stating it narrowly is the point. A gate that promised to verify claim
-strength would be the same overclaim one layer up.
+strength would be the same overclaim one layer up. The matrix is a checked map from obligations to evidence;
+it is not itself authority.
 
-Matrix: `.review/C4_REPAIR_20_OBLIGATION_MATRIX.tsv`
-  claim_id  claim_text  owner_file  public_surface  fixture_or_client_test  gate  status
+Matrix: `.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv`
+  obligation_id  claim  owning_authority  implementation
+  positive_evidence  negative_control  mutation_control  gate  status
 
 `status` is `closed` or `open`. A CLOSED row must resolve every cell. An OPEN row is an obligation whose
 evidence does not exist yet; its evidence cells must say `pending: <what will establish it>` — never blank,
-never `N/A`. Review cannot be requested while any obligation is open: if `.review/REVIEW_REQUEST.md` says
-`state: requested`, every row must be closed. That is the executable form of "do not freeze early".
+never `N/A`. Review cannot be requested while any required obligation is absent, duplicated, malformed or
+open: if `.review/REVIEW_REQUEST.md` says `state: requested`, the matrix must be complete and every row
+closed. That is the executable form of "do not freeze early".
 
-`public_surface` is `;`-separated declaration names, each of which must be declared at top level in
-`owner_file`. `fixture_or_client_test` and `gate` are `;`-separated `path:literal-token` pairs; the token
-must occur literally in that file. A load-bearing claim with no fixture must say so as
-`unsupported-boundary: <reason>` — never a bare `N/A`.
+`owning_authority` is one repository path that must exist. `implementation` is `;`-separated `path:symbol`
+pairs, each of which must be DECLARED at top level in that file. `positive_evidence`, `negative_control`,
+`mutation_control` and `gate` are `;`-separated `path:literal-token` pairs; the token must occur literally in
+that file. A cell with no applicable artifact must say so as `unsupported-boundary: <reason>` — never a bare
+`N/A`.
 """
 from __future__ import annotations
 
@@ -34,18 +40,37 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/C4_REPAIR_20_OBLIGATION_MATRIX.tsv'
+TSV_REL = '.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv'
 REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
 PENDING = 'pending: '
-FIELDS = ('claim_id', 'claim_text', 'owner_file', 'public_surface',
-          'fixture_or_client_test', 'gate', 'status')
+UNSUPPORTED = 'unsupported-boundary: '
+FIELDS = ('obligation_id', 'claim', 'owning_authority', 'implementation',
+          'positive_evidence', 'negative_control', 'mutation_control', 'gate', 'status')
+EVIDENCE_FIELDS = ('implementation', 'positive_evidence', 'negative_control', 'mutation_control', 'gate')
 STATUSES = ('closed', 'open')
 DECL_KINDS = ('Definition', 'Lemma', 'Theorem', 'Corollary', 'Record', 'Inductive', 'Fixpoint',
               'Module', 'Parameter', 'Axiom', 'Notation', 'Class', 'Instance')
-UNSUPPORTED = 'unsupported-boundary: '
+
+# The obligations the accepted repair directive enumerates. This is a list of OBLIGATIONS, not of paths or
+# namespaces: it is what the directive says must be answered, and a matrix missing one is not a matrix with a
+# gap — it is a matrix that has quietly dropped an accepted requirement.
+REQUIRED_OBLIGATIONS = (
+    'R21-A007-NO-EARLY-IMPLEMENTATION',
+    'R21-D07-STATE-OWNERSHIP',
+    'R21-D24-AUTHORITY-DISCOVERY',
+    'R21-D24-CANONICAL-PATH',
+    'R21-D24-EXACT-MARKER',
+    'R21-D24-EXTERNAL-SEPARATION',
+    'R21-D24-INDEX-UNIQUENESS',
+    'R21-D24-INVENTORY',
+    'R21-D24-LIVE-SET',
+    'R21-D24-OWNER-CONTAINMENT',
+    'R21-D24-TARGET-IDENTITY',
+    'R21-GENERATED-BYTES',
+)
 
 # A row whose `gate` cell names this runs an EXECUTABLE check instead of merely pointing at evidence: no
-# prohibited builder may appear in that row's named surfaces, statement or proof.  After a capability or a
+# prohibited builder may appear in that row's named surfaces, statement or proof. After a capability or a
 # failure is returned, recovering its evidence by re-running a builder is the exact defect A001 exists to
 # prevent — so the claim that the roots do not do it is checked, not asserted.
 BUILDER_PROHIBITION = 'tools/claim-matrix-gate.py:BUILDER_PROHIBITION'
@@ -85,49 +110,52 @@ def load_rows(root: Path):
         row = {**dict(zip(FIELDS, cells)), 'line': str(n)}
         for k in FIELDS:
             if not row[k].strip():
-                raise MatrixError(f'{TSV_REL}:{n}: claim {row["claim_id"] or "<blank>"}: '
-                                  f'field {k!r} is EMPTY — a load-bearing claim may not have a blank '
-                                  f'evidence cell')
-        if row['claim_id'] in seen:
-            raise MatrixError(f'{TSV_REL}:{n}: duplicate claim_id {row["claim_id"]!r}')
-        seen.add(row['claim_id'])
+                raise MatrixError(f'{TSV_REL}:{n}: obligation {row["obligation_id"] or "<blank>"}: '
+                                  f'field {k!r} is EMPTY — an accepted obligation may not have a blank cell')
+        if row['obligation_id'] in seen:
+            raise MatrixError(f'{TSV_REL}:{n}: duplicate obligation_id {row["obligation_id"]!r}')
+        seen.add(row['obligation_id'])
         if row['status'] not in STATUSES:
             raise MatrixError(f'{TSV_REL}:{n}: status {row["status"]!r} is not one of {", ".join(STATUSES)}')
-        for k in ('public_surface', 'fixture_or_client_test', 'gate'):
+        for k in EVIDENCE_FIELDS:
             if row[k].strip().upper() in ('N/A', 'NA', '-', '—', 'NONE', 'TBD'):
                 raise MatrixError(
-                    f'{TSV_REL}:{n}: claim {row["claim_id"]}: {k!r} is {row[k]!r} — a load-bearing claim '
-                    f'needs a real surface, or an explicit "{UNSUPPORTED}<reason>"')
-            # an OPEN obligation has no evidence yet and must say so in words; a CLOSED one may not.
+                    f'{TSV_REL}:{n}: {row["obligation_id"]}: {k!r} is {row[k]!r} — an accepted obligation '
+                    f'needs a real artifact, or an explicit "{UNSUPPORTED}<reason>"')
             pending = row[k].strip().startswith(PENDING)
             if row['status'] == 'open' and not pending:
                 raise MatrixError(
-                    f'{TSV_REL}:{n}: {row["claim_id"]} is open, so {k!r} must be '
+                    f'{TSV_REL}:{n}: {row["obligation_id"]} is open, so {k!r} must be '
                     f'"{PENDING}<what will establish it>" — an open obligation may not cite evidence it '
                     f'does not have')
             if row['status'] == 'closed' and pending:
                 raise MatrixError(
-                    f'{TSV_REL}:{n}: {row["claim_id"]} is closed but {k!r} is still {PENDING.strip()!r} — '
-                    f'a closed obligation must name the evidence that establishes it')
+                    f'{TSV_REL}:{n}: {row["obligation_id"]} is closed but {k!r} is still '
+                    f'{PENDING.strip()!r} — a closed obligation must name the evidence that establishes it')
             if pending and not row[k].strip()[len(PENDING):].strip():
-                raise MatrixError(f'{TSV_REL}:{n}: {row["claim_id"]}: {k!r} is pending with no written reason')
+                raise MatrixError(f'{TSV_REL}:{n}: {row["obligation_id"]}: {k!r} is pending with no reason')
         rows.append(row)
     if not rows:
-        raise MatrixError(f'{TSV_REL}: no claim rows')
-    ordered = sorted(rows, key=lambda r: r['claim_id'])
-    if [r['claim_id'] for r in rows] != [r['claim_id'] for r in ordered]:
-        raise MatrixError(f'{TSV_REL}: rows are not in canonical claim_id order')
+        raise MatrixError(f'{TSV_REL}: no obligation rows')
+    ordered = sorted(rows, key=lambda r: r['obligation_id'])
+    if [r['obligation_id'] for r in rows] != [r['obligation_id'] for r in ordered]:
+        raise MatrixError(f'{TSV_REL}: rows are not in canonical obligation_id order')
+    missing = [o for o in REQUIRED_OBLIGATIONS if o not in seen]
+    if missing:
+        raise MatrixError(
+            f'{TSV_REL}: {len(missing)} accepted obligation(s) have NO row: ' + ', '.join(missing))
     return rows
 
 
 def file_of(root: Path, rel: str, row: dict, field: str) -> str:
     if rel.startswith('/') or '..' in Path(rel).parts:
-        raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} path {rel!r} escapes the tree')
+        raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} path {rel!r} '
+                          f'escapes the tree')
     p = root / rel
     if p.is_symlink() or not p.is_file():
-        raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} names {rel!r}, '
+        raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} names {rel!r}, '
                           f'which is not a regular file in this tree')
-    return read_text(p, f'{row["claim_id"]} {field}')
+    return read_text(p, f'{row["obligation_id"]} {field}')
 
 
 def declaration_patterns(owner: str, name: str):
@@ -143,27 +171,43 @@ def declaration_patterns(owner: str, name: str):
         return [rf'(?m)^{esc}:']
     if owner.endswith(('.ml', '.mlg')):
         return [rf'(?m)^\s*(?:let|and|type|module|exception)\s+(?:rec\s+)?{esc}\b']
-    # anything else (Dockerfile, hooks): a shell function or an assignment, still a DEFINITION site
     return [rf'(?m)^\s*{esc}\s*\(\)', rf'(?m)^\s*{esc}=']
 
 
-def check_surfaces(root: Path, row: dict):
-    """Every named surface must be DECLARED in the owner file, under that exact name."""
-    text = file_of(root, row['owner_file'], row, 'owner_file')
-    for name in [s.strip() for s in row['public_surface'].split(';') if s.strip()]:
-        if name.startswith(UNSUPPORTED):
-            continue
-        if not any(re.search(pat, text) for pat in declaration_patterns(row['owner_file'], name)):
+def check_owning_authority(root: Path, row: dict):
+    file_of(root, row['owning_authority'].strip(), row, 'owning_authority')
+
+
+def check_implementation(root: Path, row: dict):
+    """Every named surface must be DECLARED in the named file, under that exact name."""
+    raw = row['implementation'].strip()
+    if raw.startswith(UNSUPPORTED.rstrip()):
+        if not raw[len(UNSUPPORTED.rstrip()):].strip():
+            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: implementation declares an '
+                              f'unsupported boundary with no written reason')
+        return
+    for entry in [s.strip() for s in raw.split(';') if s.strip()]:
+        if ':' not in entry:
+            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: implementation entry '
+                              f'{entry!r} is not "path:symbol"')
+        rel, name = (x.strip() for x in entry.split(':', 1))
+        text = file_of(root, rel, row, 'implementation')
+        if not any(re.search(pat, text) for pat in declaration_patterns(rel, name)):
             raise MatrixError(
-                f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: public_surface names {name!r}, but '
-                f'{row["owner_file"]} declares no such top-level surface — deleted, renamed, or never existed')
+                f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: implementation names {name!r}, but '
+                f'{rel} declares no such top-level surface — deleted, renamed, or never existed')
 
 
 def check_builder_prohibition(root: Path, row: dict):
     """No prohibited builder may appear in the row's named surfaces — statement or proof."""
-    text = file_of(root, row['owner_file'], row, 'owner_file')
-    for name in [s.strip() for s in row['public_surface'].split(';') if s.strip()]:
-        for pat in declaration_patterns(row['owner_file'], name):
+    for entry in [s.strip() for s in row['implementation'].split(';') if s.strip()]:
+        if ':' not in entry:
+            continue
+        rel, name = (x.strip() for x in entry.split(':', 1))
+        if not rel.endswith('.v'):
+            continue
+        text = file_of(root, rel, row, 'implementation')
+        for pat in declaration_patterns(rel, name):
             m = re.search(pat, text)
             if not m:
                 continue
@@ -171,15 +215,15 @@ def check_builder_prohibition(root: Path, row: dict):
             if end < 0:
                 end = text.find('\n}.', m.start())
             if end < 0:
-                raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: cannot delimit {name!r} '
-                                  f'in {row["owner_file"]} to check the builder prohibition')
+                raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: cannot delimit {name!r} '
+                                  f'in {rel} to check the builder prohibition')
             block = text[m.start():end]
             for banned in BANNED_BUILDERS:
                 if re.search(rf'(?<![\w.]){re.escape(banned)}\b', block):
                     raise MatrixError(
-                        f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {name!r} names the PROHIBITED builder '
-                        f'{banned!r} in its statement or proof — a returned-object guarantee may not recover '
-                        f'its evidence by re-running a builder')
+                        f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {name!r} names the PROHIBITED '
+                        f'builder {banned!r} in its statement or proof — a returned-object guarantee may not '
+                        f'recover its evidence by re-running a builder')
             break
 
 
@@ -187,25 +231,22 @@ def check_tokens(root: Path, row: dict, field: str):
     """Each `path:literal-token` must occur literally in that file."""
     raw = row[field].strip()
     if raw.startswith(UNSUPPORTED.rstrip()):
-        # a declared boundary is allowed, but it has to SAY something — the sentinel alone is a blank cell
-        # wearing a label.
         if not raw[len(UNSUPPORTED.rstrip()):].strip():
-            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} declares an unsupported '
-                              f'boundary with no written reason')
+            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} declares an '
+                              f'unsupported boundary with no written reason')
         return
     for entry in [s.strip() for s in raw.split(';') if s.strip()]:
         if ':' not in entry:
-            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} entry {entry!r} is not '
-                              f'"path:token"')
-        rel, token = entry.split(':', 1)
-        rel, token = rel.strip(), token.strip()
+            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} entry {entry!r} is '
+                              f'not "path:token"')
+        rel, token = (x.strip() for x in entry.split(':', 1))
         if not token:
-            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} entry {entry!r} has an '
-                              f'empty token')
+            raise MatrixError(f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} entry {entry!r} '
+                              f'has an empty token')
         text = file_of(root, rel, row, field)
         if token not in text:
             raise MatrixError(
-                f'{TSV_REL}:{row["line"]}: {row["claim_id"]}: {field} points at {rel} for {token!r}, '
+                f'{TSV_REL}:{row["line"]}: {row["obligation_id"]}: {field} points at {rel} for {token!r}, '
                 f'which does not occur there — dangling evidence')
 
 
@@ -214,13 +255,15 @@ def run(root: Path) -> str:
     for row in rows:
         if row['status'] == 'open':
             continue                      # nothing to resolve yet; its cells already said so in words
-        check_surfaces(root, row)
-        check_tokens(root, row, 'fixture_or_client_test')
+        check_owning_authority(root, row)
+        check_implementation(root, row)
+        for field in ('positive_evidence', 'negative_control', 'mutation_control'):
+            check_tokens(root, row, field)
         if BUILDER_PROHIBITION in row['gate']:
             check_builder_prohibition(root, row)
         check_tokens(root, row, 'gate')
     closed = sum(1 for r in rows if r['status'] == 'closed')
-    still_open = [r['claim_id'] for r in rows if r['status'] == 'open']
+    still_open = [r['obligation_id'] for r in rows if r['status'] == 'open']
     # Review cannot be requested while an obligation is open. This is the executable form of the standing
     # rule not to freeze when the first findings turn green — prose alone has not held that line before.
     if still_open:
@@ -229,8 +272,9 @@ def run(root: Path) -> str:
             raise MatrixError(
                 f'{REVIEW_REQUEST_REL} requests review, but {len(still_open)} obligation(s) are still open: '
                 + ', '.join(still_open))
-    return (f'{len(rows)} obligation(s): {closed} closed, {len(still_open)} open; '
-            f'every closed row resolves its surface, fixture and gate')
+    return (f'{len(rows)} obligation(s), all {len(REQUIRED_OBLIGATIONS)} required present: {closed} closed, '
+            f'{len(still_open)} open; every closed row resolves its authority, implementation, evidence, '
+            f'controls and gate')
 
 
 # ───────────────────────────────────────────────────────────── adversarial controls
@@ -279,60 +323,51 @@ def self_test(root: Path) -> int:
         L = lines(work); c = L[i].split('\t'); c[FIELDS.index(field)] = value
         L[i] = '\t'.join(c); write(work, L)
 
-    def rename_named_surface(work: Path):
-        """Rename the declaration the first CLOSED row points at — the matrix must notice."""
-        ensure_closed_row(work)
-        c = None
-        for l in lines(work)[1:]:
-            cells = l.split('\t')
-            if (len(cells) == len(FIELDS) and cells[FIELDS.index('status')] == 'closed'
-                    and cells[FIELDS.index('owner_file')].endswith('.v')):
-                c = cells; break
-        assert c is not None, 'no closed row with a Rocq owner to mutate'
-        owner, name = c[FIELDS.index('owner_file')], c[FIELDS.index('public_surface')].split(';')[0].strip()
-        p = work / owner
-        t = p.read_text(encoding='utf-8')
-        kinds = '|'.join(DECL_KINDS)
-        t2 = re.sub(rf'(?m)^(\s*(?:{kinds})\s+){re.escape(name)}\b', rf'\1{name}_renamed', t, count=1)
-        assert t2 != t, 'could not rename the declaration'
-        p.write_text(t2, encoding='utf-8')
-
     scenario('canonical matrix passes', lambda w: w)
-    scenario('a named public surface was renamed', rename_named_surface,
+    scenario('a named implementation surface was renamed', rename_named_surface,
              expect='declares no such top-level surface')
-    scenario('a named public surface never existed',
-             lambda w: set_field(w, 'public_surface', 'no_such_theorem_anywhere'),
+    scenario('a named implementation surface never existed',
+             lambda w: set_field(w, 'implementation', 'tools/naming-gate.py:no_such_function'),
              expect='declares no such top-level surface')
-    scenario('an owner file that does not exist',
-             lambda w: set_field(w, 'owner_file', 'NoSuchFile.v'),
+    scenario('an owning authority that does not exist',
+             lambda w: set_field(w, 'owning_authority', '.review/NoSuchAuthority.md'),
              expect='not a regular file in this tree')
     scenario('a dangling gate token',
-             lambda w: set_field(w, 'gate', 'gate/Assumptions.v:Print Assumptions Compilable.no_such.'),
+             lambda w: set_field(w, 'gate', 'Makefile:no_such_target_anywhere'),
              expect='dangling evidence')
-    scenario('a dangling fixture token',
-             lambda w: set_field(w, 'fixture_or_client_test', 'Dockerfile:sealed ZZ Nonexistent.Thing'),
+    scenario('a dangling positive-evidence token',
+             lambda w: set_field(w, 'positive_evidence', 'Dockerfile:no such stage exists'),
+             expect='dangling evidence')
+    scenario('a dangling negative control',
+             lambda w: set_field(w, 'negative_control', 'tools/fcb-reference-gate.py:no such control'),
+             expect='dangling evidence')
+    scenario('a dangling mutation control',
+             lambda w: set_field(w, 'mutation_control', 'tools/fcb-reference-gate.py:no such mutation'),
              expect='dangling evidence')
     scenario('an empty evidence cell',
              lambda w: set_field(w, 'gate', ' '),
-             expect="is EMPTY")
+             expect='is EMPTY')
     scenario('a bare N/A instead of a stated boundary',
-             lambda w: set_field(w, 'fixture_or_client_test', 'N/A'),
-             expect='needs a real surface')
+             lambda w: set_field(w, 'negative_control', 'N/A'),
+             expect='needs a real artifact')
     scenario('an unsupported boundary with no written reason',
-             lambda w: set_field(w, 'fixture_or_client_test', UNSUPPORTED.strip()),
+             lambda w: set_field(w, 'mutation_control', UNSUPPORTED.strip()),
              expect='unsupported boundary with no written reason')
-    scenario('duplicate claim id',
+    scenario('duplicate obligation id',
              lambda w: write(w, lines(w)[:2] + [lines(w)[1]] + lines(w)[2:]),
-             expect='duplicate claim_id')
+             expect='duplicate obligation_id')
+    scenario('a required obligation has no row',
+             lambda w: drop_required_row(w),
+             expect='accepted obligation(s) have NO row')
     scenario('unknown status',
              lambda w: set_field(w, 'status', 'mostly'),
              expect='is not one of')
     scenario('malformed field count',
              lambda w: write(w, [lines(w)[0], lines(w)[1].rsplit('\t', 1)[0]] + lines(w)[2:]),
-             expect='expected 7 fields')
+             expect='expected 9 fields')
     scenario('rows out of canonical order',
              lambda w: write(w, [lines(w)[0], lines(w)[2], lines(w)[1]] + lines(w)[3:]),
-             expect='not in canonical claim_id order')
+             expect='not in canonical obligation_id order')
     scenario('the matrix itself is deleted',
              lambda w: (w / TSV_REL).unlink(),
              expect='does not exist')
@@ -340,13 +375,11 @@ def self_test(root: Path) -> int:
              lambda w: set_field(w, 'gate', '../elsewhere.v:token'),
              expect='escapes the tree')
     scenario('an open obligation citing evidence it does not have',
-             lambda w: open_row_cites_evidence(w),
+             lambda w: _reopen_first_row(w, pending=False),
              expect='an open obligation may not cite evidence it does not have')
     scenario('review requested while an obligation is still open',
              lambda w: request_review(w),
              expect='requests review, but')
-    # the BUILDER_PROHIBITION check must actually fire.  Without this the rows that cite it would pass
-    # whether or not the check does anything — a gate nobody has seen fail is not evidence.
     scenario('a prohibited builder injected into a root fixture proof',
              inject_banned_builder,
              expect='names the PROHIBITED builder')
@@ -362,20 +395,24 @@ def self_test(root: Path) -> int:
     return 0
 
 
-# A closed row the mutation controls own outright.  Its id sorts after every real obligation id, so appending
-# it preserves canonical order, and its evidence is real — Compilable.v really declares that root fixture.
-# The controls build their own subject rather than needing the live matrix to be in a particular state: a
-# control that can only run while some obligation happens to be closed silently stops being a control the day
-# the matrix changes shape.
+# A closed row the mutation controls own outright. Its id sorts after every real obligation id, so appending
+# it preserves canonical order, and its evidence is real. The controls build their own subject rather than
+# needing the live matrix to be in a particular state: a control that can only run while some obligation
+# happens to be closed silently stops being a control the day the matrix changes shape.
 SYNTHETIC_CLOSED = (
     'ZZZ-SELF-TEST-CLOSED-ROW',
     'A synthetic closed row the adversarial controls mutate, independent of the live obligation statuses.',
-    'Compilable.v', 'deep_nested_compile_fixture', 'Compilable.v:deep_nested_program',
-    BUILDER_PROHIBITION, 'closed')
+    '.review/NEXT_STEPS.md',
+    'Compilable.v:deep_nested_compile_fixture',
+    'Compilable.v:deep_nested_program',
+    'tools/fcb-reference-gate.py:canonical fixture passes (exported snapshot mode)',
+    'tools/naming-gate.py:the read control passes for an unrelated reason',
+    BUILDER_PROHIBITION,
+    'closed')
 
 
 def ensure_closed_row(work: Path):
-    """Guarantee one CLOSED row with a Rocq owner, appending the synthetic one only if none exists."""
+    """Guarantee one CLOSED row with a Rocq implementation, appending the synthetic one only if none exists."""
     p = work / TSV_REL
     L = p.read_text(encoding='utf-8').split('\n')
     for l in L[1:]:
@@ -398,16 +435,20 @@ def _reopen_first_row(work: Path, pending: bool):
     c = L[1].split('\t')
     assert len(c) == len(FIELDS), 'malformed first row in the fixture'
     c[FIELDS.index('status')] = 'open'
-    for k in ('public_surface', 'fixture_or_client_test', 'gate'):
+    for k in EVIDENCE_FIELDS:
         c[FIELDS.index(k)] = (PENDING + 'a deliberately reopened obligation') if pending \
             else SYNTHETIC_CLOSED[FIELDS.index(k)]
     L[1] = '\t'.join(c)
     p.write_text('\n'.join(L), encoding='utf-8')
 
 
-def open_row_cites_evidence(work: Path):
-    """An OPEN row naming real evidence must be rejected: it cannot have evidence it has not produced."""
-    _reopen_first_row(work, pending=False)
+def drop_required_row(work: Path):
+    """Delete the row for one accepted obligation — the matrix must notice the absence, not just bad cells."""
+    p = work / TSV_REL
+    L = p.read_text(encoding='utf-8').split('\n')
+    keep = [l for l in L if l.split('\t')[0] != REQUIRED_OBLIGATIONS[0]]
+    assert len(keep) == len(L) - 1, f'expected exactly one {REQUIRED_OBLIGATIONS[0]} row'
+    p.write_text('\n'.join(keep), encoding='utf-8')
 
 
 def request_review(work: Path):
@@ -418,30 +459,63 @@ def request_review(work: Path):
                  encoding='utf-8')
 
 
+def rename_named_surface(work: Path):
+    """Rename the declaration the first CLOSED row points at — the matrix must notice."""
+    ensure_closed_row(work)
+    p = work / TSV_REL
+    for l in p.read_text(encoding='utf-8').split('\n')[1:]:
+        c = l.split('\t')
+        if len(c) != len(FIELDS) or c[FIELDS.index('status')] != 'closed':
+            continue
+        entry = c[FIELDS.index('implementation')].split(';')[0].strip()
+        if ':' not in entry:
+            continue
+        rel, name = (x.strip() for x in entry.split(':', 1))
+        target = work / rel
+        if not target.is_file():
+            continue
+        t = target.read_text(encoding='utf-8')
+        kinds = '|'.join(DECL_KINDS)
+        if rel.endswith('.v'):
+            t2 = re.sub(rf'(?m)^(\s*(?:{kinds})\s+){re.escape(name)}\b', rf'\1{name}_renamed', t, count=1)
+        else:
+            t2 = re.sub(rf'(?m)^(\s*(?:def|class)\s+){re.escape(name)}\b', rf'\1{name}_renamed', t, count=1)
+        if t2 != t:
+            target.write_text(t2, encoding='utf-8')
+            return
+    raise AssertionError('no closed row with a locatable declaration to rename')
+
+
 def inject_banned_builder(work: Path):
     """Put a banned builder inside the proof of the first surface a CLOSED BUILDER_PROHIBITION row names."""
     ensure_closed_row(work)
     L = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
     for line in L[1:]:
         c = line.split('\t')
-        if (len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed'
-                and BUILDER_PROHIBITION in c[FIELDS.index('gate')]):
-            owner = c[FIELDS.index('owner_file')]
-            name = c[FIELDS.index('public_surface')].split(';')[0].strip()
-            p = work / owner
+        if (len(c) != len(FIELDS) or c[FIELDS.index('status')] != 'closed'
+                or BUILDER_PROHIBITION not in c[FIELDS.index('gate')]):
+            continue
+        for entry in c[FIELDS.index('implementation')].split(';'):
+            entry = entry.strip()
+            if ':' not in entry:
+                continue
+            rel, name = (x.strip() for x in entry.split(':', 1))
+            if not rel.endswith('.v'):
+                continue
+            p = work / rel
             text = p.read_text(encoding='utf-8')
-            for pat in declaration_patterns(owner, name):
+            for pat in declaration_patterns(rel, name):
                 m = re.search(pat, text)
                 if m:
                     cut = text.index('\nProof.', m.start()) + len('\nProof.')
                     p.write_text(text[:cut] + '\n  pose proof (build_expression_phase) as _injected.'
                                  + text[cut:], encoding='utf-8')
                     return
-    raise AssertionError('no BUILDER_PROHIBITION row with a locatable surface')
+    raise AssertionError('no BUILDER_PROHIBITION row with a locatable Rocq surface')
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='repair-20 claim-to-theorem matrix gate')
+    ap = argparse.ArgumentParser(description='repair-21 obligation matrix gate')
     ap.add_argument('--root', default='.')
     ap.add_argument('--self-test', action='store_true')
     args = ap.parse_args()
