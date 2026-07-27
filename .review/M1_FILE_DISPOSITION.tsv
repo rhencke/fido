@@ -1,1 +1,138 @@
 path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
+.dockerignore	740	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	740
+.editorconfig	3262	keep	live-governance	make fmt	the byte rules governing the documents beside them	3262
+.githooks/pre-commit	5903	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	5893
+.gitignore	1145	keep	live-governance	make fmt	the byte rules governing the documents beside them	1145
+.review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md	65843	delete	history-only	nothing referenced it	the plan of an accepted checkpoint; Git owns it	0
+.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md	36900	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	36900
+.review/CODEX_REVIEW_POLICY.md	15026	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	15026
+.review/COLLECTION_AUDIT.md	24183	delete	history-only	referenced only by the deleted C3 plan	a closure audit; Git owns it	0
+.review/M1_BASELINE.tsv	13	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	972
+.review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	69
+.review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	77
+.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	78
+.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	46
+.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	5610
+.review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	16545
+.review/M_SERIES_PLAN.md	8611	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	8611
+.review/NEXT_STEPS.md	4780	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	4780
+.review/OPEN_QUESTIONS.md	1397	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	4504
+.review/REVIEW_BASIS.md	5255	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	5255
+.review/REVIEW_REQUEST.md	854	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	854
+.review/SOURCE_FOREST_MASTER_PLAN.md	75426	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	75426
+.review/SOURCE_FOREST_STATUS.md	2682	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	2175
+.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	PROGRESS.md and the ADRs	the current unsupported and restricted scope	26337
+.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md	9532	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an ADR the governance register names	9532
+.review/decisions/ADR-0002-BOUNDED-DECIMALFLOAT-DOMAIN.md	7514	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an ADR the governance register names	7514
+.review/fcb/.editorconfig	1015	keep	live-governance	make fmt	the byte rules governing the documents beside them	1015
+.review/fcb/PROJECT_LIBRARY_BOOTSTRAP.md	1608	keep	live-governance	.review/fcb/current/INDEX.md	an entry point into the Git-canonical FCB store	1608
+.review/fcb/README.md	892	keep	live-governance	.review/fcb/current/INDEX.md	an entry point into the Git-canonical FCB store	892
+.review/fcb/amendments/FCB_AMENDMENT_A001_INTRINSIC_STATIC_CAPABILITY_PROVENANCE.md	1043	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	1043
+.review/fcb/amendments/FCB_AMENDMENT_A002_GIT_CANONICAL_FCB_STORAGE.md	2249	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	2249
+.review/fcb/amendments/FCB_AMENDMENT_A003_LIVING_DOCUMENTATION.md	6148	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	6148
+.review/fcb/amendments/FCB_AMENDMENT_A004_GIT_RESOLVABLE_LIVING_CORPUS.md	4878	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	4878
+.review/fcb/amendments/FCB_AMENDMENT_A005_SCOPED_NAME_OWNERSHIP.md	5970	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	5970
+.review/fcb/amendments/FCB_AMENDMENT_A006_INTRINSIC_EMIT_IMAGE_MINT.md	3090	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	3090
+.review/fcb/amendments/FCB_AMENDMENT_A007_POST_C4_MECHANICAL_SERIES.md	2893	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	2893
+.review/fcb/amendments/FCB_AMENDMENT_A008_STRICT_CHECKPOINT_SCOPE_AND_M0_CLOSEOUT.md	2384	keep	live-governance	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	an accepted amendment text the register names	2384
+.review/fcb/current/FIDO_FCB_ACCEPTANCE_GATES.md	8927	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	8927
+.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md	81279	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	81279
+.review/fcb/current/FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md	12905	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	12905
+.review/fcb/current/FIDO_FCB_CLOSURE_LEDGER.csv	219721	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	219721
+.review/fcb/current/FIDO_FCB_CLOSURE_LEDGER.md	124589	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	124589
+.review/fcb/current/FIDO_FCB_FIXED_POINTS.md	15335	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	15335
+.review/fcb/current/FIDO_FCB_GOVERNANCE.md	36137	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	36137
+.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv	2139	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	2139
+.review/fcb/current/FIDO_FCB_HUMAN_REVIEW_INDEX.md	3449	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	3449
+.review/fcb/current/FIDO_FCB_INDEX.md	11067	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	11067
+.review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.md	102185	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	102185
+.review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.tsv	103003	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	103003
+.review/fcb/current/FIDO_FCB_MODEL_OPERATIONS.md	8853	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	8853
+.review/fcb/current/FIDO_FCB_REFERENCES.tsv	13783	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	13783
+.review/fcb/current/FIDO_FCB_ROADMAP.md	18760	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	18760
+.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md	6817	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	6817
+.review/fcb/current/INDEX.md	776	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	776
+.review/spec-closure-campaign/.editorconfig	1080	keep	live-governance	make fmt	the byte rules governing the documents beside them	1080
+.review/spec-closure-campaign/COLLABORATION.md	587	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	587
+.review/spec-closure-campaign/PROVENANCE.md	2433	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	2433
+.review/spec-closure-campaign/README.md	1754	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	1754
+.review/spec-closure-campaign/directives/FIDO_TERMINAL_CORRECTNESS_DIRECTIVE.md	47046	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	47046
+.review/spec-closure-campaign/fcb/FIDO_FCB_TRANSFORMATION_INSTRUCTIONS.md	9222	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	9222
+.review/spec-closure-campaign/protocol/FIDO_VOLLEY_ADJUDICATION_BRIEF_2026-07-24.md	3105	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	3105
+.review/spec-closure-campaign/protocol/FIDO_VOLLEY_PROTOCOL_SAFETIES.md	6960	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	6960
+.review/spec-closure-campaign/protocol/FIDO_VOLLEY_RETURN_BRIEF_2026-07-24.md	4687	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	4687
+.review/spec-closure-campaign/protocol/ROUND_10_RETURN_NOTE.md	231	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	231
+.review/spec-closure-campaign/reviews/FIDO_SPEC_CLOSURE_R1_REVIEW_AND_REPAIR_2_DIRECTIVE_2026-07-23.md	13174	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	13174
+.review/spec-closure-campaign/reviews/STRICT_REVIEW_TEN_YEAR_ARCHITECTURE_PLAN_2026-07-23.md	25389	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	25389
+.review/spec-closure-campaign/tools/PROBE_ENVIRONMENT.tsv	734	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	734
+.review/spec-closure-campaign/tools/REGISTRY_BASELINE_REFERENCE.tsv	8589	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	8589
+.review/spec-closure-campaign/tools/SELECTOR_SPEC.md	1591	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	1591
+.review/spec-closure-campaign/tools/audit_spec_closure_bundle.py	5512	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	5512
+.review/spec-closure-campaign/tools/build_deterministic_bundle.py	2575	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	2575
+.review/spec-closure-campaign/tools/generate_change_ledger.py	424	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	424
+.review/spec-closure-campaign/tools/generate_file_delta.py	421	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	421
+.review/spec-closure-campaign/tools/generate_fixed_point_manifest.py	7016	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	7016
+.review/spec-closure-campaign/tools/generate_freeze_record.py	1108	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	1108
+.review/spec-closure-campaign/tools/generate_human_review_index.py	919	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	919
+.review/spec-closure-campaign/tools/generate_sha_manifest.py	478	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	478
+.review/spec-closure-campaign/tools/run_fixture.py	4525	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	4525
+.review/spec-closure-campaign/tools/verify_terminal_bundle.py	1518	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	1518
+.review/spec-closure-campaign/tools/write_zip_sidecar.py	319	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	319
+ARCHITECTURE.md	70512	keep	live-governance	the repository itself	the operating law and the binding charter	70512
+CLAUDE.md	39939	keep	live-governance	the repository itself	the operating law and the binding charter	39939
+Collections.v	11947	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	9461
+Compilable.v	779275	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	644122
+Complex.v	13008	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10216
+Decimal.v	6076	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	5319
+Dockerfile	103360	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	102753
+Emit.v	22750	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15224
+FilePath.v	13657	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10678
+Float.v	32132	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	23880
+Index.v	210768	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	196648
+Integer.v	5288	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	3590
+Makefile	12664	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	8126
+ModulePath.v	19814	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	14417
+Names.v	14487	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	12054
+PAINFUL_LESSONS.md	13565	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	13565
+PROGRESS.md	19319	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	11471
+README.md	9118	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	9118
+Render.v	91693	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	76703
+Safe.v	29612	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	22033
+Syntax.v	23929	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15595
+Typing.v	47703	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	34450
+Version.v	1369	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	676
+dune	843	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	843
+dune-project	361	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	361
+e2e/Witness.v	13993	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	9568
+e2e/WitnessAlias.v	3882	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2350
+e2e/WitnessBytes.v	3112	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1872
+e2e/WitnessEmpty.v	2550	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1646
+e2e/WitnessMulti.v	3899	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2745
+e2e/WitnessNeg.v	1981	keep	proved-restriction	make e2e	the raw-transport rejection fixture; each Fail must error	936
+e2e/apply.ml	1756	keep	current-contract-evidence	make e2e / make regenerate	the sink driver and the apply adapter	1756
+e2e/golden.bytes.hex	13	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	13
+e2e/golden.exit	2	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	2
+e2e/golden.stderr	724	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	724
+e2e/golden.stdout	0	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	0
+e2e/sink_test.ml	8528	keep	current-contract-evidence	make e2e / make regenerate	the sink driver and the apply adapter	8528
+gate/Assumptions.v	80465	keep	certified-correctness	make prove	the sole Print Assumptions target, count-checked every build	37312
+go.mod	82	keep	generated-artifact	Emit.Mint.issue via Fido Materialize	byte-compared against the pristine layer	82
+life.md	5838	keep	character-continuity	CLAUDE.md	named as character continuity by the operating law	5838
+main.go	1477	keep	generated-artifact	Emit.Mint.issue via Fido Materialize	byte-compared against the pristine layer	1477
+plugin/dune	1540	keep	certified-correctness	the Fido transport boundary	built by dune; guarded by tools/ocaml-origin-gate.sh	1540
+plugin/materialize.mlg	14906	keep	certified-correctness	the Fido transport boundary	built by dune; guarded by tools/ocaml-origin-gate.sh	14906
+plugin/sink.ml	34164	keep	certified-correctness	the Fido transport boundary	built by dune; guarded by tools/ocaml-origin-gate.sh	34164
+tools/claim-matrix-gate.py	27552	keep	proved-restriction	make claims	the claim-to-theorem matrix checker	27507
+tools/closure-ledger-view.py	6204	keep	live-governance	make fcb	a live-FCB document gate	6182
+tools/fcb-reference-gate.py	57490	keep	live-governance	make fcb	a live-FCB document gate	57490
+tools/fmt-check.py	4544	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	4544
+tools/gate-mutation-test.py	7365	keep	proved-restriction	make fcb	proves each gate helper load-bearing by mutation	7335
+tools/generated-mode-gate.sh	2111	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	2111
+tools/generated-output-gate.sh	4205	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4205
+tools/human-review-index.py	20106	keep	live-governance	make fcb	a live-FCB document gate	20106
+tools/naming-gate.py	43959	keep	proved-restriction	make names	the A005 scoped-name policy gate	43731
+tools/ocaml-origin-gate.sh	4632	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4632
+tools/regen-guard-test.sh	2950	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	2950
+tools/rocq-profile.py	3809	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	3809
+tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	41020
+tools/staged-generated-compare.sh	3406	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	3406

@@ -53,3 +53,23 @@ checkpoints — but it is close enough that guessing seems wrong on the largest 
 
 **Default if nobody answers:** leave it whole, and record it as an M1 finding the freeze reports rather than
 acts on.
+
+## Q-M1-03 — the COLLECTION LAW is stated at full length in two places
+
+**Owner:** Rob. **Blocks:** no.
+
+`CLAUDE.md` standing technical law 10 and `ARCHITECTURE.md`'s "The law of this repository" both state the
+collection law in full — roughly twenty lines each, saying the same thing in different words. Two copies of
+one law is the drift shape M1 exists to remove, and §7 says to keep the more basic owner and make the other
+point at it tersely.
+
+I have not done it, for two reasons. `CLAUDE.md` calls `ARCHITECTURE.md` the binding charter, which makes the
+charter the owner — but `CLAUDE.md` is the file I read first and always, so moving the law out of it has a
+real operational cost that a byte count does not show. And `CLAUDE.md` is Rob's operating-law file rather
+than mine to restructure.
+
+`ARCHITECTURE.md`'s copy also carries one sentence the other does not: that this is an architectural review
+law backed by audit and code inspection, not a source-scanning gate. Whichever copy survives should keep it.
+
+**Default if nobody answers:** leave both, and record it as an M1 finding the freeze reports rather than acts
+on.
