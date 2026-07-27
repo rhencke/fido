@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair-19 obligation matrix checker.
+"""Repair-20 obligation matrix checker.
 
 A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem
 states — which is exactly how the previous candidate blocked: green proofs and a completion narrative that
@@ -14,7 +14,7 @@ that exact name, and that no claim is marked closed while any evidence cell is e
 That is a narrow guarantee, and stating it narrowly is the point. A gate that promised to verify claim
 strength would be the same overclaim one layer up.
 
-Matrix: `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv`
+Matrix: `.review/C4_REPAIR_20_OBLIGATION_MATRIX.tsv`
   claim_id  claim_text  owner_file  public_surface  fixture_or_client_test  gate  status
 
 `status` is `closed` or `open`. A CLOSED row must resolve every cell. An OPEN row is an obligation whose
@@ -34,7 +34,7 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv'
+TSV_REL = '.review/C4_REPAIR_20_OBLIGATION_MATRIX.tsv'
 REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
 PENDING = 'pending: '
 FIELDS = ('claim_id', 'claim_text', 'owner_file', 'public_surface',
@@ -267,6 +267,7 @@ def self_test(root: Path) -> int:
         (work / TSV_REL).write_text('\n'.join(L), encoding='utf-8')
 
     def closed_idx(work: Path) -> int:
+        ensure_closed_row(work)          # the controls own their subject; they never need one to exist
         for i, l in enumerate(lines(work)[1:], start=1):
             c = l.split('\t')
             if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed':
@@ -280,6 +281,7 @@ def self_test(root: Path) -> int:
 
     def rename_named_surface(work: Path):
         """Rename the declaration the first CLOSED row points at — the matrix must notice."""
+        ensure_closed_row(work)
         c = None
         for l in lines(work)[1:]:
             cells = l.split('\t')
@@ -360,17 +362,45 @@ def self_test(root: Path) -> int:
     return 0
 
 
+# A closed row the mutation controls own outright.  Its id sorts after every real obligation id, so appending
+# it preserves canonical order, and its evidence is real — Compilable.v really declares that root fixture.
+# The controls build their own subject rather than needing the live matrix to be in a particular state: a
+# control that can only run while some obligation happens to be closed silently stops being a control the day
+# the matrix changes shape.
+SYNTHETIC_CLOSED = (
+    'ZZZ-SELF-TEST-CLOSED-ROW',
+    'A synthetic closed row the adversarial controls mutate, independent of the live obligation statuses.',
+    'Compilable.v', 'deep_nested_compile_fixture', 'Compilable.v:deep_nested_program',
+    BUILDER_PROHIBITION, 'closed')
+
+
+def ensure_closed_row(work: Path):
+    """Guarantee one CLOSED row with a Rocq owner, appending the synthetic one only if none exists."""
+    p = work / TSV_REL
+    L = p.read_text(encoding='utf-8').split('\n')
+    for l in L[1:]:
+        c = l.split('\t')
+        if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed':
+            return
+    tail = L.pop() if L and L[-1] == '' else None      # keep the file's trailing newline exactly as it was
+    L.append('\t'.join(SYNTHETIC_CLOSED))
+    if tail is not None:
+        L.append(tail)
+    p.write_text('\n'.join(L), encoding='utf-8')
+
+
 def _reopen_first_row(work: Path, pending: bool):
-    """Flip the first row to `open`. With `pending=False` it keeps its real evidence cells, which an open row
-    may not have; with `pending=True` it becomes a well-formed open row. Both controls build their own open
-    row rather than needing one to exist, so they keep working once every obligation is closed."""
+    """Flip the first row to `open`. With `pending=False` it is given REAL evidence, which an open row may not
+    have; with `pending=True` it becomes a well-formed open row. Both controls set the cells they depend on
+    rather than inheriting whatever the live matrix happens to hold, so neither is vacuous in either
+    direction — an already-open row with pending cells would otherwise make the first control test nothing."""
     p = work / TSV_REL; L = p.read_text(encoding='utf-8').split('\n')
     c = L[1].split('\t')
     assert len(c) == len(FIELDS), 'malformed first row in the fixture'
     c[FIELDS.index('status')] = 'open'
-    if pending:
-        for k in ('public_surface', 'fixture_or_client_test', 'gate'):
-            c[FIELDS.index(k)] = PENDING + 'a deliberately reopened obligation'
+    for k in ('public_surface', 'fixture_or_client_test', 'gate'):
+        c[FIELDS.index(k)] = (PENDING + 'a deliberately reopened obligation') if pending \
+            else SYNTHETIC_CLOSED[FIELDS.index(k)]
     L[1] = '\t'.join(c)
     p.write_text('\n'.join(L), encoding='utf-8')
 
@@ -389,11 +419,13 @@ def request_review(work: Path):
 
 
 def inject_banned_builder(work: Path):
-    """Put a banned builder inside the proof of the first surface a BUILDER_PROHIBITION row names."""
+    """Put a banned builder inside the proof of the first surface a CLOSED BUILDER_PROHIBITION row names."""
+    ensure_closed_row(work)
     L = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
     for line in L[1:]:
         c = line.split('\t')
-        if len(c) == len(FIELDS) and BUILDER_PROHIBITION in c[FIELDS.index('gate')]:
+        if (len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed'
+                and BUILDER_PROHIBITION in c[FIELDS.index('gate')]):
             owner = c[FIELDS.index('owner_file')]
             name = c[FIELDS.index('public_surface')].split(';')[0].strip()
             p = work / owner
@@ -409,7 +441,7 @@ def inject_banned_builder(work: Path):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='repair-18 claim-to-theorem matrix gate')
+    ap = argparse.ArgumentParser(description='repair-20 claim-to-theorem matrix gate')
     ap.add_argument('--root', default='.')
     ap.add_argument('--self-test', action='store_true')
     args = ap.parse_args()

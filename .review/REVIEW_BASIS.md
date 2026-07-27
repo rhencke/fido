@@ -47,8 +47,9 @@ semantic-equal proofs; the exact production expression-fact theorem vs the decla
 invalid-conversion soundness/completeness/multiplicity/ordering/anchor proofs; renderer/denotation proofs over
 source type names; evidence the public renderer/materializer still consumes only `Safe.Program` from the one
 retained elaboration; the full pinned-Go differential; zero project assumptions + the updated readable gate;
-standard-collection + no-second-traversal audits; exact generated-byte comparison; all build/e2e/check/regen/
-staged-hook results; a full-tree old-constructor + stale-authority search; current permanent documentation.
+standard-collection + no-second-traversal audits; exact generated-byte comparison; the build, end-to-end,
+check, regeneration and staged-hook results; a full-tree old-constructor + stale-authority search; current
+permanent documentation.
 
 ## Forbidden overreach (directive §18)
 The full §18 list is binding: no `uintptr`; no rune literal/constant kind; no user types, variables, calls,

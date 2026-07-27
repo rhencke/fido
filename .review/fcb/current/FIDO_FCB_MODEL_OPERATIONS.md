@@ -5,7 +5,7 @@
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -51,13 +51,25 @@ report the documentation-access defect. Do not answer from a stale project-libra
 4. Rob accepts, rejects, or revises the amendment.
 5. On acceptance, regenerate, verify, and commit the coherent FCB set under `.review/fcb/current/`.
 6. Only then may Claude Code implement the amended public contract.
-7. Otherwise, select the lowest eligible Roadmap checkpoint from `FIDO_FCB_ROADMAP.md`.
+7. Otherwise, select the lowest eligible Roadmap checkpoint from `FIDO_FCB_ROADMAP.md` — subject to §3.1, the
+   mechanical series that Governance D-27 places between C4 acceptance and C5 checkpoint-definition Step 0.
 8. ChatGPT authors and freezes the checkpoint contract using `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md`.
 9. Rob authorizes it.
 10. Claude Code implements it without changing the contract.
 11. Claude chat performs adversarial review of what exists, not only the diff.
 12. Rob dispositions findings and accepts or blocks.
 13. After acceptance, update the Git-hosted FCB through the publication duty in the authoring guide.
+
+### 3.1 Post-C4 mechanical series (D-27 / A007)
+
+Between C4 acceptance closeout and C5 checkpoint-definition Step 0, the eligible work is the mechanical series
+in order — M1 Source Diet, M2 Build Observatory, M3 Tool and Build Architecture Audit, Rob's approval of the
+exact M4 plan, then M4 Mechanical Refactor. Each is a separate reviewed candidate; C5 is not eligible until M4
+is accepted. The full contracts are the M-series plan under `.review/`, which A007 installs as a live
+authority; the Roadmap owns only the sequence.
+
+**While C4 remains unaccepted, M1 through M4 implementation is forbidden.** Installing the plan and the
+amendment does not authorize implementing them, and a green intermediate gate is not acceptance.
 
 ## 4. Project-library shim rule
 

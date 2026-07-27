@@ -7,9 +7,9 @@
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`;
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
 > **Canonical live location:** `.review/fcb/current/`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
-> **Stable bootstrap:** `.review/fcb/current/INDEX.md`. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-INDEX-MD -->  
+> **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
 > C4 is not accepted and C5 is not authorized; `.review/NEXT_STEPS.md` is the live checkpoint authority.
 
@@ -18,19 +18,18 @@ live in Git history, never beside the live set.
 
 ## Current project boundary
 
-**Implementation candidate offered for review:** `0ffdc5f7019204a868d75ef709a16fb69a9979d5` — repair 19
-IMPLEMENTED and COMPLETE. `.review/NEXT_STEPS.md` owns candidate state; this Index names the candidate only
-because the corpus is at freeze.  
-**Repair 19** (`.review/C4_IMPLEMENTATION_REPAIR_19.md`) closed all six blocker classes: `A005` finished with
-a class rule, exact source occurrence retained in the public cause theorems, non-vacuous `Safe`/`Emit`
-opacity controls, no skipped naming control, `D-24` complete in both directions, and the stale and weaker
-residue gone. The whole-system closure audit is `.review/C4_REPAIR_19_CLOSURE_AUDIT.md`.  
-**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 17 are historical.  
-Governance owns `D-01` through `D-26`; amendments `A001` through `A006` are accepted.  
-**Next permitted sequence:** `human C4 review → checkpoint-definition Step 0 → C5`.  
-**C5 status:** forbidden until C4 is accepted. The post-C4 trim is likewise forbidden.  
+**Active C4 repair:** repair 20, in `.review/C4_IMPLEMENTATION_REPAIR_20.md`, which `.review/NEXT_STEPS.md`
+names as its authority. `NEXT_STEPS` owns candidate state; this Index names the boundary, not the candidate.  
+**C4 acceptance:** C4 is **NOT accepted**. Only Rob accepts it. Repairs 13 through 19 are historical; Git
+history is their archive.  
+Governance owns `D-01` through `D-27`; amendments `A001` through `A007` are accepted.  
+**Next permitted sequence:** `repair 20 → human C4 review → C4 acceptance closeout → M1 → M2 → M3 → Rob
+approves the exact M4 plan → M4 → checkpoint-definition Step 0 → C5`.  
+**C5 status:** forbidden until C4 is accepted. **M1 through M4 implementation is likewise forbidden until C4
+is accepted** — A007 installs their authority, not permission to run them. Their contracts are
+`.review/M_SERIES_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-M-SERIES-PLAN-MD -->  
 **Scope stability:** no Closure row, Latitude row, Acceptance Gate, roadmap row assignment, checkpoint order,
-or target/toolchain policy is changed by A002, A003, or A004.  
+or target/toolchain policy is changed by A002, A003, A004 or A007.  
 **Policy choice:** `LAT-X004` — option (ii), the proved rounding-invariant accepted domain.  
 **External evidence:** valid but `PROVENANCE-PENDING` until the official Go distribution bytes are verified.
 
@@ -45,33 +44,40 @@ below. Never mix files from different refs. Stop on any missing or dangling refe
 
 ## Live file set
 
-Every entry below exists in `.review/fcb/current/` at the ref that carries this Index.
+Every entry below exists at the ref that carries this Index, and each states its **corpus role** (D-24). An
+`authority` is a current normative source: its own operational references are scanned and must each be typed.
+A `reference` resolves and is owned, but naming it does not make it a current authority — a generated view is
+a `reference` because its canonical data source carries the authority.
 
-| File | Purpose |
-|---|---|
-| `INDEX.md` | Stable Git bootstrap; names this Index and the live checkpoint authority. |
-| `FIDO_FCB_INDEX.md` | This file: live file set, current boundary, and consultation map. |
-| `FIDO_FCB_GOVERNANCE.md` | Authority rules, settled decisions D-01–D-26, amendment register, ADR register, amendment law. |
-| `FIDO_FCB_ARCHITECTURE_CHARTER.md` | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. |
-| `FIDO_FCB_FIXED_POINTS.md` | The 24 parent fixed points and their protected components. |
-| `FIDO_FCB_HUMAN_ACTS.tsv` | Canonical rows for the open human acts; the sole authority for that set (D-07). |
-| `FIDO_FCB_REFERENCES.tsv` | Typed operational references, complete in both directions: every repository path this corpus directs work to has one row and one bound owner marker, and every row resolves here or is explicitly typed off-tree with an availability (D-24). |
-| `FIDO_FCB_HUMAN_REVIEW_INDEX.md` | Generated view of the open human acts. Never edited by hand. |
-| `FIDO_FCB_ROADMAP.md` | The C4 boundary and the unchanged C5–C17 foundational order. |
-| `FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | Checkpoint contract form, whole-result retention, Git publication duty, fixtures, gates, stop rules. |
-| `FIDO_FCB_MODEL_OPERATIONS.md` | Exact-ref Git bootstrap, model delegation, amendment workflow, shim rule. |
-| `FIDO_FCB_CLOSURE_LEDGER.csv` | Canonical 491-row IN/OUT spec-closure table. |
-| `FIDO_FCB_CLOSURE_LEDGER.md` | Human view of the closure ledger. |
-| `FIDO_FCB_LATITUDE_LEDGER.tsv` | Canonical 231-row latitude table. |
-| `FIDO_FCB_LATITUDE_LEDGER.md` | Human view of the latitude ledger. |
-| `FIDO_FCB_ACCEPTANCE_GATES.md` | Standing paired-fixture and diagnostic worklist. |
-| `FIDO_FCB_TOOLCHAIN_EVIDENCE.md` | Pinned target, probe profile, observations, provenance boundary. |
+This table is the declaration; `FIDO_FCB_REFERENCES.tsv` is the manifest that must agree with it, and the
+D-24 gate checks that agreement rather than trusting either side alone.
+
+| Path | Role | Purpose |
+|---|---|---|
+| `.review/fcb/current/INDEX.md` | authority | Stable Git bootstrap; names this Index and the live checkpoint authority. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-INDEX-MD --> |
+| `.review/fcb/current/FIDO_FCB_INDEX.md` | authority | This file: live file set with roles, current boundary, and consultation map. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-INDEX-MD --> |
+| `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` | authority | Authority rules, settled decisions D-01–D-27, amendment register, ADR register, amendment law. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-GOVERNANCE-MD --> |
+| `.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md` | authority | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-ARCHITECTURE-CHARTER-MD --> |
+| `.review/fcb/current/FIDO_FCB_FIXED_POINTS.md` | authority | The 24 parent fixed points and their protected components. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-FIXED-POINTS-MD --> |
+| `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` | authority | Canonical rows for the open human acts; the sole authority for that set (D-07). <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-HUMAN-ACTS-TSV --> |
+| `.review/fcb/current/FIDO_FCB_REFERENCES.tsv` | authority | Typed operational references and their corpus roles, complete in both directions: every repository path a current authority directs work to has one row and one bound owner marker, and every row resolves here or is explicitly typed off-tree with an availability (D-24). <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-REFERENCES-TSV --> |
+| `.review/fcb/current/FIDO_FCB_HUMAN_REVIEW_INDEX.md` | reference | Generated view of the open human acts. Never edited by hand. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-HUMAN-REVIEW-INDEX-MD --> |
+| `.review/fcb/current/FIDO_FCB_ROADMAP.md` | authority | The C4 boundary, the A007 mechanical series, and the unchanged C5–C17 foundational order. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-ROADMAP-MD --> |
+| `.review/fcb/current/FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md` | authority | Checkpoint contract form, whole-result retention, mechanical-change duty, Git publication duty, fixtures, gates, stop rules. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-CHECKPOINT-AUTHORING-GUIDE-MD --> |
+| `.review/fcb/current/FIDO_FCB_MODEL_OPERATIONS.md` | authority | Exact-ref Git bootstrap, model delegation, post-C4 sequencing, amendment workflow, shim rule. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-MODEL-OPERATIONS-MD --> |
+| `.review/fcb/current/FIDO_FCB_CLOSURE_LEDGER.csv` | authority | Canonical 491-row IN/OUT spec-closure table. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-CLOSURE-LEDGER-CSV --> |
+| `.review/fcb/current/FIDO_FCB_CLOSURE_LEDGER.md` | reference | Generated human view of the closure ledger. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-CLOSURE-LEDGER-MD --> |
+| `.review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.tsv` | authority | Canonical 231-row latitude table. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-LATITUDE-LEDGER-TSV --> |
+| `.review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.md` | reference | Human view of the latitude ledger. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-LATITUDE-LEDGER-MD --> |
+| `.review/fcb/current/FIDO_FCB_ACCEPTANCE_GATES.md` | authority | Standing paired-fixture and diagnostic worklist. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-ACCEPTANCE-GATES-MD --> |
+| `.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md` | authority | Pinned target, probe profile, observations, provenance boundary. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-TOOLCHAIN-EVIDENCE-MD --> |
 
 ## Consultation map
 
 | Deciding… | Consult | Use specifically |
 |---|---|---|
 | What to build next | `FIDO_FCB_ROADMAP.md` | Lowest eligible checkpoint and exact row list. |
+| What runs between C4 acceptance and C5 | `.review/M_SERIES_PLAN.md` + Governance D-27 + Roadmap | The M1–M4 sequence and each candidate's mechanical contract. Forbidden while C4 is unaccepted. |
 | Whether a construct is in scope | `FIDO_FCB_CLOSURE_LEDGER.csv` / `.md` | Row disposition and inclusion price. `OUT` is priced, not forgotten. |
 | What behavior the model must admit | `FIDO_FCB_LATITUDE_LEDGER.tsv` / `.md` + Charter §25 | Disposition; `STEP-NONDET` expands the formal run set. |
 | What Fido must reject | `FIDO_FCB_ACCEPTANCE_GATES.md` | Fixture, diagnostic, contract, and implementing checkpoint. |

@@ -39,7 +39,7 @@ BANNER = """# Fido FCB Human Review Index
 > history is the commit log. No version suffixes, no checksum manifest.  \n\
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  \n\
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  \n\
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  \n\
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  \n\
 > This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.

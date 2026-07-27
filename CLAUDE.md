@@ -362,20 +362,22 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
   failure REASON, so a control that starts failing for an unrelated reason is a gate failure, not a vacuous
   pass. **NEVER hand-edit a generated view.**
   - `tools/human-review-index.py` — Governance D-07. The set of open human acts is DISCOVERED from the <!-- FIDO-FCB-REF:TOOLS-HUMAN-REVIEW-INDEX-PY -->
-    canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-HUMAN-ACTS-TSV -->
+    canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its
     generated view. **To change a human act: edit its TSV row, edit its single `<!-- FIDO-HUMAN-ACT:<ID> -->`
     anchor in the owning source named by that row, then `make fcb-write` and commit both together.** The gate
     also checks each anchor occurs EXACTLY ONCE in its named owning source.
   - `tools/fcb-reference-gate.py` — Governance D-24. Every OPERATIONAL path the live FCB names must resolve at <!-- FIDO-FCB-REF:TOOLS-FCB-REFERENCE-GATE-PY -->
     the same exact ref, or be explicitly typed off-tree with an availability, in
-    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. The corpus DECLARES its references; the gate does not scan <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-REFERENCES-TSV -->
-    for backticked strings, because a scanner needs an exception list and an exception list is where a
-    dangling path hides.
+    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. That manifest also owns CORPUS MEMBERSHIP: its closed
+    `corpus_role` field says which documents are current authorities, and the scanned set is DERIVED from the
+    `authority` rows — so a new authority is scanned by adding a row, never by editing the gate. The corpus
+    DECLARES its references; the gate does not scan for backticked strings, because a scanner needs an
+    exception list and an exception list is where a dangling path hides.
   - `tools/closure-ledger-view.py` — `FIDO_FCB_CLOSURE_LEDGER.md` is regenerated from the canonical 491-row <!-- FIDO-FCB-REF:TOOLS-CLOSURE-LEDGER-VIEW-PY -->
     `.csv`, so its own claim to be generated is true rather than decorative.
 - **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
   thing no other gate reads, so it can drift past what the public statements carry — that is how a previous
-  candidate blocked. `.review/C4_REPAIR_19_OBLIGATION_MATRIX.tsv` holds one row per repair obligation, naming
+  candidate blocked. `.review/C4_REPAIR_20_OBLIGATION_MATRIX.tsv` holds one row per repair obligation, naming
   the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
   that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
   builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish

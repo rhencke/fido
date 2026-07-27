@@ -5,7 +5,7 @@
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  

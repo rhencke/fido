@@ -10,7 +10,7 @@
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`.  
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
@@ -24,7 +24,8 @@ preserve its disposition.
 |---|---|---|---|---|
 | `ADR-0002` | **DEFERRED** | Choose the Float.Decimal domain after differential and proof-cost evidence. | Governance ADR register | Before C7 broadens floating constant coverage. |
 | `ADR-0004` | **DEFERRED** | Choose the multi-platform 64-bit target set. | Governance ADR register | C16. |
-| `C4-REVIEW` | **PENDING** | Review C4 implementation candidate 0ffdc5f7019204a868d75ef709a16fb69a9979d5. Repair 19 is IMPLEMENTED and COMPLETE: all six blocker classes closed — A005 finished with a class rule, exact source occurrence in the public cause theorems, non-vacuous Safe/Emit opacity controls, no skipped naming control, D-24 complete in both directions, and the stale and weaker residue gone. Only Rob accepts C4. | .review/NEXT_STEPS.md, the repair-19 directive, and the main review thread | C5, checkpoint-definition Step 0, post-C4 features, the broad source cleanup and proof-module partitioning remain forbidden. |
+| `C4-REVIEW` | **PENDING** | Accept or block C4. Repair 20 is the sole active implementation task and no candidate is offered: candidate 0ffdc5f7019204a868d75ef709a16fb69a9979d5 was blocked on two false-green closure claims — D-24 scanned a hard-coded subset of the authority corpus, and A005 missed a multiline UpperCamelCase Local Notation. Only Rob accepts C4. | .review/NEXT_STEPS.md, the repair-20 directive, and the main review thread | C5, checkpoint-definition Step 0, M1-M4 implementation, post-C4 features, the broad source cleanup and proof-module partitioning remain forbidden. |
 | `FCB-SHOWROOM` | **OPEN** | Have Claude perform one adversarial showroom pass over the live Git-hosted FCB; disposition findings. | FCB transformation completion rule | Required before calling the document split final. |
 | `FIXED-POINT-EXTERNAL-EVIDENCE` | **OPEN** | Decide whether the twelve external R1-bundle components should be committed into a Git evidence subtree, or expressly retained as external PROVENANCE-PENDING references. | Fixed Points registry; D-24 | Their bytes are not in Git, so their protected projections cannot currently be recomputed from the repository. |
+| `M4-PLAN-APPROVAL` | **DEFERRED** | Approve the exact M4 Mechanical Refactor plan produced by M3, or reopen it. | Governance D-27; amendment FCB-A007-POST-C4-MECHANICAL-SERIES | M4 cannot begin until Rob accepts the exact plan; C5 checkpoint-definition Step 0 waits behind M4. |
 | `TOOLCHAIN-PROVENANCE` | **PENDING** | Replace pending local-distribution evidence with verified official tarball evidence, or expressly retain pending status for a specific review use. | Toolchain Evidence | Adequacy evidence remains pending; formal architecture is unchanged. |
