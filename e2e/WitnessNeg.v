@@ -1,28 +1,18 @@
-(** Negative fixtures for the TYPE guard (step 1 of the ONE provenance-guarded transport `decode_guarded`).
-    `Fido Materialize` (the sole Rocq transport vernac; there is no public `Fido Emit`) applies the
-    exact Emit.transport projection to its argument and typechecks the result, so a forged transport (a
-    raw list/pair that never came from Emit.of_safe of a Safe.Program) has the wrong type and is rejected
-    BEFORE any filesystem effect.  Each `Fail` below asserts the command errors.  The COMPLEMENTARY guard —
-    a same-typed image whose provenance proof is an axiom/variable — is covered by the TRANSIENTLY-generated
-    forged-image fixtures in the emit stage, which additionally reason-check the rejection and that no
-    target directory is created. *)
+(** Negative fixtures for the type guard: a forged transport is rejected before any filesystem effect. *)
 From Stdlib Require Import List String.
 From Fido Require Import Emit.
 Import ListNotations.
 
 Declare ML Module "fido.emit".
 
-(* THE decisive case: a raw transport of the EXACT decodable final shape — a (go.mod bytes, entries) pair
-   with generated-looking bytes — that never came from Emit.of_safe.  If the TYPE guard were bypassed,
-   [decode_transport] would happily decode this and install forged content; the guard rejects it because it
-   is not a Emit.Image (Emit.transport expects one), BEFORE any filesystem effect. *)
+(* the decisive case: the exact decodable final shape, which the type guard still rejects *)
 Fail Fido Materialize
   (("// fido was here.  woof woof.  do not edit."%string,
     cons ("main.go"%string, "// fido was here.  woof woof.  do not edit."%string) (@nil (string * string)))
    : string * list (string * string))
   To "/workspace/e2e-neg".
 
-(* a raw entries list of the wrong (non-pair) shape — type list (string*string), NOT a Emit.Image *)
+(* a raw entries list of the wrong shape *)
 Fail Fido Materialize (@nil (string * string)) To "/workspace/e2e-neg".
 Fail Fido Materialize (cons ("main.go"%string, "evil bytes"%string) (@nil (string * string)))
   To "/workspace/e2e-neg".
