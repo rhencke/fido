@@ -14,6 +14,8 @@ carries a candidate identity.
   M0 publishes the C4 disposition, retires repair-state archaeology to Git history, installs the strict
   checkpoint-scope law, moves current authority to the M-series, and verifies the existing D-07 and D-24 state
   against the accepted snapshot. It changes no Rocq, OCaml, build, tool, fixture or generated file.
+- **M0 candidate offered for human review:** `29b381b6a01d8331c68b8cdf3dfbdebea5560524`. All ten obligations
+  are closed. Only Rob accepts M0.
 - **M1, M2, M3, M4 and C5 remain FORBIDDEN until Rob accepts M0.** Installing a plan is not permission to run
   it, and a green intermediate gate is not acceptance.
 - **Obligation tracking.** `.review/M0_OBLIGATION_MATRIX.tsv` holds one row per M0 obligation, `M0-01` <!-- FIDO-FCB-REF:REVIEW-M0-OBLIGATION-MATRIX-TSV -->
