@@ -12,7 +12,7 @@
 > **Canonical live location:** `.review/fcb/current`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
 > **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
-> C4 is ACCEPTED and C5 is not authorized; `.review/NEXT_STEPS.md` is the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 This is the live Git-hosted FCB. The stable entry point is `.review/fcb/current/INDEX.md`. Superseded states
 live in Git history, never beside the live set.
@@ -22,13 +22,15 @@ live in Git history, never beside the live set.
 **C4 acceptance:** C4 is **ACCEPTED**, under Rob's disposition `C4-ACCEPT-39ea7e3`. The exact accepted ref is
 recorded once, in the A008 amendment register row; it is history, not current work. The blocked candidates and
 their repair narratives live in Git history.  
-**Active work:** M0 Governance Closeout, in `.review/M0_GOVERNANCE_CLOSEOUT.md`, which <!-- FIDO-FCB-REF:REVIEW-M0-GOVERNANCE-CLOSEOUT-MD -->
+**M0 acceptance:** M0 is **ACCEPTED**, under Rob's disposition `M0-ACCEPT-86a63db`. Git history owns its
+contract, its obligation matrix and its evidence.  
+**Active work:** M1 Source Diet, in `.review/M1_SOURCE_DIET.md`, which <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
 `.review/NEXT_STEPS.md` names as its authority. `NEXT_STEPS` owns candidate state; this Index names the
 boundary, not the candidate.  
 Governance owns `D-01` through `D-29`; amendments `A001` through `A008` are accepted.  
-**Next permitted sequence:** `M0 → M1 → M2 → M3 → Rob approves the exact M4 plan → M4 →
+**Next permitted sequence:** `M1 → M2 → M3 → Rob approves the exact M4 plan → M4 →
 checkpoint-definition Step 0 → C5`.  
-**M1 through M4 and C5 status:** forbidden until Rob accepts M0.  
+**M2 through M4 and C5 status:** forbidden until Rob accepts M1.  
 **M-series authority:** `.review/M_SERIES_PLAN.md` <!-- FIDO-FCB-REF:REVIEW-M-SERIES-PLAN-MD -->  
 **Scope rule (D-28):** review the whole system; block the active checkpoint only for a defect in its accepted
 contract or an explicit acceptance dependency. Every other finding is assigned to the earliest mandatory
@@ -82,8 +84,8 @@ D-24 gate checks that agreement rather than trusting either side alone.
 | Deciding… | Consult | Use specifically |
 |---|---|---|
 | What to build next | `FIDO_FCB_ROADMAP.md` | Lowest eligible checkpoint and exact row list. |
-| What is being worked on right now | `.review/M0_GOVERNANCE_CLOSEOUT.md` + Governance D-29 | The M0 contract, its ten obligations, and what it may not touch. M1 waits for M0 acceptance. |
-| What runs between M0 and C5 | `.review/M_SERIES_PLAN.md` + Governance D-27 + Roadmap | The M1–M4 sequence and each candidate's mechanical contract. Forbidden until M0 is accepted. |
+| What is being worked on right now | `.review/M1_SOURCE_DIET.md` + Governance D-27 | The M1 contract, its fifteen obligations, the comment law, and what M1 may not touch. |
+| What runs between M1 and C5 | `.review/M_SERIES_PLAN.md` + Governance D-27 + Roadmap | The M2–M4 sequence and each candidate's mechanical contract. Forbidden until M1 is accepted. |
 | Whether a finding blocks the active checkpoint | Governance D-28 | Only a defect in the accepted contract or an explicit acceptance dependency blocks. Everything else gets a mandatory follow-up owner. |
 | Whether a construct is in scope | `FIDO_FCB_CLOSURE_LEDGER.csv` / `.md` | Row disposition and inclusion price. `OUT` is priced, not forgotten. |
 | What behavior the model must admit | `FIDO_FCB_LATITUDE_LEDGER.tsv` / `.md` + Charter §25 | Disposition; `STEP-NONDET` expands the formal run set. |

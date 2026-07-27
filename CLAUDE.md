@@ -412,7 +412,7 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
     loudly instead of silently testing nothing.
 - **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
   thing no other gate reads, so it can drift past what the public statements carry — that is how a previous
-  candidate blocked. `.review/M0_OBLIGATION_MATRIX.tsv` holds one row per obligation of the ACTIVE
+  candidate blocked. `.review/M1_OBLIGATION_MATRIX.tsv` holds one row per obligation of the ACTIVE
   checkpoint — the gate's subject moves when the active work moves — naming
   the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
   that exact name, refuses a closed row with an empty or dangling cell, and runs an executable

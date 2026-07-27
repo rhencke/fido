@@ -1,11 +1,11 @@
-# Fido M-Series Plan — M0 closeout and post-C4 mechanical debt removal
+# Fido M-Series Plan — post-C4 mechanical debt removal
 
 > **Live authority.** Installed by accepted amendment `FCB-A007-POST-C4-MECHANICAL-SERIES` and governed by
 > Governance `D-27`. Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log.
-> **Sequencing:** M0 runs first, then M1 through M4, then checkpoint-definition Step 0 for C5.
-> **C4 is ACCEPTED.** M0 Governance Closeout is the sole active work; M1, M2, M3 and M4 implementation are
-> FORBIDDEN until Rob accepts M0. Installing a plan does not authorize implementing it.
+> **Sequencing:** M0 is accepted; M1 through M4 follow, then checkpoint-definition Step 0 for C5.
+> **C4 and M0 are ACCEPTED.** M1 Source Diet is the sole active work; M2, M3 and M4 implementation are
+> FORBIDDEN until Rob accepts M1. Installing a plan does not authorize implementing it.
 
 The current repository carries source prose, proof text and build tooling that has accumulated without one
 owned build architecture. Much of the prose records superseded design history that Git already preserves. Full
@@ -20,7 +20,7 @@ not be frozen on top of it.
 
 ```text
 C4 acceptance closeout
-→ M0 Governance Closeout
+→ M0 Governance Closeout (accepted)
 → M1 Source Diet
 → M2 Build Observatory
 → M3 Tool and Build Architecture Audit
@@ -30,10 +30,10 @@ C4 acceptance closeout
 → C5 Machine base
 ```
 
-Each M candidate is a separate reviewed candidate. **M0 comes first**, and its full contract is
-`.review/M0_GOVERNANCE_CLOSEOUT.md`: it publishes the C4 disposition, retires repair-state archaeology to
-Git history, installs the strict checkpoint-scope law, and verifies the existing governance state. M1 is
-forbidden until Rob accepts M0. M4 begins only after M2 and M3 evidence exists and Rob accepts the exact
+Each M candidate is a separate reviewed candidate. M0 is accepted, and Git history owns its contract.
+**M1 Source Diet is active**, and its full contract is `.review/M1_SOURCE_DIET.md`, which owns the
+comment law, the exception ledger and the measurement rules the summary below states in outline. M2 is
+forbidden until Rob accepts M1. M4 begins only after M2 and M3 evidence exists and Rob accepts the exact
 refactor plan produced by M3 — the tracked human act is `M4-PLAN-APPROVAL`.
 <!-- FIDO-HUMAN-ACT:M4-PLAN-APPROVAL -->
 

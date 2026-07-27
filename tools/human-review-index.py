@@ -44,7 +44,7 @@ BANNER = """# Fido FCB Human Review Index
 > `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  \n\
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  \n\
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  \n\
-> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 This index is the generated view of the current open human acts. Each row is owned by one source file
 carrying exactly one `FIDO-HUMAN-ACT` anchor, which the generator validates. A closed act is removed from the

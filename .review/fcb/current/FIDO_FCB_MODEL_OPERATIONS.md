@@ -11,7 +11,7 @@
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 ## 1. Delegation table

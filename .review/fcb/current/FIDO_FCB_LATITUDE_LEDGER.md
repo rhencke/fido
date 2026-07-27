@@ -11,7 +11,7 @@
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 Canonical human view generated from `FIDO_FCB_LATITUDE_LEDGER.tsv`. It closes every identified instance of specification or implementation latitude. `STEP-NONDET` expands the formal behavior set; `ADEQUACY-DEMOTION` limits external claims; `PROVED-REFINEMENT` requires a proof; `ACCEPTANCE-ALIGNMENT` constrains admission; `OUT-COVERED` points to a priced exclusion.

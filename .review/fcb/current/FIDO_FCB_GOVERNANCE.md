@@ -11,7 +11,7 @@
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 Rob authorized completion with best-judgment choices on 2026-07-24. The settled closure of LAT-X004 stands with the reviewers’ shared recommendation: **option (ii), a proved rounding-invariant accepted domain**. ADR-0003 is adopted. ADR-0001 is adopted for the current single target and must reopen at C16. ADR-0002 remains open. ADR-0004 is deferred to C16.
@@ -531,7 +531,7 @@ preserves the governance duty without using it to extend C4.
 | Settled sequence | C4 acceptance closeout → M0 Governance Closeout → M1 → M2 → M3 → Rob approves the M4 plan → M4 → checkpoint-definition Step 0 → C5 |
 | Reopened fixed point | None |
 | Contracts affected | Review and checkpoint-authoring process only; no semantic contract changes |
-| Checkpoints affected | C4 is ACCEPTED at `39ea7e3b012ec798c6a756c971c10bb363557ef8` under `C4-ACCEPT-39ea7e3`; M0 is inserted before M1; C5 remains after M4 |
+| Checkpoints affected | C4 is ACCEPTED at `39ea7e3b012ec798c6a756c971c10bb363557ef8` under `C4-ACCEPT-39ea7e3`; M0 was inserted before M1 and is ACCEPTED under `M0-ACCEPT-86a63db`; C5 remains after M4 |
 | Closure / latitude / standing acceptance-gate rows changed | None |
 | Target/toolchain policy changed | None |
 | Proof theorem or generated-byte guarantee changed | None |

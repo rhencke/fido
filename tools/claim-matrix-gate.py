@@ -17,7 +17,7 @@ That is a narrow guarantee, and stating it narrowly is the point. A gate that pr
 strength would be the same overclaim one layer up. The matrix is a checked map from obligations to evidence;
 it is not itself authority.
 
-Matrix: `.review/M0_OBLIGATION_MATRIX.tsv`. `TSV_REL` and `REQUIRED_OBLIGATIONS` follow the ACTIVE checkpoint;
+Matrix: `.review/M1_OBLIGATION_MATRIX.tsv`. `TSV_REL` and `REQUIRED_OBLIGATIONS` follow the ACTIVE checkpoint;
 they are its subject, not its design, and they move when the active work moves.
   obligation_id  claim  owning_authority  implementation
   positive_evidence  negative_control  mutation_control  gate  status
@@ -41,7 +41,7 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/M0_OBLIGATION_MATRIX.tsv'
+TSV_REL = '.review/M1_OBLIGATION_MATRIX.tsv'
 REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
 PENDING = 'pending: '
 UNSUPPORTED = 'unsupported-boundary: '
@@ -56,8 +56,8 @@ DECL_KINDS = ('Definition', 'Lemma', 'Theorem', 'Corollary', 'Record', 'Inductiv
 # namespaces: it is what the directive says must be answered, and a matrix missing one is not a matrix with a
 # gap — it is a matrix that has quietly dropped an accepted requirement.
 REQUIRED_OBLIGATIONS = (
-    'M0-01', 'M0-02', 'M0-03', 'M0-04', 'M0-05',
-    'M0-06', 'M0-07', 'M0-08', 'M0-09', 'M0-10',
+    'M1-01', 'M1-02', 'M1-03', 'M1-04', 'M1-05', 'M1-06', 'M1-07', 'M1-08',
+    'M1-09', 'M1-10', 'M1-11', 'M1-12', 'M1-13', 'M1-14', 'M1-15',
 )
 
 # A row whose `gate` cell names this runs an EXECUTABLE check instead of merely pointing at evidence: no

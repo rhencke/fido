@@ -11,7 +11,7 @@
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 This charter carries forward the terminal spec-closure architecture body and all contracts `SC-00` through `SC-22`. It retains the authorized closure of `LAT-X004` with option (ii), the rounding-invariant-domain policy, and incorporates accepted Amendment A001: opaque static capabilities and failure results retain the exact whole compiler object that established their result.
