@@ -109,6 +109,8 @@ claims:
 diet:
 	@python3 tools/source-diet.py --self-test
 	@python3 tools/source-diet.py --check
+	@python3 tools/source-diet.py --against-baseline
+	@python3 tools/source-diet.py --code-identical baseline
 
 fcb:
 	@python3 tools/human-review-index.py --self-test

@@ -134,8 +134,13 @@ green.
 
 ## 6. The checker
 
-`tools/source-diet.py` is one narrow checker and measurement tool with `--self-test`, `--check`, <!-- FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY -->
-`--measure`, `--write-metrics`, `--root` and `--snapshot`. Writer and checker share one implementation.
+`tools/source-diet.py` is one narrow checker and measurement tool. Its required modes are `--self-test`, <!-- FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY -->
+`--check`, `--measure`, `--write-metrics`, `--root` and `--snapshot`; writer and checker share one
+implementation. Two further modes carry §8 and §11, which the required six state but cannot check:
+`--against-baseline` compares the candidate to the sealed baseline and fails unless every required metric
+decreased and every required count is zero, and `--code-identical <ref>` (or `baseline`, which reads the
+sealed ref) proves that across every `.v` file no code token was added and the set of vanished declarations
+is exactly the deletion ledger.
 
 Its comment scanner is a Rocq lexer, never a regular expression: comments nest, strings may contain comment
 delimiters, and comments may contain strings. It preserves exact UTF-8 tokens for hashing, reports

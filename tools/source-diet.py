@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import difflib
 import hashlib
 import io
 import os
@@ -57,6 +58,11 @@ PURPOSES = ('certified-correctness', 'proved-restriction', 'unsupported-boundary
             'live-governance', 'generated-artifact', 'character-continuity', 'm1-enforcement')
 DELETION_REASONS = ('no-current-consumer', 'strictly-superseded', 'duplicate-authority', 'compatibility-only',
                     'fixture-duplicate', 'history-only')
+
+DECL_NAME = re.compile(
+    r'^(?:Global\s+|Local\s+|Program\s+|#\[[^\]]*\]\s*)*'
+    r'(?:Definition|Fixpoint|CoFixpoint|Theorem|Lemma|Corollary|Example|Record|Inductive|'
+    r'Instance|Notation|Module|Class)\s+([A-Za-z_][A-Za-z0-9_\']*)', re.M)
 
 MAX_COMMENT_CHARS = 120
 MAX_EXCEPTION_LINES = 4
@@ -541,6 +547,86 @@ MUST_BE_ZERO = ('v_multiline_comment_count', 'v_over_120_block_count', 'v_archae
 
 
 # ───────────────────────────────────────────────────────────── modes
+
+def code_tokens(text: str, label: str):
+    """The code token stream: every comment span removed, then whitespace-split."""
+    out, last = [], 0
+    for tok in lex_comments(text, label):
+        out.append(text[last:tok.start])
+        last = tok.end
+    out.append(text[last:])
+    return ''.join(out)
+
+
+def git_show(root: Path, ref: str, rel: str):
+    p = subprocess.run(['git', 'show', f'{ref}:{rel}'], capture_output=True, cwd=root)
+    if p.returncode != 0:
+        return None
+    try:
+        return p.stdout.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise DietError(f'{ref}:{rel} is not valid UTF-8 ({exc})')
+
+
+def check_direction(root: Path, snapshot: bool):
+    """The required metrics must move the right way before M1 may request review (contract section 8)."""
+    base = check_baseline(root)
+    now = run_measure(root, snapshot, None)
+    bad = []
+    for k in MUST_DECREASE:
+        if k not in base:
+            raise DietError(f'{BASELINE_REL}: no baseline value for {k}')
+        if float(now[k]) >= float(base[k]):
+            bad.append(f'{k} must decrease: baseline {base[k]}, candidate {now[k]}')
+    for k in MUST_BE_ZERO:
+        if float(now[k]) != 0:
+            bad.append(f'{k} must be zero, is {now[k]}')
+    if bad:
+        raise DietError('required direction not met: ' + '; '.join(bad))
+    return len(MUST_DECREASE) + len(MUST_BE_ZERO)
+
+
+def check_code_identical(root: Path, ref: str):
+    """No surviving Rocq code changed: comparing comment-stripped token streams against [ref], nothing was
+    ADDED anywhere and every declaration name that vanished is in the deletion ledger.
+
+    A token check cannot prove a claim about absence, so this proves the complementary presence claim: the
+    set of names that disappeared EQUALS the ledger, neither larger nor smaller."""
+    if ref == 'baseline':
+        ref = check_baseline(root)['baseline_ref']
+    dels = load_tsv(root, DELETIONS_REL, DELETION_FIELDS, 'M1 declaration deletions', allow_missing=True)
+    ledgered = {r['name'] for r in (dels or [])}
+    files = sorted(f for f in inventory(root, snapshot=False) if f.endswith('.v'))
+    if not files:
+        raise DietError(f'{root}: no .v files found — refusing to report code identity over nothing')
+    added, removed, gone, appeared, differing = 0, 0, set(), set(), 0
+    for rel in files:
+        old = git_show(root, ref, rel)
+        if old is None:
+            raise DietError(f'{rel} is absent from {ref}: a new .v file is not a comment-only change')
+        sa, sb = code_tokens(old, f'{ref}:{rel}'), code_tokens(read_v(root, rel), rel)
+        a, b = sa.split(), sb.split()
+        if a != b:
+            differing += 1
+            for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+                if tag in ('replace', 'delete'):
+                    removed += i2 - i1
+                if tag in ('replace', 'insert'):
+                    added += j2 - j1
+        na, nb = set(DECL_NAME.findall(sa)), set(DECL_NAME.findall(sb))
+        gone |= na - nb
+        appeared |= nb - na
+    if added:
+        raise DietError(f'{added} code token(s) were ADDED across {differing} file(s): a comment diet adds none')
+    if appeared:
+        raise DietError(f'{len(appeared)} declaration name(s) appeared: {sorted(appeared)[:8]}')
+    if gone != ledgered:
+        raise DietError(f'the vanished declarations do not match {DELETIONS_REL}: '
+                        f'vanished {sorted(gone)}, ledgered {sorted(ledgered)}')
+    return (f'{len(files)} .v file(s) vs {ref}: {differing} differ, 0 added, {removed} removed; '
+            f'{len(gone)} vanished declaration(s), all ledgered')
+
+
 def run_check(root: Path, snapshot: bool):
     files = inventory(root, snapshot)
     blocks_by_file, findings = scan_v(root, files)
@@ -612,6 +698,25 @@ def self_test() -> int:
                 failures.append(f'{label}: could not construct the scenario ({exc})'); return
             try:
                 run_check(d, snapshot=snapshot)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    def scenario_run(label, build, action, expect=None):
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            try:
+                build(d)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                action(d)
                 if expect is not None:
                     failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
             except DietError as exc:
@@ -704,6 +809,31 @@ def self_test() -> int:
     scenario('a clean exported-snapshot fixture', lambda d: fixture(d, CLEAN_V))
     scenario('a clean working-tree fixture', lambda d: git_fixture(d, fixture), snapshot=False)
 
+    # ── the required direction (contract section 8)
+    scenario_run('a required metric that increased from baseline',
+                 lambda d: direction_fixture(d, fixture, bump='v_comment_bytes'),
+                 lambda d: check_direction(d, snapshot=True), expect='must decrease')
+    scenario_run('a required count that is not zero',
+                 lambda d: direction_fixture(d, fixture, archaeology=True),
+                 lambda d: check_direction(d, snapshot=True), expect='must be zero')
+    scenario_run('a baseline whose metrics moved the right way',
+                 lambda d: direction_fixture(d, fixture),
+                 lambda d: check_direction(d, snapshot=True))
+
+    # ── surviving-code identity (contract section 11)
+    scenario_run('a code token added since the ref',
+                 lambda d: code_fixture(d, fixture, add_code=True),
+                 lambda d: check_code_identical(d, 'HEAD'), expect='were ADDED')
+    scenario_run('a declaration deleted without a ledger row',
+                 lambda d: code_fixture(d, fixture, drop_decl=True),
+                 lambda d: check_code_identical(d, 'HEAD'), expect='do not match')
+    scenario_run('a new .v file since the ref',
+                 lambda d: code_fixture(d, fixture, new_file=True),
+                 lambda d: check_code_identical(d, 'HEAD'), expect='is absent from')
+    scenario_run('a comment-only change since the ref',
+                 lambda d: code_fixture(d, fixture),
+                 lambda d: check_code_identical(d, 'HEAD'))
+
     total, must_fail = counts['total'], counts['must_fail']
     if failures:
         for f in failures:
@@ -785,6 +915,45 @@ def disposition(d: Path, fixture, omit=False, phantom_delete=False, bad_purpose=
                                      encoding='utf-8')
 
 
+def direction_fixture(d: Path, fixture, bump: str | None = None, archaeology: bool = False):
+    """A tree whose sealed baseline is generous, so the candidate legitimately improves on it."""
+    body = '(* the one integer authority, in a repair 3 shape *)\n' if archaeology else CLEAN_V
+    fixture(d, body)
+    m = run_measure(d, snapshot=True, out=None)
+    pairs = [('baseline_ref', 'deadbeef')]
+    for k in METRIC_ORDER:
+        v = float(m[k])
+        if k in MUST_DECREASE:
+            v = v + 1000            # a generous baseline the candidate beats
+        if bump and k == bump:
+            v = v - 1000            # …except the one we want to have gone the wrong way
+        pairs.append((k, str(int(v)) if float(v) == int(v) else str(v)))
+    seal = baseline_seal([{'metric': k, 'value': v} for k, v in pairs])
+    (d / BASELINE_REL).write_text('metric\tvalue\n' + ''.join(f'{k}\t{v}\n' for k, v in pairs)
+                                  + f'baseline_sha256\t{seal}\n', encoding='utf-8')
+
+
+def code_fixture(d: Path, fixture, add_code=False, drop_decl=False, new_file=False):
+    """A one-commit Git tree, then the candidate edit under test."""
+    fixture(d, '(* the first fact *)\nDefinition k := 0.\nDefinition j := 1.\n')
+    for cmd in (['git', 'init', '-q'], ['git', 'config', 'user.email', 'f@example.com'],
+                ['git', 'config', 'user.name', 'fixture'], ['git', 'add', '-A'],
+                ['git', 'commit', '-q', '-m', 'base']):
+        r = subprocess.run(cmd, cwd=d, capture_output=True, text=True)
+        assert r.returncode == 0, f'git failed: {r.stderr.strip()}'
+    (d / DELETIONS_REL).write_text('\t'.join(DELETION_FIELDS) + '\n', encoding='utf-8')
+    if add_code:
+        (d / 'Root.v').write_text('(* a fact *)\nDefinition k := 0.\nDefinition j := 1.\n'
+                                  'Definition extra := 2.\n', encoding='utf-8')
+    elif drop_decl:
+        (d / 'Root.v').write_text('(* a fact *)\nDefinition k := 0.\n', encoding='utf-8')
+    elif new_file:
+        (d / 'Other.v').write_text('(* a fact *)\nDefinition m := 0.\n', encoding='utf-8')
+    else:
+        (d / 'Root.v').write_text('(* a shorter fact *)\nDefinition k := 0.\nDefinition j := 1.\n',
+                                  encoding='utf-8')
+
+
 def git_fixture(d: Path, fixture):
     fixture(d, CLEAN_V)
     for cmd in (['git', 'init', '-q'], ['git', 'add', '-A']):
@@ -802,11 +971,17 @@ def main() -> int:
     ap.add_argument('--write-metrics', default=None)
     ap.add_argument('--baseline-ref', default=None,
                     help='record this exact ref in the written metric file, under the same seal')
+    ap.add_argument('--against-baseline', action='store_true',
+                    help='the required metrics must decrease, and the required counts must be zero')
+    ap.add_argument('--code-identical', default=None, metavar='REF',
+                    help='no surviving Rocq code changed since REF (or `baseline` for the sealed ref), and every '
+                         'vanished declaration is ledgered')
     args = ap.parse_args()
     root = Path(args.root).resolve()
     if args.self_test:
         rc = self_test()
-        if rc or not (args.check or args.measure or args.write_metrics):
+        if rc or not (args.check or args.measure or args.write_metrics
+                      or args.against_baseline or args.code_identical):
             return rc
     try:
         if args.measure or args.write_metrics:
@@ -820,6 +995,11 @@ def main() -> int:
                       f'to {args.write_metrics} ✓')
         if args.check:
             print(f'fido: source-diet OK — {run_check(root, args.snapshot)} ✓')
+        if args.against_baseline:
+            n = check_direction(root, args.snapshot)
+            print(f'fido: source-diet direction OK — {n} required metric(s) moved the right way ✓')
+        if args.code_identical:
+            print(f'fido: source-diet code identity OK — {check_code_identical(root, args.code_identical)} ✓')
     except DietError as exc:
         print(f'fido: SOURCE-DIET FAILED — {exc}', file=sys.stderr)
         return 1

@@ -151,6 +151,26 @@ MUTANTS = (
      "    if not blocks_by_file:",
      "    if False:",
      ('a snapshot containing no .v files',)),
+
+    (DIET, 'the required-direction comparison',
+     "        if float(now[k]) >= float(base[k]):",
+     "        if False:",
+     ('a required metric that increased from baseline',)),
+
+    (DIET, 'the required-zero counts',
+     "        if float(now[k]) != 0:",
+     "        if False:",
+     ('a required count that is not zero',)),
+
+    (DIET, 'surviving-code identity',
+     "    if added:\n        raise DietError(f'{added} code token(s) were ADDED",
+     "    if False:\n        raise DietError(f'{added} code token(s) were ADDED",
+     ('a code token added since the ref',)),
+
+    (DIET, 'the vanished-declaration ledger match',
+     "    if gone != ledgered:",
+     "    if False:",
+     ('a declaration deleted without a ledger row',)),
 )
 
 
