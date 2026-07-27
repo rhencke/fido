@@ -21,7 +21,8 @@ Nothing here restates any of those. A second roster of the same facts is a secon
 - **C0–C3 GREEN and accepted by Rob.** C0 preflight + proof spike; C1 spec-shaped file roots + path-keyed
   file map; C2 production `Index` + `NodeRef` navigation; C3 occurrence-anchored diagnostics and the
   fresh-image literal-build closeout, accepted at the original C4 baseline `8c9212a`.
-- **C4 is NOT accepted.** Only Rob accepts it. C5 and the post-C4 trim remain forbidden until he does.
+- **C4 accepted by Rob**, disposition `C4-ACCEPT-39ea7e3`: source type names, compiler resolution and unified
+  numeric conversions. M0 Governance Closeout is the active work; M1 through M4 and C5 wait on M0 acceptance.
 
 ## Durable campaign lessons
 

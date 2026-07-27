@@ -4,65 +4,47 @@ This file alone owns the current checkpoint and candidate state. No other docume
 carries a candidate identity.
 `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` alone owns the set of open human acts.
 
-<!-- FIDO-HUMAN-ACT:C4-REVIEW -->
+<!-- FIDO-HUMAN-ACT:M0-REVIEW -->
 
-- **REPAIR 21 IS THE SOLE ACTIVE C4 IMPLEMENTATION TASK.**
-  Authority: `.review/C4_IMPLEMENTATION_REPAIR_21.md`. <!-- FIDO-FCB-REF:REVIEW-C4-IMPLEMENTATION-REPAIR-21-MD -->
-- **Candidate offered for human review.** `39ea7e3b012ec798c6a756c971c10bb363557ef8` is the C4 implementation
-  candidate; both blocker classes are closed and the obligation matrix reads 13 of 13.
-- **C4 is still NOT accepted.** Only Rob accepts it. `964575286acdb3c16df4bb9a11f1194a9418978c` is the
-  twenty-second blocked candidate; `d17fbe37d28a71c6f64e166409b494b30287c8b6` was its documentation-only
-  freeze and is not a separate candidate.
-- **The two blocker classes repair 21 closed.** Both were reproduced against the previous candidate before
-  anything was edited, and every root helper was then mutation-tested by deleting its effect and requiring
-  its own named controls to fail.
-  1. **`D-24` proved a self-selected subset.** The gate encoded the repository path grammar in Python —
-     hard-coded namespace roots and root files, substring marker binding, unchecked path spellings, owner
-     paths that could leave the tree, and a repository path that could be exempted by retyping it as external
-     evidence. A gate that chooses which namespaces exist can only prove the subset it recognised. The path
-     universe now comes from the repository inventory of the exact snapshot being checked, through one
-     canonical repository-path parser shared by manifest targets, owners, live-set entries, Index table cells
-     and paths found in authority prose. 131 files, 94 rows, 23 authorities, 62 controls, 14 mutants.
-  2. **The canonical human-act data contradicted this file.** The `C4-REVIEW` row carried a candidate SHA and
-     a "no candidate is offered" state while this file offered one. `NEXT_STEPS` alone owns mutable candidate
-     identity; the human act states only the durable act, and the generator refuses any Git object ID in open
-     human-act data.
-- **A007 is installed as authority, not as permission.** `FCB-A007-POST-C4-MECHANICAL-SERIES` and Governance
-  `D-27` are in Git; `.review/M_SERIES_PLAN.md` is a live authority. **M1, M2, M3 and M4 implementation remain
-  FORBIDDEN until Rob accepts C4.** So do C5, checkpoint-definition Step 0, post-C4 features, the broad source
-  cleanup and proof-module partitioning.
-- **Obligation tracking.** `.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv` holds one row per repair-21 <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-21-OBLIGATION-MATRIX-TSV -->
-  obligation. `make claims` refuses to let `.review/REVIEW_REQUEST.md` request review while any row is
-  absent, duplicate, malformed or open. The whole-system closure audit is
-  `.review/C4_REPAIR_21_CLOSURE_AUDIT.md`. <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-21-CLOSURE-AUDIT-MD -->
-- **Retained results — do NOT regress.** Repair 20: A007 and the M-series authority installed before
-  implementation, `Local Notation` judged over Rocq statements, corpus membership carried by the manifest's
-  `corpus_role`, and the live FCB set declared. Repair 19: the exact source occurrence in the public cause
-  theorems (accepted locals 11/9/7/5 via `accepted_conversion_at`, rejected via `childfail_conversion_at` and
-  `deep_fail_innermost_diag_claim`), the A005 class rule, and the two-stage sealed controls that prove the
-  module loaded. Repair 18: one accepted and one rejected root fixture over one exact returned object, the
-  cause-owned predicates projecting their suffix and tail accumulator from `total_forest_outcome_cause`, the
-  exact singleton rejected diagnostic, and D-07. Repair 17: the A006 mint, the sealed `Safe.Program`, the
-  causal theorems over any retained phase. Repair 16: the direct package chain and the sealed `Core`. Repair
-  15: the whole-elaboration core, the sealed capability, the one mint path. Repair 13: the exact standard
-  work-member index. Repair 12: exact source-step identity. A005: the module rename and byte-identical output.
-- **Scope decision (reviewer, standing):** **do NOT delete `Index.Program` during a repair.**
-- **Functional contract:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-C4-SOURCE-TYPE-NAME-CONVERSION-PLAN-MD -->
+- **C4 IS ACCEPTED.** Rob's disposition is `C4-ACCEPT-39ea7e3`. The exact accepted ref is recorded once, in
+  the A008 amendment register row in `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` — it is history, not current
+  work. Git history owns the blocked candidates and the repair narratives.
+- **M0 GOVERNANCE CLOSEOUT IS THE SOLE ACTIVE WORK.**
+  Authority: `.review/M0_GOVERNANCE_CLOSEOUT.md`. <!-- FIDO-FCB-REF:REVIEW-M0-GOVERNANCE-CLOSEOUT-MD -->
+  M0 publishes the C4 disposition, retires repair-state archaeology to Git history, installs the strict
+  checkpoint-scope law, moves current authority to the M-series, and verifies the existing D-07 and D-24 state
+  against the accepted snapshot. It changes no Rocq, OCaml, build, tool, fixture or generated file.
+- **M1, M2, M3, M4 and C5 remain FORBIDDEN until Rob accepts M0.** Installing a plan is not permission to run
+  it, and a green intermediate gate is not acceptance.
+- **Obligation tracking.** `.review/M0_OBLIGATION_MATRIX.tsv` holds one row per M0 obligation, `M0-01` <!-- FIDO-FCB-REF:REVIEW-M0-OBLIGATION-MATRIX-TSV -->
+  through `M0-10`.
+- **No C4 repair artifact remains in the live tree.** The repair-21 directive, obligation matrix and closure
+  audit are retired to Git history. `tools/claim-matrix-gate.py` pinned the matrix as its subject, so retiring
+  it needed the gate to follow the active checkpoint; Rob authorized that retarget on 2026-07-27 after it was
+  reported as the smallest M0 conflict. The gate's behaviour is unchanged — only its subject moved.
+- **Scope rule (D-28).** Review the whole system. Block the active checkpoint only for a defect in its accepted
+  contract or an explicit acceptance dependency. Assign every other finding to the earliest mandatory
+  follow-up — M1 for source prose and dead code, M2 for build evidence, M3 for tool and build architecture, M4
+  for approved restructuring — and keep it visible in Git. Discovery does not determine scope.
+- **Retained results — do NOT regress.** C4's accepted result: one raw `Syntax.Program` and one structural
+  `Index` authority; one compiler-owned source-name resolver; one retained whole `Compilable.Core` built
+  through the production path; exact accepted and rejected provenance through the returned objects; exact
+  source-occurrence identity in the public cause theorems; one capability mint through `Compilable.compile`;
+  sealed `Compilable.Core`, `Compilable.Program`, `Compilable.Failure`, `Compilable.Facts` and
+  `Safe.Program`; the A006 opaque exact-value-indexed `Emit.Mint.Token` with a reducible image carrier; no
+  compatibility result peer, reconstruction root, copied provenance or second conversion authority; source
+  spelling retained through compilation and rendering, including distinct `byte`/`uint8` and `rune`/`int32`
+  identities; exact diagnostics, generated Go bytes and reviewed runtime output; zero assumptions under the
+  whole-theory audit. Plus the governance results: D-07 discovery, the D-24 two-way relation with its path
+  universe derived from the repository, the A005 statement-level class rule, and the mutation harness that
+  proves each gate helper load-bearing.
+- **Scope decision (reviewer, standing):** **do NOT delete `Index.Program`.**
+- **Functional contract for C4:** `.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-C4-SOURCE-TYPE-NAME-CONVERSION-PLAN-MD -->
   **Accepted review basis:** `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   **Campaign authority:** `.review/SOURCE_FOREST_MASTER_PLAN.md`, <!-- FIDO-FCB-REF:REVIEW-SOURCE-FOREST-MASTER-PLAN-MD -->
   whose per-checkpoint status is `.review/SOURCE_FOREST_STATUS.md`. <!-- FIDO-FCB-REF:REVIEW-SOURCE-FOREST-STATUS-MD -->
-- **Original C4 baseline:** `8c9212a8c814c7a99a5e3ef1970a0ae32425a918`.
-- **Blocked C4 implementation candidates (all twenty-two):** `89b8e54` (1) · `1c4a7de` (2) · `806ce87` (3) ·
-  `af2fc87` (4) · `9d4aff5` (5) · `3b4f40e` (6) · `3a92d22` (7) · `91e8dbb` (8) · `a2a5b46` (9) · `a8a4472` (10) ·
-  `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) · `3386c02` (15) · `20c5ad5` (16) ·
-  `deda8bd` (17) · `12b1bc9` (18) · `92fc04e` (19) · `50c3bcc` (20) · `0ffdc5f` (21) ·
-  `964575286acdb3c16df4bb9a11f1194a9418978c` (22).
-  Not candidates: `37c9597`; the documentation-only freezes `c5b67495`, `25bcd7aa`, `c8ce2d8c`, `e15232d3`,
-  `2b848871`, `cc63a78c`, `8b98080` and `d17fbe37d28a71c6f64e166409b494b30287c8b6`; the life-document commit
-  `392d2084`; the A007 authority commit `fad5514`; and `0d0036c`, an intermediate implementation commit
-  superseded within repair 20.
-- **Governing accepted amendments.** `A001` through `A007` are **ACCEPTED**; Governance owns `D-01` through
-  `D-27`.
+- **Governing accepted amendments.** `A001` through `A008` are **ACCEPTED**; Governance owns `D-01` through
+  `D-29`.
 - **Documentation basis:** the live Fido Conformance Basis is `.review/fcb/current` (Git-canonical per **A002**,
   living-document form per **A003**; identity is `git rev-parse HEAD:.review/fcb/current`).
 - **Scope decisions:** **ADR-0001 / SR-001 ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25) — Go 1.23 on

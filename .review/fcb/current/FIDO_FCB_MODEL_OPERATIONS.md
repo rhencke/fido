@@ -5,12 +5,13 @@
 > history is the commit log. No version suffixes, no checksum manifest.  
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
+> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 ## 1. Delegation table
@@ -60,16 +61,30 @@ report the documentation-access defect. Do not answer from a stale project-libra
 12. Rob dispositions findings and accepts or blocks.
 13. After acceptance, update the Git-hosted FCB through the publication duty in the authoring guide.
 
-### 3.1 Post-C4 mechanical series (D-27 / A007)
+### 3.1 Post-C4 sequence (D-29 / A008, then D-27 / A007)
 
-Between C4 acceptance closeout and C5 checkpoint-definition Step 0, the eligible work is the mechanical series
-in order — M1 Source Diet, M2 Build Observatory, M3 Tool and Build Architecture Audit, Rob's approval of the
-exact M4 plan, then M4 Mechanical Refactor. Each is a separate reviewed candidate; C5 is not eligible until M4
-is accepted. The full contracts are the M-series plan under `.review/`, which A007 installs as a live
-authority; the Roadmap owns only the sequence.
+C4 is accepted. The eligible work is, in order: **M0 Governance Closeout**, then M1 Source Diet, M2 Build
+Observatory, M3 Tool and Build Architecture Audit, Rob's approval of the exact M4 plan, then M4 Mechanical
+Refactor. Each is a separate reviewed candidate; C5 is not eligible until M4 is accepted. The full contracts
+are the M0 closeout and the M-series plan under `.review/`; the Roadmap owns only the sequence.
 
-**While C4 remains unaccepted, M1 through M4 implementation is forbidden.** Installing the plan and the
-amendment does not authorize implementing them, and a green intermediate gate is not acceptance.
+**M1 through M4 implementation is forbidden until Rob accepts M0.** Installing a plan or an amendment does not
+authorize implementing it, and a green intermediate gate is not acceptance.
+
+### 3.2 Scope classification (D-28)
+
+Review the whole system; block only on the active checkpoint's accepted contract. Classify every other finding
+to its mandatory owner rather than folding it into the current work:
+
+```text
+source prose, comments, dead files and declarations → M1
+build timing, dependency and edit-cost evidence       → M2
+auxiliary tool and build-graph architecture           → M3
+approved mechanical restructuring                     → M4
+```
+
+The classification is mandatory and stays visible in Git until dispositioned. Where a finding is discovered
+does not decide which checkpoint owns it.
 
 ## 4. Project-library shim rule
 

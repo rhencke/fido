@@ -40,10 +40,11 @@ BANNER = """# Fido FCB Human Review Index
 > history is the commit log. No version suffixes, no checksum manifest.  \n\
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`.  \n\
+> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
+> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  \n\
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  \n\
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  \n\
-> This corpus does not accept C4 and does not authorize C5; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4 is ACCEPTED; M0 Governance Closeout is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 This index is the generated view of the current open human acts. Each row is owned by one source file
 carrying exactly one `FIDO-HUMAN-ACT` anchor, which the generator validates. A closed act is removed from the

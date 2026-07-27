@@ -20,25 +20,7 @@ is the archive.
 
 ---
 
-Q-07 was retired into the implementer operating law in root `CLAUDE.md`; Q-08 was resolved by accepted
-amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`. Git history is the archive for both.
-
----
-
-### Q-09 — the repair-21 directive's own reproducers could not stay verbatim (reviewer; non-blocking)
-
-**Owner:** the reviewer. **Blocks:** no. **Default taken:** respell, and say so where a reader will see it.
-
-The repair-21 directive quotes eight synthetic non-existent repository paths as reproducers, and separately
-requires controls that inject those same literals into the ACTIVE REPAIR AUTHORITY and observe D-24 fail. Both
-cannot hold: a control proves nothing if the pristine tree already contains what it injects, and the accepted
-rule — repair-20 §4.6, restated in repair-21 §3.2.B — says a live authority carries current instructions while
-synthetic fixtures live in gate self-tests as temporary test data.
-
-I installed the directive with those eight spellings changed so they no longer parse as live path tokens, and
-nothing else altered. The installer's note at the top of the directive says exactly that; the exact literals
-are retained once, in the D-24 gate's control table, which is where the accepted rule puts them.
-
-If the reviewer prefers a different resolution — a separate non-authority record of the verbatim text, or a
-declared fixture namespace — say so and I will apply it. I did not invent an exemption list or a weaker path
-grammar, both of which §12 forbids.
+**There are currently no open implementation questions.** Q-07 was retired into the implementer operating law
+in root `CLAUDE.md`; Q-08 was resolved by accepted amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; Q-09's
+recorded default was accepted — synthetic reproducer paths belong only in temporary gate controls, never
+verbatim in a live authority the same gate scans. Git history is the archive for all three.

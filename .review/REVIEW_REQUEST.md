@@ -1,27 +1,19 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: no
 confirmation_used: no
-human_override: (repair 21 — see .review/C4_IMPLEMENTATION_REPAIR_21.md)
-result: awaiting Rob's human C4 Implementation Review
-candidate: 39ea7e3b012ec798c6a756c971c10bb363557ef8
+human_override: (M0 — see .review/M0_GOVERNANCE_CLOSEOUT.md)
+result: M0 Governance Closeout is active; no review is requested
+candidate: (none offered — M0 in progress)
 
-contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
+contract: .review/M0_GOVERNANCE_CLOSEOUT.md
 review_basis: .review/REVIEW_BASIS.md
 
-**A human C4 Implementation Review is requested for candidate `39ea7e3b012ec798c6a756c971c10bb363557ef8`.**
-Both repair-21 blocker classes are closed: the D-24 path universe is derived from the repository inventory of
-the exact snapshot rather than encoded in Python, and open human-act data no longer carries mutable candidate
-state. The whole-system closure audit is `.review/C4_REPAIR_21_CLOSURE_AUDIT.md` and the obligation matrix is
-`.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv`, which reads 13 of 13 closed with all twelve required
-obligations present — `make claims` refuses to let this file request review while any row is absent,
-duplicate, malformed or open.
+**No review is requested while M0 is active.** C4 is ACCEPTED under Rob's disposition `C4-ACCEPT-39ea7e3`, so
+the C4 review is closed and its act is gone from the open human acts. M0 Governance Closeout is the sole
+active work; `.review/M0_OBLIGATION_MATRIX.tsv` tracks its ten obligations, and `make claims` refuses to let
+this file move to `requested` while any row is absent, duplicate, malformed or open.
 
-Every reproducer was run against the previous candidate before anything was edited, and all fourteen root
-helpers were mutation-tested by deleting their effect and requiring their own named controls to fail.
-
-C4 is NOT accepted; only Rob accepts it. C5, checkpoint-definition Step 0, M1–M4 implementation, post-C4
-features, the broad source cleanup and proof-module partitioning remain forbidden. Automatic Codex review is
-disabled.
+M1 through M4 and C5 remain forbidden until Rob accepts M0. Automatic Codex review is disabled.

@@ -309,6 +309,13 @@ kill stale `docker buildx build` processes first; run long builds detached and p
 
 ## Review process
 
+**Strict scope (Governance D-28).** Review the whole system. Block the active checkpoint only for a defect in
+its accepted contract or an explicit acceptance dependency. Assign every other finding to the earliest
+mandatory follow-up and keep it visible in Git. Discovery does not determine scope. The assignment is
+mandatory — it is not permission to drop the finding, and it is not permission to grow the current checkpoint
+because the work is useful. After acceptance, a checkpoint reopens only on new evidence against its accepted
+contract.
+
 Two review types (`.review/CODEX_REVIEW_POLICY.md`): a **Contract Review** before implementation and an <!-- FIDO-FCB-REF:REVIEW-CODEX-REVIEW-POLICY-MD -->
 **Implementation Review** after. Each has ONE initial review and AT MOST ONE bounded confirmation after ONE
 complete repair batch. A BLOCKING confirmation (or ARCHITECTURAL CONFLICT) ENDS autonomous work — close
@@ -405,7 +412,8 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
     loudly instead of silently testing nothing.
 - **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
   thing no other gate reads, so it can drift past what the public statements carry — that is how a previous
-  candidate blocked. `.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv` holds one row per repair obligation, naming
+  candidate blocked. `.review/M0_OBLIGATION_MATRIX.tsv` holds one row per obligation of the ACTIVE
+  checkpoint — the gate's subject moves when the active work moves — naming
   the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
   that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
   builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish

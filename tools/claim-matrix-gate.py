@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair-21 obligation matrix checker.
+"""Obligation matrix checker for the active checkpoint.
 
 A freeze report is prose. Prose is not gated by anything, so it can quietly claim more than any theorem or
 control carries — which is how candidates have blocked before: green gates and a completion narrative that had
@@ -17,7 +17,8 @@ That is a narrow guarantee, and stating it narrowly is the point. A gate that pr
 strength would be the same overclaim one layer up. The matrix is a checked map from obligations to evidence;
 it is not itself authority.
 
-Matrix: `.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv`
+Matrix: `.review/M0_OBLIGATION_MATRIX.tsv`. `TSV_REL` and `REQUIRED_OBLIGATIONS` follow the ACTIVE checkpoint;
+they are its subject, not its design, and they move when the active work moves.
   obligation_id  claim  owning_authority  implementation
   positive_evidence  negative_control  mutation_control  gate  status
 
@@ -40,7 +41,7 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/C4_REPAIR_21_OBLIGATION_MATRIX.tsv'
+TSV_REL = '.review/M0_OBLIGATION_MATRIX.tsv'
 REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
 PENDING = 'pending: '
 UNSUPPORTED = 'unsupported-boundary: '
@@ -55,18 +56,8 @@ DECL_KINDS = ('Definition', 'Lemma', 'Theorem', 'Corollary', 'Record', 'Inductiv
 # namespaces: it is what the directive says must be answered, and a matrix missing one is not a matrix with a
 # gap — it is a matrix that has quietly dropped an accepted requirement.
 REQUIRED_OBLIGATIONS = (
-    'R21-A007-NO-EARLY-IMPLEMENTATION',
-    'R21-D07-STATE-OWNERSHIP',
-    'R21-D24-AUTHORITY-DISCOVERY',
-    'R21-D24-CANONICAL-PATH',
-    'R21-D24-EXACT-MARKER',
-    'R21-D24-EXTERNAL-SEPARATION',
-    'R21-D24-INDEX-UNIQUENESS',
-    'R21-D24-INVENTORY',
-    'R21-D24-LIVE-SET',
-    'R21-D24-OWNER-CONTAINMENT',
-    'R21-D24-TARGET-IDENTITY',
-    'R21-GENERATED-BYTES',
+    'M0-01', 'M0-02', 'M0-03', 'M0-04', 'M0-05',
+    'M0-06', 'M0-07', 'M0-08', 'M0-09', 'M0-10',
 )
 
 # A row whose `gate` cell names this runs an EXECUTABLE check instead of merely pointing at evidence: no
@@ -411,14 +402,19 @@ SYNTHETIC_CLOSED = (
     'closed')
 
 
-def ensure_closed_row(work: Path):
-    """Guarantee one CLOSED row with a Rocq implementation, appending the synthetic one only if none exists."""
+def ensure_closed_row(work: Path, require_builder: bool = False):
+    """Guarantee a CLOSED row the controls can mutate, appending the synthetic one only if none serves.
+
+    `require_builder` additionally demands a row carrying the builder prohibition over a Rocq surface. A
+    documentation checkpoint legitimately has neither, so without this the builder control would degrade into
+    "could not construct the scenario" — a control that stops testing whenever the active work is not Rocq."""
     p = work / TSV_REL
     L = p.read_text(encoding='utf-8').split('\n')
     for l in L[1:]:
         c = l.split('\t')
         if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed':
-            return
+            if not require_builder or BUILDER_PROHIBITION in c[FIELDS.index('gate')]:
+                return
     tail = L.pop() if L and L[-1] == '' else None      # keep the file's trailing newline exactly as it was
     L.append('\t'.join(SYNTHETIC_CLOSED))
     if tail is not None:
@@ -488,7 +484,7 @@ def rename_named_surface(work: Path):
 
 def inject_banned_builder(work: Path):
     """Put a banned builder inside the proof of the first surface a CLOSED BUILDER_PROHIBITION row names."""
-    ensure_closed_row(work)
+    ensure_closed_row(work, require_builder=True)
     L = (work / TSV_REL).read_text(encoding='utf-8').split('\n')
     for line in L[1:]:
         c = line.split('\t')
@@ -515,7 +511,7 @@ def inject_banned_builder(work: Path):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='repair-21 obligation matrix gate')
+    ap = argparse.ArgumentParser(description='active-checkpoint obligation matrix gate')
     ap.add_argument('--root', default='.')
     ap.add_argument('--self-test', action='store_true')
     args = ap.parse_args()
