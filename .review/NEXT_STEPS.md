@@ -14,7 +14,7 @@ carries a candidate identity.
   M0 publishes the C4 disposition, retires repair-state archaeology to Git history, installs the strict
   checkpoint-scope law, moves current authority to the M-series, and verifies the existing D-07 and D-24 state
   against the accepted snapshot. It changes no Rocq, OCaml, build, tool, fixture or generated file.
-- **M0 candidate offered for human review:** `2d40c71519365d77fd07f2b01030c47914694002`. All ten obligations
+- **M0 candidate offered for human review:** `86a63db4561eea10978432413223a0d05493601f`. All ten obligations
   are closed. Only Rob accepts M0.
 - **M1, M2, M3, M4 and C5 remain FORBIDDEN until Rob accepts M0.** Installing a plan is not permission to run
   it, and a green intermediate gate is not acceptance.

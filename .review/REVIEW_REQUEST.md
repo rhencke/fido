@@ -6,12 +6,12 @@ confirmation: no
 confirmation_used: no
 human_override: (M0 — see .review/M0_GOVERNANCE_CLOSEOUT.md)
 result: awaiting Rob's human M0 review
-candidate: 2d40c71519365d77fd07f2b01030c47914694002
+candidate: 86a63db4561eea10978432413223a0d05493601f
 
 contract: .review/M0_GOVERNANCE_CLOSEOUT.md
 review_basis: .review/REVIEW_BASIS.md
 
-**A human M0 review is requested for candidate `2d40c71519365d77fd07f2b01030c47914694002`.**
+**A human M0 review is requested for candidate `86a63db4561eea10978432413223a0d05493601f`.**
 C4 is ACCEPTED under Rob's disposition `C4-ACCEPT-39ea7e3`; that ref is recorded once, as history, in the A008
 amendment register row. `.review/M0_OBLIGATION_MATRIX.tsv` reads 10 of 10 closed with all ten required
 obligations present — `make claims` refuses to let this file request review while any row is absent,
