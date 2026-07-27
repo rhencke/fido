@@ -3,7 +3,7 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        fcb fcb-write claims audit-fresh profile
+        fcb fcb-write claims diet audit-fresh profile
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -17,7 +17,7 @@ override PLATFORM := linux/amd64
 # `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
 # tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
-check: names fcb claims prove e2e builder
+check: names fcb claims diet prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -104,6 +104,12 @@ claims:
 
 # The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
 # runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
+# The M1 source diet: the .v comment law, the exception relation both ways, and one disposition per file.
+# Its adversarial controls run first, so a green here is one the checker can still earn.
+diet:
+	@python3 tools/source-diet.py --self-test
+	@python3 tools/source-diet.py --check
+
 fcb:
 	@python3 tools/human-review-index.py --self-test
 	@python3 tools/human-review-index.py --check

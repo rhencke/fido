@@ -26,6 +26,7 @@ from pathlib import Path
 FCB = 'tools/fcb-reference-gate.py'
 ACTS = 'tools/human-review-index.py'
 NAMES = 'tools/naming-gate.py'
+DIET = 'tools/source-diet.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
@@ -105,6 +106,51 @@ MUTANTS = (
      r"""    r"(?P<name>[A-Za-z_][A-Za-z0-9_']*)\s*:=")""",
      r"""    r"(?P<name>Hidden[A-Za-z0-9_']*)\s*:=")""",
      ('local alias Resolve', 'indented local alias')),
+
+    (DIET, 'the default-comment law',
+     "            is_default = lines == 1 and len(block) == 1 and not over",
+     "            is_default = True",
+     ('a two-line default comment', 'a 121-character comment', 'an exception over four lines')),
+
+    (DIET, 'whitespace adjacency merging',
+     "        if current and text[current[-1].end:tok.start].strip() == '':",
+     "        if False:",
+     ('two adjacent one-line comments', 'two comments on one line separated only by whitespace')),
+
+    (DIET, 'the sentence counter',
+     "        if j >= n or body[j].isspace():\n            count += 1",
+     "        if False:\n            count += 1",
+     ('two sentences in one comment',)),
+
+    (DIET, 'archaeology rejection',
+     "            hit = ARCHAEOLOGY_RE.search(body)",
+     "            hit = None",
+     ('repair archaeology',)),
+
+    (DIET, 'the exception hash',
+     "            if row['comment_sha256'] != entry['sha256']:",
+     "            if False:",
+     ('a changed comment hash',)),
+
+    (DIET, 'the orphan half of the exception relation',
+     "    orphans = sorted(set(seen) - matched)",
+     "    orphans = []",
+     ('an orphan ledger row',)),
+
+    (DIET, 'the baseline seal',
+     "    if actual != by['baseline_sha256']:",
+     "    if False:",
+     ('a baseline metric changed after capture',)),
+
+    (DIET, 'file-disposition coverage',
+     "    missing = sorted(present - seen)",
+     "    missing = []",
+     ('a current file absent from the file-disposition ledger',)),
+
+    (DIET, 'refusing a diet over nothing',
+     "    if not blocks_by_file:",
+     "    if False:",
+     ('a snapshot containing no .v files',)),
 )
 
 

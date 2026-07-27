@@ -52,6 +52,11 @@ python3 "$ctx/tools/gate-mutation-test.py" --root "$ctx"
 # builder.  Freeze prose is the one thing no other gate reads.
 python3 "$ctx/tools/claim-matrix-gate.py" --root "$ctx" --self-test
 python3 "$ctx/tools/claim-matrix-gate.py" --root "$ctx"
+# the M1 source diet on the exported staged tree, in snapshot mode: every .v comment in the proposed
+# commit obeys the one-line current-fact law, every longer one has its exact ledger row both ways, and
+# every file in that snapshot has one disposition.  Its controls run first, on the STAGED copy.
+python3 "$ctx/tools/source-diet.py" --root "$ctx" --snapshot --self-test
+python3 "$ctx/tools/source-diet.py" --root "$ctx" --snapshot --check
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).
