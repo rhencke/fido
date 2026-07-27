@@ -35,3 +35,21 @@ narrow M1 gate and the active-matrix subject, and a data row is not a comment.
 **Default if nobody answers:** leave the row, and record it as an M3 finding. M3 owns tool architecture and
 would in any case want the stronger fix, which is that the gate should reject an exclusion resolving to
 nothing rather than carrying it silently.
+
+## Q-M1-02 — may M1 trim the accepted checkpoints out of the campaign master plan?
+
+**Owner:** the reviewer. **Blocks:** no.
+
+`.review/SOURCE_FOREST_MASTER_PLAN.md` is 2,405 lines and 75 KB, the largest document under `.review/`. Most
+of it is the C0 through C4 checkpoint designs, all accepted and all now described by the code they produced.
+Only the C5 and C6 sections describe work that has not happened.
+
+I have not touched it, because the document forbids exactly this in its own opening: "Do not summarize it. Do
+not keep only the first checkpoint. Do not omit later checkpoints. Do not rewrite the architecture into a
+shorter interpretation." M1 §7 says not to weaken a rule to shorten it, and that instruction is a rule.
+
+Trimming the accepted sections is not what it forbids on a literal reading — it forbids dropping the *later*
+checkpoints — but it is close enough that guessing seems wrong on the largest single document in scope.
+
+**Default if nobody answers:** leave it whole, and record it as an M1 finding the freeze reports rather than
+acts on.

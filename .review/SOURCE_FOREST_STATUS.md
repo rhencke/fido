@@ -1,4 +1,4 @@
-# Source Forest Campaign — Status Ledger
+# Source Forest Campaign — where status lives, and what the campaign taught
 
 Campaign: **Specification-Shaped Source Forest, Snapshot-Local Occurrence Identity, and Occurrence-Anchored
 Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`.
@@ -15,14 +15,6 @@ Compilation.** The full design is `.review/SOURCE_FOREST_MASTER_PLAN.md`.
 | Superseded candidate lists, per-repair theorem tables, prior repair narratives | `git log` |
 
 Nothing here restates any of those. A second roster of the same facts is a second authority, and the two drift.
-
-## Completed checkpoints
-
-- **C0–C3 GREEN and accepted by Rob.** C0 preflight + proof spike; C1 spec-shaped file roots + path-keyed
-  file map; C2 production `Index` + `NodeRef` navigation; C3 occurrence-anchored diagnostics and the
-  fresh-image literal-build closeout, accepted at the original C4 baseline `8c9212a`.
-- **C4 accepted by Rob**, disposition `C4-ACCEPT-39ea7e3`: source type names, compiler resolution and unified
-  numeric conversions. M0 Governance Closeout is the active work; M1 through M4 and C5 wait on M0 acceptance.
 
 ## Durable campaign lessons
 
