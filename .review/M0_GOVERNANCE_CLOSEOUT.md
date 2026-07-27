@@ -2,7 +2,8 @@
 
 > **Live authority.** Installed by accepted amendment `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT` and
 > governed by Governance `D-29`. Its identity is its Git blob at the exact ref resolved for the task.
-> **C4 is ACCEPTED** at `39ea7e3b012ec798c6a756c971c10bb363557ef8`, human disposition `C4-ACCEPT-39ea7e3`.
+> **C4 is ACCEPTED** under the human disposition `C4-ACCEPT-39ea7e3`. The exact accepted ref is owned by the
+> A008 amendment register row in `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` and appears nowhere else.
 > **M0 is the sole active work.** M1 through M4 and C5 are forbidden until Rob accepts M0.
 
 ## 1. Purpose
@@ -25,6 +26,8 @@ M0 may change only:
 - `.review/M0_GOVERNANCE_CLOSEOUT.md`;
 - `.review/M0_OBLIGATION_MATRIX.tsv`;
 - `.review/SOURCE_FOREST_STATUS.md`, only to replace stale current-checkpoint state;
+- `PROGRESS.md`, only to remove stale checkpoint and authorization state and defer to the canonical owners.
+  Its size, archaeology and structure belong to M1;
 - root `CLAUDE.md`, only to install D-28's implementer rule;
 - typed reference-manifest rows and generated human-review output required by those exact changes.
 

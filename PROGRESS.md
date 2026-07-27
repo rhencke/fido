@@ -85,13 +85,11 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
 
 ## Source Forest campaign (ACTIVE)
 
-Multi-checkpoint C0..C6; C0..C2 complete + human-approved; C3 (fresh-image literal-build closeout) ACCEPTED by
-Rob; **C4 (source type names, compiler resolution, unified `Syntax.Convert`, `byte`/`rune` source aliases) is NOT
-accepted — only Rob accepts it.**
+Multi-checkpoint C0..C6. C4 covers source type names, compiler resolution, the unified `Syntax.Convert`, and
+the `byte`/`rune` source aliases.
 
-> This file does not own current candidate state. The exact candidate, its status, the active repair and the
-> freeze head live in `.review/NEXT_STEPS.md`, and the set of open human acts lives in
-> `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`. What follows is the durable proof and feature inventory.
+> Checkpoint, candidate, and authorization state live only in `.review/NEXT_STEPS.md` and the FCB human-act data.
+> This file records proved surfaces and the technical frontier.
 
 Repair 13's work index is retained and correct. The static-capability boundary now
 retains the exact causal elaboration object (FCB amendment A001 / D-22): ONE `Compilable.Core` holds the input,
@@ -170,12 +168,9 @@ Compilable.fact_type (type_name_fact_at_table (Compilable.phase_type_name_facts 
 member, and the stored singleton) are gated in the readable assumption gate, together with the repair-13 work-index
 surfaces (build/exactness/freshness, the total queries, foreign- and wrong-kind-key exclusion, the operand navigation now carried by the one
 `Compilable.accepted_conversion_cause`, and the equal-expression/distinct-key fixture `twin_expr_index_distinct`).
-**C4 is NOT human-accepted; only Rob accepts it.** The current candidate, its status and the active repair are
-owned by `.review/NEXT_STEPS.md` — not restated here. Scope lives in
-`.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`; `ADR-0001` is ADOPTED FOR CURRENT BASIS and `ADR-0002` remains
-OPEN / DEFERRED (FCB Governance ADR register).
-Each checkpoint is activated ONLY by explicit Rob authorization. C5 (= the permanent `Machine` base, per the FCB Roadmap) and the
-separate post-C4 foundation consolidation / ruthless trim remain FORBIDDEN until C4 is accepted.
+Scope lives in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`; `ADR-0001` is ADOPTED FOR CURRENT BASIS and
+`ADR-0002` remains OPEN / DEFERRED (FCB Governance ADR register).
+Each checkpoint is activated ONLY by explicit Rob authorization.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 

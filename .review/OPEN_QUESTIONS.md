@@ -20,7 +20,4 @@ is the archive.
 
 ---
 
-**There are currently no open implementation questions.** Q-07 was retired into the implementer operating law
-in root `CLAUDE.md`; Q-08 was resolved by accepted amendment `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; Q-09's
-recorded default was accepted — synthetic reproducer paths belong only in temporary gate controls, never
-verbatim in a live authority the same gate scans. Git history is the archive for all three.
+**There are currently no open implementation questions.**

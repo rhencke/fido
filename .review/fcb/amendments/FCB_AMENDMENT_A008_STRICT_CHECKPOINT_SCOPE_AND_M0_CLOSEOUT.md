@@ -5,7 +5,7 @@
 - **Author:** Primary ChatGPT Fido review thread
 - **Committer:** Claude Code (applied the amendment; authored nothing in it)
 - **Date:** `2026-07-27`
-- **Reviewed repository ref:** `39ea7e3b012ec798c6a756c971c10bb363557ef8`
+- **Reviewed repository ref:** the accepted C4 candidate, owned by the A008 register row in current Governance
 
 Rob accepted the substance in the primary review thread on 2026-07-27 by directing that the strict scope rule
 enter the next round and that work move to M0 with scope creep limited.
@@ -49,5 +49,5 @@ C4 acceptance closeout → M0 Governance Closeout → M1 → M2 → M3 → Rob a
 | Proof theorem or generated-byte guarantee changed | None |
 | OCaml trust boundary changed | None |
 
-C4 is **ACCEPTED** at `39ea7e3b012ec798c6a756c971c10bb363557ef8` under the human disposition
-`C4-ACCEPT-39ea7e3`. M1 through M4 and C5 remain forbidden until M0 is separately accepted.
+C4 is **ACCEPTED** under the human disposition `C4-ACCEPT-39ea7e3`; current Governance owns the exact ref.
+M1 through M4 and C5 remain forbidden until M0 is separately accepted.
