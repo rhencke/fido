@@ -5,23 +5,31 @@ This file alone owns the current checkpoint and candidate state.
 
 <!-- FIDO-HUMAN-ACT:C4-REVIEW -->
 
-- **REPAIR 20 IS THE SOLE ACTIVE C4 IMPLEMENTATION TASK.**
+- **C4 REPAIR 20 IS IMPLEMENTED AND COMPLETE.**
   Authority: `.review/C4_IMPLEMENTATION_REPAIR_20.md` (installed verbatim). <!-- FIDO-FCB-REF:REVIEW-C4-IMPLEMENTATION-REPAIR-20-MD -->
-- **C4 is NOT accepted.** Only Rob accepts it. `0ffdc5f7019204a868d75ef709a16fb69a9979d5` was the
-  twenty-first blocked candidate. No review is requested while repair 20 is active.
-- **The two blocker classes repair 20 must close.** Both are enforcement defects reproduced against the exact
-  candidate, and each disproves a public completion claim.
-  1. **`D-24` scans a hard-coded subset of authority.** The gate validates manifest rows correctly, but it
-     defines the scanned corpus as a Python constant, so the active repair directive, the functional contract
-     and the accepted review basis are never read. A dangling operational path appended to the active
-     directive left the gate green. Corpus membership must come from the canonical typed manifest through a
-     closed `corpus_role` field, and a new authority row must cause its target to be scanned with no Python
-     edit.
-  2. **`A005` misses a multiline `Local Notation`.** The class rule is checked one physical line at a time, so
-     an UpperCamelCase alias split across lines is invisible — and every negative control put the whole
-     declaration on one line. The check must parse the Rocq statement, accept every layout variation first,
-     and judge the identifier afterwards. Extraction may never be made conditional on the first character
-     already satisfying the rule.
+- **Candidate offered for human review.** `0d0036c23195b3996d957f9872ad0188666a3677` is the C4
+  implementation candidate. `0ffdc5f7019204a868d75ef709a16fb69a9979d5` was the twenty-first blocked candidate
+  and is superseded. Both blocker classes are closed; the mandatory whole-system closure audit is
+  `.review/C4_REPAIR_20_CLOSURE_AUDIT.md` <!-- FIDO-FCB-REF:REVIEW-C4-REPAIR-20-CLOSURE-AUDIT-MD --> and the
+  obligation matrix reads 12 of 12 closed.
+- **C4 is still NOT accepted.** Only Rob accepts it. Awaiting his human C4 Implementation Review.
+- **The two blocker classes repair 20 closed.** Both were enforcement defects reproduced against the exact
+  candidate before anything was edited, and each disproved a public completion claim. Both repairs were then
+  mutation-tested by reverting them, so the controls that now cover them have been watched failing.
+  1. **`D-24` scanned a hard-coded subset of authority.** The manifest rows validated correctly, but the
+     scanned corpus was a Python constant, so the active repair directive, the functional contract and the
+     accepted review basis were never read; a dangling operational path appended to the active directive left
+     the gate green. Corpus membership now comes from the canonical typed manifest through a closed
+     `corpus_role` field, the four declarations that ASSIGN authority are themselves checked, the FCB Index
+     live-file table states a role for every live-set file and must agree with the manifest both ways, and a
+     new authority row causes its target to be scanned with no Python edit. 69 rows, 23 authorities, 48
+     controls.
+  2. **`A005` missed a multiline `Local Notation`.** The class rule was checked one physical line at a time,
+     so an UpperCamelCase alias split across lines was invisible — and every negative control had put the
+     whole declaration on one line. It is now parsed from the same stripped-code statement stream every other
+     declaration rule uses, with the identifier extracted generally and judged afterwards; extraction is never
+     conditional on the first character. 72 controls, including four repository-level ones that mutate a
+     tracked certified module and run both input modes, each with a clean twin.
 - **A007 is installed as authority, not as permission.** `FCB-A007-POST-C4-MECHANICAL-SERIES` and Governance
   `D-27` are in Git; `.review/M_SERIES_PLAN.md` is a live authority. **M1, M2, M3 and M4 implementation remain
   FORBIDDEN until Rob accepts C4.** So do C5, checkpoint-definition Step 0, post-C4 features, the broad source
@@ -50,8 +58,9 @@ This file alone owns the current checkpoint and candidate state.
   `3ecf32e` (11) · `48c0b31` (12) · `af7d5d3` (13) · `9d5246e` (14) · `3386c02` (15) · `20c5ad5` (16) ·
   `deda8bd` (17) · `12b1bc9` (18) · `92fc04e` (19) · `50c3bcc` (20) ·
   `0ffdc5f7019204a868d75ef709a16fb69a9979d5` (21).
-  Not candidates: `37c9597`, and the documentation-only freezes `c5b67495`, `25bcd7aa`, `c8ce2d8c`,
-  `e15232d3`, `2b848871` and `cc63a78c3729772b9114b20e653942cda23cc53a`.
+  Not candidates: `37c9597`; the documentation-only freezes `c5b67495`, `25bcd7aa`, `c8ce2d8c`,
+  `e15232d3`, `2b848871` and `cc63a78c3729772b9114b20e653942cda23cc53a`; the life-document commit `392d2084`;
+  and the A007 authority commit `fad5514`, which changed no Rocq, OCaml, Go or generated byte.
 - **Governing accepted amendments.** `A001` through `A007` are **ACCEPTED**; Governance owns `D-01` through
   `D-27`.
 - **Documentation basis:** the live Fido Conformance Basis is `.review/fcb/current/` (Git-canonical per **A002**,
