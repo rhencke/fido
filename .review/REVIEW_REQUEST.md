@@ -6,12 +6,12 @@ confirmation: no
 confirmation_used: no
 human_override: (repair 20 — see .review/C4_IMPLEMENTATION_REPAIR_20.md)
 result: awaiting Rob's human C4 Implementation Review
-candidate: 0d0036c23195b3996d957f9872ad0188666a3677
+candidate: 964575286acdb3c16df4bb9a11f1194a9418978c
 
 contract: .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md
 review_basis: .review/REVIEW_BASIS.md
 
-**A human C4 Implementation Review is requested for candidate `0d0036c23195b3996d957f9872ad0188666a3677`.**
+**A human C4 Implementation Review is requested for candidate `964575286acdb3c16df4bb9a11f1194a9418978c`.**
 Both repair-20 blocker classes are closed: D-24 corpus membership is now data rather than a Python constant,
 and A005 is judged over Rocq statements rather than physical lines. The whole-system closure audit is
 `.review/C4_REPAIR_20_CLOSURE_AUDIT.md` and the obligation matrix is
