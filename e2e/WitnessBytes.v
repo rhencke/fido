@@ -1,4 +1,4 @@
-(** The boundary-byte witness: one println of the control and high byte boundaries, checked against hex. *)
+(* The boundary-byte witness: one println of the control and high byte boundaries, checked against hex. *)
 From Stdlib Require Import List NArith String Ascii.
 From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.

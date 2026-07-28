@@ -1,10 +1,10 @@
-(** The abstract println-trace semantics of the admitted fragment, and the permanent safety boundary. *)
+(* The abstract println-trace semantics of the admitted fragment, and the permanent safety boundary. *)
 From Stdlib Require Import ZArith List Bool String.
 From Stdlib Require Import Floats.SpecFloat.
 From Fido Require Import Integer Float Complex Syntax Typing Compilable.
 Import ListNotations.
 
-(** These notations specialize the typing spec at the compiler's one resolver, so evaluation stays derived. *)
+(* These notations specialize the typing spec at the compiler's one resolver, so evaluation stays derived. *)
 Local Notation constant_info        := (Typing.constant_info Compilable.predeclared_type) (only parsing).
 Local Notation resolve_constant := (Typing.resolve_constant Compilable.predeclared_type) (only parsing).
 Local Notation resolve      := (Typing.resolve Compilable.predeclared_type) (only parsing).
@@ -16,14 +16,14 @@ Inductive Value : Type :=
 | ComplexValue : forall ct, Complex.Value ct -> Value
 | StringValue  : string -> Value.
 
-(** A value's runtime type is the same semantic type the compiler uses; there is no second type universe. *)
+(* A value's runtime type is the same semantic type the compiler uses; there is no second type universe. *)
 Definition value_type (v : Value) : Typing.SemanticType :=
   match v with
   | BoolValue _ => Typing.BoolType | IntegerValue it _ => Typing.IntegerType it | FloatValue ft _ => Typing.FloatType ft
   | ComplexValue ct _ => Typing.ComplexType ct | StringValue _ => Typing.StringType
   end.
 
-(** An integer value fits its type; a float or complex value is canonical by construction. *)
+(* An integer value fits its type; a float or complex value is canonical by construction. *)
 Definition ValueWellFormed (v : Value) : Prop :=
   match v with
   | BoolValue _ => True | IntegerValue it z => Integer.Representable it z
@@ -45,7 +45,7 @@ Proof.
   - split; [ intros _; exact I | intros _; reflexivity ].
 Qed.
 
-(** The one typed-constant-to-runtime map; a float projects its stored runtime and never rounds again. *)
+(* The one typed-constant-to-runtime map; a float projects its stored runtime and never rounds again. *)
 Definition typed_constant_to_value {t : Typing.SemanticType} (tc : Typing.TypedConstant t) : Value :=
   match tc with
   | Typing.TypedBool b         => BoolValue b
@@ -55,7 +55,7 @@ Definition typed_constant_to_value {t : Typing.SemanticType} (tc : Typing.TypedC
   | Typing.TypedString s       => StringValue s
   end.
 
-(** The projection has the intrinsic type and is well-formed by construction. *)
+(* The projection has the intrinsic type and is well-formed by construction. *)
 Lemma typed_constant_to_value_type : forall t (tc : Typing.TypedConstant t), value_type (typed_constant_to_value tc) = t.
 Proof. intros t tc; destruct tc; reflexivity. Qed.
 
@@ -69,7 +69,7 @@ Proof.
   - exact I.
 Qed.
 
-(** Evaluating a typed float or complex constant projects its stored runtime, reflexively. *)
+(* Evaluating a typed float or complex constant projects its stored runtime, reflexively. *)
 Lemma typed_constant_to_value_float : forall ft (tfc : Float.TypedConstant ft),
   typed_constant_to_value (Typing.TypedFloat ft tfc) = FloatValue ft (Float.runtime tfc).
 Proof. reflexivity. Qed.
@@ -77,7 +77,7 @@ Lemma typed_constant_to_value_complex : forall ct (tcc : Complex.TypedConstant c
   typed_constant_to_value (Typing.TypedComplex ct tcc) = ComplexValue ct (Complex.typed_runtime tcc).
 Proof. reflexivity. Qed.
 
-(** A NaN, infinity or negative zero has no constructor here, so it denotes no constant at all. *)
+(* A NaN, infinity or negative zero has no constructor here, so it denotes no constant at all. *)
 Inductive ValueDenotesConstant : Value -> Typing.Constant -> Prop :=
 | DenotesBool    : forall b, ValueDenotesConstant (BoolValue b) (Typing.BoolConstant b)
 | DenotesInteger     : forall it z, Integer.Representable it z -> ValueDenotesConstant (IntegerValue it z) (Typing.IntegerConstant z)
@@ -87,7 +87,7 @@ Inductive ValueDenotesConstant : Value -> Typing.Constant -> Prop :=
     ValueDenotesConstant (ComplexValue ct (Complex.typed_runtime tcc)) (Typing.ComplexConstant (Complex.typed_exact tcc))
 | DenotesString  : forall s, ValueDenotesConstant (StringValue s) (Typing.StringConstant s).
 
-(** The projected runtime value denotes the typed constant's exact value, by construction. *)
+(* The projected runtime value denotes the typed constant's exact value, by construction. *)
 Lemma typed_constant_to_value_denotes : forall t (tc : Typing.TypedConstant t),
   ValueDenotesConstant (typed_constant_to_value tc) (Typing.typed_exact tc).
 Proof.
@@ -100,7 +100,7 @@ Proof.
   - constructor.
 Qed.
 
-(** A denoting float value's runtime is positive zero or finite. *)
+(* A denoting float value's runtime is positive zero or finite. *)
 Lemma value_denotes_constant_runtime : forall v c,
   ValueDenotesConstant v c ->
   match v with FloatValue _ fv => Float.constant_runtimeb (Float.ieee fv) = true | _ => True end.
@@ -108,7 +108,7 @@ Proof.
   intros v c H; destruct H as [ b | it z Hr | ft tfc | ct tcc | s ]; try exact I; apply (Float.shape tfc).
 Qed.
 
-(** A NaN, infinity or negative-zero runtime value has no typed-constant denotation. *)
+(* A NaN, infinity or negative-zero runtime value has no typed-constant denotation. *)
 Lemma float_nonconstant_no_denotes : forall ft (fv : Float.Value ft) c,
   Float.constant_runtimeb (Float.ieee fv) = false -> ~ ValueDenotesConstant (FloatValue ft fv) c.
 Proof.
@@ -117,7 +117,7 @@ Proof.
   rewrite Hshape in Hs; discriminate.
 Qed.
 
-(** The three runtime values that inhabit the domain yet denote no constant. *)
+(* The three runtime values that inhabit the domain yet denote no constant. *)
 Example nan_f64_no_denotes : forall c, ~ ValueDenotesConstant (FloatValue F64 (Float.value_nan F64)) c.
 Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 Example inf_f64_no_denotes : forall c, ~ ValueDenotesConstant (FloatValue F64 (Float.value_inf F64 false)) c.
@@ -125,7 +125,7 @@ Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 Example neg_zero_f64_no_denotes : forall c, ~ ValueDenotesConstant (FloatValue F64 Float.value_neg_zero_F64) c.
 Proof. intro c; apply float_nonconstant_no_denotes; reflexivity. Qed.
 
-(** A runtime complex with either component outside positive-zero-or-finite denotes no constant. *)
+(* A runtime complex with either component outside positive-zero-or-finite denotes no constant. *)
 Lemma value_denotes_complex_runtime : forall v c,
   ValueDenotesConstant v c ->
   match v with
@@ -149,7 +149,7 @@ Proof.
   destruct Hs as [Hr Hi]; destruct Hbad as [Hb|Hb]; congruence.
 Qed.
 
-(** Concrete complex runtime values that denote no constant, one per offending component. *)
+(* Concrete complex runtime values that denote no constant, one per offending component. *)
 Example complex_nan_real_no_denotes : forall c,
   ~ ValueDenotesConstant (ComplexValue C128 (@Complex.MakeValue C128 (Float.value_nan F64) (Float.value_inf F64 false))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
@@ -160,7 +160,7 @@ Example complex_neg_zero_no_denotes : forall c,
   ~ ValueDenotesConstant (ComplexValue C128 (@Complex.MakeValue C128 Float.value_neg_zero_F64 (Float.value_nan F64))) c.
 Proof. intro c; apply complex_nonconstant_no_denotes; left; reflexivity. Qed.
 
-(** Evaluation is the constant-status analysis resolved and projected; an invalid conversion has no value. *)
+(* Evaluation is the constant-status analysis resolved and projected; an invalid conversion has no value. *)
 Definition eval_expr (e : Syntax.Expr) : option Value :=
   match constant_info e with
   | None => None
@@ -171,7 +171,7 @@ Definition eval_expr (e : Syntax.Expr) : option Value :=
       end
   end.
 
-(** The runtime value stored in a resolved typed constant; evaluation returns exactly this. *)
+(* The runtime value stored in a resolved typed constant; evaluation returns exactly this. *)
 Definition resolved_constant_value (rc : Typing.ResolvedConstant) : Value :=
   match rc with PackResolved _ tc => typed_constant_to_value tc end.
 
@@ -183,7 +183,7 @@ Lemma resolved_constant_value_complex : forall ct (tcc : Complex.TypedConstant c
   resolved_constant_value (PackResolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) = ComplexValue ct (Complex.typed_runtime tcc).
 Proof. intros ct tcc; cbn [resolved_constant_value]; apply typed_constant_to_value_complex. Qed.
 
-(** A resolved expression evaluates to a well-formed value whose runtime type is the resolved one. *)
+(* A resolved expression evaluates to a well-formed value whose runtime type is the resolved one. *)
 Lemma eval_expr_resolved : forall u e t,
   Typing.Resolve Compilable.predeclared_type u e t -> exists v, eval_expr e = Some v /\ value_type v = t /\ ValueWellFormed v.
 Proof.
@@ -194,7 +194,7 @@ Proof.
   split; [ reflexivity | split; [ apply typed_constant_to_value_type | apply typed_constant_to_value_well_formed ] ].
 Qed.
 
-(** The resolved value has exactly the resolved type. *)
+(* The resolved value has exactly the resolved type. *)
 Lemma eval_expr_resolved_type : forall u e t,
   Typing.Resolve Compilable.predeclared_type u e t -> exists v, eval_expr e = Some v /\ value_type v = t.
 Proof.
@@ -202,7 +202,7 @@ Proof.
     exists v; split; assumption.
 Qed.
 
-(** Evaluation returns the projection of the very typed constant that proves the expression typed. *)
+(* Evaluation returns the projection of the very typed constant that proves the expression typed. *)
 Lemma eval_expr_resolved_value : forall u e rc,
   resolve_constant u e = Some rc -> eval_expr e = Some (resolved_constant_value rc).
 Proof.
@@ -211,7 +211,7 @@ Proof.
   destruct rc as [ t tc ]; unfold eval_expr; rewrite Hci, Hri; reflexivity.
 Qed.
 
-(** A resolved typed float evaluates to exactly the runtime built at its single construction rounding. *)
+(* A resolved typed float evaluates to exactly the runtime built at its single construction rounding. *)
 Corollary eval_projects_stored_float_runtime : forall u e ft (tfc : Float.TypedConstant ft),
   resolve_constant u e = Some (PackResolved (Typing.FloatType ft) (Typing.TypedFloat ft tfc)) ->
   eval_expr e = Some (FloatValue ft (Float.runtime tfc)).
@@ -220,7 +220,7 @@ Proof.
   rewrite (eval_expr_resolved_value u e _ H), resolved_constant_value_float; reflexivity.
 Qed.
 
-(** A resolved typed complex evaluates to its packaged component runtimes, neither rebuilt nor re-rounded. *)
+(* A resolved typed complex evaluates to its packaged component runtimes, neither rebuilt nor re-rounded. *)
 Corollary eval_projects_stored_complex_runtime : forall u e ct (tcc : Complex.TypedConstant ct),
   resolve_constant u e = Some (PackResolved (Typing.ComplexType ct) (Typing.TypedComplex ct tcc)) ->
   eval_expr e = Some (ComplexValue ct (Complex.typed_runtime tcc)).
@@ -229,7 +229,7 @@ Proof.
   rewrite (eval_expr_resolved_value u e _ H), resolved_constant_value_complex; reflexivity.
 Qed.
 
-(** The resolved runtime value denotes the resolved exact constant, through the relation and not a fallback. *)
+(* The resolved runtime value denotes the resolved exact constant, through the relation and not a fallback. *)
 Lemma eval_expr_denotes : forall u e t,
   Typing.Resolve Compilable.predeclared_type u e t ->
   exists rc v, resolve_constant u e = Some rc /\ eval_expr e = Some v
@@ -250,25 +250,25 @@ Proof.
     split; [ apply typed_constant_to_value_well_formed | apply typed_constant_to_value_denotes ] ] ] ] ].
 Qed.
 
-(** By value rather than spelling: a zero literal and a negated zero evaluate the same. *)
+(* By value rather than spelling: a zero literal and a negated zero evaluate the same. *)
 Lemma eval_zero_sign_agnostic : eval_expr (Syntax.IntegerLiteral 0) = eval_expr (Syntax.NegatedIntegerLiteral 0).
 Proof. reflexivity. Qed.
 
-(** A string literal evaluates to the exact runtime byte sequence. *)
+(* A string literal evaluates to the exact runtime byte sequence. *)
 Lemma eval_string_value : forall s, eval_expr (Syntax.StringLiteral s) = Some (StringValue s).
 Proof. reflexivity. Qed.
 Lemma eval_string_resolved_type : forall s t,
   Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.StringLiteral s) t -> exists v, eval_expr (Syntax.StringLiteral s) = Some v /\ value_type v = t.
 Proof. intros s t H; exact (eval_expr_resolved_type Typing.PrintlnArgument (Syntax.StringLiteral s) t H). Qed.
 
-(** A file's abstract behaviour: its ordered println calls, partial where an argument has no value. *)
+(* A file's abstract behaviour: its ordered println calls, partial where an argument has no value. *)
 Definition eval_stmt (s : Syntax.Stmt) : list (option Value) :=
   match s with Syntax.Println args => map eval_expr args end.
 Definition eval_decl (d : Syntax.Decl) : list (list (option Value)) :=
   match d with Syntax.Main body => map eval_stmt body end.
 Definition eval_file (decls : list Syntax.Decl) : list (list (option Value)) := flat_map eval_decl decls.
 
-(** The concrete evaluation fixtures. *)
+(* The concrete evaluation fixtures. *)
 Example eval_int8_127  : eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = Some (IntegerValue Integer.Int8 127). Proof. reflexivity. Qed.
 Example eval_uint64_2p63 : eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 9223372036854775808)) = Some (IntegerValue Integer.Uint64 9223372036854775808). Proof. reflexivity. Qed.
 Example eval_int8_int16_127 : eval_expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.IntegerLiteral 127))) = Some (IntegerValue Integer.Int8 127). Proof. reflexivity. Qed.
@@ -320,10 +320,10 @@ Example eval_neg_underflow_pos_zero :
     = Some (S754_zero false).
 Proof. vm_compute. reflexivity. Qed.
 
-(** Trivial today, because the fragment has no unsafe operation; this is the permanent extension point. *)
+(* Trivial today, because the fragment has no unsafe operation; this is the permanent extension point. *)
 Definition Property (cp : Compilable.Program) : Prop := True.
 
-(** The representation and its constructor stay inside, so [certify] is the only way a program exists. *)
+(* The representation and its constructor stay inside, so [certify] is the only way a program exists. *)
 Module Type CERTIFICATE.
   Parameter Program : Type.
   Parameter compiled : Program -> Compilable.Program.
@@ -337,27 +337,27 @@ Module Certificate : CERTIFICATE.
     proof     : Property compiled
   }.
   Definition Program : Type := ProgramRepresentation.
-  (** [compiled] carries the genuine whole-program compile proof, so nothing uncompilable is certified. *)
+  (* [compiled] carries the genuine whole-program compile proof, so nothing uncompilable is certified. *)
   Definition certify (cp : Compilable.Program) : Program := Make cp I.
   Lemma certify_retains : forall cp, compiled (certify cp) = cp.
   Proof. reflexivity. Qed.
 End Certificate.
 Include Certificate.
 
-(** The certified program, which the renderer and emitter reach only through this projection. *)
+(* The certified program, which the renderer and emitter reach only through this projection. *)
 Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled sp).
 
-(** Safety wraps the capability, so a certified program retains the exact core that justified it. *)
+(* Safety wraps the capability, so a certified program retains the exact core that justified it. *)
 Definition core (sp : Program) : Compilable.Core (source sp) := Compilable.core (compiled sp).
 
-(** The certified program's source is the capability's, propositionally since [certify] is opaque. *)
+(* The certified program's source is the capability's, propositionally since [certify] is opaque. *)
 Theorem certify_source : forall cp, source (certify cp) = Compilable.source cp.
 Proof. intro cp. unfold source. rewrite certify_retains. reflexivity. Qed.
 
 Theorem certify_retains_capability : forall cp, compiled (certify cp) = cp.
 Proof. exact certify_retains. Qed.
 
-(** Retention over any certificate, not only a freshly certified one, and so strictly stronger. *)
+(* Retention over any certificate, not only a freshly certified one, and so strictly stronger. *)
 Theorem certify_retains_core : forall sp, core sp = Compilable.core (compiled sp).
 Proof. reflexivity. Qed.
 

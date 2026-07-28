@@ -162,15 +162,77 @@ MUTANTS = (
      "        if False:",
      ('a required count that is not zero',)),
 
-    (DIET, 'surviving-code identity',
-     "    if added:\n        raise DietError(f'{added} code token(s) were ADDED",
-     "    if False:\n        raise DietError(f'{added} code token(s) were ADDED",
-     ('a code token added since the ref',)),
+    (DIET, 'surviving-declaration command equality',
+     "        if expect == actual:\n            continue",
+     "        if True:\n            continue",
+     ('one tactic removed from a surviving proof',
+      'one type annotation removed from a surviving definition',
+      'a declaration partially removed')),
 
-    (DIET, 'the vanished-declaration ledger match',
-     "    if gone != ledgered:",
-     "    if False:",
-     ('a declaration deleted without a ledger row',)),
+    (DIET, 'the new and removed .v file rules',
+     "    added = sorted(cand_v - base_v)",
+     "    added = []",
+     ('a new .v file since the baseline',)),
+
+    (DIET, 'the ledger declaration-kind match',
+     "        if hits[0][0] != r['kind']:",
+     "        if False:",
+     ('a ledger row naming the wrong kind',)),
+
+    (DIET, 'the ledger reason set',
+     "        if r['reason'] not in DELETION_REASONS:",
+     "        if False:",
+     ('a ledger row with an unknown reason',)),
+
+    (DIET, 'the still-declared check',
+     "        if still:",
+     "        if False:",
+     ('a ledger row for a declaration still present',)),
+
+    (DIET, 'the ledger placeholder rule',
+     "            if cell.lower() in PLACEHOLDER_CELLS:",
+     "            if False:",
+     ('a ledger row whose consumer search is a placeholder',)),
+
+    (DIET, 'the strictly-superseded replacement rule',
+     "            if not everywhere:",
+     "            if False:",
+     ('a superseded row naming a replacement nothing declares',)),
+
+    (DIET, 'the disposition byte comparison',
+     "            if b != wb or c != wc:",
+     "            if False:",
+     ('a false baseline byte count', 'a false candidate byte count')),
+
+    (DIET, 'the disposition membership relation',
+     "    missing, phantom = sorted(union - seen), sorted(seen - union)",
+     "    missing, phantom = [], []",
+     ('an omitted baseline file row', 'a phantom deleted file')),
+
+    (DIET, 'the disposition action relation',
+     "        if not want:",
+     "        if False:",
+     ('keep used for a baseline-only file', 'm1-created used for a baseline file')),
+
+    (DIET, 'metric equality with recomputation',
+     "        if got != w:",
+     "        if False:",
+     ('a tampered metrics candidate value', 'a tampered delta', 'a tampered percentage')),
+
+    (DIET, 'the plain comment form',
+     "            if DOC_MARKER.search(raw):",
+     "            if False:",
+     ('a documentation marker comment',)),
+
+    (DIET, 'banner rejection',
+     "            hit = BANNER_RUN.search(body)",
+     "            hit = None",
+     ('a decorative banner',)),
+
+    (DIET, 'section-label rejection',
+     "            hit = SECTION_LABEL.search(body)",
+     "            hit = None",
+     ('a section label',)),
 )
 
 

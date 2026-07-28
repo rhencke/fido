@@ -1,4 +1,4 @@
-(** Negative fixtures for the type guard: a forged transport is rejected before any filesystem effect. *)
+(* Negative fixtures for the type guard: a forged transport is rejected before any filesystem effect. *)
 From Stdlib Require Import List String.
 From Fido Require Import Emit.
 Import ListNotations.

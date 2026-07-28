@@ -1,7 +1,7 @@
 path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .dockerignore	740	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	740
 .editorconfig	3262	keep	live-governance	make fmt	the byte rules governing the documents beside them	3262
-.githooks/pre-commit	5903	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	5893
+.githooks/pre-commit	5903	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	6335
 .gitignore	1145	keep	live-governance	make fmt	the byte rules governing the documents beside them	1145
 .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md	65843	delete	history-only	nothing referenced it	the plan of an accepted checkpoint; Git owns it	0
 .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md	36900	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	36900
@@ -9,16 +9,17 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/COLLECTION_AUDIT.md	24183	delete	history-only	referenced only by the deleted C3 plan	a closure audit; Git owns it	0
 .review/M1_BASELINE.tsv	13	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	972
 .review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	69
-.review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	77
-.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	78
-.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	46
-.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	5610
-.review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	16545
+.review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	2484
+.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	19565
+.review/M1_IMPLEMENTATION_REPAIR_1.md	0	m1-created	live-governance	.review/NEXT_STEPS.md	the accepted repair-1 directive NEXT_STEPS names as the authority	29280
+.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	1407
+.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	8998
+.review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	17000
 .review/M_SERIES_PLAN.md	8611	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	8611
-.review/NEXT_STEPS.md	4780	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	4780
+.review/NEXT_STEPS.md	4780	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	5015
 .review/OPEN_QUESTIONS.md	1397	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	4504
 .review/REVIEW_BASIS.md	5255	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	5255
-.review/REVIEW_REQUEST.md	854	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	854
+.review/REVIEW_REQUEST.md	854	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	905
 .review/SOURCE_FOREST_MASTER_PLAN.md	75426	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	75426
 .review/SOURCE_FOREST_STATUS.md	2682	keep	current-contract-evidence	.review/NEXT_STEPS.md	the accepted C4 contract and its campaign authority	2175
 .review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	PROGRESS.md and the ADRs	the current unsupported and restricted scope	26337
@@ -48,7 +49,7 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.md	102185	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	102185
 .review/fcb/current/FIDO_FCB_LATITUDE_LEDGER.tsv	103003	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	103003
 .review/fcb/current/FIDO_FCB_MODEL_OPERATIONS.md	8853	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	8853
-.review/fcb/current/FIDO_FCB_REFERENCES.tsv	13783	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	13783
+.review/fcb/current/FIDO_FCB_REFERENCES.tsv	13783	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	13964
 .review/fcb/current/FIDO_FCB_ROADMAP.md	18760	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	18760
 .review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md	6817	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	6817
 .review/fcb/current/INDEX.md	776	keep	live-governance	.review/fcb/current/INDEX.md	a declared member of the live FCB set	776
@@ -80,44 +81,44 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/spec-closure-campaign/tools/write_zip_sidecar.py	319	keep	current-contract-evidence	the campaign record	the persisted spec-closure campaign, not current authority	319
 ARCHITECTURE.md	70512	keep	live-governance	the repository itself	the operating law and the binding charter	70512
 CLAUDE.md	39939	keep	live-governance	the repository itself	the operating law and the binding charter	39939
-Collections.v	11947	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	9461
-Compilable.v	779275	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	644122
-Complex.v	13008	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10216
-Decimal.v	6076	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	5319
+Collections.v	11947	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	9452
+Compilable.v	779275	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	639973
+Complex.v	13008	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10196
+Decimal.v	6076	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	5315
 Dockerfile	103360	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	102753
-Emit.v	22750	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15224
-FilePath.v	13657	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10678
-Float.v	32132	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	23880
-Index.v	210768	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	196648
-Integer.v	5288	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	3590
-Makefile	12664	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	8126
-ModulePath.v	19814	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	14417
-Names.v	14487	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	12054
+Emit.v	22750	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15194
+FilePath.v	13657	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10670
+Float.v	32132	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	23834
+Index.v	210768	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	195000
+Integer.v	5288	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	3586
+Makefile	12664	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	8527
+ModulePath.v	19814	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	14401
+Names.v	14487	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	12035
 PAINFUL_LESSONS.md	13565	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	13565
 PROGRESS.md	19319	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	11471
 README.md	9118	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	9118
-Render.v	91693	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	76703
-Safe.v	29612	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	22033
-Syntax.v	23929	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15595
-Typing.v	47703	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	34450
-Version.v	1369	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	676
+Render.v	91693	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	76621
+Safe.v	29612	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	22000
+Syntax.v	23929	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	15560
+Typing.v	47703	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	34334
+Version.v	1369	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	673
 dune	843	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	843
 dune-project	361	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	361
-e2e/Witness.v	13993	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	9568
-e2e/WitnessAlias.v	3882	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2350
-e2e/WitnessBytes.v	3112	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1872
-e2e/WitnessEmpty.v	2550	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1646
-e2e/WitnessMulti.v	3899	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2745
-e2e/WitnessNeg.v	1981	keep	proved-restriction	make e2e	the raw-transport rejection fixture; each Fail must error	936
+e2e/Witness.v	13993	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	9567
+e2e/WitnessAlias.v	3882	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2349
+e2e/WitnessBytes.v	3112	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1871
+e2e/WitnessEmpty.v	2550	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	1645
+e2e/WitnessMulti.v	3899	keep	current-contract-evidence	make e2e	materialized and built by the pinned Go toolchain	2741
+e2e/WitnessNeg.v	1981	keep	proved-restriction	make e2e	the raw-transport rejection fixture; each Fail must error	935
 e2e/apply.ml	1756	keep	current-contract-evidence	make e2e / make regenerate	the sink driver and the apply adapter	1756
 e2e/golden.bytes.hex	13	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	13
 e2e/golden.exit	2	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	2
 e2e/golden.stderr	724	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	724
 e2e/golden.stdout	0	keep	current-contract-evidence	make e2e	the reviewed runtime output the witness is compared against	0
 e2e/sink_test.ml	8528	keep	current-contract-evidence	make e2e / make regenerate	the sink driver and the apply adapter	8528
-gate/Assumptions.v	80465	keep	certified-correctness	make prove	the sole Print Assumptions target, count-checked every build	37312
+gate/Assumptions.v	80465	keep	certified-correctness	make prove	the sole Print Assumptions target, count-checked every build	37311
 go.mod	82	keep	generated-artifact	Emit.Mint.issue via Fido Materialize	byte-compared against the pristine layer	82
-life.md	5838	keep	character-continuity	CLAUDE.md	named as character continuity by the operating law	5838
+life.md	5838	keep	character-continuity	CLAUDE.md	named as character continuity by the operating law	7531
 main.go	1477	keep	generated-artifact	Emit.Mint.issue via Fido Materialize	byte-compared against the pristine layer	1477
 plugin/dune	1540	keep	certified-correctness	the Fido transport boundary	built by dune; guarded by tools/ocaml-origin-gate.sh	1540
 plugin/materialize.mlg	14906	keep	certified-correctness	the Fido transport boundary	built by dune; guarded by tools/ocaml-origin-gate.sh	14906
@@ -126,7 +127,7 @@ tools/claim-matrix-gate.py	27552	keep	proved-restriction	make claims	the claim-t
 tools/closure-ledger-view.py	6204	keep	live-governance	make fcb	a live-FCB document gate	6182
 tools/fcb-reference-gate.py	57490	keep	live-governance	make fcb	a live-FCB document gate	57490
 tools/fmt-check.py	4544	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	4544
-tools/gate-mutation-test.py	7365	keep	proved-restriction	make fcb	proves each gate helper load-bearing by mutation	7335
+tools/gate-mutation-test.py	7365	keep	proved-restriction	make fcb	proves each gate helper load-bearing by mutation	9772
 tools/generated-mode-gate.sh	2111	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	2111
 tools/generated-output-gate.sh	4205	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4205
 tools/human-review-index.py	20106	keep	live-governance	make fcb	a live-FCB document gate	20106
@@ -134,5 +135,5 @@ tools/naming-gate.py	43959	keep	proved-restriction	make names	the A005 scoped-na
 tools/ocaml-origin-gate.sh	4632	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4632
 tools/regen-guard-test.sh	2950	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	2950
 tools/rocq-profile.py	3809	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	3809
-tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	41020
+tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	71519
 tools/staged-generated-compare.sh	3406	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	3406

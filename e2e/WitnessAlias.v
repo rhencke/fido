@@ -1,4 +1,4 @@
-(** The byte and rune alias differential: the accepted conversions, rendered in their source spellings. *)
+(* The byte and rune alias differential: the accepted conversions, rendered in their source spellings. *)
 From Stdlib Require Import List NArith String Ascii.
 From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Safe Render Emit.
 Import ListNotations.

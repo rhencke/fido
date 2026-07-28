@@ -1,4 +1,4 @@
-(** The structural occurrence index over one immutable [Syntax.Program] snapshot, knowing no semantics. *)
+(* The structural occurrence index over one immutable [Syntax.Program] snapshot, knowing no semantics. *)
 
 From Stdlib Require Import PArith NArith List Bool Lia Sorted Recdef Wf_nat Arith Eqdep_dec String.
 From Stdlib Require Import Structures.OrderedType FSets.FMapAVL FSets.FMapFacts SetoidList.
@@ -6,7 +6,7 @@ From Fido Require Import FilePath Collections Syntax.
 Import ListNotations.
 Local Open Scope positive_scope.
 
-(** The node table's abstract interface; the sealing hides the standard map's operations, not its choice. *)
+(* The node table's abstract interface; the sealing hides the standard map's operations, not its choice. *)
 
 Module Type TABLE.
   Parameter table : Type -> Type.
@@ -33,7 +33,7 @@ Module Table : TABLE.
   Proof. intro H. apply Collections.NodeMap.gso. congruence. Qed.
 End Table.
 
-(** The occurrence universe; no kind exists ahead of the syntax it would designate. *)
+(* The occurrence universe; no kind exists ahead of the syntax it would designate. *)
 Inductive Kind := FileKind | PackageClauseKind | DeclarationKind | StatementKind | ExpressionKind | TypeNameKind.
 
 (* how an occurrence participates in its parent; a conversion's two children are in source order *)
@@ -69,7 +69,7 @@ Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. 
 Lemma import_list_nil : forall (l : list Syntax.ImportSpec), l = [].
 Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 
-(** The one-pass builder: a subtree returns its last id, a sibling run the next free one. *)
+(* The one-pass builder: a subtree returns its last id, a sibling run the next free one. *)
 
 Fixpoint build_expr (parent : positive) (role : Role) (me : positive) (e : Syntax.Expr)
                     (t : Table.table Meta) : Table.table Meta * positive (* subtree_end *) :=
@@ -135,7 +135,7 @@ Definition build_file (f : Syntax.File) : File :=
       MakeFile (Table.set root_id (MakeMeta FileKind None FileRoot cnt) t1) cnt
   end.
 
-(** The table-free boundary functions, shared with the builder-independent specification below. *)
+(* The table-free boundary functions, shared with the builder-independent specification below. *)
 
 Fixpoint end_expr (me : positive) (e : Syntax.Expr) : positive :=
   match e with
@@ -153,8 +153,6 @@ Definition end_decl (me : positive) (d : Syntax.Decl) : positive :=
 Fixpoint next_decls (me : positive) (ds : list Syntax.Decl) : positive :=
   match ds with [] => me | d :: rest => next_decls (Pos.succ (end_decl me d)) rest end.
 Definition count_file (f : Syntax.File) : positive := Pos.pred (next_decls (Pos.succ package_id) (Syntax.declarations f)).
-
-(* --- the builder's returned subtree-end / next-free-id agree with the table-free boundary functions. --- *)
 
 Lemma build_expr_end : forall e parent role me t, snd (build_expr parent role me e t) = end_expr me e.
 Proof.
@@ -220,7 +218,7 @@ Proof.
   reflexivity.
 Qed.
 
-(** The independent source-occurrence specification, which never consults the table or the builder. *)
+(* The independent source-occurrence specification, which never consults the table or the builder. *)
 Inductive View : Kind -> Type :=
 | FileView          : Syntax.File -> View FileKind
 | PackageClauseView : Syntax.PackageClause -> View PackageClauseKind
@@ -707,7 +705,7 @@ Theorem source_subtree_end_exact : forall f local o,
   exists m, Table.get local (table (build_file f)) = Some m /\ subtree_end m = occurrence_subtree_end o.
 Proof. intros f local o H. exists (occurrence_meta o). split; [apply source_occurrence_meta; exact H | reflexivity]. Qed.
 
-(** Structural navigation: ancestry is arithmetic on [subtree_end] after one map lookup. *)
+(* Structural navigation: ancestry is arithmetic on [subtree_end] after one map lookup. *)
 Definition parent_id (t : Table.table Meta) (c : positive) : option positive :=
   match Table.get c t with Some m => parent m | None => None end.
 
@@ -752,8 +750,6 @@ Definition child_ids (t : Table.table Meta) (pid : positive) : list positive :=
   | Some m => child_enum t pid (subtree_end m) (Pos.succ pid)
   | None => []
   end.
-
-(* --- structural invariants of the built index (grammar-agnostic; verbatim from the accepted spike). --- *)
 
 Definition Fresh (t : Table.table Meta) (from : positive) : Prop :=
   forall k, (from <= k)%positive -> Table.get k t = None.
@@ -960,8 +956,6 @@ Proof. intros H HF k Hk. apply HF. lia. Qed.
 Lemma fresh_empty (from : positive) : Fresh Table.empty from.
 Proof. intros k _; apply Table.get_empty. Qed.
 
-(* --- the real builders satisfy the WF machinery (grammar-aware). --- *)
-
 Lemma build_expr_spec : forall e parent role me t0 t se,
   Fresh t0 me ->
   build_expr parent role me e t0 = (t, se) ->
@@ -1094,8 +1088,6 @@ Proof.
   destruct H as [_ HS]. exact HS.
 Qed.
 
-(* --- enumeration helpers over the preorder id interval (grammar-agnostic; verbatim). --- *)
-
 Lemma pos_seq_in (start c : positive) (len : nat) :
   In c (pos_seq start len) <-> (Pos.to_nat start <= Pos.to_nat c < Pos.to_nat start + len)%nat.
 Proof.
@@ -1115,8 +1107,6 @@ Proof.
   - constructor.
   - constructor; [| apply IH]. intro H. apply pos_seq_in in H. rewrite Pos2Nat.inj_succ in H. lia.
 Qed.
-
-(* --- the navigation theorem set; grammar-agnostic given [build_file_wf]. --- *)
 
 Lemma in_domain (f : Syntax.File) k m :
   Table.get k (table (build_file f)) = Some m ->
@@ -1490,7 +1480,7 @@ Theorem meta_stores_no_subtree :
     m = MakeMeta k op r e /\ (forall e', MakeMeta k op r e = MakeMeta k op r e' -> e = e').
 Proof. intros [k op r e]. exists k, op, r, e. split; [reflexivity|]. intros e' H; injection H as <-; reflexivity. Qed.
 
-(** A reference is indexed by its exact program, so references to two programs never interchange. *)
+(* A reference is indexed by its exact program, so references to two programs never interchange. *)
 Definition float_decimal_eq_dec (a b : Float.Decimal) : {a = b} + {a <> b}.
 Proof.
   destruct (Float.decimal_equalb a b) eqn:E; [ left; apply Float.decimal_equalb_spec; exact E | right ].
@@ -1608,7 +1598,7 @@ Proof.
   specialize (IH (Pos.succ (end_decl me d))). pose proof (end_decl_ge d me) as Hd. lia.
 Qed.
 
-(** The traversal emits each id paired with the original fragment, produced by the pass, never re-found. *)
+(* The traversal emits each id paired with the original fragment, produced by the pass, never re-found. *)
 
 Fixpoint occurrences_expr (parent : positive) (role : Role) (me : positive) (e : Syntax.Expr)
   : list (positive * Occurrence) :=
@@ -1657,8 +1647,6 @@ Definition occurrences_file (f : Syntax.File) : list (positive * Occurrence) :=
         :: (package_id, MakeOccurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
         :: occurrences_decls root_id 0 (Pos.succ package_id) (Syntax.declarations f)
   end.
-
-(* --- interval-bound lemmas: an emitted id lies within its subtree / run window. --- *)
 
 Lemma occurrences_expr_ge : forall e parent role me id occ,
   In (id, occ) (occurrences_expr parent role me e) -> (me <= id)%positive.
@@ -1777,8 +1765,6 @@ Proof.
   - apply (IH parent (S didx) (Pos.succ (end_decl me d)) id occ Hin).
 Qed.
 
-(* --- SOUNDNESS: every emitted (id, occ) IS the exact source occurrence [source_occurrence_at] designates. --- *)
-
 Lemma occurrences_expr_sound : forall e parent role me id occ,
   In (id, occ) (occurrences_expr parent role me e) -> occurrence_expr' parent role me e id = Some occ.
 Proof.
@@ -1871,8 +1857,6 @@ Proof.
     apply (occurrences_decls_sound (Syntax.declarations f) root_id 0 (Pos.succ package_id) id occ Hin).
 Qed.
 
-(* --- COMPLETENESS: every source occurrence the spec designates is emitted by the traversal. --- *)
-
 Lemma occurrences_expr_complete : forall e parent role me id occ,
   occurrence_expr' parent role me e id = Some occ -> In (id, occ) (occurrences_expr parent role me e).
 Proof.
@@ -1947,8 +1931,6 @@ Qed.
 Theorem occurrences_file_exact : forall f id occ,
   In (id, occ) (occurrences_file f) <-> source_occurrence_at f id = Some occ.
 Proof. intros f id occ. split; [apply occurrences_file_sound | apply occurrences_file_complete]. Qed.
-
-(* --- CANONICAL PREORDER ORDER: the emitted ids are strictly increasing. --- *)
 
 Lemma strongly_sorted_append_positive : forall (l1 l2 : list positive),
   StronglySorted Pos.lt l1 -> StronglySorted Pos.lt l2 ->
@@ -2609,8 +2591,6 @@ Definition ref_of_key (p : Syntax.Program) (idx : Syntax p) (k : Key) : option (
   | None => None
   end.
 
-(* --- lift EXACT source-occurrence correspondence through the sealed reference API. --- *)
-
 Lemma source_occ_of_ref_some {p} (r : NodeRef p) :
   source_occurrence_at (file_ref_source (node_ref_file r)) (node_ref_local r) <> None.
 Proof.
@@ -2656,8 +2636,6 @@ Theorem node_at_matches_source_view {p} (r : NodeRef p) :
   node_at r = view_expr (source_occurrence_of_ref r).
 Proof. reflexivity. Qed.
 
-(* --- reference extensionality (validity + membership proofs are irrelevant). --- *)
-
 Lemma node_ref_ext (p : Syntax.Program) (r1 r2 : NodeRef p) :
   node_ref_file r1 = node_ref_file r2 -> node_ref_local r1 = node_ref_local r2 -> r1 = r2.
 Proof.
@@ -2672,8 +2650,6 @@ Proof.
   assert (f1 = f2) by (pose proof h1 as q; rewrite h2 in q; injection q as <-; reflexivity).
   subst f2. f_equal. apply (UIP_dec optional_source_file_eq_dec).
 Qed.
-
-(* --- total-API correctness. --- *)
 
 Theorem node_kind_spec (p : Syntax.Program) (idx : Syntax p) (r : NodeRef p) :
   node_kind idx r = kind (ref_meta idx r).
@@ -2921,8 +2897,6 @@ Proof.
   subst cr. unfold children_of. exact Hcr.
 Qed.
 
-(* --- NodeRef-level ancestry: the O(1) interval test, certified through the sealed API. --- *)
-
 Lemma ref_file_index_table_same_file (p : Syntax.Program) (idx : Syntax p) (x y : NodeRef p) :
   node_ref_file x = node_ref_file y -> table (ref_file_index idx x) = table (ref_file_index idx y).
 Proof. intros H. rewrite (ref_file_index_eq idx x), (ref_file_index_eq idx y), H. reflexivity. Qed.
@@ -3038,8 +3012,6 @@ Proof.
       exact Hanc.
 Qed.
 
-(* --- minting soundness for FileRef + the rejection cases. --- *)
-
 Theorem file_of_path_sound (p : Syntax.Program) (fp : FilePath.T) (fr : FileRef p) :
   file_of_path p fp = Some fr -> file_ref_path fr = fp.
 Proof. apply file_of_path_path. Qed.
@@ -3077,16 +3049,12 @@ Proof.
   destruct (valid_in_index idx fr local) at 2 3; intros e; [ congruence | reflexivity ].
 Qed.
 
-(* --- decidable NodeRef equality: reference identity IS Key identity. --- *)
-
 Definition noderef_eq_dec {p} (r1 r2 : NodeRef p) : {r1 = r2} + {r1 <> r2}.
 Proof.
   destruct (key_eq_dec (node_ref_key r1) (node_ref_key r2)) as [Heq|Hne].
   - left. apply node_ref_key_inj. exact Heq.
   - right. intro H. apply Hne. rewrite H. reflexivity.
 Defined.
-
-(* --- the file-root reference + the canonical preorder enumeration of ALL a file's references. --- *)
 
 Definition file_root_ref {p} (fr : FileRef p) : NodeRef p :=
   MakeNodeRef p fr root_id (root_valid (file_ref_source fr)).
@@ -3177,8 +3145,6 @@ Proof.
   - left. apply node_ref_ext; [ rewrite Hf; reflexivity | rewrite Hroot; reflexivity ].
   - right. rewrite <- Hf. apply reachable_from_root. exact Hnroot.
 Qed.
-
-(* --- the canonical indexed traversal: mint a validated NodeRef at each structural position. --- *)
 
 Lemma occurrences_file_valid {p} (fr : FileRef p) :
   forall id occ, In (id, occ) (occurrences_file (file_ref_source fr)) -> valid_localb (file_ref_source fr) id = true.
@@ -3303,7 +3269,7 @@ Fail Check Snapshot.outer.
 Fail Check Snapshot.ref_fi.
 Fail Check Snapshot.file_index.
 
-(** A kind-refined reference carries a kind proof tied to its source occurrence, never an author's boolean. *)
+(* A kind-refined reference carries a kind proof tied to its source occurrence, never an author's boolean. *)
 
 Definition NodeRefOf (p : Syntax.Program) (k : Kind) : Type :=
   { r : Snapshot.NodeRef p | occurrence_kind (Snapshot.source_occurrence_of_ref r) = k }.
@@ -3372,13 +3338,12 @@ Proof.
   f_equal. apply (UIP_dec syntaxkind_eq_dec).
 Qed.
 
-(** ** snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
+(* ** snapshot-locality + mutation-sensitive regressions over the REAL grammar.               *)
 
 Definition main_file_path : FilePath.T := FilePath.Make "main.go"%string eq_refl.
 Definition ms_gen : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated"%string eq_refl) Version.Go1_23.
 Definition ms_com : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/common"%string eq_refl) Version.Go1_23.
 
-(* --- helper: recover a minted reference's exact source occurrence by computing the source spec. --- *)
 Lemma soor_compute {p} (r : Snapshot.NodeRef p) (f : Syntax.File) (local : positive) (occ0 : Occurrence) :
   Snapshot.file_ref_source (Snapshot.node_ref_file r) = f -> Snapshot.node_ref_local r = local ->
   source_occurrence_at f local = Some occ0 ->

@@ -1,4 +1,4 @@
-(** The one integer-family and range authority: ten Go integer types over [Z], with [int]/[uint] pinned 64-bit. *)
+(* The one integer-family and range authority: ten Go integer types over [Z], with [int]/[uint] pinned 64-bit. *)
 From Stdlib Require Import ZArith String Bool.
 Open Scope Z_scope.
 
@@ -22,7 +22,7 @@ Definition signed (it : Kind) : bool :=
   | Uint | Uint8 | Uint16 | Uint32 | Uint64 => false
   end.
 
-(** Width in bits; [int] and [uint] are 64-bit on the pinned target. *)
+(* Width in bits; [int] and [uint] are 64-bit on the pinned target. *)
 Definition bits (it : Kind) : Z :=
   match it with
   | Int8  | Uint8  => 8
@@ -31,7 +31,7 @@ Definition bits (it : Kind) : Z :=
   | Int   | Int64  | Uint | Uint64 => 64
   end.
 
-(** inclusive bounds: signed W is [-2^(W-1), 2^(W-1)-1]; unsigned W is [0, 2^W-1]. *)
+(* inclusive bounds: signed W is [-2^(W-1), 2^(W-1)-1]; unsigned W is [0, 2^W-1]. *)
 Definition minimum (it : Kind) : Z :=
   if signed it then - 2 ^ (bits it - 1) else 0.
 
@@ -76,7 +76,7 @@ Lemma maximum_succ_not_representable :
   forall it, representableb it (maximum it + 1) = false.
 Proof. destruct it; vm_compute; reflexivity. Qed.
 
-(** [int] and [int64] are distinct types that share a range only because this target is 64-bit. *)
+(* [int] and [int64] are distinct types that share a range only because this target is 64-bit. *)
 Lemma int_neq_int64 : Int <> Int64.
 Proof. discriminate. Qed.
 

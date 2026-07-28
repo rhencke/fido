@@ -1,4 +1,4 @@
-(** The canonical witness: every admitted primitive, materialized pristine and validated by pinned Go. *)
+(* The canonical witness: every admitted primitive, materialized pristine and validated by pinned Go. *)
 From Stdlib Require Import List NArith ZArith String Ascii.
 From Fido Require Import Integer Float Complex FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.

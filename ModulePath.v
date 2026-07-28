@@ -1,4 +1,4 @@
-(** The canonical module-path domain: a raw string is not a module path, and a value carries its own proof. *)
+(* The canonical module-path domain: a raw string is not a module path, and a value carries its own proof. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith Lia.
 Import ListNotations.
 
@@ -8,7 +8,7 @@ Definition is_lower (c : ascii) : bool :=
 Definition is_lower_digit (c : ascii) : bool :=
   let n := nat_of_ascii c in ((97 <=? n) && (n <=? 122)) || ((48 <=? n) && (n <=? 57)).
 
-(** A segment character: a..z, 0..9, or `.`, with no hyphen. *)
+(* A segment character: a..z, 0..9, or `.`, with no hyphen. *)
 Definition seg_char (c : ascii) : bool := is_lower_digit c || Ascii.eqb c "."%char.
 
 Fixpoint all_seg_chars (s : string) : bool :=
@@ -28,7 +28,7 @@ Definition str_last (s : string) : option ascii := String.get (String.length s -
 
 Definition is_digit (c : ascii) : bool := let n := nat_of_ascii c in (48 <=? n) && (n <=? 57).
 
-(** A segment's base name is the part before its first `.`, which is what Go's device-name rejection reads. *)
+(* A segment's base name is the part before its first `.`, which is what Go's device-name rejection reads. *)
 Fixpoint base_of (s : string) : string :=
   match s with
   | EmptyString => EmptyString
@@ -45,7 +45,7 @@ Definition reserved_base (s : string) : bool :=
      | _ => false
      end.
 
-(** One segment: nonempty, first character a..z, last a..z0..9, no `..`, and no reserved device name. *)
+(* One segment: nonempty, first character a..z, last a..z0..9, no `..`, and no reserved device name. *)
 Definition segment_ok (s : string) : bool :=
   match s with
   | EmptyString => false
@@ -68,7 +68,7 @@ Fixpoint split_slash (s : string) : list string :=
            end
   end.
 
-(** [split_slash] never returns the empty list, and it distributes over an explicit `/` join. *)
+(* [split_slash] never returns the empty list, and it distributes over an explicit `/` join. *)
 Lemma split_slash_nonempty : forall s, split_slash s <> [].
 Proof.
   destruct s as [|c s']; cbn [split_slash].
@@ -88,13 +88,13 @@ Proof.
       * reflexivity.
 Qed.
 
-(** Every module-path character is a segment character or the separator `/`, so every one is ASCII. *)
+(* Every module-path character is a segment character or the separator `/`, so every one is ASCII. *)
 Definition path_char (c : ascii) : bool := seg_char c || Ascii.eqb c "/"%char.
 
 Fixpoint all_path_chars (s : string) : bool :=
   match s with EmptyString => true | String c s' => path_char c && all_path_chars s' end.
 
-(** Go reads a dotless first element as standard library, so a required dot keeps paths outside it. *)
+(* Go reads a dotless first element as standard library, so a required dot keeps paths outside it. *)
 Fixpoint before_slash (s : string) : string :=
   match s with
   | EmptyString => EmptyString
@@ -104,13 +104,13 @@ Fixpoint before_slash (s : string) : string :=
 Fixpoint contains_dot (s : string) : bool :=
   match s with EmptyString => false | String c s' => Ascii.eqb c "."%char || contains_dot s' end.
 
-(** Go's whole version-suffix shape is excluded rather than split into its accept and reject halves. *)
+(* Go's whole version-suffix shape is excluded rather than split into its accept and reject halves. *)
 Definition is_dot_or_digit (c : ascii) : bool := is_digit c || Ascii.eqb c "."%char.
 
 Fixpoint all_dot_or_digit (s : string) : bool :=
   match s with EmptyString => true | String c s' => is_dot_or_digit c && all_dot_or_digit s' end.
 
-(** `v` then a nonempty run of digits and dots, the first of which may itself be a dot. *)
+(* `v` then a nonempty run of digits and dots, the first of which may itself be a dot. *)
 Definition version_suffix_shape (seg : string) : bool :=
   match seg with
   | String v (String c rest) => Ascii.eqb v "v"%char && is_dot_or_digit c && all_dot_or_digit rest
@@ -119,10 +119,10 @@ Definition version_suffix_shape (seg : string) : bool :=
 
 Definition last_segment (s : string) : string := List.last (split_slash s) EmptyString.
 
-(** The `gopkg.in/` host needs a `.vN` suffix grammar that is not modelled, so the whole prefix is excluded. *)
+(* The `gopkg.in/` host needs a `.vN` suffix grammar that is not modelled, so the whole prefix is excluded. *)
 Definition is_gopkg_in (s : string) : bool := String.prefix "gopkg.in/" s.
 
-(** The whole path: module-path characters, a dotted first element, no excluded tail, admissible segments. *)
+(* The whole path: module-path characters, a dotted first element, no excluded tail, admissible segments. *)
 Definition path_ok (s : string) : bool :=
   all_path_chars s
   && contains_dot (before_slash s)
@@ -139,7 +139,7 @@ Proof.
   apply Bool.andb_true_iff in H as [H _]; exact H.   (* drop contains_dot (before_slash s); keep all_path_chars *)
 Qed.
 
-(** Every module-path character is ASCII. *)
+(* Every module-path character is ASCII. *)
 Lemma path_char_lt_128 : forall c, path_char c = true -> (nat_of_ascii c < 128)%nat.
 Proof.
   intros c H; unfold path_char in H; apply Bool.orb_true_iff in H as [H | H].
@@ -152,7 +152,7 @@ Qed.
 
 Record T : Type := Make { text : string ; valid : path_ok text = true }.
 
-(** The canonical `module` directive text (the proved conversion to output bytes). *)
+(* The canonical `module` directive text (the proved conversion to output bytes). *)
 
 Lemma path_ok_pi : forall s (p q : path_ok s = true), p = q.
 Proof. intros s p q; apply (UIP_dec Bool.bool_dec). Qed.
@@ -177,7 +177,7 @@ Lemma concat_map_head : forall sep c h t,
   String.concat sep (String c h :: t) = String c (String.concat sep (h :: t)).
 Proof. intros sep c h t. destruct t as [|z t']; reflexivity. Qed.
 
-(** A string is exactly the `/`-join of its own [split_slash] components. *)
+(* A string is exactly the `/`-join of its own [split_slash] components. *)
 Lemma split_slash_concat : forall s, String.concat "/" (split_slash s) = s.
 Proof.
   induction s as [|c s IH]; [ reflexivity |].
@@ -189,7 +189,7 @@ Proof.
     rewrite (concat_map_head "/"%string c h t), IH. reflexivity.
 Qed.
 
-(** A `/`-join of single components reparses to exactly those components. *)
+(* A `/`-join of single components reparses to exactly those components. *)
 Lemma split_concat_singles : forall comps,
   (forall x, In x comps -> split_slash x = [x]) -> comps <> [] ->
   split_slash (String.concat "/" comps) = comps.
@@ -250,7 +250,7 @@ Proof. intros p s Hin. apply segment_ok_single. exact (segments_segment_ok p s H
 Lemma segments_nonempty_elt : forall p s, In s (segments p) -> s <> ""%string.
 Proof. intros p s Hin. apply segment_ok_nonempty. exact (segments_segment_ok p s Hin). Qed.
 
-(** The grammar's positive and negative fixtures, kernel-checked. *)
+(* The grammar's positive and negative fixtures, kernel-checked. *)
 Example ok_generated : path_ok "fido.local/generated" = true.       Proof. reflexivity. Qed.
 Example ok_nested    : path_ok "fido.local/generated/sub" = true.   Proof. reflexivity. Qed.
 Example ok_common    : path_ok "fido.local/common" = true.          Proof. reflexivity. Qed.

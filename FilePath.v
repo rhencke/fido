@@ -1,4 +1,4 @@
-(** The canonical relative source-path domain: a raw string is not a path, and a value carries its own proof. *)
+(* The canonical relative source-path domain: a raw string is not a path, and a value carries its own proof. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
 Import ListNotations.
 
@@ -11,11 +11,11 @@ Definition is_lower_digit (c : ascii) : bool :=
 Fixpoint tail_ok (s : string) : bool :=
   match s with EmptyString => true | String c s' => is_lower_digit c && tail_ok s' end.
 
-(** A component or basename stem: nonempty, first character lowercase, the rest lowercase or digit. *)
+(* A component or basename stem: nonempty, first character lowercase, the rest lowercase or digit. *)
 Definition component_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => is_lower c && tail_ok s' end.
 
-(** A file beneath one of these directories would be certified and never built by `go build ./...`. *)
+(* A file beneath one of these directories would be certified and never built by `go build ./...`. *)
 Definition reserved_dir (s : string) : bool := String.eqb s "testdata" || String.eqb s "vendor".
 
 Definition dir_component_ok (s : string) : bool := component_ok s && negb (reserved_dir s).
@@ -37,10 +37,10 @@ Definition ends_go (s : string) : bool :=
 
 Definition strip_go (s : string) : string := String.substring 0 (String.length s - 3) s.
 
-(** An ordinary Go source basename: an admissible component stem followed by ".go". *)
+(* An ordinary Go source basename: an admissible component stem followed by ".go". *)
 Definition filename_ok (s : string) : bool := ends_go s && component_ok (strip_go s).
 
-(** Every directory component is admissible and not ignored, and the last segment is an admissible `.go` name. *)
+(* Every directory component is admissible and not ignored, and the last segment is an admissible `.go` name. *)
 Definition path_ok (s : string) : bool :=
   match rev (split_slash s) with
   | last :: rdirs => forallb dir_component_ok rdirs && filename_ok last
@@ -49,7 +49,7 @@ Definition path_ok (s : string) : bool :=
 
 Record T : Type := Make { text : string ; valid : path_ok text = true }.
 
-(** Validity proofs are unique (bool UIP), so equality reduces to the underlying string. *)
+(* Validity proofs are unique (bool UIP), so equality reduces to the underlying string. *)
 Lemma path_ok_pi : forall s (p q : path_ok s = true), p = q.
 Proof. intros s p q; apply (UIP_dec Bool.bool_dec). Qed.
 
@@ -71,7 +71,7 @@ Definition parent_of (s : string) : string :=
   | [] => EmptyString
   end.
 
-(** The parent directory of a file: files sharing one parent form one package. *)
+(* The parent directory of a file: files sharing one parent form one package. *)
 Definition parent (p : T) : string := parent_of (text p).
 
 Lemma split_slash_nonempty : forall s, split_slash s <> [].
@@ -196,7 +196,7 @@ Proof.
   apply Hdirs. apply in_rev in Hin. exact Hin.
 Qed.
 
-(** The grammar's positive and negative fixtures, kernel-checked. *)
+(* The grammar's positive and negative fixtures, kernel-checked. *)
 
 Example ok_main    : path_ok "main.go" = true.        Proof. reflexivity. Qed.
 Example ok_a       : path_ok "a.go" = true.           Proof. reflexivity. Qed.

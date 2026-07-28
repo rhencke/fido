@@ -1,4 +1,4 @@
-(** The empty-program witness: a valid module spec with no source files is a valid program. *)
+(* The empty-program witness: a valid module spec with no source files is a valid program. *)
 From Stdlib Require Import List NArith String.
 From Fido Require Import FilePath ModulePath Version Syntax Compilable Safe Render Emit.
 Import ListNotations.

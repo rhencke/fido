@@ -1,4 +1,4 @@
-(** The one decimal-digit authority: double-and-add over a positive's own bits. *)
+(* The one decimal-digit authority: double-and-add over a positive's own bits. *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool.
 Import ListNotations.
 Local Open Scope string_scope.
@@ -10,7 +10,7 @@ Fixpoint double (B : nat) (ds : list nat) (carry : nat) : list nat :=
   | nil => match carry with O => nil | _ => carry :: nil end
   | d :: tl => (2 * d + carry) mod B :: double B tl ((2 * d + carry) / B)
   end.
-(** LSB-first base-[B] digits, recursing on the positive's own bits, so this is total with no step budget. *)
+(* LSB-first base-[B] digits, recursing on the positive's own bits, so this is total with no step budget. *)
 Fixpoint positive_digits (B : nat) (p : positive) : list nat :=
   match p with
   | xH => 1 :: nil
@@ -65,7 +65,7 @@ Proof.
     [ exact (double_nonnil B _ 1 IH) | exact (double_nonnil B _ 0 IH) | discriminate ].
 Qed.
 
-(** The last digit stays >= 1, so the printed decimal carries no leading zero — which Go would read as octal. *)
+(* The last digit stays >= 1, so the printed decimal carries no leading zero — which Go would read as octal. *)
 Lemma double_last : forall B ds carry, (2 <= B)%nat -> (carry <= 1)%nat ->
   Forall (fun d => (d < B)%nat) ds ->
   ds <> nil -> (1 <= last ds O)%nat ->
@@ -104,7 +104,7 @@ Proof.
   - cbn [last]. lia.
 Qed.
 
-(** The fold prepends, so the most significant digit ends up first — the printed order. *)
+(* The fold prepends, so the most significant digit ends up first — the printed order. *)
 Definition render (dig : nat -> ascii) (ds : list nat) (s : string) : string :=
   fold_left (fun acc d => String (dig d) acc) ds s.
 Definition positive (p : positive) : string :=

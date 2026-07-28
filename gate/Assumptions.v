@@ -1,4 +1,4 @@
-(** The one assumptions gate: the sole Print Assumptions target, compiled fresh against the built .vo. *)
+(* The one assumptions gate: the sole Print Assumptions target, compiled fresh against the built .vo. *)
 From Fido Require Import Integer Float Complex FilePath Collections ModulePath Version Syntax Index Typing Compilable Safe Render Emit.
 
 (* the integer family: equality, representability, bounds and distinctness *)
