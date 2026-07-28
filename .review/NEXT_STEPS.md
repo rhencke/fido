@@ -11,7 +11,10 @@ carries a candidate identity.
   The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_4.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-4-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
-- **ALL FOUR M1 candidates so far are BLOCKED.**
+- **The M1 repair-4 candidate is `de6cf13f215e6c630fb267413315f584f675b264`**, frozen and awaiting Rob's review.
+  Every obligation names the command that runs its evidence: `make diet` for the four permanent
+  comment-policy rows, and the explicit M1 verifier for the exit-only ones.
+- **THE FOUR EARLIER M1 candidates are BLOCKED.**
   `c73925c6b7c432a8265bdb052388efaf57d96f6f` is the fourth: its lifetime separation was right, but the
   obligation matrix still pointed exit-only rows at the permanent gates that no longer run them, and the
   Makefile kept a sentence saying the permanent diet checks one disposition per file. The claim gate
