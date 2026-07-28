@@ -10,15 +10,15 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/M1_BASELINE.tsv	13	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	972
 .review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	69
 .review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	2484
-.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	19508
-.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	1407
-.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	8998
+.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	19509
+.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	1412
+.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	5368
 .review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	17000
-.review/M_SERIES_PLAN.md	8611	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	9696
-.review/NEXT_STEPS.md	4780	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	2984
+.review/M_SERIES_PLAN.md	8611	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	9830
+.review/NEXT_STEPS.md	4780	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	3362
 .review/OPEN_QUESTIONS.md	1397	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	119
 .review/REVIEW_BASIS.md	5255	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	2175
-.review/REVIEW_REQUEST.md	854	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	925
+.review/REVIEW_REQUEST.md	854	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	2299
 .review/SOURCE_FOREST_MASTER_PLAN.md	75426	delete	history-only	nothing current referenced it	a superseded campaign plan conflicting with the FCB Roadmap; Git owns it	0
 .review/SOURCE_FOREST_STATUS.md	2682	delete	history-only	nothing current referenced it	a status file that disclaimed owning current state; Git owns it	0
 .review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	PROGRESS.md and the ADRs	the current unsupported and restricted scope	26337

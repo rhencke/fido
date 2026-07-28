@@ -198,6 +198,8 @@ before Rob accepts M1.
    current proof dependencies; M3 must classify them as required public surfaces or dead declarations.
 5. Active-checkpoint subject constants are manually retargeted in `tools/claim-matrix-gate.py`.
 6. Host and container placement, repeated source enumeration, and acceptance-graph factoring remain M3 work.
+7. `tools/claim-matrix-gate.py` has no entry in the mutation harness, so its controls are exercised but never
+   proved load-bearing.
 
 The whole-theory assumption audit remains the authority for zero assumptions; findings 2 through 4 are about
 the readable gate's surface list, not about that audit.

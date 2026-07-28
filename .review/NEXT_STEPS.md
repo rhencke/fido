@@ -10,6 +10,10 @@ carries a candidate identity.
   Authority: `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
+- **The M1 repair-1 candidate is `71e70de20e11495ccb829130b6c021d9b00ce59c`**, frozen and awaiting Rob's review.
+  The exact ledgers are `.review/M1_METRICS.tsv`, `.review/M1_FILE_DISPOSITION.tsv`,
+  `.review/M1_DECLARATION_DELETIONS.tsv` and `.review/M1_COMMENT_EXCEPTIONS.tsv`, and
+  `tools/source-diet.py --verify-m1-evidence` reproduces all of them from the two exact refs.
 - **The first M1 candidate is BLOCKED.** `7dc9ff3bb3450cc3bcc41abfb7c5c24154967f3d` claimed more
   completeness than its artifacts established, and its documentation freeze is stale. Git owns the review, the
   repair directive it was blocked by, and every earlier candidate.
