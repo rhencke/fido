@@ -10,16 +10,16 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/M1_BASELINE.tsv	13	keep	m1-enforcement	tools/source-diet.py	the sealed baseline ref and its measurements	972
 .review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	tools/source-diet.py	one row per over-length comment; it is empty	69
 .review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	tools/source-diet.py	one row per deleted Rocq declaration	2484
-.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	tools/source-diet.py	one row per file, exact against both trees	21241
-.review/M1_IMPLEMENTATION_REPAIR_3.md	0	m1-created	current-contract-evidence	.review/NEXT_STEPS.md	the blocking review this candidate answers, which separates the permanent comment policy from the M1 exit evidence	21218
+.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	tools/source-diet.py	one row per file, exact against both trees	21220
+.review/M1_IMPLEMENTATION_REPAIR_4.md	0	m1-created	current-contract-evidence	.review/NEXT_STEPS.md	the blocking review this candidate answers, which corrects the obligation matrix evidence map	13105
 .review/M1_METRICS.tsv	46	keep	m1-enforcement	the freeze	the baseline-to-candidate metric table, header-only until the freeze	46
-.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	make claims	one row per M1 obligation and the evidence closing it	7963
+.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	make claims	one row per M1 obligation and the evidence closing it	6845
 .review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	this checkpoint	the accepted M1 contract: the comment law and the evidence rules	21364
 .review/M_SERIES_PLAN.md	8611	keep	live-governance	the M-series	the accepted M0 through M4 plan and the deferred M3 findings	10871
-.review/NEXT_STEPS.md	4780	keep	live-governance	every task, first	the live checkpoint and candidate state; nothing else carries it	3930
+.review/NEXT_STEPS.md	4780	keep	live-governance	every task, first	the live checkpoint and candidate state; nothing else carries it	4371
 .review/OPEN_QUESTIONS.md	1397	keep	live-governance	the reviewer and Rob	the standing question channel; empty means none are open	119
 .review/REVIEW_BASIS.md	5255	keep	live-governance	Rob's review	the accepted claim, blocking defect classes and required evidence	2175
-.review/REVIEW_REQUEST.md	854	keep	live-governance	Rob's review	whether a review is requested, and of exactly which candidate	1187
+.review/REVIEW_REQUEST.md	854	keep	live-governance	Rob's review	whether a review is requested, and of exactly which candidate	1562
 .review/SOURCE_FOREST_MASTER_PLAN.md	75426	delete	history-only	nothing current referenced it	a superseded campaign plan conflicting with the FCB Roadmap; Git owns it	0
 .review/SOURCE_FOREST_STATUS.md	2682	delete	history-only	nothing current referenced it	a status file that disclaimed owning current state; Git owns it	0
 .review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	scope decisions	the current unsupported and restricted boundary	26337
@@ -91,7 +91,7 @@ FilePath.v	13657	keep	certified-correctness	Syntax.v and Collections.v	the canon
 Float.v	32132	keep	certified-correctness	Typing.v and Complex.v	exact float constants, single rounding, and the runtime float domain	21423
 Index.v	210768	keep	certified-correctness	Compilable.v	structural occurrence identity and navigation over one immutable program	189309
 Integer.v	5288	keep	certified-correctness	Typing.v	the ten Go integer types with their exact ranges and the pinned 64-bit int	3472
-Makefile	12664	keep	certified-correctness	an implementer and the hook	every verification entry point, and the only supported way to run one	8828
+Makefile	12664	keep	certified-correctness	an implementer and the hook	every verification entry point, and the only supported way to run one	8766
 ModulePath.v	19814	keep	certified-correctness	Syntax.v	the canonical generated module path Go 1.23 accepts	13173
 Names.v	14487	keep	certified-correctness	Syntax.v and Compilable.v	the proof-carrying identifier domain and the closed sixteen source type names	10761
 PAINFUL_LESSONS.md	13565	keep	current-contract-evidence	a proposer about to re-suggest a rejected shape	the explicit rationale for each rejected shape, so it is not re-argued	13565

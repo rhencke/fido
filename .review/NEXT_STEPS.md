@@ -6,17 +6,18 @@ carries a candidate identity.
 
 <!-- FIDO-HUMAN-ACT:M1-REVIEW -->
 
-- **M1 SOURCE DIET REPAIR 3 IS THE SOLE ACTIVE WORK.**
+- **M1 SOURCE DIET REPAIR 4 IS THE SOLE ACTIVE WORK.**
   Authority: `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
-  The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_3.md`, which names that <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-3-MD -->
-  contract as the M1 authority and illustrates its finding with a file M2 has yet to create.
+  The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_4.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-4-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
-- **The M1 repair-3 candidate is `c73925c6b7c432a8265bdb052388efaf57d96f6f`**, frozen and awaiting Rob's review.
-  The permanent gate enforces the `.v` comment policy alone; the M1 exit evidence runs explicitly under
-  `--m1-self-test` and `--verify-m1-evidence`, so temporary M1 evidence can retire after acceptance without
-  a gate edit.
-- **THE THREE EARLIER M1 candidates are BLOCKED.**
+- **ALL FOUR M1 candidates so far are BLOCKED.**
+  `c73925c6b7c432a8265bdb052388efaf57d96f6f` is the fourth: its lifetime separation was right, but the
+  obligation matrix still pointed exit-only rows at the permanent gates that no longer run them, and the
+  Makefile kept a sentence saying the permanent diet checks one disposition per file. The claim gate
+  verifies that a named string exists, not that the named command runs the evidence — so a human review
+  had to catch it. `961af100028e8d12515b61bb48745b6f1d6d6c14` is that candidate's documentation-only
+  freeze, not a separate candidate.
   `8ad80e6614bff64b493bbdd1db937f4640eda252` is the third: its permanent `make diet` path froze repository
   bytes and Rocq commands at the M1 baseline, so no later checkpoint could add a file or a declaration. A
   checkpoint-exit proof is not a permanent language law. `8e55ed1efbc430a815c9ce2d4f4a8f1365ba59ed` is that

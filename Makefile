@@ -102,19 +102,18 @@ claims:
 	@python3 tools/claim-matrix-gate.py --self-test
 	@python3 tools/claim-matrix-gate.py
 
-# The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
-# runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
-# The M1 source diet: the .v comment law, the exception relation both ways, and one disposition per file.
-# Its adversarial controls run first, so a green here is one the checker can still earn.
-# The PERMANENT source-comment policy, and only that.  The M1 baseline, metric direction, file
-# disposition and code identity are one checkpoint's exit evidence: they are proved by
-# `--verify-m1-evidence` at M1 review and never here, because a permanent gate that enforced them would
-# reject every later file, every later declaration and every larger tree forever.
+# The PERMANENT source-comment policy, and only that: the .v comment law and the exception relation both
+# ways.  The M1 baseline, metric direction, file disposition and code identity are one checkpoint's exit
+# evidence, proved by `--verify-m1-evidence` at M1 review and never here — a permanent gate that enforced
+# them would reject every later file, every later declaration and every larger tree forever.  Its
+# adversarial controls run first, so a green here is one the checker can still earn.
 diet:
 	@python3 tools/source-diet.py --self-test
 	@python3 tools/source-diet.py --check
 	@python3 tools/source-diet.py --wiring
 
+# The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
+# runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
 fcb:
 	@python3 tools/human-review-index.py --self-test
 	@python3 tools/human-review-index.py --check
