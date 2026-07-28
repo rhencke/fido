@@ -6,30 +6,12 @@ carries a candidate identity.
 
 <!-- FIDO-HUMAN-ACT:M1-REVIEW -->
 
-- **M1 SOURCE DIET REPAIR 4 IS THE SOLE ACTIVE WORK.**
+- **M1 SOURCE DIET REPAIR 5 IS THE SOLE ACTIVE WORK.**
   Authority: `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
-  The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_4.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-4-MD -->
+  The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_5.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-5-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
-- **The M1 repair-4 candidate is `de6cf13f215e6c630fb267413315f584f675b264`**, frozen and awaiting Rob's review.
-  Every obligation names the command that runs its evidence: `make diet` for the four permanent
-  comment-policy rows, and the explicit M1 verifier for the exit-only ones.
-- **THE FOUR EARLIER M1 candidates are BLOCKED.**
-  `c73925c6b7c432a8265bdb052388efaf57d96f6f` is the fourth: its lifetime separation was right, but the
-  obligation matrix still pointed exit-only rows at the permanent gates that no longer run them, and the
-  Makefile kept a sentence saying the permanent diet checks one disposition per file. The claim gate
-  verifies that a named string exists, not that the named command runs the evidence — so a human review
-  had to catch it. `961af100028e8d12515b61bb48745b6f1d6d6c14` is that candidate's documentation-only
-  freeze, not a separate candidate.
-  `8ad80e6614bff64b493bbdd1db937f4640eda252` is the third: its permanent `make diet` path froze repository
-  bytes and Rocq commands at the M1 baseline, so no later checkpoint could add a file or a declaration. A
-  checkpoint-exit proof is not a permanent language law. `8e55ed1efbc430a815c9ce2d4f4a8f1365ba59ed` is that
-  candidate's documentation-only freeze, not a separate candidate.
-  `7dc9ff3bb3450cc3bcc41abfb7c5c24154967f3d` claimed more completeness than its artifacts established.
-  `71e70de20e11495ccb829130b6c021d9b00ce59c` is the second blocked candidate: its exact-code checker still
-  had a false green, its candidate and freeze evidence carried two meanings, and its semantic comment and
-  current-document passes were incomplete. `9ccc0d500266460fb83e7543aa19299f29473fcc` is that candidate's
-  documentation-only freeze, not a separate candidate. Git owns both reviews and every earlier candidate.
+- **Earlier M1 candidates are superseded.** Git history owns their refs, freezes, findings, and repair narratives.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M1 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.

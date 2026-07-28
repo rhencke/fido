@@ -10,19 +10,19 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/M1_BASELINE.tsv	13	keep	m1-enforcement	tools/source-diet.py	the sealed baseline ref and its measurements	972
 .review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	tools/source-diet.py	one row per over-length comment; it is empty	69
 .review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	tools/source-diet.py	one row per deleted Rocq declaration	2484
-.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	tools/source-diet.py	one row per file, exact against both trees	21220
-.review/M1_IMPLEMENTATION_REPAIR_4.md	0	m1-created	current-contract-evidence	.review/NEXT_STEPS.md	the blocking review this candidate answers, which corrects the obligation matrix evidence map	13105
+.review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	tools/source-diet.py	one row per file, exact against both trees	21236
+.review/M1_IMPLEMENTATION_REPAIR_5.md	0	m1-created	current-contract-evidence	.review/NEXT_STEPS.md	the blocking review this candidate answers, which removes copied candidate history from the current documents	11549
 .review/M1_METRICS.tsv	46	keep	m1-enforcement	the freeze	the baseline-to-candidate metric table, header-only until the freeze	46
-.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	make claims	one row per M1 obligation and the evidence closing it	6845
+.review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	make claims	one row per M1 obligation and the evidence closing it	6514
 .review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	this checkpoint	the accepted M1 contract: the comment law and the evidence rules	21364
 .review/M_SERIES_PLAN.md	8611	keep	live-governance	the M-series	the accepted M0 through M4 plan and the deferred M3 findings	10871
-.review/NEXT_STEPS.md	4780	keep	live-governance	every task, first	the live checkpoint and candidate state; nothing else carries it	4371
+.review/NEXT_STEPS.md	4780	keep	live-governance	every task, first	the live checkpoint and candidate state; nothing else carries it	2969
 .review/OPEN_QUESTIONS.md	1397	keep	live-governance	the reviewer and Rob	the standing question channel; empty means none are open	119
 .review/REVIEW_BASIS.md	5255	keep	live-governance	Rob's review	the accepted claim, blocking defect classes and required evidence	2175
-.review/REVIEW_REQUEST.md	854	keep	live-governance	Rob's review	whether a review is requested, and of exactly which candidate	1562
+.review/REVIEW_REQUEST.md	854	keep	live-governance	Rob's review	whether a review is requested, and of exactly which candidate	1539
 .review/SOURCE_FOREST_MASTER_PLAN.md	75426	delete	history-only	nothing current referenced it	a superseded campaign plan conflicting with the FCB Roadmap; Git owns it	0
 .review/SOURCE_FOREST_STATUS.md	2682	delete	history-only	nothing current referenced it	a status file that disclaimed owning current state; Git owns it	0
-.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	scope decisions	the current unsupported and restricted boundary	26337
+.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md	26337	keep	unsupported-boundary	scope decisions	the current unsupported and restricted boundary	25878
 .review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md	9532	keep	live-governance	the governance ADR register	the accepted pinned target and integer width decision	9532
 .review/decisions/ADR-0002-BOUNDED-DECIMALFLOAT-DOMAIN.md	7514	keep	live-governance	the governance ADR register	the open decimal-domain decision, rejected as written	7514
 .review/fcb/.editorconfig	1015	keep	live-governance	make fmt	the byte rules for the FCB corpus, living beside it	1015

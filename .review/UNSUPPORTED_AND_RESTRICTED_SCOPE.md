@@ -149,8 +149,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 ## SR-005 — Module-path grammar exclusions (the FULL narrowing, not just `/vN`)
 
 - **Classification:** MODEL EXCLUSION.
-- **Correction (this repair):** SR-005 previously discussed only `/vN` major-version suffixes and `gopkg.in`
-  forms. The canonical `ModulePath.T` grammar excludes much more. Full enumeration of what it excludes:
+- **Current exclusion:** The canonical `ModulePath.T` grammar excludes all of the following:
   - lowercase-only segments (`[a-z][a-z0-9.]*`) — rejects uppercase (`github.com/User/Repo`);
   - no hyphen and no other punctuation beyond `.` within a segment — rejects `my-org/pkg`, `x_y/pkg`;
   - a dot required in (the shape of) the first segment (host-like) and a canonical dot shape — rejects
@@ -191,11 +190,7 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
 ## SR-006 — Source-file naming restrictions (TWO distinct decisions)
 
 - **Classification:** MODEL EXCLUSION.
-- **Correction (this repair):** SR-006 previously claimed the restriction "exists to match `go build`
-  file-selection logic exactly" and listed only ignored/reserved files as lost. That is FALSE and incomplete.
-  `FilePath.component_ok` allows only a lowercase first character and lowercase letters/digits thereafter, so
-  it ALSO rejects ordinary compiled Go source names — e.g. `foo_bar.go`, `Foo.go` — that `go build` compiles
-  fine. The decision must be split:
+- **Current exclusion:** `FilePath.component_ok` combines two distinct restrictions:
   - **(a) `cmd/go` build-selection exclusions** — files/directories `go build ./...` itself omits: leading-dot
     and underscore-prefixed hidden files/dirs, `_test.go` test files, and the `testdata`/`vendor` reserved
     directory names (a stem like `testdata.go`/`vendor.go` is still allowed — only the DIRECTORY names are
@@ -322,6 +317,6 @@ future holistic review may reopen every entry. No entry is marked ACCEPTED until
   decidable equality (arbitrary Rocq `Z` coefficients/exponents are already finite with decidable equality; a
   bound may only aid proof evaluation / resource limits / performance, and those costs must be measured, not
   assumed). The rewritten ADR-0002 separates those four notions and states the bound as an OPEN design decision.
-  No float implementation change is authorized by this C4 repair.
+  No float implementation change is authorized until ADR-0002 is resolved and an accepted checkpoint permits it.
 - **Approval state:** PROPOSED — the restriction stands unresolved; ADR-0002 is rejected as written and the
   decision is OPEN pending Rob. Date: 2026-07-22.
