@@ -71,8 +71,12 @@ no complex arithmetic, no `real`/`imag`, no imports.
   `go.mod` directly from the `ModuleSpec`. Every layer is proved **axiom-free** in a pinned Rocq 9.2.0
   container — asserted by a whole-certified-theory assumption-closure audit, not just per-surface `Print
   Assumptions`.
-- **A transport boundary, not a backend.** The image is an abstract `Emit.Image` (the exact `go.mod` bytes
-  plus a possibly-empty map of `.go` bytes) carrying a proof both came from rendering one `Safe.Program`.
+- **A transport boundary, not a backend.** An `Emit.Image` is a reducible carrier that RETAINS the exact
+  `Safe.Program`, the exact `go.mod` bytes and a possibly-empty map of `.go` bytes, together with an opaque
+  `Emit.Mint.Token` indexed by those exact values. `Emit.Mint.issue` is the sole authority-producing
+  operation; the carrier's pack constructor is not a mint, and what stops it authorizing foreign bytes is
+  that the token's indices force the payload. Provenance is therefore a projection of what the image
+  retains, never an equality a caller supplied.
   Publication is ONE validate-before-publish workflow, never a standalone publish command: the SOLE Rocq
   transport vernac `Fido Materialize` writes the authoritative pristine bytes into a fresh disposable root, the
   pinned `go build ./...` **validates** that tree, and only THEN does the internal sink (its own test driver +

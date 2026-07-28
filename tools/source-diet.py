@@ -42,6 +42,14 @@ METRICS_REL = '.review/M1_METRICS.tsv'
 DISPOSITION_REL = '.review/M1_FILE_DISPOSITION.tsv'
 DELETIONS_REL = '.review/M1_DECLARATION_DELETIONS.tsv'
 EXCEPTIONS_REL = '.review/M1_COMMENT_EXCEPTIONS.tsv'
+# The implementation candidate owns these outright: they describe the candidate, so a later documentation
+# freeze that rewrote one of them would leave a ledger that no longer describes the ref under review.
+CANDIDATE_OWNED = (BASELINE_REL, DISPOSITION_REL, DELETIONS_REL, EXCEPTIONS_REL)
+# The freeze may add or update exactly these, and nothing else in the tree.
+FREEZE_OVERLAY = (METRICS_REL, '.review/M1_OBLIGATION_MATRIX.tsv', '.review/NEXT_STEPS.md',
+                  '.review/REVIEW_REQUEST.md', '.review/M_SERIES_PLAN.md')
+REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
+CANDIDATE_LINE = re.compile(r'(?m)^candidate:[ \t]*([0-9a-f]{40})[ \t]*$')
 
 EXCEPTION_FIELDS = ('path', 'owner_kind', 'owner_name', 'category', 'line_count', 'comment_sha256', 'reason')
 DISPOSITION_FIELDS = ('path', 'baseline_bytes', 'action', 'purpose', 'owner_or_consumer', 'evidence',
@@ -80,6 +88,12 @@ SECTION_LABEL = re.compile(
 
 # One box-drawing or star glyph is already decoration, so this needs no run length to be sure.
 DECORATIVE_GLYPH = re.compile(r'[\u2500-\u257f\u2605\u2606\u25a0-\u25ff\u2022\u25cf]')
+# A comment whose whole body is one name repeats the name beside it, in every case, with no exception.
+IDENTIFIER_ONLY = re.compile(r"^\[?[A-Za-z_][A-Za-z0-9_'.]*\]?$")
+# An inversion-hypothesis label names where the proof is standing, not what is true there.
+PROOF_CASE_LABEL = re.compile(r'^H\d+\s*=')
+# `this member is ...` points at the current bullet; the code already says which bullet you are in.
+BULLET_LABEL = re.compile(r'^this\s+(?:member|case|branch|goal|conjunct|one)\b', re.I)
 
 PLACEHOLDER_CELLS = {'n/a', 'na', 'tbd', 'todo', 'pending', 'unknown', 'various', 'see above',
                      '-', '--', '?', '.', 'x'}
@@ -451,6 +465,13 @@ def scan_v(root: Path, files):
             hit = DECORATIVE_GLYPH.search(body)
             if hit:
                 findings.append(f'{rel}:{entry["line"]}: decorative glyph {hit.group(0)!r}')
+            stripped = body.strip()
+            if IDENTIFIER_ONLY.match(stripped):
+                findings.append(f'{rel}:{entry["line"]}: the whole comment is the name {stripped!r}')
+            if PROOF_CASE_LABEL.match(stripped):
+                findings.append(f'{rel}:{entry["line"]}: proof-case label {stripped[:40]!r}')
+            if BULLET_LABEL.match(stripped):
+                findings.append(f'{rel}:{entry["line"]}: bullet label {stripped[:40]!r}')
             if not is_default and kind is None:
                 findings.append(f'{rel}:{entry["line"]}: a comment needing an exception has no resolvable '
                                 f'owner declaration')
@@ -596,6 +617,10 @@ DECL_KIND_OF = {
     'Axiom': 'axiom', 'Parameter': 'parameter', 'Conjecture': 'axiom',
 }
 PROOF_TERMINATORS = ('Qed.', 'Defined.', 'Admitted.', 'Abort.', 'Save.')
+# A declaration of one of these kinds is complete on its own command, body or not: an assumption, a type, a
+# notation, a tactic abbreviation, or the opening of a module scope whose contents are their own commands.
+SELF_CONTAINED_KINDS = frozenset({'inductive', 'record', 'class', 'notation', 'module', 'module-type',
+                                  'axiom', 'parameter', 'ltac'})
 DECL_PREFIX = re.compile(r"^(?:Global\s+|Local\s+|Program\s+|Private\s+|#\[[^\]]*\]\s*)*")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_']*")
 
@@ -647,12 +672,30 @@ def command_declaration(cmd: str):
     return None
 
 
+def opens_proof(cmd: str | None) -> bool:
+    """A proof opens on an explicit `Proof` command, which is the only unambiguous opener."""
+    return cmd is not None and (cmd == 'Proof.' or cmd.startswith('Proof '))
+
+
+def ends_proof(cmd: str) -> bool:
+    """A terminator may carry leading braces or bullets, because `. }` does not end a command.
+
+    Testing equality instead of the last token is what let `} Qed.` pass unnoticed, and a proof whose end is
+    invisible swallows every command after it up to the next declaration."""
+    parts = cmd.split()
+    return bool(parts) and parts[-1] in PROOF_TERMINATORS
+
+
 def declaration_blocks(text: str, label: str):
     """Every top-level unit of a comment-free file, as (kind, name, [commands]).
 
-    A proof-bearing declaration absorbs the commands after it up to and including its terminator, so a whole
-    theorem is one unit and a tactic inside it is part of that unit rather than a free-standing command.
-    A non-declaration command is its own unit with kind None."""
+    A declaration owns its own command, and a PROOF-BEARING one also owns its proof commands and its exact
+    terminator.  It owns nothing else: an `Arguments`, `Hint`, `Opaque`, `Import` or `Open Scope` after a
+    finished declaration is its own unit, so deleting the declaration cannot silently delete it too.
+
+    Whether a declaration is proof-bearing is decided by the command that FOLLOWS it, not by whether its text
+    contains `:=` — five theorems in this tree carry `:=` inside their statement and still open a proof.  A
+    shape this cannot decide raises instead of guessing, because guessing is what let a false green through."""
     cmds = vernac_commands(text, label)
     units, i = [], 0
     while i < len(cmds):
@@ -661,17 +704,32 @@ def declaration_blocks(text: str, label: str):
             units.append((None, None, [cmds[i]]))
             i += 1
             continue
-        group, j = [cmds[i]], i + 1
-        while j < len(cmds):
-            if command_declaration(cmds[j]) is not None:
-                break
-            group.append(cmds[j])
-            if cmds[j] in PROOF_TERMINATORS:
+        kind, name = decl
+        nxt = cmds[i + 1] if i + 1 < len(cmds) else None
+        if opens_proof(nxt):
+            group, j = [cmds[i]], i + 1
+            while True:
+                if j >= len(cmds):
+                    raise DietError(f'{label}: the proof opened by {kind} {name!r} runs to the end of the '
+                                    f'file with no terminator — refusing to guess where it ends')
+                other = command_declaration(cmds[j])
+                if other is not None:
+                    raise DietError(f'{label}: the proof opened by {kind} {name!r} reaches {other[0]} '
+                                    f'{other[1]!r} before any terminator — refusing to guess where it ends')
+                group.append(cmds[j])
+                if ends_proof(cmds[j]):
+                    j += 1
+                    break
                 j += 1
-                break
-            j += 1
-        units.append((decl[0], decl[1], group))
-        i = j
+            units.append((kind, name, group))
+            i = j
+            continue
+        if ':=' in cmds[i] or kind in SELF_CONTAINED_KINDS:
+            units.append((kind, name, [cmds[i]]))
+            i += 1
+            continue
+        raise DietError(f'{label}: cannot decide whether {kind} {name!r} is self-contained or proof-bearing '
+                        f'— it carries no body and no proof follows it: {cmds[i][:90]!r}')
     return units
 
 
@@ -876,6 +934,65 @@ def check_metrics_exact(rows, base_m, cand_m):
     return len(rows)
 
 
+def candidate_ref_of(root: Path) -> str | None:
+    """The candidate the current review state names, or None while no freeze has named one."""
+    target = root / REVIEW_REQUEST_REL
+    if not target.is_file():
+        return None
+    m = CANDIDATE_LINE.search(read_v(root, REVIEW_REQUEST_REL))
+    return m.group(1) if m else None
+
+
+def check_metrics_pending(tree: Path, where: str) -> str:
+    """The implementation candidate carries a header-only metric table.
+
+    A completed table inside the candidate necessarily describes some OTHER candidate, because a table of the
+    candidate's own bytes cannot exist until the candidate exists."""
+    target = tree / METRICS_REL
+    if not target.is_file():
+        raise DietError(f'{where}: {METRICS_REL} is absent — the candidate carries the header that the '
+                        f'freeze fills in')
+    lines = [l for l in read_v(tree, METRICS_REL).split('\n') if l.strip()]
+    header = '\t'.join(METRIC_FIELDS)
+    if lines and lines[0] != header:
+        raise DietError(f'{where}: {METRICS_REL} does not begin with the exact metric header')
+    if len(lines) > 1:
+        raise DietError(f'{where}: {METRICS_REL} already carries {len(lines) - 1} completed row(s) — an '
+                        f'implementation candidate cannot state its own metrics, so those describe another '
+                        f'candidate')
+    return f'{METRICS_REL} is header-only in the candidate'
+
+
+def check_candidate_owned_immutable(cand: Path, root: Path) -> str:
+    """Candidate-owned evidence is byte-identical in the current tree and in the candidate it describes."""
+    bad = []
+    for rel in CANDIDATE_OWNED:
+        a, b = cand / rel, root / rel
+        if a.is_file() != b.is_file():
+            bad.append(f'{rel}: present in the candidate={a.is_file()} and in the current tree={b.is_file()}')
+        elif a.is_file() and a.read_bytes() != b.read_bytes():
+            bad.append(f'{rel}: {a.stat().st_size} bytes in the candidate, {b.stat().st_size} here — the '
+                       f'freeze may not rewrite evidence that describes the candidate')
+    if bad:
+        raise DietError(f'{len(bad)} candidate-owned file(s) changed after the candidate: ' + '; '.join(bad))
+    return f'{len(CANDIDATE_OWNED)} candidate-owned file(s) byte-identical'
+
+
+def check_freeze_overlay(cand: Path, cand_files, root: Path, root_files) -> str:
+    """Everything the current tree changes since the candidate lies inside the closed freeze overlay."""
+    outside = []
+    for rel in sorted(set(cand_files) | set(root_files)):
+        a, b = cand / rel, root / rel
+        same = a.is_file() and b.is_file() and a.read_bytes() == b.read_bytes()
+        if same or rel in FREEZE_OVERLAY:
+            continue
+        outside.append(rel)
+    if outside:
+        raise DietError(f'{len(outside)} file(s) changed since the candidate outside the freeze overlay — a '
+                        f'documentation-only freeze touches nothing else: {outside[:8]}')
+    return f'every change since the candidate lies in the {len(FREEZE_OVERLAY)}-file freeze overlay'
+
+
 def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
     """The one exit check: every M1 evidence artifact, against the two exact Git refs it describes."""
     import tempfile
@@ -900,8 +1017,12 @@ def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
             if str(base_m[k]) != v:
                 raise DietError(f'{BASELINE_REL}: {k} records {v}, the baseline tree measures {base_m[k]}')
 
-        # the metrics describe the candidate but are added by the later documentation-only freeze,
-        # so they are read from the repository while both measurements come from the exact trees
+        # the candidate may not state its own metrics, and the current tree may not restate the candidate's
+        pending = check_metrics_pending(cand, f'candidate {candidate_ref[:7]}')
+        immutable = check_candidate_owned_immutable(cand, root)
+        root_files = inventory(root, snapshot=False)
+        overlay = check_freeze_overlay(cand, cand_files, root, root_files)
+        # the metric table is the freeze's, and it is checked against the two exact trees it names
         n_met = check_metrics_exact(load_tsv(root, METRICS_REL, METRIC_FIELDS, 'M1 metrics'),
                                     base_m, cand_m)
         n_dis = check_disposition_exact(base_sizes, cand_sizes,
@@ -913,8 +1034,9 @@ def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
         if bad:
             raise DietError('required direction not met: ' + '; '.join(map(str, bad)))
     return (f'baseline {baseline_ref[:7]} -> candidate {candidate_ref[:7]}: baseline seal and every sealed '
-            f'metric reproduce; {n_met} metric row(s) equal recomputation; {n_dis} disposition row(s) exact '
-            f'in both trees; {code}; every required metric moved the right way')
+            f'metric reproduce; {pending}; {immutable}; {overlay}; {n_met} metric row(s) equal '
+            f'recomputation; {n_dis} disposition row(s) exact in both trees; {code}; every required metric '
+            f'moved the right way')
 
 
 # ───────────────────────────────────────────────────────────── modes
@@ -974,22 +1096,40 @@ def write_disposition(root: Path, baseline_ref: str):
 
 def check_disposition_against_ref(root: Path, ref: str, snapshot: bool = False,
                                   git_root: Path | None = None) -> str:
-    """The exact disposition relation with [root] as the candidate side.
+    """The exact disposition relation, in whichever of the two states the tree is actually in.
 
-    The two-ref verifier runs this at the end; running it here is what makes a stale byte count fail in the
-    gate a person runs, at the moment they make it.  An exported staged snapshot holds no `.git`, so the
-    repository that answers for [ref] is named separately rather than assumed to be [root]."""
+    BEFORE a freeze names a candidate, this tree IS the candidate under construction, so the disposition is
+    checked against it.  AFTER a freeze names one, the disposition belongs to that named candidate: it must
+    still be byte-identical to the candidate's own copy, and the only permitted differences anywhere in the
+    tree are the closed freeze overlay.  Saying which mode ran is the point — the same file silently meaning
+    two different things is what made the previous evidence unverifiable.
+
+    An exported staged snapshot holds no `.git`, so the repository that answers for a ref is named separately
+    rather than assumed to be [root]."""
     import tempfile
     repo = Path(git_root) if git_root else root
     if ref == 'baseline':
         ref = check_baseline(root)['baseline_ref']
+    cand_ref = candidate_ref_of(root)
     with tempfile.TemporaryDirectory() as tmp:
         base = export_tree(repo, ref, Path(tmp) / 'baseline')
         base_sizes = tree_sizes(base, inventory(base, snapshot=True))
-    cand_sizes = tree_sizes(root, inventory(root, snapshot=snapshot))
-    rows = load_tsv(root, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
-    n = check_disposition_exact(base_sizes, cand_sizes, rows)
-    return f'{ref[:7]}: {n} disposition row(s) exact against the baseline tree and the candidate tree'
+        if cand_ref is None:
+            cand_sizes = tree_sizes(root, inventory(root, snapshot=snapshot))
+            rows = load_tsv(root, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
+            n = check_disposition_exact(base_sizes, cand_sizes, rows)
+            return (f'{ref[:7]}: pre-freeze, {n} disposition row(s) exact against the baseline tree and this '
+                    f'tree, which is the candidate under construction')
+        cand = export_tree(repo, cand_ref, Path(tmp) / 'candidate')
+        cand_files = inventory(cand, snapshot=True)
+        cand_sizes = tree_sizes(cand, cand_files)
+        immutable = check_candidate_owned_immutable(cand, root)
+        overlay = check_freeze_overlay(cand, cand_files, root, inventory(root, snapshot=snapshot))
+        pending = check_metrics_pending(cand, f'candidate {cand_ref[:7]}')
+        rows = load_tsv(cand, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
+        n = check_disposition_exact(base_sizes, cand_sizes, rows)
+        return (f'{ref[:7]} -> {cand_ref[:7]}: post-freeze, {n} disposition row(s) exact for the named '
+                f'candidate; {immutable}; {overlay}; {pending}')
 
 
 def check_code_against_ref(root: Path, ref: str):
@@ -1121,7 +1261,7 @@ def self_test() -> int:
                 elif expect not in str(exc):
                     failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
 
-    long_line = '(* ' + 'x' * 130 + ' *)\n'
+    long_line = '(* ' + 'a fact that runs on ' * 6 + 'and on past the limit *)\n'
     # ── must fail: the default comment law
     scenario('a two-line default comment',
              lambda d: fixture(d, '(* first line\n   second line *)\nDefinition k := 0.\n'),
@@ -1159,6 +1299,24 @@ def self_test() -> int:
     scenario('a two-character box-drawing banner',
              lambda d: fixture(d, '(* \u2500\u2500 the retained core \u2500\u2500 *)\nDefinition k := 0.\n'),
              expect='decorative glyph')
+    scenario('an identifier-only comment',
+             lambda d: fixture(d, '(* forest_reverse *)\nDefinition k := 0.\n'),
+             expect='the whole comment is the name')
+    scenario('a constructor-only comment',
+             lambda d: fixture(d, '(* ConversionFailureCause *)\nDefinition k := 0.\n'),
+             expect='the whole comment is the name')
+    scenario('a bracketed identifier-only comment',
+             lambda d: fixture(d, '(* [subtree_end] *)\nDefinition k := 0.\n'),
+             expect='the whole comment is the name')
+    scenario('a proof-case label',
+             lambda d: fixture(d, '(* H1 = BoolDenotes : the concrete spelling *)\nDefinition k := 0.\n'),
+             expect='proof-case label')
+    scenario('a bullet label',
+             lambda d: fixture(d, '(* this member IS the current one *)\nDefinition k := 0.\n'),
+             expect='bullet label')
+    scenario('a sentence that merely begins with the member',
+             lambda d: fixture(d, '(* the member carries its own key, which is why no scan is needed *)\n'
+                                  'Definition k := 0.\n'))
     scenario('a star decoration',
              lambda d: fixture(d, '(* \u2605 the exact round trip. *)\nDefinition k := 0.\n'),
              expect='decorative glyph')
@@ -1271,6 +1429,96 @@ def self_test() -> int:
     def rewrite(body):
         return lambda c: (c / 'Root.v').write_text(body, encoding='utf-8')
 
+    def pair(label, extra):
+        """Two trees whose baseline puts [extra] between a dead declaration and a live one.
+
+        Removing the declaration alone must pass; removing it together with [extra] must fail.  One half
+        without the other proves nothing: an accept-everything check passes the first, and a reject-
+        everything check passes the second."""
+        base = f'(* a fact *)\nDefinition dead : nat := 0.\n{extra}\nDefinition j : nat := 0.\n'
+        row = [DEL_ROW('Root.v', 'definition', 'dead')]
+        for suffix, body, expect in (
+                (' — the declaration alone', f'(* a fact *)\n{extra}\nDefinition j : nat := 0.\n', None),
+                (' — the declaration and its neighbour', '(* a fact *)\nDefinition j : nat := 0.\n',
+                 'differs')):
+            counts['total'] += 1
+            counts['must_fail'] += (expect is not None)
+            with tempfile.TemporaryDirectory() as tmp:
+                b, c = Path(tmp) / 'b', Path(tmp) / 'c'
+                try:
+                    for d, text in ((b, base), (c, body)):
+                        (d / '.review').mkdir(parents=True)
+                        (d / 'Root.v').write_text(text, encoding='utf-8')
+                    (c / DELETIONS_REL).write_text(
+                        '\t'.join(DELETION_FIELDS) + '\n' + ''.join('\t'.join(r) + '\n' for r in row),
+                        encoding='utf-8')
+                    rows = load_tsv(c, DELETIONS_REL, DELETION_FIELDS, 'deletions')
+                    bf, cf = inventory(b, snapshot=True), inventory(c, snapshot=True)
+                except Exception as exc:
+                    failures.append(f'{label}{suffix}: could not construct the scenario ({exc})'); continue
+                try:
+                    check_code_exact(b, bf, c, cf, rows)
+                    if expect is not None:
+                        failures.append(f'{label}{suffix}: expected failure containing {expect!r}, '
+                                        f'but the check passed')
+                except DietError as exc:
+                    if expect is None:
+                        failures.append(f'{label}{suffix}: expected success, failed with: {exc}')
+                    elif expect not in str(exc):
+                        failures.append(f'{label}{suffix}: failed for the WRONG reason — wanted {expect!r}, '
+                                        f'got: {exc}')
+
+    for _label, _extra in (
+            ('a deleted declaration beside a Hint', 'Hint Resolve Nat.le_refl : core.'),
+            ('a deleted declaration beside an Arguments', 'Arguments Nat.add _ _.'),
+            ('a deleted declaration beside an Opaque', 'Opaque Nat.add.'),
+            ('a deleted declaration beside a Transparent', 'Transparent Nat.add.'),
+            ('a deleted declaration beside an Existing Instance', 'Existing Instance Nat.eq_dec.'),
+            ('a deleted declaration beside an End', 'End S.'),
+            ('a deleted declaration beside an Import', 'Import ListNotations.'),
+            ('a deleted declaration beside an Export', 'Export ListNotations.'),
+            ('a deleted declaration beside an Open Scope', 'Open Scope nat_scope.'),
+            ('a deleted declaration beside a Close Scope', 'Close Scope nat_scope.'),
+            ('a deleted declaration beside a Set', 'Set Implicit Arguments.'),
+            ('a deleted declaration beside an Unset', 'Unset Implicit Arguments.'),
+            ('a deleted declaration beside a tactic-like command', 'Ltac done := reflexivity.')):
+        pair(_label, _extra)
+
+    # ── a proof-bearing declaration owns its proof, and only its proof
+    trees('a proof-bearing definition removed with its own proof',
+          rewrite('(* a fact *)\nTheorem tm : nat := 0.\nDefinition j : nat := 0.\n'),
+          ledger=[DEL_ROW('Root.v', 'lemma', 'k')])
+    trees('a theorem written directly with := removed whole',
+          rewrite(BASE_V.replace('Theorem tm : nat := 0.\n', '')),
+          ledger=[DEL_ROW('Root.v', 'theorem', 'tm')])
+
+    def shape(label, body, expect):
+        """A declaration shape the model must classify exactly, or refuse."""
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        try:
+            units = declaration_blocks(strip_comments(body, 'Shape.v'), 'Shape.v')
+            if expect is not None:
+                failures.append(f'{label}: expected failure containing {expect!r}, but it parsed into '
+                                f'{len(units)} unit(s)')
+        except DietError as exc:
+            if expect is None:
+                failures.append(f'{label}: expected success, failed with: {exc}')
+            elif expect not in str(exc):
+                failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    shape('a declaration with neither a body nor a proof',
+          'Definition mystery : nat.\nArguments mystery.\n', 'cannot decide whether')
+    shape('a proof that runs into the next declaration',
+          'Lemma a : True.\nProof.\nexact I.\nLemma b : True.\nProof.\nexact I.\nQed.\n',
+          'before any terminator')
+    shape('a proof that runs off the end of the file', 'Lemma a : True.\nProof.\nexact I.\n',
+          'no terminator')
+    shape('a terminator carrying a closing brace', 'Lemma a : True.\nProof.\n{ exact I. }\nQed.\n', None)
+    shape('a statement carrying := that still opens a proof',
+          'Theorem t : (let x := 0 in x) = 0.\nProof.\nreflexivity.\nQed.\n', None)
+    shape('an assumption with no body and no proof', 'Parameter p : nat.\nArguments p.\n', None)
+
     trees('one tactic removed from a surviving proof',
           rewrite(BASE_V.replace('simpl.\n', '')), expect='command 3 differs')
     trees('one type annotation removed from a surviving definition',
@@ -1313,7 +1561,7 @@ def self_test() -> int:
           rewrite(BASE_V.replace('Definition j : nat := 0.\n', '')),
           ledger=[DEL_ROW('Root.v', 'definition', 'j')])
     trees('the exact complete removal of one ledgered proof-bearing theorem',
-          rewrite('(* a fact *)\nDefinition j : nat := 0.\n'),
+          rewrite('(* a fact *)\nTheorem tm : nat := 0.\nDefinition j : nat := 0.\n'),
           ledger=[DEL_ROW('Root.v', 'lemma', 'k')])
 
     # ── the exact disposition relation (contract section 3.5.D)
@@ -1392,6 +1640,104 @@ def self_test() -> int:
                 failures.append('the metric-table writer through main(): exit was not 0')
         except Exception as exc:
             failures.append(f'the metric-table writer through main(): {exc}')
+
+    def topology(label, tamper=None, expect=None, completed=False):
+        """Build the three-state topology, mutate the freeze tree, and run the exit verifier."""
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / 'repo'
+            try:
+                base_ref, cand_ref = m1_topology_repo(d, candidate_metrics_completed=completed)
+                if tamper is not None:
+                    tamper(d)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                verify_m1_evidence(d, base_ref, cand_ref)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    def edit_cell(rel, row_prefix, column, value):
+        def go(d: Path):
+            lines = (d / rel).read_text(encoding='utf-8').split('\n')
+            hit = [i for i, l in enumerate(lines) if l.startswith(row_prefix)]
+            assert len(hit) == 1, f'{rel}: {row_prefix!r} matched {len(hit)} row(s)'
+            f = lines[hit[0]].split('\t')
+            f[column] = value
+            lines[hit[0]] = '\t'.join(f)
+            (d / rel).write_text('\n'.join(lines), encoding='utf-8')
+        return go
+
+    def mode(label, tamper=None, expect=None, want_mode='post-freeze'):
+        """The disposition gate over a real three-state repository, asserting which mode it ran in."""
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / 'repo'
+            try:
+                base_ref, _ = m1_topology_repo(d)
+                if tamper is not None:
+                    tamper(d)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                said = check_disposition_against_ref(d, base_ref)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+                elif want_mode not in said:
+                    failures.append(f'{label}: expected the gate to report {want_mode!r}, it said: {said}')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    mode('the disposition gate runs in post-freeze mode once a candidate is named')
+    mode('the post-freeze gate rejects a freeze edit to candidate evidence',
+         lambda d: (d / DISPOSITION_REL).write_text(
+             (d / DISPOSITION_REL).read_text(encoding='utf-8') + '\n', encoding='utf-8'),
+         expect='candidate-owned file(s) changed')
+    def undo_freeze(d: Path):
+        """Put the tree back in the candidate state, which is what pre-freeze mode describes."""
+        (d / METRICS_REL).write_text('\t'.join(METRIC_FIELDS) + '\n', encoding='utf-8')
+        (d / REVIEW_REQUEST_REL).write_text('# Review Request\n\nstate: closed\ncandidate: (none)\n',
+                                            encoding='utf-8')
+
+    mode('the disposition gate runs in pre-freeze mode while no candidate is named', undo_freeze,
+         want_mode='pre-freeze')
+
+    topology('the exact candidate-and-documentation-freeze topology')
+    topology("a candidate carrying another candidate's completed metric table", completed=True,
+             expect='describe another candidate')
+    topology('the freeze changing one candidate disposition byte',
+             edit_cell(DISPOSITION_REL, 'Root.v\t', 5, 'a different purpose'),
+             expect='candidate-owned file(s) changed')
+    topology('candidate_bytes rewritten to the freeze size',
+             edit_cell(DISPOSITION_REL, f'{METRICS_REL}\t', 6, '999999'),
+             expect='candidate-owned file(s) changed')
+    topology('the root disposition missing while the candidate has one',
+             lambda d: (d / DISPOSITION_REL).unlink(), expect='candidate-owned file(s) changed')
+    topology('the freeze changing one declaration-deletion row',
+             lambda d: (d / DELETIONS_REL).write_text(
+                 '\t'.join(DELETION_FIELDS) + '\n' + '\t'.join(DEL_ROW('Root.v', 'definition', 'j')) + '\n',
+                 encoding='utf-8'),
+             expect='candidate-owned file(s) changed')
+    topology('the freeze changing one baseline row',
+             edit_cell(BASELINE_REL, 'v_total_bytes\t', 1, '1'),
+             expect='candidate-owned file(s) changed')
+    topology('a freeze-only change outside the closed overlay',
+             lambda d: (d / 'Root.v').write_text('(* a fact *)\nDefinition j : nat := 1.\n',
+                                                 encoding='utf-8'),
+             expect='outside the freeze overlay')
+    topology('a freeze whose metric table does not match the two refs it names',
+             edit_cell(METRICS_REL, 'v_comment_bytes\t', 2, '1'),
+             expect='recomputation gives')
 
     def disposition_driver(label, tamper, expect=None):
         """Drive --disposition-exact over two real commits, the way the gate invokes it."""
@@ -1569,6 +1915,7 @@ BASE_V = ('(* a fact *)\n'
           'simpl.\n'
           'exact I.\n'
           'Qed.\n'
+          'Theorem tm : nat := 0.\n'
           'Definition j : nat := 0.\n')
 
 
@@ -1594,6 +1941,66 @@ def direction_fixture(d: Path, fixture, bump: str | None = None, archaeology: bo
     seal = baseline_seal([{'metric': k, 'value': v} for k, v in pairs])
     (d / BASELINE_REL).write_text('metric\tvalue\n' + ''.join(f'{k}\t{v}\n' for k, v in pairs)
                                   + f'baseline_sha256\t{seal}\n', encoding='utf-8')
+
+
+def _git_env(d: Path):
+    return {'GIT_AUTHOR_NAME': 'fido', 'GIT_AUTHOR_EMAIL': 'f@example.com',
+            'GIT_COMMITTER_NAME': 'fido', 'GIT_COMMITTER_EMAIL': 'f@example.com',
+            'PATH': os.environ.get('PATH', ''), 'HOME': str(d)}
+
+
+def m1_topology_repo(d: Path, candidate_metrics_completed: bool = False):
+    """A repository in the exact M1 shape: a baseline commit, a candidate commit, and a freeze working tree.
+
+    Building the real three-state topology is the only way to control it.  A fixture that only had two states
+    could not tell a freeze that edits candidate evidence from one that does not."""
+    import tempfile
+    env = _git_env(d)
+
+    def git(*args):
+        r = subprocess.run(['git', *args], cwd=d, capture_output=True, text=True, env=env)
+        assert r.returncode == 0, f'git {args[0]} failed: {r.stderr.strip()}'
+        return r.stdout.strip()
+
+    (d / '.review').mkdir(parents=True)
+    fat = ''.join(f'(* baseline fact number {i} which this diet is about to delete entirely *)\n'
+                  for i in range(400))
+    (d / 'Root.v').write_text(fat + 'Definition j : nat := 0.\n', encoding='utf-8')
+    for rel, fields in ((EXCEPTIONS_REL, EXCEPTION_FIELDS), (DELETIONS_REL, DELETION_FIELDS),
+                        (METRICS_REL, METRIC_FIELDS)):
+        (d / rel).write_text('\t'.join(fields) + '\n', encoding='utf-8')
+    (d / REVIEW_REQUEST_REL).write_text('# Review Request\n\nstate: closed\ncandidate: (none)\n',
+                                        encoding='utf-8')
+    (d / DISPOSITION_REL).write_text('\t'.join(DISPOSITION_FIELDS) + '\n', encoding='utf-8')
+    git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'baseline')
+    base_ref = git('rev-parse', 'HEAD')
+
+    (d / 'Root.v').write_text('(* the one fact that earned its place *)\nDefinition j : nat := 0.\n',
+                              encoding='utf-8')
+    with tempfile.TemporaryDirectory() as tmp:
+        base_tree = export_tree(d, base_ref, Path(tmp) / 'baseline')
+        run_measure(base_tree, True, d / BASELINE_REL, base_ref)
+    seed = '\t'.join(DISPOSITION_FIELDS) + '\n' + ''.join(
+        '\t'.join((rel, '0', 'keep', 'm1-enforcement', 'the M1 contract', 'seeded', '0')) + '\n'
+        for rel in sorted({'Root.v', BASELINE_REL, EXCEPTIONS_REL, DELETIONS_REL, METRICS_REL,
+                           DISPOSITION_REL, REVIEW_REQUEST_REL}))
+    (d / DISPOSITION_REL).write_text(seed, encoding='utf-8')
+    write_disposition(d, base_ref)
+    if candidate_metrics_completed:
+        with tempfile.TemporaryDirectory() as tmp:
+            base_tree = export_tree(d, base_ref, Path(tmp) / 'b')
+            bf = inventory(base_tree, snapshot=True)
+            bm = measure(base_tree, bf, scan_v(base_tree, bf)[0])
+        (d / METRICS_REL).write_text(
+            '\t'.join(METRIC_FIELDS) + '\n' + ''.join('\t'.join(r) + '\n' for r in metric_rows(bm, bm)),
+            encoding='utf-8')
+    git('add', '-A'); git('commit', '-qm', 'candidate')
+    cand_ref = git('rev-parse', 'HEAD')
+
+    write_metrics_table(d, base_ref, cand_ref)
+    (d / REVIEW_REQUEST_REL).write_text(
+        f'# Review Request\n\nstate: requested\ncandidate: {cand_ref}\n', encoding='utf-8')
+    return base_ref, cand_ref
 
 
 def two_commit_repo(d: Path):

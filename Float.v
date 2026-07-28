@@ -330,10 +330,10 @@ Definition constant_runtimeb (v : spec_float) : bool :=
   end.
 
 Record TypedConstant (ft : Kind) : Type := MakeTypedConstant {
-  exact   : Constant ;                                            (* the exact rounded rational *)
-  runtime : Value ft ;                                         (* the canonical runtime IEEE value *)
-  coherent     : ieee_to_constant (ieee runtime) = Some exact ; (* exact/runtime coherence *)
-  shape   : constant_runtimeb (ieee runtime) = true      (* +0 or finite only *)
+  exact   : Constant ;
+  runtime : Value ft ;
+  coherent     : ieee_to_constant (ieee runtime) = Some exact ;
+  shape   : constant_runtimeb (ieee runtime) = true
 }.
 Arguments MakeTypedConstant {ft} _ _ _ _.
 Arguments exact {ft} _.

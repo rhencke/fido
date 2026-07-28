@@ -68,8 +68,26 @@ Discovery does not determine scope.
 | `.review/M1_DECLARATION_DELETIONS.tsv` | one row per deleted Rocq top-level surface <!-- FIDO-FCB-REF:REVIEW-M1-DECLARATION-DELETIONS-TSV --> |
 | `.review/M1_COMMENT_EXCEPTIONS.tsv` | the permanent exception ledger the comment gate depends on <!-- FIDO-FCB-REF:REVIEW-M1-COMMENT-EXCEPTIONS-TSV --> |
 
-The first four are review evidence retained through the candidate and freeze; Git history owns them after
-acceptance unless a live gate still needs one. The exception ledger stays live.
+**Ownership is closed, and each artifact has one meaning.** The IMPLEMENTATION CANDIDATE owns
+`.review/M1_BASELINE.tsv`, `.review/M1_FILE_DISPOSITION.tsv`, `.review/M1_DECLARATION_DELETIONS.tsv` and
+`.review/M1_COMMENT_EXCEPTIONS.tsv`: they describe that candidate, and the later documentation-only freeze
+may not change one byte of them. The candidate carries `.review/M1_METRICS.tsv` as its HEADER ONLY — a
+completed table inside a candidate necessarily states another candidate's results, because a table of the
+candidate's own bytes cannot exist until the candidate does — and an OPEN obligation matrix with a closed
+review request.
+
+The FREEZE adds or updates exactly `.review/M1_METRICS.tsv`, the obligation matrix, `.review/NEXT_STEPS.md`,
+`.review/REVIEW_REQUEST.md` and one terse nonblocking-finding assignment in `.review/M_SERIES_PLAN.md`. It
+touches nothing else in the tree, and the checker proves that rather than trusting it.
+
+`--disposition-exact <ref>` states which side of the freeze it ran on. Before a
+freeze names a candidate, this tree IS the candidate and the ledger is checked against it. After one does, the
+ledger belongs to that named candidate, must be byte-identical to the candidate's own copy, and the only
+permitted differences anywhere are the freeze overlay above. `--verify-m1-evidence` establishes the whole
+topology from two exact Git refs.
+
+Git history owns the candidate-owned files after acceptance unless a live gate still needs one. The exception
+ledger stays live.
 
 The baseline is immutable after its commit, and carries a seal over its own metric rows. A baseline value
 changed after capture is a blocker, and the checker proves it rather than trusting the file.
@@ -95,6 +113,13 @@ closing delimiter, at most one sentence, one current local fact, with its owner 
 code, and no archaeology. Leading indentation outside the delimiter does not count; both delimiters do.
 
 A comment that merely restates the next name, definition, theorem statement or obvious proof step is deleted.
+
+**The gate is necessary, never sufficient.** It rejects only unambiguous syntactic classes — over-length,
+multi-sentence, archaeology, documentation markers, banners, decorative glyphs, identifier-only comments,
+`H<n> = ...` proof-case labels and `this member is ...` bullet labels. Passing it does not make a comment
+earn its place. A human reads every surviving comment and deletes any that only paraphrases the declaration
+below it, narrates a proof, expands a field name, or repeats architecture the types or the FCB already carry.
+That human review is part of the accepted gate, and no checker claims to replace it.
 
 **Adjacency.** Comment tokens separated only by whitespace are ONE logical block, so a stack of one-liners and
 two comments on one line are each one block and neither evades the rule. Only real code separates blocks.
@@ -139,8 +164,16 @@ green.
 implementation. Two further modes carry §8 and §11, which the required six state but cannot check:
 `--against-baseline` compares the candidate to the sealed baseline and fails unless every required metric
 decreased and every required count is zero, and `--code-identical <ref>` (or `baseline`, which reads the
-sealed ref) proves that across every `.v` file no code token was added and the set of vanished declarations
-is exactly the deletion ledger.
+sealed ref) proves EXACT TOP-LEVEL COMMAND EQUALITY: after removing exactly the complete declaration units
+the deletion ledger names, the remaining command stream of every `.v` file equals the candidate's, in order.
+
+A declaration unit is that declaration's own command, plus — only when a `Proof` command follows it — its
+proof commands and its exact terminator. It is nothing else. An `Arguments`, `Hint`, `Opaque`, `Transparent`,
+`Existing Instance`, `End`, `Import`, `Export`, `Open Scope`, `Close Scope`, `Set` or `Unset` beside a
+declaration is its own unit, so deleting the declaration cannot silently delete it too. Whether a declaration
+is proof-bearing is decided by the command that FOLLOWS it, never by whether its text contains `:=`, because
+a theorem statement may carry `:=` and still open a proof. A shape the model cannot classify raises and names
+the file and command; it never guesses.
 
 Its comment scanner is a Rocq lexer, never a regular expression: comments nest, strings may contain comment
 delimiters, and comments may contain strings. It preserves exact UTF-8 tokens for hashing, reports
@@ -151,10 +184,10 @@ Working-tree mode enumerates tracked plus untracked-nonignored files through Git
 fails. Snapshot mode checks the supplied exported tree with no dependence on the caller's working tree.
 Neither silently scans zero files.
 
-Its root enforcement helpers are covered by `tools/gate-mutation-test.py`: deleting each helper's effect must
+Its root enforcement helpers are covered by `tools/gate-mutation-test.py`: deleting each helper's effect must <!-- FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY -->
 make that helper's own named controls fail.
 
-Once the tree complies, `diet` joins the `Makefile`, `check` depends on it, and `.githooks/pre-commit` runs
+Once the tree complies, `diet` joins the `Makefile`, `check` depends on it, and `.githooks/pre-commit` runs <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT --> <!-- FIDO-FCB-REF:MAKEFILE -->
 the staged copy against the exported staged tree, self-tests first in both paths. The build graph is not
 otherwise restructured; M3 owns that.
 

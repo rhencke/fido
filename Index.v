@@ -37,12 +37,12 @@ Inductive Kind := FileKind | PackageClauseKind | DeclarationKind | StatementKind
 
 (* how an occurrence participates in its parent; a conversion's two children are in source order *)
 Inductive Role :=
-| FileRoot                  (* the file root itself *)
-| FilePackage               (* the file's package clause *)
+| FileRoot
+| FilePackage
 | FileDeclaration (n : nat)        (* the n-th top-level declaration of a file *)
 | DeclarationStatement (n : nat)        (* the n-th statement in a declaration body *)
 | PrintlnArgument (n : nat)      (* the n-th argument of a println statement *)
-| ConversionTarget          (* the source type-name target of an explicit conversion expression *)
+| ConversionTarget
 | ConversionOperand.
 
 (* small structural metadata, with no copy of the recursive subtree *)
@@ -71,7 +71,7 @@ Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 (* The one-pass builder: a subtree returns its last id, a sibling run the next free one. *)
 
 Fixpoint build_expr (parent : positive) (role : Role) (me : positive) (e : Syntax.Expr)
-                    (t : Table.table Meta) : Table.table Meta * positive (* subtree_end *) :=
+                    (t : Table.table Meta) : Table.table Meta * positive  :=
   match e with
   | Syntax.BoolLiteral _ | Syntax.IntegerLiteral _ | Syntax.NegatedIntegerLiteral _ | Syntax.StringLiteral _ | Syntax.FloatLiteral _ | Syntax.ComplexLiteral _ =>
       (Table.set me (MakeMeta ExpressionKind (Some parent) role me) t, me)
@@ -619,7 +619,7 @@ Proof.
   destruct (build_seq build_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f) tp) as [t1 nx] eqn:E1.
   cbn [snd] in Hnx. subst nx. cbn [table].
   destruct (Pos.eqb_spec local root_id).
-  - (* file root *)
+  -
     subst. rewrite Table.get_set_same.
     cbn [option_map occurrence_meta occurrence_kind occurrence_parent occurrence_role occurrence_subtree_end].
     unfold count_file. reflexivity.

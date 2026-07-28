@@ -6,10 +6,6 @@
 # space or adds a final newline in those trees breaks a proof gate, the generated-byte compare, or the meaning
 # of a document.
 # Every `= false` below is load-bearing; do not "tidy" it away.
-#
-# Measured state when this file was added (141 tracked files): no CRLF anywhere, every file ends with a
-# newline, and the ONLY trailing whitespace lives in the two documentation trees called out below, where it is
-# Markdown hard line breaks and meaningful empty TSV fields.
 
 root = true
 
@@ -67,12 +63,11 @@ trim_trailing_whitespace = false
 
 # ---- sources ----
 
-# Rocq theory, OCaml transport boundary, shell gates: spaces, width 2 (measured dominant convention).
+# Rocq theory, OCaml transport boundary, shell gates: spaces, width 2.
 [*.{v,ml,mli,mlg,sh}]
 indent_style = space
 indent_size = 2
 
-# Markdown: two trailing spaces are a hard line break, so trimming is unsafe as a blanket rule; the prose in
-# this repo does not rely on it outside the documentation trees above, but keep the width convention explicit.
+# Markdown: two trailing spaces are a hard line break, so trimming is unsafe as a blanket rule.
 [*.md]
 indent_size = 2

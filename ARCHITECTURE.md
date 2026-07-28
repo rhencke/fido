@@ -5,7 +5,7 @@ representation — an intrinsic `ModuleSpec` (module path + Go version) paired w
 `Syntax.Files`: a STANDARD pinned-stdlib `FilePath.T`-keyed finite map (`FMapAVL`) of specification-shaped
 `Syntax.File` roots (the PATH is the map KEY; a construction/view `Syntax.FileNode` = a `FilePath.T` +
 a `Syntax.File`: a source-owned package clause + empty imports + top-level declarations). `Admissible`/`Property`
-are EVIDENCE and facts over that same program (never copies), the generated module file (`go.mod`) is
+are EVIDENCE and facts over that same program (never copies), the generated module file (`go.mod`) is <!-- FIDO-FCB-REF:GO-MOD -->
 RENDERED in Rocq, and the only handwritten OCaml is the Fido transport boundary (a term-decoding
 bridge + a filesystem sink), which understands filesystems, not programs.
 
@@ -299,7 +299,7 @@ AST->output->AST round-trip authority, no copied compiled AST, no handwritten OC
   fail-loud); (4) hand to `Fido Materialize` (the SOLE Rocq transport vernac — the authoritative pristine
   write for build validation).  There is no public `Fido Emit`: the publication SINK (`Sink.sync`) is a
   PRIVATE plugin module (NOT exported from `fido.emit`, so not independently usable as publication by any OCaml
-  consumer), reached only from INTERNAL OCaml (`e2e/sink_test.ml` + the `make regenerate` apply CLI), over the
+  consumer), reached only from INTERNAL OCaml (`e2e/sink_test.ml` + the `make regenerate` apply CLI), over the <!-- FIDO-FCB-REF:E2E-SINK-TEST-ML -->
   SAME decoded bytes. It does no semantic program/AST/
   behaviour inspection. That both provenance guards stay live is a mutation-sensitive REGRESSION gate, not a
   proof: the emit stage's negative fixtures (a raw transport + TRANSIENTLY-generated axiom/variable-backed
@@ -506,7 +506,7 @@ rejected; handled-failure residue left deliberately for the next run; a checksum
 the build succeeded; a constant-only audit that skips certified inductives or surviving named assumptions;
 a `Undef`-body-only axiom check posing as a whole-theory audit; tracked axiom-bearing fixtures; `go vet` as a
 blocking acceptance gate; single-file compiler semantics or a subset filter posing as compiler admissibility;
-a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a fail-open regex axiom
+a witness-specific extracted emit executable or a hard-coded `main.go` Docker copy; a fail-open regex axiom <!-- FIDO-FCB-REF:MAIN-GO -->
 scanner; a no-tracked-Go seal; a `dist/` directory; handwritten Go in the canonical module; a pre-commit that
 reads the unstaged working tree or auto-stages; timestamps/manifests as ownership authority; a claimed
 transactional whole-directory guarantee; a `TargetConfig`; a lexer/parser/tokenizer/round-trip/text-IR/

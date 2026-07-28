@@ -18,7 +18,7 @@ Definition header : string := "// fido was here.  woof woof.  do not edit.".
 
 (* The canonical Go interpreted string literal: one spelling per semantic byte sequence. *)
 
-Definition cr_c     : ascii := ascii_of_nat 13.   (* carriage return *)
+Definition cr_c     : ascii := ascii_of_nat 13.
 Definition dquote_c : ascii := ascii_of_nat 34.   (* the double-quote byte 0x22 *)
 Definition bslash_c : ascii := ascii_of_nat 92.
 
@@ -1230,7 +1230,7 @@ Proof.
     | s q Hdec
     | s c Hdc
     | ts inner ci tc Hinner IH Hconv ]; intros ci2 H2.
-  - (* H1 = BoolDenotes : the spelling is the concrete "true"/"false" *)
+  -
     destruct b; inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
@@ -1242,7 +1242,7 @@ Proof.
         | vm_compute in Hdc0; discriminate Hdc0
         | rewrite type_expr_spelling in Hs0; destruct (Syntax.type_expr_name ts0);
             cbn in Hs0; discriminate Hs0 ].
-  - (* H1 = IntegerDenotes : subst eliminates the string var into the outer [Hint] *)
+  -
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
@@ -1255,7 +1255,7 @@ Proof.
         | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
             rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint
         | rewrite conv_spelling_go_int_lit_false in Hint; discriminate Hint ].
-  - (* H1 = StringDenotes *)
+  -
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
@@ -1270,7 +1270,7 @@ Proof.
             rewrite Hrs in Hdc0; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc0;
             discriminate Hdc0
         | rewrite conv_spelling_decode_string_none in Hstr; discriminate Hstr ].
-  - (* H1 = FloatDenotes *)
+  -
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
@@ -1283,7 +1283,7 @@ Proof.
         | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
             rewrite Hrs in Hdec; rewrite head_c_decode_decimal_none in Hdec; discriminate Hdec
         | rewrite conv_spelling_decode_decimal_none in Hdec; discriminate Hdec ].
-  - (* H1 = ComplexDenotes : the leaf complex-literal spelling *)
+  -
     inversion H2 as
       [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
       | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;

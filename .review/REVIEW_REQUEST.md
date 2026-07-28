@@ -1,12 +1,12 @@
 # Review Request
 
-state: requested
+state: closed
 review: Implementation Review
 confirmation: no
 confirmation_used: no
 human_override: (M1 repair 1, authorized by Rob's upload of the blocking implementation review)
-result: awaiting Rob's human M1 review
-candidate: 71e70de20e11495ccb829130b6c021d9b00ce59c
+result: M1 candidate 71e70de BLOCKED by the second M1 implementation review
+candidate: (none — M1 repair 2 is in progress)
 
 contract: .review/M1_SOURCE_DIET.md
 review_basis: .review/REVIEW_BASIS.md

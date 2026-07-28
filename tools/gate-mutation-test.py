@@ -162,6 +162,65 @@ MUTANTS = (
      "        if False:",
      ('a required count that is not zero',)),
 
+    (DIET, 'the candidate-owned immutability rule',
+     "        elif a.is_file() and a.read_bytes() != b.read_bytes():",
+     "        elif False:",
+     ('the freeze changing one candidate disposition byte',
+      'candidate_bytes rewritten to the freeze size',
+      'the freeze changing one declaration-deletion row',
+      'the freeze changing one baseline row',
+      'the post-freeze gate rejects a freeze edit to candidate evidence')),
+
+    (DIET, 'the freeze overlay closure',
+     "        if same or rel in FREEZE_OVERLAY:",
+     "        if True:",
+     ('a freeze-only change outside the closed overlay',)),
+
+    (DIET, 'the pending-metrics rule',
+     "    if len(lines) > 1:",
+     "    if False:",
+     ("a candidate carrying another candidate's completed metric table",)),
+
+    (DIET, 'the candidate ref the review state names',
+     "    return m.group(1) if m else None",
+     "    return None",
+     ('the disposition gate runs in post-freeze mode once a candidate is named',
+      'the post-freeze gate rejects a freeze edit to candidate evidence')),
+
+    (DIET, 'declaration ownership of the following commands',
+     "        if opens_proof(nxt):",
+     "        if True:",
+     ('a deleted declaration beside a Hint \u2014 the declaration alone',
+      'a deleted declaration beside an Opaque \u2014 the declaration alone',
+      'a deleted declaration beside an End \u2014 the declaration alone')),
+
+    (DIET, 'the proof-opener test',
+     "    return cmd is not None and (cmd == 'Proof.' or cmd.startswith('Proof '))",
+     "    return False",
+     ('a terminator carrying a closing brace',
+      'a proof-bearing definition removed with its own proof')),
+
+    (DIET, 'the terminator test',
+     "    return bool(parts) and parts[-1] in PROOF_TERMINATORS",
+     "    return False",
+     ('a terminator carrying a closing brace',
+      'a statement carrying := that still opens a proof')),
+
+    (DIET, 'the undecidable-shape refusal',
+     "        if ':=' in cmds[i] or kind in SELF_CONTAINED_KINDS:",
+     "        if True:",
+     ('a declaration with neither a body nor a proof',)),
+
+    (DIET, 'the self-contained kind set',
+     "                                  'axiom', 'parameter', 'ltac'})",
+     "                                  })",
+     ('an assumption with no body and no proof',)),
+
+    (DIET, 'the refusal to run a proof into the next declaration',
+     "                other = command_declaration(cmds[j])",
+     "                other = None",
+     ('a proof that runs into the next declaration',)),
+
     (DIET, 'surviving-declaration command equality',
      "        if expect == actual:\n            continue",
      "        if True:\n            continue",
@@ -234,6 +293,22 @@ MUTANTS = (
      "            hit = SECTION_LABEL.search(body)",
      "            hit = None",
      ('a section label', 'a lettered label', 'a shouted multi-word label')),
+
+    (DIET, 'identifier-only rejection',
+     "            if IDENTIFIER_ONLY.match(stripped):",
+     "            if False:",
+     ('an identifier-only comment', 'a constructor-only comment',
+      'a bracketed identifier-only comment')),
+
+    (DIET, 'proof-case label rejection',
+     "            if PROOF_CASE_LABEL.match(stripped):",
+     "            if False:",
+     ('a proof-case label',)),
+
+    (DIET, 'bullet label rejection',
+     "            if BULLET_LABEL.match(stripped):",
+     "            if False:",
+     ('a bullet label',)),
 
     (DIET, 'decorative-glyph rejection',
      "            hit = DECORATIVE_GLYPH.search(body)",

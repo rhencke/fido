@@ -532,7 +532,7 @@ Proof. intros o Hv. unfold occurrence_expr_fact. rewrite Hv. reflexivity. Qed.
 
 (* the production outcome authority: bottom-up, reading each retained reference rather than rescanning *)
 Inductive ExpressionOutcome (p : Syntax.Program) : Type :=
-  | ExpressionSuccess       : ExpressionFact -> ExpressionOutcome p                 (* a leaf or a successful conversion *)
+  | ExpressionSuccess       : ExpressionFact -> ExpressionOutcome p
   | ConversionFailure : Index.ExprRef p -> Index.TypeNameRef p -> Index.ExprRef p -> Typing.SemanticType -> Typing.ConstantInfo -> ExpressionOutcome p
       (* a local invalid conversion carries its own references, resolved target and operand status *)
   | ChildFailure : ExpressionOutcome p.                           (* blocked: the operand's outcome was a real non-success *)
@@ -1765,8 +1765,8 @@ Record Input (p : Syntax.Program) : Type := MakeInput {
   indexed     : Index.Program p ;
   input_blocks : list (list (Index.Snapshot.NodeRef p * Index.Occurrence)) ;
   input_visit  : list (Index.Snapshot.NodeRef p * Index.Occurrence) ;   (* STORED once, consumed by every builder *)
-  input_blocks_ok    : input_blocks = program_blocks p ;   (* PROVENANCE (spec): the stored blocks ARE the snapshot's *)
-  input_visit_blocks : input_visit  = concat input_blocks  (* COHERENCE: the stored visit IS its blocks' flattening *)
+  input_blocks_ok    : input_blocks = program_blocks p ;
+  input_visit_blocks : input_visit  = concat input_blocks
 }.
 Arguments MakeInput {p} _ _ _ _ _.
 Arguments indexed {p} _.  Arguments input_blocks {p} _.  Arguments input_visit {p} _.
@@ -1870,7 +1870,7 @@ Proof.
     injection Hout_proj as Hopf. subst opf. cbn [const_status].
     rewrite Htr.
     destruct (Typing.convert_constant (predeclared_type ts) cx) as [tc|] eqn:Ecv.
-    + (* conversion succeeds: ExpressionSuccess typed fact = occurrence's [constant_info] *)
+    +
       assert (Hci : constant_info (Syntax.Convert ts x) = Some (Typing.TypedInfo (predeclared_type ts) tc)).
       { rewrite const_info_conv_eq, Ecx. cbn [option_map]. rewrite Ecv. reflexivity. }
       cbn [outcome_matches].
@@ -1892,7 +1892,7 @@ Proof.
     cbn [outcome_matches]. split.
     + unfold occurrence_expr_fact. rewrite Hv, const_info_conv_eq, Ecx. reflexivity.
     + exists (Syntax.Convert ts x). split; [exact Hv | cbn [local_conv_failure]; rewrite Ecx; reflexivity].
-  - (* operand was blocked-by-child: same *)
+  -
     cbn [outcome_proj_fact] in Hout_proj. unfold occurrence_expr_fact in Hout_proj. rewrite Hopr_view in Hout_proj.
     destruct (constant_info x) as [cx|] eqn:Ecx; [discriminate Hout_proj|].
     cbn [outcome_matches]. split.
@@ -2237,10 +2237,10 @@ Proof.
     apply nodup_map_filter. rewrite (input_visit_ok input). exact (program_visit_key_nodup p). }
   (* the ONE index build, over the item list ALREADY built above — no second discovery, no re-traversal. *)
   refine (MakeForest bs (concat bs) eq_refl Hbs Hitems Hnd (build_work_index (concat bs) Hnd) _ _).
-  - (* forest_reverse *)
+  -
     intros w Hw. pose proof (in_map (fun w0 => (work_node_ref w0, work_occurrence w0)) _ _ Hw) as Hp.
     rewrite Hitems in Hp. apply filter_In in Hp. exact (proj1 Hp).
-  - (* forest_forward *)
+  -
     intros nr occ e Hin Hv.
     assert (Hf : In (nr, occ) (filter occurrence_is_expr (input_visit input))).
     { apply filter_In. split; [exact Hin | unfold occurrence_is_expr; cbn [snd]; rewrite Hv; reflexivity]. }
@@ -2605,21 +2605,21 @@ Proof.
   - exact (leaf_stored_matches (index input) (work_node_ref current) (work_expr_ref current)
              (work_occurrence current) (work_expr current) ci (work_view_exact current)
              (work_occ_role current) Hconst).
-  - (* the success cause equals the conversion outcome over a succeeding operand *)
+  -
     enough (Hm : outcome_matches (index input) (work_node_ref current) (work_occurrence current)
                    (conv_outcome tnft (work_expr_ref current) (conversion_target_node_ref (step_conversion step))
                       (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
                       (accumulator_total acc_rest (step_operand_suffix step)))).
     { revert Hm. rewrite Hop. cbn [conv_outcome]. rewrite Hconv. exact (fun H => H). }
     apply conv_step_matches; assumption.
-  - (* ConversionFailureCause *)
+  -
     enough (Hm : outcome_matches (index input) (work_node_ref current) (work_occurrence current)
                    (conv_outcome tnft (work_expr_ref current) (conversion_target_node_ref (step_conversion step))
                       (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
                       (accumulator_total acc_rest (step_operand_suffix step)))).
     { revert Hm. rewrite Hop. cbn [conv_outcome]. rewrite Hconv. exact (fun H => H). }
     apply conv_step_matches; assumption.
-  - (* ChildFailureCause: operand failed, so [conv_outcome] is [ChildFailure] *)
+  -
     enough (Hm : outcome_matches (index input) (work_node_ref current) (work_occurrence current)
                    (conv_outcome tnft (work_expr_ref current) (conversion_target_node_ref (step_conversion step))
                       (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
@@ -2698,7 +2698,6 @@ Proof.
   unfold extend_acc; cbn [accumulator_map]. rewrite Hk. apply Index.key_map_add_equal.
 Qed.
 
-(* the TAIL query PRESERVATION (one step): extending by a FRESH head leaves every tail member's outcome unchanged. *)
 Lemma extend_tail_query {p} {input : Input p} {forest : WorkForest input} {tnft}
     {rest : list (Work input)} (acc_rest : Accumulator forest tnft rest)
     (current : Work input) (o : ExpressionOutcome p)
@@ -2753,7 +2752,7 @@ Proof.
   - destruct (proj2_sig sm).
   - destruct (Index.key_eq_dec (sm_key sm) (Index.Snapshot.node_ref_key (work_node_ref current)))
       as [Hhead | Htail].
-    + (* this member IS [current] *)
+    +
       assert (Hsw : sm_work sm = current)
         by (apply (forest_key_inj forest (sm_work sm) current (proj2_sig (proj1_sig sm)) Hin_c); exact Hhead).
       assert (Ho : accumulator_total (extend_acc acc_rest current o) sm = o)
@@ -2765,7 +2764,7 @@ Proof.
         rewrite (accumulator_total_irrel (extend_acc acc_rest current o) (proj1_sig sm2) Hlift
                    (or_intror (proj2_sig sm2))).
         symmetry. exact (extend_tail_query acc_rest current o Hfresh sm2).
-    + (* this member is in [rest] *)
+    +
       assert (Hin_rest : In (sm_work sm) rest).
       { destruct (proj2_sig sm) as [Hcur | Hin].
         - exfalso. apply Htail. unfold sm_key. do 2 f_equal. exact (eq_sym Hcur).
@@ -3052,7 +3051,7 @@ Proof.
     try discriminate Hov.
   - (* LeafCause: leaf_outcome = ExpressionSuccess, but [current] is a conversion (has a child) — contradiction *)
     exfalso. rewrite Hconvcur in Hnone. cbn [Typing.expression_child] in Hnone. discriminate Hnone.
-  - (* ConversionSuccessCause: identify the constructor's ts/x with the source ts0/x0 by Syntax.Convert injectivity *)
+  -
     assert (Hid : Syntax.Convert ts x = Syntax.Convert ts0 x0) by (rewrite <- He; exact Hconvcur).
     injection Hid as Hts Hx. subst ts0 x0.
     injection Hov as Hf. exists step, opf, tc.
@@ -3430,7 +3429,6 @@ Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
   flat_map f (map g l) = flat_map (fun x => f (g x)) l.
 Proof. induction l as [|a l IH]; [reflexivity|]. cbn [map flat_map]. rewrite IH. reflexivity. Qed.
 
-(* the annotation preserves the underlying occurrence stream (it only attaches context). *)
 Lemma annotate_encl_fst {p} (idx : Index.Snapshot.Syntax p) stack stream :
   map fst (annotate_encl idx stack stream) = stream.
 Proof.
@@ -3472,7 +3470,7 @@ Proof.
     + exact (Hbnd ro0 er se (or_introl eq_refl) Hstack).
     + rewrite Hse. exact Hle.
   - refine (IH _ Hsort0 (fun ro' Hr => Hval ro' (or_intror Hr)) _ _ roc ctx Hin er Her).
-    + (* estack_ok idx stack' *)
+    +
       destruct (Index.as_expr idx (fst ro0)) as [er0|] eqn:Ea.
       * destruct (is_conversion_occ (snd ro0)) eqn:Hc0.
         -- intros e s [Hh | Ht].
@@ -4556,7 +4554,6 @@ Proof.
   rewrite occurrence_default_ok_operand, occurrence_default_ok_typename, !Bool.andb_true_l; apply IHx.
 Qed.
 
-(* a println-argument root occurrence is default-OK IFF its untyped constant defaults (typed / failed = OK). *)
 Lemma occurrence_default_ok_printlnarg : forall e par aidx sub,
   occurrence_default_ok (Index.MakeOccurrence Index.ExpressionKind (Index.ExpressionView e) (Some par) (Index.PrintlnArgument aidx) sub)
   = match constant_info e with Some (Typing.UntypedInfo c) => match Typing.default_constant c with Some _ => true | None => false end | _ => true end.
@@ -6138,7 +6135,7 @@ Proof.
         -- apply String.eqb_eq in Ek. rewrite PackageFacts.map_o, PackageFacts.add_eq_o, PackageFacts.add_eq_o by exact Ek. reflexivity.
         -- apply String.eqb_neq in Ek. rewrite PackageFacts.map_o, PackageFacts.add_neq_o, PackageFacts.add_neq_o by exact Ek.
            rewrite <- PackageFacts.map_o. exact (IHk k).
-    + (* Index.PackageClauseKind: neither *)
+    +
       assert (Hd : Index.as_decl idx (fst ro) = None)
         by (apply Index.as_kind_mismatch; rewrite Hk; discriminate).
       assert (Hf : Index.as_kind idx (fst ro) Index.FileKind = None)
@@ -6155,13 +6152,13 @@ Proof.
         rewrite <- IHo. destruct (PackageMap.find (occurrence_pkg ro) acc) as [la|]; reflexivity.
       * apply String.eqb_neq in Ek. rewrite PackageFacts.map_o, PackageFacts.add_neq_o, PackageFacts.add_neq_o by exact Ek.
         rewrite <- PackageFacts.map_o. exact (IHk k).
-    + (* Index.StatementKind: neither *)
+    +
       assert (Hd : Index.as_decl idx (fst ro) = None)
         by (apply Index.as_kind_mismatch; rewrite Hk; discriminate).
       assert (Hf : Index.as_kind idx (fst ro) Index.FileKind = None)
         by (apply Index.as_kind_mismatch; rewrite Hk; discriminate).
       rewrite Hd, Hf. exact (IHk k).
-    + (* Index.ExpressionKind: neither *)
+    +
       assert (Hd : Index.as_decl idx (fst ro) = None)
         by (apply Index.as_kind_mismatch; rewrite Hk; discriminate).
       assert (Hf : Index.as_kind idx (fst ro) Index.FileKind = None)
@@ -6515,14 +6512,14 @@ Proof.
   - unfold bucket_of. rewrite PackageFacts.empty_o. split; [constructor | intros a []].
   - apply StronglySorted_inv in Hsort. destruct Hsort as [Hsort0 Hhd].
     specialize (IH Hsort0). destruct (IH dir) as [IHsort IHref]. split.
-    + (* the bucket stays Index.Key-sorted *)
+    +
       rewrite (program_package_fold_bucket_cons idx ro l dir).
       destruct (String.eqb (occurrence_pkg ro) dir) eqn:Ek; [ destruct (Index.as_decl idx (fst ro)) as [dr|] eqn:Ed | ]; try exact IHsort.
       assert (Her : Index.erase_ref dr = fst ro) by exact (Index.erase_as_kind idx (fst ro) Index.DeclarationKind dr Ed).
       constructor; [ exact IHsort |].
       rewrite Forall_forall. intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]].
       rewrite Forall_forall in Hhd. rewrite Her, Hae. exact (Hhd ro' Hro').
-    + (* every bucket ref erases to a stream occurrence *)
+    +
       rewrite (program_package_fold_bucket_cons idx ro l dir).
       destruct (String.eqb (occurrence_pkg ro) dir) eqn:Ek; [ destruct (Index.as_decl idx (fst ro)) as [dr|] eqn:Ed | ].
       * assert (Her : Index.erase_ref dr = fst ro) by exact (Index.erase_as_kind idx (fst ro) Index.DeclarationKind dr Ed).
@@ -8318,7 +8315,7 @@ Qed.
 Module Type CAPABILITY.
   Parameter Program : Type.
   Parameter source   : Program -> Syntax.Program.
-  Parameter core     : forall cp : Program, Core (source cp).   (* THE retained whole elaboration *)
+  Parameter core     : forall cp : Program, Core (source cp).
   Parameter accepted : forall cp : Program, core_diagnostics (core cp) = nil.
 
   Parameter Failure : Syntax.Program -> Type.
@@ -8437,7 +8434,6 @@ Definition admissible (cp : Program) : Admissible (source cp) :=
   conj (preflight (facts cp))
        (source_valid (facts cp)).
 
-(* the capability's phase and tables are the retained core's own, all by reflexivity *)
 Theorem compilable_retains_phase : forall cp : Program, program_phase cp = phase (core cp).
 Proof. reflexivity. Qed.
 
@@ -8871,7 +8867,6 @@ Definition nested_conv_program : Syntax.Program :=
 Example nested_conv_untyped : program_typedb nested_conv_program = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(* the exact report: one invalid-conversion diagnostic, anchored at the inner conversion *)
 Theorem nested_conv_erased_report :
   erased_report nested_conv_program (Index.Snapshot.index_program nested_conv_program)
   = [ MakeErased CodeInvalidConversion
@@ -8885,7 +8880,6 @@ Definition three_main_program : Syntax.Program :=
   singleton_program c3_ms (FilePath.Make "main.go" eq_refl)
     [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 2 ] ]; Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 3 ] ] ].
 
-(* the exact report: two redeclarations, each related to the first canonical main *)
 Theorem three_main_erased_report :
   erased_report three_main_program (Index.Snapshot.index_program three_main_program)
   = [ MakeErased CodeMainRedeclared
@@ -8900,7 +8894,6 @@ Proof. rewrite erased_report_src_eq. vm_compute. reflexivity. Qed.
 Definition missing_main_program : Syntax.Program :=
   singleton_program c3_ms (FilePath.Make "main.go" eq_refl) [ ].
 
-(* the exact report: one missing-main diagnostic at a package anchor, never at a fake node *)
 Theorem missing_main_erased_report :
   erased_report missing_main_program (Index.Snapshot.index_program missing_main_program)
   = [ MakeErased CodeMissingMainEntry (AnchorPackage "") [] None None None ].
@@ -9717,7 +9710,6 @@ Record AcceptedFixture (cp : Program) (Hcp : source cp = deep_nested_program) : 
         (Syntax.Convert (Syntax.type_expr_of_name Names.Int16)
           (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 5)))) ;
 
-  (* acceptance is the retained diagnostic lists being empty, the phase's, the raw and the final *)
   accepted_fixture_phase_diagnostics : phase_diags (phase (core cp)) = nil ;
   accepted_fixture_raw_diagnostics : core_raw_diagnostics (core cp) = nil ;
   accepted_fixture_final_diagnostics : core_diagnostics (core cp) = nil

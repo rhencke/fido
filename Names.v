@@ -5,9 +5,9 @@ Local Open Scope string_scope.
 
 Definition is_alpha (c : ascii) : bool :=
   let n := nat_of_ascii c in
-  (Nat.leb 65 n && Nat.leb n 90) || (Nat.leb 97 n && Nat.leb n 122).                       (* A..Z a..z *)
+  (Nat.leb 65 n && Nat.leb n 90) || (Nat.leb 97 n && Nat.leb n 122).
 Definition is_digit (c : ascii) : bool :=
-  let n := nat_of_ascii c in Nat.leb 48 n && Nat.leb n 57.                                  (* 0..9 *)
+  let n := nat_of_ascii c in Nat.leb 48 n && Nat.leb n 57.
 Definition is_underscore (c : ascii) : bool := Ascii.eqb c "_"%char.
 
 Definition identifier_start (c : ascii) : bool := is_alpha c || is_underscore c.

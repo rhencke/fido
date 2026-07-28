@@ -23,7 +23,7 @@ Definition decimal_complex_1p5_0    : Complex.Decimal := Complex.MakeDecimal dec
 Definition decimal_complex_3_0      : Complex.Decimal := Complex.MakeDecimal decimal_3 decimal_0.        (* complex(3.0, 0.0)  *)
 Definition decimal_complex_single_rounding_0   : Complex.Decimal := Complex.MakeDecimal decimal_single_rounding decimal_0.     (* complex(scar, 0.0) *)
 
-Definition demo_file (*decls*) : list Syntax.Decl :=
+Definition demo_file  : list Syntax.Decl :=
   [ Syntax.Main [ Syntax.Println [ Syntax.BoolLiteral true; Syntax.IntegerLiteral 42; Syntax.NegatedIntegerLiteral 1; Syntax.NegatedIntegerLiteral ((2 ^ 63)%N) ]
           ; Syntax.Println []
           ; Syntax.Println [ Syntax.BoolLiteral false ]

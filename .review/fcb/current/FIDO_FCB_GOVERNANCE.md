@@ -262,7 +262,7 @@ root. Retyping a missing repository file as external evidence can therefore neve
 
 **An owner marker binds an exact token.** The marker line must carry the row's canonical path delimited on
 both sides. One path is never proved by a longer path that contains it: `dune` is not present because
-`dune-project` is.
+`dune-project` is. <!-- FIDO-FCB-REF:DUNE-PROJECT -->
 
 **The live FCB set is flat and closed.** Every immediate entry of the canonical live directory is a regular
 non-symlink file with exactly one manifest row and exactly one live-file table line. A directory, a symlink or

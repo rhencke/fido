@@ -271,77 +271,11 @@ chat. It is not authority and overrides nothing: nothing in it licenses work an 
 conflict with a protected FCB contract still goes through the bootstrap stop rule; an open human act still
 belongs in the FCB Human Review Index; a request for a review is still `.review/REVIEW_REQUEST.md`.
 
-## Files
-
-- **Certified theory** — exactly the modules `dune` declares, in dependency order; `dune-project` pins the <!-- FIDO-FCB-REF:DUNE-PROJECT -->
-  Dune language version, and each layer's responsibility is the charter's, not this list's: `ARCHITECTURE.md`.
-  `Decimal.v` · `Integer.v` · `Float.v` · `Complex.v` · `FilePath.v` · `ModulePath.v` · `Version.v` · <!-- FIDO-FCB-REF:DECIMAL-V --> <!-- FIDO-FCB-REF:INTEGER-V --> <!-- FIDO-FCB-REF:FLOAT-V --> <!-- FIDO-FCB-REF:COMPLEX-V --> <!-- FIDO-FCB-REF:FILEPATH-V --> <!-- FIDO-FCB-REF:MODULEPATH-V --> <!-- FIDO-FCB-REF:VERSION-V -->
-  `Collections.v` · `Names.v` · `Syntax.v` · `Index.v` · `Typing.v` · `Compilable.v` · `Safe.v` · <!-- FIDO-FCB-REF:COLLECTIONS-V --> <!-- FIDO-FCB-REF:NAMES-V --> <!-- FIDO-FCB-REF:SYNTAX-V --> <!-- FIDO-FCB-REF:INDEX-V --> <!-- FIDO-FCB-REF:TYPING-V --> <!-- FIDO-FCB-REF:COMPILABLE-V --> <!-- FIDO-FCB-REF:SAFE-V -->
-  `Render.v` · `Emit.v`. There is NO project-authored `FMap.v`. <!-- FIDO-FCB-REF:RENDER-V --> <!-- FIDO-FCB-REF:EMIT-V -->
-- `plugin/materialize.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit;
-  `plugin/sink.ml` — the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. <!-- FIDO-FCB-REF:PLUGIN-DUNE -->
-  `e2e/Witness.v` — the witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — <!-- FIDO-FCB-REF:E2E-WITNESS-V --> <!-- FIDO-FCB-REF:E2E-WITNESSMULTI-V -->
-  the multi-package differential; `e2e/WitnessEmpty.v` — the empty-program witness; `e2e/WitnessBytes.v` — the <!-- FIDO-FCB-REF:E2E-WITNESSBYTES-V --> <!-- FIDO-FCB-REF:E2E-WITNESSEMPTY-V -->
-  boundary-byte string witness (DISPOSABLE); `e2e/WitnessAlias.v` — the `byte`/`rune` source-alias pinned-Go <!-- FIDO-FCB-REF:E2E-WITNESSALIAS-V -->
-  differential (DISPOSABLE — `byte(255)`/`rune(65)` accepted by Go, never the canonical image); `e2e/WitnessNeg.v` <!-- FIDO-FCB-REF:E2E-WITNESSNEG-V -->
-  — the raw-transport rejection fixture (forged-image provenance fixtures are GENERATED TRANSIENTLY — no tracked
-  axioms); `e2e/sink_test.ml` — the sink driver; `e2e/apply.ml` — the filesystem-only `make regenerate` <!-- FIDO-FCB-REF:E2E-SINK-TEST-ML -->
-  apply adapter; `e2e/golden.stdout`, `e2e/golden.stderr`, `e2e/golden.exit` and `e2e/golden.bytes.hex` — <!-- FIDO-FCB-REF:E2E-GOLDEN-BYTES-HEX --> <!-- FIDO-FCB-REF:E2E-GOLDEN-EXIT --> <!-- FIDO-FCB-REF:E2E-GOLDEN-STDERR --> <!-- FIDO-FCB-REF:E2E-GOLDEN-STDOUT -->
-  the reviewed goldens.
-- **Tracked canonical generated module**: `go.mod` + `main.go` at the repo root (Fido-headed; verified <!-- FIDO-FCB-REF:GO-MOD --> <!-- FIDO-FCB-REF:MAIN-GO -->
-  byte-exact against the pristine `generated-module` Buildx layer by `make check` and the pre-commit hook).
-- `gate/Assumptions.v` — the `Print Assumptions` target. `tools/ocaml-origin-gate.sh` — the transport-only OCaml
-  origin gate; `tools/generated-output-gate.sh` — the tracked-generated-output policy gate;
-  `tools/generated-mode-gate.sh` — the index-authoritative exact-mode gate (hook only); <!-- FIDO-FCB-REF:TOOLS-GENERATED-MODE-GATE-SH -->
-  `tools/staged-generated-compare.sh` — the SHARED byte/path compare (working tree for `make check`, exported <!-- FIDO-FCB-REF:TOOLS-STAGED-GENERATED-COMPARE-SH -->
-  index for the hook). `tools/fmt-check.py` — the `make fmt` whitespace/format report against `.editorconfig` <!-- FIDO-FCB-REF:TOOLS-FMT-CHECK-PY -->
-  (property resolution delegated to the EditorConfig reference implementation; reports, never rewrites);
-  deliberately NOT a gate and NOT wired into `make check` or the hook, which stay code-level.
-- **The live-FCB document gates — `make fcb` (inside `make check`, and in the hook over the exported staged
-  tree); `make fcb-write` regenerates every generated view.** Each has ONE implementation shared by its writer
-  and its checker, and each runs its adversarial controls FIRST — every must-fail control pins the expected
-  failure REASON, so a control that starts failing for an unrelated reason is a gate failure, not a vacuous
-  pass. **NEVER hand-edit a generated view.**
-  - `tools/human-review-index.py` — Governance D-07. The set of open human acts is DISCOVERED from the <!-- FIDO-FCB-REF:TOOLS-HUMAN-REVIEW-INDEX-PY -->
-    canonical rows in `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv`; `FIDO_FCB_HUMAN_REVIEW_INDEX.md` is its
-    generated view. **To change a human act: edit its TSV row, edit its single `<!-- FIDO-HUMAN-ACT:<ID> -->`
-    anchor in the owning source named by that row, then `make fcb-write` and commit both together.** The gate
-    also checks each anchor occurs EXACTLY ONCE in its named owning source.
-  - `tools/fcb-reference-gate.py` — Governance D-24. Every OPERATIONAL path the live FCB names must resolve at <!-- FIDO-FCB-REF:TOOLS-FCB-REFERENCE-GATE-PY -->
-    the same exact ref, or be typed off-tree with an availability, in
-    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. That manifest also owns CORPUS MEMBERSHIP: the scanned set
-    is DERIVED from its `authority` rows, so a new authority is scanned by adding a row, never by editing the
-    gate, and the path universe is derived from the snapshot's own inventory. An owner marker binds its exact
-    path TOKEN — `dune` is not proved by `dune-project`. A missing ROOT path must be written in the explicit
-    root-relative form (a dot and a slash before the name), because a bare word is not a path, and that
-    spelling is a REFERENCE rather than a prose placeholder, in this file as much as anywhere else.
-  - `tools/closure-ledger-view.py` — `FIDO_FCB_CLOSURE_LEDGER.md` is regenerated from the canonical 491-row <!-- FIDO-FCB-REF:TOOLS-CLOSURE-LEDGER-VIEW-PY -->
-    `.csv`, so its own claim to be generated is true rather than decorative.
-  - `tools/gate-mutation-test.py` — every root helper in these gates must be LOAD-BEARING. It deletes one <!-- FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY -->
-    helper's effect in a copy of the tree, reruns that gate's own self-test, and requires the SPECIFIC named
-    controls depending on that rule to fail. A self-test proves controls pass; only this proves they would
-    catch anything.
-- **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
-  thing no other gate reads, so it can drift past what the public statements carry. `.review/M1_OBLIGATION_MATRIX.tsv`
-  holds one row per obligation of the ACTIVE checkpoint — the gate's subject moves when the active work moves —
-  naming the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS
-  under that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
-  builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish it
-  and cites nothing; **`.review/REVIEW_REQUEST.md` may not request review while any row is open**, so freezing
-  early is a gate failure rather than a judgement call. **The gate does not judge whether a theorem is strong
-  enough — a human does that, and saying so narrowly is the point.**
-- `.editorconfig` at the root, plus a nested `.review/fcb/.editorconfig` — the byte rules live WITH the <!-- FIDO-FCB-REF:REVIEW-FCB-EDITORCONFIG --> <!-- FIDO-FCB-REF:EDITORCONFIG -->
-  documents they govern. Their `trim_trailing_whitespace = false` entries are load-bearing: generated Go,
-  reviewed goldens, tabular ledgers whose trailing tab is a meaningful empty field, and Markdown hard line
-  breaks.
-- `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine <!-- FIDO-FCB-REF:MAKEFILE --> <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT -->
-  `generated-module`/`sync`/`generated-artifact` stages. The hook is bypassable with `--no-verify` (a
-  documented prototype-stage escape); it gives reasonable assurance against accidental stale generated output
-  for a cooperating developer, NOT resistance to deliberate modification of its own verifier.
-
 ## Where the detail lives
 
 - **`ARCHITECTURE.md`** — ★ the binding charter (layers, responsibilities, the transport boundary, trust).
 - **`PROGRESS.md`** — the live status ledger. · **`PAINFUL_LESSONS.md`** — why rejected shapes must not
   reappear. · **`.review`** — the active checkpoint, review policy and open questions. · **`git log`** — <!-- FIDO-FCB-REF:REVIEW -->
   the archive.
+- **`README.md`** — the public entry point; **`.gitignore`** keeps build residue and interpreter bytecode <!-- FIDO-FCB-REF:README-MD --> <!-- FIDO-FCB-REF:GITIGNORE -->
+  out of the tracked tree.
