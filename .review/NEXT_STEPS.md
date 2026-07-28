@@ -11,6 +11,9 @@ carries a candidate identity.
   The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_5.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-5-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
+- **The M1 repair-5 candidate is `6524b437bd7a7d6b2616563b8789e28a00c7af13`**, frozen and awaiting Rob's review.
+  Current documents carry current state: no copied candidate history, and every unsupported-boundary
+  entry states what is excluded now rather than how an earlier draft read.
 - **Earlier M1 candidates are superseded.** Git history owns their refs, freezes, findings, and repair narratives.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M1 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
