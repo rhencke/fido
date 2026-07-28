@@ -134,5 +134,5 @@ tools/naming-gate.py	43959	keep	proved-restriction	make names	the A005 scoped-na
 tools/ocaml-origin-gate.sh	4632	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4632
 tools/regen-guard-test.sh	2950	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	2950
 tools/rocq-profile.py	3809	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	3809
-tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	80018
+tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	82180
 tools/staged-generated-compare.sh	3406	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	3406

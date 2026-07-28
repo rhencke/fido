@@ -919,6 +919,24 @@ def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
 
 # ───────────────────────────────────────────────────────────── modes
 
+def write_metrics_table(root: Path, baseline_ref: str, candidate_ref: str) -> int:
+    """Write the metric table from two exact Git trees, through the SAME rows the checker recomputes.
+
+    A table authored by hand is a table nobody can rebuild; a table authored by a second implementation is two
+    answers waiting to disagree."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        base = export_tree(root, baseline_ref, Path(tmp) / 'baseline')
+        cand = export_tree(root, candidate_ref, Path(tmp) / 'candidate')
+        base_files, cand_files = inventory(base, snapshot=True), inventory(cand, snapshot=True)
+        base_m = measure(base, base_files, scan_v(base, base_files)[0])
+        cand_m = measure(cand, cand_files, scan_v(cand, cand_files)[0])
+        rows = metric_rows(base_m, cand_m)
+    body = '\t'.join(METRIC_FIELDS) + '\n' + ''.join('\t'.join(r) + '\n' for r in rows)
+    (root / METRICS_REL).write_text(body, encoding='utf-8')
+    return len(rows)
+
+
 def write_disposition(root: Path, baseline_ref: str):
     """Rewrite the mechanical disposition fields from two exact trees, keeping every recorded judgement.
 
@@ -1334,6 +1352,11 @@ def self_test() -> int:
                 failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
 
     met('a metric table equal to recomputation', lambda rows: None)
+    met('the writer output read back by the checker',
+        lambda rows: rows.__setitem__(slice(None),
+                                      [dict(zip(METRIC_FIELDS, r)) for r in metric_rows(
+                                          {k: (100 if k != 'v_comment_percent' else 20.0) for k in METRIC_ORDER},
+                                          {k: (50 if k != 'v_comment_percent' else 10.0) for k in METRIC_ORDER})]))
     met('a tampered metrics candidate value',
         lambda rows: rows[0].__setitem__('candidate', '49'), expect='recomputation gives')
     met('a tampered delta', lambda rows: rows[1].__setitem__('delta', '-1'), expect='recomputation gives')
@@ -1479,6 +1502,8 @@ def main() -> int:
     ap.add_argument('--code-identical', default=None, metavar='REF',
                     help='every surviving Rocq declaration is identical to REF (or `baseline` for the sealed '
                          'ref) after removing exactly the ledgered declarations')
+    ap.add_argument('--write-metrics-table', action='store_true',
+                    help='write the M1 metric table from --baseline-ref and --candidate-ref')
     ap.add_argument('--write-disposition', action='store_true',
                     help='rewrite the mechanical disposition fields from --baseline-ref and the working tree')
     ap.add_argument('--verify-m1-evidence', action='store_true',
@@ -1491,7 +1516,8 @@ def main() -> int:
         rc = self_test()
         if rc or not (args.check or args.measure or args.write_metrics
                       or args.against_baseline or args.code_identical
-                      or args.verify_m1_evidence or args.write_disposition):
+                      or args.verify_m1_evidence or args.write_disposition
+                      or args.write_metrics_table):
             return rc
     try:
         if args.measure or args.write_metrics:
@@ -1503,6 +1529,14 @@ def main() -> int:
                 ref = f' at {args.baseline_ref}' if args.baseline_ref else ''
                 print(f'fido: source-diet wrote {len(METRIC_ORDER)} sealed metrics{ref} '
                       f'to {args.write_metrics} ✓')
+        if args.write_metrics_table:
+            if not (args.verify_baseline and args.verify_candidate):
+                print('fido: SOURCE-DIET FAILED — --write-metrics-table needs both --baseline-ref '
+                      'and --candidate-ref', file=sys.stderr)
+                return 1
+            n = write_metrics_table(root, args.verify_baseline, args.verify_candidate)
+            print(f'fido: source-diet wrote {n} metric row(s) '
+                  f'{args.verify_baseline[:7]} -> {args.verify_candidate[:7]} ✓')
         if args.write_disposition:
             ref = args.baseline_ref or 'baseline'
             if ref == 'baseline':
