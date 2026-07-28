@@ -237,7 +237,7 @@ make fcb-write   # regenerate every generated FCB view from its canonical source
 make claims      # the claim-to-theorem matrix: every completion claim names a surface that exists
 make diet        # the M1 source-diet gate: the comment law, the exact ledgers, the baseline comparison
 make names       # the A005 scoped-name policy gate
-make fmt         # the .editorconfig whitespace/format report (reports, never rewrites; not a gate)
+make fmt         # the .editorconfig whitespace/format report (reports, never rewrites; not a gate) <!-- FIDO-FCB-REF:EDITORCONFIG -->
 make prover-log  # stream the plain Rocq log
 make prove-errors# just the Rocq File/Error lines (Buildx echoes the whole recipe on failure and buries them)
 make install-hooks

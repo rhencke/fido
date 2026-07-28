@@ -198,7 +198,17 @@ before Rob accepts M1.
    current proof dependencies; M3 must classify them as required public surfaces or dead declarations.
 5. Active-checkpoint subject constants are manually retargeted in `tools/claim-matrix-gate.py`. <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
 6. Host and container placement, repeated source enumeration, and acceptance-graph factoring remain M3 work.
-7. `tools/claim-matrix-gate.py` has no entry in the mutation harness, so its controls are exercised but never
+7. **M3-FRAGILE-PROSE.** Stable prose names identities, not mutable positions or hand-maintained
+   cardinalities. Prefer stable IDs, declaration names, typed paths, anchors, canonical registries and exact
+   Git objects. Tools may report current counts and line numbers as diagnostics. A numeric cardinality belongs
+   in normative prose only when the cardinality itself is fixed and machine-checked. M3 audits copied file,
+   row, control, surface, component and obligation counts; source and document line-number references; "first
+   N lines" and other positional assumptions; list-position identity; and prose restating a count a registry
+   or generated view already owns. Do not add a generic number scanner — classify actual ownership and replace
+   fragile identity with stable identity.
+8. `tools/source-diet.py` retains M1 replay modes that will be dormant once M1 is accepted; M3 classifies or
+   deletes them.
+9. `tools/claim-matrix-gate.py` has no entry in the mutation harness, so its controls are exercised but never
    proved load-bearing.
 
 The whole-theory assumption audit remains the authority for zero assumptions; findings 2 through 4 are about

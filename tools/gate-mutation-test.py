@@ -107,6 +107,17 @@ MUTANTS = (
      r"""    r"(?P<name>Hidden[A-Za-z0-9_']*)\s*:=")""",
      ('local alias Resolve', 'indented local alias')),
 
+    (DIET, 'the permanent wiring scan',
+     "        found += [f'{rel} invokes {mode}' for mode in M1_ONLY_MODES if mode in text]",
+     "        found += []",
+     ('a diet target that regained the code-identity check',
+      'a staged hook that regained the disposition check')),
+
+    (DIET, 'the diet recipe boundary',
+     "        if seen and line and not line[0].isspace():\n            break",
+     "        if seen and line and not line[0].isspace():\n            pass",
+     ('a later Make target that runs the M1 verifier, which the diet recipe must not absorb',)),
+
     (DIET, 'the default-comment law',
      "            is_default = lines == 1 and len(block) == 1 and not over",
      "            is_default = True",
@@ -317,7 +328,45 @@ MUTANTS = (
 )
 
 
-def run_mutant(root: Path, tool: str, old: str, new: str):
+# The source-diet mutants below split by LIFETIME, not by subject.  A mutant listed here protects one
+# checkpoint's exit evidence, so it exercises `--m1-self-test` and runs only in the explicit M1 review run.
+# Everything else protects the permanent source-comment policy and runs in the ordinary gate.  A new M1
+# mutant that is not listed fails loudly in the permanent run rather than silently weakening it.
+M1_ONLY_MUTANTS = frozenset({
+    'the baseline seal',
+    'file-disposition coverage',
+    'the required-direction comparison',
+    'the required-zero counts',
+    'surviving-declaration command equality',
+    'the new and removed .v file rules',
+    'the ledger declaration-kind match',
+    'the ledger reason set',
+    'the still-declared check',
+    'the ledger placeholder rule',
+    'the strictly-superseded replacement rule',
+    'the disposition byte comparison',
+    'the disposition membership relation',
+    'the disposition action relation',
+    'metric equality with recomputation',
+    'declaration ownership of the following commands',
+    'the proof-opener test',
+    'the terminator test',
+    'the undecidable-shape refusal',
+    'the self-contained kind set',
+    'the refusal to run a proof into the next declaration',
+    'the candidate-owned immutability rule',
+    'the freeze overlay closure',
+    'the pending-metrics rule',
+    'the candidate ref the review state names',
+})
+
+
+def mutant_mode(label: str) -> str:
+    """Which self-test a mutant must break: the permanent policy one, or the M1 evidence one."""
+    return '--m1-self-test' if label in M1_ONLY_MUTANTS else '--self-test'
+
+
+def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-test'):
     src = (root / tool).read_text(encoding='utf-8')
     n = src.count(old)
     if n != 1:
@@ -327,7 +376,7 @@ def run_mutant(root: Path, tool: str, old: str, new: str):
         shutil.copytree(root, work, symlinks=True,
                         ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob', '__pycache__'))
         (work / tool).write_text(src.replace(old, new, 1), encoding='utf-8')
-        proc = subprocess.run([sys.executable, str(work / tool), '--root', str(work), '--self-test'],
+        proc = subprocess.run([sys.executable, str(work / tool), '--root', str(work), mode],
                               capture_output=True, text=True, cwd=work)
         return proc, None
 
@@ -335,12 +384,16 @@ def run_mutant(root: Path, tool: str, old: str, new: str):
 def main() -> int:
     ap = argparse.ArgumentParser(description='mutation tests for the document gates')
     ap.add_argument('--root', default='.')
+    ap.add_argument('--m1', action='store_true',
+                    help='run the M1 exit-evidence mutants instead of the permanent policy mutants')
     args = ap.parse_args()
     root = Path(args.root).resolve()
 
+    wanted = '--m1-self-test' if args.m1 else '--self-test'
+    selected = [m for m in MUTANTS if mutant_mode(m[1]) == wanted]
     failures = []
-    for tool, label, old, new, expected in MUTANTS:
-        proc, err = run_mutant(root, tool, old, new)
+    for tool, label, old, new, expected in selected:
+        proc, err = run_mutant(root, tool, old, new, wanted)
         if err is not None or proc is None:
             failures.append(f'{tool}: {label}: {err}')
             continue
@@ -361,9 +414,11 @@ def main() -> int:
     if failures:
         for f in failures:
             print(f'  FAIL  {f}')
-        print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} of {len(MUTANTS)} mutants wrong')
+        print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} of {len(selected)} mutants wrong')
         return 1
-    print(f'fido: gate-mutation test OK — {len(MUTANTS)} root helpers, each proved load-bearing by deleting '
+    group = 'M1 exit-evidence' if args.m1 else 'permanent-policy'
+    print(f'fido: gate-mutation test OK — {len(selected)} {group} root helpers, each proved load-bearing by '
+          f'deleting '
           f'its effect and watching its own named controls fail ✓')
     return 0
 

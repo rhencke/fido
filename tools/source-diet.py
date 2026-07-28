@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 
 # ───────────────────────────────────────────────────────────── canonical data
@@ -995,7 +996,6 @@ def check_freeze_overlay(cand: Path, cand_files, root: Path, root_files) -> str:
 
 def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
     """The one exit check: every M1 evidence artifact, against the two exact Git refs it describes."""
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         base = export_tree(root, baseline_ref, Path(tmp) / 'baseline')
         cand = export_tree(root, candidate_ref, Path(tmp) / 'candidate')
@@ -1025,8 +1025,9 @@ def verify_m1_evidence(root: Path, baseline_ref: str, candidate_ref: str):
         # the metric table is the freeze's, and it is checked against the two exact trees it names
         n_met = check_metrics_exact(load_tsv(root, METRICS_REL, METRIC_FIELDS, 'M1 metrics'),
                                     base_m, cand_m)
-        n_dis = check_disposition_exact(base_sizes, cand_sizes,
-                                        load_tsv(cand, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition'))
+        disp_rows = load_tsv(cand, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
+        check_disposition(disp_rows, cand_files)
+        n_dis = check_disposition_exact(base_sizes, cand_sizes, disp_rows)
         dels = load_tsv(cand, DELETIONS_REL, DELETION_FIELDS, 'M1 declaration deletions', allow_missing=True)
         code = check_code_exact(base, base_files, cand, cand_files, dels or [])
         bad = [k for k in MUST_DECREASE if float(cand_m[k]) >= float(base_m[k])]
@@ -1046,7 +1047,6 @@ def write_metrics_table(root: Path, baseline_ref: str, candidate_ref: str) -> in
 
     A table authored by hand is a table nobody can rebuild; a table authored by a second implementation is two
     answers waiting to disagree."""
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         base = export_tree(root, baseline_ref, Path(tmp) / 'baseline')
         cand = export_tree(root, candidate_ref, Path(tmp) / 'candidate')
@@ -1064,7 +1064,6 @@ def write_disposition(root: Path, baseline_ref: str):
 
     The ledger contains its own row, so writing it changes the size it must record.  The loop runs to that
     fixed point and fails rather than shipping a row that was true one write ago."""
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         base = export_tree(root, baseline_ref, Path(tmp) / 'baseline')
         base_sizes = tree_sizes(base, inventory(base, snapshot=True))
@@ -1106,7 +1105,6 @@ def check_disposition_against_ref(root: Path, ref: str, snapshot: bool = False,
 
     An exported staged snapshot holds no `.git`, so the repository that answers for a ref is named separately
     rather than assumed to be [root]."""
-    import tempfile
     repo = Path(git_root) if git_root else root
     if ref == 'baseline':
         ref = check_baseline(root)['baseline_ref']
@@ -1134,7 +1132,6 @@ def check_disposition_against_ref(root: Path, ref: str, snapshot: bool = False,
 
 def check_code_against_ref(root: Path, ref: str):
     """The exact declaration comparison between an exported [ref] and the working tree."""
-    import tempfile
     if ref == 'baseline':
         ref = check_baseline(root)['baseline_ref']
     with tempfile.TemporaryDirectory() as tmp:
@@ -1163,7 +1160,55 @@ def check_direction(root: Path, snapshot: bool):
     return len(MUST_DECREASE) + len(MUST_BE_ZERO)
 
 
+# The modes that prove ONE checkpoint's exit evidence.  They are correct, and they must never appear in a
+# permanent path: enforcing them on every build freezes the repository at that checkpoint's baseline.
+M1_ONLY_MODES = ('--against-baseline', '--disposition-exact', '--code-identical', '--verify-m1-evidence',
+                 '--write-metrics-table', '--write-disposition', '--m1-self-test')
+PERMANENT_WIRING = ('Makefile', '.githooks/pre-commit')
+
+
+def diet_recipe(text: str) -> str:
+    """The body of the `diet` target, which is the permanent path `make check` depends on."""
+    body, seen = [], False
+    for line in text.split('\n'):
+        if line.startswith('diet:'):
+            seen = True
+            continue
+        if seen and line and not line[0].isspace():
+            break
+        if seen:
+            body.append(line)
+    if not seen:
+        raise DietError('Makefile: no diet target, so the permanent wiring cannot be checked')
+    return '\n'.join(body)
+
+
+def check_permanent_wiring(root: Path) -> str:
+    """No permanent path invokes an M1 exit-evidence mode.
+
+    `make diet` and the staged hook run on every build and every commit, forever.  A checkpoint check wired
+    into either of them outlives that checkpoint and rejects the work that comes after it."""
+    found = []
+    for rel in PERMANENT_WIRING:
+        if not (root / rel).is_file():
+            raise DietError(f'{rel}: absent, so the permanent wiring cannot be checked')
+        text = read_v(root, rel)
+        if rel == 'Makefile':
+            text = diet_recipe(text)
+        found += [f'{rel} invokes {mode}' for mode in M1_ONLY_MODES if mode in text]
+    if found:
+        raise DietError(f'{len(found)} permanent path(s) invoke a checkpoint-only mode, which would freeze '
+                        f'this repository at that checkpoint: ' + '; '.join(found))
+    return f'{len(PERMANENT_WIRING)} permanent path(s) invoke only the permanent policy'
+
+
 def run_check(root: Path, snapshot: bool):
+    """The PERMANENT policy: the comment law over the current tree, and the exception relation both ways.
+
+    It reads the `.v` files and `M1_COMMENT_EXCEPTIONS.tsv`, and nothing else.  It does NOT consult the M1
+    baseline, metric table, file disposition, deletion ledger, obligation matrix, candidate ref or freeze
+    state: those are one checkpoint's exit evidence, and a permanent gate that enforced them would freeze the
+    repository at that checkpoint forever — no later file, no later declaration, no larger tree."""
     files = inventory(root, snapshot)
     blocks_by_file, findings = scan_v(root, files)
     if not blocks_by_file:
@@ -1173,14 +1218,10 @@ def run_check(root: Path, snapshot: bool):
                         + ('' if len(findings) <= 10 else f' … and {len(findings) - 10} more'))
     ex_rows = load_tsv(root, EXCEPTIONS_REL, EXCEPTION_FIELDS, 'M1 comment exceptions')
     n_ex = check_exceptions(ex_rows, blocks_by_file)
-    disp = load_tsv(root, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 file disposition', allow_missing=True)
-    n_disp = check_disposition(disp, files) if disp is not None else 0
-    if (root / BASELINE_REL).is_file():
-        check_baseline(root)
     n_blocks = sum(len(v) for v in blocks_by_file.values())
     return (f'{len(files)} file(s), {len(blocks_by_file)} .v file(s), {n_blocks} comment block(s) all obeying '
             f'the one-line 120-character one-sentence current-fact law; {n_ex} ledgered exception(s) matched '
-            f'both ways; {n_disp} file disposition(s)')
+            f'both ways')
 
 
 def run_measure(root: Path, snapshot: bool, out: Path | None, baseline_ref: str | None = None):
@@ -1208,9 +1249,10 @@ def print_measure(m):
 CLEAN_V = '(* the one integer authority *)\nDefinition kind := 0.\n'
 
 
-def self_test() -> int:
-    import tempfile
+def _control_harness():
+    """The shared scenario machinery, so the permanent and M1 control groups build fixtures alike."""
     failures, counts = [], {'total': 0, 'must_fail': 0}
+
 
     def fixture(d: Path, v_text: str, exceptions: str | None = None, extra=None):
         (d / 'Root.v').write_text(v_text, encoding='utf-8')
@@ -1260,6 +1302,28 @@ def self_test() -> int:
                     failures.append(f'{label}: expected success, failed with: {exc}')
                 elif expect not in str(exc):
                     failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    return failures, counts, fixture, scenario, scenario_run
+
+
+def _verdict(failures, counts, what: str) -> int:
+    total, must_fail = counts['total'], counts['must_fail']
+    if failures:
+        for f in failures:
+            print(f'  FAIL  {f}')
+        print(f'fido: SOURCE-DIET {what.upper()} FAILED — {len(failures)} of {total} controls wrong')
+        return 1
+    print(f'fido: source-diet {what} OK — {total} controls '
+          f'({must_fail} must-fail with the reason pinned, {total - must_fail} must-accept, all executed) ✓')
+    return 0
+
+
+def self_test() -> int:
+    """The PERMANENT source-comment policy controls.
+
+    These outlive M1: they judge comments and the exception relation, and nothing about a baseline,
+    a candidate or a freeze. A repository that has moved far past M1 must still pass every one."""
+    failures, counts, fixture, scenario, scenario_run = _control_harness()
 
     long_line = '(* ' + 'a fact that runs on ' * 6 + 'and on past the limit *)\n'
     # ── must fail: the default comment law
@@ -1363,15 +1427,84 @@ def self_test() -> int:
              expect='no .v files found')
     scenario('working-tree mode outside Git', lambda d: fixture(d, CLEAN_V),
              expect='is not a Git worktree', snapshot=False)
-    # ── must fail: the ledgers
-    scenario('a baseline metric changed after capture', lambda d: tampered_baseline(d, fixture),
-             expect='no longer match their own seal')
-    scenario('a current file absent from the file-disposition ledger',
-             lambda d: disposition(d, fixture, omit=True), expect='have no disposition row')
-    scenario('a deleted file still present', lambda d: disposition(d, fixture, phantom_delete=True),
-             expect='is still')
-    scenario('an M1-created file with no purpose', lambda d: disposition(d, fixture, bad_purpose=True),
-             expect='allowed present purposes')
+    # ── must accept: the permanent policy judges comments and lets the repository grow past M1
+    def moved_on(d: Path, extra=None):
+        """A tree with no temporary M1 evidence at all, plus whatever a later checkpoint added."""
+        fixture(d, CLEAN_V, extra=extra)
+        for rel in (BASELINE_REL, METRICS_REL, DISPOSITION_REL, DELETIONS_REL,
+                    '.review/M1_OBLIGATION_MATRIX.tsv'):
+            q = d / rel
+            if q.is_file():
+                q.unlink()
+        return d
+
+    LATER_V = '(* a later module states one current fact *)\nDefinition later : nat := 1.\n'
+    scenario('every temporary M1 evidence file absent', moved_on)
+    scenario('a later checkpoint report beside the source',
+             lambda d: moved_on(d, {'.review/M2_BUILD_OBSERVATORY.md': '# M2\n\nmeasured evidence.\n'}))
+    scenario('a new .v module with a compliant comment', lambda d: moved_on(d, {'Later.v': LATER_V}))
+    scenario('a new declaration added to an existing .v file',
+             lambda d: fixture(d, CLEAN_V + '(* a later fact that earns its place *)\n'
+                                            'Definition added : nat := 2.\n'))
+    scenario('a repository larger than it was at the M1 baseline',
+             lambda d: moved_on(d, {'Later.v': LATER_V, 'Bulk.v': LATER_V.replace('later', 'bulk'),
+                                    'docs/notes.md': 'x' * 4096}))
+    scenario('a new .v comment that breaks the permanent law',
+             lambda d: moved_on(d, {'Later.v': '(* THEOREM: the label the law rejects *)\n'
+                                               'Definition later : nat := 1.\n'}),
+             expect='section label')
+
+    # ── the permanent wiring itself, which runs on every build and every commit forever
+    def wiring(label, build, expect=None):
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            try:
+                build(d)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                check_permanent_wiring(d)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    CLEAN_DIET = ('\t@python3 tools/source-diet.py --self-test\n'
+                  '\t@python3 tools/source-diet.py --check\n')
+    CLEAN_HOOK = 'python3 "$ctx/tools/source-diet.py" --root "$ctx" --snapshot --check\n'
+
+    def wiring_tree(d: Path, diet_body=CLEAN_DIET, hook_body=CLEAN_HOOK):
+        (d / 'Makefile').write_text('check: diet\n\ndiet:\n' + diet_body + '\nfmt:\n\t@true\n',
+                                    encoding='utf-8')
+        (d / '.githooks').mkdir(parents=True, exist_ok=True)
+        (d / '.githooks/pre-commit').write_text(hook_body, encoding='utf-8')
+
+    wiring('a permanent wiring that runs only the permanent policy', wiring_tree)
+    wiring('a diet target that regained the code-identity check',
+           lambda d: wiring_tree(d, diet_body=CLEAN_DIET
+                                 + '\t@python3 tools/source-diet.py --code-identical baseline\n'),
+           expect='would freeze this repository')
+    wiring('a staged hook that regained the disposition check',
+           lambda d: wiring_tree(d, hook_body=CLEAN_HOOK
+                                 + 'python3 "$ctx/tools/source-diet.py" --disposition-exact baseline\n'),
+           expect='would freeze this repository')
+    def no_diet_target(d: Path):
+        wiring_tree(d)
+        (d / 'Makefile').write_text('check:\n\t@true\n', encoding='utf-8')
+
+    wiring('a Makefile with no diet target at all', no_diet_target, expect='no diet target')
+    wiring('a later Make target that runs the M1 verifier, which the diet recipe must not absorb',
+           lambda d: wiring_tree(d, diet_body=CLEAN_DIET
+                                 + '\nm1-evidence:\n\t@python3 tools/source-diet.py --verify-m1-evidence\n'))
+    wiring('an absent permanent path, which cannot be proved clean',
+           lambda d: (d / '.githooks').mkdir(parents=True, exist_ok=True),
+           expect='cannot be checked')
+
     # ── must accept
     scenario('a terse one-line comment', lambda d: fixture(d, CLEAN_V))
     scenario('a qualified Rocq name containing a period',
@@ -1384,6 +1517,32 @@ def self_test() -> int:
     scenario('a clean exported-snapshot fixture', lambda d: fixture(d, CLEAN_V))
     scenario('a clean working-tree fixture', lambda d: git_fixture(d, fixture), snapshot=False)
 
+    return _verdict(failures, counts, 'self-test')
+
+
+def m1_self_test() -> int:
+    """The M1 EXIT-EVIDENCE controls, which run for M1 review and never in the permanent path.
+
+    They judge one checkpoint's baseline, ledgers, candidate and freeze. Keeping them out of `make check`
+    is what stops a checkpoint-exit proof from becoming a permanent ban on later work."""
+    failures, counts, fixture, scenario, scenario_run = _control_harness()
+
+    # ── must fail: the ledgers, checked by the M1 evidence path rather than the permanent policy path
+    def disposition_coverage(d: Path):
+        rows = load_tsv(d, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
+        check_disposition(rows, inventory(d, snapshot=True))
+
+    scenario_run('a baseline metric changed after capture', lambda d: tampered_baseline(d, fixture),
+                 check_baseline, expect='no longer match their own seal')
+    scenario_run('a current file absent from the file-disposition ledger',
+                 lambda d: disposition(d, fixture, omit=True), disposition_coverage,
+                 expect='have no disposition row')
+    scenario_run('a deleted file still present', lambda d: disposition(d, fixture, phantom_delete=True),
+                 disposition_coverage, expect='is still')
+    scenario_run('an M1-created file with no purpose', lambda d: disposition(d, fixture, bad_purpose=True),
+                 disposition_coverage, expect='allowed present purposes')
+    scenario_run('a complete file-disposition ledger', lambda d: disposition(d, fixture),
+                 disposition_coverage)
     # ── the required direction (contract section 8)
     scenario_run('a required metric that increased from baseline',
                  lambda d: direction_fixture(d, fixture, bump='v_comment_bytes'),
@@ -1828,15 +1987,10 @@ def self_test() -> int:
     met('a reordered metric table',
         lambda rows: rows.insert(0, rows.pop()), expect='recomputation gives')
 
-    total, must_fail = counts['total'], counts['must_fail']
-    if failures:
-        for f in failures:
-            print(f'  FAIL  {f}')
-        print(f'fido: SOURCE-DIET SELF-TEST FAILED — {len(failures)} of {total} controls wrong')
-        return 1
-    print(f'fido: source-diet self-test OK — {total} controls '
-          f'({must_fail} must-fail with the reason pinned, {total - must_fail} must-accept, all executed) ✓')
-    return 0
+
+    return _verdict(failures, counts, 'M1 evidence self-test')
+
+
 
 
 def _exception_row(d: Path, owner_kind='definition', owner_name='k',
@@ -1905,6 +2059,8 @@ def disposition(d: Path, fixture, omit=False, phantom_delete=False, bad_purpose=
     if phantom_delete:
         rows.append('Root.v\t1\tdelete\tcertified-correctness\towner\tevidence\t0')
         rows = [r for r in rows if not (r.startswith('Root.v\t1\tkeep'))]
+    # the ledger is itself a current file, so a complete ledger carries its own row
+    rows.append(f'{DISPOSITION_REL}\t1\tkeep\tm1-enforcement\towner\tevidence\t1')
     (d / DISPOSITION_REL).write_text('\t'.join(DISPOSITION_FIELDS) + '\n' + '\n'.join(sorted(rows)) + '\n',
                                      encoding='utf-8')
 
@@ -1954,7 +2110,6 @@ def m1_topology_repo(d: Path, candidate_metrics_completed: bool = False):
 
     Building the real three-state topology is the only way to control it.  A fixture that only had two states
     could not tell a freeze that edits candidate evidence from one that does not."""
-    import tempfile
     env = _git_env(d)
 
     def git(*args):
@@ -2038,7 +2193,12 @@ def main_argv(argv=None) -> int:
     ap = argparse.ArgumentParser(description='M1 source-diet comment law, ledgers and measurement')
     ap.add_argument('--root', default='.')
     ap.add_argument('--snapshot', action='store_true')
-    ap.add_argument('--self-test', action='store_true')
+    ap.add_argument('--self-test', action='store_true',
+                    help='the permanent source-comment policy controls')
+    ap.add_argument('--m1-self-test', action='store_true',
+                    help='the M1 exit-evidence controls, which the permanent path never runs')
+    ap.add_argument('--wiring', action='store_true',
+                    help='no permanent path invokes a checkpoint-only mode')
     ap.add_argument('--check', action='store_true')
     ap.add_argument('--measure', action='store_true')
     ap.add_argument('--write-metrics', default=None)
@@ -2063,12 +2223,16 @@ def main_argv(argv=None) -> int:
                     help='the candidate ref for --verify-m1-evidence; --baseline-ref names the other side')
     args = ap.parse_args(argv)
     root = Path(args.root).resolve()
+    rc = 0
     if args.self_test:
         rc = self_test()
+    if args.m1_self_test:
+        rc = max(rc, m1_self_test())
+    if args.self_test or args.m1_self_test:
         if rc or not (args.check or args.measure or args.write_metrics
                       or args.against_baseline or args.code_identical
                       or args.verify_m1_evidence or args.write_disposition
-                      or args.write_metrics_table or args.disposition_exact):
+                      or args.write_metrics_table or args.disposition_exact or args.wiring):
             return rc
     try:
         if args.measure or args.write_metrics:
@@ -2094,6 +2258,8 @@ def main_argv(argv=None) -> int:
                 ref = check_baseline(root)['baseline_ref']
             n = write_disposition(root, ref)
             print(f'fido: source-diet wrote {n} disposition row(s) against {ref[:7]} ✓')
+        if args.wiring:
+            print(f'fido: source-diet wiring OK — {check_permanent_wiring(root)} ✓')
         if args.check:
             print(f'fido: source-diet OK — {run_check(root, args.snapshot)} ✓')
         if args.against_baseline:
@@ -2109,6 +2275,8 @@ def main_argv(argv=None) -> int:
             if not (args.baseline_ref and args.verify_candidate):
                 print('fido: SOURCE-DIET FAILED — --verify-m1-evidence needs both --baseline-ref and '
                       '--candidate-ref', file=sys.stderr)
+                return 1
+            if m1_self_test():
                 return 1
             print('fido: source-diet M1 evidence OK — '
                   f'{verify_m1_evidence(root, args.baseline_ref, args.verify_candidate)} ✓')

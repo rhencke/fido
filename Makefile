@@ -106,12 +106,14 @@ claims:
 # runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
 # The M1 source diet: the .v comment law, the exception relation both ways, and one disposition per file.
 # Its adversarial controls run first, so a green here is one the checker can still earn.
+# The PERMANENT source-comment policy, and only that.  The M1 baseline, metric direction, file
+# disposition and code identity are one checkpoint's exit evidence: they are proved by
+# `--verify-m1-evidence` at M1 review and never here, because a permanent gate that enforced them would
+# reject every later file, every later declaration and every larger tree forever.
 diet:
 	@python3 tools/source-diet.py --self-test
 	@python3 tools/source-diet.py --check
-	@python3 tools/source-diet.py --against-baseline
-	@python3 tools/source-diet.py --disposition-exact baseline
-	@python3 tools/source-diet.py --code-identical baseline
+	@python3 tools/source-diet.py --wiring
 
 fcb:
 	@python3 tools/human-review-index.py --self-test

@@ -3,15 +3,13 @@ ARCHITECTURE-MD	repository-file	ARCHITECTURE.md	present	CLAUDE.md	FIDO-FCB-REF:A
 CLAUDE-MD	repository-file	CLAUDE.md	present	.review/fcb/current/FIDO_FCB_INDEX.md	FIDO-FCB-REF:CLAUDE-MD	authority
 COMPILABLE-V	repository-file	Compilable.v	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:COMPILABLE-V	reference
 COMPLEX-V	repository-file	Complex.v	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:COMPLEX-V	reference
-DOCKERFILE	repository-file	Dockerfile	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:DOCKERFILE	reference
 DOCKERIGNORE	repository-file	.dockerignore	present	CLAUDE.md	FIDO-FCB-REF:DOCKERIGNORE	reference
 DUNE	repository-file	dune	present	CLAUDE.md	FIDO-FCB-REF:DUNE	reference
 DUNE-PROJECT	repository-file	dune-project	present	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	FIDO-FCB-REF:DUNE-PROJECT	reference
 E2E-APPLY-ML	repository-file	e2e/apply.ml	present	CLAUDE.md	FIDO-FCB-REF:E2E-APPLY-ML	reference
 E2E-SINK-TEST-ML	repository-file	e2e/sink_test.ml	present	ARCHITECTURE.md	FIDO-FCB-REF:E2E-SINK-TEST-ML	reference
-EDITORCONFIG	repository-file	.editorconfig	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:EDITORCONFIG	reference
+EDITORCONFIG	repository-file	.editorconfig	present	CLAUDE.md	FIDO-FCB-REF:EDITORCONFIG	reference
 EVIDENCE-SANDBOX	ephemeral	external:sandbox	not-in-repository	.review/fcb/current/FIDO_FCB_TOOLCHAIN_EVIDENCE.md	FIDO-FCB-REF:EVIDENCE-SANDBOX	reference
-FLOAT-V	repository-file	Float.v	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:FLOAT-V	reference
 GATE-ASSUMPTIONS-V	repository-file	gate/Assumptions.v	present	CLAUDE.md	FIDO-FCB-REF:GATE-ASSUMPTIONS-V	reference
 GITHOOKS-PRE-COMMIT	repository-file	.githooks/pre-commit	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:GITHOOKS-PRE-COMMIT	reference
 GITIGNORE	repository-file	.gitignore	present	CLAUDE.md	FIDO-FCB-REF:GITIGNORE	reference
@@ -25,7 +23,6 @@ PLUGIN-SINK-ML	repository-file	plugin/sink.ml	present	CLAUDE.md	FIDO-FCB-REF:PLU
 PROBE-ENVIRONMENT	external-evidence	external:PROBE_ENVIRONMENT.tsv	r1-bundle-provenance-pending	.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md	FIDO-FCB-REF:PROBE-ENVIRONMENT	reference
 PROGRESS-MD	repository-file	PROGRESS.md	present	CLAUDE.md	FIDO-FCB-REF:PROGRESS-MD	reference
 README-MD	repository-file	README.md	present	CLAUDE.md	FIDO-FCB-REF:README-MD	reference
-RENDER-V	repository-file	Render.v	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:RENDER-V	reference
 REVIEW	repository-directory	.review	present	CLAUDE.md	FIDO-FCB-REF:REVIEW	reference
 REVIEW-CODEX-REVIEW-POLICY-MD	repository-file	.review/CODEX_REVIEW_POLICY.md	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-CODEX-REVIEW-POLICY-MD	reference
 REVIEW-DECISIONS-ADR-0001-PINNED-64-BIT-TARGET-MD	repository-file	.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md	present	.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md	FIDO-FCB-REF:REVIEW-DECISIONS-ADR-0001-PINNED-64-BIT-TARGET-MD	reference
@@ -52,7 +49,7 @@ REVIEW-M1-BASELINE-TSV	repository-file	.review/M1_BASELINE.tsv	present	.review/M
 REVIEW-M1-COMMENT-EXCEPTIONS-TSV	repository-file	.review/M1_COMMENT_EXCEPTIONS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-COMMENT-EXCEPTIONS-TSV	reference
 REVIEW-M1-DECLARATION-DELETIONS-TSV	repository-file	.review/M1_DECLARATION_DELETIONS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-DECLARATION-DELETIONS-TSV	reference
 REVIEW-M1-FILE-DISPOSITION-TSV	repository-file	.review/M1_FILE_DISPOSITION.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-FILE-DISPOSITION-TSV	reference
-REVIEW-M1-IMPLEMENTATION-REPAIR-2-MD	repository-file	.review/M1_IMPLEMENTATION_REPAIR_2.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-2-MD	authority
+REVIEW-M1-IMPLEMENTATION-REPAIR-3-MD	repository-file	.review/M1_IMPLEMENTATION_REPAIR_3.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-3-MD	reference
 REVIEW-M1-METRICS-TSV	repository-file	.review/M1_METRICS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-METRICS-TSV	reference
 REVIEW-M1-OBLIGATION-MATRIX-TSV	repository-file	.review/M1_OBLIGATION_MATRIX.tsv	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-OBLIGATION-MATRIX-TSV	reference
 REVIEW-M1-SOURCE-DIET-MD	repository-file	.review/M1_SOURCE_DIET.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD	authority

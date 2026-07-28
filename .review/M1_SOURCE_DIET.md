@@ -86,8 +86,20 @@ ledger belongs to that named candidate, must be byte-identical to the candidate'
 permitted differences anywhere are the freeze overlay above. `--verify-m1-evidence` establishes the whole
 topology from two exact Git refs.
 
-Git history owns the candidate-owned files after acceptance unless a live gate still needs one. The exception
-ledger stays live.
+**The lifetime boundary.** The permanent source-diet gate enforces the `.v` comment policy and the exception
+relation only. Baseline, metric-direction, file-disposition, deletion-ledger, code-identity, candidate and
+freeze checks are M1 EXIT EVIDENCE: they run for M1 review and do not constrain later accepted checkpoints.
+`make diet`, `make check` and the staged hook run `--self-test`, `--check` and `--wiring`; `--wiring` proves
+those paths never regain a checkpoint-only mode. The M1 evidence runs explicitly, under `--m1-self-test` and
+`--verify-m1-evidence`.
+
+A permanent gate that enforced one checkpoint's exit evidence would reject every later file, every later
+declaration and every larger tree — a checkpoint-exit proof is not a permanent language law. A gate created
+to keep temporary evidence alive does not give that evidence a present purpose.
+
+After acceptance Git history owns `M1_BASELINE.tsv`, `M1_METRICS.tsv`, `M1_FILE_DISPOSITION.tsv`,
+`M1_DECLARATION_DELETIONS.tsv` and `M1_OBLIGATION_MATRIX.tsv`, and retiring them needs no gate edit. The
+exception ledger stays live, because the permanent comment gate consumes it.
 
 The baseline is immutable after its commit, and carries a seal over its own metric rows. A baseline value
 changed after capture is a blocker, and the checker proves it rather than trusting the file.
@@ -159,9 +171,11 @@ green.
 
 ## 6. The checker
 
-`tools/source-diet.py` is one narrow checker and measurement tool. Its required modes are `--self-test`, <!-- FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY -->
-`--check`, `--measure`, `--write-metrics`, `--root` and `--snapshot`; writer and checker share one
-implementation. Two further modes carry §8 and §11, which the required six state but cannot check:
+`tools/source-diet.py` is one narrow checker and measurement tool. Its PERMANENT modes are `--self-test`, <!-- FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY -->
+`--check`, `--wiring`, `--measure`, `--write-metrics`, `--root` and `--snapshot`; writer and checker share
+one implementation. Its M1 EXIT modes are `--m1-self-test`, `--against-baseline`, `--disposition-exact`,
+`--code-identical`, `--write-disposition`, `--write-metrics-table` and `--verify-m1-evidence`, and no
+permanent path invokes one. Two further modes carry §8 and §11, which the required six state but cannot check:
 `--against-baseline` compares the candidate to the sealed baseline and fails unless every required metric
 decreased and every required count is zero, and `--code-identical <ref>` (or `baseline`, which reads the
 sealed ref) proves EXACT TOP-LEVEL COMMAND EQUALITY: after removing exactly the complete declaration units
@@ -185,10 +199,13 @@ fails. Snapshot mode checks the supplied exported tree with no dependence on the
 Neither silently scans zero files.
 
 Its root enforcement helpers are covered by `tools/gate-mutation-test.py`: deleting each helper's effect must <!-- FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY -->
-make that helper's own named controls fail.
+make that helper's own named controls fail. Those mutants split by lifetime too — the permanent run exercises
+`--self-test`, and `--m1` exercises `--m1-self-test` — so no M1-only helper is kept alive by the permanent
+gate.
 
 Once the tree complies, `diet` joins the `Makefile`, `check` depends on it, and `.githooks/pre-commit` runs <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT --> <!-- FIDO-FCB-REF:MAKEFILE -->
-the staged copy against the exported staged tree, self-tests first in both paths. The build graph is not
+the staged copy against the exported staged tree, self-tests first in both paths. Both run the permanent
+modes only, and `--wiring` fails if either regains a checkpoint-only one. The build graph is not
 otherwise restructured; M3 owns that.
 
 ## 7. File and document review

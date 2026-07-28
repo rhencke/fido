@@ -6,15 +6,17 @@ carries a candidate identity.
 
 <!-- FIDO-HUMAN-ACT:M1-REVIEW -->
 
-- **M1 SOURCE DIET REPAIR 2 IS THE SOLE ACTIVE WORK.**
-  Authority: `.review/M1_IMPLEMENTATION_REPAIR_2.md`. <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-2-MD -->
-  The M1 contract it repairs against is `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
+- **M1 SOURCE DIET REPAIR 3 IS THE SOLE ACTIVE WORK.**
+  Authority: `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
+  The blocking review it answers is `.review/M1_IMPLEMENTATION_REPAIR_3.md`, which names that <!-- FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-3-MD -->
+  contract as the M1 authority and illustrates its finding with a file M2 has yet to create.
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
-- **The M1 repair-2 candidate is `8ad80e6614bff64b493bbdd1db937f4640eda252`**, frozen and awaiting Rob's review.
-  `tools/source-diet.py --verify-m1-evidence` reproduces every ledger from the baseline and candidate refs,
-  and proves this freeze changed nothing the candidate owns.
-- **BOTH EARLIER M1 candidates are BLOCKED.**
+- **ALL THREE M1 candidates so far are BLOCKED.**
+  `8ad80e6614bff64b493bbdd1db937f4640eda252` is the third: its permanent `make diet` path froze repository
+  bytes and Rocq commands at the M1 baseline, so no later checkpoint could add a file or a declaration. A
+  checkpoint-exit proof is not a permanent language law. `8e55ed1efbc430a815c9ce2d4f4a8f1365ba59ed` is that
+  candidate's documentation-only freeze, not a separate candidate.
   `7dc9ff3bb3450cc3bcc41abfb7c5c24154967f3d` claimed more completeness than its artifacts established.
   `71e70de20e11495ccb829130b6c021d9b00ce59c` is the second blocked candidate: its exact-code checker still
   had a false green, its candidate and freeze evidence carried two meanings, and its semantic comment and
@@ -24,8 +26,6 @@ carries a candidate identity.
   Governance; M1 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.
 - **Scope decision (reviewer, standing):** **do NOT delete `Index.Program`.**
-- **Repair 2 additionally corrects** `.editorconfig`, `Dockerfile`, and the comments in `Float.v` <!-- FIDO-FCB-REF:EDITORCONFIG --> <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:FLOAT-V -->
-  and `Render.v`, which the blocking review named directly. <!-- FIDO-FCB-REF:RENDER-V -->
 - **M2, M3, M4, C5 Step 0 and C5 remain FORBIDDEN until Rob accepts M1.** Installing a plan is not
   permission to run it, and a green intermediate gate is not acceptance.
 - **Obligation tracking.** `.review/M1_OBLIGATION_MATRIX.tsv` holds one row per M1 obligation, `M1-01` <!-- FIDO-FCB-REF:REVIEW-M1-OBLIGATION-MATRIX-TSV -->
