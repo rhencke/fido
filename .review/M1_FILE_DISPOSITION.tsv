@@ -1,7 +1,7 @@
 path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .dockerignore	740	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	740
 .editorconfig	3262	keep	live-governance	make fmt	the byte rules governing the documents beside them	3155
-.githooks/pre-commit	5903	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	6335
+.githooks/pre-commit	5903	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	6650
 .gitignore	1145	keep	live-governance	make fmt	the byte rules governing the documents beside them	1069
 .review/C3_FRESH_IMAGE_LITERAL_BUILD_PLAN.md	65843	delete	history-only	nothing referenced it	the plan of an accepted checkpoint; Git owns it	0
 .review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md	36900	delete	history-only	nothing current referenced it	the implementation directive of an accepted checkpoint; the FCB owns its guarantees	0
@@ -11,7 +11,7 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/M1_COMMENT_EXCEPTIONS.tsv	69	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	69
 .review/M1_DECLARATION_DELETIONS.tsv	77	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	2484
 .review/M1_FILE_DISPOSITION.tsv	78	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	19508
-.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	1412
+.review/M1_METRICS.tsv	46	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	1407
 .review/M1_OBLIGATION_MATRIX.tsv	5610	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	8998
 .review/M1_SOURCE_DIET.md	16545	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	canonical M1 data named by the contract	17000
 .review/M_SERIES_PLAN.md	8611	keep	live-governance	CLAUDE.md	a live checkpoint, review or policy authority	9696
@@ -90,7 +90,7 @@ FilePath.v	13657	keep	certified-correctness	the certified pipeline	compiled by d
 Float.v	32132	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	21637
 Index.v	210768	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	189512
 Integer.v	5288	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	3472
-Makefile	12664	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	8527
+Makefile	12664	keep	certified-correctness	the pinned build	produces and verifies the certified artifact	8587
 ModulePath.v	19814	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	13173
 Names.v	14487	keep	certified-correctness	the certified pipeline	compiled by dune; gated in gate/Assumptions.v	10843
 PAINFUL_LESSONS.md	13565	keep	current-contract-evidence	CLAUDE.md	the status ledger, the rejected shapes, and the entry point	13565
@@ -126,7 +126,7 @@ tools/claim-matrix-gate.py	27552	keep	proved-restriction	make claims	the claim-t
 tools/closure-ledger-view.py	6204	keep	live-governance	make fcb	a live-FCB document gate	6182
 tools/fcb-reference-gate.py	57490	keep	live-governance	make fcb	a live-FCB document gate	57490
 tools/fmt-check.py	4544	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	4544
-tools/gate-mutation-test.py	7365	keep	proved-restriction	make fcb	proves each gate helper load-bearing by mutation	12212
+tools/gate-mutation-test.py	7365	keep	proved-restriction	make fcb	proves each gate helper load-bearing by mutation	12280
 tools/generated-mode-gate.sh	2111	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	2111
 tools/generated-output-gate.sh	4205	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4205
 tools/human-review-index.py	20106	keep	live-governance	make fcb	a live-FCB document gate	20106
@@ -134,5 +134,5 @@ tools/naming-gate.py	43959	keep	proved-restriction	make names	the A005 scoped-na
 tools/ocaml-origin-gate.sh	4632	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	4632
 tools/regen-guard-test.sh	2950	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	2950
 tools/rocq-profile.py	3809	keep	current-contract-evidence	make fmt / make profile / make regen-guard	a reporting tool the workflow names	3809
-tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	84379
+tools/source-diet.py	41020	keep	m1-enforcement	.review/M1_SOURCE_DIET.md	the one M1 checker and measurement tool	90534
 tools/staged-generated-compare.sh	3406	keep	proved-restriction	make check / the pre-commit hook	a repository-policy gate that rejects	3406

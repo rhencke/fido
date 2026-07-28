@@ -202,7 +202,8 @@ MUTANTS = (
     (DIET, 'the disposition byte comparison',
      "            if b != wb or c != wc:",
      "            if False:",
-     ('a false baseline byte count', 'a false candidate byte count')),
+     ('a false baseline byte count', 'a false candidate byte count',
+      'a candidate byte count bumped after the ledger was written')),
 
     (DIET, 'the disposition membership relation',
      "    missing, phantom = sorted(union - seen), sorted(seen - union)",

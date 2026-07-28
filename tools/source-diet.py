@@ -972,6 +972,26 @@ def write_disposition(root: Path, baseline_ref: str):
     raise DietError(f'{DISPOSITION_REL}: no byte fixed point after 12 writes')
 
 
+def check_disposition_against_ref(root: Path, ref: str, snapshot: bool = False,
+                                  git_root: Path | None = None) -> str:
+    """The exact disposition relation with [root] as the candidate side.
+
+    The two-ref verifier runs this at the end; running it here is what makes a stale byte count fail in the
+    gate a person runs, at the moment they make it.  An exported staged snapshot holds no `.git`, so the
+    repository that answers for [ref] is named separately rather than assumed to be [root]."""
+    import tempfile
+    repo = Path(git_root) if git_root else root
+    if ref == 'baseline':
+        ref = check_baseline(root)['baseline_ref']
+    with tempfile.TemporaryDirectory() as tmp:
+        base = export_tree(repo, ref, Path(tmp) / 'baseline')
+        base_sizes = tree_sizes(base, inventory(base, snapshot=True))
+    cand_sizes = tree_sizes(root, inventory(root, snapshot=snapshot))
+    rows = load_tsv(root, DISPOSITION_REL, DISPOSITION_FIELDS, 'M1 disposition')
+    n = check_disposition_exact(base_sizes, cand_sizes, rows)
+    return f'{ref[:7]}: {n} disposition row(s) exact against the baseline tree and the candidate tree'
+
+
 def check_code_against_ref(root: Path, ref: str):
     """The exact declaration comparison between an exported [ref] and the working tree."""
     import tempfile
@@ -1373,6 +1393,81 @@ def self_test() -> int:
         except Exception as exc:
             failures.append(f'the metric-table writer through main(): {exc}')
 
+    def disposition_driver(label, tamper, expect=None):
+        """Drive --disposition-exact over two real commits, the way the gate invokes it."""
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / 'repo'
+            try:
+                base_ref, _ = two_commit_repo(d)
+                (d / '.review').mkdir(exist_ok=True)
+                seed = '\t'.join(DISPOSITION_FIELDS) + '\n' + ''.join(
+                    '\t'.join((rel, '0', 'keep', 'm1-enforcement', 'the M1 contract', 'seeded', '0')) + '\n'
+                    for rel in ('.review/M1_FILE_DISPOSITION.tsv', 'Root.v'))
+                (d / DISPOSITION_REL).write_text(seed, encoding='utf-8')
+                write_disposition(d, base_ref)
+                tamper(d)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                check_disposition_against_ref(d, base_ref)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    def bump_candidate_bytes(d: Path):
+        rel = d / DISPOSITION_REL
+        lines = rel.read_text(encoding='utf-8').split('\n')
+        hit = [i for i, l in enumerate(lines) if l.startswith('Root.v\t')]
+        assert len(hit) == 1, 'the fixture ledger lost its Root.v row'
+        f = lines[hit[0]].split('\t')
+        f[6] = str(int(f[6]) + 1)
+        lines[hit[0]] = '\t'.join(f)
+        rel.write_text('\n'.join(lines), encoding='utf-8')
+
+    def snapshot_driver(label, expect=None):
+        """The hook's shape: an exported snapshot with no `.git`, answered for by a named repository."""
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with tempfile.TemporaryDirectory() as tmp:
+            d, snap = Path(tmp) / 'repo', Path(tmp) / 'snap'
+            try:
+                base_ref, _ = two_commit_repo(d)
+                (d / '.review').mkdir(exist_ok=True)
+                seed = '\t'.join(DISPOSITION_FIELDS) + '\n' + ''.join(
+                    '\t'.join((rel, '0', 'keep', 'm1-enforcement', 'the M1 contract', 'seeded', '0')) + '\n'
+                    for rel in ('.review/M1_FILE_DISPOSITION.tsv', 'Root.v'))
+                (d / DISPOSITION_REL).write_text(seed, encoding='utf-8')
+                write_disposition(d, base_ref)
+                env = {'GIT_AUTHOR_NAME': 'fido', 'GIT_AUTHOR_EMAIL': 'f@example.com',
+                       'GIT_COMMITTER_NAME': 'fido', 'GIT_COMMITTER_EMAIL': 'f@example.com',
+                       'PATH': os.environ.get('PATH', ''), 'HOME': str(d)}
+                for cmd in (['git', 'add', '-A'], ['git', 'commit', '-qm', 'ledger']):
+                    r = subprocess.run(cmd, cwd=d, capture_output=True, text=True, env=env)
+                    assert r.returncode == 0, r.stderr.strip()
+                export_tree(d, 'HEAD', snap)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            try:
+                check_disposition_against_ref(snap, base_ref, snapshot=True, git_root=d)
+                if expect is not None:
+                    failures.append(f'{label}: expected failure containing {expect!r}, but the check passed')
+            except DietError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+
+    snapshot_driver('an exported snapshot answered for by a named repository')
+    disposition_driver('a written disposition read back against its own two trees', lambda d: None)
+    disposition_driver('a candidate byte count bumped after the ledger was written', bump_candidate_bytes,
+                       expect='the trees hold')
+
     met('the writer output read back by the checker',
         lambda rows: rows.__setitem__(slice(None),
                                       [dict(zip(METRIC_FIELDS, r)) for r in metric_rows(
@@ -1547,6 +1642,10 @@ def main_argv(argv=None) -> int:
     ap.add_argument('--code-identical', default=None, metavar='REF',
                     help='every surviving Rocq declaration is identical to REF (or `baseline` for the sealed '
                          'ref) after removing exactly the ledgered declarations')
+    ap.add_argument('--disposition-exact', default=None, metavar='REF',
+                    help='every disposition row is byte-exact against REF (or `baseline`) and --root')
+    ap.add_argument('--git-root', default=None, metavar='DIR',
+                    help='the repository that answers for a ref when --root is an exported snapshot')
     ap.add_argument('--write-metrics-table', action='store_true',
                     help='write the M1 metric table from --baseline-ref and --candidate-ref')
     ap.add_argument('--write-disposition', action='store_true',
@@ -1562,7 +1661,7 @@ def main_argv(argv=None) -> int:
         if rc or not (args.check or args.measure or args.write_metrics
                       or args.against_baseline or args.code_identical
                       or args.verify_m1_evidence or args.write_disposition
-                      or args.write_metrics_table):
+                      or args.write_metrics_table or args.disposition_exact):
             return rc
     try:
         if args.measure or args.write_metrics:
@@ -1593,6 +1692,10 @@ def main_argv(argv=None) -> int:
         if args.against_baseline:
             n = check_direction(root, args.snapshot)
             print(f'fido: source-diet direction OK — {n} required metric(s) moved the right way ✓')
+        if args.disposition_exact:
+            print('fido: source-diet disposition exact OK — '
+                  f'{check_disposition_against_ref(root, args.disposition_exact, args.snapshot, args.git_root)}'
+                  ' ✓')
         if args.code_identical:
             print(f'fido: source-diet code identity OK — {check_code_against_ref(root, args.code_identical)} ✓')
         if args.verify_m1_evidence:
