@@ -11,7 +11,10 @@ carries a candidate identity.
   The M1 contract it repairs against is `.review/M1_SOURCE_DIET.md`. <!-- FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD -->
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Baseline: the exact ref sealed in `.review/M1_BASELINE.tsv`.
-- **BOTH M1 candidates so far are BLOCKED.**
+- **The M1 repair-2 candidate is `8ad80e6614bff64b493bbdd1db937f4640eda252`**, frozen and awaiting Rob's review.
+  `tools/source-diet.py --verify-m1-evidence` reproduces every ledger from the baseline and candidate refs,
+  and proves this freeze changed nothing the candidate owns.
+- **BOTH EARLIER M1 candidates are BLOCKED.**
   `7dc9ff3bb3450cc3bcc41abfb7c5c24154967f3d` claimed more completeness than its artifacts established.
   `71e70de20e11495ccb829130b6c021d9b00ce59c` is the second blocked candidate: its exact-code checker still
   had a false green, its candidate and freeze evidence carried two meanings, and its semantic comment and
