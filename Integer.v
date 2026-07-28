@@ -1,4 +1,3 @@
-(* The one integer-family and range authority: ten Go integer types over [Z], with [int]/[uint] pinned 64-bit. *)
 From Stdlib Require Import ZArith String Bool.
 Open Scope Z_scope.
 

@@ -12,7 +12,7 @@ The sole canonical Fido Conformance Basis lives in the Git repository `rhencke/f
 For any Fido question involving governance, architecture, scope, fixed points, ledgers, acceptance gates,
 toolchain evidence, roadmap, checkpoint authoring, model roles, or human-review state:
 
-1. Typing.Resolved one exact repository ref. Use the candidate commit or uploaded repository snapshot specified for the
+1. Fix one exact repository ref. Use the candidate commit or uploaded repository snapshot specified for the
    task; otherwise use the latest accessible `main`.
 2. Fetch `.review/fcb/current/INDEX.md` from that exact ref.
 3. Follow it to the FCB Index.

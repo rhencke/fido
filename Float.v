@@ -1,10 +1,8 @@
-(* The one float-family and exact-constant authority: an exact rational, rounded once at its destination. *)
 From Stdlib Require Import ZArith String.
 From Stdlib Require Import Lia Znumtheory Eqdep_dec.
 From Stdlib Require Import Floats.SpecFloat.
 Open Scope Z_scope.
 
-(* The one float-type descriptor. *)
 Inductive Kind := F32 | F64.
 
 Definition kind_equalb (a b : Kind) : bool :=
@@ -32,7 +30,6 @@ Record Constant := MakeConstant {
 Lemma gcd_z_1 : forall z, (Z.gcd z 1 =? 1) = true.
 Proof. intro z; apply Z.eqb_eq; apply Z.gcd_1_r. Qed.
 
-(* The exact integer [z] as the canonical rational [z/1]. *)
 Definition constant_of_Z (z : Z) : Constant := MakeConstant z 1 (gcd_z_1 z).
 
 Definition constant_zero : Constant := constant_of_Z 0.
@@ -50,7 +47,6 @@ Definition round_ieee (ft : Kind) (a : Constant) : spec_float :=
 
 Definition cond_Zopp (s : bool) (m : Z) : Z := if s then Z.opp m else m.
 
-(* The exact integer a finite or zero [spec_float] denotes, when it denotes one at all. *)
 Definition ieee_to_Z (v : spec_float) : option Z :=
   match v with
   | S754_zero _ => Some 0
@@ -77,7 +73,6 @@ Example single_rounding_direct_differs_double :
   round_ieee F32 single_rounding_x <> SFdiv 24 128 (round_ieee F64 single_rounding_x) (ieee_of_Z 1).
 Proof. discriminate. Qed.
 
-(* The precision boundaries: 2^24+1 rounds to 2^24 at binary32, and 2^53+1 to 2^53 at binary64. *)
 Example round_f32_2p24_plus1 :
   ieee_to_Z (round_ieee F32 (constant_of_Z 16777217)) = Some 16777216.
 Proof. reflexivity. Qed.
@@ -86,16 +81,13 @@ Example round_f64_2p53_plus1 :
   ieee_to_Z (round_ieee F64 (constant_of_Z 9007199254740993)) = Some 9007199254740992.
 Proof. reflexivity. Qed.
 
-(* Small exact values are unchanged. *)
 Example round_f32_exact_small : ieee_to_Z (round_ieee F32 (constant_of_Z 3)) = Some 3. Proof. reflexivity. Qed.
 Example round_f64_exact_small : ieee_to_Z (round_ieee F64 (constant_of_Z 42)) = Some 42. Proof. reflexivity. Qed.
 
-(* A constant is canonical when its numerator and positive denominator are coprime. *)
 
 Definition constant_canonical (a : Constant) : Prop :=
   Z.gcd (numerator a) (Zpos (denominator a)) = 1.
 
-(* Rational-value equality, decided by cross-multiplication over [Z]. *)
 Definition constant_eq (a b : Constant) : Prop :=
   numerator a * Zpos (denominator b) = numerator b * Zpos (denominator a).
 
@@ -111,18 +103,15 @@ Proof. intro z; unfold constant_canonical, constant_of_Z; cbn [numerator denomin
 Lemma constant_zero_canonical : constant_canonical constant_zero.
 Proof. apply constant_of_Z_canonical. Qed.
 
-(* Every constant is canonical by construction, because coprimality is a stored proof. *)
 Lemma constant_canonical_intrinsic : forall a, constant_canonical a.
 Proof. intro a; unfold constant_canonical; apply Z.eqb_eq; exact (canonical a). Qed.
 
-(* Two constants with the same numerator and denominator are equal; the coprimality witness is irrelevant. *)
 Lemma numerator_denominator_eq : forall a b, numerator a = numerator b -> denominator a = denominator b -> a = b.
 Proof.
   intros [na da wa] [nb db wb] Hn Hd; cbn in Hn, Hd; subst nb db.
   f_equal. apply (UIP_dec Bool.bool_dec).
 Qed.
 
-(* The gcd of a numerator and a positive denominator is itself positive. *)
 Lemma gcd_den_pos : forall (n : Z) (d : positive), 0 < Z.gcd n (Zpos d).
 Proof.
   intros n d.
@@ -143,7 +132,6 @@ Lemma reduce_zpos : forall (n : Z) (d : positive),
   Zpos (Z.to_pos (Zpos d / Z.gcd n (Zpos d))) = Zpos d / Z.gcd n (Zpos d).
 Proof. intros; apply Z2Pos.id; apply reduce_den_pos. Qed.
 
-(* The reduced form is coprime, which is the intrinsic canonicality obligation. *)
 Lemma reduce_well_formed : forall n d,
   (Z.gcd (n / Z.gcd n (Zpos d)) (Zpos (Z.to_pos (Zpos d / Z.gcd n (Zpos d)))) =? 1) = true.
 Proof.
@@ -151,14 +139,12 @@ Proof.
   apply Z.gcd_div_gcd; [ pose proof (gcd_den_pos n d); lia | reflexivity ].
 Qed.
 
-(* Normalize a numerator and denominator to coprime canonical form. *)
 Definition reduce_constant (n : Z) (d : positive) : Constant :=
   MakeConstant (n / Z.gcd n (Zpos d)) (Z.to_pos (Zpos d / Z.gcd n (Zpos d))) (reduce_well_formed n d).
 
 Lemma reduce_constant_canonical : forall n d, constant_canonical (reduce_constant n d).
 Proof. intros; apply constant_canonical_intrinsic. Qed.
 
-(* Reduction preserves the exact rational value. *)
 Lemma reduce_constant_eq : forall n d,
   numerator (reduce_constant n d) * Zpos d = n * Zpos (denominator (reduce_constant n d)).
 Proof.
@@ -195,7 +181,6 @@ Proof.
   subst nb. f_equal. apply (UIP_dec Bool.bool_dec).
 Qed.
 
-(* [constant_equalb] decides Leibniz equality. *)
 Lemma constant_equalb_eq : forall a b, constant_equalb a b = true <-> a = b.
 Proof.
   intros a b; split.
@@ -214,7 +199,6 @@ Definition ieee_to_constant (v : spec_float) : option Constant :=
   | _ => None
   end.
 
-(* The raw finite-decimal literal domain, whose value is the coefficient times ten to the exponent. *)
 Definition decimal_max_coeff : Z := 10 ^ 40.   (* |coeff| < 10^40  (<= 40 significant digits) *)
 Definition decimal_max_exp   : Z := 4096.
 
@@ -233,7 +217,6 @@ Record Decimal := MakeDecimal {
   canonical_decimal    : decimal_wfb coefficient exponent = true
 }.
 
-(* A decimal is fixed by its coefficient and exponent; the well-formedness witness is irrelevant. *)
 Definition decimal_equalb (a b : Decimal) : bool :=
   Z.eqb (coefficient a) (coefficient b) && Z.eqb (exponent a) (exponent b).
 
@@ -276,7 +259,6 @@ Proof.
   apply decimal_equalb_spec. unfold decimal_equalb, decimal_zero; cbn. rewrite Hc, Hcan; reflexivity.
 Qed.
 
-(* The boundary and value fixtures, kernel-checked. *)
 Example decimal_wfb_max_ok :
   decimal_wfb (decimal_max_coeff - 1) decimal_max_exp = true.
 Proof. reflexivity. Qed.
@@ -289,7 +271,6 @@ Proof. reflexivity. Qed.
 Example decimal_wfb_trailing_zero_noncanon :
   decimal_wfb 250 0 = false.               (* 250 has a removable factor of ten -> not canonical *)
 Proof. reflexivity. Qed.
-(* the exact value, compared by numerator and denominator *)
 Example decimal_value_1p5 :                                        (* 15 * 10^-1 = 3/2 *)
   numerator (decimal_value (MakeDecimal 15 (-1) eq_refl)) = 3
   /\ denominator (decimal_value (MakeDecimal 15 (-1) eq_refl)) = 2%positive.
@@ -321,7 +302,6 @@ Record Value (ft : Kind) : Type := MakeValue {
 Arguments MakeValue {ft} _ _.
 Arguments ieee {ft} _.
 
-(* Rounding an unsigned-zero constant yields positive zero, because the constant zero has no sign. *)
 Lemma round_ieee_zero : forall ft, round_ieee ft constant_zero = S754_zero false.
 Proof. intro ft; destruct ft; reflexivity. Qed.
 
@@ -350,10 +330,10 @@ Definition constant_runtimeb (v : spec_float) : bool :=
   end.
 
 Record TypedConstant (ft : Kind) : Type := MakeTypedConstant {
-  exact   : Constant ;                                            (* A: exact rounded rational *)
-  runtime : Value ft ;                                         (* B: canonical runtime IEEE value *)
-  coherent     : ieee_to_constant (ieee runtime) = Some exact ; (* C: exact/runtime coherence *)
-  shape   : constant_runtimeb (ieee runtime) = true      (* D: +0 or finite only *)
+  exact   : Constant ;                                            (* the exact rounded rational *)
+  runtime : Value ft ;                                         (* the canonical runtime IEEE value *)
+  coherent     : ieee_to_constant (ieee runtime) = Some exact ; (* exact/runtime coherence *)
+  shape   : constant_runtimeb (ieee runtime) = true      (* +0 or finite only *)
 }.
 Arguments MakeTypedConstant {ft} _ _ _ _.
 Arguments exact {ft} _.
@@ -365,7 +345,6 @@ Arguments shape {ft} _.
 Lemma ieee_to_constant_strip : forall w, ieee_to_constant (strip_neg_zero w) = ieee_to_constant w.
 Proof. intro w; destruct w; reflexivity. Qed.
 
-(* The runtime is never a negative zero, so reading back as an exact constant forces +0 or finite. *)
 Lemma const_runtime_shape : forall ft q r,
   ieee_to_constant (strip_neg_zero (round_ieee ft q)) = Some r ->
   constant_runtimeb (strip_neg_zero (round_ieee ft q)) = true.
@@ -401,7 +380,6 @@ Definition round_typed_float (ft : Kind) (q : Constant) : option (TypedConstant 
   typed_from_canonical ft (strip_neg_zero (round_ieee ft q))
                      (const_runtime_canonical ft q) (const_runtime_shape ft q).
 
-(* A typed constant's runtime is exactly the single-rounding sign-normalized result. *)
 Lemma round_typed_float_runtime_sf : forall ft q tc,
   round_typed_float ft q = Some tc -> ieee (runtime tc) = strip_neg_zero (round_ieee ft q).
 Proof.
@@ -418,7 +396,6 @@ Lemma round_constant_typed : forall ft q,
   round_constant ft q = option_map exact (round_typed_float ft q).
 Proof. reflexivity. Qed.
 
-(* The one float representability authority and its reflected decision. *)
 Definition Representable (ft : Kind) (a : Constant) : Prop :=
   exists r, round_constant ft a = Some r.
 
@@ -436,7 +413,6 @@ Proof.
   - intros [r H]; discriminate.
 Qed.
 
-(* Representability is exactly the existence of a typed result. *)
 Lemma round_typed_float_representable : forall ft q,
   representableb ft q = true <-> exists tc, round_typed_float ft q = Some tc.
 Proof.
@@ -448,7 +424,6 @@ Proof.
   - intros [tc' HH]; discriminate.
 Qed.
 
-(* The constant-conversion fixtures: the double-rounding witness, overflow, underflow, and a source zero. *)
 Example round_const_single_rounding_direct_f32 :
   round_constant F32 single_rounding_x = Some (constant_of_Z 2305843284091600896).
 Proof. vm_compute. reflexivity. Qed.
@@ -470,7 +445,6 @@ Proof. vm_compute. reflexivity. Qed.
 Example representableb_overflow_f32 : representableb F32 (constant_of_Z (10 ^ 40)) = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(* A typed constant's runtime is positive zero or finite, straight from the stored shape field. *)
 Lemma typed_runtime_not_neg_zero : forall ft (tc : TypedConstant ft),
   ieee (runtime tc) <> S754_zero true.
 Proof. intros ft tc H; pose proof (shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
@@ -495,7 +469,6 @@ Definition value_neg_zero_F64 : Value F64 := MakeValue (S754_zero true) neg_zero
 Fail Definition tfc_nan_unrepresentable : TypedConstant F64 := MakeTypedConstant constant_zero (value_nan F64) eq_refl eq_refl.
 Fail Definition tfc_neg_zero_unrepresentable : TypedConstant F64 := MakeTypedConstant constant_zero value_neg_zero_F64 eq_refl eq_refl.
 
-(* A negative tiny constant underflows to positive zero, and the stored runtime is that same zero. *)
 Example round_typed_neg_underflow_f64 :
   match round_typed_float F64 (reduce_constant (-1) (10 ^ 330)%positive) with
   | Some tc => exact tc = constant_zero /\ ieee (runtime tc) = S754_zero false

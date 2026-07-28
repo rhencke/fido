@@ -232,7 +232,12 @@ MUTANTS = (
     (DIET, 'section-label rejection',
      "            hit = SECTION_LABEL.search(body)",
      "            hit = None",
-     ('a section label',)),
+     ('a section label', 'a lettered label', 'a shouted multi-word label')),
+
+    (DIET, 'decorative-glyph rejection',
+     "            hit = DECORATIVE_GLYPH.search(body)",
+     "            hit = None",
+     ('a two-character box-drawing banner', 'a star decoration')),
 )
 
 

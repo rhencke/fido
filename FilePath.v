@@ -1,4 +1,3 @@
-(* The canonical relative source-path domain: a raw string is not a path, and a value carries its own proof. *)
 From Stdlib Require Import String Ascii List Bool Eqdep_dec Arith.
 Import ListNotations.
 
@@ -11,7 +10,6 @@ Definition is_lower_digit (c : ascii) : bool :=
 Fixpoint tail_ok (s : string) : bool :=
   match s with EmptyString => true | String c s' => is_lower_digit c && tail_ok s' end.
 
-(* A component or basename stem: nonempty, first character lowercase, the rest lowercase or digit. *)
 Definition component_ok (s : string) : bool :=
   match s with EmptyString => false | String c s' => is_lower c && tail_ok s' end.
 
@@ -37,10 +35,8 @@ Definition ends_go (s : string) : bool :=
 
 Definition strip_go (s : string) : string := String.substring 0 (String.length s - 3) s.
 
-(* An ordinary Go source basename: an admissible component stem followed by ".go". *)
 Definition filename_ok (s : string) : bool := ends_go s && component_ok (strip_go s).
 
-(* Every directory component is admissible and not ignored, and the last segment is an admissible `.go` name. *)
 Definition path_ok (s : string) : bool :=
   match rev (split_slash s) with
   | last :: rdirs => forallb dir_component_ok rdirs && filename_ok last
@@ -196,7 +192,6 @@ Proof.
   apply Hdirs. apply in_rev in Hin. exact Hin.
 Qed.
 
-(* The grammar's positive and negative fixtures, kernel-checked. *)
 
 Example ok_main    : path_ok "main.go" = true.        Proof. reflexivity. Qed.
 Example ok_a       : path_ok "a.go" = true.           Proof. reflexivity. Qed.
@@ -218,7 +213,6 @@ Example no_hidden_dir : path_ok ".git/x.go" = false.    Proof. reflexivity. Qed.
 Example no_control   : path_ok ".fido/x.go" = false.    Proof. reflexivity. Qed.
 Example no_trailing  : path_ok "pkg/" = false.          Proof. reflexivity. Qed.
 Example no_bare_go   : path_ok "go" = false.            Proof. reflexivity. Qed.
-(* `go build ./...` ignores these directories, so they must be unrepresentable, not certified: *)
 Example no_testdata     : path_ok "testdata/main.go" = false.   Proof. reflexivity. Qed.
 Example no_testdata_nest : path_ok "a/testdata/x.go" = false.   Proof. reflexivity. Qed.
 Example no_vendor       : path_ok "vendor/x.go" = false.        Proof. reflexivity. Qed.

@@ -1,4 +1,3 @@
-(* The one authority for Go's two complex types, composed componentwise from [Float] and nothing above it. *)
 
 From Stdlib Require Import ZArith List String Bool.
 From Stdlib Require Import Floats.SpecFloat.
@@ -6,7 +5,6 @@ From Fido Require Import Float.
 
 Local Open Scope Z_scope.
 
-(* Exactly the two Go complex types. *)
 Inductive Kind := C64 | C128.
 
 Definition kind_equalb (a b : Kind) : bool :=
@@ -38,14 +36,12 @@ Proof.
   - intro H; subst b; apply andb_true_iff; split; apply Float.constant_equalb_eq; reflexivity.
 Qed.
 
-(* The exact complex zero, both components the unsigned canonical zero, and the real embedding. *)
 Definition zero : Constant := MakeConstant Float.constant_zero Float.constant_zero.
 Definition of_real (q : Float.Constant) : Constant := MakeConstant q Float.constant_zero.
 
 Lemma constant_real_of_real : forall q, exact_real (of_real q) = q. Proof. reflexivity. Qed.
 Lemma constant_imaginary_of_real : forall q, exact_imaginary (of_real q) = Float.constant_zero. Proof. reflexivity. Qed.
 
-(* Decide that the exact imaginary component is exactly zero. *)
 Definition constant_imaginary_is_zero (c : Constant) : bool := Float.constant_equalb (exact_imaginary c) Float.constant_zero.
 
 (* Project the exact real component only when the imaginary component is exactly zero; this never rounds. *)
@@ -59,7 +55,6 @@ Proof.
   destruct (constant_imaginary_is_zero c) eqn:E; [ injection H as <-; split; reflexivity | discriminate ].
 Qed.
 
-(* The raw finite-decimal complex literal, whose meaning is each component's own decimal value. *)
 Record Decimal := MakeDecimal { decimal_real : Float.Decimal ; decimal_imaginary : Float.Decimal }.
 
 Definition decimal_value (d : Decimal) : Constant :=
@@ -95,7 +90,6 @@ Definition typed_exact {ct} (tc : TypedConstant ct) : Constant :=
 Definition typed_runtime {ct} (tc : TypedConstant ct) : Value ct :=
   MakeValue (Float.runtime (typed_real tc)) (Float.runtime (typed_imaginary tc)).
 
-(* The componentwise projection laws. *)
 Lemma typed_exact_real : forall ct (tc : TypedConstant ct),
   exact_real (typed_exact tc) = Float.exact (typed_real tc). Proof. reflexivity. Qed.
 Lemma typed_exact_imaginary : forall ct (tc : TypedConstant ct),
@@ -105,7 +99,6 @@ Lemma typed_runtime_real : forall ct (tc : TypedConstant ct),
 Lemma typed_runtime_imaginary : forall ct (tc : TypedConstant ct),
   runtime_imaginary (typed_runtime tc) = Float.runtime (typed_imaginary tc). Proof. reflexivity. Qed.
 
-(* Each runtime component reads back to its exact component, inherited per component. *)
 Lemma typed_runtime_real_coherent : forall ct (tc : TypedConstant ct),
   Float.ieee_to_constant (Float.ieee (runtime_real (typed_runtime tc)))
     = Some (exact_real (typed_exact tc)).
@@ -115,7 +108,6 @@ Lemma typed_runtime_imaginary_coherent : forall ct (tc : TypedConstant ct),
     = Some (exact_imaginary (typed_exact tc)).
 Proof. intros ct tc; apply (Float.coherent (typed_imaginary tc)). Qed.
 
-(* Each runtime component is finite or positive zero. *)
 Lemma typed_runtime_real_shape : forall ct (tc : TypedConstant ct),
   Float.constant_runtimeb (Float.ieee (runtime_real (typed_runtime tc))) = true.
 Proof. intros ct tc; apply (Float.shape (typed_real tc)). Qed.
@@ -123,7 +115,6 @@ Lemma typed_runtime_imaginary_shape : forall ct (tc : TypedConstant ct),
   Float.constant_runtimeb (Float.ieee (runtime_imaginary (typed_runtime tc))) = true.
 Proof. intros ct tc; apply (Float.shape (typed_imaginary tc)). Qed.
 
-(* Neither runtime component is a negative zero, an infinity or a NaN. *)
 Lemma typed_runtime_real_not_neg_zero : forall ct (tc : TypedConstant ct),
   Float.ieee (runtime_real (typed_runtime tc)) <> S754_zero true.
 Proof. intros ct tc; apply Float.typed_runtime_not_neg_zero. Qed.
@@ -152,7 +143,6 @@ Definition round_typed (ct : Kind) (c : Constant)
   | _, _ => None
   end.
 
-(* Each component of a successful rounding is exactly one [round_typed_float] of that source component. *)
 Lemma round_typed_components : forall ct c tc,
   round_typed ct c = Some tc ->
   round_typed_float (component_kind ct) (exact_real c) = Some (typed_real tc)
@@ -165,7 +155,6 @@ Proof.
   injection H as <-; cbn [typed_real typed_imaginary]; split; reflexivity.
 Qed.
 
-(* Failure of either component rejects the whole complex construction. *)
 Lemma round_typed_real_none : forall ct c,
   round_typed_float (component_kind ct) (exact_real c) = None ->
   round_typed ct c = None.
@@ -179,7 +168,6 @@ Proof.
   destruct (round_typed_float (component_kind ct) (exact_real c)); reflexivity.
 Qed.
 
-(* Representability is the reflected existence of a typed result. *)
 Definition Representable (ct : Kind) (c : Constant) : Prop :=
   exists tc, round_typed ct c = Some tc.
 

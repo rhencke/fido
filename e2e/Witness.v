@@ -88,6 +88,5 @@ Definition demo_image : Emit.Image :=
                           (Compilable.capability_source demo_program demo_valid)).
 
 Declare ML Module "fido.emit".
-(* the authoritative pristine image, written directly from the decoded transport *)
 Fido Materialize demo_image To "/workspace/generated".
 (* the witness materializes only, and never publishes *)

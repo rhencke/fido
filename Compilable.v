@@ -1,4 +1,3 @@
-(* The exact acceptance model for the pinned one-shot `go build ./...`, as evidence over the one raw program. *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Arith Lia.
 From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Integer Float Complex FilePath ModulePath Collections Syntax Index Typing.
@@ -35,7 +34,6 @@ Local Notation file_typedb       := (Typing.file_typedb predeclared_type) (only 
 Local Notation source_file_typedb := (Typing.source_file_typedb predeclared_type) (only parsing).
 Local Notation program_typedb    := (Typing.program_typedb predeclared_type) (only parsing).
 
-(* Static admissibility is typing over the same raw AST, so every println argument must resolve. *)
 
 Definition decl_is_main (d : Syntax.Decl) : bool := match d with Syntax.Main _ => true end.
 Definition file_main_count (decls : list Syntax.Decl) : nat := List.length (List.filter decl_is_main decls).
@@ -48,7 +46,6 @@ Module PackageProperties := Collections.PackageProperties.
 Record PackageSummary : Type := MakePackageSummary { summary_main_count : nat }.
 Definition summary_count (o : option PackageSummary) : nat := match o with Some s => summary_main_count s | None => 0 end.
 
-(* accumulate one file's `main` count into its parent-directory package summary. *)
 Definition package_map_add_main (dir : string) (n : nat) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
   PackageMap.add dir (MakePackageSummary (n + summary_count (PackageMap.find dir acc))) acc.
 Definition package_step (path : FilePath.T) (sf : Syntax.File) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
@@ -71,14 +68,12 @@ Definition source_spec_package_rules_b (p : Syntax.Program) : bool := package_de
 
 Definition source_spec_valid_b (p : Syntax.Program) : bool := program_typedb p && source_spec_package_rules_b p.
 
-(* The two factored package roots: at most one `main` per package, and at least one where required. *)
 Definition PackageDeclsUnique (p : Syntax.Program) : Prop :=
   forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p)) -> (summary_main_count s <= 1)%nat.
 Definition MainPackagesHaveEntry (p : Syntax.Program) : Prop :=
   forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p)) -> (1 <= summary_main_count s)%nat.
 Definition PackageRulesValid (p : Syntax.Program) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
 
-(* Each factored root reflects its own proposition directly. *)
 Lemma package_decls_unique_b_iff : forall p, package_decls_unique_b p = true <-> PackageDeclsUnique p.
 Proof.
   intro p. unfold package_decls_unique_b, PackageDeclsUnique.
@@ -109,14 +104,12 @@ Proof.
     exists (dir, s). split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(* The specification decision reflects the factored rules directly, with no combined intermediary. *)
 Lemma source_spec_package_rules_b_package_rules_valid : forall p, source_spec_package_rules_b p = true <-> PackageRulesValid p.
 Proof.
   intro p. unfold source_spec_package_rules_b, PackageRulesValid.
   rewrite Bool.andb_true_iff, package_decls_unique_b_iff, main_pkgs_have_entry_b_iff. reflexivity.
 Qed.
 
-(* Package-summary exactness: the single fold is characterized, so grouping is one-pass and order-independent. *)
 Fixpoint list_dir_count (dir : string) (l : list (FilePath.T * Syntax.File)) : nat :=
   match l with
   | [] => 0
@@ -134,7 +127,6 @@ Proof.
   rewrite Hb; simpl; apply IH; exact Hr.
 Qed.
 
-(* list-level order-independence: both the presence flag and the count are permutation-invariant sums. *)
 Lemma list_dir_mem_perm : forall dir l1 l2, Permutation l1 l2 -> list_dir_mem dir l1 = list_dir_mem dir l2.
 Proof.
   intros dir l1 l2 H; unfold list_dir_mem; induction H; simpl; try reflexivity.
@@ -147,7 +139,6 @@ Proof.
   intros dir l1 l2 H; induction H; simpl; lia.
 Qed.
 
-(* the left fold matching [FileMap.fold] over the element list. *)
 Definition package_foldl (l : list (FilePath.T * Syntax.File)) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
   fold_left (fun a p => package_step (fst p) (snd p) a) l acc.
 Lemma package_foldl_cons : forall k e rest acc,
@@ -157,7 +148,6 @@ Lemma package_summaries_foldl : forall fm,
   package_summaries fm = package_foldl (Syntax.file_bindings fm) (PackageMap.empty PackageSummary).
 Proof. intro fm. unfold package_summaries, package_foldl. rewrite Syntax.FileMap.fold_1. reflexivity. Qed.
 
-(* the fold CHARACTERIZATION: [find dir] is present iff a file belongs to [dir], and equals the exact sum. *)
 Lemma package_foldl_find : forall l acc dir,
   PackageMap.find dir (package_foldl l acc)
   = (if list_dir_mem dir l
@@ -267,7 +257,6 @@ Proof.
   apply (Collections.FileProperties.fold_Equal package_map_equal_equivalence package_step_proper package_step_transpose). exact Heq.
 Qed.
 
-(* a permuted node list builds an equal map, so its package aggregation is unchanged *)
 Theorem package_summaries_build_permutation : forall ms nodes1 nodes2 p1 p2,
   Permutation nodes1 nodes2 ->
   build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
@@ -293,7 +282,6 @@ Record PackageRef (p : Syntax.Program) : Type := MakePackageRef {
 Arguments package_ref_key {p} _.
 Arguments package_ref_ok {p} _.
 
-(* represented-package witness: a PackageRef's key names a real file in [p]. *)
 Lemma package_ref_present : forall p (r : PackageRef p),
   exists path sf, Syntax.maps_to_file path sf (Syntax.files p) /\ FilePath.parent path = package_ref_key r.
 Proof.
@@ -312,7 +300,6 @@ Proof.
   f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec).
 Qed.
 
-(* construction from a real file binding: its package (parent directory) is present (the binding witnesses it). *)
 Definition package_ref_of_binding (p : Syntax.Program) (b : FilePath.T * Syntax.File)
   (Hin : In b (Syntax.file_bindings (Syntax.files p))) : PackageRef p.
 Proof.
@@ -325,7 +312,6 @@ Lemma package_ref_of_binding_key : forall p b Hin,
   package_ref_key (package_ref_of_binding p b Hin) = FilePath.parent (fst b).
 Proof. reflexivity. Qed.
 
-(* construction from a validated file reference: the ref's own path witnesses its package. *)
 Definition package_ref_of_fileref {p} (fr : Index.Snapshot.FileRef p) : PackageRef p.
 Proof.
   refine (MakePackageRef p (FilePath.parent (Index.Snapshot.file_ref_path fr)) _).
@@ -398,7 +384,6 @@ Definition diagnostic_related {p} (d : DiagnosticReason p) : list (DiagnosticAnc
   | BuildOutputIsDirectory _ _      => []
   end.
 
-(* the primary anchor is always an exact-snapshot handle whose CODE matches the reason. *)
 Lemma diagnostic_code_primary_consistent : forall p (d : DiagnosticReason p),
   match diagnostic_code d, diagnostic_primary d with
   | CodeMissingMainEntry, AtPackage _ | CodeBuildOutputIsDirectory, AtPackage _ => True
@@ -434,7 +419,6 @@ Record ErasedDiagnostic : Type := MakeErased {
   diagnostic_source_target : option Syntax.TypeExpr
 }.
 
-(* the erased target type, where the reason carries one *)
 Definition erased_target {p} (d : DiagnosticReason p) : option Typing.SemanticType :=
   match d with
   | InvalidConversion _ _ _ _ t _  => Some t
@@ -444,7 +428,6 @@ Definition erased_target {p} (d : DiagnosticReason p) : option Typing.SemanticTy
   | BuildOutputIsDirectory _ _     => None
   end.
 
-(* only the build-output reason carries a planned output name *)
 Definition erased_output {p} (d : DiagnosticReason p) : option string :=
   match d with
   | InvalidConversion _ _ _ _ _ _  => None
@@ -454,7 +437,6 @@ Definition erased_output {p} (d : DiagnosticReason p) : option string :=
   | BuildOutputIsDirectory _ nm    => Some nm
   end.
 
-(* the erased source target, recovered through the reference rather than reverse-mapped from the resolved type *)
 Definition erased_source_target {p} (d : DiagnosticReason p) : option Syntax.TypeExpr :=
   match d with
   | InvalidConversion _ tr _ _ _ _ => Index.type_name_ref_syntax tr
@@ -465,7 +447,6 @@ Definition erase_diagnostic {p} (d : DiagnosticReason p) : ErasedDiagnostic :=
   MakeErased (diagnostic_code d) (erase_anchor (diagnostic_primary d))
     (map erase_anchor (diagnostic_related d)) (erased_target d) (erased_output d) (erased_source_target d).
 
-(* erasing keeps the code, the primary key identity, and the related anchors in canonical order *)
 Lemma erase_diagnostic_code {p} (d : DiagnosticReason p) : erased_code (erase_diagnostic d) = diagnostic_code d.
 Proof. reflexivity. Qed.
 
@@ -488,7 +469,6 @@ Lemma erase_diagnostic_output {p} (d : DiagnosticReason p) :
   diagnostic_output (erase_diagnostic d) = erased_output d.
 Proof. reflexivity. Qed.
 
-(* the erased report keeps the collision name only where the reason has one *)
 Lemma erased_output_iff_build_output {p} (d : DiagnosticReason p) :
   (exists nm, diagnostic_output (erase_diagnostic d) = Some nm) <-> diagnostic_code d = CodeBuildOutputIsDirectory.
 Proof. destruct d; cbn; split; try (intros [nm H]; discriminate); try discriminate; eauto. Qed.
@@ -505,7 +485,6 @@ Definition resolved_type_at (f : ExpressionFact) : option Typing.SemanticType :=
 Definition resolved_constant_at (f : ExpressionFact) : option Typing.Constant :=
   option_map Typing.resolved_constant_exact (use_resolved f).
 
-(* an occurrence resolves exactly when it is a println argument that resolves *)
 Definition occurrence_use_resolved (o : Index.Occurrence) : option Typing.ResolvedConstant :=
   match Index.occurrence_role o with
   | Index.PrintlnArgument _ =>
@@ -533,7 +512,6 @@ Proof.
   rewrite Hv. unfold resolve_constant. rewrite Hc. reflexivity.
 Qed.
 
-(* the fact of a single occurrence: [Some] exactly for an expression occurrence whose [constant_info] succeeds. *)
 Definition occurrence_expr_fact (o : Index.Occurrence) : option ExpressionFact :=
   match Index.view_expr o with
   | Some e => match constant_info e with
@@ -543,7 +521,6 @@ Definition occurrence_expr_fact (o : Index.Occurrence) : option ExpressionFact :
   | None => None
   end.
 
-(* an occurrence has a fact exactly when it is an expression whose constant analysis succeeds *)
 Lemma occurrence_expr_fact_status : forall o e ci,
   Index.view_expr o = Some e -> constant_info e = Some ci ->
   occurrence_expr_fact o = Some (MakeExpressionFact ci (occurrence_use_resolved o)).
@@ -577,7 +554,6 @@ Proof.
   - exact IH.
 Qed.
 
-(* the [visit_file] refs have DISTINCT NodeKeys (same file, distinct local ids). *)
 Lemma visit_file_key_nodup {p} (fr : Index.Snapshot.FileRef p) :
   NoDup (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) (Index.Snapshot.visit_file fr)).
 Proof.
@@ -676,16 +652,13 @@ Definition binding_visit (p : Syntax.Program) (b : FilePath.T * Syntax.File)
 Definition program_blocks (p : Syntax.Program) : list (list (Index.Snapshot.NodeRef p * Index.Occurrence)) :=
   map (binding_visit p) (Syntax.file_bindings (Syntax.files p)).
 
-(* the WHOLE-PROGRAM visit stream: the retained blocks flattened (each file visited once, path order). *)
 Definition program_visit (p : Syntax.Program) : list (Index.Snapshot.NodeRef p * Index.Occurrence) :=
   concat (program_blocks p).
 
-(* the flattened stream IS the per-binding flat_map (used by the existing membership/fold proofs). *)
 Lemma program_visit_flat_map (p : Syntax.Program) :
   program_visit p = flat_map (binding_visit p) (Syntax.file_bindings (Syntax.files p)).
 Proof. unfold program_visit, program_blocks. rewrite flat_map_concat_map. reflexivity. Qed.
 
-(* every visited pair's occurrence is its own reference's source occurrence *)
 Lemma program_visit_occ_is_source (p : Syntax.Program) (r : Index.Snapshot.NodeRef p) occ :
   In (r, occ) (program_visit p) -> occ = Index.Snapshot.source_occurrence_of_ref r.
 Proof.
@@ -694,7 +667,6 @@ Proof.
   destruct (Index.Snapshot.visit_file_view p fr r occ Hrb) as [Ho _]. exact Ho.
 Qed.
 
-(* a visited EXPRESSION occurrence's reference refines: [as_expr] succeeds and erases back to [r]. *)
 Lemma program_visit_as_expr (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) (r : Index.Snapshot.NodeRef p) occ e :
   In (r, occ) (program_visit p) -> Index.view_expr occ = Some e ->
   exists er, Index.as_expr idx r = Some er /\ Index.erase_ref er = r.
@@ -706,7 +678,6 @@ Proof.
   exists er. split; [ exact Hae | exact Her ].
 Qed.
 
-(* every key in one binding's block has that binding's path (used for cross-file disjointness). *)
 Lemma binding_visit_key_file : forall p b k,
   In k (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) (binding_visit p b)) ->
   Index.key_path k = fst b.
@@ -719,7 +690,6 @@ Proof.
   exact (Index.Snapshot.file_of_path_sound p (fst b) fr Ef).
 Qed.
 
-(* program-wide keys are DISTINCT: distinct locals within a file, distinct paths across files. *)
 Lemma program_visit_key_nodup (p : Syntax.Program) :
   NoDup (map (fun ro => Index.Snapshot.node_ref_key (fst ro)) (program_visit p)).
 Proof.
@@ -733,13 +703,11 @@ Proof.
   - apply Syntax.file_bindings_nodup_keys.
 Qed.
 
-(* the specification map is source-determined; the production map projects the one retained forest *)
 
 Lemma occurrences_expr_head_ex : forall e parent role start,
   exists occ, In (start, occ) (Index.occurrences_expr parent role start e) /\ Index.view_expr occ = Some e.
 Proof. intros e parent role start; destruct e; cbn [Index.occurrences_expr]; eexists; (split; [left; reflexivity|reflexivity]). Qed.
 
-(* the head of a subtree stream carries exactly the role it was passed *)
 Lemma occurrences_expr_head_role : forall e parent role start,
   exists occ, In (start, occ) (Index.occurrences_expr parent role start e)
     /\ Index.view_expr occ = Some e /\ Index.occurrence_role occ = role.
@@ -755,11 +723,9 @@ Lemma occurrences_expr_operand : forall e parent role start me occ ce x,
     /\ Index.view_expr occ' = Some x /\ Index.occurrence_role occ' = Index.ConversionOperand.
 Proof.
   induction e as [ b|n1|n2|s| df | dcx | ts y IHy ]; intros parent role start me occ ce x Hin Hv Hc.
-  (* leaves: the only occurrence is the leaf, whose view has no Typing.expression_child *)
   1,2,3,4,5,6: cbn [Index.occurrences_expr] in Hin; destruct Hin as [Heq|Hf]; [| destruct Hf];
                injection Heq as <- <-; cbn [Index.view_expr Index.occurrence_view] in Hv;
                injection Hv as Hce; subst ce; cbn [Typing.expression_child] in Hc; discriminate Hc.
-  (* a conversion, then its type-name child, then its operand subtree two past the conversion *)
   cbn [Index.occurrences_expr] in Hin. destruct Hin as [Heq|Hin].
   - injection Heq as Hid Hocc; rewrite <- Hid; rewrite <- Hocc in Hv;
     cbn [Index.view_expr Index.occurrence_view] in Hv; injection Hv as Hce; subst ce;
@@ -1059,7 +1025,6 @@ Proof.
   - exact (occurrences_decls_typename_role (Syntax.declarations f) Index.root_id 0 (Pos.succ Index.package_id) me occ ts Hin Hv).
 Qed.
 
-(* on a typed program every visited expression occurrence has a successful constant analysis *)
 Lemma expression_typedb_const_info : forall u e, expression_typedb u e = true -> exists ci, constant_info e = Some ci.
 Proof.
   intros u e H. unfold expression_typedb in H.
@@ -1069,7 +1034,6 @@ Proof.
   destruct (Typing.resolve_constant_sound predeclared_type u e rc Hrc) as [ci [Hci _]]. exists ci; exact Hci.
 Qed.
 
-(* one downward step: a node whose [constant_info] succeeds has an expression child whose [constant_info] succeeds. *)
 Lemma const_info_child_some : forall e x ci,
   Typing.expression_child e = Some x -> constant_info e = Some ci -> exists cix, constant_info x = Some cix.
 Proof.
@@ -1079,7 +1043,6 @@ Proof.
     (destruct (constant_info x) as [cix|]; [ exists cix; reflexivity | discriminate Hci ]).
 Qed.
 
-(* success at the root propagates to every occurrence of the subtree stream *)
 Lemma occurrences_expr_const_info_some : forall e parent role pos me occ e' ci,
   constant_info e = Some ci ->
   In (me, occ) (Index.occurrences_expr parent role pos e) ->
@@ -1090,7 +1053,6 @@ Proof.
   1,2,3,4,5,6: cbn [Index.occurrences_expr] in Hin; destruct Hin as [Heq|[]];
     injection Heq as <- <-; cbn [Index.view_expr Index.occurrence_view] in Hv;
     injection Hv as <-; exists ci; exact Hci.
-  (* conversion: conv head (view = the conversion), type-name (view = None, discriminated), operand subtree (IH) *)
   cbn [Index.occurrences_expr] in Hin. destruct Hin as [Heq|Hin].
   - injection Heq as <- <-; cbn [Index.view_expr Index.occurrence_view] in Hv;
     injection Hv as <-; exists ci; exact Hci.
@@ -1199,7 +1161,6 @@ Proof.
     exact (occurrences_decls_const_info_some (Syntax.declarations f) Index.root_id 0 (Pos.succ Index.package_id) me occ e' Ht Hin Hv).
 Qed.
 
-(* the WHOLE-PROGRAM statement: on [program_typedb] every visited expression occurrence's [constant_info] is [Some]. *)
 Lemma program_visit_const_info_some (p : Syntax.Program) :
   program_typedb p = true ->
   forall r occ e', In (r, occ) (program_visit p) -> Index.view_expr occ = Some e' -> exists ci, constant_info e' = Some ci.
@@ -1246,7 +1207,6 @@ Qed.
 Definition operand_key {p} (r : Index.Snapshot.NodeRef p) : Index.Key :=
   Index.MakeKey (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Pos.succ (Index.Snapshot.node_ref_local r))).
 
-(* a visited conversion's operand is itself visited, at the operand key *)
 Lemma program_visit_operand (p : Syntax.Program) (idx : Index.Snapshot.Syntax p)
     (r : Index.Snapshot.NodeRef p) occ e x :
   In (r, occ) (program_visit p) -> Index.view_expr occ = Some e -> Typing.expression_child e = Some x ->
@@ -1291,7 +1251,6 @@ Proof.
   - rewrite Hsor; exact Hrole.
 Qed.
 
-(* a conversion's type-name occurrence sits at the target child key *)
 Definition type_name_key {p} (r : Index.Snapshot.NodeRef p) : Index.Key :=
   Index.MakeKey (Index.key_path (Index.Snapshot.node_ref_key r)) (Pos.succ (Index.Snapshot.node_ref_local r)).
 
@@ -1303,7 +1262,6 @@ Proof.
   intro H. injection H as Hf Hl. apply Pos.succ_inj in Hl. rewrite Hf, Hl. reflexivity.
 Qed.
 
-(* a visited conversion's type name is itself visited, recovering the exact source syntax *)
 Lemma program_visit_type_name (p : Syntax.Program) (idx : Index.Snapshot.Syntax p)
     (r : Index.Snapshot.NodeRef p) occ ts x :
   In (r, occ) (program_visit p) -> Index.view_expr occ = Some (Syntax.Convert ts x) ->
@@ -1384,7 +1342,6 @@ Proof.
   unfold Index.type_name_ref_syntax. rewrite Hetr. exact Hvts.
 Qed.
 
-(* a conversion's exact operand reference, the mirror of its target *)
 Definition conversion_operand_ref {p} (idx : Index.Snapshot.Syntax p) (er : Index.ExprRef p)
   : option (Index.ExprRef p) :=
   match Index.Snapshot.ref_of_key p idx (operand_key (Index.erase_ref er)) with
@@ -1428,7 +1385,6 @@ Proof.
   unfold Index.as_expr. rewrite Ha. f_equal. apply Index.noderefof_key_inj. rewrite He'. reflexivity.
 Qed.
 
-(* the typed conversion children, minted from the reference's own source view *)
 Lemma conversion_target_ref_of_view {p} (idx : Index.Snapshot.Syntax p) (er : Index.ExprRef p) ts x :
   Index.view_expr (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = Some (Syntax.Convert ts x) ->
   exists tr, conversion_target_ref idx er = Some tr
@@ -1470,10 +1426,8 @@ Lemma from_some_eq {A} (o : option A) (H : o <> None) (a : A) : o = Some a -> fr
 Proof. intro Heq. subst o. reflexivity. Qed.
 Lemma from_some_some {A} (o : option A) (H : o <> None) : o = Some (from_some o H).
 Proof. destruct o as [a|]; [reflexivity | exfalso; apply H; reflexivity]. Qed.
-(* the projection depends only on the option, so two non-emptiness proofs give the same result *)
 Lemma from_some_pi {A} (o : option A) (H1 H2 : o <> None) : from_some o H1 = from_some o H2.
 Proof. destruct o as [a|]; [reflexivity | destruct (H1 eq_refl)]. Qed.
-(* equal options give equal projections (the witnesses are irrelevant). *)
 Lemma from_some_congr {A} (o1 o2 : option A) (H1 : o1 <> None) (H2 : o2 <> None) :
   o1 = o2 -> from_some o1 H1 = from_some o2 H2.
 Proof. intro Ho. revert H2. rewrite <- Ho. intro H2. apply from_some_pi. Qed.
@@ -1495,7 +1449,6 @@ Lemma conversion_operand_ref_tot_eq {p} (idx : Index.Snapshot.Syntax p) (er : In
   conversion_operand_ref idx er = Some opr -> conversion_operand_ref_tot idx er ts x Hv = opr.
 Proof. intro Heq. unfold conversion_operand_ref_tot. apply from_some_eq. exact Heq. Qed.
 
-(* the total children recover the exact operand and the exact source type syntax *)
 Lemma conversion_operand_ref_tot_view {p} (idx : Index.Snapshot.Syntax p) (er : Index.ExprRef p) ts x Hv :
   Index.view_expr (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref (conversion_operand_ref_tot idx er ts x Hv))) = Some x.
 Proof.
@@ -1516,7 +1469,6 @@ Proof. intros ts x. reflexivity. Qed.
 
 Record TypeNameFact : Type := MakeTypeNameFact { fact_type : Typing.SemanticType }.
 
-(* one occurrence's type-name fact, resolving its retained source syntax through the predeclared context *)
 Definition occurrence_type_name_fact (o : Index.Occurrence) : option TypeNameFact :=
   match Index.view_typename o with
   | Some ts => Some (MakeTypeNameFact (predeclared_type ts))
@@ -1737,7 +1689,7 @@ Qed.
 Definition expression_ref_role {p} (er : Index.ExprRef p) : Index.Role :=
   Index.occurrence_role (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)).
 
-(* one conversion's outcome from its target-Index.table query + operand outcome — ONE Typing.convert_constant. *)
+(* one conversion's outcome from its target-table query and its operand outcome — ONE Typing.convert_constant. *)
 Definition conv_outcome {p} (tnft : TypeNameFacts p) (er : Index.ExprRef p)
     (tr : Index.TypeNameRef p) (opr : Index.ExprRef p) (oo : ExpressionOutcome p) : ExpressionOutcome p :=
   match oo with
@@ -1767,7 +1719,6 @@ Definition leaf_const (e : Syntax.Expr) : Typing.expression_child e = None -> Ty
 Lemma leaf_const_status (e : Syntax.Expr) (H : Typing.expression_child e = None) : constant_info e = Some (leaf_const e H).
 Proof. destruct e as [ b|n|n0|s|d|dc| ts x ]; try reflexivity. exfalso. exact (expression_child_leaf_absurd ts x H). Qed.
 
-(* a leaf occurrence's outcome — its untyped fact + its use-context resolution from that same status. *)
 Definition leaf_outcome {p} (er : Index.ExprRef p) (ci : Typing.ConstantInfo) : ExpressionOutcome p :=
   ExpressionSuccess (MakeExpressionFact ci (use_resolved_of_input (expression_ref_role er) ci)).
 
@@ -1782,7 +1733,6 @@ Definition local_conv_failure (e : Syntax.Expr) : option (Typing.SemanticType * 
   | _ => None
   end.
 
-(* every retained member's stored outcome matches its occurrence, projected from the retained trace *)
 Definition outcome_convfail_ev {p} (idx : Index.Snapshot.Syntax p) (r : Index.Snapshot.NodeRef p)
     (occ : Index.Occurrence) (er2 : Index.ExprRef p) (tr2 : Index.TypeNameRef p)
     (opr2 : Index.ExprRef p) (t : Typing.SemanticType) (ci : Typing.ConstantInfo) : Prop :=
@@ -1800,7 +1750,6 @@ Definition outcome_matches {p} (idx : Index.Snapshot.Syntax p) (r : Index.Snapsh
   | ChildFailure => occurrence_expr_fact occ = None /\ (exists e, Index.view_expr occ = Some e /\ local_conv_failure e = None)
   end.
 
-(* the FACT-only projection (facts layer): an ExpressionSuccess fact is exact, any other outcome has no fact. *)
 Definition outcome_proj_fact {p} (out : ExpressionOutcome p) (occ : Index.Occurrence) : Prop :=
   match out with
   | ExpressionSuccess f => occurrence_expr_fact occ = Some f
@@ -1835,7 +1784,6 @@ Definition build_compilation_input (p : Syntax.Program) (ip : Index.Program p) :
   let blocks := program_blocks p in
   MakeInput ip blocks (concat blocks) eq_refl eq_refl.
 
-(* a non-success outcome, which is what a child-failure cause carries about its operand *)
 Definition outcome_is_fail {p} (o : ExpressionOutcome p) : Prop :=
   match o with ExpressionSuccess _ => False | _ => True end.
 
@@ -1952,7 +1900,6 @@ Proof.
     + exists (Syntax.Convert ts x). split; [exact Hv | cbn [local_conv_failure]; rewrite Ecx; reflexivity].
 Qed.
 
-(* a visited expression's reference as data, minted totally rather than skipped when absent *)
 Lemma program_visit_as_expr_not_none {p} (idx : Index.Snapshot.Syntax p) (r : Index.Snapshot.NodeRef p) occ e :
   In (r, occ) (program_visit p) -> Index.view_expr occ = Some e -> Index.as_expr idx r <> None.
 Proof. intros Hin Hv. destruct (program_visit_as_expr p idx r occ e Hin Hv) as [er [Hae _]]. rewrite Hae. discriminate. Qed.
@@ -1983,7 +1930,6 @@ Proof.
   unfold expression_ref_view. rewrite (from_some_eq _ (expression_ref_view_not_none er) e E). exact Hv.
 Qed.
 
-(* the type-name table built from the exact retained visit, which transports its exactness *)
 Lemma type_name_input_map_eq {p} (input : Input p) :
   fold_right add_tn_fact (Index.KeyMap.empty TypeNameFact) (input_visit input) = program_type_name_facts p.
 Proof. unfold program_type_name_facts. rewrite (input_visit_ok input). reflexivity. Qed.
@@ -1996,12 +1942,10 @@ Proof.
   - intros r occ Hin. rewrite (type_name_input_map_eq input). exact (program_type_name_facts_find p r occ Hin).
 Defined.
 
-(* the retained-input table is the canonical one, and its total query resolves the source name *)
 Lemma build_type_name_map {p} (input : Input p) :
   type_name_map (build_type_name_fact_table input) = program_type_name_facts p.
 Proof. exact (type_name_input_map_eq input). Qed.
 
-(* minting a visited expression's reference is total, so no occurrence is skipped *)
 Lemma fold_ext_in {A B} (f g : A -> B -> B) (init : B) (l : list A) :
   (forall a b, In a l -> f a b = g a b) -> fold_right f init l = fold_right g init l.
 Proof.
@@ -2043,7 +1987,6 @@ Arguments work_in_visit {p input} _.  Arguments work_view_exact {p input} _.
 Arguments work_as_expr_exact {p input} _.  Arguments work_erase_exact {p input} _.
 Arguments work_conv {p input} _.
 
-(* whole-visit membership transports to [program_visit] membership through the retained coherence [input_visit_ok]. *)
 Definition in_program {p} {input : Input p} {ro} (H : In ro (input_visit input)) : In ro (program_visit p) :=
   eq_ind (input_visit input) (fun L => In ro L) H (program_visit p) (input_visit_ok input).
 
@@ -2068,7 +2011,6 @@ Proof.
   exact (existT _ tr (exist _ opr (conj Htr (conj Htsyn Hopr)))).
 Defined.
 
-(* the outcome table's domain is exactly the work key set, so a table with an extra key is uninhabitable *)
 Definition occurrence_is_expr {p} (ro : Index.Snapshot.NodeRef p * Index.Occurrence) : bool :=
   match Index.view_expr (snd ro) with Some _ => true | None => false end.
 Lemma occurrence_is_expr_true {p} (r : Index.Snapshot.NodeRef p) occ e :
@@ -2104,12 +2046,10 @@ Lemma filter_concat_eq {A} (g : A -> bool) (ls : list (list A)) :
   filter g (concat ls) = concat (map (filter g) ls).
 Proof. induction ls as [|a ls IH]; [reflexivity | cbn [concat map]; rewrite filter_app, IH; reflexivity]. Qed.
 
-(* whole-program block membership: every occurrence of a block is in the retained visit. *)
 Definition input_visit_of_concat {p} (input : Input p) ro
     (H : In ro (concat (input_blocks input))) : In ro (input_visit input) :=
   eq_ind_r (fun L => In ro L) H (input_visit_blocks input).
 
-(* the PER-BLOCK forest (§4 [forest_blocks]): the exact expression-work items of each retained block, built ONCE. *)
 Definition build_forest_blocks {p} (input : Input p) :
   forall (blocks : list (list (Index.Snapshot.NodeRef p * Index.Occurrence))),
     (forall ro, In ro (concat blocks) -> In ro (input_visit input)) ->
@@ -2124,7 +2064,6 @@ Proof.
     exists (items :: bsrest). cbn [map]. rewrite Hitems, Hrest. reflexivity.
 Defined.
 
-(* filtering preserves the NoDup of a projection [map g]. *)
 Lemma nodup_map_filter {A B} (g : A -> B) (f : A -> bool) (L : list A) :
   NoDup (map g L) -> NoDup (map g (filter f L)).
 Proof.
@@ -2159,7 +2098,6 @@ Proof.
     apply IH. intro H. apply Hni. right. exact H.
 Qed.
 
-(* the per-step freshness the fold actually relies on, stated at the [cons] the builder takes. *)
 Lemma work_index_add_fresh {p} {input : Input p} (w : Work input) (rest : list (Work input)) :
   NoDup (map (fun w0 => Index.Snapshot.node_ref_key (work_node_ref w0)) (w :: rest)) ->
   Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w)) (work_index_map rest) = None.
@@ -2167,7 +2105,6 @@ Proof.
   cbn [map]. intro Hnd. apply NoDup_cons_iff in Hnd. exact (work_index_fresh rest _ (proj1 Hnd)).
 Qed.
 
-(* the finished map finds exactly the retained item with that key, soundly and completely *)
 Lemma work_index_exact {p} {input : Input p} (items : list (Work input)) :
   NoDup (map (fun w => Index.Snapshot.node_ref_key (work_node_ref w)) items) ->
   forall k w,
@@ -2219,7 +2156,6 @@ Proof.
     rewrite (proj2 (index_exact idx k w) (conj Hin Hk)). discriminate.
 Qed.
 
-(* two retained items with equal keys are the same item, straight from the standard map *)
 Lemma index_key_inj {p} {input : Input p} {items : list (Work input)}
     (idx : WorkIndex items) (a b : Work input) :
   In a items -> In b items ->
@@ -2243,7 +2179,6 @@ Proof.
     rewrite (proj2 (index_exact idx k w) (conj Hin Hkey)) in Eo. discriminate Eo.
 Defined.
 
-(* at a retained member's own key the query returns that very member *)
 Lemma index_member_at_retained {p} {input : Input p} {items : list (Work input)}
     (idx : WorkIndex items) (w : Work input) (Hin : In w items) Hex :
   proj1_sig (index_member_at idx (Index.Snapshot.node_ref_key (work_node_ref w)) Hex) = w.
@@ -2322,7 +2257,6 @@ Proof.
   rewrite (input_visit_ok input). exact (program_visit_key_nodup p).
 Qed.
 
-(* splitting the forest at a member induces the matching visit split, derived from the stored fields *)
 Lemma forest_split {p} {input : Input p} (forest : WorkForest input)
     ipre (w : Work input) irest :
   forest_items forest = ipre ++ w :: irest ->
@@ -2378,27 +2312,23 @@ Qed.
 Definition WorkMember {p} {input : Input p} (forest : WorkForest input) : Type :=
   { w : Work input | In w (forest_items forest) }.
 
-(* the retained member is recovered through the forest's own index; the ordered list is not consulted *)
 Definition forest_index_member_at {p} {input : Input p} (forest : WorkForest input)
     (k : Index.Key)
     (Hex : exists w, In w (forest_items forest) /\ Index.Snapshot.node_ref_key (work_node_ref w) = k)
   : { w : Work input | In w (forest_items forest) /\ Index.Snapshot.node_ref_key (work_node_ref w) = k } :=
   index_member_at (forest_index forest) k Hex.
 
-(* the forest-level query returns the very retained member asked about. *)
 Lemma forest_index_member_at_retained {p} {input : Input p} (forest : WorkForest input)
     (w : Work input) (Hin : In w (forest_items forest)) Hex :
   proj1_sig (forest_index_member_at forest (Index.Snapshot.node_ref_key (work_node_ref w)) Hex) = w.
 Proof. exact (index_member_at_retained (forest_index forest) w Hin Hex). Qed.
 
-(* a key held by no retained member is absent from the forest's index — no foreign key is ever answered. *)
 Lemma forest_index_no_foreign {p} {input : Input p} (forest : WorkForest input)
     (k : Index.Key) :
   (forall w, In w (forest_items forest) -> Index.Snapshot.node_ref_key (work_node_ref w) <> k) ->
   Index.KeyMap.find k (index_map (forest_index forest)) = None.
 Proof. exact (index_no_foreign (forest_index forest) k). Qed.
 
-(* a visited occurrence that is not an expression has no index entry *)
 Lemma index_nonexpr_absent {p} {input : Input p} (forest : WorkForest input)
     (r : Index.Snapshot.NodeRef p) occ :
   In (r, occ) (input_visit input) -> Index.view_expr occ = None ->
@@ -2444,7 +2374,6 @@ Definition build_conversion_work {p} {input : Input p} (forest : WorkForest inpu
     (w : Work input) ts x (Hview : Index.view_expr (work_occurrence w) = Some (Syntax.Convert ts x))
   : Conversion forest w ts x.
 Proof.
-  (* [work_expr w = Syntax.Convert ts x], so [work_conv w] is the conversion refinement carrying [tr]/[opr] as DATA. *)
   assert (Hew : work_expr w = Syntax.Convert ts x)
     by (pose proof (work_view_exact w) as Hv; rewrite Hview in Hv; injection Hv as He; exact (eq_sym He)).
   pose proof (work_conv w) as Hcv. rewrite Hew in Hcv. cbn [ConvRefinement] in Hcv.
@@ -2505,7 +2434,6 @@ Proof.
   - unfold type_name_key, operand_key. cbn [Index.key_local]. apply Pos.lt_succ_diag_r.
 Defined.
 
-(* two retained members with the same key are equal, read off the standard map rather than a scan *)
 Lemma forest_key_inj {p} {input : Input p} (forest : WorkForest input) (a b : Work input) :
   In a (forest_items forest) -> In b (forest_items forest) ->
   Index.Snapshot.node_ref_key (work_node_ref a) = Index.Snapshot.node_ref_key (work_node_ref b) -> a = b.
@@ -2547,7 +2475,6 @@ Definition build_conversion_step {p} {input : Input p} (forest : WorkForest inpu
   : ConversionStep forest w rest ts x.
 Proof.
   pose (cwk := build_conversion_work forest w ts x Hview).
-  (* the operand member is already in Type, so the Prop reasoning stays inside its own assertion *)
   assert (Hopin_rest : In (proj1_sig (conversion_operand_work cwk)) rest).
   { destruct Hsplit as [ipre Hpre].
     destruct (forest_operand_in_tail forest ipre w rest ts x Hpre Hview) as [w' [Hinw' Hkeyw']].
@@ -2620,7 +2547,6 @@ Arguments ConversionSuccessCause {p input forest tnft current rest acc_rest} _ _
 Arguments ConversionFailureCause {p input forest tnft current rest acc_rest} _ _ _ _ _ _ _ _.
 Arguments ChildFailureCause {p input forest tnft current rest acc_rest} _ _ _ _ _ _.
 
-(* a retained member's occurrence role IS its ExprRef's role (both read the member's own source occurrence). *)
 Lemma work_occ_role {p} {input : Input p} (w : Work input) :
   Index.occurrence_role (work_occurrence w) = expression_ref_role (work_expr_ref w).
 Proof.
@@ -2628,7 +2554,6 @@ Proof.
     (program_visit_occ_is_source p (work_node_ref w) (work_occurrence w) (in_program (work_in_visit w))). reflexivity.
 Qed.
 
-(* a conversion step's outcome matches the specification, given that its operand's does *)
 Lemma conv_step_matches {p} {input : Input p} {forest : WorkForest input} {tnft}
     (current : Work input) (rest : list (Work input))
     (acc_rest : Accumulator forest tnft rest) ts x (step : ConversionStep forest current rest ts x)
@@ -2732,7 +2657,6 @@ Proof.
     + exact (accumulator_covers acc_rest w0 Hin0).
 Qed.
 
-(* the exact domain of the extended map (via [outcome_dom_exact_add] with the head's own [work_view_exact]). *)
 Lemma extend_domain {p} {input : Input p} {forest : WorkForest input} {tnft}
     {rest : list (Work input)} (acc_rest : Accumulator forest tnft rest)
     (current : Work input) (o : ExpressionOutcome p) :
@@ -2742,7 +2666,6 @@ Proof.
   cbn [map]. eapply outcome_dom_exact_add; [ exact (work_view_exact current) | exact (accumulator_domain acc_rest) ].
 Qed.
 
-(* the SINGLE accumulator step: extend [acc_rest] with the head [current]'s outcome [o] at [current]'s own key. *)
 Definition extend_acc {p} {input : Input p} {forest : WorkForest input} {tnft}
     {rest : list (Work input)} (acc_rest : Accumulator forest tnft rest)
     (current : Work input) (o : ExpressionOutcome p)
@@ -2765,7 +2688,6 @@ Lemma accumulator_total_irrel {p} {input : Input p} {forest : WorkForest input} 
   accumulator_total acc (exist _ wm H1) = accumulator_total acc (exist _ wm H2).
 Proof. unfold accumulator_total. apply from_some_pi. Qed.
 
-(* the HEAD query: at a member whose key IS the extended head's key, the extended accumulator returns exactly [o]. *)
 Lemma extend_here_query {p} {input : Input p} {forest : WorkForest input} {tnft}
     {rest : list (Work input)} (acc_rest : Accumulator forest tnft rest)
     (current : Work input) (o : ExpressionOutcome p) (sm : SuffixMember forest (current :: rest)) :
@@ -2822,7 +2744,6 @@ Definition RetainedMemberCause {p} {input : Input p} (forest : WorkForest input)
       * (forall (sm2 : SuffixMember forest rest) (Hlift : In (sm_work sm2) items),
            accumulator_total acc_rest sm2 = accumulator_total acc (exist _ (proj1_sig sm2) Hlift)) )%type } }.
 
-(* each member's insertion cause and its query preservation, projected by induction on the trace *)
 Lemma trace_retained_cause {p} {input : Input p} {forest : WorkForest input} {tnft} :
   forall items acc (t : Trace forest tnft items acc) (sm : SuffixMember forest items),
     RetainedMemberCause forest tnft items acc sm.
@@ -2832,7 +2753,7 @@ Proof.
   - destruct (proj2_sig sm).
   - destruct (Index.key_eq_dec (sm_key sm) (Index.Snapshot.node_ref_key (work_node_ref current)))
       as [Hhead | Htail].
-    + (* HEAD: this member IS [current] *)
+    + (* this member IS [current] *)
       assert (Hsw : sm_work sm = current)
         by (apply (forest_key_inj forest (sm_work sm) current (proj2_sig (proj1_sig sm)) Hin_c); exact Hhead).
       assert (Ho : accumulator_total (extend_acc acc_rest current o) sm = o)
@@ -2844,7 +2765,7 @@ Proof.
         rewrite (accumulator_total_irrel (extend_acc acc_rest current o) (proj1_sig sm2) Hlift
                    (or_intror (proj2_sig sm2))).
         symmetry. exact (extend_tail_query acc_rest current o Hfresh sm2).
-    + (* TAIL: this member is in [rest] *)
+    + (* this member is in [rest] *)
       assert (Hin_rest : In (sm_work sm) rest).
       { destruct (proj2_sig sm) as [Hcur | Hin].
         - exfalso. apply Htail. unfold sm_key. do 2 f_equal. exact (eq_sym Hcur).
@@ -2873,7 +2794,6 @@ Proof.
            ++ apply accumulator_total_irrel.
 Qed.
 
-(* the source-specification match for every retained member, a separate bridge from the causal evidence *)
 Lemma trace_match {p} {input : Input p} {forest : WorkForest input} {tnft} :
   forall items acc (t : Trace forest tnft items acc) (sm : SuffixMember forest items),
     outcome_matches (index input) (work_node_ref (sm_work sm)) (work_occurrence (sm_work sm)) (accumulator_total acc sm).
@@ -2939,7 +2859,6 @@ Proof.
     exact (TraceStep w rest acc_rest o Hin_w Hnd tail sc).
 Defined.
 
-(* the forest-indexed outcome table: the map paired with its direct cause and its exact domain *)
 Definition wm_suffix {p} {input : Input p} {forest : WorkForest input} (wm : WorkMember forest)
   : SuffixMember forest (forest_items forest) := exist _ wm (proj2_sig wm).
 
@@ -2953,7 +2872,6 @@ Record Outcomes {p} {input : Input p} (forest : WorkForest input)
 Arguments MakeOutcomes {p input forest tnft} _ _.
 Arguments outcomes_acc {p input forest tnft} _.  Arguments outcomes_trace {p input forest tnft} _.
 
-(* the map and exact domain, projected from the retained accumulator *)
 Definition outcomes_map {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) : Index.KeyMap.t (ExpressionOutcome p) := accumulator_map (outcomes_acc ot).
 Definition outcomes_dom {p} {input : Input p} {forest : WorkForest input} {tnft}
@@ -2980,7 +2898,6 @@ Definition total_forest_outcome_at {p} {input : Input p} {forest : WorkForest in
                (Index.Snapshot.node_ref_key (work_node_ref (proj1_sig wm))) (outcomes_map ot))
             (outcomes_present ot (proj1_sig wm) (proj2_sig wm)).
 
-(* a key is in the table exactly when a retained forest item has it *)
 Lemma outcomes_domain_iff_forest {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) k :
   Index.KeyMap.find k (outcomes_map ot) <> None
@@ -3013,7 +2930,6 @@ Proof.
   rewrite Hoc, Hv in Hv'. discriminate Hv'.
 Qed.
 
-(* a per-element step that is a no-op on the filtered-OUT elements folds the same over [l] and [filter f l]. *)
 Lemma fold_right_filter_skip {A B} (fo : A -> B -> B) (f : A -> bool) (init : B) (l : list A) :
   (forall a b, In a l -> f a = false -> fo a b = b) ->
   fold_right fo init l = fold_right fo init (filter f l).
@@ -3029,7 +2945,6 @@ Lemma occurrence_is_expr_false_view {p} (ro : Index.Snapshot.NodeRef p * Index.O
   occurrence_is_expr ro = false -> Index.view_expr (snd ro) = None.
 Proof. unfold occurrence_is_expr. destruct (Index.view_expr (snd ro)); [discriminate | reflexivity]. Qed.
 
-(* a per-work fold equals a per-occurrence fold when they agree on work and the latter skips the rest *)
 Lemma forest_fold {p} {input : Input p} (forest : WorkForest input) {B}
     (fw : Work input -> B -> B)
     (fo : (Index.Snapshot.NodeRef p * Index.Occurrence) -> B -> B) (init : B)
@@ -3043,7 +2958,6 @@ Proof.
   apply fold_ext_in. intros; apply Hagree.
 Qed.
 
-(* the total query matches the specification at the member's own occurrence, projected from the trace *)
 Lemma total_forest_outcome_at_matches {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) (wm : WorkMember forest) :
   outcome_matches (index input) (work_node_ref (proj1_sig wm)) (work_occurrence (proj1_sig wm))
@@ -3066,7 +2980,6 @@ Lemma final_operand_outcome {p} {input : Input p} {forest : WorkForest input} {t
   total_forest_outcome_at ot (proj1_sig sm_op) = accumulator_total acc_rest sm_op.
 Proof. symmetry. exact (Hpreserve sm_op (proj2_sig (proj1_sig sm_op))). Qed.
 
-(* the retained cause and the final-to-tail closure for any member, projected off the trace as one object *)
 Definition retained_conversion_closure {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) (wm : WorkMember forest)
   : { rest : list (Work input) &
@@ -3242,7 +3155,6 @@ Qed.
 Definition program_expr_facts (p : Syntax.Program) : Index.KeyMap.t ExpressionFact :=
   fold_right add_occ_fact (Index.KeyMap.empty ExpressionFact) (program_visit p).
 
-(* §9/§2.7 the forest fact projection EQUALS the source specification, over the SAME retained work order. *)
 Lemma forest_facts_eq_spec {p} {input : Input p} (forest : WorkForest input)
     (tnft : TypeNameFacts p) (ot : Outcomes forest tnft) :
   forest_facts forest tnft ot = program_expr_facts p.
@@ -3262,7 +3174,6 @@ Lemma program_expr_facts_eq_spec (p : Syntax.Program) :
   program_expr_facts p = fold_right add_occ_fact (Index.KeyMap.empty ExpressionFact) (program_visit p).
 Proof. reflexivity. Qed.
 
-(* the fact at a visited reference's key is exactly that occurrence's fact *)
 Lemma program_expr_facts_find (p : Syntax.Program) (r : Index.Snapshot.NodeRef p) occ :
   In (r, occ) (program_visit p) ->
   Index.KeyMap.find (Index.Snapshot.node_ref_key r) (program_expr_facts p) = occurrence_expr_fact occ.
@@ -3310,7 +3221,6 @@ Arguments fact_table_map {p ip} _.
 Arguments fact_table_domain {p ip} _.
 Arguments fact_table_complete {p ip} _.
 
-(* the expression decision: every println argument resolves exactly when the program types *)
 
 Lemma forallb_flat_map {A B} (f : B -> bool) (g : A -> list B) (l : list A) :
   forallb f (flat_map g l) = forallb (fun x => forallb f (g x)) l.
@@ -3323,7 +3233,6 @@ Definition occurrence_arg_typedb (o : Index.Occurrence) : bool :=
   | _ => true
   end.
 
-(* a conversion's TYPE-NAME occurrence (kind Index.TypeNameKind, no expression view) is vacuously typed. *)
 Lemma occurrence_arg_typedb_typename : forall ts par sub,
   occurrence_arg_typedb (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
@@ -3337,7 +3246,6 @@ Lemma occurrence_arg_typedb_printlnarg : forall e par aidx sub,
   = expression_typedb Typing.PrintlnArgument e.
 Proof. reflexivity. Qed.
 
-(* every occurrence inside a conversion operand carries role [Index.ConversionOperand], hence is vacuously typed. *)
 Lemma occurrences_expr_operand_true : forall e parent me,
   forallb (fun x => occurrence_arg_typedb (snd x)) (Index.occurrences_expr parent Index.ConversionOperand me e) = true.
 Proof.
@@ -3347,7 +3255,6 @@ Proof.
   rewrite occurrence_arg_typedb_operand, occurrence_arg_typedb_typename, !Bool.andb_true_l; apply IHx.
 Qed.
 
-(* one println argument's occurrence stream types exactly as the existing [expression_typedb Typing.PrintlnArgument]. *)
 Lemma occurrences_arg_typedb_eq : forall e parent aidx me,
   forallb (fun x => occurrence_arg_typedb (snd x)) (Index.occurrences_arg parent aidx me e) = expression_typedb Typing.PrintlnArgument e.
 Proof.
@@ -3399,7 +3306,6 @@ Proof.
   - cbn [Index.occurrences_decls]. rewrite forallb_app, occurrences_decl_typedb_eq, IH. reflexivity.
 Qed.
 
-(* a file's whole occurrence stream types exactly as the existing per-file decision *)
 Lemma occurrences_file_typedb_eq : forall f,
   forallb (fun x => occurrence_arg_typedb (snd x)) (Index.occurrences_file f) = source_file_typedb f.
 Proof.
@@ -3409,7 +3315,6 @@ Proof.
   - destruct i.
 Qed.
 
-(* one file's argument occurrences resolve exactly when the file types *)
 Lemma visit_file_arg_typedb {p} (fr : Index.Snapshot.FileRef p) :
   forallb (fun x => occurrence_arg_typedb (snd x)) (Index.Snapshot.visit_file fr)
   = source_file_typedb (Index.Snapshot.file_ref_source fr).
@@ -3418,11 +3323,9 @@ Proof.
   apply occurrences_file_typedb_eq.
 Qed.
 
-(* the per-occurrence "argument resolves" check folded over the whole program. *)
 Definition expression_all_ok (p : Syntax.Program) : bool :=
   forallb (fun x => occurrence_arg_typedb (snd x)) (program_visit p).
 
-(* the expression decision is exactly program typing: no diagnostic exactly when every argument resolves *)
 Lemma expression_all_ok_program_typedb (p : Syntax.Program) : expression_all_ok p = program_typedb p.
 Proof.
   unfold expression_all_ok. rewrite program_visit_flat_map, forallb_flat_map. unfold Typing.program_typedb.
@@ -3436,7 +3339,6 @@ Lemma expression_all_ok_iff_typed_program (p : Syntax.Program) :
   expression_all_ok p = true <-> Typing.Program predeclared_type p.
 Proof. rewrite expression_all_ok_program_typedb. apply Typing.program_typedb_iff. Qed.
 
-(* the package decision: the two factored roots and their direct reflections *)
 
 Definition semantic_ok_b (p : Syntax.Program) : bool := expression_all_ok p && source_spec_package_rules_b p.
 
@@ -3454,14 +3356,12 @@ Definition default_target_of (c : Typing.Constant) : Typing.SemanticType :=
   | Typing.StringConstant _  => Typing.StringType
   end.
 
-(* the conversion syntax projection: a conversion whose target name resolves to the reported type *)
 Definition conv_targets (e : Syntax.Expr) : option (Typing.SemanticType * Syntax.Expr) :=
   match e with
   | Syntax.Convert ts x => Some (predeclared_type ts, x)
   | _             => None
   end.
 
-(* a local conversion failure denotes its code: the syntax, the operand status, and a rejecting conversion *)
 Lemma local_conv_failure_char (e : Syntax.Expr) (t : Typing.SemanticType) (ci : Typing.ConstantInfo) :
   local_conv_failure e = Some (t, ci) ->
   exists x, conv_targets e = Some (t, x) /\ constant_info x = Some ci /\ Typing.convert_constant t ci = None.
@@ -3472,7 +3372,6 @@ Proof.
      exists x; cbn [conv_targets]; rewrite Ex; split; [reflexivity | split; [reflexivity | exact Ec]]).
 Qed.
 
-(* a println-argument occurrence whose exact untyped constant does not default — returns (constant, default). *)
 Definition arg_default_failure (occ : Index.Occurrence) (e : Syntax.Expr) : option (Typing.Constant * Typing.SemanticType) :=
   match Index.occurrence_role occ with
   | Index.PrintlnArgument _ =>
@@ -3539,19 +3438,16 @@ Proof.
   cbn [annotate_encl map]. rewrite IH. reflexivity.
 Qed.
 
-(* every open stack entry is a genuine conversion reference with its recorded subtree end *)
 Definition estack_ok {p} (idx : Index.Snapshot.Syntax p) (stack : list (Index.ExprRef p * positive)) : Prop :=
   forall er se, In (er, se) stack ->
     Index.as_expr idx (Index.erase_ref er) = Some er
     /\ is_conversion_occ (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = true
     /\ Index.Snapshot.node_subtree_end idx (Index.erase_ref er) = se.
 
-(* filtering preserves the stack invariant. *)
 Lemma estack_ok_filter {p} (idx : Index.Snapshot.Syntax p) P stack :
   estack_ok idx stack -> estack_ok idx (filter P stack).
 Proof. intros H er se Hin. apply filter_In in Hin. exact (H er se (proj1 Hin)). Qed.
 
-(* every delivered enclosing reference is a conversion whose subtree strictly contains the occurrence *)
 Lemma annotate_encl_ctx_sound {p} (idx : Index.Snapshot.Syntax p) : forall stream stack,
   StronglySorted (fun x y => Pos.lt (Index.Snapshot.node_ref_local (fst x)) (Index.Snapshot.node_ref_local (fst y))) stream ->
   (forall ro, In ro stream -> snd ro = Index.Snapshot.source_occurrence_of_ref (fst ro)) ->
@@ -3669,7 +3565,6 @@ Proof.
   - apply strongly_sorted_filter; assumption.
 Qed.
 
-(* the delivered context is same-file, nearest-first and duplicate-free over a per-file block *)
 Lemma annotate_encl_ctx_wf {p} (idx : Index.Snapshot.Syntax p) (fr : Index.Snapshot.FileRef p) :
   forall stream stack,
   StronglySorted (fun x y => Pos.lt (Index.Snapshot.node_ref_local (fst x)) (Index.Snapshot.node_ref_local (fst y))) stream ->
@@ -3734,7 +3629,6 @@ Definition annotate_program {p} (idx : Index.Snapshot.Syntax p)
   : list ((Index.Snapshot.NodeRef p * Index.Occurrence) * list (Index.ExprRef p)) :=
   flat_map (annotate_encl idx []) (program_blocks p).
 
-(* the same soundness across the whole program *)
 Lemma annotate_program_ctx_sound {p} (idx : Index.Snapshot.Syntax p) : forall ro ctx er,
   In (ro, ctx) (annotate_program idx) -> In er ctx ->
   is_conversion_occ (Index.Snapshot.source_occurrence_of_ref (Index.erase_ref er)) = true
@@ -3752,7 +3646,6 @@ Proof.
   - intros ro0 er0 se _ [].
 Qed.
 
-(* the whole-program nested scar is SAME-FILE (as the primary), NEAREST-FIRST, and DUPLICATE-FREE. *)
 Lemma annotate_program_ctx_wf {p} (idx : Index.Snapshot.Syntax p) : forall ro ctx,
   In (ro, ctx) (annotate_program idx) ->
   Forall (fun er => Index.Snapshot.node_ref_file (Index.erase_ref er) = Index.Snapshot.node_ref_file (fst ro)) ctx
@@ -3816,7 +3709,6 @@ Definition occurrence_expr_diags {p} (idx : Index.Snapshot.Syntax p) (outer : li
       end
   end.
 
-(* a local conversion failure genuinely fails the shared conversion at the reported target *)
 Lemma local_conv_failure_sound : forall e t ci,
   local_conv_failure e = Some (t, ci) -> Typing.convert_constant t ci = None.
 Proof.
@@ -3826,7 +3718,6 @@ Proof.
      destruct (Typing.convert_constant _ ci') eqn:Ec; [ discriminate H | injection H as <- <-; exact Ec ]).
 Qed.
 
-(* an invalid-conversion diagnostic denotes its code end to end *)
 Lemma occurrence_expr_diags_conv_sound {p} (idx : Index.Snapshot.Syntax p) ro outer er tr opr outer' t ci :
   In (InvalidConversion er tr opr outer' t ci) (occurrence_expr_diags idx outer ro) ->
   outer' = outer
@@ -3854,7 +3745,6 @@ Proof.
       [ destruct Hin as [Heq|[]]; discriminate Heq | destruct Hin ].
 Qed.
 
-(* a default-not-representable diagnostic denotes its code end to end *)
 Lemma occurrence_expr_diags_default_sound {p} (idx : Index.Snapshot.Syntax p) ro outer er c dt :
   In (DefaultNotRepresentable er c dt) (occurrence_expr_diags idx outer ro) ->
   Index.as_expr idx (fst ro) = Some er
@@ -3884,7 +3774,6 @@ Proof.
                            | split; [ exact Edc | reflexivity ]]]].
 Qed.
 
-(* the diagnostic step projects each retained item's stored outcome, keyed by the work's own reference *)
 
 Lemma local_conv_failure_const_none e t ci : local_conv_failure e = Some (t, ci) -> constant_info e = None.
 Proof.
@@ -4051,7 +3940,6 @@ Proof.
       reflexivity.
 Defined.
 
-(* the forest's items are its blocks flattened, so a block member is a forest member *)
 Lemma forest_concat_mem {p} {input : Input p} (forest : WorkForest input) :
   forall w, In w (concat (forest_blocks forest)) -> In w (forest_items forest).
 Proof. intros w Hw. rewrite (forest_flat forest). exact Hw. Qed.
@@ -4106,12 +3994,10 @@ Definition work_pair_ctx {p} {input : Input p} {forest : WorkForest input}
   : (Index.Snapshot.NodeRef p * Index.Occurrence) * list (Index.ExprRef p) :=
   ((work_node_ref (proj1_sig (fst x)), work_occurrence (proj1_sig (fst x))), snd x).
 
-(* flat_map of a singleton-valued function is a map. *)
 Lemma flat_map_sing {A B} (f : A -> B) (l : list A) :
   flat_map (fun x => [f x]) l = map f l.
 Proof. induction l as [|a l IH]; [reflexivity | cbn [flat_map map]; rewrite IH; reflexivity]. Qed.
 
-(* a guarded singleton flat_map over occurrence/context pairs is the filter on the pair's occurrence. *)
 Lemma flat_map_occ_is_expr_filter {p}
     (l : list ((Index.Snapshot.NodeRef p * Index.Occurrence) * list (Index.ExprRef p))) :
   flat_map (fun rc => if occurrence_is_expr (fst rc) then [ (fst rc, snd rc) ] else []) l
@@ -4228,7 +4114,6 @@ Proof.
   cbn beta. exact (flat_map_occ_is_expr_filter (annotate_program (index input))).
 Qed.
 
-(* the diagnostic projection equals the specification, proved from the object's own fold *)
 Lemma expression_diagnostics_eq_spec {p} {input : Input p} {forest : WorkForest input}
     {tnft : TypeNameFacts p} (ot : Outcomes forest tnft) (aw : AnnotatedWork forest) :
   flat_map (forest_awork_diags ot) (annotated_items aw)
@@ -4296,7 +4181,6 @@ Definition build_expression_phase {p} (input : Input p) : Phase input :=
   let diag  := build_expression_diagnostics awork ot in
   MakePhase work tnft ot awork eft diag.
 
-(* each phase component is the builder applied to the phase's own prior objects, definitionally *)
 Lemma phase_ot_consumes_work {p} (input : Input p) :
   phase_ot (build_expression_phase input)
   = build_forest_outcome_table (phase_work (build_expression_phase input)) (phase_type_name_facts (build_expression_phase input)).
@@ -4316,17 +4200,14 @@ Proof. reflexivity. Qed.
 (* the phase's fact projection is the retained table's map, never a recomputed value *)
 Definition phase_facts {p} {input : Input p} (ph : Phase input)
   : Index.KeyMap.t ExpressionFact := fact_table_map (expression_facts_table (phase_fact_table ph)).
-(* the phase's STORED diagnostic list IS the retained [phase_diag] object's list. *)
 Definition phase_diags {p} {input : Input p} (ph : Phase input)
   : list (DiagnosticReason p) := erased_diagnostics (phase_diag ph).
 
-(* the total query depends only on the member's key *)
 Lemma total_forest_outcome_at_congr {p} {input : Input p} {forest : WorkForest input} {tnft}
     (ot : Outcomes forest tnft) (w1 w2 : WorkMember forest) :
   proj1_sig w1 = proj1_sig w2 -> total_forest_outcome_at ot w1 = total_forest_outcome_at ot w2.
 Proof. intro Heq. unfold total_forest_outcome_at. apply from_some_congr. rewrite Heq. reflexivity. Qed.
 
-(* §5 the retained trace's insertion sequence — the [current] of each [TraceStep], collected top-down. *)
 Fixpoint trace_currents {p} {input : Input p} {forest : WorkForest input} {tnft}
     {items : list (Work input)} {acc : Accumulator forest tnft items}
     (t : Trace forest tnft items acc) : list (Work input) :=
@@ -4360,35 +4241,26 @@ Definition accepted_conversion_cause {p} {input : Input p} {forest : WorkForest 
   let rest     := projT1 cause in
   let acc_rest := projT1 (projT2 cause) in
      work_expr (proj1_sig wm) = Syntax.Convert ts x
-  (* the exact suffix split the cause retained — this member sits exactly before that exact tail *)
   /\ (exists prefix, forest_items forest = prefix ++ proj1_sig wm :: rest)
   /\ exists (step : ConversionStep forest (proj1_sig wm) rest ts x) opf f tc,
-       (* this member's FINAL outcome … *)
        total_forest_outcome_at ot wm = ExpressionSuccess f
-       (* … the operand's outcome read through the RETAINED tail accumulator at its exact SuffixMember … *)
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
-       (* … the tail-to-final preservation at that exact operand member … *)
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
        = accumulator_total acc_rest (step_operand_suffix step)
-       (* … the ONE [Typing.convert_constant] on the exact target type-name fact … *)
     /\ Typing.convert_constant
          (fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step))))
          (const_status opf) = Some tc
-       (* … the operand [Index.ExprRef] the conversion CARRIES — not a separately guessed source value … *)
     /\ conversion_operand_ref (index input) (work_expr_ref (proj1_sig wm))
        = Some (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))
-       (* … which the RETAINED index answers with that EXACT retained operand member … *)
     /\ Index.KeyMap.find
          (Index.Snapshot.node_ref_key
             (Index.erase_ref (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step))))))
          (index_map (forest_index forest))
        = Some (proj1_sig (conversion_operand_work (step_conversion step)))
-       (* … that member IS the step's operand [SuffixMember], and it lies in the cause's own processed suffix … *)
     /\ proj1_sig (proj1_sig (step_operand_suffix step))
        = proj1_sig (conversion_operand_work (step_conversion step))
     /\ In (proj1_sig (conversion_operand_work (step_conversion step))) rest
-       (* … and [f] IS the exact current [ExpressionFact]. *)
     /\ f = MakeExpressionFact
              (Typing.TypedInfo (fact_type (type_name_fact_at_table tnft
                 (conversion_target_node_ref (step_conversion step)))) tc)
@@ -4419,7 +4291,6 @@ Proof.
   split; [ rewrite Hcl; exact Hopf | ].
   split; [ exact Hcl | ].
   split; [ exact Hconv | ].
-  (* the operand navigation, over the SAME [step] the cause supplied *)
   split; [ exact (conversion_operand_ref_eq (step_conversion step)) | ].
   split.
   { rewrite (work_erase_exact (proj1_sig (conversion_operand_work (step_conversion step)))).
@@ -4444,20 +4315,15 @@ Definition rejected_conversion_cause {p} {input : Input p} {forest : WorkForest 
      work_expr (proj1_sig wm) = Syntax.Convert ts x
   /\ (exists prefix, forest_items forest = prefix ++ proj1_sig wm :: rest)
   /\ exists (step : ConversionStep forest (proj1_sig wm) rest ts x) opf t,
-       (* the final outcome names this member's own reference and the step's own target and operand *)
        total_forest_outcome_at ot wm
          = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
-       (* the operand SUCCEEDED, read through the RETAINED tail accumulator, and that outcome is preserved *)
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
        = accumulator_total acc_rest (step_operand_suffix step)
-       (* the ONE [Typing.convert_constant], and it REJECTED *)
     /\ Typing.convert_constant t (const_status opf) = None
-       (* the resolved target type IS the exact predeclared-context table query for that ref *)
     /\ t = fact_type (type_name_fact_at_table tnft (conversion_target_node_ref (step_conversion step)))
-       (* … and whatever the concrete fixture must say about THIS step *)
     /\ extra step opf t.
 
 Lemma retained_convfail_cause {p} {input : Input p} {forest : WorkForest input} {tnft}
@@ -4477,7 +4343,6 @@ Proof.
   destruct (total_forest_outcome_cause ot wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
   cbn [projT1 projT2].
   split; [ exact He | split; [ exact Hsplit | ] ].
-  (* same convertibility note as the success side: restate the outcome in the cause's own spelling. *)
   assert (Hidx : accumulator_total (outcomes_acc ot) (wm_suffix wm) = ConversionFailure er tr opr t ci)
     by exact Hcv.
   (* the cause is rebuilt rather than rewritten, because the extra facts mention it *)
@@ -4496,7 +4361,6 @@ Proof.
     by (rewrite Hcv, Her, Htr, Hopr, Hci; reflexivity).
   assert (Hfin : total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf)
     by (rewrite Hcl; exact Hopf).
-  (* the rejecting query is stated over the operand fact's status, not over a loosely named one *)
   rewrite Hci in Hconv.
   exists step, opf, t.
   exact (conj Hout (conj Hopf (conj Hfin (conj Hcl (conj Hconv (conj Ht (Hextra step opf He Hout))))))).
@@ -4568,7 +4432,6 @@ Proof.
   apply in_flat_map. exists (wmx, cx). split; [ exact Hinx | rewrite Hdiag; left; reflexivity ].
 Qed.
 
-(* a diagnostic list of length one containing an element IS that singleton. *)
 Lemma length_one_in_eq {A} (l : list A) (x : A) : length l = 1%nat -> In x l -> l = [x].
 Proof.
   intros Hlen Hin. destruct l as [|a [|b l']]; try discriminate Hlen.
@@ -4587,12 +4450,10 @@ Proof.
     exact (expression_diagnostics_eq_spec (phase_ot ph) (phase_awork ph)).
 Qed.
 
-(* the phase diagnostics EQUAL the spec [expression_diags] (for the decision infrastructure). *)
 Lemma phase_diags_eq_expr_diags {p} (input : Input p) (ph : Phase input) :
   phase_diags ph = expression_diags (index input).
 Proof. rewrite (proj2 (facts_and_diags_share_phase input ph)), (expression_diags_eq_spec (index input)). reflexivity. Qed.
 
-(* every enclosing context in the whole report is a genuine strict-ancestor conversion *)
 Lemma expression_diags_conversion_single_rounding_sound {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
   In (InvalidConversion er tr opr outer t ci) (expression_diags idx) ->
   forall a, In a outer ->
@@ -4611,7 +4472,6 @@ Proof.
   rewrite Her. split; [exact Hconv | split; [exact Hlt | exact Hle]].
 Qed.
 
-(* the whole report's enclosing contexts are same-file, nearest-first and duplicate-free *)
 Lemma expression_diags_conversion_single_rounding_well_formed {p} (idx : Index.Snapshot.Syntax p) er tr opr outer t ci :
   In (InvalidConversion er tr opr outer t ci) (expression_diags idx) ->
   Forall (fun a => Index.Snapshot.node_ref_file (Index.erase_ref a) = Index.Snapshot.node_ref_file (Index.erase_ref er)) outer
@@ -4643,7 +4503,6 @@ Definition occurrence_default_ok (occ : Index.Occurrence) : bool :=
 Definition occurrence_emits_none_pure (occ : Index.Occurrence) : bool :=
   occurrence_local_ok occ && occurrence_default_ok occ.
 
-(* a conversion's TYPE-NAME occurrence (no expression view) is vacuously local-OK / default-OK / emit-none. *)
 Lemma occurrence_local_ok_typename : forall ts par sub,
   occurrence_local_ok (Index.MakeOccurrence Index.TypeNameKind (Index.TypeNameView ts) (Some par) Index.ConversionTarget sub) = true.
 Proof. reflexivity. Qed.
@@ -4658,7 +4517,6 @@ Proof. reflexivity. Qed.
 Lemma use_allowsb_println_true : forall t, use_allowsb Typing.PrintlnArgument t = true.
 Proof. intro t; destruct t; reflexivity. Qed.
 
-(* KEY: no conversion in a subtree locally fails IFF the subtree's [constant_info] succeeds. *)
 Lemma conv_ok_fold : forall e parent role me,
   forallb (fun x => occurrence_local_ok (snd x)) (Index.occurrences_expr parent role me e)
   = match constant_info e with Some _ => true | None => false end.
@@ -4719,7 +4577,6 @@ Proof.
     apply occurrence_default_ok_printlnarg.
 Qed.
 
-(* ONE println argument's occurrence stream emits nothing IFF the argument resolves ([expression_typedb]). *)
 Lemma occurrence_emits_arg : forall e parent aidx me,
   forallb (fun x => occurrence_emits_none_pure (snd x)) (Index.occurrences_arg parent aidx me e) = expression_typedb Typing.PrintlnArgument e.
 Proof.
@@ -4780,7 +4637,6 @@ Proof.
   rewrite occurrence_emits_decls. unfold Typing.source_file_typedb, Typing.file_typedb. reflexivity.
 Qed.
 
-(* lift the file-level emit fold to the whole program (via the traversal projection). *)
 Lemma visit_file_emits {p} (fr : Index.Snapshot.FileRef p) :
   forallb (fun x => occurrence_emits_none_pure (snd x)) (Index.Snapshot.visit_file fr)
   = source_file_typedb (Index.Snapshot.file_ref_source fr).
@@ -4799,7 +4655,6 @@ Proof.
   rewrite Hfop, visit_file_emits, Hsrc. reflexivity.
 Qed.
 
-(* every program-visited occurrence IS its reference's exact source occurrence. *)
 Lemma program_visit_view (p : Syntax.Program) (r : Index.Snapshot.NodeRef p) occ :
   In (r, occ) (program_visit p) -> occ = Index.Snapshot.source_occurrence_of_ref r.
 Proof.
@@ -4808,7 +4663,6 @@ Proof.
   destruct (Index.Snapshot.visit_file_view p fr r occ Hin) as [Hocc _]. exact Hocc.
 Qed.
 
-(* per-occurrence: the emitted diagnostics are empty IFF the occurrence emits nothing (pure). *)
 Lemma occurrence_expr_diags_empty {p} (idx : Index.Snapshot.Syntax p) (outer : list (Index.ExprRef p))
     (r : Index.Snapshot.NodeRef p) occ :
   In (r, occ) (program_visit p) ->
@@ -4848,7 +4702,6 @@ Proof.
   - split; intro H; discriminate H.
 Qed.
 
-(* the expression diagnostics are empty exactly when the program types *)
 Lemma expression_diags_empty_iff {p} (idx : Index.Snapshot.Syntax p) :
   expression_diags idx = nil <-> program_typedb p = true.
 Proof.
@@ -4962,7 +4815,6 @@ Lemma decl_count_list_cons {A} (x : A * Index.Occurrence) (l : list (A * Index.O
   decl_count_list (x :: l) = (decl_kind_count (snd x) + decl_count_list l)%nat.
 Proof. reflexivity. Qed.
 
-(* [decl_count_list] depends only on the OCCURRENCE component (the [snd]-projection). *)
 Lemma decl_count_list_snd {A B} (l1 : list (A * Index.Occurrence)) (l2 : list (B * Index.Occurrence)) :
   map snd l1 = map snd l2 -> decl_count_list l1 = decl_count_list l2.
 Proof.
@@ -5031,7 +4883,6 @@ Proof.
   constructor; [ reflexivity | ]. constructor; [ reflexivity | apply coh_decls ].
 Qed.
 
-(* the COHERENCE, transported to the [snd]-count identity: [decl_count_list = sum_main] over a file's occurrences. *)
 Lemma decl_count_sum_main_file : forall f, decl_count_list (Index.occurrences_file f) = sum_main (Index.occurrences_file f).
 Proof.
   intro f. pose proof (coh_file f) as Hcoh.
@@ -5072,7 +4923,6 @@ Definition program_package_refs_from_visit {p} (idx : Index.Snapshot.Syntax p)
 Definition program_package_refs {p} (idx : Index.Snapshot.Syntax p) : PackageMap.t (list (Index.DeclRef p)) :=
   program_package_refs_from_visit idx (program_visit p).
 
-(* the per-package main count over an occurrence list *)
 Fixpoint package_declcount {p} (idx : Index.Snapshot.Syntax p) (dir : string)
     (l : list (Index.Snapshot.NodeRef p * Index.Occurrence)) : nat :=
   match l with
@@ -5112,7 +4962,6 @@ Proof.
   rewrite (IH acc dir). lia.
 Qed.
 
-(* on a VISITED occurrence the DeclRef-mint contribution equals its [decl_kind_count]. *)
 Lemma program_package_as_decl_kind_count {p} (idx : Index.Snapshot.Syntax p) (fr : Index.Snapshot.FileRef p)
   (r : Index.Snapshot.NodeRef p) (occ : Index.Occurrence) :
   In (r, occ) (Index.Snapshot.visit_file fr) ->
@@ -5127,7 +4976,6 @@ Proof.
   - rewrite Hk in Hne. destruct (Index.occurrence_kind occ); try reflexivity. exfalso; apply Hne; reflexivity.
 Qed.
 
-(* over a list sharing one package, the count is the whole list at that package and zero elsewhere *)
 Lemma package_declcount_uniform {p} (idx : Index.Snapshot.Syntax p) (dir D : string)
   (L : list (Index.Snapshot.NodeRef p * Index.Occurrence)) :
   (forall ro, In ro L -> occurrence_pkg ro = D) ->
@@ -5142,7 +4990,6 @@ Proof.
     destruct (String.eqb D dir); lia.
 Qed.
 
-(* a file block shares one package, so its count is the file's own when the package matches *)
 Lemma package_declcount_binding {p} (idx : Index.Snapshot.Syntax p) (b : FilePath.T * Syntax.File) (dir : string) :
   In b (Syntax.file_bindings (Syntax.files p)) ->
   package_declcount idx dir (binding_visit p b)
@@ -5167,7 +5014,6 @@ Lemma package_declcount_app {p} (idx : Index.Snapshot.Syntax p) (dir : string)
   package_declcount idx dir (l1 ++ l2) = (package_declcount idx dir l1 + package_declcount idx dir l2)%nat.
 Proof. induction l1 as [|ro l1 IH]; cbn [package_declcount app]; [reflexivity | rewrite IH; lia]. Qed.
 
-(* the whole-program per-package count over the retained stream is the declarative one *)
 Lemma package_declcount_prog_visit {p} (idx : Index.Snapshot.Syntax p) (dir : string) :
   package_declcount idx dir (program_visit p) = package_main_count dir (Syntax.files p).
 Proof.
@@ -5181,7 +5027,6 @@ Proof.
   apply H; intros b Hb; exact Hb.
 Qed.
 
-(* a present bucket's length is the package's declarative main count *)
 Lemma program_package_refs_bucket_len {p} (idx : Index.Snapshot.Syntax p) : forall dir l,
   PackageMap.find dir (program_package_refs idx) = Some l -> length l = package_main_count dir (Syntax.files p).
 Proof.
@@ -5263,14 +5108,12 @@ Proof.
     [ discriminate | exfalso; apply Hne; apply root_node_kind ].
 Qed.
 
-(* DOMAIN EXACTNESS (from the ONE visit-stream fold): a bucket is present iff a file has that parent directory. *)
 Lemma program_package_refs_present {p} (idx : Index.Snapshot.Syntax p) : forall dir,
   PackageMap.In dir (program_package_refs idx) <-> list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true.
 Proof.
   intro dir. rewrite PackageFacts.in_find_iff. unfold program_package_refs, program_package_refs_from_visit.
   rewrite (program_package_find_some_iff idx (program_visit p) (PackageMap.empty _) dir). rewrite PackageFacts.empty_o. split.
   - intros [[[r occ] [Hin [Hpkg _]]]|Hne]; [| exfalso; apply Hne; reflexivity].
-    (* the occurrence's file is in Syntax.files with parent dir *)
     rewrite program_visit_flat_map in Hin. apply in_flat_map in Hin. destruct Hin as [b [Hb Hrb]].
     unfold binding_visit in Hrb. destruct (Index.Snapshot.file_of_path p (fst b)) as [fr|] eqn:Ef; [|destruct Hrb].
     destruct (Index.Snapshot.visit_file_view p fr r occ Hrb) as [_ Hfile].
@@ -5286,7 +5129,6 @@ Proof.
     + unfold occurrence_pkg. cbn [fst]. rewrite (Index.Snapshot.file_root_ref_file p fr), Hpath. exact He.
 Qed.
 
-(* BELONGS: a main DeclRef in a package's bucket belongs to THAT package (its file's parent = the key). *)
 Lemma program_package_mem {p} (idx : Index.Snapshot.Syntax p) : forall l acc dir d,
   In d (match PackageMap.find dir (fold_right (program_package_step idx) acc l) with Some x => x | None => [] end) ->
   (exists ro, In ro l /\ occurrence_pkg ro = dir /\ Index.as_decl idx (fst ro) = Some d)
@@ -5449,7 +5291,6 @@ Definition package_diags {p} (idx : Index.Snapshot.Syntax p) : list (DiagnosticR
   bucket_diags_elems (program_package_refs idx) (bucket_key_present idx)
     (PackageMap.elements (program_package_refs idx)) (elements_all_mapsto (program_package_refs idx)).
 
-(* no package diagnostic exactly when every package has one main, decided from the retained buckets *)
 Lemma package_diags_empty_iff_rules {p} (idx : Index.Snapshot.Syntax p) :
   package_diags idx = nil <-> PackageRulesValid p.
 Proof.
@@ -5545,7 +5386,6 @@ Proof.
       rewrite H1, H2. reflexivity.
 Qed.
 
-(* redeclaration diagnostics empty IFF [PackageDeclsUnique] (every package has AT MOST one main). *)
 Lemma redecl_diags_empty_iff_rules {p} (idx : Index.Snapshot.Syntax p) :
   filter diag_is_redeclared (package_diags idx) = nil <-> PackageDeclsUnique p.
 Proof.
@@ -5567,7 +5407,6 @@ Proof.
     rewrite (program_package_refs_bucket_len idx (fst kv) (snd kv) (PackageMap.find_1 Hbmt)). lia.
 Qed.
 
-(* missing-entry diagnostics empty IFF [MainPackagesHaveEntry] (every package has AT LEAST one main). *)
 Lemma missing_diags_empty_iff_rules {p} (idx : Index.Snapshot.Syntax p) :
   filter diag_is_missing_entry (package_diags idx) = nil <-> MainPackagesHaveEntry p.
 Proof.
@@ -5589,7 +5428,6 @@ Proof.
     rewrite (program_package_refs_bucket_len idx (fst kv) (snd kv) (PackageMap.find_1 Hbmt)). lia.
 Qed.
 
-(* the one elaboration root: exact facts, or a nonempty structured diagnostic list *)
 
 Lemma app_nil_iff {A} (l1 l2 : list A) : l1 ++ l2 = nil <-> l1 = nil /\ l2 = nil.
 Proof. split; [ apply app_eq_nil | intros [-> ->]; reflexivity ]. Qed.
@@ -5602,12 +5440,10 @@ Definition bucket_add {X} (kx : Index.Key * X)
     (m : Index.KeyMap.t (list X)) : Index.KeyMap.t (list X) :=
   Index.KeyMap.add (fst kx) (snd kx :: nkm_find (fst kx) m) m.
 
-(* flatten node-keyed values into the Index.KeyMap-canonical order (path/local id). *)
 Definition bucket_flatten {X} (kxs : list (Index.Key * X)) : list X :=
   flat_map snd (Index.KeyMap.elements
     (fold_right bucket_add (Index.KeyMap.empty (list X)) kxs)).
 
-(* if some key maps to a nonempty bucket, the whole flatten is nonempty (that bucket's elements are included). *)
 Lemma nkm_find_flat_nonempty {X} (m : Index.KeyMap.t (list X)) (k : Index.Key) (b : list X) :
   Index.KeyMap.find k m = Some b -> b <> nil ->
   flat_map snd (Index.KeyMap.elements m) <> nil.
@@ -5624,7 +5460,6 @@ Proof.
   destruct Hin2 as [<-|Hin2]; [exact He | apply IH; assumption].
 Qed.
 
-(* a nonempty keyed list flattens to a nonempty report: its first key holds a nonempty bucket. *)
 Lemma bucket_flatten_cons_nonempty {X} (kx : Index.Key * X) (rest : list (Index.Key * X)) :
   bucket_flatten (kx :: rest) <> nil.
 Proof.
@@ -5655,7 +5490,6 @@ Definition semantic_diagnostics (p : Syntax.Program) (idx : Index.Snapshot.Synta
   bucket_flatten (node_keyed (expression_diags idx ++ package_diags idx))
   ++ package_primary (expression_diags idx ++ package_diags idx).
 
-(* node_keyed and package_primary partition the diagnostics, so both empty iff the whole list is empty. *)
 Lemma node_pkg_partition_nil {p} (l : list (DiagnosticReason p)) :
   node_keyed l = nil /\ package_primary l = nil <-> l = nil.
 Proof.
@@ -5838,7 +5672,6 @@ Proof.
   - destruct Hin.
 Qed.
 
-(* the KEY list of a diagnostic list (the node-primary keys, in order). *)
 Definition node_keys {p} (l : list (DiagnosticReason p)) : list Index.Key :=
   flat_map (fun d => match diag_node_key d with Some k => [k] | None => [] end) l.
 
@@ -5855,7 +5688,6 @@ Qed.
 Lemma node_keys_app {p} (l1 l2 : list (DiagnosticReason p)) : node_keys (l1 ++ l2) = node_keys l1 ++ node_keys l2.
 Proof. unfold node_keys. rewrite flat_map_app. reflexivity. Qed.
 
-(* at most one keyed value per source element, each carrying that element's key, gives a duplicate-free list *)
 Lemma flat_map_le1_key_nodup {A} (key : A -> Index.Key) (f : A -> list Index.Key) (L : list A) :
   NoDup (map key L) ->
   (forall a, (length (f a) <= 1)%nat) ->
@@ -5903,7 +5735,6 @@ Lemma flat_map_flat_map {A B C} (g : B -> list C) (h : A -> list B) (L : list A)
   flat_map g (flat_map h L) = flat_map (fun x => flat_map g (h x)) L.
 Proof. induction L as [|a L IH]; [reflexivity|]. cbn [flat_map]. rewrite flat_map_app, IH. reflexivity. Qed.
 
-(* the per-occurrence keys of one occurrence's diagnostics: at most one, and it is the occurrence's key. *)
 Lemma occurrence_node_keys_le1 {p} (idx : Index.Snapshot.Syntax p) outer ro :
   (length (node_keys (occurrence_expr_diags idx outer ro)) <= 1)%nat.
 Proof.
@@ -6039,7 +5870,6 @@ Proof.
   apply flat_map_ext_in. intros b Hin. exact (keyed_binding_visit p b Hin).
 Qed.
 
-(* semantically equal file maps have identical keyed streams *)
 Lemma keyed_visit_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> keyed_visit p1 = keyed_visit p2.
 Proof.
@@ -6071,7 +5901,6 @@ Fixpoint annotate_keyed (stack : list (Index.Key * positive))
       (ke, map fst open) :: annotate_keyed stack' rest
   end.
 
-(* a conversion occurrence (on a VALID reference whose occurrence is its source) HAS an [ExprRef] erasing to it. *)
 Lemma is_conversion_occ_as_expr {p} (idx : Index.Snapshot.Syntax p) (r : Index.Snapshot.NodeRef p) :
   is_conversion_occ (Index.Snapshot.source_occurrence_of_ref r) = true ->
   exists er, Index.as_expr idx r = Some er /\ Index.erase_ref er = r.
@@ -6097,7 +5926,6 @@ Lemma erase_estack_filter {p} (l : positive) (stack : list (Index.ExprRef p * po
   = filter (fun e => Pos.leb l (snd e)) (erase_estack stack).
 Proof. unfold erase_estack. apply map_filter_comm. intro a. reflexivity. Qed.
 
-(* THE SIMULATION: over a stream of VALID occurrences, the erased ref-annotation equals the keyed annotation. *)
 Lemma annotate_encl_erased {p} (idx : Index.Snapshot.Syntax p) stack stream :
   (forall ro, In ro stream -> snd ro = Index.Snapshot.source_occurrence_of_ref (fst ro)) ->
   map erase_annot (annotate_encl idx stack stream)
@@ -6122,7 +5950,6 @@ Proof.
     + destruct (Index.as_expr idx (fst ro)) as [er|]; reflexivity.
 Qed.
 
-(* each per-file visited occurrence IS its reference's exact source occurrence (the validity the simulation needs). *)
 Lemma binding_visit_valid (p : Syntax.Program) (b : FilePath.T * Syntax.File) :
   forall ro, In ro (binding_visit p b) -> snd ro = Index.Snapshot.source_occurrence_of_ref (fst ro).
 Proof.
@@ -6148,7 +5975,6 @@ Proof.
   cbn [erase_estack]. f_equal. exact (keyed_binding_visit p b Hin).
 Qed.
 
-(* erasing the retained annotated object reproduces the pure-source annotation's expression projection *)
 Lemma annotated_forest_erased_source {p} {input : Input p}
     (forest : WorkForest input) (aw : AnnotatedWork forest) :
   map (fun x => erase_annot (work_pair_ctx x)) (annotated_items aw)
@@ -6191,7 +6017,6 @@ Definition erase_occ_diags (kroc : (Index.Key * Index.Occurrence) * list Index.K
       end
   end.
 
-(* erasing the two expression diagnostics, computed explicitly (isolating the anchor/target projection). *)
 Lemma erase_diagnostic_invalid {p} (er : Index.ExprRef p) tr opr outer t ci :
   erase_diagnostic (InvalidConversion er tr opr outer t ci)
   = MakeErased CodeInvalidConversion (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er)))
@@ -6208,7 +6033,6 @@ Lemma erase_diagnostic_default {p} (er : Index.ExprRef p) c dt :
   = MakeErased CodeDefaultNotRepresentable (AnchorNode (Index.Snapshot.node_ref_key (Index.erase_ref er))) [] (Some dt) None None.
 Proof. reflexivity. Qed.
 
-(* erasing the emitted diagnostics equals the keyed emitter, with membership ruling out the dead branch *)
 Lemma erase_occ_diags_eq {p} (idx : Index.Snapshot.Syntax p) (r : Index.Snapshot.NodeRef p) occ ctx :
   In (r, occ) (program_visit p) ->
   map erase_diagnostic (occurrence_expr_diags idx ctx (r, occ)) = erase_occ_diags (erase_annot ((r, occ), ctx)).
@@ -6242,7 +6066,6 @@ Proof.
     rewrite Hvne. reflexivity.
 Qed.
 
-(* the erased expression report over the annotated program = the keyed emitter over each occurrence. *)
 Lemma erased_expr_diags_annot {p} (idx : Index.Snapshot.Syntax p) :
   map erase_diagnostic (expression_diags idx)
   = flat_map (fun roc => erase_occ_diags (erase_annot roc)) (annotate_program idx).
@@ -6254,7 +6077,6 @@ Proof.
   exact Hin'.
 Qed.
 
-(* the erased EXPRESSION report is a SOURCE function of the file map (via [annotate_source]). *)
 Lemma erased_expr_diags_source {p} (idx : Index.Snapshot.Syntax p) :
   map erase_diagnostic (expression_diags idx) = flat_map erase_occ_diags (annotate_source (Syntax.files p)).
 Proof.
@@ -6280,7 +6102,6 @@ Definition keyed_program_package_step (ke : Index.Key * Index.Occurrence) (acc :
 Definition keyed_buckets (l : list (Index.Key * Index.Occurrence)) : PackageMap.t (list Index.Key) :=
   fold_right keyed_program_package_step (PackageMap.empty (list Index.Key)) l.
 
-(* the keyed package of an occurrence equals its source parent directory (via [node_ref_key_eq]). *)
 Lemma occurrence_pkg_key_eq {p} (ro : Index.Snapshot.NodeRef p * Index.Occurrence) :
   occurrence_pkg_key (Index.Snapshot.node_ref_key (fst ro), snd ro) = occurrence_pkg ro.
 Proof.
@@ -6354,7 +6175,6 @@ Proof.
       rewrite Hd, Hf. exact (IHk k).
 Qed.
 
-(* the erased buckets of the retained elaboration equal the keyed source buckets *)
 Lemma program_package_refs_erased {p} (idx : Index.Snapshot.Syntax p) :
   PackageMap.Equal (PackageMap.map (map erase_dkey) (program_package_refs idx)) (keyed_buckets (keyed_visit p)).
 Proof.
@@ -6363,7 +6183,6 @@ Proof.
   intros [r occ] Hin. exact (program_visit_view p r occ Hin).
 Qed.
 
-(* the ERASED package diagnostics of one bucket, over its erased (Index.Key) keys — a pure source function. *)
 Definition erase_bucket_diag (kv : string * list Index.Key) : list ErasedDiagnostic :=
   match snd kv with
   | nil        => [ MakeErased CodeMissingMainEntry (AnchorPackage (fst kv)) [] None None None ]
@@ -6389,7 +6208,6 @@ Proof.
   rewrite map_app, IH. f_equal. apply package_diag_of_bucket_erased.
 Qed.
 
-(* the erased PACKAGE report is a SOURCE function of the file map (via the keyed source buckets). *)
 Lemma erased_pkg_diags_source {p} (idx : Index.Snapshot.Syntax p) :
   map erase_diagnostic (package_diags idx)
   = flat_map erase_bucket_diag (PackageMap.elements (keyed_buckets (keyed_visit p))).
@@ -6476,7 +6294,6 @@ Proof.
   unfold source_keyed_visit. rewrite Hb. reflexivity.
 Qed.
 
-(* two programs with the same file map produce the identical erased report *)
 Theorem erased_report_files_equal (p1 p2 : Syntax.Program)
     (idx1 : Index.Snapshot.Syntax p1) (idx2 : Index.Snapshot.Syntax p2) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) ->
@@ -6486,7 +6303,6 @@ Proof.
   rewrite (erased_src_diags_files_equal _ _ Heq). reflexivity.
 Qed.
 
-(* a permuted file-node list yields the identical erased report *)
 Theorem erased_report_build_permutation : forall ms nodes1 nodes2 p1 p2
     (idx1 : Index.Snapshot.Syntax p1) (idx2 : Index.Snapshot.Syntax p2),
   Permutation nodes1 nodes2 ->
@@ -6519,7 +6335,6 @@ Proof.
   cbn [map fold_right]. rewrite IH. unfold add_occ_fact, keyed_add. cbn [fst snd]. reflexivity.
 Qed.
 
-(* the expression fact table depends only on the file map *)
 Lemma program_expr_facts_files_equal (p1 p2 : Syntax.Program) :
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> program_expr_facts p1 = program_expr_facts p2.
 Proof.
@@ -6531,7 +6346,6 @@ Theorem program_expr_facts_enum_files_equal (p1 p2 : Syntax.Program) :
   Index.KeyMap.elements (program_expr_facts p1) = Index.KeyMap.elements (program_expr_facts p2).
 Proof. intro Heq. rewrite (program_expr_facts_files_equal p1 p2 Heq). reflexivity. Qed.
 
-(* a missing-main diagnostic comes from an empty bucket and anchors at that represented package *)
 Lemma package_diag_of_bucket_missing_sound {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres dir l Hmt pk :
   In (MissingMainEntry pk) (@package_diag_of_bucket p m Hpres dir l Hmt) ->
   l = nil /\ package_ref_key pk = dir.
@@ -6552,7 +6366,6 @@ Proof.
     exists rest. split; [ rewrite <- He; reflexivity | rewrite <- Hl; exact Hdk ].
 Qed.
 
-(* a diagnostic in the flattened bucket enumeration comes from SOME mapped bucket of [m]. *)
 Lemma bucket_diags_elems_in {p} (m : PackageMap.t (list (Index.DeclRef p))) Hpres es Hall : forall d,
   In d (@bucket_diags_elems p m Hpres es Hall) ->
   exists dir l (Hmt : PackageMap.MapsTo dir l m), In d (@package_diag_of_bucket p m Hpres dir l Hmt).
@@ -6565,7 +6378,6 @@ Proof.
       exists dir, l, Hmt. exact Hd.
 Qed.
 
-(* a whole-program redeclaration anchors two genuine declarations in one package *)
 Lemma package_diags_dup_sound {p} (idx : Index.Snapshot.Syntax p) later earlier :
   In (MainRedeclared later earlier) (package_diags idx) ->
   FilePath.parent (Index.Snapshot.file_ref_path (Index.Snapshot.node_ref_file (Index.erase_ref later)))
@@ -6586,7 +6398,6 @@ Proof.
   - exact (Index.noderefof_kind earlier).
 Qed.
 
-(* a whole-program missing-main anchors a represented package that genuinely holds no main *)
 Lemma package_diags_missing_sound {p} (idx : Index.Snapshot.Syntax p) pk :
   In (MissingMainEntry pk) (package_diags idx) ->
   package_present_b p (package_ref_key pk) = true
@@ -6614,7 +6425,6 @@ Proof.
   - apply strongly_sorted_map_inv. exact (Index.Snapshot.visit_file_order p fr).
 Qed.
 
-(* every node visited in binding [b]'s block has that binding's path as its key's file component. *)
 Lemma binding_block_key_file (p : Syntax.Program) (b : FilePath.T * Syntax.File) :
   forall ro, In ro (binding_visit p b) -> Index.key_path (Index.Snapshot.node_ref_key (fst ro)) = fst b.
 Proof.
@@ -6694,7 +6504,6 @@ Lemma program_package_fold_bucket_cons {p} (idx : Index.Snapshot.Syntax p)
      else bucket_of idx l dir).
 Proof. unfold bucket_of. cbn [fold_right]. apply (program_package_step_bucket idx ro (fold_right (program_package_step idx) (PackageMap.empty _) l) dir). Qed.
 
-(* over a key-sorted stream every bucket is key-sorted, and each reference erases into that stream *)
 Lemma program_package_dir_sorted {p} (idx : Index.Snapshot.Syntax p) (l : list (Index.Snapshot.NodeRef p * Index.Occurrence)) :
   StronglySorted (fun x y => Index.KeyOrderedType.lt (Index.Snapshot.node_ref_key (fst x)) (Index.Snapshot.node_ref_key (fst y))) l ->
   forall dir,
@@ -6709,7 +6518,6 @@ Proof.
     + (* the bucket stays Index.Key-sorted *)
       rewrite (program_package_fold_bucket_cons idx ro l dir).
       destruct (String.eqb (occurrence_pkg ro) dir) eqn:Ek; [ destruct (Index.as_decl idx (fst ro)) as [dr|] eqn:Ed | ]; try exact IHsort.
-      (* prepend this file's main ref — smaller key than every later main (stream sorted) *)
       assert (Her : Index.erase_ref dr = fst ro) by exact (Index.erase_as_kind idx (fst ro) Index.DeclarationKind dr Ed).
       constructor; [ exact IHsort |].
       rewrite Forall_forall. intros a Ha. destruct (IHref a Ha) as [ro' [Hro' Hae]].
@@ -6781,7 +6589,6 @@ Proof.
   - apply IH; [exact H1 | intros x Hx1 Hx2; exact (Hd x (or_intror Hx1) Hx2)].
 Qed.
 
-(* every key of the folded bucket map is one of the input keys. *)
 Lemma bucket_find_in_keys {X} (kxs : list (Index.Key * X)) (k : Index.Key) (b : list X) :
   Index.KeyMap.MapsTo k b (fold_right bucket_add (Index.KeyMap.empty (list X)) kxs) ->
   In k (map fst kxs).
@@ -6794,7 +6601,6 @@ Proof.
     + right. exact (IH Hmt).
 Qed.
 
-(* unique input keys => every bucket is a singleton. *)
 Lemma nodup_keys_buckets_singleton {X} (kxs : list (Index.Key * X)) :
   NoDup (map fst kxs) ->
   forall k b, Index.KeyMap.MapsTo k b (fold_right bucket_add (Index.KeyMap.empty (list X)) kxs) ->
@@ -6816,7 +6622,6 @@ Proof.
     + exact (IH Hnd k b Hmt).
 Qed.
 
-(* singleton buckets, key-sorted elements => the flattening is STRICTLY key-ascending. *)
 Lemma flat_map_snd_bucket_singleton_strict {X} (key : X -> option Index.Key)
     (els : list (Index.Key * list X)) :
   Sorted (@Index.KeyMap.lt_key (list X)) els ->
@@ -6857,7 +6662,6 @@ Proof.
       split; [split; reflexivity | exact Hin].
 Qed.
 
-(* the tail duplicate-main keys of one package bucket are NoDup (the bucket is a strictly-sorted visit stream). *)
 Lemma bucket_dup_keys_nodup {p} (idx : Index.Snapshot.Syntax p) (kv : string * list (Index.DeclRef p)) :
   PackageMap.find (fst kv) (program_package_refs idx) = Some (snd kv) -> NoDup (bucket_dup_keys (snd kv)).
 Proof.
@@ -6949,7 +6753,6 @@ Proof.
   subst rd. rewrite Hke in Hkd. discriminate Hkd.
 Qed.
 
-(* the node-keyed diagnostic INPUT has UNIQUE keys (expr NoDup + pkg NoDup + disjoint). *)
 Theorem collect_node_input_nodup {p} (idx : Index.Snapshot.Syntax p) :
   NoDup (node_keys (expression_diags idx ++ package_diags idx)).
 Proof.
@@ -6957,7 +6760,6 @@ Proof.
     [ apply expression_node_keys_nodup | apply package_node_keys_nodup | apply expression_pkg_node_keys_disjoint ].
 Qed.
 
-(* every node-keyed diagnostic BUCKET is a SINGLETON (from the unique input keys). *)
 Theorem collect_node_buckets_singleton {p} (idx : Index.Snapshot.Syntax p) :
   forall k b, Index.KeyMap.MapsTo k b
     (fold_right bucket_add (Index.KeyMap.empty (list (DiagnosticReason p)))
@@ -6981,7 +6783,6 @@ Local Open Scope string_scope.
 Definition ascii_is_digit (c : ascii) : bool :=
   let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
 
-(* every byte of [s] is a decimal digit. *)
 Fixpoint str_all_digits (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -7009,7 +6810,6 @@ Definition default_exec_name_c (comps : list string) : string :=
   | _ => List.last comps ""%string
   end.
 
-(* reflection — [is_version_element] agrees with the pinned structural predicate. *)
 Lemma is_version_element_spec : forall s,
   is_version_element s = true <->
   (exists c1 rest, s = String "v"%char (String c1 rest)
@@ -7057,7 +6857,6 @@ Example version_suffix_v2x  : is_version_element "v2x"  = false. Proof. reflexiv
 Example version_suffix_uppercase_rejected   : is_version_element "V2"   = false. Proof. reflexivity. Qed.
 Example version_suffix_v    : is_version_element "v"    = false. Proof. reflexivity. Qed.
 
-(* default_exec_name_c FIXTURES — the exact pinned import-path COMPONENTS -> exe-name rule. *)
 Example den_root    : default_exec_name_c ["example.com"; "m"]               = "m".       Proof. reflexivity. Qed.
 Example den_sub     : default_exec_name_c ["example.com"; "m"; "sub"]        = "sub".     Proof. reflexivity. Qed.
 Example den_ab      : default_exec_name_c ["example.com"; "m"; "a"; "b"]     = "b".       Proof. reflexivity. Qed.
@@ -7087,7 +6886,6 @@ Lemma concat_cons2 : forall sep x y rest,
   String.concat sep (x :: y :: rest) = (x ++ sep ++ String.concat sep (y :: rest))%string.
 Proof. intros sep x y rest. reflexivity. Qed.
 
-(* the "/"-join of the concatenation of two NONEMPTY component lists splits at the join. *)
 Lemma concat_app_join : forall (A B : list string), A <> [] -> B <> [] ->
   String.concat "/" (A ++ B) = (String.concat "/" A ++ "/" ++ String.concat "/" B)%string.
 Proof.
@@ -7119,7 +6917,6 @@ Proof.
   rewrite ModulePath.text_concat, FilePath.split_slash_concat. reflexivity.
 Qed.
 
-(* the component list is nonempty (the module always has >= 1 segment). *)
 Lemma package_import_components_nonempty : forall ms dir, package_import_components ms dir <> [].
 Proof.
   intros ms dir. unfold package_import_components. intro Hc.
@@ -7143,7 +6940,6 @@ Proof.
     + cbn [List.removelast] in Hin. destruct Hin as [->|Hin]; [ left; reflexivity | right; apply IH; exact Hin ].
 Qed.
 
-(* the exec name IS one of the components (the last, or the previous when the last is a version element). *)
 Lemma default_exec_name_c_in : forall comps, comps <> [] -> In (default_exec_name_c comps) comps.
 Proof.
   intros comps Hne. unfold default_exec_name_c. destruct comps as [|a [|b rest]]; [ contradiction | |].
@@ -7153,7 +6949,6 @@ Proof.
     + apply last_in. discriminate.
 Qed.
 
-(* the default executable name is never empty, because every component it can be is nonempty *)
 Lemma default_exec_name_nonempty : forall ms dir,
   (dir = ""%string \/ exists fp, FilePath.parent fp = dir) ->
   default_exec_name ms dir <> ""%string.
@@ -7168,7 +6963,6 @@ Proof.
   apply Hall. apply default_exec_name_c_in. apply package_import_components_nonempty.
 Qed.
 
-(* splitting the joined import path at the module boundary recovers the directory components *)
 Lemma split_import_path_dir_components : forall ms dir,
   FilePath.split_slash (package_import_path ms dir)
     = (FilePath.split_slash (ModulePath.text (module_path ms)) ++ FilePath.dir_components dir)%list.
@@ -7191,7 +6985,6 @@ Proof.
   cbn [app] in H. injection H as H. apply IH. exact H.
 Qed.
 
-(* the import path is injective in the package directory under a fixed module *)
 Theorem package_import_path_inj : forall ms dir1 dir2,
   package_import_path ms dir1 = package_import_path ms dir2 -> dir1 = dir2.
 Proof.
@@ -7204,7 +6997,6 @@ Proof.
   rewrite Hd, (FilePath.dir_components_concat dir2) in C1. exact (eq_sym C1).
 Qed.
 
-(* an equal module spec and directory key give the same import path *)
 Theorem package_import_path_deterministic : forall ms1 ms2 dir1 dir2,
   ms1 = ms2 -> dir1 = dir2 -> package_import_path ms1 dir1 = package_import_path ms2 dir2.
 Proof. intros ms1 ms2 dir1 dir2 Hm Hd; subst; reflexivity. Qed.
@@ -7215,7 +7007,6 @@ Definition selected_packages (p : Syntax.Program) : PackageMap.t PackageSummary 
 Definition selected_package_keys (p : Syntax.Program) : list string := map fst (PackageMap.elements (selected_packages p)).
 Definition selected_package_count (p : Syntax.Program) : nat := length (selected_package_keys p).
 
-(* domain exactness: a directory is a selected package IFF some represented file has that parent dir. *)
 Lemma selected_iff_file : forall p dir,
   PackageMap.In dir (selected_packages p) <->
   (exists b, In b (Syntax.file_bindings (Syntax.files p)) /\ FilePath.parent (fst b) = dir).
@@ -7229,7 +7020,6 @@ Proof.
     apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
 Qed.
 
-(* the empty program selects ZERO packages. *)
 Lemma selected_count_empty : forall ms, selected_package_count (empty_program ms) = 0%nat.
 Proof.
   intro ms. unfold selected_package_count, selected_package_keys, selected_packages.
@@ -7239,7 +7029,6 @@ Proof.
   rewrite (proj1 (PackageProperties.elements_Empty _) He). reflexivity.
 Qed.
 
-(* two files sharing a parent land on one selected package key *)
 Lemma selected_one_dir : forall p b1 b2,
   In b1 (Syntax.file_bindings (Syntax.files p)) -> In b2 (Syntax.file_bindings (Syntax.files p)) ->
   FilePath.parent (fst b1) = FilePath.parent (fst b2) ->
@@ -7268,7 +7057,6 @@ Fixpoint contains_dot (s : string) : bool :=
 Lemma contains_dot_app : forall a b, contains_dot (a ++ b) = orb (contains_dot a) (contains_dot b).
 Proof. induction a as [|c a IH]; intro b; simpl; [reflexivity | rewrite IH; apply Bool.orb_assoc]. Qed.
 
-(* a lowercase-or-digit byte is never '.'; a lowercase byte is never '.'. *)
 Lemma is_lower_digit_no_dot : forall c, FilePath.is_lower_digit c = true -> Ascii.eqb c "."%char = false.
 Proof.
   intros c H. apply Bool.not_true_iff_false. intro E. apply Ascii.eqb_eq in E. subst c. vm_compute in H. discriminate H.
@@ -7298,7 +7086,6 @@ Proof.
   pose proof (component_ok_no_dot _ Hc) as Hnd. vm_compute in Hnd. discriminate Hnd.
 Qed.
 
-(* a root source basename is dotted, so it can never equal a dot-free directory key *)
 
 Lemma substring_full : forall s, String.substring 0 (String.length s) s = s.
 Proof. induction s as [|c s IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
@@ -7339,11 +7126,9 @@ Proof.
   rewrite Hnd in Hyd. discriminate Hyd.
 Qed.
 
-(* a root source basename is never "go.mod", which ends in .mod rather than .go *)
 Lemma filename_ok_neq_gomod : forall f, FilePath.filename_ok f = true -> f <> "go.mod".
 Proof. intros f Hf Heq. subst f. vm_compute in Hf. discriminate Hf. Qed.
 
-(* a nested file's first path component is a valid directory key, as the path grammar requires *)
 
 Lemma first_component_hd : forall s, first_component s = List.hd EmptyString (FilePath.split_slash s).
 Proof.
@@ -7435,7 +7220,6 @@ Proof.
   cbn [map fold_right]. rewrite IH, root_entry_of_file_eq_path. reflexivity.
 Qed.
 
-(* GENERIC fold-of-adds find: an absent key falls through to [init]; a present key gets its (unique) value. *)
 Lemma fold_add_find_notin {A} (kv : (FilePath.T * Syntax.File) -> string * A) (init : PackageMap.t A)
     (l : list (FilePath.T * Syntax.File)) (e : string) :
   (forall b, In b l -> fst (kv b) <> e) ->
@@ -7484,7 +7268,6 @@ Proof.
   - reflexivity.
 Qed.
 
-(* a key is a directory entry exactly when some nested file has it as its first component *)
 Lemma root_layout_dir_iff : forall p e,
   PackageMap.find e (root_layout p) = Some DirectoryEntry <->
   (exists b, In b (Syntax.file_bindings (Syntax.files p))
@@ -7523,7 +7306,6 @@ Proof.
     rewrite Hkv. reflexivity.
 Qed.
 
-(* a root-entry key is never "go.mod", so the module entry cannot be overwritten *)
 Lemma root_entry_key_neq_gomod : forall b, fst (root_entry_of_file b) <> "go.mod".
 Proof.
   intro b. unfold root_entry_of_file.
@@ -7535,7 +7317,6 @@ Proof.
     rewrite Hc in Hdc. vm_compute in Hdc. discriminate Hdc.
 Qed.
 
-(* the GENERIC fold-of-adds MEMBERSHIP: a key is in the fold iff it is an added key OR is in [init]. *)
 Lemma fold_add_in_iff {A} (kv : (FilePath.T * Syntax.File) -> string * A) (init : PackageMap.t A)
     (l : list (FilePath.T * Syntax.File)) (e : string) :
   PackageMap.In e (fold_right (fun b acc => PackageMap.add (fst (kv b)) (snd (kv b)) acc) init l)
@@ -7548,7 +7329,6 @@ Proof.
     + intros [[He|Hin]|Hi]; [ left; exact He | right; left; exact Hin | right; right; exact Hi ].
 Qed.
 
-(* "go.mod" always maps to the module entry, and it is the only key that does *)
 Lemma root_layout_gomod : forall p, PackageMap.find "go.mod" (root_layout p) = Some GoModuleEntry.
 Proof.
   intro p. unfold root_layout.
@@ -7580,7 +7360,6 @@ Proof.
     + apply String.eqb_neq in Eg. rewrite PackageFacts.add_neq_o, PackageFacts.empty_o in Hf by exact Eg. discriminate Hf.
 Qed.
 
-(* a key is a source-file entry exactly when some root-level file has that path *)
 Lemma root_layout_source_iff : forall p e fp,
   PackageMap.find e (root_layout p) = Some (SourceFileEntry fp) <->
   (exists b, In b (Syntax.file_bindings (Syntax.files p))
@@ -7620,7 +7399,6 @@ Proof.
     rewrite Hkv. reflexivity.
 Qed.
 
-(* the layout's keys are exactly "go.mod" plus each represented file's root-entry key *)
 Lemma root_base_in_iff : forall e,
   PackageMap.In e (PackageMap.add "go.mod" GoModuleEntry (PackageMap.empty FreshRootEntryKind)) <-> e = "go.mod".
 Proof.
@@ -7661,7 +7439,6 @@ Definition fresh_build_plan_of (ms : ModuleSpec) (keys : list string)
 Definition fresh_build_plan (p : Syntax.Program) : FreshBuildDisposition :=
   fresh_build_plan_of (Syntax.module_spec p) (selected_package_keys p) (root_layout p).
 
-(* every selected package key is "" or the parent directory of a represented file. *)
 Lemma selected_key_is_parent : forall p dir,
   In dir (selected_package_keys p) -> dir = ""%string \/ exists fp, FilePath.parent fp = dir.
 Proof.
@@ -7674,7 +7451,6 @@ Proof.
   destruct Hex as [b [_ Hpar]]. right. exists (fst b). exact Hpar.
 Qed.
 
-(* a sole selected package's default executable name is never empty *)
 Theorem fresh_build_plan_exec_nonempty : forall p dir ip ex t,
   fresh_build_plan p = WriteSingleMain dir ip ex t -> ex <> ""%string.
 Proof.
@@ -7718,7 +7494,6 @@ Proof.
     destruct (list_dir_mem dir (Syntax.file_bindings (Syntax.files p))) eqn:E; [ reflexivity | discriminate Hmt ].
 Qed.
 
-(* the plan derived from the retained buckets and layout is the canonical one *)
 Lemma fresh_build_plan_of_buckets : forall p (idx : Index.Snapshot.Syntax p),
   fresh_build_plan_of (Syntax.module_spec p) (map fst (PackageMap.elements (program_package_refs idx))) (root_layout p)
   = fresh_build_plan p.
@@ -7736,7 +7511,6 @@ Definition fresh_build_disposition_ok (d : FreshBuildDisposition) : bool :=
 Definition fresh_build_preflight_ok (p : Syntax.Program) : Prop :=
   fresh_build_disposition_ok (fresh_build_plan p) = true.
 
-(* the ONLY command-level preflight failure: a sole selected package whose default exec name is a root DIR. *)
 Lemma preflight_fails_iff : forall p,
   fresh_build_disposition_ok (fresh_build_plan p) = false <->
   (exists dir, selected_package_keys p = [dir]
@@ -7756,7 +7530,6 @@ Proof.
   - cbn. split; [ discriminate | intros [d [Hd _]]; discriminate Hd ].
 Qed.
 
-(* the preflight fails when the default name equals a nested file's first component *)
 Corollary preflight_fails_dir : forall p,
   ~ fresh_build_preflight_ok p <->
   (exists dir b, selected_package_keys p = [dir]
@@ -7782,14 +7555,12 @@ Proof.
   - intros H. split; intros dir s Hmt; pose proof (H dir s Hmt); lia.
 Qed.
 
-(* the decidable source check reflects the live factored root directly *)
 Lemma source_spec_valid_b_iff : forall p, source_spec_valid_b p = true <-> SourceProgramValid p.
 Proof.
   intro p. unfold source_spec_valid_b, SourceProgramValid.
   rewrite Bool.andb_true_iff, program_typedb_iff, source_spec_package_rules_b_package_rules_valid. reflexivity.
 Qed.
 
-(* the specification decision reflects the same factored root, as the public source-validity surface *)
 Lemma semantic_ok_b_source_program_valid (p : Syntax.Program) : semantic_ok_b p = true <-> SourceProgramValid p.
 Proof. rewrite semantic_ok_b_source_spec_valid_b. apply source_spec_valid_b_iff. Qed.
 
@@ -7808,7 +7579,6 @@ Proof.
   destruct (Bool.bool_dec (package_present_b p dir) true) as [Ht|Hf]; [ eexists; reflexivity | destruct (Hf H) ].
 Qed.
 
-(* a sole selected package is present (it is a key of the package-summary map, so a file has that parent). *)
 Lemma sole_package_present : forall p dir,
   selected_package_keys p = [dir] -> package_present_b p dir = true.
 Proof.
@@ -7864,7 +7634,6 @@ Qed.
 Definition ProgramInputEqual (p1 p2 : Syntax.Program) : Prop :=
   Syntax.module_spec p1 = Syntax.module_spec p2 /\ Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2).
 
-(* the selected-package enumeration and the root layout depend only on the file map. *)
 Lemma selected_package_keys_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> selected_package_keys p1 = selected_package_keys p2.
 Proof.
@@ -7895,7 +7664,6 @@ Proof. intros p1 p2 H. rewrite (fresh_build_plan_input_equal _ _ H). reflexivity
 Definition elaboration_diagnostics (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) : list (DiagnosticReason p) :=
   command_diagnostics_of p (fresh_build_plan p) (semantic_diagnostics p idx).
 
-(* the retained source validity is the factored one, of which the exactly-one reading is a consequence *)
 Lemma elaboration_no_diags_source_valid : forall p idx, elaboration_diagnostics p idx = nil -> SourceProgramValid p.
 Proof.
   intros p idx He.
@@ -7923,10 +7691,8 @@ Proof. intros p idx H. unfold elaboration_diagnostics, command_diagnostics_of. r
 (* end of the block — restore the default scope so the elaboration machinery's list [++] is list append. *)
 Close Scope string_scope.
 
-(* admissibility is the build-output preflight passing together with the source being valid *)
 Definition Admissible (p : Syntax.Program) : Prop := fresh_build_preflight_ok p /\ SourceProgramValid p.
 
-(* the command-ordered report is empty exactly on admissible programs *)
 Lemma elaboration_diagnostics_nil_iff_admissible : forall p idx, elaboration_diagnostics p idx = nil <-> Admissible p.
 Proof.
   intros p idx. unfold Admissible. split.
@@ -7936,7 +7702,6 @@ Proof.
     apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_source_program_valid p)). exact Hsv.
 Qed.
 
-(* the report over the retained bucket-derived plan is the canonical one *)
 Lemma command_plan_diags_eq (p : Syntax.Program) (ip : Index.Program p) :
   command_diagnostics_of p
     (fresh_build_plan_of (Syntax.module_spec p)
@@ -8238,7 +8003,6 @@ Proof.
   unfold program_package_refs, core_index. rewrite (input_visit_ok (core_input core)). reflexivity.
 Qed.
 
-(* the one core construction: input, phase, buckets, layout, plan and diagnostics, each exactly once *)
 Lemma core_package_diags_canonical {p} (core : Core p) :
   package_bucket_diagnostics_from_refs (core_package_refs core)
     (bucket_present_of_domain (core_package_refs core) (core_package_present core))
@@ -8273,7 +8037,6 @@ Theorem core_raw_diagnostics_consume_retained_refs : forall p (core : Core p),
          (bucket_present_of_domain (core_package_refs core) (core_package_present core)).
 Proof. intros p core. exact (core_raw_diagnostics_exact core). Qed.
 
-(* the command-ordered list at one node-anchored diagnostic is that same singleton *)
 Lemma core_diagnostics_of_node_singleton {p} (core : Core p) (d : DiagnosticReason p) k :
   core_raw_diagnostics core = [d] ->
   diag_node_key d = Some k ->
@@ -8401,7 +8164,6 @@ Lemma fact_of_find_some {p} {core : Core p} {acc} (facts : Facts core acc) (er :
   o = Some f -> fact_of_find facts er o Ho = f.
 Proof. intros ->. cbn. reflexivity. Qed.
 
-(* the total query returns exactly what the sealed table holds, rather than a fresh value *)
 Lemma expression_fact_at_find {p} {core : Core p} {acc} (facts : Facts core acc) (er : Index.ExprRef p) f :
   Index.KeyMap.find (Index.Snapshot.node_ref_key (Index.erase_ref er)) (fact_table_map (expression_facts facts)) = Some f ->
   expression_fact_at facts er = f.
@@ -8472,7 +8234,6 @@ Proof.
   exact (type_name_fact_at_find facts tr _ Hfind).
 Qed.
 
-(* two conversions to one source name at distinct occurrences obtain distinct target references *)
 Theorem repeated_name_distinct_refs {p} {core : Core p} {acc} (facts : Facts core acc)
     (r1 : Index.Snapshot.NodeRef p) occ1 (er1 : Index.ExprRef p) x1
     (r2 : Index.Snapshot.NodeRef p) occ2 (er2 : Index.ExprRef p) x2 :
@@ -8537,7 +8298,6 @@ Theorem core_seals_facts {p} (core : Core p) (Hnil : core_diagnostics core = nil
   expression_facts (core_facts core Hnil) = expression_facts_table (phase_fact_table (phase core)).
 Proof. reflexivity. Qed.
 
-(* elaboration exposes facts exactly on admissible programs, and diagnostics exactly otherwise *)
 Theorem elaboration_accepted_iff_admissible (p : Syntax.Program) :
   core_diagnostics (elaboration_core (elaborate p)) = nil <-> Admissible p.
 Proof.
@@ -8694,7 +8454,6 @@ Theorem accepted_package_refs_are_decision_refs : forall cp : Program,
   facts_package_refs (facts cp) = core_package_refs (core cp).
 Proof. reflexivity. Qed.
 
-(* the compiled evidence exposes that the same program types, as a projection rather than a copy *)
 Theorem compile_program_typed : forall p, Admissible p -> Typing.Program predeclared_type p.
 Proof. intros p H; exact (proj1 (proj2 H)). Qed.
 
@@ -8716,19 +8475,16 @@ Definition failure_layout {p} (fail : Failure p) := core_layout (failure_core fa
 Definition failure_plan {p} (fail : Failure p) := core_plan (failure_core fail).
 Definition failure_raw_diagnostics {p} (fail : Failure p) := core_raw_diagnostics (failure_core fail).
 
-(* the rejected query projects the SAME package object the failed decision used — by [reflexivity]. *)
 Theorem rejected_package_refs_are_decision_refs : forall p (fail : Failure p),
   failure_package_refs fail = core_package_refs (failure_core fail).
 Proof. reflexivity. Qed.
 
-(* compilation succeeds exactly on admissible programs, its success carrying its own validity *)
 Theorem compile_ok_valid : forall p cp Hcp,
   compile p = Compiled cp Hcp -> source cp = p /\ Admissible (source cp).
 Proof.
   intros p cp Hcp _. split; [ exact Hcp | exact (admissible cp) ].
 Qed.
 
-(* the source decision and the preflight decision together are exactly admissibility *)
 Lemma compile_ok_of_source_spec_valid_b : forall p,
   source_spec_valid_b p = true -> fresh_build_disposition_ok (fresh_build_plan p) = true ->
   exists cp Hcp, compile p = Compiled cp Hcp.
@@ -8757,7 +8513,6 @@ Proof.
   - intro H. apply (proj2 (semantic_diagnostics_empty_iff p idx)), (proj2 (semantic_ok_b_source_program_valid p)); exact H.
 Qed.
 
-(* the sole-package plan expressed exactly (iota over the singleton [selected_package_keys]). *)
 Lemma fresh_build_plan_of_sole : forall p dir,
   selected_package_keys p = [dir] ->
   fresh_build_plan p = WriteSingleMain dir (package_import_path (Syntax.module_spec p) dir)
@@ -8765,7 +8520,6 @@ Lemma fresh_build_plan_of_sole : forall p dir,
                           (PackageMap.find (default_exec_name (Syntax.module_spec p) dir) (root_layout p)).
 Proof. intros p dir Hk. unfold fresh_build_plan. rewrite Hk. reflexivity. Qed.
 
-(* a failed preflight makes the fresh-build report exactly one build-output diagnostic *)
 Lemma fresh_build_diagnostics_fail_singleton : forall p,
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
   exists pk name, fresh_build_diagnostics p = [BuildOutputIsDirectory pk name].
@@ -8792,7 +8546,6 @@ Definition program_build_plan (cp : Program) : FreshBuildDisposition :=
 Definition program_root_layout (cp : Program) : PackageMap.t FreshRootEntryKind :=
   facts_root_layout (facts cp).
 
-(* the plan and layout are projections whose coherence the elaboration carried, not a recomputation *)
 Lemma program_build_plan_retained : forall cp, program_build_plan cp = fresh_build_plan (source cp).
 Proof. intro cp. exact (build_plan_ok (facts cp)). Qed.
 
@@ -8870,7 +8623,6 @@ Theorem root_layout_input_equal : forall p1 p2,
   ProgramInputEqual p1 p2 -> root_layout p1 = root_layout p2.
 Proof. intros p1 p2 H. exact (root_layout_equal _ _ (proj2 H)). Qed.
 
-(* the whole-program corollary: equal inputs give an equal import path for any package directory *)
 Theorem package_import_path_input_equal : forall p1 p2 dir,
   ProgramInputEqual p1 p2 ->
   package_import_path (Syntax.module_spec p1) dir = package_import_path (Syntax.module_spec p2) dir.
@@ -8880,7 +8632,6 @@ Proof. intros p1 p2 dir H. apply package_import_path_deterministic; [ exact (pro
 Definition erased_elaboration_report (p : Syntax.Program) (idx : Index.Snapshot.Syntax p) : list ErasedDiagnostic :=
   map erase_diagnostic (elaboration_diagnostics p idx).
 
-(* a failed preflight erases to one build-output diagnostic carrying the exact colliding name *)
 Lemma erased_fresh_report_of_sole : forall p dir,
   selected_package_keys p = [dir] ->
   fresh_build_disposition_ok (fresh_build_plan p) = false ->
@@ -8915,7 +8666,6 @@ Proof.
     fold (fresh_build_diagnostics p1) (fresh_build_diagnostics p2).
     rewrite (erased_fresh_report_of_sole p1 dir Hk1 Ed1),
             (erased_fresh_report_of_sole p2 dir Hk2 Ed).
-    (* the erased build-output NAME is [default_exec_name], a function of the ModuleSpec (equal by inputs). *)
     rewrite (proj1 H). reflexivity.
 Qed.
 
@@ -8923,7 +8673,6 @@ Qed.
 Lemma source_spec_valid_b_empty : forall ms, source_spec_valid_b (empty_program ms) = true.
 Proof. intro ms. vm_compute. reflexivity. Qed.
 
-(* the live factored-root empty surface, with its decidable companions *)
 Theorem source_program_valid_empty : forall ms, SourceProgramValid (empty_program ms).
 Proof.
   intro ms. apply (proj1 (source_spec_valid_b_iff (empty_program ms))). apply source_spec_valid_b_empty.
@@ -8952,7 +8701,6 @@ Proof. exact (reject_no_compile over_program over_program_not_valid). Qed.
 Theorem over_program_failure_retains_rejected_core :
   exists fail,
     compile over_program = Rejected fail
-    (* the exposed diagnostics ARE the retained core's own — definitionally, not a copied list *)
     /\ failure_diagnostics fail = core_diagnostics (failure_core fail)
     /\ failure_diagnostics fail <> nil.
 Proof.
@@ -9105,7 +8853,6 @@ Proof.
          | exact (program_expr_facts_enum_files_equal p1 p2 HFE) ].
 Qed.
 
-(* the module-only program is accepted with an empty report and an empty fact enumeration *)
 Theorem empty_program_report :
   erased_report (empty_program c3_ms) (Index.Snapshot.index_program (empty_program c3_ms)) = nil
   /\ Index.KeyMap.elements (program_expr_facts (empty_program c3_ms)) = nil.
@@ -9218,7 +8965,6 @@ Theorem fact_program_outer_arg :
   = Some (Some (Typing.FloatType F64), Some (Typing.FloatType F64), Some (5%Z, 1%positive), true).
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
-(* the outer argument's complete fact: its proof-carrying typed constant and its exact resolved value *)
 Theorem fact_program_outer_fact :
   Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program)
   = Some {| const_status :=
@@ -9247,7 +8993,6 @@ Definition dup_lit_program : Syntax.Program :=
     [ Syntax.Main [ Syntax.Println [ Syntax.IntegerLiteral 1; Syntax.IntegerLiteral 1 ] ] ].
 Example dup_lit_ok : source_spec_valid_b dup_lit_program = true. Proof. vm_compute. reflexivity. Qed.
 
-(* two entries at distinct keys with equal values: same syntax, two occurrences, two entries *)
 Theorem dup_lit_facts_exact :
   Index.KeyMap.elements (program_expr_facts dup_lit_program)
   = [ (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive,
@@ -9324,7 +9069,6 @@ Proof.
   vm_compute. reflexivity.
 Qed.
 
-(* the built phase reports the inner failure rather than suppressing it *)
 Theorem deep_fail_phase_reports (input : Input deep_fail_program) (ph : Phase input) :
   phase_diags (ph) <> [].
 Proof.
@@ -9364,7 +9108,6 @@ Proof.
              (Index.MakeKey path local) r Hrok).
 Qed.
 
-(* a real conversion's target reference, minted at the target child key and recovering its source syntax *)
 Lemma program_conv_target_ref (p : Syntax.Program) (path : FilePath.T) (f : Syntax.File) (local : positive) occ ts x :
   find_file path (Syntax.files p) = Some f ->
   Index.source_occurrence_at f local = Some occ ->
@@ -9427,7 +9170,6 @@ Proof.
            (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral n) ltac:(vm_compute; reflexivity) Hsrc Hview).
 Qed.
 
-(* the two-name program compiles, so elaboration exposes a real retained result *)
 Lemma two_uint8_compiles : Admissible two_uint8_program.
 Proof.
   split.
@@ -9444,7 +9186,6 @@ Theorem two_uint8_distinct_target_refs :
     /\ conversion_target_ref (Index.indexed_syntax (Index.index_program two_uint8_program)) er2 = Some tr2
     /\ Index.Snapshot.node_ref_key (Index.erase_ref tr1) <> Index.Snapshot.node_ref_key (Index.erase_ref tr2)
     /\ Index.type_name_ref_syntax tr1 = Index.type_name_ref_syntax tr2
-    (* distinct occurrence references, equal recovered syntax, equal sealed facts *)
     /\ type_name_fact_at facts tr1 = type_name_fact_at facts tr2.
 Proof.
   pose proof (proj2 (elaboration_accepted_iff_admissible two_uint8_program) two_uint8_compiles) as Hnil.
@@ -9510,7 +9251,6 @@ Proof.
     [ rewrite Hocc; exact Hview | rewrite Hocc; exact Hnf | exact Hlcf ].
 Qed.
 
-(* an occurrence whose fact succeeds is a success on the production table *)
 Lemma deep_nested_ok_at (input : Input deep_nested_program) (ph : Phase input) (local : positive) e occ :
   Index.source_occurrence_at deep_nested_src local = Some occ ->
   Index.view_expr occ = Some e ->
@@ -9551,14 +9291,11 @@ Theorem deep_fail_innermost_convfail (input : Input deep_fail_program) (ph : Pha
     /\ total_forest_outcome_at ot wm
          = ConversionFailure (work_expr_ref (proj1_sig wm)) (conversion_target_node_ref (step_conversion step))
              (work_expr_ref (proj1_sig (conversion_operand_work (step_conversion step)))) t (const_status opf)
-    (* the operand outcome read THROUGH the exact operand SuffixMember of the RETAINED tail accumulator *)
     /\ accumulator_total acc_rest (step_operand_suffix step) = ExpressionSuccess opf
-    (* the same operand member carries that same success in the final table, through the trace's preservation *)
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step)) = ExpressionSuccess opf
     /\ total_forest_outcome_at ot (proj1_sig (step_operand_suffix step))
          = accumulator_total acc_rest (step_operand_suffix step)
     /\ Typing.convert_constant t (const_status opf) = None
-    (* the resolved target type of the failing conversion IS the exact predeclared-context Index.table query *)
     /\ t = fact_type (type_name_fact_at_table (phase_type_name_facts (ph))
                        (conversion_target_node_ref (step_conversion step))).
 Proof.
@@ -9574,7 +9311,6 @@ Proof.
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { rewrite Hocc. vm_compute in Eo; injection Eo as <-; vm_compute; reflexivity. }
   { vm_compute; discriminate. }
-  (* project the retained cause off the trace, with its tail split and its preservation *)
   destruct (total_forest_outcome_cause
               (phase_ot (ph))
               wm) as [rest [acc_rest [[Hsplit stepc] Hpreserve]]].
@@ -9587,7 +9323,6 @@ Proof.
   assert (Heq : Syntax.Convert ts0 x0 = Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
     by (rewrite <- Hstep_e; exact He).
   injection Heq as Hts0 Hx0. subst ts0 x0.
-  (* the final-to-tail closure at the operand member: its FINAL-Index.table query = its retained tail query *)
   pose proof (final_operand_outcome
                 (phase_ot (ph))
                 rest acc_rest Hpreserve (step_operand_suffix step)) as Hclose.
@@ -9656,7 +9391,6 @@ Qed.
 (* the innermost failure's retained cause is connected to the exact stored diagnostic *)
 Definition deep_fail_innermost_diag_claim (c : Core deep_fail_program) : Prop :=
   exists occ (wm : WorkMember (phase_work (phase c))),
-       (* the failing member is the one at SOURCE LOCAL 11 *)
        Index.source_occurrence_at deep_fail_src 11 = Some occ
     /\ Index.view_expr occ = Some (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 300))
     /\ work_occurrence (proj1_sig wm) = occ
@@ -9681,7 +9415,6 @@ Definition deep_fail_innermost_diag_claim (c : Core deep_fail_program) : Prop :=
 Theorem deep_fail_innermost_diag (c : Core deep_fail_program) : deep_fail_innermost_diag_claim c.
 Proof.
   unfold deep_fail_innermost_diag_claim.
-  (* the member and its exact ConversionFailure, from the shape fixture over this core's OWN phase *)
   pose proof deep_fail_innermost_convfail (core_input c) (phase c) as H. cbn zeta in H.
   destruct H as [occ [wm [rest0 [acc0 [step0 [opf0 [t0 [Esrc [Hview [Hoccw [Hkey [He [Hout0 _]]]]]]]]]]]]].
   exists occ, wm.
@@ -9696,7 +9429,6 @@ Proof.
     as [wma [outer [Hinm [Hwma Hin]]]].
   exists wma, outer.
   split; [ exact Hinm | split; [ exact Hwma | ] ]. cbv zeta.
-  (* (1) the retained phase reports EXACTLY this reason *)
   assert (Hphase : phase_diags (phase c)
                    = [ InvalidConversion (work_expr_ref (proj1_sig wm))
                          (conversion_target_node_ref (step_conversion step))
@@ -9710,7 +9442,6 @@ Proof.
     - exact (deep_fail_exactly_one_diag (core_input c) (phase c)).
     - rewrite Hdiageq. exact Hin. }
   split; [ exact Hphase | ].
-  (* (2) the core's RAW list is the phase's own followed by its package map's, and that map is clean *)
   assert (Hpkg : package_diags (core_index c) = nil)
     by (apply (proj2 (package_diags_empty_iff (core_index c))); vm_compute; reflexivity).
   assert (Hraw : core_raw_diagnostics c
@@ -9721,7 +9452,6 @@ Proof.
   { rewrite (core_raw_diagnostics_exact c), (core_package_diags_canonical c), Hpkg, Hphase.
     exact (app_nil_r _). }
   split; [ exact Hraw | ].
-  (* (3) …and the COMMAND-ORDERED list at that one node-anchored reason is the same singleton *)
   apply (core_diagnostics_of_node_singleton c _
            (Index.Snapshot.node_ref_key (Index.erase_ref (work_expr_ref (proj1_sig wm)))) Hraw).
   - reflexivity.
@@ -9860,10 +9590,8 @@ Example twin_expr_ok : source_spec_valid_b twin_expr_program = true. Proof. vm_c
 Theorem twin_distinct_in_forest (input : Input twin_expr_program) (forest : WorkForest input) :
   exists w1 w2 : Work input,
        In w1 (forest_items forest) /\ In w2 (forest_items forest)
-       (* the SAME source expression value at two occurrences *)
     /\ work_expr w1 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
     /\ work_expr w2 = Syntax.Convert (Syntax.type_expr_of_name Names.Uint8) (Syntax.IntegerLiteral 7)
-       (* yet DISTINCT occurrence keys, DISTINCT index entries, and DISTINCT work items *)
     /\ Index.Snapshot.node_ref_key (work_node_ref w1) <> Index.Snapshot.node_ref_key (work_node_ref w2)
     /\ Index.KeyMap.find (Index.Snapshot.node_ref_key (work_node_ref w1))
          (index_map (forest_index forest)) = Some w1
@@ -9913,7 +9641,6 @@ Proof.
   unfold keyed_visit. rewrite filter_map_length. reflexivity.
 Qed.
 
-(* …and therefore of the work forest a retained [Core] holds. *)
 Theorem core_work_count_source {p} (core : Core p) :
   length (forest_items (phase_work (phase core)))
   = length (filter (fun ko : Index.Key * Index.Occurrence =>
@@ -9926,27 +9653,22 @@ Definition accepted_deep_core (cp : Program) (Hcp : source cp = deep_nested_prog
   eq_rect (source cp) Core (core cp) deep_nested_program Hcp.
 
 Record AcceptedFixture (cp : Program) (Hcp : source cp = deep_nested_program) : Prop := MakeAcceptedFixture {
-  (* ── one chain: the capability's input and phase ARE the retained core's, not copies beside it ── *)
   accepted_fixture_input : program_input cp = core_input (core cp) ;
   accepted_fixture_phase : program_phase cp = phase (core cp) ;
 
-  (* ── the sealed fact tables ARE the retained phase's own objects, never rebuilt maps ── *)
   accepted_fixture_expression_facts :
     expression_facts (facts cp) = expression_facts_table (phase_fact_table (program_phase cp)) ;
   accepted_fixture_type_name_facts :
     type_name_facts (facts cp) = phase_type_name_facts (program_phase cp) ;
 
-  (* ── buckets: the core's own, folded from the core's OWN retained visit ── *)
   accepted_fixture_package_refs : facts_package_refs (facts cp) = core_package_refs (core cp) ;
   accepted_fixture_package_refs_own_visit :
     core_package_refs (core cp)
     = program_package_refs_from_visit (index (core_input (core cp))) (input_visit (core_input (core cp))) ;
 
-  (* ── layout and plan: the values the accepted decision used, and the program's canonical ones ── *)
   accepted_fixture_layout : program_root_layout cp = root_layout (source cp) ;
   accepted_fixture_plan : program_build_plan cp = fresh_build_plan (source cp) ;
 
-  (* ── the retained work forest, and its size as a SOURCE quantity ── *)
   accepted_fixture_forest : length (forest_items (phase_work (phase (core cp)))) = 5%nat ;
 
   (* the retained index, exact in both directions over every member and key, as a whole-object law *)
@@ -9956,7 +9678,6 @@ Record AcceptedFixture (cp : Program) (Hcp : source cp = deep_nested_program) : 
       <-> (In w (forest_items (phase_work (phase (core cp))))
            /\ Index.Snapshot.node_ref_key (work_node_ref w) = k) ;
 
-  (* ── the retained outcome domain is EXACTLY the retained forest — again over the complete forest ── *)
   accepted_fixture_outcomes :
     forall k,
       Index.KeyMap.find k (outcomes_map (phase_ot (phase (core cp)))) <> None
@@ -10079,26 +9800,21 @@ Qed.
 
 (* the same discipline on the failing chain, where the failure is indexed so nothing transports *)
 Record RejectedFixture (fail : Failure deep_fail_program) : Prop := MakeRejectedFixture {
-  (* ── every failure query is a PROJECTION of the retained core, definitionally ── *)
   rejected_fixture_core : failure_diagnostics fail = core_diagnostics (failure_core fail) ;
   rejected_fixture_raw_diagnostics : failure_raw_diagnostics fail = core_raw_diagnostics (failure_core fail) ;
   rejected_fixture_input : failure_input fail = core_input (failure_core fail) ;
   rejected_fixture_phase : failure_phase fail = phase (failure_core fail) ;
 
-  (* ── buckets: the core's own, folded from THAT failed elaboration's own retained visit ── *)
   rejected_fixture_package_refs : failure_package_refs fail = core_package_refs (failure_core fail) ;
   rejected_fixture_package_refs_own_visit :
     failure_package_refs fail
     = program_package_refs_from_visit (index (failure_input fail)) (input_visit (failure_input fail)) ;
 
-  (* ── layout and plan: the canonical values that failed decision used ── *)
   rejected_fixture_layout : failure_layout fail = root_layout deep_fail_program ;
   rejected_fixture_plan : failure_plan fail = fresh_build_plan deep_fail_program ;
 
-  (* ── the retained FAILED work forest is the real one: five members, four conversions and the leaf ── *)
   rejected_fixture_forest : length (forest_items (phase_work (phase (failure_core fail)))) = 5%nat ;
 
-  (* ── the retained index and outcome domain, exact over the COMPLETE forest ── *)
   rejected_fixture_index_exact :
     forall k w,
       Index.KeyMap.find k (index_map (forest_index (phase_work (phase (failure_core fail))))) = Some w
@@ -10110,7 +9826,6 @@ Record RejectedFixture (fail : Failure deep_fail_program) : Prop := MakeRejected
       <-> exists w, In w (forest_items (phase_work (phase (failure_core fail))))
                  /\ Index.Snapshot.node_ref_key (work_node_ref w) = k ;
 
-  (* ── the retained trace explains EVERY member's position ── *)
   rejected_fixture_trace :
     forall wm : WorkMember (phase_work (phase (failure_core fail))),
       exists prefix,
@@ -10125,11 +9840,9 @@ Record RejectedFixture (fail : Failure deep_fail_program) : Prop := MakeRejected
   rejected_fixture_outer_causes :
     deep_fail_outer_childfail_claim (failure_input fail) (failure_phase fail) ;
 
-  (* ── and the rejection is real: the retained core's own final list is non-empty ── *)
   rejected_fixture_rejected : failure_diagnostics fail <> nil
 }.
 
-(* the ONE rejected root theorem. *)
 Theorem deep_fail_compile_fixture :
   exists fail,
     compile deep_fail_program = Rejected fail

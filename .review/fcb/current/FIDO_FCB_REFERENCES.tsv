@@ -44,7 +44,6 @@ PROBE-ENVIRONMENT	external-evidence	external:PROBE_ENVIRONMENT.tsv	r1-bundle-pro
 PROGRESS-MD	repository-file	PROGRESS.md	present	CLAUDE.md	FIDO-FCB-REF:PROGRESS-MD	reference
 RENDER-V	repository-file	Render.v	present	CLAUDE.md	FIDO-FCB-REF:RENDER-V	reference
 REVIEW	repository-directory	.review	present	CLAUDE.md	FIDO-FCB-REF:REVIEW	reference
-REVIEW-C4-SOURCE-TYPE-NAME-CONVERSION-PLAN-MD	repository-file	.review/C4_SOURCE_TYPE_NAME_CONVERSION_PLAN.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-C4-SOURCE-TYPE-NAME-CONVERSION-PLAN-MD	authority
 REVIEW-CODEX-REVIEW-POLICY-MD	repository-file	.review/CODEX_REVIEW_POLICY.md	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-CODEX-REVIEW-POLICY-MD	reference
 REVIEW-DECISIONS-ADR-0001-PINNED-64-BIT-TARGET-MD	repository-file	.review/decisions/ADR-0001-PINNED-64-BIT-TARGET.md	present	.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md	FIDO-FCB-REF:REVIEW-DECISIONS-ADR-0001-PINNED-64-BIT-TARGET-MD	reference
 REVIEW-FCB-CURRENT	repository-directory	.review/fcb/current	present	.review/fcb/current/FIDO_FCB_INDEX.md	FIDO-FCB-REF:REVIEW-FCB-CURRENT	reference
@@ -71,7 +70,6 @@ REVIEW-M1-BASELINE-TSV	repository-file	.review/M1_BASELINE.tsv	present	.review/M
 REVIEW-M1-COMMENT-EXCEPTIONS-TSV	repository-file	.review/M1_COMMENT_EXCEPTIONS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-COMMENT-EXCEPTIONS-TSV	reference
 REVIEW-M1-DECLARATION-DELETIONS-TSV	repository-file	.review/M1_DECLARATION_DELETIONS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-DECLARATION-DELETIONS-TSV	reference
 REVIEW-M1-FILE-DISPOSITION-TSV	repository-file	.review/M1_FILE_DISPOSITION.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-FILE-DISPOSITION-TSV	reference
-REVIEW-M1-IMPLEMENTATION-REPAIR-1-MD	repository-file	.review/M1_IMPLEMENTATION_REPAIR_1.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-IMPLEMENTATION-REPAIR-1-MD	authority
 REVIEW-M1-METRICS-TSV	repository-file	.review/M1_METRICS.tsv	present	.review/M1_SOURCE_DIET.md	FIDO-FCB-REF:REVIEW-M1-METRICS-TSV	reference
 REVIEW-M1-OBLIGATION-MATRIX-TSV	repository-file	.review/M1_OBLIGATION_MATRIX.tsv	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-OBLIGATION-MATRIX-TSV	reference
 REVIEW-M1-SOURCE-DIET-MD	repository-file	.review/M1_SOURCE_DIET.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M1-SOURCE-DIET-MD	authority
@@ -79,10 +77,6 @@ REVIEW-NEXT-STEPS-MD	repository-file	.review/NEXT_STEPS.md	present	CLAUDE.md	FID
 REVIEW-OPEN-QUESTIONS-MD	repository-file	.review/OPEN_QUESTIONS.md	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-OPEN-QUESTIONS-MD	authority
 REVIEW-REVIEW-BASIS-MD	repository-file	.review/REVIEW_BASIS.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD	authority
 REVIEW-REVIEW-REQUEST-MD	repository-file	.review/REVIEW_REQUEST.md	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-REVIEW-REQUEST-MD	authority
-REVIEW-SOURCE-FOREST-MASTER-PLAN-MD	repository-file	.review/SOURCE_FOREST_MASTER_PLAN.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-SOURCE-FOREST-MASTER-PLAN-MD	reference
-REVIEW-SOURCE-FOREST-STATUS-MD	repository-file	.review/SOURCE_FOREST_STATUS.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-SOURCE-FOREST-STATUS-MD	reference
-REVIEW-SPEC-CLOSURE-CAMPAIGN	repository-directory	.review/spec-closure-campaign	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-SPEC-CLOSURE-CAMPAIGN	reference
-REVIEW-SPEC-CLOSURE-CAMPAIGN-EDITORCONFIG	repository-file	.review/spec-closure-campaign/.editorconfig	present	CLAUDE.md	FIDO-FCB-REF:REVIEW-SPEC-CLOSURE-CAMPAIGN-EDITORCONFIG	reference
 SAFE-V	repository-file	Safe.v	present	CLAUDE.md	FIDO-FCB-REF:SAFE-V	reference
 SYNTAX-V	repository-file	Syntax.v	present	CLAUDE.md	FIDO-FCB-REF:SYNTAX-V	reference
 TOOLS-CLAIM-MATRIX-GATE-PY	repository-file	tools/claim-matrix-gate.py	present	CLAUDE.md	FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY	reference

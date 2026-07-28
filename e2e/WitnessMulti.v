@@ -26,7 +26,6 @@ Definition multi_program : Syntax.Program :=
   | None   => fun H => False_rect Syntax.Program (H eq_refl)
   end multi_builds.
 
-(* [build_program] returns exactly this program. *)
 Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_program.
 Proof. vm_compute. reflexivity. Qed.
 

@@ -1,4 +1,3 @@
-(* The one decimal-digit authority: double-and-add over a positive's own bits. *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool.
 Import ListNotations.
 Local Open Scope string_scope.

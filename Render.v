@@ -1,4 +1,3 @@
-(* The direct renderer of one source file to Go bytes: no tokenizer, no parser, no second tree. *)
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
 From Fido Require Import Decimal Integer Float Complex ModulePath Version Syntax Typing Compilable Safe.
 Import ListNotations.
@@ -23,17 +22,14 @@ Definition cr_c     : ascii := ascii_of_nat 13.   (* carriage return *)
 Definition dquote_c : ascii := ascii_of_nat 34.   (* the double-quote byte 0x22 *)
 Definition bslash_c : ascii := ascii_of_nat 92.
 
-(* One lowercase hex digit for a nibble, [0-9] then [a-f]. *)
 Definition hex_digit (k : nat) : ascii :=
   if Nat.ltb k 10 then ascii_of_nat (48 + k) else ascii_of_nat (87 + k).
 
-(* The fixed-width `\xhh` escape: backslash, `x`, then exactly two hex digits, high nibble first. *)
 Definition hex_escape (c : ascii) : string :=
   let n := nat_of_ascii c in
   String bslash_c (String "x"%char
     (String (hex_digit (Nat.div n 16)) (String (hex_digit (Nat.modulo n 16)) EmptyString))).
 
-(* The canonical source spelling of one semantic byte: a short escape, a direct byte, or a hex escape. *)
 Definition string_byte (c : ascii) : string :=
   let n := nat_of_ascii c in
   if Nat.eqb n 34 then String bslash_c (String dquote_c EmptyString)
@@ -50,11 +46,9 @@ Fixpoint string_body (s : string) : string :=
   | String c s' => string_byte c ++ string_body s'
   end.
 
-(* The whole literal: opening quote, encoded body, closing quote, and never a choice between spellings. *)
 Definition string_literal (s : string) : string :=
   String dquote_c (string_body s ++ String dquote_c EmptyString).
 
-(* A signed decimal integer: a magnitude, or a leading unary minus over one. *)
 Definition signed_Z (z : Z) : string :=
   if Z.ltb z 0 then String "-"%char (Decimal.integer (Z.opp z)) else Decimal.integer z.
 
@@ -75,12 +69,10 @@ Definition complex_literal (dc : Complex.Decimal) : string :=
 Definition type_expr (ts : Syntax.TypeExpr) : string :=
   Names.render_supported (Syntax.type_expr_supported ts).
 
-(* The retained identifier's text is the closed-class spelling of its symbol. *)
 Lemma type_expr_spelling : forall ts,
   type_expr ts = Names.type_name_spelling (Syntax.type_expr_name ts).
 Proof. intro ts; unfold type_expr, Names.render_supported, Syntax.type_expr_name; apply Names.supported_render. Qed.
 
-(* Distinct conversion type names render distinct identifiers, even where they resolve equally. *)
 Lemma type_expr_inj : forall ts1 ts2,
   type_expr ts1 = type_expr ts2 -> ts1 = ts2.
 Proof.
@@ -89,7 +81,6 @@ Proof.
   f_equal; f_equal; apply Names.supported_equal, Names.identifier_equal; exact H.
 Qed.
 
-(* The alias pairs render distinct text although their resolved semantic types are equal. *)
 Lemma conv_byte_neq_uint8 :
   type_expr (Syntax.type_expr_of_name Names.Byte) <> type_expr (Syntax.type_expr_of_name Names.Uint8).
 Proof. unfold type_expr; rewrite !Syntax.type_expr_supported_of; apply Names.render_supported_byte_neq_uint8. Qed.
@@ -138,7 +129,6 @@ Definition import_spec (i : Syntax.ImportSpec) : string := match i with end.
 Fixpoint imports (xs : list Syntax.ImportSpec) : string :=
   match xs with [] => "" | i :: rest => import_spec i ++ imports rest end.
 
-(* The import spec type is empty, so any import list is intrinsically nil. *)
 Lemma import_list_nil : forall (l : list Syntax.ImportSpec), l = [].
 Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 Lemma imports_nil_bytes : forall xs, imports xs = ""%string.
@@ -148,7 +138,6 @@ Proof. intros xs; rewrite (import_list_nil xs); reflexivity. Qed.
 Lemma source_imports_nil : forall f, Syntax.imports f = [].
 Proof. intro f; apply import_list_nil. Qed.
 
-(* [file] is literally the header, a newline, then the file's own clause, imports and declarations. *)
 Definition file (f : Syntax.File) : string :=
   header ++ String nl_c (nl ++ "package " ++ package_clause (Syntax.package f) ++ nl
                             ++ imports (Syntax.imports f)
@@ -164,18 +153,15 @@ Definition module_file (ms : ModuleSpec) : string :=
     (nl ++ "module " ++ ModulePath.text (module_path ms) ++ nl ++ nl
         ++ "go " ++ Version.render (Syntax.module_version ms) ++ nl).
 
-(* The header is exactly the first line of go.mod. *)
 Lemma module_file_first_line : forall ms, exists rest, module_file ms = header ++ String nl_c rest.
 Proof. intro ms. unfold module_file. eexists. reflexivity. Qed.
 
-(* The exact bytes, a pure function of the two module-spec fields, pinning both spellings in position. *)
 Lemma module_file_exact : forall ms,
   module_file ms = header ++ String nl_c
     (nl ++ "module " ++ ModulePath.text (module_path ms) ++ nl ++ nl
         ++ "go " ++ Version.render (Syntax.module_version ms) ++ nl).
 Proof. reflexivity. Qed.
 
-(* All output is ASCII. *)
 
 Definition is_ascii (c : ascii) : bool := Nat.ltb (nat_of_ascii c) 128.
 
@@ -187,7 +173,6 @@ Proof.
   induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
 
-(* Each of the sixteen closed-class spellings is a concrete ASCII identifier. *)
 Lemma type_expr_ascii : forall ts, str_ascii (type_expr ts) = true.
 Proof. intro ts; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
 
@@ -342,7 +327,6 @@ Proof.
   cbn [declarations]. rewrite !str_ascii_app, decl_ascii, IH. reflexivity.
 Qed.
 
-(* The whole file is ASCII. *)
 Lemma imports_ascii : forall xs, str_ascii (imports xs) = true.
 Proof. intros xs; rewrite imports_nil_bytes; reflexivity. Qed.
 
@@ -353,7 +337,6 @@ Proof.
   destruct (Syntax.package f); reflexivity.
 Qed.
 
-(* The go.mod is ASCII: the module path is ASCII by its grammar and the version renders `1.23`. *)
 
 Lemma all_path_chars_ascii : forall s, ModulePath.all_path_chars s = true -> str_ascii s = true.
 Proof.
@@ -438,7 +421,6 @@ Proof.
   lia.
 Qed.
 
-(* Read a rendered Go integer literal: an optional leading minus over the decimal magnitude. *)
 Definition read_go_int (s : string) : Z :=
   match s with
   | String c s' => if Ascii.eqb c "-"%char then Z.opp (dval0 s') else dval0 s
@@ -490,14 +472,12 @@ Definition decode_string_literal (s : string) : option string :=
   | EmptyString => None
   end.
 
-(* string-append associativity (local, over Rocq [string]). *)
 Lemma str_app_assoc : forall a b d : string, (a ++ (b ++ d))%string = ((a ++ b) ++ d)%string.
 Proof.
   intros a; induction a as [ | c a' IH ]; intros b d; simpl;
     [ reflexivity | rewrite IH; reflexivity ].
 Qed.
 
-(* one nibble round-trips (encoder digit -> decoder digit) for any nibble < 16. *)
 Lemma hex_digit_decode : forall k, (k < 16)%nat -> decode_hex_digit (hex_digit k) = Some k.
 Proof.
   intros k Hk. unfold decode_hex_digit, hex_digit. destruct (Nat.ltb k 10) eqn:E.
@@ -511,7 +491,6 @@ Proof.
     rewrite (proj2 (Nat.leb_le (87 + k) 102)) by lia. cbn [andb]. f_equal. lia.
 Qed.
 
-(* the two nibbles reconstruct the exact original byte. *)
 Lemma byte_reconstruct : forall c,
   ascii_of_nat (Nat.div (nat_of_ascii c) 16 * 16 + Nat.modulo (nat_of_ascii c) 16) = c.
 Proof.
@@ -523,7 +502,6 @@ Qed.
 
 Opaque hex_digit decode_hex_digit.
 
-(* the decoder consumes a rendered `\xhh` escape and yields exactly the encoded byte ( hex exactness). *)
 Lemma decode_hex_prefix : forall hi lo tail,
   (hi < 16)%nat -> (lo < 16)%nat ->
   decode_string_body
@@ -543,7 +521,6 @@ Proof.
   rewrite (decode_hex_prefix _ _ _ Hhi Hlo), byte_reconstruct. reflexivity.
 Qed.
 
-(* the core: rendering one byte then decoding the result (over any tail) restores exactly that byte. *)
 Lemma decode_render_byte : forall c tail,
   decode_string_body (string_byte c ++ tail) = option_map (String c) (decode_string_body tail).
 Proof.
@@ -577,7 +554,6 @@ Qed.
 
 Transparent hex_digit decode_hex_digit.
 
-(* ROUND TRIP: the decoder inverts the encoder on the body, then on the whole literal. *)
 Lemma decode_body_render : forall s,
   decode_string_body (string_body s ++ String dquote_c EmptyString) = Some s.
 Proof.
@@ -648,12 +624,10 @@ Proof.
   rewrite str_no_nl_cr_app, string_body_no_nl_cr. reflexivity.
 Qed.
 
-(* It begins and ends with a double quote. *)
 Lemma string_literal_quotes : forall s,
   string_literal s = String dquote_c (string_body s ++ String dquote_c EmptyString).
 Proof. reflexivity. Qed.
 
-(* The canonical-spelling fixtures, pinned at the per-byte encoder and at the whole literal. *)
 Example byte_escape_quote  : string_byte (ascii_of_nat 34)  = String bslash_c (String dquote_c EmptyString).
 Proof. reflexivity. Qed.
 Example byte_escape_backslash : string_byte (ascii_of_nat 92)  = String bslash_c (String bslash_c EmptyString).
@@ -794,7 +768,6 @@ Proof.
   - exfalso; lia.
 Qed.
 
-(* the reader inverts an all-digit NONEMPTY magnitude (no sign) up to a non-digit remainder. *)
 Lemma read_signed_dec_all_digits : forall s rest,
   str_all_digits s = true -> s <> EmptyString -> head_not_digit rest ->
   read_signed_dec (s ++ rest) = Some (dval0 s, rest).
@@ -810,7 +783,6 @@ Proof.
   injection E as <- <-. reflexivity.
 Qed.
 
-(* the reader inverts a "-"- / "+"-prefixed all-digit magnitude (negating for "-"). *)
 Lemma read_signed_dec_sign : forall sgn mag rest,
   (sgn = "-"%char \/ sgn = "+"%char) -> str_all_digits mag = true -> head_not_digit rest ->
   read_signed_dec (String sgn (mag ++ rest))
@@ -866,7 +838,6 @@ Definition go_int_lit (s : string) : bool :=
       else match digit_value c with Some _ => str_all_digits s' | None => false end
   end.
 
-(* A nonempty all-digit magnitude is a bare integer literal. *)
 Lemma go_int_lit_all_digits_nonempty : forall s,
   str_all_digits s = true -> s <> EmptyString -> go_int_lit s = true.
 Proof.
@@ -877,7 +848,6 @@ Proof.
   cbn [str_all_digits] in Hdig'; rewrite Hc in Hdig'; exact Hdig'.
 Qed.
 
-(* A minus-prefixed nonempty all-digit magnitude is a bare integer literal. *)
 Lemma go_int_lit_neg : forall s,
   str_all_digits s = true -> s <> EmptyString -> go_int_lit (String "-"%char s) = true.
 Proof.
@@ -899,7 +869,6 @@ Proof.
     | apply integer_nonempty; apply N2Z.is_nonneg ].
 Qed.
 
-(* ★SEMANTIC ROUND TRIP: decoding the canonical spelling recovers the EXACT untyped rational value. *)
 Theorem decode_render_decimal : forall d, decode_decimal (decimal d) = Some (Float.decimal_value d).
 Proof.
   intro d. unfold decimal. destruct (Z.eqb (Float.coefficient d) 0) eqn:Hc0.
@@ -915,7 +884,6 @@ Proof.
     reflexivity.
 Qed.
 
-(* Strip a fixed literal prefix and return the remainder. *)
 Fixpoint strip_prefix (p s : string) : option string :=
   match p, s with
   | EmptyString, _ => Some s
@@ -944,7 +912,6 @@ Definition strip_zero_prefix (s : string) : option (Float.Constant * string) :=
   | _ => None
   end.
 
-(* Read a canonical decimal from the front, returning its exact value and the remainder. *)
 Definition read_decimal_prefix (s : string) : option (Float.Constant * string) :=
   match read_signed_dec s with
   | Some (coeff, String a (String b (String e r2))) =>
@@ -976,7 +943,6 @@ Definition decode_complex_literal (s : string) : option Complex.Constant :=
   | None => None
   end.
 
-(* The exponent reader with a remainder, for use mid-spelling. *)
 Lemma read_signed_dec_render_signed_exp_rest : forall z rest, head_not_digit rest ->
   read_signed_dec (signed_exp z ++ rest) = Some (z, rest).
 Proof.
@@ -995,7 +961,6 @@ Qed.
 Definition dec_suffix_ok (suf : string) : Prop :=
   head_not_digit suf /\ match suf with String c _ => Ascii.eqb c "e"%char = false | EmptyString => True end.
 
-(* The prefix reader inverts a rendered decimal up to a well-behaved suffix. *)
 Lemma read_decimal_prefix_render : forall d suf,
   dec_suffix_ok suf ->
   read_decimal_prefix (decimal d ++ suf) = Some (Float.decimal_value d, suf).
@@ -1027,7 +992,6 @@ Proof. intro s; split; reflexivity. Qed.
 Lemma dec_suffix_ok_rparen : forall s, dec_suffix_ok (String ")"%char s).
 Proof. intro s; split; reflexivity. Qed.
 
-(* Decoding the canonical complex spelling recovers the exact pair of untyped rational components. *)
 Theorem decode_render_complex_literal : forall dc,
   decode_complex_literal (complex_literal dc) = Some (Complex.decimal_value dc).
 Proof.
@@ -1063,7 +1027,6 @@ Inductive ConstantInfoDenotes : string -> Typing.ConstantInfo -> Prop :=
     ConstantInfoDenotes (type_expr ts ++ "(" ++ inner ++ ")")
                              (Typing.TypedInfo (Compilable.predeclared_type ts) tc).
 
-(* A nonnegative renders nonempty with a digit first, never a minus. *)
 Lemma positive_head_not_minus : forall p,
   match Decimal.positive p with String c _ => Ascii.eqb c "-"%char = false | EmptyString => False end.
 Proof.
@@ -1090,7 +1053,6 @@ Proof.
   - exfalso; lia.
 Qed.
 
-(* The decimal reader restores the exact magnitude of either bare integer spelling. *)
 Lemma read_go_int_integer_literal : forall n, read_go_int (expr (Syntax.IntegerLiteral n)) = Z.of_N n.
 Proof.
   intro n. cbn [expr]. rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
@@ -1118,7 +1080,6 @@ Proof.
   exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
 Qed.
 
-(* Rendering an expression denotes exactly the constant status Typing computes for it. *)
 Theorem const_info_denotes : forall e ci,
   constant_info e = Some ci -> ConstantInfoDenotes (expr e) ci.
 Proof.
@@ -1133,7 +1094,6 @@ Proof.
     cbn [expr]. apply ConvertDenotes with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
 Qed.
 
-(* A bare integer literal starts with a minus or a decimal digit. *)
 Lemma go_int_lit_cons : forall s, go_int_lit s = true ->
   exists c s', s = String c s' /\ (c = "-"%char \/ digit_value c <> None).
 Proof.
@@ -1144,7 +1104,6 @@ Proof.
     exists c, s'; split; [ reflexivity | right; rewrite Hc; discriminate ].
 Qed.
 
-(* A decoded string literal starts with the double-quote byte. *)
 Lemma decode_string_literal_head : forall s b,
   decode_string_literal s = Some b -> exists rest, s = String dquote_c rest.
 Proof.
@@ -1152,7 +1111,6 @@ Proof.
   destruct (Ascii.eqb c dquote_c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; eauto | discriminate ].
 Qed.
 
-(* A spelling whose head is not a digit, sign or dot is not a decoded decimal float. *)
 Lemma decode_decimal_nonnumeric_head : forall c s',
   digit_value c = None ->
   Ascii.eqb c "-"%char = false -> Ascii.eqb c "+"%char = false ->
@@ -1176,7 +1134,6 @@ Qed.
 Lemma decode_decimal_dquote : forall rest, decode_decimal (String dquote_c rest) = None.
 Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
 
-(* A bare integer literal is consumed whole by the signed-decimal reader. *)
 Lemma go_int_lit_read_signed_dec : forall s, go_int_lit s = true ->
   exists v, read_signed_dec s = Some (v, ""%string).
 Proof.
@@ -1195,7 +1152,6 @@ Proof.
     apply (read_signed_dec_all_digits (String c s') "" Hall ltac:(discriminate) I).
 Qed.
 
-(* A bare integer literal is not a decoded decimal float. *)
 Lemma go_int_lit_decode_decimal_none : forall s, go_int_lit s = true -> decode_decimal s = None.
 Proof.
   intros s H. destruct (go_int_lit_read_signed_dec s H) as [v Hrsd].
@@ -1206,7 +1162,6 @@ Proof.
   apply String.eqb_eq in Es0; subst s. vm_compute in H; discriminate H.
 Qed.
 
-(* Single-character suffix cancellation over [string]. *)
 Lemma str_snoc_inj : forall (ch : ascii) a b,
   (a ++ String ch "")%string = (b ++ String ch "")%string -> a = b.
 Proof.
@@ -1217,7 +1172,6 @@ Proof.
   - injection Heq as Hxy H2; f_equal; [ exact Hxy | apply IH; exact H2 ].
 Qed.
 
-(* A decoded complex literal starts with the byte 'c'. *)
 Lemma decode_complex_literal_head_c : forall s c,
   decode_complex_literal s = Some c -> exists rest, s = String "c"%char rest.
 Proof.
@@ -1227,12 +1181,10 @@ Proof.
     destruct (Ascii.eqb "c"%char c0) eqn:E; [ apply Ascii.eqb_eq in E; subst c0; eauto | discriminate H ].
 Qed.
 
-(* A spelling whose head byte is not 'c' is not a decoded complex literal. *)
 Lemma decode_complex_literal_not_c : forall c0 s,
   Ascii.eqb "c"%char c0 = false -> decode_complex_literal (String c0 s) = None.
 Proof. intros c0 s H; unfold decode_complex_literal; cbn [strip_prefix]; rewrite H; reflexivity. Qed.
 
-(* a 'c'-led spelling (a complex literal) is not a bare integer / decimal / string. *)
 Lemma head_c_go_int_lit_false : forall rest, go_int_lit (String "c"%char rest) = false.
 Proof. reflexivity. Qed.
 Lemma head_c_decode_decimal_none : forall rest, decode_decimal (String "c"%char rest) = None.
@@ -1251,7 +1203,6 @@ Proof.
                    | reflexivity ] ].
 Qed.
 
-(* A conversion spelling is no bare literal, because its lead byte is a letter. *)
 Lemma conv_spelling_go_int_lit_false : forall ts X,
   go_int_lit (type_expr ts ++ "(" ++ X) = false.
 Proof. intros ts X; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
@@ -1395,7 +1346,6 @@ Proof.
   split; [ exact Hwf | exact Hden ].
 Qed.
 
-(* The int boundary literals evaluate to well-formed values and resolve at the int type. *)
 Lemma boundary_max :
   eval_expr (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) = Some (Safe.IntegerValue Integer.Int Integer.platform_maximum)
   /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
@@ -1406,12 +1356,10 @@ Lemma boundary_min :
   /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
 Proof. split; [ reflexivity | apply Typing.resolve_sound; reflexivity ]. Qed.
 
-(* The explicit-conversion rendering fixtures, pinning the source spelling of a nested conversion. *)
 Example int8_127 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = "int8(127)". Proof. reflexivity. Qed.
 Example uint64_big : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
 Example nested : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.IntegerLiteral 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
 
-(* The string denotation surfaces, one per root theorem. *)
 Lemma string_denotes : forall s,
   ConstantInfoDenotes (expr (Syntax.StringLiteral s)) (Typing.UntypedInfo (Typing.StringConstant s)).
 Proof. intro s; apply const_info_denotes; reflexivity. Qed.
@@ -1468,7 +1416,6 @@ Example repair_uint64_max_typed :
                            (Typing.TypedInfo (Typing.IntegerType Integer.Uint64) (Typing.TypedInteger Integer.Uint64 18446744073709551615 eq_refl)).
 Proof. apply const_info_denotes; reflexivity. Qed.
 
-(* The float rendering fixtures: the canonical spelling, the conversions, and the denotations. *)
 Example float_1p5   : expr (Syntax.FloatLiteral Typing.decimal_15em1) = "15.0e-1". Proof. reflexivity. Qed.
 Example float_zero  : expr (Syntax.FloatLiteral (Float.MakeDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
 Example float_1e6   : expr (Syntax.FloatLiteral (Float.MakeDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
@@ -1476,7 +1423,6 @@ Example float_neg   : expr (Syntax.FloatLiteral (Float.MakeDecimal (-15) (-1) eq
 Example conv_f32    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
 Example conv_f64    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral Typing.decimal_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
-(* the canonical complex literal, the two conversion spellings, and the bare literal's denotation *)
 Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal (-25) (-1) eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
 Example cplx_zero : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 0 0 eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
@@ -1493,7 +1439,6 @@ Lemma float_denotes : forall d,
   ConstantInfoDenotes (expr (Syntax.FloatLiteral d)) (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value d))).
 Proof. intro d; apply const_info_denotes; reflexivity. Qed.
 
-(* the bare float denotes its exact unrounded rational, and the F32 conversion the rounded dyadic *)
 Example float_untyped_denotes :
   ConstantInfoDenotes (expr (Syntax.FloatLiteral Typing.decimal_15em1)) (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value Typing.decimal_15em1))).
 Proof. apply const_info_denotes; reflexivity. Qed.
@@ -1502,7 +1447,6 @@ Example conv_f32_typed_denotes :
     = Some (Typing.FloatConstant (Float.constant_of_Z 2305843284091600896)).
 Proof. vm_compute. reflexivity. Qed.
 
-(* a bare tenth denotes the exact rational 1/10, and a tiny negative float64 conversion an unsigned zero *)
 Example float_untyped_tenth :
   ConstantInfoDenotes (expr (Syntax.FloatLiteral (Float.MakeDecimal 1 (-1) eq_refl)))
                            (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value (Float.MakeDecimal 1 (-1) eq_refl)))).

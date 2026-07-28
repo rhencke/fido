@@ -1,4 +1,3 @@
-(* The one standard-collection foundation: thin domain wrappers over pinned-stdlib maps, with no storage here. *)
 From Stdlib Require Import String.
 From Stdlib Require Import Structures.OrderedType Structures.OrderedTypeEx.
 From Stdlib Require Import FSets.FMapInterface FSets.FMapAVL FSets.FMapFacts.
@@ -6,10 +5,8 @@ From Stdlib Require Import FSets.FMapPositive.
 From Stdlib Require Import SetoidList.
 From Fido Require Import FilePath.
 
-(* The standard positive-key map, keyed for the per-file local-node index. *)
 Module NodeMap := FMapPositive.PositiveMap.
 
-(* The standard AVL map over the standard string key, for the package-directory map. *)
 Module PackageMap := FMapAVL.Make String_as_OT.
 Module PackageFacts := FMapFacts.WFacts_fun String_as_OT PackageMap.
 Module PackageProperties := FMapFacts.WProperties_fun String_as_OT PackageMap.
@@ -48,7 +45,6 @@ Module FilePathOrder <: OrderedType.OrderedType.
   Defined.
 End FilePathOrder.
 
-(* The standard AVL file map keyed by [FilePath.T], with its standard facts. *)
 Module FileMap := FMapAVL.Make FilePathOrder.
 Module FileFacts := FMapFacts.WFacts_fun FilePathOrder FileMap.
 Module FileProperties := FMapFacts.WProperties_fun FilePathOrder FileMap.
@@ -72,7 +68,6 @@ Proof.
   reflexivity.
 Qed.
 
-(* The same canonical-elements facts for the package map, whose string key is also Leibniz. *)
 Module PackageOrder := FMapFacts.OrdProperties PackageMap.
 
 Lemma equal_list_key_element_eq_str {A} : forall (l1 l2 : list (string * A)),
@@ -124,7 +119,6 @@ Proof.
     split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(* [FMapAVL.map] preserves the key domain and its sorted order, so a mapped file map enumerates the same keys. *)
 Lemma sorted_map_fst_file {A B} (f : A -> B) : forall l,
   Sorted (@FileMap.lt_key A) l ->
   Sorted (@FileMap.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
@@ -165,7 +159,6 @@ Lemma package_map_fst_elements {A B} (f : A -> B) (m : PackageMap.t A) :
   map fst (PackageMap.elements (PackageMap.map f m)) = map fst (PackageMap.elements m).
 Proof. rewrite package_map_elements, map_map. reflexivity. Qed.
 
-(* Equal key domains give the same canonical key list, whatever the two value types are. *)
 Lemma package_same_domain_keys {A B} (m1 : PackageMap.t A) (m2 : PackageMap.t B) :
   (forall k, PackageMap.In k m1 <-> PackageMap.In k m2) ->
   map fst (PackageMap.elements m1) = map fst (PackageMap.elements m2).

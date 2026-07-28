@@ -37,7 +37,6 @@ from pathlib import Path
 # Only these.  Active review documents, the live FCB, gates, fixtures, tools and source comments are all
 # in scope: they are exactly where a stale name hides.
 EXCLUDED_TREES = (
-    '.review/spec-closure-campaign/',   # explicitly historical R1 bundle
     '.review/fcb/amendments/',          # an amendment must quote the names it retires
 )
 EXCLUDED_FILES = (

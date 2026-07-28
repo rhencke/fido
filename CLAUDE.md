@@ -62,17 +62,11 @@ Syntax.Program -> Typing (evidence, ONE type authority) -> Compilable (whole-pro
 ```
 
 **The admitted fragment is small and grows only by proof.** Files group by directory into `package main`
-packages; each source file is a source-owned `package main` clause + empty imports + `Syntax.Main` (a `func main()`);
-statements are `Syntax.Println` over primitive literals: bool, the ten integer types, float32/64, complex64/128, exact
-strings, and ONE source-shaped explicit conversion `Syntax.Convert Syntax.TypeExpr Syntax.Expr`. A conversion names a SOURCE
-type — the closed sixteen-name lexical class (the fourteen numeric names plus the `byte`→uint8 and `rune`→int32
-SOURCE ALIASES) — which `Admissible`'s predeclared context resolves to a semantic `Typing.SemanticType`; `byte`/`rune` render
-their own spelling but resolve to `uint8`/`int32`. Each literal is an exact UNTYPED constant; a conversion is a
-TYPED constant at the resolved target. Anything else — other decls, calls, params, non-empty imports, non-`main`
-packages, `bool`/`string`/`uintptr`/`any`/`error`/`comparable`/unknown/qualified conversion targets, strange
-paths — is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free and exercised by a
-real emitted-and-built witness tree (see `ARCHITECTURE.md` for the layer-by-layer charter and the full witness <!-- FIDO-FCB-REF:ARCHITECTURE-MD -->
-inventory).
+packages; each source file is a source-owned `package main` clause, empty imports, and a `func main()` whose
+statements print primitive literals and ONE source-shaped explicit conversion naming a SOURCE type. Anything
+else is UNREPRESENTABLE, not rejected. Every layer is proved axiom-free and exercised by a real
+emitted-and-built witness tree. `ARCHITECTURE.md` owns the exact fragment, the layer-by-layer charter and the <!-- FIDO-FCB-REF:ARCHITECTURE-MD -->
+witness inventory.
 
 **State, frontier: `PROGRESS.md`. Charter (binding): `ARCHITECTURE.md`. Rejected shapes: `PAINFUL_LESSONS.md`. <!-- FIDO-FCB-REF:PROGRESS-MD --> <!-- FIDO-FCB-REF:PAINFUL-LESSONS-MD -->
 Active checkpoint: `.review/NEXT_STEPS.md`.**
@@ -113,129 +107,73 @@ algorithm, report an architectural conflict and stop. Do not implement an altern
 
 1. **Handwritten OCaml is the transport boundary — it understands filesystems/transport, not programs.**
    All semantic work — paths, compile, safety, rendering (incl. the go.mod), and the final image — is proved
-   Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/materialize.mlg` (the bridge — guards provenance <!-- FIDO-FCB-REF:PLUGIN-MATERIALIZE-MLG -->
-   ONCE by two kernel queries, typechecking the image type and rejecting a non-empty assumption closure, then
-   decodes ONLY the final `(go.mod bytes, (path, bytes) list)` transport via exact constructors, fail-loud, and
-   hands it to `Fido Materialize`, the SOLE Rocq transport command; there is NO public `Fido Emit`, and the
-   sink publication `Sink.sync` is INTERNAL, reached only from `apply`/`sink_test`) and
-   `plugin/sink.ml` + `e2e/sink_test.ml` + `e2e/apply.ml` (the pristine materializer + the generic <!-- FIDO-FCB-REF:E2E-APPLY-ML --> <!-- FIDO-FCB-REF:PLUGIN-SINK-ML -->
-   dirty-directory sink, its test driver, and the tiny `make regenerate` apply adapter — filesystem ONLY, walk
-   no Rocq terms; `materialize` writes the decoded image into a FRESH disposable build-validation root, never a
-   user dir; the sink REJECTS foreign Go/module inputs and nested `.fido`, stages into RESERVED sibling temps
-   `<final>.fido-tmp-v1`, installs by atomic rename, and two-phase-recovers abandoned temps fail-closed).
-   **VALIDATE-BEFORE-PUBLISH** (the `make regenerate` workflow) is the Docker DAG: building the `sync` image
-   COPYs go-e2e's `/fresh-build-ok` edge, so a failed pinned `go build ./...` makes `sync` unbuildable and
-   prevents publication; the sink then publishes the ORIGINAL generated-module bytes. **No checksum/manifest
-   system exists** — a checksum cannot prove a build succeeded; the supported publication ordering IS the Docker
-   workflow graph. ⚠ This is
-   accidental-publication protection for a COOPERATING developer (the pre-commit hook's level); the project does
-   NOT attempt to resist a deliberate local bypass (extracting a binary, hand-editing the build or the hooks) —
-   that is outside the threat model, by design.
-   The OCaml uses mature runtime collections for identity/membership: the sink keys desired outputs by path in
-   a `Map.Make(String)` (rejecting a duplicate path before any effect; canonical path-sorted iteration) and
-   holds stale-target / abandoned-temp membership in a `Set.Make(String)`; the bridge's assumption-audit roots
-   use `Names.GlobRef.Set`; the transport `list` stays a certified enumeration validated INTO the map, never
-   itself the identity authority (lists remain ONLY for the order-meaningful rollback stacks). NEVER a raw
-   `List.mem`/`::` identity authority or a custom hash/tree. `tools/ocaml-origin-gate.sh` enforces exactly these <!-- FIDO-FCB-REF:TOOLS-OCAML-ORIGIN-GATE-SH -->
-   four with those boundaries, inspecting every tracked source at every depth (pruning only `.git`), with NO
-   source-line size cap. NEVER reintroduce a handwritten backend/lowering/renderer/semantic decoder, a bridge
-   decoding anything but the final transport type, a central staging directory under a root `.fido` control
-   dir, or the deleted stage-record/nonce subsystem.
+   Rocq. The ONLY handwritten OCaml is the Fido transport: `plugin/materialize.mlg` (the bridge — it guards <!-- FIDO-FCB-REF:PLUGIN-MATERIALIZE-MLG -->
+   provenance ONCE by two kernel queries, decodes ONLY the final transport type via exact constructors, and
+   hands it to `Fido Materialize`, the SOLE Rocq transport command) plus `plugin/sink.ml`, `e2e/sink_test.ml` <!-- FIDO-FCB-REF:PLUGIN-SINK-ML -->
+   and `e2e/apply.ml` (the foreign-rejecting sink, its driver and the `make regenerate` adapter — filesystem <!-- FIDO-FCB-REF:E2E-APPLY-ML -->
+   ONLY, walking no Rocq terms). There is NO public `Fido Emit`.
+   **VALIDATE-BEFORE-PUBLISH** is the Docker DAG, not a checksum: building the `sync` image COPYs go-e2e's
+   `/fresh-build-ok` edge, so a failed pinned `go build ./...` makes `sync` unbuildable and prevents
+   publication. ⚠ That is accidental-publication protection for a COOPERATING developer; the project does NOT
+   attempt to resist a deliberate local bypass, by design.
+   Identity and membership use mature runtime collections (`Map.Make`, `Set.Make`, `Names.GlobRef.Set`); a
+   transport `list` is a certified enumeration validated INTO a map, never the identity authority, and a raw
+   `List.mem`/`::` authority or a custom hash/tree is never acceptable. `tools/ocaml-origin-gate.sh` enforces <!-- FIDO-FCB-REF:TOOLS-OCAML-ORIGIN-GATE-SH -->
+   exactly those four files with those boundaries, at every depth. NEVER reintroduce a handwritten
+   backend/lowering/renderer/semantic decoder, a bridge decoding anything but the final transport type, or a
+   central `.fido` staging or nonce subsystem.
 2. **The canonical generated module is a TRACKED, reviewed artifact; emission is not a `.vo` side effect.**
    Root `go.mod` + recursive `.go` are committed (Fido-headed) and verified byte-exact against the pristine
-   `generated-module` Buildx layer by `make check` on the WORKING TREE AND the pre-commit hook on the STAGED
-   snapshot (the SAME shared compare, each vs a pristine built from those same inputs); `make regenerate`
-   rewrites them through the SAME `Sink`. The emit step (`Fido Materialize` on the witnesses) is an
-   EXPLICIT always-run step after the cached theory/plugin build, never a `.vo` side effect. The header is
-   Rocq's bytes (`Render.header`), proved the exact first line; the sink recognizes it as an ownership marker
-   but adds/alters no bytes. Nested `go.mod`, tracked `.fido`/temp, and non-Fido-headed tracked Go are forbidden
-   by `tools/generated-output-gate.sh`. <!-- FIDO-FCB-REF:TOOLS-GENERATED-OUTPUT-GATE-SH -->
+   `generated-module` Buildx layer by `make check` on the WORKING TREE and by the pre-commit hook on the
+   STAGED snapshot, each against a pristine built from those same inputs; `make regenerate` rewrites them
+   through the SAME `Sink`. The emit step is an EXPLICIT always-run step, never a `.vo` side effect. The header
+   is Rocq's bytes (`Render.header`), proved the exact first line. Nested `go.mod`, tracked `.fido`/temp, and
+   non-Fido-headed tracked Go are forbidden by `tools/generated-output-gate.sh`. <!-- FIDO-FCB-REF:TOOLS-GENERATED-OUTPUT-GATE-SH -->
 3. **Model honestly — faithful or fail-loud, never plausible-but-wrong.** Unrepresentable ⇒ absent from the
    AST (or rejected in Rocq). ⚠ NEVER a raw/opaque/string-rescue escape hatch (`PAINFUL_LESSONS.md`).
-4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** `Definition`s /
-   `Record`s / `Inductive`s over concrete data. Never `Axiom`/`Parameter`/`Admitted`, a kernel primitive, or
-   `FunctionalExtensionality`. `make prove` asserts the public surfaces axiom-free via `gate/Assumptions.v` (the <!-- FIDO-FCB-REF:GATE-ASSUMPTIONS-V -->
-   sole `Print Assumptions` target, compiled fresh + count-checked) PLUS the Rocq-native `Fido Audit
-   Assumptions` command — a WHOLE-CERTIFIED-THEORY assumption-closure audit seeded from every Fido CONSTANT
-   **and every Fido mutual INDUCTIVE (via `IndRef`) and every surviving named assumption**, computing the union
-   of their closures (descending opaque Qed bodies) and rejecting every `Printer.Axiom` category (incl. assumed
-   positivity / disabled guardedness / type-in-type / UIP) AND every `Printer.Variable` — catching an external
-   axiom reached transitively through any opaque lemma, an unused Fido axiom, AND an unreferenced
-   assumption-bearing inductive, which a source-text scanner cannot do soundly. A coverage gate requires every
-   tracked root `.v` to equal dune's `(modules …)`, and adversarial self-tests A-E prove it is not fail-open. <!-- FIDO-FCB-REF:DUNE -->
-   The transport command reuses the SAME closure mechanism to reject any image whose assumption closure is
-   non-empty. Tracked axiom-bearing fixtures are FORBIDDEN — negatives are generated transiently. NO
-   source-text axiom scanner.
+4. **Zero project axioms — every `Print Assumptions` surface is EMPTY; preserve it.** Never
+   `Axiom`/`Parameter`/`Admitted`, a kernel primitive, or `FunctionalExtensionality`. `make prove` asserts the
+   public surfaces axiom-free via `gate/Assumptions.v` (the sole `Print Assumptions` target, compiled fresh + <!-- FIDO-FCB-REF:GATE-ASSUMPTIONS-V -->
+   count-checked) PLUS the Rocq-native `Fido Audit Assumptions` — a whole-certified-theory assumption-closure
+   audit seeded from every Fido constant, mutual inductive and surviving named assumption, which catches an
+   axiom reached transitively through an opaque lemma and which a source-text scanner cannot do soundly. A
+   coverage gate requires every tracked root `.v` to equal dune's `(modules …)`, and adversarial self-tests A-E <!-- FIDO-FCB-REF:DUNE -->
+   prove it is not fail-open. The transport command reuses the SAME closure mechanism. Tracked axiom-bearing
+   fixtures are FORBIDDEN — negatives are generated transiently. NO source-text axiom scanner.
 5. **No fuel, ever.** Totality comes from decreasing structure.
 6. **Safe.Program is the permanent safety boundary.** `Property cp := True` is honest TODAY (the fragment has
    no unsafe op); it is the extension point for guarantees beyond compiler acceptance, not circular. No
    unused panic/control placeholder.
-7. **Naming is a correctness claim.** `Property` uses REAL Go values (`Safe.IntegerValue` carrying the exact value at its
-   exact type; `Safe.FloatValue` a proof-carrying canonical `spec_float` at its format; `Safe.ComplexValue` a PAIR of general
-   `Float.Value` components — so a RUNTIME complex MAY carry -0/inf/NaN though a typed complex CONSTANT cannot;
-   `Safe.StringValue` exact bytes). `Syntax.IntegerLiteral 0` and `Syntax.NegatedIntegerLiteral 0` evaluate equal; every runtime integer value is
-   range-well-formed (`Safe.ValueWellFormed`; a float's/complex's canonicality lives in `Float.Value`); values carry the SAME
-   `Typing.SemanticType` (`value_type`). Evaluation is DERIVED from the one constant-status analysis (`Typing.constant_info` →
-   `Typing.resolve_constant_info` → `Safe.typed_constant_to_value`) and is PARTIAL (a compiler-invalid conversion has no value —
-   never a wrap; a typed float PROJECTS its stored canonical `Float.runtime`, rounded ONCE at conversion and never
-   re-rounded). `Render.const_info_denotes` / `Render.resolved_expr_denotes` tie the rendered spelling to the
-   analyzed `Typing.ConstantInfo`, value, and type. Every admitted primitive has its complete type/value/render/syntax
-   proofs NOW.
-8. **The program is a `ModuleSpec` + a WHOLE-PROGRAM STANDARD FilePath.T MAP of source files; integer width,
-   float format, complex format, AND the type universe each have one authority.** The map KEY is the path (raw
-   strings are NOT paths), so a duplicate path is unrepresentable by construction and `Syntax.files_of_nodes` is
-   sound + complete + exact (no silent overwrite). `Syntax.FileNode` is a construction/view, NOT the stored value;
-   semantic file-map equality is standard map `Equal`; enumerations are CANONICAL derived lists. Files group by
-   directory into packages via a one-pass `PackageMap` aggregation (no O(files²) scan); the package clause is
-   SOURCE-owned, entry point is a compilation result. `ModuleSpec` describes the GENERATED module, NOT the
-   environment — it is NOT a `TargetConfig`. The one integer authority is `Integer` (the ten-member `Integer.Kind`;
-   `int`/`uint` pinned 64-bit, distinct from `int64`/`uint64`), the one float authority is `Float` (F32/F64),
-   the one complex authority is `Complex` (C64/C128, all format via the ONE `Complex.component_kind` mapping),
-   and the one type authority is `Typing` (each type landed together with its syntax + value + rendering +
-   proofs, never ahead of it). There is NO `TargetConfig`, no second width/type authority, no per-width runtime
-   record family, no `GoTypeTag`, no `unknown`/`opaque`/`raw` type ahead of its syntax, and no typed AST beside
-   the one raw `Syntax`. A conversion's SOURCE type name is a `Syntax.TypeExpr` (source identity: the `Names` closed
-   sixteen-name lexical class carrying a retained `Names.Identifier` + a classify-match proof) — the ONE source-
-   name authority; the SOURCE name never decides its semantic type. `Admissible`'s predeclared context is the ONE
-   source-name→`Typing.SemanticType` resolver (`byte`→`uint8`, `rune`→`int32`), kept as sealed occurrence-keyed type-name
-   FACTS (the resolved `Typing.SemanticType` only, keyed by `Index.Key`, retained in `Compilable.Facts`/`Compilable.Program`);
-   `byte`/`uint8` (and `rune`/`int32`) are DISTINCT source syntax with EQUAL semantic facts. No source-name→
-   `Typing.SemanticType` table lives in `Syntax`, `Typing`, or `Render`; no `TByte`/`TRune`/`IByte`/`IRune`/`uintptr`.
+7. **Naming is a correctness claim.** `Property` uses REAL Go values carrying the SAME `Typing.SemanticType`
+   as the constant analysis; evaluation is DERIVED from that one analysis and is PARTIAL — a compiler-invalid
+   conversion has no value, never a wrap, and a typed float is rounded ONCE at conversion and never re-rounded.
+   Every admitted primitive has its complete type/value/render/syntax proofs NOW. `ARCHITECTURE.md` owns the
+   value family, the rounding rule and the render-denotation theorems.
+8. **One authority per fact, over the ONE program.** A `Syntax.Program` is a `ModuleSpec` plus a standard
+   `FilePath.T`-keyed map of source files, so the map KEY is the path and a duplicate path is unrepresentable by
+   construction. `ModuleSpec` describes the GENERATED module, not the environment. `Integer` owns integer width,
+   `Float` float format, `Complex` complex format, `Names` the closed sixteen-name source type-name class,
+   `Typing` the type universe, and `Admissible`'s predeclared context is the ONE source-name→
+   `Typing.SemanticType` resolver — the SOURCE name never decides its semantic type, and `byte`/`uint8` (like
+   `rune`/`int32`) are DISTINCT source syntax with EQUAL semantic facts. There is NO `TargetConfig`, no
+   `GoTypeTag`, no second width/type/conversion authority, no typed AST beside the one raw `Syntax`, and no
+   source-name table in `Syntax`, `Typing` or `Render`.
 9. **Closed world; imports on hold.** No import syntax is representable. When imports arrive, every import
    must resolve to an owned package in the SAME program or reject the whole program — no stdlib / cache /
    network / vendor / workspace / ambient escape. Adding imports needs explicit sign-off.
-10. **Standard collections only — never roll your own (the binding COLLECTION LAW).** When a suitable mature
-   collection exists in the pinned Rocq standard library, the OCaml standard library, or the Rocq runtime,
-   Fido MUST use it. Fido may provide a THIN DOMAIN WRAPPER (instantiate a standard functor with a domain key,
-   alias/delegate operations, enforce stronger domain construction like duplicate-rejection, define domain
-   folds, prove project-specific facts, seal an interface over a standard map/set) but MUST NOT implement
-   collection STORAGE or generic collection ALGORITHMS itself — no project-authored map / set / dictionary /
-   keyed table / multimap / hash table / balanced tree / trie / membership-bag / adjacency collection, no
-   `list + NoDup` as public identity-keyed storage, no parallel association-list backing/cache, no reimplemented
-   find/mem/add/remove/balance/union. Choose by SEMANTIC ROLE: identity-keyed → a mature finite map
-   (`FMapAVL`/`FMapPositive`; future sets → `MSet*`); membership-only → a mature finite set; ordered
-   sequence / repetition / positional structure / rollback stack / transport enumeration → a `list`;
-   duplicate-invalid source → the AST sequence or a duplicate-REJECTING builder (`mem` before `add`), NEVER a
-   silent overwrite; graph → a map from vertex to a set. A map/set `elements`/`bindings` list is a DERIVED
-   enumeration, NEVER a second identity authority. A failed collection builder STAYS FAILED — no
-   `match build … with Some c => c | None => empty` (unless the semantics explicitly define failure as empty,
-   which no Fido builder does). If NO standard collection fits: document the exact mismatch + the alternatives
-   considered, report an ARCHITECTURAL CONFLICT, notify Rob, and STOP — never autonomously implement a
-   collection. (`Table` is acceptable ONLY because it delegates its type + operations to `FMapPositive` with
-   no Fido-authored storage.) OCaml identity/membership collections likewise use `Map.Make`/`Set.Make` /
-   `Names.GlobRef.Set`, never a raw `List.mem`/`::` authority.
+10. **Standard collections only — never roll your own.** The binding COLLECTION LAW is stated once, in
+   `ARCHITECTURE.md`, and that statement governs. In outline: use a mature collection when one exists; a thin
+   domain wrapper is allowed; project-authored storage or generic collection algorithms are not; choose by
+   SEMANTIC ROLE; a map's `elements` list is a derived enumeration, never a second identity authority; a failed
+   builder STAYS FAILED; and if nothing fits, report an architectural conflict, notify Rob, and STOP.
 
 ## The layers
 
 One authority per layer, over the ONE program:
-`FilePath.T` · `Collections` (the ONE standard-collection foundation) · `Integer` · `Float` · `Complex` ·
-`ModulePath.T` · `Version` · `Names` (the ONE source type-name class — the closed sixteen-name lexical
-authority) · `Syntax` · `Index` (structural occurrence identity + navigation) · `Typing`
-(the ONE type authority, evidence over the raw AST) · `Admissible` (whole-program admissibility + the ONE
-source-name→`Typing.SemanticType` predeclared resolver) · `Property` ·
-`Render` · `Emit` · the OCaml transport (`materialize.mlg` / `sink.ml`). The full responsibility of each
-layer — its definitions, invariants, and theorem surfaces — is the binding charter in **`ARCHITECTURE.md`**;
-do not restate it here.
+`FilePath.T` · `Collections` · `Integer` · `Float` · `Complex` · `ModulePath.T` · `Version` · `Names` ·
+`Syntax` · `Index` · `Typing` · `Admissible` · `Property` · `Render` · `Emit` · the OCaml transport
+(`materialize.mlg` / `sink.ml`). The full responsibility of each layer — its definitions, invariants and
+theorem surfaces — is the binding charter in **`ARCHITECTURE.md`**; do not restate it here.
 
 <!-- FIDO_FCB_BOOTSTRAP_START -->
 ## Fido Conformance Basis — mandatory Git bootstrap
@@ -249,8 +187,8 @@ Git is the sole canonical FCB store. Before any Fido design, implementation, or 
    of them from that single ref — Git's content addressing is the integrity mechanism; there is no checksum
    manifest and no verification tool to run.
 4. Read `.review/NEXT_STEPS.md` from the same ref. It is the live checkpoint authority.
-5. Never mix FCB files from different refs. Do not use project-library copies, chat memory, superseded FCB states,
-   or `.review/spec-closure-campaign` as current authority. <!-- FIDO-FCB-REF:REVIEW-SPEC-CLOSURE-CAMPAIGN -->
+5. Never mix FCB files from different refs. Do not use project-library copies, chat memory, or superseded FCB
+   states as current authority.
 
 If the FCB is missing, or a document it names cannot be read from the resolved ref, stop and report the defect.
 Do not guess or implement from memory.
@@ -297,6 +235,7 @@ make regenerate  # rebuild + apply the pristine canonical module into the repo v
 make fcb         # the live-FCB document gates (D-07 human acts, D-24 references, generated closure-ledger view)
 make fcb-write   # regenerate every generated FCB view from its canonical source
 make claims      # the claim-to-theorem matrix: every completion claim names a surface that exists
+make diet        # the M1 source-diet gate: the comment law, the exact ledgers, the baseline comparison
 make names       # the A005 scoped-name policy gate
 make fmt         # the .editorconfig whitespace/format report (reports, never rewrites; not a gate)
 make prover-log  # stream the plain Rocq log
@@ -334,31 +273,11 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
 
 ## Files
 
-- **Certified theory** — exactly the modules `dune` declares, in dependency order, one row each.
-  `dune-project` pins the Dune language version. Full layer responsibilities are the charter's, <!-- FIDO-FCB-REF:DUNE-PROJECT -->
-  not this list's: `ARCHITECTURE.md`.
-  - `Decimal.v` — decimal digit strings. <!-- FIDO-FCB-REF:DECIMAL-V -->
-  - `Integer.v` — the ONE integer authority: the ten-member `Integer.Kind`. <!-- FIDO-FCB-REF:INTEGER-V -->
-  - `Float.v` — the ONE float authority: F32/F64. <!-- FIDO-FCB-REF:FLOAT-V -->
-  - `Complex.v` — the ONE complex authority: C64/C128 through one component mapping. <!-- FIDO-FCB-REF:COMPLEX-V -->
-  - `FilePath.v` — the ONE path authority, and the map KEY of the program's file map. <!-- FIDO-FCB-REF:FILEPATH-V -->
-  - `ModulePath.v` — the generated module's path. <!-- FIDO-FCB-REF:MODULEPATH-V -->
-  - `Version.v` — the generated module's Go version. <!-- FIDO-FCB-REF:VERSION-V -->
-  - `Collections.v` — the ONE standard-collection foundation: pinned `FMapAVL`/`FMapPositive` <!-- FIDO-FCB-REF:COLLECTIONS-V -->
-    wrappers. There is NO project-authored `FMap.v`.
-  - `Names.v` — the source type-name foundation: the proof-carrying `Names.Identifier` domain and <!-- FIDO-FCB-REF:NAMES-V -->
-    the closed sixteen-name `TypeName`/`Names.SupportedType` class, with the
-    `Names.type_name_spelling`/`classify` inverse and the `byte`/`uint8` + `rune`/`int32` source-distinctness.
-  - `Syntax.v` — the ONE raw program: a `ModuleSpec` plus the `FilePath.T`-keyed file map. <!-- FIDO-FCB-REF:SYNTAX-V -->
-  - `Index.v` — the production occurrence-index / structural authority, between `Syntax` and <!-- FIDO-FCB-REF:INDEX-V -->
-    `Typing`. It imports ONLY `Syntax`/`Collections`/`FilePath.T` — it knows no semantic type, compiler
-    acceptance, rendering or diagnostics — and is CONSUMED by `Admissible`'s `elaborate` as the ONE indexed
-    whole-program pass. Every generated byte is UNCHANGED by it.
-  - `Typing.v` — the ONE type authority: evidence over the raw AST. <!-- FIDO-FCB-REF:TYPING-V -->
-  - `Compilable.v` — whole-program admissibility and the ONE predeclared source-name resolver. <!-- FIDO-FCB-REF:COMPILABLE-V -->
-  - `Safe.v` — the permanent safety boundary and the ONE `Safe.Program` mint. <!-- FIDO-FCB-REF:SAFE-V -->
-  - `Render.v` — the ONE rendering authority, the generated module file included. <!-- FIDO-FCB-REF:RENDER-V -->
-  - `Emit.v` — the authority-gated image and its intrinsic mint. <!-- FIDO-FCB-REF:EMIT-V -->
+- **Certified theory** — exactly the modules `dune` declares, in dependency order; `dune-project` pins the <!-- FIDO-FCB-REF:DUNE-PROJECT -->
+  Dune language version, and each layer's responsibility is the charter's, not this list's: `ARCHITECTURE.md`.
+  `Decimal.v` · `Integer.v` · `Float.v` · `Complex.v` · `FilePath.v` · `ModulePath.v` · `Version.v` · <!-- FIDO-FCB-REF:DECIMAL-V --> <!-- FIDO-FCB-REF:INTEGER-V --> <!-- FIDO-FCB-REF:FLOAT-V --> <!-- FIDO-FCB-REF:COMPLEX-V --> <!-- FIDO-FCB-REF:FILEPATH-V --> <!-- FIDO-FCB-REF:MODULEPATH-V --> <!-- FIDO-FCB-REF:VERSION-V -->
+  `Collections.v` · `Names.v` · `Syntax.v` · `Index.v` · `Typing.v` · `Compilable.v` · `Safe.v` · <!-- FIDO-FCB-REF:COLLECTIONS-V --> <!-- FIDO-FCB-REF:NAMES-V --> <!-- FIDO-FCB-REF:SYNTAX-V --> <!-- FIDO-FCB-REF:INDEX-V --> <!-- FIDO-FCB-REF:TYPING-V --> <!-- FIDO-FCB-REF:COMPILABLE-V --> <!-- FIDO-FCB-REF:SAFE-V -->
+  `Render.v` · `Emit.v`. There is NO project-authored `FMap.v`. <!-- FIDO-FCB-REF:RENDER-V --> <!-- FIDO-FCB-REF:EMIT-V -->
 - `plugin/materialize.mlg` — the Fido transport bridge (`Fido Materialize`) + the whole-theory audit;
   `plugin/sink.ml` — the foreign-Go-rejecting sibling-temp sink; `plugin/dune` — the plugin library. <!-- FIDO-FCB-REF:PLUGIN-DUNE -->
   `e2e/Witness.v` — the witness (emitted explicitly, and the canonical tracked module); `e2e/WitnessMulti.v` — <!-- FIDO-FCB-REF:E2E-WITNESS-V --> <!-- FIDO-FCB-REF:E2E-WITNESSMULTI-V -->
@@ -389,41 +308,32 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
     anchor in the owning source named by that row, then `make fcb-write` and commit both together.** The gate
     also checks each anchor occurs EXACTLY ONCE in its named owning source.
   - `tools/fcb-reference-gate.py` — Governance D-24. Every OPERATIONAL path the live FCB names must resolve at <!-- FIDO-FCB-REF:TOOLS-FCB-REFERENCE-GATE-PY -->
-    the same exact ref, or be explicitly typed off-tree with an availability, in
-    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. That manifest also owns CORPUS MEMBERSHIP: its closed
-    `corpus_role` field says which documents are current authorities, and the scanned set is DERIVED from the
-    `authority` rows — so a new authority is scanned by adding a row, never by editing the gate. The PATH
-    UNIVERSE is likewise derived, from the repository inventory of the exact snapshot being checked, so no
-    namespace or root file is written into the tool; ONE canonical repository-path parser governs manifest
-    targets, owners, live-set entries, Index table cells and paths found in prose, and a malformed spelling is
-    rejected rather than normalized. External evidence uses an `external:` identity that cannot parse as a
-    repository path. An owner marker binds its exact path TOKEN — `dune` is not proved by `dune-project`. A
-    missing ROOT path must be written in the explicit root-relative form (a dot and a slash before the name),
-    because a bare word is not a path — and that spelling is a REFERENCE, never a prose placeholder for "some
-    path", in this file as much as anywhere else. The corpus DECLARES its
-    references; the gate does not scan for backticked strings, because a scanner needs an exception list and
-    an exception list is where a dangling path hides.
+    the same exact ref, or be typed off-tree with an availability, in
+    `.review/fcb/current/FIDO_FCB_REFERENCES.tsv`. That manifest also owns CORPUS MEMBERSHIP: the scanned set
+    is DERIVED from its `authority` rows, so a new authority is scanned by adding a row, never by editing the
+    gate, and the path universe is derived from the snapshot's own inventory. An owner marker binds its exact
+    path TOKEN — `dune` is not proved by `dune-project`. A missing ROOT path must be written in the explicit
+    root-relative form (a dot and a slash before the name), because a bare word is not a path, and that
+    spelling is a REFERENCE rather than a prose placeholder, in this file as much as anywhere else.
   - `tools/closure-ledger-view.py` — `FIDO_FCB_CLOSURE_LEDGER.md` is regenerated from the canonical 491-row <!-- FIDO-FCB-REF:TOOLS-CLOSURE-LEDGER-VIEW-PY -->
     `.csv`, so its own claim to be generated is true rather than decorative.
   - `tools/gate-mutation-test.py` — every root helper in these gates must be LOAD-BEARING. It deletes one <!-- FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY -->
     helper's effect in a copy of the tree, reruns that gate's own self-test, and requires the SPECIFIC named
     controls depending on that rule to fail. A self-test proves controls pass; only this proves they would
-    catch anything. Anchors are asserted to occur exactly once, so a refactor that moves a helper fails
-    loudly instead of silently testing nothing.
+    catch anything.
 - **`tools/claim-matrix-gate.py` (`make claims`, also in `make check` and the hook).** Freeze prose is the one <!-- FIDO-FCB-REF:TOOLS-CLAIM-MATRIX-GATE-PY -->
-  thing no other gate reads, so it can drift past what the public statements carry — that is how a previous
-  candidate blocked. `.review/M1_OBLIGATION_MATRIX.tsv` holds one row per obligation of the ACTIVE
-  checkpoint — the gate's subject moves when the active work moves — naming
-  the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS under
-  that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
-  builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish
-  it and cites nothing; **`.review/REVIEW_REQUEST.md` may not request review while any row is open**, so
-  freezing early is a gate failure rather than a judgement call. **The gate does not judge whether a theorem
-  is strong enough — a human does that, and saying so narrowly is the point.**
-- `.editorconfig` at the root, plus nested `.review/fcb/.editorconfig` and <!-- FIDO-FCB-REF:REVIEW-FCB-EDITORCONFIG --> <!-- FIDO-FCB-REF:EDITORCONFIG -->
-  `.review/spec-closure-campaign/.editorconfig` — the byte rules live WITH the documents they govern. Their <!-- FIDO-FCB-REF:REVIEW-SPEC-CLOSURE-CAMPAIGN-EDITORCONFIG -->
-  `trim_trailing_whitespace = false` entries are load-bearing: generated Go, reviewed goldens, tabular ledgers
-  whose trailing tab is a meaningful empty field, and Markdown hard line breaks.
+  thing no other gate reads, so it can drift past what the public statements carry. `.review/M1_OBLIGATION_MATRIX.tsv`
+  holds one row per obligation of the ACTIVE checkpoint — the gate's subject moves when the active work moves —
+  naming the exact public surface, fixture and gate that establish it; the checker verifies each one EXISTS
+  under that exact name, refuses a closed row with an empty or dangling cell, and runs an executable
+  builder-prohibition check over the returned-object roots. An OPEN row states in words what will establish it
+  and cites nothing; **`.review/REVIEW_REQUEST.md` may not request review while any row is open**, so freezing
+  early is a gate failure rather than a judgement call. **The gate does not judge whether a theorem is strong
+  enough — a human does that, and saying so narrowly is the point.**
+- `.editorconfig` at the root, plus a nested `.review/fcb/.editorconfig` — the byte rules live WITH the <!-- FIDO-FCB-REF:REVIEW-FCB-EDITORCONFIG --> <!-- FIDO-FCB-REF:EDITORCONFIG -->
+  documents they govern. Their `trim_trailing_whitespace = false` entries are load-bearing: generated Go,
+  reviewed goldens, tabular ledgers whose trailing tab is a meaningful empty field, and Markdown hard line
+  breaks.
 - `Makefile` / `Dockerfile` / `.githooks/pre-commit` — the buildx proof + whole-tree e2e + the pristine <!-- FIDO-FCB-REF:MAKEFILE --> <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT -->
   `generated-module`/`sync`/`generated-artifact` stages. The hook is bypassable with `--no-verify` (a
   documented prototype-stage escape); it gives reasonable assurance against accidental stale generated output
@@ -433,5 +343,5 @@ belongs in the FCB Human Review Index; a request for a review is still `.review/
 
 - **`ARCHITECTURE.md`** — ★ the binding charter (layers, responsibilities, the transport boundary, trust).
 - **`PROGRESS.md`** — the live status ledger. · **`PAINFUL_LESSONS.md`** — why rejected shapes must not
-  reappear. · **`.review`** — the active checkpoint, review policy, open questions, and campaign status. · **`git log`** — <!-- FIDO-FCB-REF:REVIEW -->
+  reappear. · **`.review`** — the active checkpoint, review policy and open questions. · **`git log`** — <!-- FIDO-FCB-REF:REVIEW -->
   the archive.

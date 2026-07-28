@@ -74,7 +74,12 @@ SECTION_LABEL = re.compile(
     r'THEOREM|LEMMA|DEFINITION|COROLLARY|RECORD|INDUCTIVE|FIXPOINT|EXAMPLE|NOTATION|MODULE|'
     r'SOUNDNESS|COMPLETENESS|EXACTNESS|DETERMINISM|INVARIANT|CONTRACT|PILLAR|PHASE|SECTION|STEP|PART|'
     r'GOAL|CLAIM|NOTE|SUMMARY|OVERVIEW|TABLE OF CONTENTS'
-    r')\b\s*[:.\u2014-]|^\s*\u00a7?\s*\d+(?:\.\d+)*\s*[:.\u2014-]\s')
+    r')\b\s*[:.\u2014-]|^\s*\u00a7?\s*\d+(?:\.\d+)*\s*[:.\u2014-]\s'
+    # a lettered or shouted label is the same move in different clothes: `A:`, `KEY:`, `ROUND TRIP:`
+    r'|^\s*(?:[A-Z]{1,4}|[A-Z][A-Z]+(?:\s+[A-Z]+)+)\s*[:.](?:\s|$)')
+
+# One box-drawing or star glyph is already decoration, so this needs no run length to be sure.
+DECORATIVE_GLYPH = re.compile(r'[\u2500-\u257f\u2605\u2606\u25a0-\u25ff\u2022\u25cf]')
 
 PLACEHOLDER_CELLS = {'n/a', 'na', 'tbd', 'todo', 'pending', 'unknown', 'various', 'see above',
                      '-', '--', '?', '.', 'x'}
@@ -443,6 +448,9 @@ def scan_v(root: Path, files):
             if hit:
                 findings.append(f'{rel}:{entry["line"]}: section label {hit.group(0).strip()!r} announcing '
                                 f'what the declaration already announces')
+            hit = DECORATIVE_GLYPH.search(body)
+            if hit:
+                findings.append(f'{rel}:{entry["line"]}: decorative glyph {hit.group(0)!r}')
             if not is_default and kind is None:
                 findings.append(f'{rel}:{entry["line"]}: a comment needing an exception has no resolvable '
                                 f'owner declaration')
@@ -1104,6 +1112,18 @@ def self_test() -> int:
     scenario('a section label',
              lambda d: fixture(d, '(* THEOREM: the endpoints are representable. *)\nDefinition k := 0.\n'),
              expect='section label')
+    scenario('a lettered label',
+             lambda d: fixture(d, '(* A: the first field. *)\nDefinition k := 0.\n'),
+             expect='section label')
+    scenario('a shouted multi-word label',
+             lambda d: fixture(d, '(* ROUND TRIP: the decoder inverts the encoder. *)\nDefinition k := 0.\n'),
+             expect='section label')
+    scenario('a two-character box-drawing banner',
+             lambda d: fixture(d, '(* \u2500\u2500 the retained core \u2500\u2500 *)\nDefinition k := 0.\n'),
+             expect='decorative glyph')
+    scenario('a star decoration',
+             lambda d: fixture(d, '(* \u2605 the exact round trip. *)\nDefinition k := 0.\n'),
+             expect='decorative glyph')
     scenario('a TODO',
              lambda d: fixture(d, '(* TODO tighten this *)\nDefinition k := 0.\n'),
              expect='placeholder')

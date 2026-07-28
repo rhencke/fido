@@ -1,11 +1,9 @@
-(* The one type authority: evidence over the raw syntax, never a second typed tree beside it. *)
 From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
 From Stdlib Require Import SetoidList Permutation.
 From Fido Require Import Integer Float Complex Syntax.
 Import ListNotations.
 Open Scope Z_scope.
 
-(* The type universe: bool, the integer, float and complex families, and string as an exact byte sequence. *)
 Inductive SemanticType : Type :=
 | BoolType
 | IntegerType : Integer.Kind -> SemanticType
@@ -35,7 +33,6 @@ Proof.
   - injection H as Heq; subst; apply Complex.kind_equalb_spec; reflexivity.
 Qed.
 
-(* The exact untyped constant values of the current raw literals. *)
 Inductive Constant : Type :=
 | BoolConstant    : bool -> Constant
 | IntegerConstant     : Z -> Constant
@@ -52,7 +49,6 @@ Definition constant_to_int (q : Float.Constant) : option Z :=
 Definition float_kind_eq_dec (a b : Float.Kind) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
 
-(* Decidable complex-format equality, the analogue of [float_kind_eq_dec]. *)
 Definition complex_kind_eq_dec (a b : Complex.Kind) : {a = b} + {a <> b}.
 Proof. decide equality. Defined.
 
@@ -91,14 +87,12 @@ Definition typed_complex {ct : Complex.Kind} (tc : TypedConstant (ComplexType ct
 Definition bool_true_dec (b : bool) : {b = true} + {b = false} :=
   match b with true => left eq_refl | false => right eq_refl end.
 
-(* Construct a typed integer constant exactly when the value is representable, carrying the range proof. *)
 Definition typed_integer_of_Z (it : Integer.Kind) (z : Z) : option (TypedConstant (IntegerType it)) :=
   match bool_true_dec (Integer.representableb it z) with
   | left H  => Some (TypedInteger it z H)
   | right _ => None
   end.
 
-(* Construct a typed float constant by the one rounding authority. *)
 Definition typed_float_of_constant (ft : Float.Kind) (q : Float.Constant) : option (TypedConstant (FloatType ft)) :=
   option_map (TypedFloat ft) (round_typed_float ft q).
 
@@ -120,7 +114,6 @@ Inductive ConstantInfo : Type :=
 | UntypedInfo : Constant -> ConstantInfo
 | TypedInfo   : forall (t : SemanticType), TypedConstant t -> ConstantInfo.
 
-(* An untyped constant is its own exact value; a typed one projects its intrinsic exact value. *)
 Definition constant_info_exact (ci : ConstantInfo) : Constant :=
   match ci with UntypedInfo c => c | TypedInfo _ tc => typed_exact tc end.
 
@@ -144,7 +137,6 @@ Definition same_float_kind_identity (ft : Float.Kind) (ci : ConstantInfo) : opti
   | _ => None
   end.
 
-(* Converting a typed complex to its own format returns the existing constant unchanged. *)
 Definition same_complex_kind_identity (ct : Complex.Kind) (ci : ConstantInfo) : option (TypedConstant (ComplexType ct)) :=
   match ci with
   | TypedInfo (ComplexType ct') tc =>
@@ -205,7 +197,6 @@ Definition convert_to_float (ft : Float.Kind) (ci : ConstantInfo) : option (Type
       end
   end end.
 
-(* Complex-target conversion: reuse where the format matches, otherwise round each component once. *)
 Definition convert_to_complex (ct : Complex.Kind) (ci : ConstantInfo) : option (TypedConstant (ComplexType ct)) :=
   match same_complex_kind_identity ct ci with
   | Some tc => Some tc
@@ -219,7 +210,6 @@ Definition convert_to_complex (ct : Complex.Kind) (ci : ConstantInfo) : option (
       end
   end end.
 
-(* The one target-directed conversion authority, consuming a source status and producing a typed constant. *)
 Definition convert_constant (target : SemanticType) (ci : ConstantInfo) : option (TypedConstant target) :=
   match target with
   | BoolType    => None
@@ -268,7 +258,6 @@ Proof.
   - intros [tc' H]; discriminate.
 Qed.
 
-(* Untyped representability at a numeric target is definitionally the conversion of that untyped status. *)
 Lemma type_untyped_int_convert : forall it c,
   type_untyped_constant_at (IntegerType it) c = convert_constant (IntegerType it) (UntypedInfo c).
 Proof. reflexivity. Qed.
@@ -311,14 +300,12 @@ Definition constant_info_step (e : Syntax.Expr) (child : option ConstantInfo) : 
       match child with Some ci => option_map (TypedInfo (rt ts)) (convert_constant (rt ts) ci) | None => None end
   end.
 
-(* A node's one current expression child, which is the conversion operand. *)
 Definition expression_child (e : Syntax.Expr) : option Syntax.Expr :=
   match e with
   | Syntax.Convert _ e' => Some e'
   | _ => None
   end.
 
-(* The recursive authority is exactly the one-node step applied to the child's status. *)
 Lemma constant_info_step_reflect : forall e,
   constant_info e = constant_info_step e (match expression_child e with Some c => constant_info c | None => None end).
 Proof. intro e; destruct e; reflexivity. Qed.
@@ -333,19 +320,16 @@ Definition default_constant (c : Constant) : option ResolvedConstant :=
   | StringConstant s  => Some (PackResolved StringType (TypedString s))
   end.
 
-(* An untyped status defaults and a typed one packs unchanged, its validity already intrinsic. *)
 Definition resolve_constant_info (ci : ConstantInfo) : option ResolvedConstant :=
   match ci with
   | UntypedInfo c  => default_constant c
   | TypedInfo t tc => Some (PackResolved t tc)
   end.
 
-(* A successful constant-status resolution is a function of the syntax. *)
 Lemma constant_info_deterministic : forall e ci1 ci2,
   constant_info e = Some ci1 -> constant_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
 
-(* A literal zero and a negated literal zero denote the same untyped constant. *)
 Lemma constant_info_zero_sign : constant_info (Syntax.IntegerLiteral 0) = constant_info (Syntax.NegatedIntegerLiteral 0).
 Proof. reflexivity. Qed.
 
@@ -354,12 +338,10 @@ Lemma convert_constant_same_float : forall ft (tc : TypedConstant (FloatType ft)
   convert_constant (FloatType ft) (TypedInfo (FloatType ft) tc) = Some tc.
 Proof. intros ft tc; destruct ft; reflexivity. Qed.
 
-(* A nested same-format complex conversion is an identity, keeping the same stored component objects. *)
 Lemma convert_constant_same_complex : forall ct (tc : TypedConstant (ComplexType ct)),
   convert_constant (ComplexType ct) (TypedInfo (ComplexType ct) tc) = Some tc.
 Proof. intros ct tc; destruct ct; reflexivity. Qed.
 
-(* A matching-format typed float becomes the real component as the same object, with no reround. *)
 Lemma convert_complex_reuses_float_component : forall ct (tc : TypedConstant (FloatType (Complex.component_kind ct))),
   exists tcc, convert_constant (ComplexType ct) (TypedInfo (FloatType (Complex.component_kind ct)) tc)
                 = Some (TypedComplex ct tcc)
@@ -376,7 +358,6 @@ Proof.
       cbn [Complex.component_kind float_kind_eq_dec eq_rect option_map]; rewrite Hz; reflexivity.
 Qed.
 
-(* A zero-imaginary typed complex projects its existing real component as the same object. *)
 Lemma convert_float_reuses_complex_component : forall ct (tc : TypedConstant (ComplexType ct)),
   Complex.constant_imaginary_is_zero (Complex.typed_exact (typed_complex tc)) = true ->
   convert_constant (FloatType (Complex.component_kind ct)) (TypedInfo (ComplexType ct) tc)
@@ -387,7 +368,6 @@ Proof.
     cbn [Complex.component_kind float_kind_eq_dec eq_rect]; rewrite Hz; reflexivity.
 Qed.
 
-(* An integer-typed constant's exact value is in range, extracted by an index-annotated match. *)
 Lemma typed_int_value : forall it (tc : TypedConstant (IntegerType it)),
   exists z, typed_exact tc = IntegerConstant z /\ Integer.representableb it z = true.
 Proof.
@@ -403,7 +383,6 @@ Proof.
   exists z0; split; [ reflexivity | exact Hpf ].
 Qed.
 
-(* Converting a typed integer to its own type preserves the exact value and the type. *)
 Lemma convert_constant_same_int : forall it (tc : TypedConstant (IntegerType it)),
   exists tc', convert_constant (IntegerType it) (TypedInfo (IntegerType it) tc) = Some tc'
            /\ typed_exact tc' = typed_exact tc.
@@ -421,7 +400,6 @@ Lemma constant_info_conv_none : forall ts e,
   constant_info e = None -> constant_info (Syntax.Convert ts e) = None.
 Proof. intros ts e H; simpl; rewrite H; reflexivity. Qed.
 
-(* Use-context resolution: one expression-use context and its per-type policy. *)
 Inductive Use : Type :=
 | PrintlnArgument.
 
@@ -447,7 +425,6 @@ Proof.
   intros [] [| it | ft | ct |]; simpl; split; intro H; try constructor; try reflexivity; inversion H.
 Qed.
 
-(* One expression's resolved typing: it analyzes, resolves, and its intrinsic type must be allowed here. *)
 Inductive Resolve : Use -> Syntax.Expr -> SemanticType -> Prop :=
 | Resolved : forall u e ci rc,
     constant_info e = Some ci ->
@@ -455,7 +432,6 @@ Inductive Resolve : Use -> Syntax.Expr -> SemanticType -> Prop :=
     Allows u (resolved_constant_type rc) ->
     Resolve u e (resolved_constant_type rc).
 
-(* The resolution that exposes the [ResolvedConstant] witness. *)
 Definition resolve_constant (u : Use) (e : Syntax.Expr) : option ResolvedConstant :=
   match constant_info e with
   | None => None
@@ -503,7 +479,6 @@ Proof.
   rewrite H1 in H2; injection H2 as <-; reflexivity.
 Qed.
 
-(* An expression is typed in a use context exactly when it resolves to some type there. *)
 Definition expression_typedb (u : Use) (e : Syntax.Expr) : bool :=
   match resolve u e with Some _ => true | None => false end.
 
@@ -570,7 +545,6 @@ Proof. intro f; unfold file_typedb, File; apply forallb_iff_forall; exact decl_t
 Lemma source_file_typedb_iff : forall sf, source_file_typedb sf = true <-> SourceFile sf.
 Proof. intro sf; apply file_typedb_iff. Qed.
 
-(* The map-based judgment and the executable checker are the same, bridged by the standard map. *)
 Lemma program_typedb_iff : forall p, program_typedb p = true <-> Program p.
 Proof.
   intro p. unfold program_typedb, Program.
@@ -586,7 +560,6 @@ Proof.
     exists (k, e). split; [ split; reflexivity | exact Hin ].
 Qed.
 
-(* Whole-program typing respects semantic map equality, so equal maps type identically. *)
 Lemma program_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> Program p1 -> Program p2.
 Proof.
@@ -594,7 +567,6 @@ Proof.
   apply Syntax.FileFacts.find_mapsto_iff. rewrite (Heq path). apply Syntax.FileFacts.find_mapsto_iff. exact Hmt.
 Qed.
 
-(* The reflected checker agrees on semantically equal maps, whatever the backing tree's order. *)
 Lemma program_typedb_equal : forall p1 p2,
   Syntax.FilesEqual (Syntax.files p1) (Syntax.files p2) -> program_typedb p1 = program_typedb p2.
 Proof.
@@ -611,7 +583,6 @@ Proof.
     rewrite E1 in H; discriminate.
 Qed.
 
-(* A permuted node list builds a semantically equal map, so it types identically. *)
 Theorem program_typedb_build_permutation : forall ms nodes1 nodes2 p1 p2,
   Permutation nodes1 nodes2 ->
   build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
@@ -625,7 +596,6 @@ Proof.
   exact (Syntax.files_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
 Qed.
 
-(* The empty file types vacuously, and so does the empty program. *)
 Lemma empty_file_typed : File [].
 Proof. constructor. Qed.
 
@@ -635,7 +605,6 @@ End TypingResolver.
 Definition integer_literal (z : Z) : Syntax.Expr :=
   if Z.leb 0 z then Syntax.IntegerLiteral (Z.to_N z) else Syntax.NegatedIntegerLiteral (Z.to_N (- z)).
 
-(* The decimal and decimal-complex constant fixtures. *)
 Definition decimal_15em1 : Float.Decimal := Float.MakeDecimal 15 (-1) eq_refl.   (* 1.5 *)
 Definition decimal_3    : Float.Decimal := Float.MakeDecimal 3 0 eq_refl.        (* 3.0 *)
 Definition decimal_35em1 : Float.Decimal := Float.MakeDecimal 35 (-1) eq_refl.   (* 3.5 *)
@@ -656,7 +625,6 @@ Fail Definition mismatch_string_carrying_int : TypedConstant StringType := Typed
 Fail Definition mismatch_int_out_of_range : TypedConstant (IntegerType Integer.Int8) := TypedInteger Integer.Int8 128 eq_refl.
 Fail Definition mismatch_float_carrying_bool : TypedConstant (FloatType F64) := TypedBool true.
 
-(* Every string literal is representable, for an arbitrary finite byte sequence. *)
 Lemma string_representable : forall s, ConstantRepresentable StringType (StringConstant s).
 Proof. intro s; exists (TypedString s); reflexivity. Qed.
 Lemma string_representableb : forall s, constant_representableb StringType (StringConstant s) = true.

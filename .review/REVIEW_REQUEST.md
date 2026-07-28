@@ -4,7 +4,7 @@ state: closed
 review: Implementation Review
 confirmation: no
 confirmation_used: no
-human_override: (M1 repair 1 — see .review/M1_IMPLEMENTATION_REPAIR_1.md)
+human_override: (M1 repair 1, authorized by Rob's upload of the blocking implementation review)
 result: M1 candidate 7dc9ff3 BLOCKED by the M1 implementation review
 candidate: (none — M1 repair 1 is in progress)
 

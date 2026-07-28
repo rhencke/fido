@@ -41,13 +41,12 @@ insert_final_newline = false
 trim_trailing_whitespace = false
 insert_final_newline = false
 
-# ---- documentation trees carry their own nested .editorconfig ----
+# ---- the documentation corpus carries its own nested .editorconfig ----
 #
 # EditorConfig nests, so the byte rules for a documentation corpus live WITH that corpus rather than being
 # described from up here:
-#   .review/fcb/.editorconfig                    — the living Fido Conformance Basis
-#   .review/spec-closure-campaign/.editorconfig  — the frozen spec-closure campaign record
-# Neither sets `root`, so both inherit the defaults above and override only what they must.  Keeping them local
+#   .review/fcb/.editorconfig  — the living Fido Conformance Basis
+# It does not set `root`, so it inherits the defaults above and overrides only what it must.  Keeping it local
 # means the rules travel with the documents when the tree is zipped, extracted, or moved.
 
 # ---- reviewed goldens: exact observed program bytes ----

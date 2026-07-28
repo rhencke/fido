@@ -83,10 +83,10 @@ One authority per layer, over the ONE `Syntax.Program`; every layer axiom-free i
   Assumptions on public surfaces) AND the Rocq-native `Fido Audit Assumptions` whole-certified-theory closure
   audit (constants + inductives + named assumptions), with a module-coverage gate and adversarial self-tests A-E.
 
-## Source Forest campaign (ACTIVE)
+## The retained elaboration
 
-Multi-checkpoint C0..C6. C4 covers source type names, compiler resolution, the unified `Syntax.Convert`, and
-the `byte`/`rune` source aliases.
+C4 is accepted: source type names, compiler resolution, the unified `Syntax.Convert`, and the `byte`/`rune`
+source aliases.
 
 > Checkpoint, candidate, and authorization state live only in `.review/NEXT_STEPS.md` and the FCB human-act data.
 > This file records proved surfaces and the technical frontier.
@@ -109,8 +109,9 @@ The exact surfaces are the charter's (`ARCHITECTURE.md`) and the gate's (`gate/A
 here would be a second inventory that drifts.
 
 Scope lives in `.review/UNSUPPORTED_AND_RESTRICTED_SCOPE.md`; `ADR-0001` is ADOPTED FOR CURRENT BASIS and
-`ADR-0002` remains OPEN / DEFERRED (FCB Governance ADR register).
-Each checkpoint is activated ONLY by explicit Rob authorization.
+`ADR-0002` remains OPEN / DEFERRED (FCB Governance ADR register). The checkpoint sequence and the M-series are
+the FCB Roadmap's and `.review/M_SERIES_PLAN.md`'s; each checkpoint is activated ONLY by explicit Rob
+authorization.
 
 ## NEXT — the frontier (pour roots before floors; do NOT add breadth for its own sake)
 

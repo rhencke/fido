@@ -184,6 +184,24 @@ the pinned environment against that snapshot.
 
 M3 must produce the exact proposed M4 graph and refactor plan. It does not implement the plan.
 
+### Deferred M3 findings
+
+Assigned by the M1 implementation review under Governance `D-28`. None blocks M1, and none may be implemented
+before Rob accepts M1.
+
+1. `tools/naming-gate.py` carries an inert exclusion for a deleted C4 repair and does not validate that its
+   exclusions resolve.
+2. `gate/Assumptions.v` contains duplicate `Print Assumptions` commands.
+3. Several `Complex.v` imaginary-component surfaces have real-half counterparts in the readable gate but are
+   not themselves named there.
+4. Several `Compilable.v` theorems look like public guarantees but are neither readable-gate surfaces nor
+   current proof dependencies; M3 must classify them as required public surfaces or dead declarations.
+5. Active-checkpoint subject constants are manually retargeted in `tools/claim-matrix-gate.py`.
+6. Host and container placement, repeated source enumeration, and acceptance-graph factoring remain M3 work.
+
+The whole-theory assumption audit remains the authority for zero assumptions; findings 2 through 4 are about
+the readable gate's surface list, not about that audit.
+
 ## M4 — Mechanical Refactor
 
 M4 starts only after Rob accepts the exact plan produced by M3.

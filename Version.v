@@ -1,4 +1,3 @@
-(* The Go language version a module declares: a program fact, not environment configuration. *)
 From Stdlib Require Import String.
 Open Scope string_scope.
 
@@ -9,7 +8,6 @@ Inductive Version : Type :=
 Definition render (v : Version) : string :=
   match v with Go1_23 => "1.23" end.
 
-(* The exact rendered spelling, kernel-pinned. *)
 Lemma render_go1_23 : render Go1_23 = "1.23".
 Proof. reflexivity. Qed.
 
