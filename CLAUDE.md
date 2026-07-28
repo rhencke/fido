@@ -22,6 +22,10 @@ When a fact matters, read the source instead of recalling it. The codebase, the 
 failing CI log, the actual library — all are cheap to read and authoritative. Memory is fast but lossy; primary
 sources are slow but right.
 
+The clock is one of those facts. `date` is authoritative and free; this machine runs UTC and Rob is on US
+Eastern, so convert before saying anything about his day. Inferring the hour from how a conversation reads is
+guessing.
+
 Treat hypotheses as testable, not as conclusions. When debugging, the loop is form hypothesis → test it →
 observe → decide, not assume cause → change code → hope. If a single tool call would tell you whether your guess
 is right, make it.

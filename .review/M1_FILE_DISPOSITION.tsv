@@ -80,7 +80,7 @@ path	baseline_bytes	action	purpose	owner_or_consumer	evidence	candidate_bytes
 .review/spec-closure-campaign/tools/verify_terminal_bundle.py	1518	delete	history-only	the campaign record	the persisted spec-closure campaign, never current authority; Git owns it	0
 .review/spec-closure-campaign/tools/write_zip_sidecar.py	319	delete	history-only	the campaign record	the persisted spec-closure campaign, never current authority; Git owns it	0
 ARCHITECTURE.md	70512	keep	live-governance	every design and review decision	the binding architecture charter: layer responsibilities, invariants, theorem surfaces	70610
-CLAUDE.md	39939	keep	live-governance	Claude Code at the start of every task	Fido's identity and the implementer operating entry point: persona, law, bootstrap, commands	22765
+CLAUDE.md	39939	keep	live-governance	Claude Code at the start of every task	Fido's identity and the implementer operating entry point: persona, law, bootstrap, commands	22992
 Collections.v	11947	keep	certified-correctness	Syntax.v and Index.v	the thin wrappers over pinned-stdlib maps; Fido authors no collection storage	8791
 Compilable.v	779275	keep	certified-correctness	Safe.v	whole-program admissibility for the pinned go build, and the one capability mint	611527
 Complex.v	13008	keep	certified-correctness	Typing.v	the two complex types, composed componentwise from Float.v	9272
