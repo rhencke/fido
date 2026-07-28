@@ -1352,6 +1352,27 @@ def self_test() -> int:
                 failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
 
     met('a metric table equal to recomputation', lambda rows: None)
+    counts['total'] += 1
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp) / 'repo'
+        try:
+            refs = two_commit_repo(d)
+            import contextlib, io
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = main_argv(['--root', str(d), '--write-metrics-table',
+                                '--baseline-ref', refs[0], '--candidate-ref', refs[1]])
+            written = load_tsv(d, METRICS_REL, METRIC_FIELDS, 'M1 metrics')
+            base, cand = (Path(tmp) / 'b', Path(tmp) / 'c')
+            bt, ct = export_tree(d, refs[0], base), export_tree(d, refs[1], cand)
+            bf, cf = inventory(bt, snapshot=True), inventory(ct, snapshot=True)
+            bm = measure(bt, bf, scan_v(bt, bf)[0])
+            cm = measure(ct, cf, scan_v(ct, cf)[0])
+            check_metrics_exact(written, bm, cm)
+            if rc != 0:
+                failures.append('the metric-table writer through main(): exit was not 0')
+        except Exception as exc:
+            failures.append(f'the metric-table writer through main(): {exc}')
+
     met('the writer output read back by the checker',
         lambda rows: rows.__setitem__(slice(None),
                                       [dict(zip(METRIC_FIELDS, r)) for r in metric_rows(
@@ -1480,6 +1501,30 @@ def direction_fixture(d: Path, fixture, bump: str | None = None, archaeology: bo
                                   + f'baseline_sha256\t{seal}\n', encoding='utf-8')
 
 
+def two_commit_repo(d: Path):
+    """A real two-commit repository, so a mode that reads Git refs is exercised the way it is invoked."""
+    d.mkdir(parents=True)
+    (d / '.review').mkdir()
+    (d / 'Root.v').write_text('(* a fact *)\n(* a second fact *)\nDefinition j : nat := 0.\n', encoding='utf-8')
+    env = {'GIT_AUTHOR_NAME': 'fido', 'GIT_AUTHOR_EMAIL': 'f@example.com',
+           'GIT_COMMITTER_NAME': 'fido', 'GIT_COMMITTER_EMAIL': 'f@example.com',
+           'PATH': os.environ.get('PATH', ''), 'HOME': str(d)}
+
+    def git(*args):
+        p = subprocess.run(['git', *args], cwd=d, capture_output=True, text=True, env=env)
+        assert p.returncode == 0, f'git {args[0]} failed: {p.stderr.strip()}'
+        return p.stdout.strip()
+
+    git('init', '-q')
+    git('add', '-A')
+    git('commit', '-qm', 'baseline')
+    first = git('rev-parse', 'HEAD')
+    (d / 'Root.v').write_text('(* a fact *)\nDefinition j : nat := 0.\n', encoding='utf-8')
+    git('add', '-A')
+    git('commit', '-qm', 'candidate')
+    return first, git('rev-parse', 'HEAD')
+
+
 def git_fixture(d: Path, fixture):
     fixture(d, CLEAN_V)
     for cmd in (['git', 'init', '-q'], ['git', 'add', '-A']):
@@ -1487,7 +1532,7 @@ def git_fixture(d: Path, fixture):
         assert p.returncode == 0, f'git failed: {p.stderr.strip()}'
 
 
-def main() -> int:
+def main_argv(argv=None) -> int:
     ap = argparse.ArgumentParser(description='M1 source-diet comment law, ledgers and measurement')
     ap.add_argument('--root', default='.')
     ap.add_argument('--snapshot', action='store_true')
@@ -1510,7 +1555,7 @@ def main() -> int:
                     help='the exit check: every M1 evidence artifact against two exact Git refs')
     ap.add_argument('--candidate-ref', dest='verify_candidate', default=None, metavar='REF',
                     help='the candidate ref for --verify-m1-evidence; --baseline-ref names the other side')
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     root = Path(args.root).resolve()
     if args.self_test:
         rc = self_test()
@@ -1530,13 +1575,13 @@ def main() -> int:
                 print(f'fido: source-diet wrote {len(METRIC_ORDER)} sealed metrics{ref} '
                       f'to {args.write_metrics} ✓')
         if args.write_metrics_table:
-            if not (args.verify_baseline and args.verify_candidate):
+            if not (args.baseline_ref and args.verify_candidate):
                 print('fido: SOURCE-DIET FAILED — --write-metrics-table needs both --baseline-ref '
                       'and --candidate-ref', file=sys.stderr)
                 return 1
-            n = write_metrics_table(root, args.verify_baseline, args.verify_candidate)
+            n = write_metrics_table(root, args.baseline_ref, args.verify_candidate)
             print(f'fido: source-diet wrote {n} metric row(s) '
-                  f'{args.verify_baseline[:7]} -> {args.verify_candidate[:7]} ✓')
+                  f'{args.baseline_ref[:7]} -> {args.verify_candidate[:7]} ✓')
         if args.write_disposition:
             ref = args.baseline_ref or 'baseline'
             if ref == 'baseline':
@@ -1561,6 +1606,10 @@ def main() -> int:
         print(f'fido: SOURCE-DIET FAILED — {exc}', file=sys.stderr)
         return 1
     return 0
+
+
+def main() -> int:
+    return main_argv()
 
 
 if __name__ == '__main__':
