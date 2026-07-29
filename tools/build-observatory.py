@@ -573,8 +573,13 @@ def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: st
     start_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     t0 = _monotonic_ns()
     with log.open('wb') as sink:
-        proc = subprocess.run(command['execution'], cwd=str(cwd or root), env=env,
-                              stdout=sink, stderr=subprocess.STDOUT)
+        try:
+            proc = subprocess.run(command['execution'], cwd=str(cwd or root), env=env,
+                                  stdout=sink, stderr=subprocess.STDOUT)
+        except OSError as exc:
+            raise ObservatoryError(
+                f'{command["id"]}: could not execute {command["execution"]!r} ({exc.__class__.__name__}: '
+                f'{exc}); an unrunnable command is a defect in the registry, not a slow sample')
     wall_ns = _monotonic_ns() - t0
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
 
@@ -663,6 +668,23 @@ def parse_buildkit_progress(text: str) -> list[dict]:
         ({'id': f'docker.{name}', 'wall_ns': totals.get(name, 0), 'cached_steps': cached.get(name, 0),
           'source': 'buildkit-progress'} for name in set(totals) | set(cached)),
         key=lambda e: e['id'])
+
+
+def analysis_sample(command_id: str, scenario_id: str, role: str, wall_ns: int,
+                    provenance: dict, events: list[dict]) -> dict:
+    """A sample for work the observatory performs itself rather than shelling out for.
+
+    It is still a measurement and still has to answer for itself, so it carries the same fields as any other
+    sample. CPU and memory are the observatory's own process and are not the analysis's, so they are absent
+    and `resource_scope` says why rather than reporting a number that means something else."""
+    import datetime
+    return {'command_id': command_id, 'scenario_id': scenario_id, 'sample_index': 0,
+            'selected_or_support': role,
+            'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
+            'resource_scope': SCOPE_UNAVAILABLE, 'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
+            'expected_failure_reason': None, 'cache_before': provenance, 'cache_after': dict(provenance),
+            'raw_log_sha256': None, 'derived_stage_events': events}
 
 
 def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> list[dict]:
@@ -1506,6 +1528,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     samples: list[dict] = []
     incomplete: list[str] = []
     edits_ok = True
+    graph, history = None, None
     derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
     cache_model: dict[str, dict] = {}
 
@@ -1536,6 +1559,25 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             if command['measurement'] != 'direct':
                 continue                                  # derived children come from their parent's events
             role = 'selected' if cid in sel.selected else 'support'
+            if command['kind'] in ('rocq-module-analysis', 'history-analysis'):
+                progress(f'fido: observe — {cid} [{scenario_id}] ({role})')
+                try:
+                    t0 = _monotonic_ns()
+                    if command['kind'] == 'history-analysis':
+                        history = history_analysis(root)
+                        events = []
+                    else:
+                        graph = measure_module_graph(root, raw_dir / 'module-graph', progress)
+                        events = graph.pop('stage_events', []) + [
+                            {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
+                    s = analysis_sample(cid, scenario_id, role, _monotonic_ns() - t0, provenance, events)
+                    samples.append(s)
+                    samples.extend(derive_child_samples(s, events, derived_ids))
+                    ran_here += 1
+                except ObservatoryError as exc:
+                    incomplete.append(f'{cid}/{scenario_id}')
+                    progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
+                continue
             wanted = command['samples'][scenario_id]
 
             # An incremental scenario without an applied edit measures a no-op and files it as incremental.
@@ -1619,24 +1661,6 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                                      'subject_inventory_digest': subj['inventory_digest']})
             progress(f'fido: observe — {scenario_id} completed and is now the cache prime on record')
 
-    # Analysis commands do not produce a timed sample; they produce the graph and history members. Running
-    # them through run_sample would file a wall time under a command whose result is a structure.
-    graph, history = None, None
-    if any(commands[c]['kind'] == 'rocq-module-analysis' for c in sel.order):
-        progress('fido: observe — analysis.rocq-modules: building the module-graph stage')
-        try:
-            graph = measure_module_graph(root, raw_dir / 'module-graph', progress)
-        except ObservatoryError as exc:
-            incomplete.append('analysis.rocq-modules')
-            progress(f'fido: observe — analysis.rocq-modules did not complete: {exc}')
-    if any(commands[c]['kind'] == 'history-analysis' for c in sel.order):
-        progress('fido: observe — analysis.history: reading the accepted range')
-        try:
-            history = history_analysis(root)
-        except ObservatoryError as exc:
-            incomplete.append('analysis.history')
-            progress(f'fido: observe — analysis.history did not complete: {exc}')
-
     derived = {'summaries': summarise(samples) if samples else {},
                'selected': sel.selected, 'support': sel.support,
                'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
@@ -1665,7 +1689,8 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
         ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
          '--progress=plain', '--target', 'module-graph-log', '--output', f'type=local,dest={out_dir}', '.'],
         cwd=str(root), capture_output=True, text=True)
-    (out_dir / 'build.log').write_text(proc.stdout + proc.stderr, encoding='utf-8')
+    build_log = proc.stdout + proc.stderr
+    (out_dir / 'build.log').write_text(build_log, encoding='utf-8')
     if proc.returncode != 0:
         raise ObservatoryError(f'the module-graph stage failed (exit {proc.returncode}); its log is at '
                                f'{out_dir / "build.log"}')
@@ -1681,7 +1706,9 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
     if not wall:
         raise ObservatoryError('the module-graph stage measured no modules')
     progress(f'fido: observe — analysis.rocq-modules: {len(wall)} module(s) measured')
-    return parse_module_graph(read_text(depend_file, 'module adjacency'), wall)
+    graph = parse_module_graph(read_text(depend_file, 'module adjacency'), wall)
+    graph['stage_events'] = parse_buildkit_progress(build_log)
+    return graph
 
 
 def render_list(suite: dict) -> str:
@@ -2463,6 +2490,65 @@ def self_test(root: Path) -> int:
     for view in ('all', 'implementation', 'excluding_campaign'):
         if view not in HISTORY_VIEWS:
             failures.append(f'the history views must be declared once: {view} is missing')
+
+    # ── a mutating command run in the source tree
+    counts['total'] += 1
+    writers = [c for c in suite['commands'] if c['side_effect'] != 'none' and c['measurement'] == 'direct']
+    in_place = [c['id'] for c in writers if c['source_view'] != 'disposable-copy']
+    if in_place:
+        failures.append(f'a mutating command run in the source tree: {in_place} declare a side effect but '
+                        f'not a disposable copy, so measuring them would change the repository')
+
+    counts['total'] += 1
+    if any(c['source_view'] == 'disposable-copy' and c['side_effect'] == 'none'
+           for c in suite['commands'] if c['measurement'] == 'direct'):
+        failures.append('a command needing a disposable copy must say what it writes')
+
+    # ── the observation SHAPE a real run assembles: direct samples, analysis samples and derived
+    #    children together. Assembly failing at the end of a multi-hour suite is the expensive way to learn.
+    counts['total'] += 1
+    direct = sample(command_id='make.prove', scenario_id='cold.cached')
+    ana = analysis_sample('analysis.rocq-modules', 'cold.cached', 'selected', 5_000, {}, [])
+    kids = derive_child_samples(direct, [{'id': 'docker.prover', 'wall_ns': 900,
+                                          'source': 'buildkit-progress'}], {'docker.prover'})
+    kids += derive_child_samples(ana, [{'id': 'analysis.dune-graph', 'wall_ns': 0,
+                                        'source': 'same-build'}], {'analysis.dune-graph'})
+    mixed = [direct, ana, *kids]
+    shaped = observation(samples=mixed, derived={'summaries': summarise(mixed)})
+    try:
+        validate_observation(shaped, digest)
+    except ObservatoryError as exc:
+        failures.append(f'the observation shape a real run assembles must validate: {exc}')
+
+    counts['total'] += 1
+    scopes = {s['command_id']: s['resource_scope'] for s in mixed}
+    if scopes.get('docker.prover') != SCOPE_BUILDKIT:
+        failures.append(f'a BuildKit-derived child must say so: {scopes}')
+    if scopes.get('analysis.dune-graph') != SCOPE_UNAVAILABLE:
+        failures.append('a child produced by the same build has no resource figures of its own')
+
+    # ── every registry execution must actually be runnable, and a bad one must be diagnosable
+    counts['total'] += 1
+    unrunnable = [c['id'] for c in suite['commands']
+                  if c['measurement'] == 'direct'
+                  and c['kind'] not in ('rocq-module-analysis', 'history-analysis')
+                  and c['execution'] and c['execution'][0] not in ('make', 'sh', 'env')]
+    if unrunnable:
+        failures.append(f'these direct commands name an execution nothing can run: {unrunnable}')
+
+    observed('a command whose execution cannot be run',
+             lambda: run_sample(root, {'id': 'bogus', 'execution': ['no-such-binary-xyz'],
+                                       'expected_exit': 0},
+                                'warm.cached.noop', 0, 'selected', Path('/tmp'), {}),
+             expect='an unrunnable command is a defect in the registry')
+
+    counts['total'] += 1
+    asample = analysis_sample('analysis.history', 'warm.cached.noop', 'selected', 1234, {}, [])
+    absent = [f for f in SAMPLE_FIELDS if f not in asample]
+    if absent:
+        failures.append(f'an analysis sample must carry every sample field, missing {absent}')
+    elif asample['resource_scope'] != SCOPE_UNAVAILABLE or asample['max_rss_bytes'] is not None:
+        failures.append("an analysis sample must not report the observatory's own memory as the analysis's")
 
     # ── derived stage events: the instrumentation must be switched on, and must produce child samples
     counts['total'] += 1

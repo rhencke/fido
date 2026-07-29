@@ -1,7 +1,9 @@
 {
   "commands": [
     {
-      "dependencies": [],
+      "dependencies": [
+        "analysis.rocq-modules"
+      ],
       "execution": [
         "observatory",
         "analysis.dune-graph"
@@ -12,10 +14,10 @@
       ],
       "id": "analysis.dune-graph",
       "kind": "rocq-module-analysis",
-      "measurement": "direct",
+      "measurement": "derived",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.dune-graph",
-      "purpose": "The Dune dependency adjacency, critical path and downstream rebuild set for each module.",
+      "purpose": "The Dune dependency adjacency, critical path and downstream rebuild set for each module, derived from the same build that times the modules.",
       "samples": {
         "cold.cached": 1
       },
@@ -23,7 +25,7 @@
         "cold.cached"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [],
@@ -73,7 +75,7 @@
         "cold.cached"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -462,6 +464,7 @@
       "source_view": "working-tree"
     },
     {
+      "catalog_only_reason": "It runs `docker buildx use`, which switches the machine default builder — environment state shared with the developer, which no disposable copy contains. Measuring it would leave that changed.",
       "dependencies": [],
       "execution": [
         "make",
@@ -474,16 +477,12 @@
       ],
       "id": "make.builder",
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:builder",
-      "purpose": "Create the pinned Buildx builder if it is absent.",
-      "samples": {
-        "cold.uncached": 1
-      },
-      "scenarios": [
-        "cold.uncached"
-      ],
+      "purpose": "Create the pinned Buildx builder if it is absent, and make it the default.",
+      "samples": {},
+      "scenarios": [],
       "side_effect": "changes-repository-config",
       "source_view": "environment-only"
     },
@@ -716,6 +715,7 @@
       "source_view": "working-tree"
     },
     {
+      "catalog_only_reason": "It writes core.hooksPath, and git config in a linked worktree writes the config SHARED with the main checkout; measuring it would repoint the developer hooks.",
       "dependencies": [],
       "execution": [
         "make",
@@ -728,16 +728,12 @@
       ],
       "id": "make.install-hooks",
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:install-hooks",
       "purpose": "Point core.hooksPath at the tracked hook directory.",
-      "samples": {
-        "warm.cached.noop": 3
-      },
-      "scenarios": [
-        "warm.cached.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "changes-repository-config",
       "source_view": "disposable-copy"
     },
@@ -820,7 +816,8 @@
       "dependencies": [],
       "execution": [
         "make",
-        "profile"
+        "profile",
+        "FILE=Compilable.v"
       ],
       "expected_exit": 0,
       "groups": [
