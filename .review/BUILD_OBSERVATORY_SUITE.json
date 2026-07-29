@@ -76,7 +76,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.emit"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -104,7 +106,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.check"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -132,7 +136,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.e2e"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -160,7 +166,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.e2e"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -188,7 +196,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.profile"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -216,7 +226,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.profile"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -244,7 +256,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.prove"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -272,7 +286,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.prove"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -300,7 +316,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.prove"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"
@@ -328,7 +346,9 @@
       "source_view": "disposable-copy"
     },
     {
-      "dependencies": [],
+      "dependencies": [
+        "make.regenerate"
+      ],
       "execution": [
         "derived",
         "buildkit-progress"

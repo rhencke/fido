@@ -265,6 +265,173 @@ def check_coverage(root: Path, suite: dict) -> str:
             f'every owner token resolves and none names a line number')
 
 
+# ──────────────────────────────────────────────────────────────────── selection
+class Selection:
+    """What one run will measure: the chosen commands, the support they pulled in, and the scenarios.
+
+    `selected` and `support` stay distinct all the way into the observation. A dependency added on the user's
+    behalf is real work and is measured, but it is not what the user asked about, and reporting the two as one
+    set would let a selective run quietly present itself as broader than it was."""
+
+    def __init__(self, selected: list[str], support: list[str], scenarios: list[str], partial: bool):
+        self.selected, self.support = selected, support
+        self.scenarios, self.partial = scenarios, partial
+
+    @property
+    def order(self) -> list[str]:
+        return self.support + self.selected
+
+
+def _nearest(name: str, valid) -> str:
+    import difflib
+    close = difflib.get_close_matches(name, sorted(valid), n=3)
+    return f'; nearest valid: {", ".join(close)}' if close else ''
+
+
+def _expand(tokens: str, commands: dict, groups: dict, what: str) -> set[str]:
+    chosen: set[str] = set()
+    for raw in tokens.split(','):
+        name = raw.strip()
+        if not name:
+            continue
+        if name in commands:
+            chosen.add(name)
+        elif name in groups:
+            chosen.update(groups[name])
+        else:
+            raise ObservatoryError(
+                f'unknown {what} {name!r}{_nearest(name, set(commands) | set(groups))}')
+    if not chosen:
+        raise ObservatoryError(f'{what} selection expanded to nothing, so there is no work to measure')
+    return chosen
+
+
+def select(suite: dict, only: str | None = None, scenario: str | None = None,
+           record: bool = False) -> Selection:
+    """Resolve ONLY and SCENARIO into one closed, registry-ordered selection.
+
+    Registry order is preserved rather than the order the user typed, so the same selection always runs the
+    same way and two runs of one suite stay comparable. Dependencies are added automatically because a
+    derived child measured without its live parent would be a number produced by a command the observatory
+    invented rather than by the command the repository actually runs."""
+    commands = {c['id']: c for c in suite['commands']}
+    groups = {g['id']: list(g['members']) for g in suite['groups']}
+    scenarios = {s['id']: s for s in suite['scenarios']}
+
+    if record and (only or scenario):
+        raise ObservatoryError(
+            'RECORD=1 rejects ONLY and SCENARIO: a partial run cannot replace the canonical observation, '
+            'because the file it would replace claims to be the whole suite')
+
+    chosen = _expand(only, commands, groups, 'ONLY name') if only else set(commands)
+    want_scenarios = (_expand(scenario, scenarios, {}, 'SCENARIO name') if scenario
+                      else set(scenarios))
+
+    closure, frontier = set(chosen), list(chosen)
+    while frontier:
+        cid = frontier.pop()
+        for dep in commands[cid]['dependencies']:
+            if dep not in closure:
+                closure.add(dep)
+                frontier.append(dep)
+
+    order = [c['id'] for c in suite['commands'] if c['id'] in closure]
+    selected = [cid for cid in order if cid in chosen]
+    support = [cid for cid in order if cid not in chosen]
+
+    runnable = [cid for cid in selected
+                if set(commands[cid]['scenarios']) & want_scenarios
+                or commands[cid]['measurement'] == 'derived']
+    if not runnable:
+        raise ObservatoryError(
+            f'no selected command runs in scenario(s) {sorted(want_scenarios)}; '
+            f'the registry owns the scenario matrix, and an empty run is not a result')
+
+    partial = bool(only or scenario)
+    return Selection(selected, support, sorted(want_scenarios), partial)
+
+
+def render_list(suite: dict) -> str:
+    """Every stable ID with what it is and how it is measured. Counts are reported, never copied into prose."""
+    rows = ['ID                                KIND                  MEASURED   SIDE EFFECT              SOURCE VIEW',
+            '─' * 118]
+    for c in suite['commands']:
+        rows.append(f'{c["id"]:<33} {c["kind"]:<21} {c["measurement"]:<10} '
+                    f'{c["side_effect"]:<24} {c["source_view"]}')
+        rows.append(f'    {c["purpose"]}')
+        scen = ', '.join(f'{s}×{c["samples"][s]}' for s in c['scenarios']) or '(none — cataloged only)'
+        rows.append(f'    groups: {", ".join(c["groups"])}   scenarios: {scen}')
+        if c['dependencies']:
+            rows.append(f'    requires: {", ".join(c["dependencies"])}')
+        if c['measurement'] == 'catalog-only':
+            rows.append(f'    cataloged, not benchmarked: {c["catalog_only_reason"]}')
+        rows.append('')
+    rows.append(f'{len(suite["commands"])} command(s) in {len(suite["groups"])} group(s):')
+    for g in suite['groups']:
+        rows.append(f'  {g["id"]:<14} {len(g["members"])} member(s)')
+    rows.append('')
+    rows.append(f'{len(suite["scenarios"])} scenario(s):')
+    for s in suite['scenarios']:
+        caches = ', '.join(f'{k}={v}' for k, v in sorted(s['cache_state'].items()))
+        rows.append(f'  {s["id"]:<26} {s["sample_policy"]}')
+        rows.append(f'    {s["purpose"]}')
+        rows.append(f'    session: {s["session_state"]}   primed by: '
+                    f'{", ".join(s["prime_steps"]) or "(nothing — this is the prime)"}')
+        rows.append(f'    caches: {caches}')
+    return '\n'.join(rows)
+
+
+def render_usage(suite: dict) -> str:
+    """Usage generated from the registry and the argument model, so a second guide cannot drift from it."""
+    groups = ', '.join(g['id'] for g in suite['groups'])
+    scenarios = ', '.join(s['id'] for s in suite['scenarios'])
+    return f"""fido Build Observatory — one entry point, every mode a variable on it.
+
+  make observe                        the complete canonical suite, compared with the tracked observation
+  make observe ONLY=<ids>             only these command or group IDs, plus their required setup
+  make observe SCENARIO=<ids>         only these cache scenarios
+  make observe BASE=<ref-or-path>     compare against an observation from a Git ref or a local bundle
+  make observe COMPARE=<ref-or-path>  compare two existing observations without running anything
+  make observe RECORD=1               replace the tracked observation from a clean, complete run
+  make observe LIST=1                 every stable command ID and how it is measured
+  make observe HELP=1                 this text
+
+ONLY and SCENARIO take comma-separated stable IDs. ONLY also accepts a group:
+  groups     {groups}
+  scenarios  {scenarios}
+
+Selection rules
+  Unknown names fail and name the nearest valid ones; an empty expansion fails.
+  Duplicates collapse; registry order is preserved so two runs stay comparable.
+  Required setup and dependencies are added automatically and printed before execution.
+  Selected and support commands stay distinct in the observation.
+  A derived child runs through its live parent, never through a command invented here.
+  RECORD=1 rejects ONLY and SCENARIO; a partial run can never update the canonical observation.
+
+Cache axes are independent: cold/warm is the SESSION, cached/uncached is the CACHE.
+{chr(10).join(f'  {s["id"]:<26} {s["purpose"]}' for s in suite["scenarios"])}
+  The host page cache is uncontrolled and is never flushed by the canonical suite.
+
+Recording requires all of: no selector; a validating registry; a clean tree and index; one exact committed
+subject; every canonical command and scenario complete; every expected-success command succeeded; every
+expected-failure fixture failed for its expected reason; every cache state and prime relation valid; every
+incremental edit restored byte-exactly; a schema- and digest-valid observation; a complete environment; a
+local bundle written first; only {OBSERVATION_REL} changed; and no commit or staging by this tool.
+
+Comparison classifies each metric improved, regressed, overlapping-range, unchanged, added, removed or
+incomparable. There is no hidden percentage threshold: overlapping sample ranges are reported as overlapping
+rather than as a verdict, and a one-sample side reports its delta without claiming a noise conclusion.
+Comparison exits nonzero only for invalid or unreadable data, never for a regression.
+
+Outputs
+  .build-observatory/runs/<run-id>/   local bundle: observation.json, raw/, comparison.json, comparison.txt
+  {OBSERVATION_REL}      the one tracked canonical observation
+  {RECOMMENDATIONS_REL}    findings, each assigned to M3, M4 or retain
+
+Permanent versus checkpoint: `make observatory` is the coverage validator and runs on every commit.
+Everything above is M2 evidence, is explicit, and takes minutes."""
+
+
 def resolve(root: Path) -> list[Path]:
     """Every path this tool owns must exist, because a dangling one silently disarms a later gate."""
     missing = [rel for rel in DECLARED if not (root / rel).is_file()]
@@ -426,6 +593,101 @@ def self_test(root: Path) -> int:
              lambda w: (w / HOOK_REL).write_text('#!/bin/sh\nset -e\n', encoding='utf-8'),
              expect='no observation anchors')
 
+    # ── selection closure, over the real registry: these rules are pure and need no fixture tree
+    suite = load_suite(root)
+
+    def selection(label: str, expect: str | None = None, **kw):
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        try:
+            result = select(suite, **kw)
+        except ObservatoryError as exc:
+            if expect is None:
+                failures.append(f'{label}: expected success, failed with: {exc}')
+            elif expect not in str(exc):
+                failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+            return None
+        if expect is not None:
+            failures.append(f'{label}: expected failure containing {expect!r}, but selection succeeded')
+        return result
+
+    def expect_that(label: str, ok: bool, why: str):
+        counts['total'] += 1
+        if not ok:
+            failures.append(f'{label}: {why}')
+
+    full = selection('the whole registry selects with no ONLY or SCENARIO')
+    if full:
+        expect_that('the full selection is not partial', not full.partial, 'a full run reported itself partial')
+        expect_that('the full selection has no support commands', not full.support,
+                    f'a full run pulled in support: {full.support}')
+
+    one = selection('one command selects', only='make.prove')
+    if one:
+        expect_that('one command selects exactly itself', one.selected == ['make.prove'],
+                    f'selected {one.selected}')
+        expect_that('one command reports itself partial', one.partial, 'a selective run reported itself full')
+
+    grp = selection('a group selects its members', only='policy')
+    if grp:
+        members = next(g['members'] for g in suite['groups'] if g['id'] == 'policy')
+        expect_that('a group expands to exactly its registry members', set(grp.selected) == set(members),
+                    f'group policy expanded to {sorted(set(grp.selected) ^ set(members))} difference')
+
+    dup = selection('duplicate names collapse without reordering', only='make.prove,make.diet,make.prove')
+    if dup and one:
+        order = [c['id'] for c in suite['commands']]
+        expect_that('a duplicated selection keeps registry order',
+                    dup.selected == [c for c in order if c in {'make.prove', 'make.diet'}],
+                    f'selected {dup.selected}')
+
+    child = selection('a derived child pulls in its live parent', only='precommit.prover')
+    if child:
+        expect_that('a derived child is measured through the live parent',
+                    child.support == ['precommit.full'], f'support was {child.support}')
+        expect_that('the parent is support, not a selected result',
+                    child.selected == ['precommit.prover'], f'selected {child.selected}')
+
+    stage = selection('a derived docker stage pulls in the build that produces it', only='docker.go-e2e')
+    if stage:
+        expect_that('a docker stage names its live parent build', stage.support == ['make.e2e'],
+                    f'support was {stage.support}')
+
+    combo = selection('ONLY and SCENARIO combine', only='make.check', scenario='warm.cached.noop')
+    if combo:
+        expect_that('a combined selection keeps only the named scenario',
+                    combo.scenarios == ['warm.cached.noop'], f'scenarios were {combo.scenarios}')
+
+    selection('an unknown ONLY name', expect='unknown ONLY name', only='make.prov')
+    selection('an unknown SCENARIO name', expect='unknown SCENARIO name', scenario='warm.noop')
+    selection('an empty ONLY expansion', expect='expanded to nothing', only=' , ')
+    selection('RECORD with ONLY', expect='RECORD=1 rejects ONLY', only='make.prove', record=True)
+    selection('RECORD with SCENARIO', expect='RECORD=1 rejects ONLY', scenario='cold.cached', record=True)
+    selection('a selection with no command in the named scenario',
+              expect='no selected command runs in scenario',
+              only='make.fmt', scenario='warm.cached.incremental')
+
+    counts['total'] += 1
+    near = None
+    try:
+        select(suite, only='make.prov')
+    except ObservatoryError as exc:
+        near = str(exc)
+    if not near or 'make.prove' not in near:
+        failures.append(f'an unknown name names the nearest valid one: got {near!r}')
+
+    counts['total'] += 1
+    usage = render_usage(suite)
+    missing_in_usage = [s['id'] for s in suite['scenarios'] if s['id'] not in usage]
+    if missing_in_usage:
+        failures.append(f'the generated usage omits scenario(s) {missing_in_usage}')
+
+    counts['total'] += 1
+    listing = render_list(suite)
+    missing_in_list = [c['id'] for c in suite['commands'] if c['id'] not in listing]
+    if missing_in_list:
+        failures.append(f'the listing omits {len(missing_in_list)} command(s), first {missing_in_list[:3]}')
+
     total, must_fail = counts['total'], counts['must_fail']
     if failures:
         for f in failures:
@@ -449,8 +711,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--base', help='observation to compare against (M2 measurement)')
     p.add_argument('--compare', help='observation to compare (M2 measurement)')
     p.add_argument('--record', action='store_true', help='replace the canonical observation (M2 measurement)')
-    p.add_argument('--list', action='store_true', help='print every stable command ID (M2 measurement)')
-    p.add_argument('--usage', action='store_true', help='print the generated usage text (M2 measurement)')
+    p.add_argument('--list', action='store_true', help='print every stable command ID')
+    p.add_argument('--usage', action='store_true', help='print the generated usage text')
+    p.add_argument('--observe', action='store_true', help='the measurement entry point')
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
 
@@ -464,6 +727,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.check:
             print(f'fido: build-observatory coverage OK — {check_coverage(root, load_suite(root))} ✓')
             return 0
+        if args.usage:
+            print(render_usage(load_suite(root)))
+            return 0
+        if args.list:
+            print(render_list(load_suite(root)))
+            return 0
+        if args.observe:
+            suite = load_suite(root)
+            check_coverage(root, suite)
+            sel = select(suite, only=args.only, scenario=args.scenario, record=args.record)
+            if sel.support:
+                print(f'fido: build-observatory — {len(sel.support)} dependenc(ies) added to the selection '
+                      f'and measured as support: {", ".join(sel.support)}')
+            print(f'fido: build-observatory — {len(sel.selected)} selected command(s) over '
+                  f'{len(sel.scenarios)} scenario(s){" (PARTIAL run)" if sel.partial else ""}')
     except ObservatoryError as exc:
         print(f'fido: BUILD-OBSERVATORY FAILED — {exc}', file=sys.stderr)
         return 1
