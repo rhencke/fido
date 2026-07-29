@@ -90,15 +90,16 @@ MUTANTS = (
      "            if False:",
      ('a zero sample count', 'a fractional sample count')),
 
-    (OBS, 'derived scenarios must be producible',
-     "        impossible = sorted(set(c['scenarios']) - producible)",
-     "        impossible = []",
-     ('a derived child declaring a scenario no parent runs',)),
-
     (OBS, 'the incremental-edit requirement',
      "            if s.get('edit') not in edits:",
      "            if False:",
      ('an incremental scenario with no edit', 'an incremental scenario naming an unregistered edit')),
+
+    (OBS, 'a derived child may not declare what its parents already state',
+     "        if c['scenarios'] or c['samples']:",
+     "        if False:",
+     ('a derived child declaring its own scenarios',
+      'a derived child declaring only its own sample counts')),
 
     (OBS, 'scenario chain ordering',
      "    return sorted(wanted, key=lambda s: (family_rank(s), s))",
@@ -156,9 +157,9 @@ MUTANTS = (
      ('a bootstrap claim with no builder to establish it',)),
 
     (OBS, 'the derived-child relation computed from the stage graph',
-     "                    if sid not in commands[parent]['scenarios']:",
-     "                    if False:",
-     ('expects a child under a parent that never runs in that scenario',)),
+     "                for sid, count in commands[parent]['samples'].items():",
+     "                for sid, count in c['samples'].items():",
+     ('is expected under',)),
 
     (OBS, 'build targets naming real Dockerfile stages',
      "        unknown_targets = [x for x in c.get('build_targets', []) if x not in stage_names]",

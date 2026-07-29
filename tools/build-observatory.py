@@ -401,18 +401,17 @@ def load_suite(root: Path) -> dict:
     for cid in by_id:
         walk(cid, ())
 
-    # §9.6 — a derived child measured in a scenario its live parent never runs is a pair nothing can produce
+    # §9.6 — a derived child is observed once per parent sample, so its scenarios and counts ARE its
+    # parents'. Declaring its own list states the same fact twice and the two drift in both directions: a
+    # scenario no parent runs can never be produced, and a scenario a parent does run gets observed and then
+    # reported as undeclared.
     for c in suite['commands']:
-        if c['measurement'] != 'derived' or not c['dependencies']:
+        if c['measurement'] != 'derived':
             continue
-        producible = set()
-        for dep in c['dependencies']:
-            producible |= set(by_id[dep]['scenarios'])
-        impossible = sorted(set(c['scenarios']) - producible)
-        if impossible:
+        if c['scenarios'] or c['samples']:
             raise ObservatoryError(
-                f'{SUITE_REL}: {c["id"]}: declares scenario(s) {impossible} that no parent in '
-                f'{c["dependencies"]} runs, so nothing can ever produce that sample')
+                f'{SUITE_REL}: {c["id"]} is derived and declares its own scenarios or sample counts; a '
+                f'derived child is observed once per parent sample, so both follow from its parents')
     return suite
 
 
@@ -1725,23 +1724,27 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
     for c in suite['commands']:
         if c['measurement'] == 'catalog-only':
             continue
+        if c['measurement'] == 'derived':
+            # A derived child is observed once per PARENT SAMPLE, in whatever scenario the parent ran. Its
+            # scenarios and counts are therefore its parents', and a child that declared its own list stated
+            # the same fact twice: `docker.emit` named only `project.cold.emit` while being observed, as a
+            # hit, in every cold scenario any of its six producers runs in.
+            for parent in derived_parents[c['id']]:
+                for sid, count in commands[parent]['samples'].items():
+                    if canonical_only and not scenarios[sid].get('canonical'):
+                        continue
+                    edit = scenarios[sid].get('edit')
+                    key = '|'.join((c['id'], sid, edit or '-', parent, '*'))
+                    expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                                     'derived_parent_id': parent, 'samples': count}
+            continue
         for sid in c['scenarios']:
             if canonical_only and not scenarios[sid].get('canonical'):
                 continue
             edit = scenarios[sid].get('edit')
-            if c['measurement'] == 'derived':
-                # a derived child exists once per parent that can produce it in that scenario
-                for parent in derived_parents[c['id']]:
-                    # A parent that does not run in this scenario cannot produce a child in it.
-                    if sid not in commands[parent]['scenarios']:
-                        continue
-                    key = '|'.join((c['id'], sid, edit or '-', parent, '*'))
-                    expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                                     'derived_parent_id': parent, 'samples': c['samples'][sid]}
-            else:
-                key = '|'.join((c['id'], sid, edit or '-', '-', '*'))
-                expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                                 'derived_parent_id': None, 'samples': c['samples'][sid]}
+            key = '|'.join((c['id'], sid, edit or '-', '-', '*'))
+            expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                             'derived_parent_id': None, 'samples': c['samples'][sid]}
     return expected
 
 
@@ -2911,10 +2914,13 @@ def self_test(root: Path) -> int:
     scenario('a fractional sample count',
              lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 1.5}),
              expect='must be a positive integer')
-    scenario('a derived child declaring a scenario no parent runs',
+    scenario('a derived child declaring its own scenarios',
              lambda w: (edit(w, 'docker.profile', 'scenarios', ['project.cold.prover']),
                         edit(w, 'docker.profile', 'samples', {'project.cold.prover': 1})),
-             expect='no parent in')
+             expect='both follow from its parents')
+    scenario('a derived child declaring only its own sample counts',
+             lambda w: edit(w, 'docker.profile', 'samples', {'project.cold.profile': 1}),
+             expect='both follow from its parents')
     scenario('a duplicate anchor pair in the hook',
              lambda w: append_hook(w, 'fido_observe begin precommit.naming\n'
                                       'fido_observe end precommit.naming\n'),

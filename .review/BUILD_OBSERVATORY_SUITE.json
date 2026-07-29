@@ -21,14 +21,8 @@
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.dune-graph",
       "policy": null,
       "purpose": "The Dune adjacency, critical path and downstream rebuild sets, derived from the same build that times the modules.",
-      "samples": {
-        "project.cold.module-graph": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.module-graph",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -119,26 +113,8 @@
       "owner": "Dockerfile:emit",
       "policy": null,
       "purpose": "Fido Materialize of every pristine tree plus the provenance and sink tests.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.emit": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.emit",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -165,26 +141,8 @@
       "owner": "Dockerfile:generated-artifact",
       "policy": null,
       "purpose": "The scratch stage exporting those pristine bytes to the host.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.generated-artifact": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.generated-artifact",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -211,26 +169,8 @@
       "owner": "Dockerfile:generated-module",
       "policy": null,
       "purpose": "The pristine generated module the Go stage and the byte compare both consume.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.go-e2e": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.go-e2e",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -257,26 +197,8 @@
       "owner": "Dockerfile:go-e2e",
       "policy": null,
       "purpose": "The pinned Go toolchain building the whole generated tree and running the differential.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.go-e2e": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.go-e2e",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -303,14 +225,8 @@
       "owner": "Dockerfile:module-graph",
       "policy": null,
       "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency.",
-      "samples": {
-        "project.cold.module-graph": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.module-graph",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -337,14 +253,8 @@
       "owner": "Dockerfile:module-graph-log",
       "policy": null,
       "purpose": "The scratch stage exporting the adjacency, per-module wall time and raw logs.",
-      "samples": {
-        "project.cold.module-graph": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.module-graph",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -371,14 +281,8 @@
       "owner": "Dockerfile:profile",
       "policy": null,
       "purpose": "The single-module Rocq profiling stage.",
-      "samples": {
-        "project.cold.profile": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.profile",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -405,14 +309,8 @@
       "owner": "Dockerfile:profile-log",
       "policy": null,
       "purpose": "The scratch stage exporting the profiling log.",
-      "samples": {
-        "project.cold.profile": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.profile",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -439,26 +337,8 @@
       "owner": "Dockerfile:prover",
       "policy": null,
       "purpose": "The complete proof gate inside the pinned container.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -485,26 +365,8 @@
       "owner": "Dockerfile:rocq-base",
       "policy": null,
       "purpose": "The pinned Debian base carrying that switch.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -531,26 +393,8 @@
       "owner": "Dockerfile:rocq-builder",
       "policy": null,
       "purpose": "Build the pinned opam switch that every later Rocq stage copies.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -577,16 +421,8 @@
       "owner": "Dockerfile:sync",
       "policy": null,
       "purpose": "The publication stage whose buildability depends on the go-e2e edge.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.sync": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.sync",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree",
       "build_targets": []
@@ -1304,16 +1140,8 @@
       "owner": ".githooks/pre-commit:precommit.builder",
       "policy": null,
       "purpose": "Ensure the pinned Buildx builder exists before the staged verification.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1340,16 +1168,8 @@
       "owner": ".githooks/pre-commit:precommit.claims.check",
       "policy": "claim-matrix",
       "purpose": "The claim-to-theorem matrix over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1376,16 +1196,8 @@
       "owner": ".githooks/pre-commit:precommit.claims.self-test",
       "policy": "claim-matrix",
       "purpose": "The claim-matrix controls, run on the staged copy of the gate.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1412,16 +1224,8 @@
       "owner": ".githooks/pre-commit:precommit.closure-ledger",
       "policy": "live-fcb-documents",
       "purpose": "The generated closure-ledger view against its canonical CSV.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1447,16 +1251,8 @@
       "owner": ".githooks/pre-commit:precommit.export-index",
       "policy": null,
       "purpose": "Export the Git index exactly once into the staged snapshot every later stage reads.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1523,16 +1319,8 @@
       "owner": ".githooks/pre-commit:precommit.generated-artifact",
       "policy": null,
       "purpose": "Materialize the pristine generated module from the staged inputs only.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1559,16 +1347,8 @@
       "owner": ".githooks/pre-commit:precommit.generated-compare",
       "policy": null,
       "purpose": "Byte-compare the staged generated tree against that pristine artifact.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1595,16 +1375,8 @@
       "owner": ".githooks/pre-commit:precommit.generated-mode",
       "policy": null,
       "purpose": "The index-authoritative Git mode check for every tracked generated file.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1631,16 +1403,8 @@
       "owner": ".githooks/pre-commit:precommit.generated-output",
       "policy": null,
       "purpose": "The generated-output policy over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1667,16 +1431,8 @@
       "owner": ".githooks/pre-commit:precommit.go-e2e",
       "policy": "go-e2e",
       "purpose": "The whole-tree Go build and differential built from the staged context.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1703,16 +1459,8 @@
       "owner": ".githooks/pre-commit:precommit.human-acts.check",
       "policy": "live-fcb-documents",
       "purpose": "The D-07 human-acts relation over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1739,16 +1487,8 @@
       "owner": ".githooks/pre-commit:precommit.human-acts.self-test",
       "policy": "live-fcb-documents",
       "purpose": "The human-acts gate controls, run on the staged copy of the gate.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1775,16 +1515,8 @@
       "owner": ".githooks/pre-commit:precommit.mutation",
       "policy": "live-fcb-documents",
       "purpose": "Every document-gate root helper proved load-bearing by deleting its effect.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1811,16 +1543,8 @@
       "owner": ".githooks/pre-commit:precommit.naming",
       "policy": "scoped-names",
       "purpose": "The A005 scoped-name gate in snapshot mode.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1847,16 +1571,8 @@
       "owner": ".githooks/pre-commit:precommit.observatory",
       "policy": "command-surface",
       "purpose": "The permanent command-surface coverage validator over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1883,16 +1599,8 @@
       "owner": ".githooks/pre-commit:precommit.ocaml-origin",
       "policy": null,
       "purpose": "The transport-only OCaml boundary over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1919,16 +1627,8 @@
       "owner": ".githooks/pre-commit:precommit.prover",
       "policy": "proof-gate",
       "purpose": "The complete proof gate built from the staged context.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1955,16 +1655,8 @@
       "owner": ".githooks/pre-commit:precommit.references.check",
       "policy": "live-fcb-documents",
       "purpose": "The D-24 operational-reference relation over the staged snapshot.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -1991,16 +1683,8 @@
       "owner": ".githooks/pre-commit:precommit.references.self-test",
       "policy": "live-fcb-documents",
       "purpose": "The reference-gate controls, run on the staged copy of the gate.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -2027,16 +1711,8 @@
       "owner": ".githooks/pre-commit:precommit.source-diet.check",
       "policy": "source-comment-law",
       "purpose": "The permanent comment law over every staged .v file.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -2063,16 +1739,8 @@
       "owner": ".githooks/pre-commit:precommit.source-diet.self-test",
       "policy": "source-comment-law",
       "purpose": "The source-comment policy controls, run on the staged copy of the checker.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
@@ -2099,16 +1767,8 @@
       "owner": ".githooks/pre-commit:precommit.source-diet.wiring",
       "policy": "source-comment-law",
       "purpose": "The guarantee that no permanent path invokes a checkpoint-only mode.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "staged-index-export",
       "build_targets": []
