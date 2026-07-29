@@ -181,10 +181,46 @@ MUTANTS = (
      "        if False:",
      ('an expected-failure fixture with no declared reason',)),
 
-    (OBS, 'measurement coverage of the registry',
-     "    unmeasured = sorted(expected - measured)",
-     "    unmeasured = []",
-     ('a classified command that produced no sample',)),
+    (OBS, 'two-directional coverage closure',
+     "    missing = sorted(set(expected) - set(observed))",
+     "    missing = []",
+     ('a canonical pair absent from the observation',)),
+
+    (OBS, 'the undeclared-metric direction',
+     "    extra = sorted(set(observed) - set(expected))",
+     "    extra = []",
+     ('an undeclared pair present in the observation',)),
+
+    (OBS, 'the required sample count',
+     "    wrong = sorted(k for k in set(expected) & set(observed)",
+     "    wrong = [] or sorted(k for k in set() & set(observed)",
+     ('a required sample missing from one pair',)),
+
+    (OBS, 'run identity collision resistance',
+     "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
+     "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",
+     ('two runs started in the same second must not share a run id',)),
+
+    (OBS, 'the bundle overwrite refusal',
+     "    if bundle.exists():",
+     "    if False:",
+     ('a bundle path that already exists',)),
+
+    (OBS, 'raw-log verification at recording',
+     "    if missing or changed:",
+     "    if False:",
+     ('a retained raw-log digest whose file is absent',
+      'a raw log that changed after it was measured')),
+
+    (OBS, 'stored summaries recomputed before comparison',
+     "        if obs['derived'].get('summaries', {}) != recomputed:",
+     "        if False:",
+     ('a comparison against a tampered stored summary',)),
+
+    (OBS, 'the incremental checkpoint',
+     "                               'incomplete': list(incomplete)}}",
+     "                               'incomplete': list(incomplete), 'status': 'complete'}}",
+     ('a checkpoint written mid-run must mark itself incomplete',)),
 
     (OBS, 'record eligibility',
      "    if sel.partial:",

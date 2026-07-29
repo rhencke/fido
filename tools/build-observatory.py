@@ -825,10 +825,11 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> l
 
 
 def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
-                    provenance: dict, events: list[dict], source_digest: str | None = None) -> dict:
+                    provenance: dict, events: list[dict], source_digest: str | None = None,
+                    index: int = 0) -> dict:
     """A sample for work the observatory performs itself rather than shelling out for."""
     import datetime
-    return {'command_id': command_id, 'scenario_id': scenario['id'], 'sample_index': 0,
+    return {'command_id': command_id, 'scenario_id': scenario['id'], 'sample_index': index,
             'edit_id': None, 'derived_parent_id': None, 'selected_or_support': role,
             'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
@@ -927,15 +928,62 @@ def observe_cache_after(before: dict, stages: dict) -> dict:
 
 
 def run_id_for(subject_info: dict, started_utc: str, digest: str) -> str:
-    """Descriptive, not authority: UTC start, subject identity and a content digest, in that order."""
-    stamp = started_utc.replace(':', '').replace('-', '').split('.')[0]
-    return f'{stamp}-{subject_info["commit"][:7]}-{digest[:8]}'
+    """Descriptive, not authority — but it must not collide.
+
+    The first candidate dropped fractional seconds, so two runs of one subject started inside the same second
+    produced the same path and could overwrite each other. Full precision plus a random part makes that
+    impossible; `new_bundle` additionally refuses a path that already exists."""
+    import secrets
+    stamp = started_utc.replace(':', '').replace('-', '').replace('.', '').replace('+', 'p')
+    return f'{stamp}-{subject_info["commit"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'
 
 
 def new_bundle(root: Path, run_id: str) -> Path:
+    """A fresh bundle. Reusing an existing path would let one run overwrite another's evidence."""
     bundle = root / RUNS_REL / run_id
+    if bundle.exists():
+        raise ObservatoryError(f'{bundle}: a bundle already exists at this run id; refusing to overwrite '
+                               f'another run\'s evidence')
     (bundle / 'raw').mkdir(parents=True, exist_ok=True)
     return bundle
+
+
+def checkpointer(bundle: Path, header: dict):
+    """Write the local observation after every completed sample.
+
+    The first candidate wrote it only when the suite returned, so a suite that was KILLED left raw logs and
+    nothing to inspect. The safety half held — a cancelled run can never record — but the evidence half only
+    worked on the failure path."""
+    def write(samples: list[dict], incomplete: list[str]):
+        partial = {**header, 'measurements': samples,
+                   'derived': {'summaries': summarise(samples), 'status': 'incomplete',
+                               'incomplete': list(incomplete)}}
+        write_json(bundle / 'observation.json', partial)
+    return write
+
+
+def verify_raw_logs(root: Path, bundle: Path, obs: dict) -> str:
+    """Every DIRECT sample's raw log must exist and still match its retained digest.
+
+    A digest for a file that is gone is a claim nobody can check, and a changed log means the evidence and
+    the number no longer describe the same run. A derived sample names its parent's log rather than
+    inventing one of its own."""
+    missing, changed = [], []
+    for s in obs['measurements']:
+        if s.get('derived_parent_id') or s.get('raw_log_sha256') is None:
+            continue
+        name = raw_log_name(s['command_id'], s['scenario_id'], s['sample_index'], s.get('edit_id'))
+        log = bundle / 'raw' / f'{name}.log'
+        if not log.is_file():
+            missing.append(name)
+        elif _sha256(log.read_bytes()) != s['raw_log_sha256']:
+            changed.append(name)
+    if missing or changed:
+        raise ObservatoryError(
+            f'{len(missing)} raw log(s) absent and {len(changed)} changed since they were measured; '
+            f'first {(missing + changed)[:3]}')
+    direct = sum(1 for s in obs['measurements'] if not s.get('derived_parent_id'))
+    return f'{direct} direct raw log(s) present and matching their retained digests'
 
 
 def canonical_bytes(obj) -> bytes:
@@ -1308,6 +1356,70 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             f'summary equals recomputation; suite digest matches')
 
 
+def expected_relation(suite: dict, canonical_only: bool = True) -> dict:
+    """The exact set of metrics a complete run must produce, derived from the validated registry.
+
+    R05 used to check that each classified command appeared at least ONCE. A command measured in one scenario
+    could therefore stand in for every scenario it never ran, which is how seven canonical pairs went missing
+    while coverage read green. This states the relation the observation must equal — in both directions."""
+    scenarios = {s['id']: s for s in suite['scenarios']}
+    derived_parents: dict[str, list[str]] = {}
+    for c in suite['commands']:
+        if c['measurement'] == 'derived':
+            derived_parents[c['id']] = list(c['dependencies'])
+
+    expected: dict[str, dict] = {}
+    for c in suite['commands']:
+        if c['measurement'] == 'catalog-only':
+            continue
+        for sid in c['scenarios']:
+            if canonical_only and not scenarios[sid].get('canonical'):
+                continue
+            edit = scenarios[sid].get('edit')
+            if c['measurement'] == 'derived':
+                # a derived child exists once per parent that can produce it in that scenario
+                for parent in derived_parents[c['id']]:
+                    key = '|'.join((c['id'], sid, edit or '-', parent, '*'))
+                    expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                                     'derived_parent_id': parent, 'samples': c['samples'][sid]}
+            else:
+                key = '|'.join((c['id'], sid, edit or '-', '-', '*'))
+                expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                                 'derived_parent_id': None, 'samples': c['samples'][sid]}
+    return expected
+
+
+def observed_relation(samples: list[dict]) -> dict:
+    """The same shape, taken from what actually ran, with resource scope wildcarded so the two can meet."""
+    out: dict[str, int] = {}
+    for s in samples:
+        key = '|'.join((s['command_id'], s['scenario_id'], s.get('edit_id') or '-',
+                        s.get('derived_parent_id') or '-', '*'))
+        out[key] = out.get(key, 0) + 1
+    return out
+
+
+def check_relation_closed(suite: dict, samples: list[dict], canonical_only: bool = True) -> str:
+    """Exact equality in both directions: nothing missing, nothing extra, every count right."""
+    expected = expected_relation(suite, canonical_only)
+    observed = observed_relation(samples)
+    missing = sorted(set(expected) - set(observed))
+    extra = sorted(set(observed) - set(expected))
+    wrong = sorted(k for k in set(expected) & set(observed)
+                   if observed[k] != expected[k]['samples'])
+    problems = []
+    if missing:
+        problems.append(f'{len(missing)} declared metric(s) produced no sample: {missing[:4]}')
+    if extra:
+        problems.append(f'{len(extra)} metric(s) the registry never declared: {extra[:4]}')
+    if wrong:
+        problems.append(f'{len(wrong)} metric(s) have the wrong sample count, e.g. '
+                        f'{wrong[0]} got {observed[wrong[0]]} of {expected[wrong[0]]["samples"]}')
+    if problems:
+        raise ObservatoryError('; '.join(problems))
+    return f'{len(expected)} declared metric(s), each with exactly its required sample count'
+
+
 def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest: str, obs: dict,
                           bundle: Path, clean_before: bool, edits_restored: bool,
                           incomplete: list[str]) -> list[str]:
@@ -1340,14 +1452,10 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
 
     if incomplete:
         bad('R05', f'{len(incomplete)} command-scenario pair(s) did not complete: {incomplete[:4]}')
-    canonical = {s['id'] for s in suite['scenarios'] if s.get('canonical')}
-    expected = {c['id'] for c in suite['commands']
-                if c['measurement'] != 'catalog-only' and set(c['scenarios']) & canonical}
-    measured = {s['command_id'] for s in obs['measurements']}
-    unmeasured = sorted(expected - measured)
-    if unmeasured:
-        bad('R05', f'{len(unmeasured)} classified command(s) produced no sample at all: {unmeasured[:6]}; '
-                   f'a registry that classifies more than the observation measures is coverage on paper')
+    try:
+        check_relation_closed(suite, obs['measurements'])
+    except ObservatoryError as exc:
+        bad('R05', f'{exc}; a registry that declares more than the observation measures is coverage on paper')
     ok('R05')
 
     wrong = [f'{s["command_id"]}/{s["scenario_id"]}' for s in obs['measurements'] if s['status'] != 'ok']
@@ -1387,6 +1495,10 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
 
     if not (bundle / 'observation.json').is_file():
         bad('R12', f'no local run bundle was written first at {bundle}')
+    try:
+        verify_raw_logs(root, bundle, obs)
+    except ObservatoryError as exc:
+        bad('R12', str(exc))
     ok('R12')
 
     dirty = [l[3:] for l in _git(root, 'status', '--porcelain').split('\n') if l.strip()]
@@ -1648,7 +1760,7 @@ def _comparable(obs: dict, side: str) -> None:
             raise ObservatoryError(f'the {side} observation has no usable {member!r} member')
 
 
-def compare(base: dict, cand: dict, only: str | None = None) -> dict:
+def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None = None) -> dict:
     """Two observations, metric by metric, with the reason for every verdict it declines to give.
 
     There is no fixed percentage threshold anywhere in here. A hidden one would decide, on a constant nobody
@@ -1656,6 +1768,17 @@ def compare(base: dict, cand: dict, only: str | None = None) -> dict:
     they overlap, and when one side has a single sample it reports the delta and refuses the noise call."""
     _comparable(base, 'baseline')
     _comparable(cand, 'candidate')
+    # §7.2 — a stored summary is a CLAIM about samples that are right there. Trusting it lets a tampered
+    # median produce a verdict about data that never changed.
+    for side, obs in (('baseline', base), ('candidate', cand)):
+        recomputed = summarise(obs['measurements'])
+        if obs['derived'].get('summaries', {}) != recomputed:
+            raise ObservatoryError(
+                f'the {side} observation\'s stored summaries do not equal recomputation from its own '
+                f'retained samples; no verdict can rest on them')
+        # §7.5 asks for one exact scope per metric. That is now STRUCTURAL rather than checked: resource
+        # scope is part of the metric identity, so two scopes are two metrics and cannot meet in one row.
+        # A check here would be unreachable, and an unreachable guard reads as protection it does not give.
     same_host = (base['environment'].get('host_class_fingerprint')
                  == cand['environment'].get('host_class_fingerprint'))
     b_sum, c_sum = base['derived'].get('summaries', {}), cand['derived'].get('summaries', {})
@@ -1672,10 +1795,34 @@ def compare(base: dict, cand: dict, only: str | None = None) -> dict:
         'changed': sorted(k for k in set(b_cmds) & set(c_cmds)
                           if b_cmds[k] is not None and c_cmds[k] is not None and b_cmds[k] != c_cmds[k]),
     }
+    # §7.3 — a metric is a question. If the scenario, the edit or the boundary changed, the two sides asked
+    # different questions and their difference is not an improvement or a regression.
+    b_def, c_def = base.get('definitions') or {}, cand.get('definitions') or {}
+    changed_scenarios = {k for k in set(b_def.get('scenarios', {})) & set(c_def.get('scenarios', {}))
+                         if b_def['scenarios'][k] != c_def['scenarios'][k]}
+    changed_edits = {k for k in set(b_def.get('edits', {})) & set(c_def.get('edits', {}))
+                     if b_def['edits'][k] != c_def['edits'][k]}
+    boundary_moved = (b_def.get('stable_through') != c_def.get('stable_through')
+                      and b_def.get('stable_through') is not None
+                      and c_def.get('stable_through') is not None)
+    b_conc = (base['environment'].get('concurrency') or {}).get('make_jobs')
+    c_conc = (cand['environment'].get('concurrency') or {}).get('make_jobs')
+    concurrency_changed = b_conc != c_conc
+    definitions['changed_scenarios'] = sorted(changed_scenarios)
+    definitions['changed_edits'] = sorted(changed_edits)
+    definitions['stable_boundary_moved'] = boundary_moved
+    definitions['concurrency_changed'] = concurrency_changed
 
+    # §7.4 — run mode expands groups and rejects unknown names; comparison used a bare string set, so
+    # `ONLY=acceptance` silently produced no rows and an unknown name exited successfully.
     wanted = None
     if only:
-        wanted = {t.strip() for t in only.split(',') if t.strip()}
+        if suite is not None:
+            commands = {c['id']: c for c in suite['commands']}
+            groups = {g['id']: list(g['members']) for g in suite['groups']}
+            wanted = _expand(only, commands, groups, 'ONLY name')
+        else:
+            wanted = {x.strip() for x in only.split(',') if x.strip()}
 
     metrics = []
     for key in sorted(set(b_sum) | set(c_sum)):
@@ -1700,9 +1847,21 @@ def compare(base: dict, cand: dict, only: str | None = None) -> dict:
             metrics.append({**row, 'classification': 'incomparable',
                             'reason': f'resource scope changed: {b_scope} -> {c_scope}'})
             continue
-        if command_id in definitions['changed']:
-            metrics.append({**row, 'classification': 'incomparable',
-                            'reason': 'the command definition changed between the two suites'})
+        scenario_id = key.split('|')[1]
+        edit_id = key.split('|')[2]
+        for changed, why in ((command_id in definitions['changed'], 'the command definition changed'),
+                             (scenario_id in changed_scenarios, f'the meaning of {scenario_id} changed'),
+                             (edit_id in changed_edits, f'the edit procedure {edit_id} changed'),
+                             (boundary_moved, 'the stable cache boundary moved'),
+                             (concurrency_changed,
+                              f'effective concurrency changed ({b_conc} -> {c_conc})')):
+            if changed:
+                metrics.append({**row, 'classification': 'incomparable', 'reason': why})
+                break
+        else:
+            pass
+        if metrics and metrics[-1].get('key') == key and \
+                metrics[-1]['classification'] == 'incomparable':
             continue
 
         delta = c['median_wall_ns'] - b['median_wall_ns']
@@ -1984,24 +2143,28 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             provenance = {'authorities': dict(scenario['cache_state']), 'builder': OBSERVATORY_BUILDER,
                           'chain_command': cid, 'prime_sample_id': None,
                           'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
-            progress(f'fido: observe — {cid} [{scenario_id}] ({role})')
-            try:
-                t0 = _monotonic_ns()
-                if command['kind'] == 'history-analysis':
-                    history = history_analysis(root)
-                    events = []
-                else:
-                    graph = measure_module_graph(root, raw_dir / 'module-graph', progress, scenario)
-                    events = graph.pop('stage_events', []) + [
-                        {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
-                s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
-                                    subj['content_digest'])
-                emit(s)
-                for child in derive_child_samples(s, events, derived_ids):
-                    emit(child)
-            except ObservatoryError as exc:
-                incomplete.append(f'{cid}/{scenario_id}')
-                progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
+            wanted = command['samples'][scenario_id]
+            for index in range(wanted):
+                progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
+                try:
+                    t0 = _monotonic_ns()
+                    if command['kind'] == 'history-analysis':
+                        history = history_analysis(root)
+                        events = []
+                    else:
+                        graph = measure_module_graph(root, raw_dir / f'module-graph.{index}',
+                                                     progress, scenario)
+                        events = graph.pop('stage_events', []) + [
+                            {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
+                    s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
+                                        subj['content_digest'], index)
+                    emit(s)
+                    for child in derive_child_samples(s, events, derived_ids):
+                        emit(child)
+                except ObservatoryError as exc:
+                    incomplete.append(f'{cid}/{scenario_id}')
+                    progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
+                    break
 
     derived = {'summaries': summarise(samples) if samples else {},
                'selected': sel.selected, 'support': sel.support,
@@ -2598,7 +2761,10 @@ def self_test(root: Path) -> int:
                 'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
                             'dirty': False, 'source_view': 'committed-tree'},
                 'environment': {**{k: 'x' for k in REQUIRED_ENVIRONMENT}, 'host_class_fingerprint': 'd' * 64},
-                'cache_model': {}, 'commands': {'make.fmt': 'f0' * 32}, 'measurements': samples,
+                'cache_model': {}, 'commands': {'make.fmt': 'f0' * 32},
+                'definitions': {'commands': {'make.fmt': 'f0' * 32}, 'scenarios': {}, 'edits': {},
+                                'stable_through': 'rocq-base'},
+                'measurements': samples,
                 'module_graph': None, 'history_analysis': None,
                 'derived': {'summaries': summarise(samples)}}
         return {**base, **over}
@@ -2650,13 +2816,19 @@ def self_test(root: Path) -> int:
              expect='do not equal recomputation')
 
     def complete_observation(**over):
-        """An observation that measured everything the registry classifies, so a control aimed at a LATER
-        rule is not stopped by R05 first."""
-        canonical = {s['id'] for s in suite['scenarios'] if s.get('canonical')}
-        want = [c['id'] for c in suite['commands']
-                if c['measurement'] != 'catalog-only' and set(c['scenarios']) & canonical]
-        every = over.pop('samples', None) or [sample(command_id=cid, sample_index=i)
-                                              for i, cid in enumerate(want)]
+        """An observation that measured EXACTLY the relation the registry declares.
+
+        Generating it from `expected_relation` rather than by hand is the point: a fixture written by hand
+        would drift from the rule it exists to get past, which is how the earlier one let R13 and R14 pass
+        by never being reached."""
+        every = over.pop('samples', None)
+        if every is None:
+            every = []
+            for spec in expected_relation(suite).values():
+                for i in range(spec['samples']):
+                    every.append(sample(command_id=spec['command_id'], scenario_id=spec['scenario_id'],
+                                        edit_id=spec['edit_id'], derived_parent_id=spec['derived_parent_id'],
+                                        sample_index=i))
         over.setdefault('derived', {'summaries': summarise(every)})
         return observation(samples=every, **over)
 
@@ -2686,6 +2858,21 @@ def self_test(root: Path) -> int:
     observed('a classified command that produced no sample',
              lambda: record_check(obs=observation()),
              expect='coverage on paper')
+    observed('a canonical pair absent from the observation',
+             lambda: record_check(obs=complete_observation(
+                 samples=[s for s in complete_observation()['measurements']
+                          if s['command_id'] != 'make.diet'])),
+             expect='produced no sample')
+    observed('an undeclared pair present in the observation',
+             lambda: record_check(obs=complete_observation(
+                 samples=complete_observation()['measurements']
+                 + [sample(command_id='make.diet', scenario_id='project.cold.prover')])),
+             expect='the registry never declared')
+    observed('a required sample missing from one pair',
+             lambda: record_check(obs=complete_observation(
+                 samples=[s for s in complete_observation()['measurements']
+                          if not (s['command_id'] == 'make.diet' and s['sample_index'] == 2)])),
+             expect='wrong sample count')
     observed('an incomplete suite with RECORD',
              lambda: record_check(incomplete=['make.prove/project.cold.prover']),
              expect='recording rule R05')
@@ -2723,9 +2910,20 @@ def self_test(root: Path) -> int:
                 _sp.run(['git', 'add', 'other.txt'], cwd=repo, check=True, capture_output=True)
             bundle = repo / RUNS_REL / 'fixture-run'
             bundle.mkdir(parents=True)
-            write_json(bundle / 'observation.json', complete_observation())
+            obs_fixture = complete_observation()
+            # the fixture must PRODUCE the evidence it claims, or R12 is satisfied by a fixture that
+            # asserts digests for files nobody wrote
+            (bundle / 'raw').mkdir(parents=True, exist_ok=True)
+            for s in obs_fixture['measurements']:
+                if s.get('derived_parent_id') or s.get('raw_log_sha256') is None:
+                    continue
+                name = raw_log_name(s['command_id'], s['scenario_id'], s['sample_index'], s.get('edit_id'))
+                (bundle / 'raw' / f'{name}.log').write_bytes(b'fixture')
+                s['raw_log_sha256'] = _sha256(b'fixture')
+            obs_fixture['derived'] = {'summaries': summarise(obs_fixture['measurements'])}
+            write_json(bundle / 'observation.json', obs_fixture)
             return check_record_eligible(repo, sel=Selection([], [], [], partial=False), suite=suite, suite_digest=digest,
-                                         obs=complete_observation(), bundle=bundle, clean_before=True,
+                                         obs=obs_fixture, bundle=bundle, clean_before=True,
                                          edits_restored=True, incomplete=[])
 
     counts['total'] += 1
@@ -2803,7 +3001,7 @@ def self_test(root: Path) -> int:
         failures.append('a changed command definition must be incomparable')
 
     counts['total'] += 1
-    empty = observation(samples=[sample()], derived={'summaries': {}})
+    empty = observation(samples=[], derived={'summaries': {}})
     added = compare(empty, observation())
     removed = compare(observation(), empty)
     if added['counts']['added'] != 1 or removed['counts']['removed'] != 1:
@@ -2819,6 +3017,88 @@ def self_test(root: Path) -> int:
     filtered = compare(observation(), observation(), only='make.nothing')
     if filtered['metrics']:
         failures.append('ONLY must be able to filter comparison output')
+
+    # ── §8 bundles: identity that cannot collide, evidence that must exist
+    counts['total'] += 1
+    subj = {'commit': 'a' * 40}
+    ids = {run_id_for(subj, '2026-07-29T04:00:00.000000+00:00', 'd' * 64) for _ in range(50)}
+    if len(ids) != 50:
+        failures.append('two runs started in the same second must not share a run id')
+
+    guarded('a bundle path that already exists',
+            lambda w: (new_bundle(w, 'dup'), new_bundle(w, 'dup')),
+            expect='refusing to overwrite')
+    guarded('a fresh bundle path', lambda w: new_bundle(w, 'fresh'))
+
+    def bundle_with(work: Path, obs_in: dict, write_logs=True, corrupt=False):
+        b = work / 'b'
+        (b / 'raw').mkdir(parents=True, exist_ok=True)
+        for s in obs_in['measurements']:
+            if s.get('derived_parent_id') or s.get('raw_log_sha256') is None:
+                continue
+            name = raw_log_name(s['command_id'], s['scenario_id'], s['sample_index'], s.get('edit_id'))
+            if write_logs:
+                (b / 'raw' / f'{name}.log').write_bytes(b'other' if corrupt else b'fixture')
+            s['raw_log_sha256'] = _sha256(b'fixture')
+        return verify_raw_logs(work, b, obs_in)
+
+    guarded('a retained raw-log digest whose file is absent',
+            lambda w: bundle_with(w, observation(), write_logs=False),
+            expect='raw log(s) absent')
+    guarded('a raw log that changed after it was measured',
+            lambda w: bundle_with(w, observation(), corrupt=True),
+            expect='changed since they were measured')
+    guarded('every direct raw log present and matching', lambda w: bundle_with(w, observation()))
+
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        b = Path(d) / 'bundle'
+        (b / 'raw').mkdir(parents=True)
+        write = checkpointer(b, {'schema': SCHEMA, 'suite_digest': digest})
+        write([sample()], ['make.prove/project.cold.prover'])
+        mid = json.loads((b / 'observation.json').read_text(encoding='utf-8'))
+        if mid['derived'].get('status') != 'incomplete':
+            failures.append('a checkpoint written mid-run must mark itself incomplete')
+        if not mid['measurements']:
+            failures.append('a checkpoint must retain the samples taken so far')
+
+    # ── §7 comparison: validated before it concludes, and one selector model
+    observed('a comparison against a tampered stored summary',
+             lambda: compare(observation(derived={'summaries': {'x|y|-|-|host-wrapper': {
+                 'samples': 1, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), observation()),
+             expect='do not equal recomputation from its own')
+
+    counts['total'] += 1
+    two_scopes = [sample(sample_index=0), dict(sample(sample_index=1), resource_scope=SCOPE_BUILDKIT)]
+    if len(summarise(two_scopes)) != 2:
+        failures.append('one metric must measure one resource scope: two scopes must be two metrics')
+
+    counts['total'] += 1
+    grp = compare(observation(), observation(), only='policy', suite=suite)
+    if grp['metrics'] and False:
+        pass
+    try:
+        compare(observation(), observation(), only='no.such.name', suite=suite)
+        failures.append('comparison must reject an unknown selector, as a run does')
+    except ObservatoryError as exc:
+        if 'unknown ONLY name' not in str(exc):
+            failures.append(f'comparison rejected an unknown selector for the wrong reason: {exc}')
+
+    counts['total'] += 1
+    base_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'aa' * 32}}
+    cand_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'bb' * 32}}
+    changed_scn = observation(definitions=base_defs)
+    row = compare(changed_scn, observation(definitions=cand_defs))['metrics'][0]
+    if row['classification'] != 'incomparable' or 'meaning of' not in row['reason']:
+        failures.append(f'a changed scenario meaning must be incomparable: {row}')
+
+    counts['total'] += 1
+    slow = observation()
+    slow['environment'] = {**slow['environment'],
+                           'concurrency': {'make_jobs': 4, 'make_jobs_source': '-j4'}}
+    row = compare(slow, observation())['metrics'][0]
+    if row['classification'] != 'incomparable' or 'concurrency' not in row['reason']:
+        failures.append(f'a changed effective concurrency must be incomparable: {row}')
 
     observed('an observation path that does not exist',
              lambda: load_observation(root, '/nonexistent/observation.json'),
@@ -3150,7 +3430,8 @@ def main(argv: list[str] | None = None) -> int:
             base_obs, base_from = load_observation(root, base_where)
             cand_obs, cand_from = load_observation(root, args.compare)
             print(f'fido: build-observatory — comparing {cand_from} against {base_from}')
-            print(render_comparison(compare(base_obs, cand_obs, only=args.only)))
+            print(render_comparison(compare(base_obs, cand_obs, only=args.only,
+                                            suite=load_suite(root))))
             return 0
 
         if args.observe:
@@ -3171,7 +3452,11 @@ def main(argv: list[str] | None = None) -> int:
             bundle = new_bundle(root, run_id)
             print(f'fido: build-observatory — run {run_id}, bundle {bundle}')
 
-            obs, incomplete, edits_restored = run_observation(root, suite, sel, bundle / 'raw', run_id)
+            header = {'schema': SCHEMA, 'suite_digest': suite_digest_of(suite),
+                      'subject': subj, 'run_id': run_id}
+            obs, incomplete, edits_restored = run_observation(
+                root, suite, sel, bundle / 'raw', run_id,
+                checkpoint=checkpointer(bundle, header))
             if incomplete:
                 obs['derived']['status'] = 'incomplete'
                 obs['derived']['incomplete'] = incomplete
@@ -3180,7 +3465,7 @@ def main(argv: list[str] | None = None) -> int:
             base_where = args.base or OBSERVATION_REL
             try:
                 base_obs, base_from = load_observation(root, base_where)
-                result = compare(base_obs, obs, only=args.only)
+                result = compare(base_obs, obs, only=args.only, suite=suite)
                 write_json(bundle / 'comparison.json', result)
                 (bundle / 'comparison.txt').write_text(render_comparison(result) + '\n', encoding='utf-8')
                 print(render_comparison(result))
