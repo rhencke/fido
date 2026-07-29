@@ -13,16 +13,20 @@
         "analysis"
       ],
       "id": "analysis.dune-graph",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "rocq-module-analysis",
       "measurement": "derived",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.dune-graph",
-      "purpose": "The Dune dependency adjacency, critical path and downstream rebuild set for each module, derived from the same build that times the modules.",
+      "purpose": "The Dune adjacency, critical path and downstream rebuild sets, derived from the same build that times the modules.",
       "samples": {
-        "cold.cached": 1
+        "project.cold.module-graph": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached"
+        "project.cold.module-graph",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -38,16 +42,18 @@
         "analysis"
       ],
       "id": "analysis.history",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "history-analysis",
       "measurement": "direct",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.history",
       "purpose": "Edit frequency, co-change, edit shapes and weighted rebuild cost over the exact accepted range.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "committed-tree"
@@ -63,16 +69,22 @@
         "analysis"
       ],
       "id": "analysis.rocq-modules",
+      "invalidation_roots": [
+        "module-graph"
+      ],
+      "isolation": null,
       "kind": "rocq-module-analysis",
       "measurement": "direct",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.rocq-modules",
       "purpose": "Per-module Rocq compile time for the certified module set, measured with the pinned toolchain.",
       "samples": {
-        "cold.cached": 1
+        "project.cold.module-graph": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached"
+        "project.cold.module-graph",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -91,25 +103,37 @@
         "docker"
       ],
       "id": "docker.emit",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:emit",
       "purpose": "Fido Materialize of every pristine tree plus the provenance and sink tests.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.emit": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.emit",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -125,27 +149,39 @@
         "docker"
       ],
       "id": "docker.generated-artifact",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:generated-artifact",
       "purpose": "The scratch stage exporting those pristine bytes to the host.",
       "samples": {
-        "bootstrap.cold.uncached": 1,
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "environment.bootstrap": 1,
+        "project.cached.fresh": 1,
+        "project.cold.generated-artifact": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "bootstrap.cold.uncached",
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "environment.bootstrap",
+        "project.cached.fresh",
+        "project.cold.generated-artifact",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -161,25 +197,37 @@
         "docker"
       ],
       "id": "docker.generated-module",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:generated-module",
       "purpose": "The pristine generated module the Go stage and the byte compare both consume.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.go-e2e": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.go-e2e",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -195,25 +243,37 @@
         "docker"
       ],
       "id": "docker.go-e2e",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:go-e2e",
       "purpose": "The pinned Go toolchain building the whole generated tree and running the differential.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.go-e2e": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.go-e2e",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -229,19 +289,23 @@
         "docker"
       ],
       "id": "docker.module-graph",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:module-graph",
-      "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency for the certified module set.",
+      "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency.",
       "samples": {
-        "cold.cached": 1
+        "project.cold.module-graph": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached"
+        "project.cold.module-graph",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -257,19 +321,23 @@
         "docker"
       ],
       "id": "docker.module-graph-log",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:module-graph-log",
-      "purpose": "The scratch stage exporting the adjacency, per-module wall time and the raw per-sentence logs.",
+      "purpose": "The scratch stage exporting the adjacency, per-module wall time and raw logs.",
       "samples": {
-        "cold.cached": 1
+        "project.cold.module-graph": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached"
+        "project.cold.module-graph",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -285,19 +353,23 @@
         "docker"
       ],
       "id": "docker.profile",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:profile",
       "purpose": "The single-module Rocq profiling stage.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.cold.profile": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.cold.profile",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -313,19 +385,23 @@
         "docker"
       ],
       "id": "docker.profile-log",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:profile-log",
       "purpose": "The scratch stage exporting the profiling log.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.cold.profile": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.cold.profile",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -341,25 +417,37 @@
         "docker"
       ],
       "id": "docker.prover",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:prover",
       "purpose": "The complete proof gate inside the pinned container.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -375,25 +463,37 @@
         "toolchain"
       ],
       "id": "docker.rocq-base",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:rocq-base",
       "purpose": "The pinned Debian base carrying that switch.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -409,25 +509,37 @@
         "toolchain"
       ],
       "id": "docker.rocq-builder",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:rocq-builder",
       "purpose": "Build the pinned opam switch that every later Rocq stage copies.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [
@@ -443,21 +555,25 @@
         "docker"
       ],
       "id": "docker.sync",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "docker-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:sync",
       "purpose": "The publication stage whose buildability depends on the go-e2e edge.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.sync": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.sync",
+        "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "disposable-copy"
+      "source_view": "working-tree"
     },
     {
       "dependencies": [],
@@ -471,22 +587,25 @@
         "make"
       ],
       "id": "make.audit-fresh",
+      "invalidation_roots": [
+        "prover"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:audit-fresh",
       "purpose": "The proof gate and the whole-tree e2e forced to RUN rather than report a Buildx cache hit.",
       "samples": {
-        "cold.uncached": 1
+        "project.cold.prover": 1
       },
       "scenarios": [
-        "cold.uncached"
+        "project.cold.prover"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
     },
     {
-      "catalog_only_reason": "It runs `docker buildx use`, which switches the machine default builder — environment state shared with the developer, which no disposable copy contains. Measuring it would leave that changed.",
       "dependencies": [],
       "execution": [
         "make",
@@ -498,13 +617,19 @@
         "setup"
       ],
       "id": "make.builder",
+      "invalidation_roots": [],
+      "isolation": "temporary-docker-config",
       "kind": "make-target",
-      "measurement": "catalog-only",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:builder",
       "purpose": "Create the pinned Buildx builder if it is absent, and make it the default.",
-      "samples": {},
-      "scenarios": [],
+      "samples": {
+        "environment.bootstrap": 1
+      },
+      "scenarios": [
+        "environment.bootstrap"
+      ],
       "side_effect": "changes-repository-config",
       "source_view": "environment-only"
     },
@@ -520,24 +645,38 @@
         "make"
       ],
       "id": "make.check",
+      "invalidation_roots": [
+        "generated-artifact"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:check",
       "purpose": "The whole working-tree acceptance path: policy gates, the pinned proof, the whole-tree Go e2e and the generated byte compare.",
       "samples": {
-        "bootstrap.cold.uncached": 1,
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "environment.bootstrap": 1,
+        "project.cached.fresh": 1,
+        "project.cold.generated-artifact": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "bootstrap.cold.uncached",
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "environment.bootstrap",
+        "project.cached.fresh",
+        "project.cold.generated-artifact",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -554,16 +693,18 @@
         "policy"
       ],
       "id": "make.claims",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:claims",
       "purpose": "The claim-to-theorem matrix and its adversarial controls.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -580,16 +721,18 @@
         "policy"
       ],
       "id": "make.diet",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:diet",
       "purpose": "The permanent source-comment policy: the comment law, the exception relation and the permanent-wiring check.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -606,22 +749,36 @@
         "make"
       ],
       "id": "make.e2e",
+      "invalidation_roots": [
+        "go-e2e"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:e2e",
       "purpose": "Emit plus the pinned Go build over the whole generated tree, the differential fixtures and the reviewed goldens.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.go-e2e": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.go-e2e",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -638,22 +795,36 @@
         "make"
       ],
       "id": "make.emit",
+      "invalidation_roots": [
+        "emit"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:emit",
       "purpose": "Theory and plugin build plus the explicit Fido Materialize of every pristine witness tree, the provenance boundary and the sink tests.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.emit": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.emit",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -670,16 +841,18 @@
         "policy"
       ],
       "id": "make.fcb",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fcb",
       "purpose": "The live-FCB document gates: human acts, typed references, the generated closure view and the gate-mutation harness.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -696,16 +869,18 @@
         "policy"
       ],
       "id": "make.fcb-write",
+      "invalidation_roots": [],
+      "isolation": "disposable-copy",
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fcb-write",
       "purpose": "Regenerate every generated FCB view from its canonical source.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
       "source_view": "disposable-copy"
@@ -722,22 +897,23 @@
         "policy"
       ],
       "id": "make.fmt",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fmt",
       "purpose": "The .editorconfig whitespace and format report; reports rather than rewrites, and is not a gate.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
     },
     {
-      "catalog_only_reason": "It writes core.hooksPath, and git config in a linked worktree writes the config SHARED with the main checkout; measuring it would repoint the developer hooks.",
       "dependencies": [],
       "execution": [
         "make",
@@ -749,13 +925,19 @@
         "setup"
       ],
       "id": "make.install-hooks",
+      "invalidation_roots": [],
+      "isolation": "temporary-git-repo",
       "kind": "make-target",
-      "measurement": "catalog-only",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:install-hooks",
       "purpose": "Point core.hooksPath at the tracked hook directory.",
-      "samples": {},
-      "scenarios": [],
+      "samples": {
+        "project.warm.noop": 3
+      },
+      "scenarios": [
+        "project.warm.noop"
+      ],
       "side_effect": "changes-repository-config",
       "source_view": "disposable-copy"
     },
@@ -771,16 +953,18 @@
         "policy"
       ],
       "id": "make.names",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:names",
       "purpose": "The A005 scoped-name policy gate.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -797,16 +981,18 @@
         "policy"
       ],
       "id": "make.observatory",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:observatory",
       "purpose": "The permanent command-surface coverage validator and its controls; reads three files and runs no timing suite.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -824,6 +1010,8 @@
         "observatory"
       ],
       "id": "make.observe",
+      "invalidation_roots": [],
+      "isolation": "not-measured",
       "kind": "make-target",
       "measurement": "catalog-only",
       "outputs": [],
@@ -847,16 +1035,22 @@
         "make"
       ],
       "id": "make.profile",
+      "invalidation_roots": [
+        "profile"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:profile",
       "purpose": "The existing single-module Rocq profiling path, reused by the module analysis.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.cold.profile": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.cold.profile",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -873,22 +1067,36 @@
         "make"
       ],
       "id": "make.prove",
+      "invalidation_roots": [
+        "prover"
+      ],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prove",
       "purpose": "The complete proof gate: dune build, the axiom-free readable gate, certified-module coverage and the whole-theory assumption audit.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1,
-        "warm.cached.incremental": 3,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.incremental.doc.architecture": 3,
+        "project.incremental.foundation.float": 3,
+        "project.incremental.leaf.emit": 3,
+        "project.incremental.none.generated": 3,
+        "project.incremental.proof.compilable": 3,
+        "project.incremental.tool.source-diet": 3,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "cold.uncached",
-        "warm.cached.incremental",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.incremental.doc.architecture",
+        "project.incremental.foundation.float",
+        "project.incremental.leaf.emit",
+        "project.incremental.none.generated",
+        "project.incremental.proof.compilable",
+        "project.incremental.tool.source-diet",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -905,16 +1113,18 @@
         "make"
       ],
       "id": "make.prove-errors",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prove-errors",
       "purpose": "Print only the Rocq File and Error lines, which a failing Buildx recipe otherwise buries.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -931,16 +1141,18 @@
         "make"
       ],
       "id": "make.prover-log",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prover-log",
       "purpose": "Stream the plain Rocq log for diagnosis.",
       "samples": {
-        "warm.cached.noop": 3
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "warm.cached.noop"
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -957,18 +1169,24 @@
         "make"
       ],
       "id": "make.regen-guard",
+      "invalidation_roots": [
+        "sync"
+      ],
+      "isolation": "disposable-copy",
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:regen-guard",
       "purpose": "Prove the validate-before-publish DAG edge load-bearing: a failed go build must make the sync image unbuildable.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.sync": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.sync",
+        "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
       "source_view": "disposable-copy"
@@ -985,18 +1203,24 @@
         "make"
       ],
       "id": "make.regenerate",
+      "invalidation_roots": [
+        "sync"
+      ],
+      "isolation": "disposable-copy",
       "kind": "make-target",
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:regenerate",
       "purpose": "Rebuild the pristine canonical module and sync those exact bytes into the tree through the Sink.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.sync": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.sync",
+        "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
       "source_view": "disposable-copy"
@@ -1015,18 +1239,22 @@
         "setup"
       ],
       "id": "precommit.builder",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.builder",
       "purpose": "Ensure the pinned Buildx builder exists before the staged verification.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1045,18 +1273,22 @@
         "precommit"
       ],
       "id": "precommit.claims.check",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.claims.check",
       "purpose": "The claim-to-theorem matrix over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1075,18 +1307,22 @@
         "precommit"
       ],
       "id": "precommit.claims.self-test",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.claims.self-test",
       "purpose": "The claim-matrix controls, run on the staged copy of the gate.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1105,18 +1341,22 @@
         "precommit"
       ],
       "id": "precommit.closure-ledger",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.closure-ledger",
       "purpose": "The generated closure-ledger view against its canonical CSV.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1134,18 +1374,22 @@
         "precommit"
       ],
       "id": "precommit.export-index",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.export-index",
       "purpose": "Export the Git index exactly once into the staged snapshot every later stage reads.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1162,18 +1406,24 @@
         "precommit"
       ],
       "id": "precommit.full",
+      "invalidation_roots": [
+        "prover"
+      ],
+      "isolation": null,
       "kind": "precommit-full",
       "measurement": "direct",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.full",
       "purpose": "The whole staged-index verification, measured directly; every child stage is derived from its anchors.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1192,18 +1442,22 @@
         "precommit"
       ],
       "id": "precommit.generated-artifact",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-artifact",
       "purpose": "Materialize the pristine generated module from the staged inputs only.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1222,18 +1476,22 @@
         "precommit"
       ],
       "id": "precommit.generated-compare",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-compare",
       "purpose": "Byte-compare the staged generated tree against that pristine artifact.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1252,18 +1510,22 @@
         "precommit"
       ],
       "id": "precommit.generated-mode",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-mode",
       "purpose": "The index-authoritative Git mode check for every tracked generated file.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1282,18 +1544,22 @@
         "precommit"
       ],
       "id": "precommit.generated-output",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-output",
       "purpose": "The generated-output policy over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1312,18 +1578,22 @@
         "precommit"
       ],
       "id": "precommit.go-e2e",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.go-e2e",
       "purpose": "The whole-tree Go build and differential built from the staged context.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1342,18 +1612,22 @@
         "precommit"
       ],
       "id": "precommit.human-acts.check",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.human-acts.check",
       "purpose": "The D-07 human-acts relation over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1372,18 +1646,22 @@
         "precommit"
       ],
       "id": "precommit.human-acts.self-test",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.human-acts.self-test",
       "purpose": "The human-acts gate controls, run on the staged copy of the gate.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1402,18 +1680,22 @@
         "precommit"
       ],
       "id": "precommit.mutation",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.mutation",
       "purpose": "Every document-gate root helper proved load-bearing by deleting its effect.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1432,18 +1714,22 @@
         "precommit"
       ],
       "id": "precommit.naming",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.naming",
       "purpose": "The A005 scoped-name gate in snapshot mode.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1462,18 +1748,22 @@
         "precommit"
       ],
       "id": "precommit.observatory",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.observatory",
       "purpose": "The permanent command-surface coverage validator over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1492,18 +1782,22 @@
         "precommit"
       ],
       "id": "precommit.ocaml-origin",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.ocaml-origin",
       "purpose": "The transport-only OCaml boundary over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1522,18 +1816,22 @@
         "precommit"
       ],
       "id": "precommit.prover",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.prover",
       "purpose": "The complete proof gate built from the staged context.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1552,18 +1850,22 @@
         "precommit"
       ],
       "id": "precommit.references.check",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.references.check",
       "purpose": "The D-24 operational-reference relation over the staged snapshot.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1582,18 +1884,22 @@
         "precommit"
       ],
       "id": "precommit.references.self-test",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.references.self-test",
       "purpose": "The reference-gate controls, run on the staged copy of the gate.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1612,18 +1918,22 @@
         "precommit"
       ],
       "id": "precommit.source-diet.check",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.check",
       "purpose": "The permanent comment law over every staged .v file.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1642,18 +1952,22 @@
         "precommit"
       ],
       "id": "precommit.source-diet.self-test",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.self-test",
       "purpose": "The source-comment policy controls, run on the staged copy of the checker.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1672,18 +1986,22 @@
         "precommit"
       ],
       "id": "precommit.source-diet.wiring",
+      "invalidation_roots": [],
+      "isolation": null,
       "kind": "precommit-stage",
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.wiring",
       "purpose": "The guarantee that no permanent path invokes a checkpoint-only mode.",
       "samples": {
-        "cold.cached": 1,
-        "warm.cached.noop": 3
+        "project.cached.fresh": 1,
+        "project.cold.prover": 1,
+        "project.warm.noop": 3
       },
       "scenarios": [
-        "cold.cached",
-        "warm.cached.noop"
+        "project.cached.fresh",
+        "project.cold.prover",
+        "project.warm.noop"
       ],
       "side_effect": "none",
       "source_view": "staged-index-export"
@@ -1694,9 +2012,9 @@
       "id": "edit.foundation.float",
       "kind": "append-comment-line",
       "path": "Float.v",
-      "purpose": "A high fan-out foundation module on the measured critical path.",
+      "purpose": "A high fan-out foundation module on the critical path.",
       "rationale": "eight downstream modules, half the theory, and the head of the critical path",
-      "text": "(* observatory: inert edit probe *)\n"
+      "text": "(* observatory: inert edit probe {n} *)\n"
     },
     {
       "id": "edit.proof.compilable",
@@ -1704,7 +2022,7 @@
       "path": "Compilable.v",
       "purpose": "The largest single proof module.",
       "rationale": "the costliest module measured, a third of total compile time",
-      "text": "(* observatory: inert edit probe *)\n"
+      "text": "(* observatory: inert edit probe {n} *)\n"
     },
     {
       "id": "edit.leaf.emit",
@@ -1712,7 +2030,7 @@
       "path": "Emit.v",
       "purpose": "A low fan-out leaf at the end of the chain.",
       "rationale": "nothing depends on it, so it isolates the cost of the module itself",
-      "text": "(* observatory: inert edit probe *)\n"
+      "text": "(* observatory: inert edit probe {n} *)\n"
     },
     {
       "id": "edit.tool.source-diet",
@@ -1720,30 +2038,37 @@
       "path": "tools/source-diet.py",
       "purpose": "A policy-tool edit, which rebuilds no theory.",
       "rationale": "the most frequently edited tool in the implementation-bearing history",
-      "text": "# observatory: inert edit probe\n"
+      "text": "# observatory: inert edit probe {n}\n"
     },
     {
       "id": "edit.doc.architecture",
       "kind": "append-comment-line",
       "path": "ARCHITECTURE.md",
-      "purpose": "A documentation-only edit, which is a build input to nothing.",
-      "rationale": "establishes the floor: what a gate run costs when no build input moved",
-      "text": "\n<!-- observatory: inert edit probe -->\n"
+      "purpose": "A documentation-only edit, a build input to nothing.",
+      "rationale": "the floor: what a gate run costs when no build input moved",
+      "text": "\n<!-- observatory: inert edit probe {n} -->\n"
     },
     {
       "id": "edit.none.generated",
       "kind": "no-edit",
       "path": null,
-      "purpose": "No source edit at all — the generated-byte compare path.",
+      "purpose": "No source edit at all.",
       "rationale": "the acceptance path still materializes and byte-compares the generated module",
       "text": ""
     }
   ],
   "scenarios": [
     {
+      "cache_cut": {
+        "builder_bootstrap_included": true,
+        "invalidated_from": "everything",
+        "registry_pulls_included": true,
+        "stable_through": null
+      },
       "cache_state": {
         "apt_download": "empty",
-        "buildkit_layers": "empty",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "empty",
         "dune_build": "empty",
         "generated_intermediate": "empty",
         "go_build": "empty",
@@ -1751,15 +2076,22 @@
         "opam_download": "empty"
       },
       "canonical": false,
-      "id": "bootstrap.cold.uncached",
+      "id": "environment.bootstrap",
       "prime_steps": [],
-      "purpose": "A new builder with an empty cache, including toolchain and base acquisition.",
+      "purpose": "Builder creation, image pulls and toolchain acquisition. Diagnostic; never canonical.",
       "session_state": "fresh"
     },
     {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": null,
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
       "cache_state": {
         "apt_download": "reused",
-        "buildkit_layers": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
         "dune_build": "reused",
         "generated_intermediate": "reused",
         "go_build": "reused",
@@ -1767,35 +2099,185 @@
         "opam_download": "reused"
       },
       "canonical": true,
-      "id": "cold.cached",
+      "id": "project.cached.fresh",
       "prime_steps": [
-        "cold.uncached"
+        "project.cold"
       ],
-      "purpose": "A fresh session reusing exactly the caches the named prime run produced.",
+      "purpose": "A fresh session against this command's own completed prime result.",
       "session_state": "fresh"
     },
     {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "emit",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
       "cache_state": {
-        "apt_download": "primed",
-        "buildkit_layers": "empty",
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
         "dune_build": "empty",
         "generated_intermediate": "empty",
         "go_build": "empty",
-        "go_module": "primed",
-        "opam_download": "primed"
+        "go_module": "reused",
+        "opam_download": "reused"
       },
       "canonical": true,
-      "id": "cold.uncached",
-      "prime_steps": [
-        "toolchain-prime"
-      ],
-      "purpose": "The clean project-build cost with no reusable project-controlled cache.",
+      "id": "project.cold.emit",
+      "prime_steps": [],
+      "purpose": "Exactly the emit stage invalidated; every stable ancestor stays a cache hit.",
       "session_state": "fresh"
     },
     {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "generated-artifact",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
       "cache_state": {
         "apt_download": "reused",
-        "buildkit_layers": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.generated-artifact",
+      "prime_steps": [],
+      "purpose": "Exactly the generated-artifact stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "go-e2e",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.go-e2e",
+      "prime_steps": [],
+      "purpose": "Exactly the go-e2e stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "module-graph",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.module-graph",
+      "prime_steps": [],
+      "purpose": "Exactly the module-graph stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "profile",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.profile",
+      "prime_steps": [],
+      "purpose": "Exactly the profile stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "prover",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.prover",
+      "prime_steps": [],
+      "purpose": "Exactly the prover stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "sync",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.sync",
+      "prime_steps": [],
+      "purpose": "Exactly the sync stage invalidated; every stable ancestor stays a cache hit.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
         "dune_build": "reused",
         "generated_intermediate": "reused",
         "go_build": "reused",
@@ -1803,25 +2285,25 @@
         "opam_download": "reused"
       },
       "canonical": true,
-      "edits": [
-        "edit.foundation.float",
-        "edit.proof.compilable",
-        "edit.leaf.emit",
-        "edit.tool.source-diet",
-        "edit.doc.architecture",
-        "edit.none.generated"
-      ],
-      "id": "warm.cached.incremental",
+      "edit": "edit.doc.architecture",
+      "id": "project.incremental.doc.architecture",
       "prime_steps": [
-        "cold.cached"
+        "project.cached.fresh"
       ],
-      "purpose": "The same session and cache identity after one deterministic edit in a disposable copy.",
+      "purpose": "A documentation-only edit, a build input to nothing. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
       "session_state": "same"
     },
     {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
       "cache_state": {
         "apt_download": "reused",
-        "buildkit_layers": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
         "dune_build": "reused",
         "generated_intermediate": "reused",
         "go_build": "reused",
@@ -1829,14 +2311,145 @@
         "opam_download": "reused"
       },
       "canonical": true,
-      "id": "warm.cached.noop",
+      "edit": "edit.foundation.float",
+      "id": "project.incremental.foundation.float",
       "prime_steps": [
-        "cold.cached"
+        "project.cached.fresh"
       ],
-      "purpose": "The same session and cache identity with no source byte changed.",
+      "purpose": "A high fan-out foundation module on the critical path. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
+      "session_state": "same"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "edit": "edit.leaf.emit",
+      "id": "project.incremental.leaf.emit",
+      "prime_steps": [
+        "project.cached.fresh"
+      ],
+      "purpose": "A low fan-out leaf at the end of the chain. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
+      "session_state": "same"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "edit": "edit.none.generated",
+      "id": "project.incremental.none.generated",
+      "prime_steps": [
+        "project.cached.fresh"
+      ],
+      "purpose": "No source edit at all. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
+      "session_state": "same"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "edit": "edit.proof.compilable",
+      "id": "project.incremental.proof.compilable",
+      "prime_steps": [
+        "project.cached.fresh"
+      ],
+      "purpose": "The largest single proof module. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
+      "session_state": "same"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": "source",
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "edit": "edit.tool.source-diet",
+      "id": "project.incremental.tool.source-diet",
+      "prime_steps": [
+        "project.cached.fresh"
+      ],
+      "purpose": "A policy-tool edit, which rebuilds no theory. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
+      "session_state": "same"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_from": null,
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "reused",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.warm.noop",
+      "prime_steps": [
+        "project.cached.fresh"
+      ],
+      "purpose": "The same source and completed cache, run again with nothing changed.",
       "session_state": "same"
     }
   ],
   "schema": "fido.build-observatory/1",
+  "stable_through": "rocq-base",
   "state": "active"
 }

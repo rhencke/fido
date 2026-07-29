@@ -1,6 +1,11 @@
 BUILDER := fido-builder
 # The 64-bit target the theory assumes; `override` makes a command-line or environment change inert.
 override PLATFORM := linux/amd64
+# Inert observatory hook: unset, this expands to nothing and every recipe below is exactly the one
+# that has always run.  The Build Observatory sets NOCACHE=<stage> to invalidate one declared
+# invalidation root while its stable ancestors stay cache hits — a project-cold measurement, not an
+# empty machine.  It is never set by an ordinary build.
+NC := $(if $(NOCACHE),--no-cache-filter $(NOCACHE))
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
         fcb fcb-write claims diet audit-fresh profile observatory observe
@@ -25,7 +30,7 @@ check: names fcb claims diet observatory prove e2e builder
 	  tar -xf "$$tmp/tree.tar" -C "$$tree" && \
 	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
 	  sh tools/generated-output-gate.sh "$$tree" && \
-	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target generated-artifact \
 	    --output "type=local,dest=$$tmp/pristine" . && \
 	  sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; \
 	  rc=$$?; rm -rf "$$tmp"; \
@@ -34,10 +39,10 @@ check: names fcb claims diet observatory prove e2e builder
 
 # The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
 prove: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target prover .
 
 prover-log: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target prover .
 
 # Diagnostic only, never a gate.  Recompiles ONE module with `-time` and ranks its sentences by cost, so a
 # slow build can be attributed instead of guessed at.  `make profile FILE=Typing.v TOP=25`.
@@ -55,18 +60,18 @@ profile: builder
 # explicit `rocq c`, not a .vo side effect.  The internal sink is exercised separately, against dirty and
 # adversarial trees.  The fresh-build validation that gates real publication is in `e2e`.
 emit: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target emit .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target emit .
 
 # Emit the whole tree, then the pinned Go toolchain builds it and runs the witness against the goldens.
 e2e: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target go-e2e .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target go-e2e .
 
 # Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` FORCES
 # the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's /fresh-build-ok), so a failed
 # fresh build makes `sync` unbuildable and no sink effect occurs.  It publishes the original pristine bytes,
 # never a post-build one.
 regenerate: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
 	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"

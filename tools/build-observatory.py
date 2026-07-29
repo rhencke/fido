@@ -53,12 +53,23 @@ KINDS = ('make-target', 'precommit-stage', 'precommit-full', 'docker-stage',
          'rocq-module-analysis', 'history-analysis', 'setup', 'diagnostic')
 SOURCE_VIEWS = ('working-tree', 'committed-tree', 'staged-index', 'staged-index-export',
                 'disposable-copy', 'environment-only')
+# How a side effect is CONTAINED while the command is measured. `not-measured` belongs only to a
+# catalog-only entry, which by definition never runs.
+ISOLATIONS = ('disposable-copy', 'temporary-docker-config', 'temporary-git-repo', 'not-measured')
 SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
                 'writes-tracked-observation', 'changes-repository-config')
 MEASUREMENTS = ('direct', 'derived', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
                   'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner')
-SCENARIO_FIELDS = ('id', 'purpose', 'session_state', 'cache_state', 'prime_steps')
+SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state', 'prime_steps',
+                   'cache_cut')
+# §3A.1 — a cache cut says what stays a hit, what must rebuild, and that nothing was pulled or
+# bootstrapped inside the measured interval. A sample without one is a number with no meaning.
+CUT_FIELDS = ('stable_through', 'invalidated_from', 'registry_pulls_included',
+              'builder_bootstrap_included')
+STAGE_STATES = ('hit', 'rebuilt', 'skipped', 'not-required', 'unavailable')
+PROJECT_CACHES = ('buildkit_project_layers', 'dune_build', 'go_build', 'generated_intermediate')
+STABLE_CACHES = ('buildkit_toolchain_layers', 'apt_download', 'opam_download', 'go_module')
 
 # A kind whose members are discovered from a live surface, paired with the surface that discovers them. A
 # registry entry of one of these kinds is a claim about the repository, checked in BOTH directions.
@@ -229,13 +240,40 @@ def load_suite(root: Path) -> dict:
         if e['kind'] != 'no-edit' and not (root / e['path']).is_file():
             raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]} names {e["path"]!r}, which is not a file')
     for s in suite['scenarios']:
-        unknown_edits = [x for x in s.get('edits', []) if x not in edits]
-        if unknown_edits:
-            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: unknown edit(s) {unknown_edits}')
-        if 'incremental' in s['id'] and not s.get('edits'):
+        # One incremental scenario, one edit shape: the edit IS the metric identity, so it cannot be a set
+        # whose members get pooled, and it cannot be absent or the scenario measures a no-op.
+        if s['id'].startswith('project.incremental.'):
+            if s.get('edit') not in edits:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]} declares edit {s.get("edit")!r}, which is not a '
+                    f'registered edit shape; it would measure a no-op and record it as a rebuild')
+        elif 'edit' in s:
             raise ObservatoryError(
-                f'{SUITE_REL}: scenario {s["id"]} is incremental but declares no edits; it would measure a '
-                f'no-op and record it as an incremental rebuild')
+                f'{SUITE_REL}: scenario {s["id"]} names an edit but is not an incremental scenario')
+
+        # §3A.1 — the cut is what makes a cold number mean something
+        cut = s.get('cache_cut') or {}
+        missing_cut = [f for f in CUT_FIELDS if f not in cut]
+        if missing_cut:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache_cut lacks {missing_cut}')
+        root = cut['invalidated_from']
+        if s['id'].startswith('project.cold.'):
+            if root != s['id'].split('project.cold.', 1)[1]:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]} invalidates {root!r}, which is not the root its own '
+                    f'name declares')
+            if cut['registry_pulls_included'] or cut['builder_bootstrap_included']:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]} is canonical project-cold but admits registry pulls or '
+                    f'builder bootstrap; that measures machine setup, not this repository')
+            if cut['stable_through'] != suite.get('stable_through'):
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]}: stable boundary {cut["stable_through"]!r} is not the '
+                    f'registry-declared {suite.get("stable_through")!r}')
+        if s.get('canonical') and (cut['registry_pulls_included'] or cut['builder_bootstrap_included']):
+            raise ObservatoryError(
+                f'{SUITE_REL}: scenario {s["id"]} is canonical but includes pulls or bootstrap; an empty-'
+                f'machine run is diagnostic evidence, never canonical performance evidence')
 
     for s in suite['scenarios']:
         if 'canonical' not in s:
@@ -363,23 +401,37 @@ def inventory_digest(root: Path) -> str:
     return _sha256(entries.encode('utf-8'))
 
 
+def content_digest(root: Path) -> str:
+    """An exact digest of the source a command will actually see.
+
+    `git status --porcelain` sliced at character three is not a path model: it mangles renames, quoted names,
+    spaces and staged-versus-unstaged combinations. This hashes CONTENT over tracked plus
+    untracked-nonignored files instead, which needs no path parsing at all and answers the question the
+    subject is really asking — what bytes were built."""
+    listing = _git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+    parts = []
+    for rel in sorted(p for p in listing.split('\0') if p):
+        f = root / rel
+        try:
+            parts.append(f'{rel}:{_sha256(f.read_bytes())}')
+        except (OSError, IsADirectoryError):
+            parts.append(f'{rel}:unreadable')
+    if not parts:
+        raise ObservatoryError(f'{root}: no source files enumerated, so the subject cannot be identified')
+    return _sha256('\n'.join(parts).encode('utf-8'))
+
+
 def subject(root: Path) -> dict:
     """What exactly was measured. A dirty run says so and carries enough to tell two dirty runs apart."""
-    porcelain = _git(root, 'status', '--porcelain')
-    dirty = bool(porcelain.strip())
+    dirty = bool(_git(root, 'status', '--porcelain=v2', '-z').strip('\0').strip())
     head = _git(root, 'rev-parse', 'HEAD').strip()
     tree = _git(root, 'rev-parse', 'HEAD^{tree}').strip()
     out = {'commit': head, 'tree': tree, 'inventory_digest': inventory_digest(root),
+           'content_digest': content_digest(root),
            'dirty': dirty, 'source_view': 'working-tree' if dirty else 'committed-tree'}
     if dirty:
-        paths = sorted(l[3:] for l in porcelain.split('\n') if l.strip())
-        blobs = []
-        for rel in paths:
-            f = root / rel
-            blobs.append(f'{rel}:{_sha256(f.read_bytes()) if f.is_file() else "absent"}')
         out['head_commit'] = head
-        out['working_tree_digest'] = _sha256('\n'.join(blobs).encode('utf-8'))
-        out['dirty_paths_digest'] = _sha256('\n'.join(paths).encode('utf-8'))
+        out['working_tree_digest'] = out['content_digest']
     return out
 
 
@@ -406,7 +458,30 @@ def _pinned(root: Path) -> dict:
     return {'base_image_digests': digests, 'toolchain_versions': versions}
 
 
-def _host() -> dict:
+def _concurrency(inspect: dict) -> dict:
+    """Effective parallelism, decoded rather than captured.
+
+    The first candidate recorded `make_jobs: " -- RECORD=1"` — the raw MAKEFLAGS string, which is not a job
+    count and cannot be compared. Concurrency changes timing, so it belongs in the compatibility fingerprint
+    as a NUMBER or as an explicit unknown."""
+    import os
+    flags = os.environ.get('MAKEFLAGS', '')
+    jobs = None
+    m = re.search(r'(?:^|\s)-?-j\s*(\d+)', flags)
+    if m:
+        jobs = int(m.group(1))
+    elif re.search(r'(?:^|\s)-?-j(?:\s|$)', flags):
+        jobs = 0                                    # -j with no argument: unbounded
+    else:
+        jobs = 1                                    # make is serial unless told otherwise
+    bk = os.environ.get('BUILDKIT_MAX_PARALLELISM', '')
+    return {'make_jobs': jobs, 'make_jobs_source': flags or '(unset)',
+            'buildkit_max_parallelism': int(bk) if bk.isdigit() else None,
+            'buildkit_workers': inspect.get('Platforms', '').count(',') + 1 if inspect else None,
+            'logical_cpus': os.cpu_count()}
+
+
+def _host(root: Path, builder: str = None) -> dict:
     import os
     import platform
     import subprocess
@@ -437,21 +512,24 @@ def _host() -> dict:
     # `docker buildx inspect --format` does not exist before buildx 0.14, and asking for it there returns a
     # usage error rather than a driver. Parse the human table once — every version prints it, and inspect
     # without --bootstrap does not start anything.
+    # The first candidate inspected the developer's builder while the work ran on the observatory's, so
+    # the observation carried the driver, BuildKit version and snapshotter of a builder that built nothing.
     inspect = dict(
         (k.strip(), v.strip())
-        for k, _, v in (l.partition(':') for l in (cmd('docker', 'buildx', 'inspect', BUILDER) or '').split('\n'))
+        for k, _, v in (l.partition(':') for l in
+                        (cmd('docker', 'buildx', 'inspect', builder or OBSERVATORY_BUILDER) or '').split('\n'))
         if v.strip())
 
     return {'platform': f'{platform.system()}/{platform.machine()}', 'kernel': platform.release(),
             'cpu_model': cpu_model, 'logical_cpus': os.cpu_count(), 'memory_bytes': mem_bytes,
-            'filesystem_type': cmd('stat', '-f', '-c', '%T', '.'),
+            'filesystem_type': cmd('stat', '-f', '-c', '%T', str(root)),
+            'measured_root': str(root),
             'docker_version': cmd('docker', 'version', '--format', '{{.Server.Version}}'),
             'buildx_version': cmd('docker', 'buildx', 'version'),
             'buildkit_identity': inspect.get('BuildKit version'),
             'builder_driver': inspect.get('Driver'),
             'buildkit_snapshotter': inspect.get('org.mobyproject.buildkit.worker.snapshotter'),
-            'concurrency': {'make_jobs': os.environ.get('MAKEFLAGS', ''),
-                            'buildkit_max_parallelism': os.environ.get('BUILDKIT_MAX_PARALLELISM', '')}}
+            'concurrency': _concurrency(inspect)}
 
 
 # Fields whose value changes the timing a comparison may be made against. Free memory and load average are
@@ -459,7 +537,7 @@ def _host() -> dict:
 # observation incomparable with every other.
 FINGERPRINT_FIELDS = ('platform', 'kernel', 'cpu_model', 'logical_cpus', 'memory_bytes',
                       'docker_version', 'buildx_version', 'buildkit_identity', 'builder_driver',
-                      'buildkit_snapshotter', 'filesystem_type')
+                      'buildkit_snapshotter', 'filesystem_type', 'concurrency')
 
 
 REQUIRED_ENVIRONMENT = ('platform', 'kernel', 'cpu_model', 'logical_cpus', 'memory_bytes',
@@ -479,8 +557,9 @@ def check_environment_complete(env: dict) -> None:
             f'record an environment it could not identify')
 
 
-def environment(root: Path) -> dict:
-    env = {**_host(), **_pinned(root)}
+def environment(root: Path, builder: str = None) -> dict:
+    env = {**_host(root, builder), **_pinned(root)}
+    env['builder'] = builder or OBSERVATORY_BUILDER
     stable = {k: env[k] for k in FINGERPRINT_FIELDS}
     stable['base_image_digests'] = env['base_image_digests']
     stable['toolchain_versions'] = env['toolchain_versions']
@@ -592,59 +671,68 @@ def _monotonic_ns() -> int:
     return time.monotonic_ns()
 
 
-def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: str,
+def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
                raw_dir: Path, cache_before: dict, cwd: Path | None = None,
-               env_extra: dict | None = None) -> dict:
+               env_extra: dict | None = None, source_digest: str | None = None,
+               edit_id: str | None = None) -> dict:
     """Run one command once and retain everything needed to defend the number afterwards.
 
-    Duration is monotonic: a wall clock can step backwards under NTP and produce a negative or absurd
-    interval, and a timing tool that reports one has said something false rather than nothing.
+    Duration is monotonic: a wall clock can step under NTP and produce a negative interval, and a timing tool
+    that reports one has said something false rather than nothing.
 
-    The raw log stays local and only its digest is retained, so the tracked observation stays useful long
-    after the bundle is gone without pretending the log is still there."""
+    Resource use comes from `wait4` on THIS child, not from `RUSAGE_CHILDREN`. That aggregate is a high-water
+    mark across every prior child of the observatory, so attributing it to one sample would report an earlier
+    command's peak as this one's."""
     import datetime
-    import resource
+    import os
     import subprocess
 
-    import os
+    scenario_id = scenario['id']
     raw_dir.mkdir(parents=True, exist_ok=True)
-    log = raw_dir / f'{command["id"]}.{scenario_id}.{index}.log'
+    log = raw_dir / (raw_log_name(command['id'], scenario_id, index, edit_id) + '.log')
     env = {**os.environ, **(env_extra or {})}
-    before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
     t0 = _monotonic_ns()
     with log.open('wb') as sink:
         try:
-            proc = subprocess.run(command['execution'], cwd=str(cwd or root), env=env,
-                                  stdout=sink, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(command['execution'], cwd=str(cwd or root), env=env,
+                                    stdout=sink, stderr=subprocess.STDOUT)
         except OSError as exc:
             raise ObservatoryError(
                 f'{command["id"]}: could not execute {command["execution"]!r} ({exc.__class__.__name__}: '
                 f'{exc}); an unrunnable command is a defect in the registry, not a slow sample')
+        _, status, usage = os.wait4(proc.pid, 0)
+        proc.returncode = os.waitstatus_to_exitcode(status)
     wall_ns = _monotonic_ns() - t0
-    after = resource.getrusage(resource.RUSAGE_CHILDREN)
 
     if wall_ns < 0:
         raise ObservatoryError(
             f'{command["id"]}: the monotonic clock went backwards, which cannot happen; the sample is void')
 
     data = log.read_bytes()
+    text = data.decode('utf-8', errors='replace')
     expected = command['expected_exit']
-    status = 'ok' if proc.returncode == expected else 'unexpected-exit'
-    # A fixture that exits nonzero for a reason nobody expected is a DIFFERENT failure wearing the right
-    # exit code. When a command declares the reason it must fail for, the raw log has to carry it.
+    status_word = 'ok' if proc.returncode == expected else 'unexpected-exit'
     reason = command.get('expected_failure_reason')
-    if status == 'ok' and expected != 0 and reason:
-        if reason.encode('utf-8') not in data:
-            status = 'wrong-failure-reason'
+    if status_word == 'ok' and expected != 0 and reason and reason.encode('utf-8') not in data:
+        status_word = 'wrong-failure-reason'
+
+    stages = observe_stages(text)
+    cut = dict(scenario['cache_cut'])
+    cut['registry_pulls_included'] = pulled_from_registry(text)
+    cut['builder_bootstrap_included'] = bootstrapped_builder(text)
+
     return {'command_id': command['id'], 'scenario_id': scenario_id, 'sample_index': index,
+            'edit_id': edit_id, 'derived_parent_id': None,
             'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
-            'user_cpu_ns': int((after.ru_utime - before.ru_utime) * 1e9),
-            'system_cpu_ns': int((after.ru_stime - before.ru_stime) * 1e9),
-            'max_rss_bytes': after.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
+            'user_cpu_ns': int(usage.ru_utime * 1e9), 'system_cpu_ns': int(usage.ru_stime * 1e9),
+            'max_rss_bytes': usage.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
             'exit_code': proc.returncode, 'expected_exit': expected,
-            'status': status, 'expected_failure_reason': reason,
-            'cache_before': cache_before, 'cache_after': dict(cache_before),
+            'status': status_word, 'expected_failure_reason': reason,
+            'cache_before': cache_before, 'cache_after': observe_cache_after(cache_before, stages),
+            'cache_cut': cut, 'cache_observation': {'stages': stages},
+            'source_digest': source_digest,
             'raw_log_sha256': _sha256(data), 'raw_log_bytes': len(data),
             'derived_stage_events': []}
 
@@ -652,14 +740,16 @@ def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: st
 ANCHOR_EVENT = re.compile(r'^(begin|end) (\S+) (\d+)$')
 BUILDKIT_STEP = re.compile(r'^#(\d+) \[([^\]]+)\]')
 BUILDKIT_DONE = re.compile(r'^#(\d+) (DONE ([0-9.]+)s|CACHED)\s*$')
+# The hook's clock is CLOCK_MONOTONIC read from /proc/uptime, whose resolution is 10 ms. The observation
+# records that rather than implying nanosecond precision it does not have.
+HOOK_CLOCK = {'source': '/proc/uptime', 'kind': 'CLOCK_MONOTONIC', 'resolution_ns': 10_000_000}
 
 
 def parse_anchor_log(text: str) -> list[dict]:
     """Hook stage durations from the anchor log the instrumented hook writes.
 
-    The hook's clock is wall-clock, because POSIX sh has no monotonic one at useful resolution. A clock step
-    would show up as an end before its begin — so that is REJECTED rather than reported as a negative or
-    absurd duration. A wrong number is worse than a missing one."""
+    The clock is monotonic, so an end before its begin cannot happen; if it does, the sample is void rather
+    than reported as a negative duration."""
     open_at: dict[str, int] = {}
     events = []
     for line in text.split('\n'):
@@ -673,32 +763,32 @@ def parse_anchor_log(text: str) -> list[dict]:
             wall = ns - open_at.pop(anchor)
             if wall < 0:
                 raise ObservatoryError(
-                    f'hook anchor {anchor!r} ended before it began; the wall clock stepped during the run '
-                    f'and every stage duration in this sample is void')
-            events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor'})
+                    f'hook anchor {anchor!r} ended before it began on a monotonic clock; every stage '
+                    f'duration in this sample is void')
+            events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
+                           'clock': HOOK_CLOCK})
     return events
 
 
 def parse_buildkit_progress(text: str) -> list[dict]:
-    """Per-stage durations from BuildKit's plain progress output.
+    """Per-stage step work from BuildKit's plain progress output.
 
-    Steps are numbered and the stage name appears once, in the step header; the DONE line carries only the
-    number. Resolving one to the other is why this reads the whole log rather than grepping for durations."""
+    The value is the SUM of that stage's step durations. Parallel steps overlap, so it is aggregate step
+    work and is named `aggregate_step_ns` — publishing it as elapsed wall time would be one number wearing
+    another's name."""
     stage_of: dict[str, str] = {}
     totals: dict[str, int] = {}
     cached: dict[str, int] = {}
     for line in text.split('\n'):
         head = BUILDKIT_STEP.match(line.strip())
         if head:
-            step, label = head.group(1), head.group(2)
-            name = label.split()[0]
+            name = head.group(2).split()[0]
             if name != 'internal':
-                stage_of[step] = name
+                stage_of[head.group(1)] = name
             continue
         done = BUILDKIT_DONE.match(line.strip())
         if done:
-            step = done.group(1)
-            name = stage_of.get(step)
+            name = stage_of.get(done.group(1))
             if not name:
                 continue
             if done.group(3):
@@ -706,45 +796,134 @@ def parse_buildkit_progress(text: str) -> list[dict]:
             else:
                 cached[name] = cached.get(name, 0) + 1
     return sorted(
-        ({'id': f'docker.{name}', 'wall_ns': totals.get(name, 0), 'cached_steps': cached.get(name, 0),
-          'source': 'buildkit-progress'} for name in set(totals) | set(cached)),
+        ({'id': f'docker.{name}', 'aggregate_step_ns': totals.get(name, 0),
+          'cached_steps': cached.get(name, 0), 'source': 'buildkit-progress'}
+         for name in set(totals) | set(cached)),
         key=lambda e: e['id'])
 
 
-def analysis_sample(command_id: str, scenario_id: str, role: str, wall_ns: int,
-                    provenance: dict, events: list[dict]) -> dict:
-    """A sample for work the observatory performs itself rather than shelling out for.
-
-    It is still a measurement and still has to answer for itself, so it carries the same fields as any other
-    sample. CPU and memory are the observatory's own process and are not the analysis's, so they are absent
-    and `resource_scope` says why rather than reporting a number that means something else."""
-    import datetime
-    return {'command_id': command_id, 'scenario_id': scenario_id, 'sample_index': 0,
-            'selected_or_support': role,
-            'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
-            'resource_scope': SCOPE_UNAVAILABLE, 'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
-            'expected_failure_reason': None, 'cache_before': provenance, 'cache_after': dict(provenance),
-            'raw_log_sha256': None, 'derived_stage_events': events}
-
-
 def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> list[dict]:
-    """One sample per derived child, from its parent's own events.
+    """One sample per derived child, from its parent's own events, keyed BY that parent.
 
-    A registry that classifies 34 derived commands and an observation that holds data for none of them is
-    coverage on paper only. These carry the parent's scenario and role so they compare like any other metric,
-    and `resource_scope` says the CPU and memory numbers are the parent's, not theirs."""
+    Merging one stage observed under four parents into a single median answers a question nobody asked, so
+    the parent is part of the identity. CPU and memory are the parent's and are absent here."""
     out = []
     for event in events:
         if event['id'] not in known:
             continue
-        out.append({**parent, 'command_id': event['id'], 'wall_ns': event['wall_ns'],
+        buildkit = event['source'] == 'buildkit-progress'
+        out.append({**parent, 'command_id': event['id'],
+                    'derived_parent_id': parent['command_id'],
+                    'wall_ns': event.get('wall_ns') if not buildkit else None,
+                    'aggregate_step_ns': event.get('aggregate_step_ns'),
+                    'cached_steps': event.get('cached_steps'),
                     'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
-                    'resource_scope': SCOPE_BUILDKIT if event['source'] == 'buildkit-progress'
-                    else SCOPE_UNAVAILABLE,
-                    'measurement_source': event['source'], 'derived_from': parent['command_id'],
-                    'derived_stage_events': []})
+                    'resource_scope': SCOPE_BUILDKIT if buildkit else SCOPE_UNAVAILABLE,
+                    'measurement_source': event['source'],
+                    'clock': event.get('clock'), 'derived_stage_events': []})
     return out
+
+
+def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
+                    provenance: dict, events: list[dict], source_digest: str | None = None) -> dict:
+    """A sample for work the observatory performs itself rather than shelling out for."""
+    import datetime
+    return {'command_id': command_id, 'scenario_id': scenario['id'], 'sample_index': 0,
+            'edit_id': None, 'derived_parent_id': None, 'selected_or_support': role,
+            'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
+            'resource_scope': SCOPE_UNAVAILABLE, 'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
+            'expected_failure_reason': None, 'cache_before': provenance,
+            'cache_after': dict(provenance, observed=True), 'cache_cut': dict(scenario['cache_cut']),
+            'cache_observation': {'stages': {}}, 'source_digest': source_digest,
+            'raw_log_sha256': None, 'derived_stage_events': events}
+
+
+def raw_log_name(command_id: str, scenario_id: str, index: int, edit_id: str | None = None,
+                 parent_id: str | None = None) -> str:
+    """The full stable sample identity, so two samples can never share one path.
+
+    The first candidate keyed logs by command, scenario and index only, so six edit shapes overwrote each
+    other and the observation retained digests for files that were gone."""
+    parts = [command_id, scenario_id]
+    if edit_id:
+        parts.append(edit_id)
+    if parent_id:
+        parts.append(f'from-{parent_id}')
+    parts.append(str(index))
+    return '.'.join(parts)
+
+
+# BuildKit prints one of these per step. `CACHED` is a hit; a `DONE` on a step that was not cached is work
+# that actually ran. Inferring either from elapsed time is the thing the contract forbids.
+_BK_CACHED = re.compile(r'^#(\d+) CACHED\s*$')
+_BK_DONE = re.compile(r'^#(\d+) DONE\s+[0-9.]+s\s*$')
+# A real pull moves bytes or extracts a layer. `resolve <ref> 0.1s done` is LOCAL reference resolution and
+# is not a pull — matching it would fail every canonical sample on a machine that already has the images,
+# which is precisely the machine the amendment says to measure on.
+_BK_PULL = re.compile(r'^#\d+ (?:extracting |sha256:\S+ [0-9.]+[KMG]?B / )', re.I)
+
+
+def observe_stages(text: str) -> dict:
+    """Per-stage hit / rebuilt state, read from BuildKit rather than inferred from elapsed time.
+
+    A stage's FROM step is base-image RESOLUTION, and it reports DONE even when the image is already local.
+    Counting that as work would report every stable ancestor as rebuilt, which is exactly the claim a
+    project-cold sample must be able to deny. Only an executed non-FROM step means the stage rebuilt."""
+    stage_of, is_from, cached, ran = {}, {}, {}, {}
+    for line in text.split('\n'):
+        head = BUILDKIT_STEP.match(line.strip())
+        if head:
+            step, label = head.group(1), head.group(2)
+            name = label.split()[0]
+            if name == 'internal':
+                continue
+            stage_of[step] = name
+            rest = line.strip()[head.end():].strip()
+            if rest.startswith('FROM '):
+                is_from[step] = True
+            continue
+        m = _BK_CACHED.match(line.strip())
+        if m and m.group(1) in stage_of:
+            name = stage_of[m.group(1)]
+            cached[name] = cached.get(name, 0) + 1
+            continue
+        m = _BK_DONE.match(line.strip())
+        if m and m.group(1) in stage_of and not is_from.get(m.group(1)):
+            name = stage_of[m.group(1)]
+            ran[name] = ran.get(name, 0) + 1
+    out = {}
+    for name in sorted(set(stage_of.values())):
+        if ran.get(name):
+            out[name] = 'rebuilt'
+        elif cached.get(name):
+            out[name] = 'hit'
+        else:
+            out[name] = 'unavailable'
+    return out
+
+
+def pulled_from_registry(text: str) -> bool:
+    """Whether an image was fetched inside the measured interval, which a canonical sample forbids."""
+    return any(_BK_PULL.match(l.strip()) for l in text.split('\n'))
+
+
+def bootstrapped_builder(text: str) -> bool:
+    return 'creating new builder' in text.lower() or 'bootstrap' in text.lower()
+
+
+def observe_cache_after(before: dict, stages: dict) -> dict:
+    """The state AFTER the command, observed. Copying `cache_before` was the first candidate's false record:
+    a command that built the whole theory reported that nothing changed."""
+    after = {k: v for k, v in before.items() if k != 'authorities'}
+    authorities = dict(before.get('authorities', {}))
+    rebuilt = any(v == 'rebuilt' for v in stages.values())
+    for k in PROJECT_CACHES:
+        if k in authorities:
+            authorities[k] = 'primed' if rebuilt else authorities[k]
+    after['authorities'] = authorities
+    after['observed'] = True
+    return after
 
 
 def run_id_for(subject_info: dict, started_utc: str, digest: str) -> str:
@@ -775,6 +954,89 @@ def write_json(path: Path, obj) -> bytes:
     return data
 
 
+def metric_identity(sample: dict) -> str:
+    """The one identity every sample, summary, comparison row, log path and citation uses.
+
+    The first candidate keyed on command and scenario alone, so six edit shapes shared one median and one
+    Docker stage observed under four parents shared another. An identity that omits what distinguishes two
+    measurements makes them look like repetitions of one."""
+    return '|'.join((sample['command_id'], sample['scenario_id'],
+                     sample.get('edit_id') or '-', sample.get('derived_parent_id') or '-',
+                     sample.get('resource_scope') or '-'))
+
+
+def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
+    """What the scenario DECLARED against what BuildKit actually did.
+
+    A declared cut is a claim about the run. Left unchecked it is exactly the defect that blocked the first
+    candidate: a label describing work that had already been done by something else."""
+    cut, stages = sample['cache_cut'], sample['cache_observation']['stages']
+    if cut['registry_pulls_included'] and scenario.get('canonical'):
+        raise ObservatoryError(
+            f'{sample["command_id"]} [{scenario["id"]}]: an image was pulled inside the measured interval, '
+            f'so this is machine setup rather than canonical project evidence')
+    if cut['builder_bootstrap_included'] and scenario.get('canonical'):
+        raise ObservatoryError(
+            f'{sample["command_id"]} [{scenario["id"]}]: the builder was bootstrapped inside the measured '
+            f'interval, which the cache cut excludes')
+    if not stages:
+        return                                     # a command that drives no BuildKit graph has none to show
+    stable = cut.get('stable_through')
+    if stable and stages.get(stable) == 'rebuilt':
+        raise ObservatoryError(
+            f'{sample["command_id"]} [{scenario["id"]}]: the declared stable ancestor {stable!r} rebuilt, so '
+            f'this measured more than the cut says it did')
+    root = cut.get('invalidated_from')
+    if scenario['id'].startswith('project.cold.') and root in stages and stages[root] != 'rebuilt':
+        raise ObservatoryError(
+            f'{sample["command_id"]} [{scenario["id"]}]: the invalidation root {root!r} was {stages[root]}, '
+            f'not rebuilt; a cold sample whose root stayed cached is not a cold sample')
+
+
+def definition_fingerprints(suite: dict) -> dict:
+    """A digest per DEFINITION, so a changed meaning makes a metric incomparable rather than regressed.
+
+    Fingerprinting commands alone left two observations comparable across a changed scenario meaning, a
+    changed edit procedure or a changed sample policy — a delta between two different questions."""
+    return {
+        'commands': {c['id']: _sha256(canonical_bytes(c)) for c in suite['commands']},
+        'scenarios': {s['id']: _sha256(canonical_bytes(s)) for s in suite['scenarios']},
+        'edits': {e['id']: _sha256(canonical_bytes(e)) for e in suite.get('edits', [])},
+        'stable_through': suite.get('stable_through'),
+    }
+
+
+def repeated_work(suite: dict, samples: list[dict]) -> dict:
+    """Containment and repeated execution by stable ID, as machine-readable fact rather than prose.
+
+    M2 records that a check runs the same policy gate the hook runs; M3 decides whether either is safe to
+    drop. Recording the relation is the part M2 owes."""
+    by_id = {c['id']: c for c in suite['commands']}
+    contains: dict[str, list[str]] = {}
+    for c in suite['commands']:
+        for dep in c['dependencies']:
+            contains.setdefault(dep, []).append(c['id'])
+
+    # a policy check performed both by a Make target and by a hook stage is repeated execution
+    def tail(cid: str) -> str:
+        return cid.split('.', 1)[1] if '.' in cid else cid
+
+    make_tails = {tail(c['id']): c['id'] for c in suite['commands'] if c['kind'] == 'make-target'}
+    repeated = []
+    for c in suite['commands']:
+        if c['kind'] != 'precommit-stage':
+            continue
+        t = tail(c['id']).split('.')[0]
+        if t in make_tails:
+            repeated.append({'policy': t, 'make_command': make_tails[t], 'hook_stage': c['id'],
+                             'reason': 'the working tree and the proposed commit are different subjects, '
+                                       'so both runs are wanted; the cost of running both is the finding'})
+    measured = {s['command_id'] for s in samples}
+    return {'containment': {k: sorted(v) for k, v in sorted(contains.items())},
+            'repeated_execution': sorted(repeated, key=lambda r: r['policy']),
+            'measured_commands': sorted(measured)}
+
+
 def summarise(samples: list[dict]) -> dict:
     """Derived median, minimum and maximum, alongside the samples they came from — never instead of them.
 
@@ -782,7 +1044,12 @@ def summarise(samples: list[dict]) -> dict:
     The validator recomputes every value here from the retained samples."""
     by_key: dict[str, list[int]] = {}
     for s in samples:
-        by_key.setdefault(f'{s["command_id"]}|{s["scenario_id"]}', []).append(s['wall_ns'])
+        value = s.get('wall_ns')
+        if value is None:                          # a derived BuildKit child has aggregate step work, not wall
+            value = s.get('aggregate_step_ns')
+        if value is None:
+            continue
+        by_key.setdefault(metric_identity(s), []).append(value)
     out = {}
     for key, values in sorted(by_key.items()):
         ordered = sorted(values)
@@ -796,8 +1063,7 @@ def summarise(samples: list[dict]) -> dict:
 # ────────────────────────────────────────────────────────── cache provenance
 OBSERVATORY_BUILDER = 'fido-observatory'
 CACHE_STATE_REL = '.build-observatory/cache-state.json'
-CACHE_AUTHORITIES = ('buildkit_layers', 'dune_build', 'apt_download', 'opam_download',
-                     'go_build', 'go_module', 'generated_intermediate')
+CACHE_AUTHORITIES = PROJECT_CACHES + STABLE_CACHES
 CACHE_STATES = ('empty', 'primed', 'reused', 'not-applicable', 'uncontrolled')
 
 
@@ -816,7 +1082,7 @@ def _assert_observatory_builder(name: str) -> None:
 def toolchain_prime(root: Path, progress=print) -> None:
     """Rebuild the pinned base so a cold PROJECT build is not also a toolchain download.
 
-    `cold.uncached` and `bootstrap.cold.uncached` are different questions: the first asks what building this
+    `project.cold.prover` and `bootstrap.project.cold.prover` are different questions: the first asks what building this
     project costs, the second what starting from nothing costs. Without this step they collapse into one
     number dominated by apt and opam."""
     import subprocess
@@ -833,7 +1099,7 @@ def reset_observatory_cache(progress=print) -> None:
     """Empty the observatory's own BuildKit cache so a cold scenario is actually cold.
 
     Routed through the builder guard, because this is the one operation in the file that destroys something.
-    A `cold.uncached` number taken against a full cache is not a cold number, and would be worse than no
+    A `project.cold.prover` number taken against a full cache is not a cold number, and would be worse than no
     number at all: it would look authoritative."""
     import subprocess
     _assert_observatory_builder(OBSERVATORY_BUILDER)
@@ -899,7 +1165,7 @@ def check_cache_provenance(root: Path, scenario: dict, env: dict) -> dict:
 
 
 # ───────────────────────────────────────────────── deterministic source edits
-def apply_edit(copy_root: Path, edit: dict) -> None:
+def apply_edit(copy_root: Path, edit: dict, index: int = 0) -> None:
     """Apply one named edit to a DISPOSABLE copy, and prove exactly one file changed.
 
     The real working tree is never touched. Verifying that the intended file changed AND that nothing else
@@ -914,19 +1180,32 @@ def apply_edit(copy_root: Path, edit: dict) -> None:
     if edit['kind'] == 'append-comment-line':
         if not original.endswith(b'\n'):
             raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} does not end in a newline')
-        target.write_bytes(original + edit['text'].encode('utf-8'))
+        # `{n}` makes each sample's bytes distinct, so sample two cannot be sample one's exact cache hit
+        target.write_bytes(original + edit['text'].format(n=index).encode('utf-8'))
     else:
         raise ObservatoryError(f'edit {edit["id"]}: unknown edit kind {edit["kind"]!r}')
     return None
 
 
-def disposable_copy(root: Path, dest: Path) -> Path:
-    """An exact, throwaway copy of the committed tree — a Git worktree, so `git` still answers inside it.
+def disposable_copy(root: Path, dest: Path, source_view: str = 'committed-tree') -> Path:
+    """An exact, throwaway copy of the SELECTED source view — never silently of HEAD.
 
-    A plain file copy would break every target that reads the index, and copying `.git` would be slow and
-    would share state. A detached worktree is exact, cheap and genuinely separate. Recording already requires
-    a clean tree, so the committed tree IS the working tree at that point."""
+    The first candidate always took HEAD. On a dirty run its non-mutating samples ran in the dirty tree while
+    its incremental samples ran at HEAD, so one observation contained samples from two different source trees
+    under one subject. A worktree is used because a plain copy breaks every target that reads the index; for
+    a dirty view the uncommitted bytes are then applied on top, so the copy is what was really there."""
     _git(root, 'worktree', 'add', '--detach', '--quiet', str(dest), 'HEAD')
+    if source_view == 'working-tree':
+        import shutil
+        listing = _git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+        for rel in (p for p in listing.split('\0') if p):
+            src, dst = root / rel, dest / rel
+            if src.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+    elif source_view != 'committed-tree':
+        raise ObservatoryError(
+            f'disposable copy: source view {source_view!r} is not one this tool can materialise exactly')
     return dest
 
 
@@ -943,7 +1222,7 @@ def tree_digest(root: Path, paths: list[str]) -> str:
 
 
 def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_digest: str,
-                       paths: list[str]) -> None:
+                       paths: list[str], index: int = 0) -> None:
     """Put the exact bytes back and prove it, or the next sample measures a tree nobody described."""
     (copy_root / edit['path']).write_bytes(original)
     after = tree_digest(copy_root, paths)
@@ -956,9 +1235,10 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 # ──────────────────────────────────────────────────────── observation and record
 OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model', 'commands',
                        'measurements', 'module_graph', 'history_analysis', 'derived')
-SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'selected_or_support', 'start_utc',
-                 'wall_ns', 'user_cpu_ns', 'system_cpu_ns', 'max_rss_bytes', 'resource_scope',
-                 'exit_code', 'expected_exit', 'status', 'cache_before', 'cache_after',
+SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
+                 'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
+                 'max_rss_bytes', 'resource_scope', 'exit_code', 'expected_exit', 'status',
+                 'cache_before', 'cache_after', 'cache_cut', 'cache_observation', 'source_digest',
                  'raw_log_sha256', 'expected_failure_reason', 'derived_stage_events')
 
 # Each rule is stated once, here, and checked by the function below in this order. A recording that skipped
@@ -1004,8 +1284,15 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         absent = [f for f in SAMPLE_FIELDS if f not in s]
         if absent:
             raise ObservatoryError(f'sample {i} ({s.get("command_id")}) is missing field(s) {absent}')
-        if s['wall_ns'] < 0:
-            raise ObservatoryError(f'sample {i} ({s["command_id"]}) has a negative duration')
+        # A derived BuildKit child has aggregate step work rather than elapsed wall time, so `wall_ns` is
+        # absent by design. What is forbidden is a NEGATIVE duration, which a monotonic clock cannot produce.
+        for field in ('wall_ns', 'aggregate_step_ns'):
+            if s.get(field) is not None and s[field] < 0:
+                raise ObservatoryError(f'sample {i} ({s["command_id"]}) has a negative {field}')
+        if s.get('wall_ns') is None and s.get('aggregate_step_ns') is None:
+            raise ObservatoryError(
+                f'sample {i} ({s["command_id"]}) records neither an elapsed duration nor aggregate step '
+                f'work, so it measures nothing')
         if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
             raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
 
@@ -1472,17 +1759,30 @@ def render_comparison(cmp: dict) -> str:
 
 
 # ───────────────────────────────────────────────────────────────── the run
-def materialise_execution(command: dict) -> list[str]:
-    """The live invocation, with the isolated builder supplied as ENVIRONMENT rather than baked into the
-    registry.
+def materialise_execution(command: dict, scenario: dict | None = None) -> list[str]:
+    """The live invocation, with builder and cache cut supplied from OUTSIDE the registry.
 
-    Which builder a command uses is a property of this machine, not of what the command IS. Storing it in the
-    registry would make two observations from different machines look like different commands."""
+    Which builder a command uses, and which stage a scenario invalidates, are properties of this run rather
+    than of what the command IS. Storing either in the registry would make two observations from different
+    machines look like different commands.
+
+    A project-cold sample passes NOCACHE=<root>, which invalidates exactly that stage and everything
+    downstream while its stable ancestors stay cache hits. That is what makes the sample cold WITHOUT
+    emptying the machine — and it is also what makes it immune to an earlier measured command's cache,
+    because the root is forced to rebuild whatever anyone else left behind."""
     argv = list(command['execution'])
+    root = (scenario or {}).get('cache_cut', {}).get('invalidated_from')
+    cold = bool(scenario) and scenario['id'].startswith('project.cold.')
     if command['kind'] == 'make-target':
-        return argv + [f'BUILDER={OBSERVATORY_BUILDER}']
+        argv = argv + [f'BUILDER={OBSERVATORY_BUILDER}']
+        if cold and root:
+            argv.append(f'NOCACHE={root}')
+        return argv
     if command['kind'] == 'precommit-full':
-        return ['env', f'FIDO_BUILDER={OBSERVATORY_BUILDER}', *argv]
+        env = ['env', f'FIDO_BUILDER={OBSERVATORY_BUILDER}']
+        if cold and root:
+            env.append(f'FIDO_NOCACHE={root}')
+        return env + argv
     return argv
 
 
@@ -1499,7 +1799,7 @@ def ensure_observatory_builder() -> None:
             raise ObservatoryError(f'could not create {OBSERVATORY_BUILDER}: {created.stderr.strip()}')
 
 
-def instrumentation_env(command: dict, anchor_log: Path) -> dict:
+def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None = None) -> dict:
     """Switch the instrumentation on, by environment only.
 
     `FIDO_OBSERVE` makes the hook's anchors write instead of no-op; `BUILDKIT_PROGRESS=plain` makes buildx
@@ -1523,27 +1823,30 @@ def collect_events(command: dict, anchor_log: Path, raw_log: Path) -> list[dict]
     return events
 
 
+# The chain runs in one order and only one: a cold sample fills the cache, a fresh session then reuses it,
+# the warm sample repeats with nothing changed, and incremental edits start from that same prime.
+FAMILY_ORDER = ('project.cold.', 'project.cached.fresh', 'project.warm.noop', 'project.incremental.',
+                'environment.bootstrap')
+
+
+def family_rank(scenario_id: str) -> int:
+    for i, prefix in enumerate(FAMILY_ORDER):
+        if scenario_id == prefix or scenario_id.startswith(prefix):
+            return i
+    raise ObservatoryError(
+        f'scenario {scenario_id!r} belongs to no known family, so it has no place in a measurement chain')
+
+
 def scenario_order(suite: dict, wanted: list[str]) -> list[str]:
-    """Scenarios in prime order: a scenario that reuses a cache runs after the one that filled it.
+    """Scenarios in chain order: a scenario that reuses a cache runs after the one that filled it.
 
-    Running `warm.cached.noop` before its prime would either fail the provenance check or, worse, measure a
-    cache someone else filled. The order is derived from the registry's own `prime_steps`, not assumed."""
-    scenarios = {s['id']: s for s in suite['scenarios']}
-    ordered, placed = [], set()
-
-    def place(sid: str, seen: frozenset):
-        if sid in placed or sid not in scenarios:
-            return
-        if sid in seen:
-            raise ObservatoryError(f'scenario prime steps form a cycle through {sid!r}')
-        for prime in scenarios[sid]['prime_steps']:
-            place(prime, seen | {sid})
-        placed.add(sid)
-        ordered.append(sid)
-
-    for sid in wanted:
-        place(sid, frozenset())
-    return [s for s in ordered if s in wanted]
+    Running warm before its prime would either fail the provenance check or — worse — measure a cache
+    somebody else filled, which is the defect that blocked the first candidate."""
+    known = {s['id'] for s in suite['scenarios']}
+    unknown = [s for s in wanted if s not in known]
+    if unknown:
+        raise ObservatoryError(f'unknown scenario(s) {unknown} cannot be ordered into a chain')
+    return sorted(wanted, key=lambda s: (family_rank(s), s))
 
 
 def _flushed(message: str) -> None:
@@ -1553,15 +1856,22 @@ def _flushed(message: str) -> None:
 
 
 def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str = 'ad-hoc',
-                    progress=_flushed) -> tuple[dict, list[str], bool]:
-    """Execute the selection and return the observation, the pairs that did not complete, and edit status.
+                    progress=_flushed, checkpoint=None) -> tuple[dict, list[str], bool]:
+    """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
-    Support commands run BEFORE selected ones so a derived child's parent has already produced its events.
-    Every pair that the registry says should run is either measured or named in `incomplete` — a pair that
-    quietly did not run would let a partial suite present itself as whole."""
+    The first candidate primed once per scenario and then ran every command in that shared state, so a
+    command labelled cold observed a cache an earlier measured command had filled. Here each root command
+    owns its chain: its cold sample invalidates its own declared root, and everything cached, warm or
+    incremental in that chain names the exact prime sample it reused.
+
+    Isolation is by INVALIDATION rather than by namespace. A root forced to rebuild cannot be satisfied by
+    anything another command left behind, which is what makes one shared builder honest."""
     import datetime
     commands = {c['id']: c for c in suite['commands']}
     scenarios = {s['id']: s for s in suite['scenarios']}
+    edits = {e['id']: e for e in suite.get('edits', [])}
+    derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
+
     env = environment(root)
     subj = subject(root)
     ensure_observatory_builder()
@@ -1570,155 +1880,150 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     incomplete: list[str] = []
     edits_ok = True
     graph, history = None, None
-    derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
-    cache_model: dict[str, dict] = {}
+    primes: dict[tuple, dict] = {}          # (command_id, root) -> the exact prime sample identity
 
-    for scenario_id in scenario_order(suite, sel.scenarios):
-        scenario = scenarios[scenario_id]
-        declared = scenario['cache_state']
-        is_prime = 'empty' in declared.values() and 'reused' not in declared.values()
-        try:
-            if is_prime:
-                reset_observatory_cache(progress)
-                if 'toolchain-prime' in scenario['prime_steps']:
-                    toolchain_prime(root, progress)
-            provenance = check_cache_provenance(root, scenario, env)
-        except ObservatoryError as exc:
-            for cid in sel.order:
-                if scenario_id in commands[cid]['scenarios']:
-                    incomplete.append(f'{cid}/{scenario_id}')
-            progress(f'fido: observe — scenario {scenario_id} skipped: {exc}')
+    def emit(sample: dict):
+        samples.append(sample)
+        if checkpoint:
+            checkpoint(samples, incomplete)
+
+    def sample_id(s: dict) -> str:
+        return metric_identity(s)
+
+    for cid in sel.order:
+        command = commands[cid]
+        if command['measurement'] != 'direct':
             continue
-        cache_model[scenario_id] = provenance
-        before_count = len(incomplete)
-        ran_here = 0
+        role = 'selected' if cid in sel.selected else 'support'
+        chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
+        if not chain:
+            continue
+        progress(f'fido: observe — chain {cid}: {", ".join(chain)}')
 
-        for cid in sel.order:
-            command = commands[cid]
-            if scenario_id not in command['scenarios']:
-                continue
-            if command['measurement'] != 'direct':
-                continue                                  # derived children come from their parent's events
-            role = 'selected' if cid in sel.selected else 'support'
-            if command['kind'] in ('rocq-module-analysis', 'history-analysis'):
-                progress(f'fido: observe — {cid} [{scenario_id}] ({role})')
-                try:
-                    t0 = _monotonic_ns()
-                    if command['kind'] == 'history-analysis':
-                        history = history_analysis(root)
-                        events = []
-                    else:
-                        graph = measure_module_graph(root, raw_dir / 'module-graph', progress)
-                        events = graph.pop('stage_events', []) + [
-                            {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
-                    s = analysis_sample(cid, scenario_id, role, _monotonic_ns() - t0, provenance, events)
-                    samples.append(s)
-                    samples.extend(derive_child_samples(s, events, derived_ids))
-                    ran_here += 1
-                except ObservatoryError as exc:
-                    incomplete.append(f'{cid}/{scenario_id}')
-                    progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
-                continue
+        for scenario_id in chain:
+            scenario = scenarios[scenario_id]
+            provenance = {'authorities': dict(scenario['cache_state']),
+                          'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
+                          'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+            root_stage = scenario['cache_cut']['invalidated_from']
+            if scenario_id.startswith('project.cold.'):
+                provenance['prime_sample_id'] = None
+            else:
+                key = (cid, 'prime')
+                if key not in primes and scenario_id != 'environment.bootstrap':
+                    for spec in (f'{cid}/{scenario_id}',):
+                        incomplete.append(spec)
+                    progress(f'fido: observe — {cid} [{scenario_id}] skipped: this chain has no completed '
+                             f'prime sample, and a cached number with no prime is a comparison against an '
+                             f'unknown baseline')
+                    continue
+                provenance['prime_sample_id'] = primes.get(key, {}).get('id')
+
+            edit = edits.get(scenario.get('edit'))
             wanted = command['samples'][scenario_id]
 
-            # An incremental scenario without an applied edit measures a no-op and files it as incremental.
-            # Every sample gets its own disposable worktree, its own edit, and its own restore proof.
-            if scenario.get('edits'):
-                for edit in [e for e in suite.get('edits', []) if e['id'] in scenario['edits']]:
-                    for index in range(wanted):
-                        label = f'{cid}/{scenario_id}/{edit["id"]}'
-                        progress(f'fido: observe — {label} sample {index + 1}/{wanted} ({role})')
-                        copy = raw_dir.parent / 'copies' / f'{edit["id"]}.{index}'
-                        try:
-                            copy.parent.mkdir(parents=True, exist_ok=True)
-                            disposable_copy(root, copy)
-                            paths = [edit['path']] if edit['path'] else []
-                            before = tree_digest(copy, paths)
-                            original = (copy / edit['path']).read_bytes() if edit['path'] else b''
-                            apply_edit(copy, edit)
-                            if edit['path'] and tree_digest(copy, paths) == before:
-                                raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
-                            s = run_sample(root, {**command,
-                                                  'execution': materialise_execution(command)},
-                                           scenario_id, index, role, raw_dir, provenance, cwd=copy)
-                            if edit['path']:
-                                restore_and_verify(copy, edit, original, before, paths)
-                            s['edit_id'] = edit['id']
-                            samples.append(s)
-                            ran_here += 1
-                        except ObservatoryError as exc:
-                            incomplete.append(label)
-                            edits_ok = False
-                            progress(f'fido: observe — {label} did not complete: {exc}')
-                        finally:
-                            drop_disposable_copy(root, copy)
-                continue
-
-            # A command the registry classifies as writing must never run in the real tree. `make regenerate`
-            # and `make fcb-write` rewrite tracked files; `make install-hooks` rewrites repository config.
-            # Measuring them in place would leave the repository changed by an act of measurement.
-            mutating = command['source_view'] == 'disposable-copy'
-
             for index in range(wanted):
-                progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})'
-                         + (' [disposable copy]' if mutating else ''))
+                label = f'{cid}/{scenario_id}' + (f'/{edit["id"]}' if edit else '')
+                progress(f'fido: observe — {label} sample {index + 1}/{wanted} ({role})')
                 copy = None
                 try:
-                    if mutating:
+                    view = command['source_view']
+                    needs_copy = view == 'disposable-copy' or edit is not None
+                    if needs_copy:
                         copy = raw_dir.parent / 'copies' / f'{cid}.{scenario_id}.{index}'
                         copy.parent.mkdir(parents=True, exist_ok=True)
-                        disposable_copy(root, copy)
-                    anchor_log = raw_dir / f'{cid}.{scenario_id}.{index}.anchors'
-                    s = run_sample(root, {**command, 'execution': materialise_execution(command)},
-                                   scenario_id, index, role, raw_dir, provenance, cwd=copy,
-                                   env_extra=instrumentation_env(command, anchor_log))
-                    s['derived_stage_events'] = collect_events(command, anchor_log,
-                                                               raw_dir / f'{cid}.{scenario_id}.{index}.log')
-                    samples.extend(derive_child_samples(s, s['derived_stage_events'], derived_ids))
+                        disposable_copy(root, copy, subj['source_view'])
+                    target = copy or root
+                    before = None
+                    if edit and edit['kind'] != 'no-edit':
+                        paths = [edit['path']]
+                        before = tree_digest(target, paths)
+                        original = (target / edit['path']).read_bytes()
+                        apply_edit(target, edit, index)
+                        if tree_digest(target, paths) == before:
+                            raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
+                    digest = content_digest(target)
+                    anchor_log = raw_dir / (raw_log_name(cid, scenario_id, index,
+                                                         edit['id'] if edit else None) + '.anchors')
+                    s = run_sample(root, {**command,
+                                          'execution': materialise_execution(command, scenario)},
+                                   scenario, index, role, raw_dir, provenance, cwd=copy,
+                                   env_extra=instrumentation_env(command, anchor_log, scenario),
+                                   source_digest=digest, edit_id=edit['id'] if edit else None)
+                    s['derived_stage_events'] = collect_events(
+                        command, anchor_log,
+                        raw_dir / (raw_log_name(cid, scenario_id, index,
+                                                edit['id'] if edit else None) + '.log'))
+                    check_cut_observed(s, scenario, suite)
+                    emit(s)
+                    for child in derive_child_samples(s, s['derived_stage_events'], derived_ids):
+                        emit(child)
+                    if edit and edit['kind'] != 'no-edit':
+                        restore_and_verify(target, edit, original, before, [edit['path']], index)
+                    if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
+                        primes[(cid, 'prime')] = {'id': sample_id(s), 'root': root_stage}
                 except ObservatoryError as exc:
-                    incomplete.append(f'{cid}/{scenario_id}')
-                    progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
+                    incomplete.append(label)
+                    if edit:
+                        edits_ok = False
+                    progress(f'fido: observe — {label} did not complete: {exc}')
                     break
                 finally:
                     if copy is not None:
                         drop_disposable_copy(root, copy)
-                samples.append(s)
-                ran_here += 1
-                if s['status'] != 'ok':
-                    progress(f'fido: observe — {cid} [{scenario_id}] exited {s["exit_code"]}, '
-                             f'expected {s["expected_exit"]}')
 
-        # A prime scenario that completed IS the cache provenance every later cached scenario points at.
-        # Recording it only on success is the point: a half-finished prime leaves no record, so the next
-        # cached scenario refuses rather than reusing a cache nobody can describe.
-        if is_prime and ran_here == 0:
-            progress(f'fido: observe — {scenario_id} ran no command, so it is NOT recorded as a cache prime')
-        elif is_prime and len(incomplete) == before_count:
-            import datetime as _dt
-            write_cache_state(root, {'builder': OBSERVATORY_BUILDER, 'primed_by_run': run_id,
-                                     'primed_at_utc': _dt.datetime.now(_dt.timezone.utc).isoformat(),
-                                     'primed_by_scenario': scenario_id,
-                                     'buildkit_identity': env.get('buildkit_identity'),
-                                     'subject_inventory_digest': subj['inventory_digest']})
-            progress(f'fido: observe — {scenario_id} completed and is now the cache prime on record')
+    for cid in sel.order:
+        command = commands[cid]
+        if command['kind'] not in ('rocq-module-analysis', 'history-analysis'):
+            continue
+        if command['measurement'] != 'direct':
+            continue
+        role = 'selected' if cid in sel.selected else 'support'
+        for scenario_id in [s for s in sel.scenarios if s in command['scenarios']]:
+            scenario = scenarios[scenario_id]
+            provenance = {'authorities': dict(scenario['cache_state']), 'builder': OBSERVATORY_BUILDER,
+                          'chain_command': cid, 'prime_sample_id': None,
+                          'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+            progress(f'fido: observe — {cid} [{scenario_id}] ({role})')
+            try:
+                t0 = _monotonic_ns()
+                if command['kind'] == 'history-analysis':
+                    history = history_analysis(root)
+                    events = []
+                else:
+                    graph = measure_module_graph(root, raw_dir / 'module-graph', progress, scenario)
+                    events = graph.pop('stage_events', []) + [
+                        {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
+                s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
+                                    subj['content_digest'])
+                emit(s)
+                for child in derive_child_samples(s, events, derived_ids):
+                    emit(child)
+            except ObservatoryError as exc:
+                incomplete.append(f'{cid}/{scenario_id}')
+                progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
 
     derived = {'summaries': summarise(samples) if samples else {},
                'selected': sel.selected, 'support': sel.support,
-               'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+               'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+               'hook_clock': HOOK_CLOCK}
     if graph:
         derived['rebuild_impact'] = rebuild_impact(graph)
     if history:
         derived['weighted_rebuild_cost'] = weighted_rebuild_cost(history, graph)
+    if graph or history:
+        derived['repeated_work'] = repeated_work(suite, samples)
 
     observation = {
         'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'subject': subj, 'environment': env,
-        'cache_model': cache_model, 'commands': command_fingerprints(suite), 'measurements': samples,
-        'module_graph': graph, 'history_analysis': history, 'derived': derived,
+        'cache_model': {s: scenarios[s]['cache_cut'] for s in sel.scenarios if s in scenarios},
+        'commands': command_fingerprints(suite), 'definitions': definition_fingerprints(suite),
+        'measurements': samples, 'module_graph': graph, 'history_analysis': history, 'derived': derived,
     }
     return observation, incomplete, edits_ok
 
 
-def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
+def measure_module_graph(root: Path, out_dir: Path, progress=print, scenario: dict | None = None) -> dict:
     """Build the pinned module-graph stage, export its artifacts, and derive the graph from them.
 
     The heavy work happens in the container, where the toolchain is pinned; this side only reads what came
@@ -1728,6 +2033,8 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
     ensure_observatory_builder()
     proc = subprocess.run(
         ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
+         *(['--no-cache-filter', (scenario or {}).get('cache_cut', {}).get('invalidated_from')]
+           if (scenario or {}).get('id', '').startswith('project.cold.') else []),
          '--progress=plain', '--target', 'module-graph-log', '--output', f'type=local,dest={out_dir}', '.'],
         cwd=str(root), capture_output=True, text=True)
     build_log = proc.stdout + proc.stderr
@@ -1942,23 +2249,44 @@ def self_test(root: Path) -> int:
     scenario('a scenario no command can run in',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': suite_of(w)['scenarios'] + [
                  {'id': 'orphan.scenario', 'canonical': False, 'purpose': 'p', 'session_state': 'fresh',
-                  'cache_state': {}, 'prime_steps': []}]}),
+                  'cache_state': {}, 'prime_steps': [],
+                  'cache_cut': {'stable_through': 'rocq-base', 'invalidated_from': None,
+                                'registry_pulls_included': False,
+                                'builder_bootstrap_included': False}}]}),
              expect='no command runs in it')
     scenario('a scenario that does not say whether it is canonical',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
                  {k: v for k, v in s.items() if k != 'canonical'} for s in suite_of(w)['scenarios']]}),
-             expect='does not say whether it is canonical')
+             expect="missing field(s) ['canonical']")
 
-    scenario('an incremental scenario with no edits',
+    scenario('an incremental scenario with no edit',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
-                 {**s, 'edits': []} if 'incremental' in s['id'] else s
+                 {k: v for k, v in s.items() if k != 'edit'}
+                 if s['id'].startswith('project.incremental.') else s
                  for s in suite_of(w)['scenarios']]}),
-             expect='would measure a no-op and record it as an incremental rebuild')
-    scenario('a scenario naming an unknown edit',
+             expect='would measure a no-op and record it as a rebuild')
+    scenario('an incremental scenario naming an unregistered edit',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
-                 {**s, 'edits': ['edit.no.such']} if 'incremental' in s['id'] else s
+                 {**s, 'edit': 'edit.no.such'} if s['id'].startswith('project.incremental.') else s
                  for s in suite_of(w)['scenarios']]}),
-             expect='unknown edit')
+             expect='not a registered edit shape')
+    scenario('a non-incremental scenario carrying an edit',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'edit': 'edit.leaf.emit'} if s['id'] == 'project.warm.noop' else s
+                 for s in suite_of(w)['scenarios']]}),
+             expect='is not an incremental scenario')
+    scenario('a canonical cold scenario that admits a registry pull',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'cache_cut': {**s['cache_cut'], 'registry_pulls_included': True}}
+                 if s['id'].startswith('project.cold.') else s
+                 for s in suite_of(w)['scenarios']]}),
+             expect='measures machine setup, not this repository')
+    scenario('a cold scenario invalidating a root its own name does not declare',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'cache_cut': {**s['cache_cut'], 'invalidated_from': 'emit'}}
+                 if s['id'] == 'project.cold.prover' else s
+                 for s in suite_of(w)['scenarios']]}),
+             expect='is not the root its own name declares')
     scenario('an edit naming a file that is not there',
              lambda w: write_suite(w, {**suite_of(w), 'edits': [
                  {**e, 'path': 'NoSuchModule.v'} if e['kind'] != 'no-edit' else e
@@ -1984,14 +2312,14 @@ def self_test(root: Path) -> int:
                         edit(w, 'make.emit', 'dependencies', ['make.prove'])),
              expect='dependency cycle')
     scenario('a zero sample count',
-             lambda w: edit(w, 'make.diet', 'samples', {'warm.cached.noop': 0}),
+             lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 0}),
              expect='must be a positive integer')
     scenario('a fractional sample count',
-             lambda w: edit(w, 'make.diet', 'samples', {'warm.cached.noop': 1.5}),
+             lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 1.5}),
              expect='must be a positive integer')
     scenario('a derived child declaring a scenario no parent runs',
-             lambda w: (edit(w, 'docker.profile', 'scenarios', ['cold.uncached']),
-                        edit(w, 'docker.profile', 'samples', {'cold.uncached': 1})),
+             lambda w: (edit(w, 'docker.profile', 'scenarios', ['project.cold.prover']),
+                        edit(w, 'docker.profile', 'samples', {'project.cold.prover': 1})),
              expect='no parent in')
     scenario('a duplicate anchor pair in the hook',
              lambda w: append_hook(w, 'fido_observe begin precommit.naming\n'
@@ -2034,7 +2362,7 @@ def self_test(root: Path) -> int:
              lambda w: edit(w, 'make.diet', 'side_effect', 'harmless'),
              expect='not one of')
     scenario('a scenario reference with no sample count',
-             lambda w: edit(w, 'make.diet', 'scenarios', ['cold.uncached']),
+             lambda w: edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
              expect='has no sample count')
     scenario('an unknown scenario reference',
              lambda w: (edit(w, 'make.diet', 'scenarios', ['no.such.scenario']),
@@ -2061,6 +2389,9 @@ def self_test(root: Path) -> int:
 
     # ── selection closure, over the real registry: these rules are pure and need no fixture tree
     suite = load_suite(root)
+
+    def scen_of(s: dict, sid: str) -> dict:
+        return next(x for x in s['scenarios'] if x['id'] == sid)
 
     def selection(label: str, expect: str | None = None, **kw):
         counts['total'] += 1
@@ -2091,8 +2422,8 @@ def self_test(root: Path) -> int:
         failures.append('the default run selected no scenario at all')
 
     counts['total'] += 1
-    named = select(suite, scenario='bootstrap.cold.uncached')
-    if named.scenarios != ['bootstrap.cold.uncached']:
+    named = select(suite, scenario='environment.bootstrap')
+    if named.scenarios != ['environment.bootstrap']:
         failures.append(f'a non-canonical scenario must still be selectable by name: {named.scenarios}')
 
     full = selection('the whole registry selects with no ONLY or SCENARIO')
@@ -2132,19 +2463,19 @@ def self_test(root: Path) -> int:
         expect_that('a docker stage names its live parent build', stage.support == ['make.e2e'],
                     f'support was {stage.support}')
 
-    combo = selection('ONLY and SCENARIO combine', only='make.check', scenario='warm.cached.noop')
+    combo = selection('ONLY and SCENARIO combine', only='make.check', scenario='project.warm.noop')
     if combo:
         expect_that('a combined selection keeps only the named scenario',
-                    combo.scenarios == ['warm.cached.noop'], f'scenarios were {combo.scenarios}')
+                    combo.scenarios == ['project.warm.noop'], f'scenarios were {combo.scenarios}')
 
     selection('an unknown ONLY name', expect='unknown ONLY name', only='make.prov')
     selection('an unknown SCENARIO name', expect='unknown SCENARIO name', scenario='warm.noop')
     selection('an empty ONLY expansion', expect='expanded to nothing', only=' , ')
     selection('RECORD with ONLY', expect='RECORD=1 rejects ONLY', only='make.prove', record=True)
-    selection('RECORD with SCENARIO', expect='RECORD=1 rejects ONLY', scenario='cold.cached', record=True)
+    selection('RECORD with SCENARIO', expect='RECORD=1 rejects ONLY', scenario='project.cached.fresh', record=True)
     selection('a selection with no command in the named scenario',
               expect='no selected command runs in scenario',
-              only='make.fmt', scenario='warm.cached.incremental')
+              only='make.fmt', scenario='project.incremental.foundation.float')
 
     counts['total'] += 1
     near = None
@@ -2247,7 +2578,11 @@ def self_test(root: Path) -> int:
     digest = suite_digest_of(suite)
 
     def sample(**over) -> dict:
-        base = {'command_id': 'make.fmt', 'scenario_id': 'warm.cached.noop', 'sample_index': 0,
+        base = {'command_id': 'make.fmt', 'scenario_id': 'project.warm.noop', 'sample_index': 0,
+                'edit_id': None, 'derived_parent_id': None,
+                'cache_cut': {'stable_through': 'rocq-base', 'invalidated_from': None,
+                              'registry_pulls_included': False, 'builder_bootstrap_included': False},
+                'cache_observation': {'stages': {}}, 'source_digest': 'e0' * 32,
                 'selected_or_support': 'selected', 'start_utc': '2026-01-01T00:00:00+00:00',
                 'wall_ns': 1_000_000, 'user_cpu_ns': 500_000, 'system_cpu_ns': 400_000,
                 'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'exit_code': 0, 'expected_exit': 0,
@@ -2303,14 +2638,14 @@ def self_test(root: Path) -> int:
              lambda: validate_observation(
                  observation(samples=[sample(wall_ns=-1)],
                              derived={'summaries': summarise([sample(wall_ns=-1)])}), digest),
-             expect='negative duration')
+             expect='negative wall_ns')
     observed('an unknown resource scope',
              lambda: validate_observation(
                  observation(samples=[sample(resource_scope='guessed')],
                              derived={'summaries': summarise([sample(resource_scope='guessed')])}), digest),
              expect='not a known scope')
     observed('a tampered stored summary',
-             lambda: validate_observation(observation(derived={'summaries': {'make.fmt|warm.cached.noop': {
+             lambda: validate_observation(observation(derived={'summaries': {'make.fmt|project.warm.noop': {
                  'samples': 3, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), digest),
              expect='do not equal recomputation')
 
@@ -2352,7 +2687,7 @@ def self_test(root: Path) -> int:
              lambda: record_check(obs=observation()),
              expect='coverage on paper')
     observed('an incomplete suite with RECORD',
-             lambda: record_check(incomplete=['make.prove/cold.uncached']),
+             lambda: record_check(incomplete=['make.prove/project.cold.prover']),
              expect='recording rule R05')
     observed('a failed command with RECORD',
              lambda: record_check(obs=complete_observation(
@@ -2415,7 +2750,7 @@ def self_test(root: Path) -> int:
              expect='recording rule R1')
 
     # ── comparison: the classification for a pair, and the reasons it declines to give one
-    def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|warm.cached.noop'):
+    def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|project.warm.noop|-|-|host-wrapper'):
         counts['total'] += 1
         result = compare(base_obs, cand_obs)
         row = next((m for m in result['metrics'] if m['key'] == key), None)
@@ -2452,10 +2787,15 @@ def self_test(root: Path) -> int:
         failures.append('an incomparable host class must not be reported as an ordinary percentage delta')
 
     counts['total'] += 1
+    # Resource scope is part of the metric identity now, so a changed scope is not the same metric at all.
+    # That is stronger than `incomparable`: the two never meet in one row to be given a verdict.
     scoped = timed(100, 110, 120)
     scoped['measurements'] = [dict(s, resource_scope=SCOPE_BUILDKIT) for s in scoped['measurements']]
-    if compare(timed(100, 110, 120), scoped)['metrics'][0]['classification'] != 'incomparable':
-        failures.append('a changed resource scope must be incomparable, not a delta')
+    scoped['derived'] = {'summaries': summarise(scoped['measurements'])}
+    rows = compare(timed(100, 110, 120), scoped)['metrics']
+    verdicts = {r['classification'] for r in rows}
+    if verdicts - {'added', 'removed'}:
+        failures.append(f'a changed resource scope must not produce a delta: {verdicts}')
 
     counts['total'] += 1
     changed_def = observation(commands={'make.fmt': 'aa' * 32})
@@ -2563,22 +2903,82 @@ def self_test(root: Path) -> int:
     # ── a mutating command run in the source tree
     counts['total'] += 1
     writers = [c for c in suite['commands'] if c['side_effect'] != 'none' and c['measurement'] == 'direct']
-    in_place = [c['id'] for c in writers if c['source_view'] != 'disposable-copy']
+    in_place = [c['id'] for c in writers if not c.get('isolation')]
     if in_place:
         failures.append(f'a mutating command run in the source tree: {in_place} declare a side effect but '
-                        f'not a disposable copy, so measuring them would change the repository')
+                        f'no isolation, so measuring them would change the thing being measured')
 
     counts['total'] += 1
-    if any(c['source_view'] == 'disposable-copy' and c['side_effect'] == 'none'
-           for c in suite['commands'] if c['measurement'] == 'direct'):
-        failures.append('a command needing a disposable copy must say what it writes')
+    unknown_iso = [c['id'] for c in suite['commands'] if c.get('isolation') not in
+                   (None, *ISOLATIONS)]
+    if unknown_iso:
+        failures.append(f'these commands declare an isolation the runner does not implement: {unknown_iso}')
+
+    counts['total'] += 1
+    if any(c.get('isolation') and c['side_effect'] == 'none' for c in suite['commands']):
+        failures.append('a command declaring an isolation must say what effect it is containing')
+
+    # ── the cache cut: a declared claim checked against what BuildKit actually did
+    def cut_sample(stages, scenario_id='project.cold.prover', **over):
+        s = sample(scenario_id=scenario_id, cache_observation={'stages': stages})
+        s['cache_cut'] = {'stable_through': 'rocq-base', 'invalidated_from': 'prover',
+                          'registry_pulls_included': False, 'builder_bootstrap_included': False, **over}
+        return s
+
+    cold_scn = {'id': 'project.cold.prover', 'canonical': True}
+    observed('a cold sample whose invalidation root stayed cached',
+             lambda: check_cut_observed(cut_sample({'prover': 'hit', 'rocq-base': 'hit'}), cold_scn, suite),
+             expect='not rebuilt; a cold sample whose root stayed cached is not a cold sample')
+    observed('a sample whose declared stable ancestor rebuilt',
+             lambda: check_cut_observed(cut_sample({'prover': 'rebuilt', 'rocq-base': 'rebuilt'}),
+                                        cold_scn, suite),
+             expect='declared stable ancestor')
+    observed('a canonical sample that pulled from the registry',
+             lambda: check_cut_observed(cut_sample({'prover': 'rebuilt'}, registry_pulls_included=True),
+                                        cold_scn, suite),
+             expect='machine setup rather than canonical project evidence')
+    observed('a canonical sample that bootstrapped the builder',
+             lambda: check_cut_observed(cut_sample({'prover': 'rebuilt'},
+                                                   builder_bootstrap_included=True), cold_scn, suite),
+             expect='bootstrapped inside the measured')
+    observed('a cold sample whose root rebuilt and whose ancestors held',
+             lambda: check_cut_observed(cut_sample({'prover': 'rebuilt', 'rocq-base': 'hit'}),
+                                        cold_scn, suite))
+
+    counts['total'] += 1
+    before = {'authorities': {'buildkit_project_layers': 'empty', 'dune_build': 'empty'}}
+    after_rebuilt = observe_cache_after(before, {'prover': 'rebuilt'})
+    after_hit = observe_cache_after(before, {'prover': 'hit'})
+    if after_rebuilt['authorities'] == before['authorities']:
+        failures.append('cache_after must be observed, not copied: a rebuild left the state unchanged')
+    if after_hit['authorities'] != before['authorities']:
+        failures.append('cache_after must be observed: a pure cache hit changed the recorded state')
+
+    counts['total'] += 1
+    from_only = observe_stages('#1 [rocq-base 1/5] FROM docker.io/library/debian:12-slim\n#1 DONE 0.1s\n'
+                               '#2 [rocq-base 2/5] RUN apt-get update\n#2 CACHED\n')
+    if from_only.get('rocq-base') != 'hit':
+        failures.append(f'a FROM step must not count as a rebuilt stage: rocq-base read {from_only}')
+
+    counts['total'] += 1
+    ran = observe_stages('#1 [prover 1/2] FROM x\n#1 DONE 0.1s\n'
+                         '#2 [prover 2/2] RUN dune build\n#2 DONE 61.0s\n')
+    if ran.get('prover') != 'rebuilt':
+        failures.append(f'an executed non-FROM step means the stage rebuilt: prover read {ran}')
+
+    counts['total'] += 1
+    if pulled_from_registry('#3 resolve docker.io/library/debian:12-slim@sha256:abc 0.1s done\n'):
+        failures.append('local reference resolution is not a registry pull')
+    if not pulled_from_registry('#3 extracting sha256:abcdef 1.2s\n'):
+        failures.append('an extracted layer IS a registry pull and must be detected')
 
     # ── the observation SHAPE a real run assembles: direct samples, analysis samples and derived
     #    children together. Assembly failing at the end of a multi-hour suite is the expensive way to learn.
     counts['total'] += 1
-    direct = sample(command_id='make.prove', scenario_id='cold.cached')
-    ana = analysis_sample('analysis.rocq-modules', 'cold.cached', 'selected', 5_000, {}, [])
-    kids = derive_child_samples(direct, [{'id': 'docker.prover', 'wall_ns': 900,
+    direct = sample(command_id='make.prove', scenario_id='project.cached.fresh')
+    ana = analysis_sample('analysis.rocq-modules', scen_of(suite, 'project.cached.fresh'),
+                          'selected', 5_000, {}, [])
+    kids = derive_child_samples(direct, [{'id': 'docker.prover', 'aggregate_step_ns': 900,
                                           'source': 'buildkit-progress'}], {'docker.prover'})
     kids += derive_child_samples(ana, [{'id': 'analysis.dune-graph', 'wall_ns': 0,
                                         'source': 'same-build'}], {'analysis.dune-graph'})
@@ -2606,13 +3006,14 @@ def self_test(root: Path) -> int:
         failures.append(f'these direct commands name an execution nothing can run: {unrunnable}')
 
     observed('a command whose execution cannot be run',
-             lambda: run_sample(root, {'id': 'bogus', 'execution': ['no-such-binary-xyz'],
-                                       'expected_exit': 0},
-                                'warm.cached.noop', 0, 'selected', Path('/tmp'), {}),
+             lambda: run_sample(root, {'id': 'bogus', 'kind': 'make-target',
+                                       'execution': ['no-such-binary-xyz'], 'expected_exit': 0},
+                                scen_of(suite, 'project.warm.noop'), 0, 'selected', Path('/tmp'), {}),
              expect='an unrunnable command is a defect in the registry')
 
     counts['total'] += 1
-    asample = analysis_sample('analysis.history', 'warm.cached.noop', 'selected', 1234, {}, [])
+    asample = analysis_sample('analysis.history', scen_of(suite, 'project.warm.noop'),
+                              'selected', 1234, {}, [])
     absent = [f for f in SAMPLE_FIELDS if f not in asample]
     if absent:
         failures.append(f'an analysis sample must carry every sample field, missing {absent}')
@@ -2645,39 +3046,40 @@ def self_test(root: Path) -> int:
     by_id = {e['id']: e for e in stages}
     if 'docker.internal' in by_id:
         failures.append('BuildKit internal steps are not Docker stages of this project')
-    if by_id.get('docker.prover', {}).get('wall_ns') != 2_500_000_000:
+    if by_id.get('docker.prover', {}).get('aggregate_step_ns') != 2_500_000_000:
         failures.append(f'a stage duration must come from its own DONE line: {stages}')
     if by_id.get('docker.emit', {}).get('cached_steps') != 1:
         failures.append(f'a cached step must be recorded as cached, not as zero time: {stages}')
 
     counts['total'] += 1
-    parent = {'command_id': 'make.e2e', 'scenario_id': 'cold.cached', 'sample_index': 0,
+    parent = {'command_id': 'make.e2e', 'scenario_id': 'project.cached.fresh', 'sample_index': 0,
               'selected_or_support': 'selected', 'wall_ns': 99, 'max_rss_bytes': 5}
-    kids = derive_child_samples(parent, [{'id': 'docker.go-e2e', 'wall_ns': 42, 'source': 'buildkit-progress'},
-                                         {'id': 'docker.unknown', 'wall_ns': 7, 'source': 'buildkit-progress'}],
+    kids = derive_child_samples(parent, [{'id': 'docker.go-e2e', 'aggregate_step_ns': 42,
+                                          'source': 'buildkit-progress'},
+                                         {'id': 'docker.unknown', 'aggregate_step_ns': 7,
+                                          'source': 'buildkit-progress'}],
                                 {'docker.go-e2e'})
     if [k['command_id'] for k in kids] != ['docker.go-e2e']:
         failures.append(f'only REGISTERED derived commands become child samples: {kids}')
     elif kids[0]['max_rss_bytes'] is not None or kids[0]['resource_scope'] != SCOPE_BUILDKIT:
         failures.append("a derived child must not inherit its parent's host RSS as its own")
-    elif kids[0]['derived_from'] != 'make.e2e':
+    elif kids[0]['derived_parent_id'] != 'make.e2e':
         failures.append('a derived child must name the parent it came from')
 
     # ── scenario ordering and unusable comparison inputs
     counts['total'] += 1
-    order = scenario_order(suite, ['warm.cached.noop', 'cold.uncached', 'cold.cached'])
-    if order.index('cold.uncached') > order.index('cold.cached') or \
-            order.index('cold.cached') > order.index('warm.cached.noop'):
+    order = scenario_order(suite, ['project.warm.noop', 'project.cold.prover', 'project.cached.fresh'])
+    if order.index('project.cold.prover') > order.index('project.cached.fresh') or \
+            order.index('project.cached.fresh') > order.index('project.warm.noop'):
         failures.append(f'scenarios must run in prime order, got {order}')
 
     counts['total'] += 1
-    if scenario_order(suite, ['cold.uncached']) != ['cold.uncached']:
+    if scenario_order(suite, ['project.cold.prover']) != ['project.cold.prover']:
         failures.append('a scenario with no prime step must order to itself alone')
 
-    observed('a cycle in scenario prime steps',
-             lambda: scenario_order({'scenarios': [
-                 {'id': 'a', 'prime_steps': ['b']}, {'id': 'b', 'prime_steps': ['a']}]}, ['a']),
-             expect='prime steps form a cycle')
+    observed('a scenario belonging to no chain family',
+             lambda: scenario_order({'scenarios': [{'id': 'made.up'}]}, ['made.up']),
+             expect='belongs to no known family')
 
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),

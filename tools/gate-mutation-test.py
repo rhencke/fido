@@ -96,13 +96,13 @@ MUTANTS = (
      ('a derived child declaring a scenario no parent runs',)),
 
     (OBS, 'the incremental-edit requirement',
-     "        if 'incremental' in s['id'] and not s.get('edits'):",
-     "        if False:",
-     ('an incremental scenario with no edits',)),
+     "            if s.get('edit') not in edits:",
+     "            if False:",
+     ('an incremental scenario with no edit', 'an incremental scenario naming an unregistered edit')),
 
-    (OBS, 'scenario prime ordering',
-     "        for prime in scenarios[sid]['prime_steps']:",
-     "        for prime in []:",
+    (OBS, 'scenario chain ordering',
+     "    return sorted(wanted, key=lambda s: (family_rank(s), s))",
+     "    return list(wanted)",
      ('scenarios must run in prime order',)),
 
     (OBS, 'the usable-input guard on comparison',
@@ -156,10 +156,25 @@ MUTANTS = (
      "        elif False:",
      ('overlapping sample ranges refuse a verdict',)),
 
-    (OBS, 'the resource-scope compatibility check',
-     "        if b_scope != c_scope:",
-     "        if False:",
-     ('a changed resource scope must be incomparable, not a delta',)),
+    (OBS, 'resource scope inside the metric identity',
+     "    return '|'.join((sample['command_id'], sample['scenario_id'],",
+     "    return '|'.join((sample['command_id'], sample['scenario_id'], '-', '-', '-'))  # neutered\n    return '|'.join((sample['command_id'], sample['scenario_id'],",
+     ('a changed resource scope must not produce a delta',)),
+
+    (OBS, 'the declared cut against what happened',
+     "    if scenario['id'].startswith('project.cold.') and root in stages and stages[root] != 'rebuilt':",
+     "    if False:",
+     ('a cold sample whose invalidation root stayed cached',)),
+
+    (OBS, 'observed cache transitions',
+     "    rebuilt = any(v == 'rebuilt' for v in stages.values())",
+     "    rebuilt = False",
+     ('cache_after must be observed, not copied',)),
+
+    (OBS, 'FROM steps are resolution, not work',
+     "            if rest.startswith('FROM '):",
+     "            if False:",
+     ('a FROM step must not count as a rebuilt stage',)),
 
     (OBS, 'the expected-failure reason requirement',
      "        if c['expected_exit'] != 0 and not c.get('expected_failure_reason', '').strip():",

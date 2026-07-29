@@ -74,35 +74,51 @@ per scenario and then ran every command in that shared state, so a command label
 earlier measured command had filled. This section states the model exactly, because the shape being right is
 not the same as the numbers being true.
 
-## 3A.1 Measurement chains
+## 3A.1 The cache cut — what cold means
 
-The unit of isolation is the ROOT COMMAND CHAIN, not the scenario. Each direct root command that uses BuildKit
-owns an isolated cache namespace and an isolated builder for the whole of its cold -> cached -> warm ->
-incremental sequence. Two root chains cannot contaminate each other, and a cold sample never follows another
-measured project command in the same namespace.
+Governed by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`.
 
-Within one chain:
+A canonical cold measurement is cold from one declared PROJECT-DEPENDENT INVALIDATION ROOT downward. It is not
+cold from the Docker daemon, the builder, the base images, the pinned toolchain or the OS packages. The
+observatory measures the cost Fido's repository and build graph create, not network pull latency or one-time
+machine bootstrap.
+
+Before every canonical project measurement the builder exists, the base images are local, and the pinned
+toolchain layers are available. Registry pulls and builder bootstrap are forbidden inside the measured
+interval. Stable ancestors through the declared boundary must remain cache hits; the named root and every
+dependent stage must rebuild.
+
+An empty-machine run is `environment.bootstrap` — a diagnostic, never canonical performance evidence, and
+never required by `RECORD=1`.
+
+## 3A.2 Scenario families
 
 ```text
-create or reset the chain's isolated cache
-prime ONLY the pinned toolchain layers      (retained, never counted as project build time)
-create a fresh exact source session
-cold.uncached                               (no reusable project result from another measured command)
-record the cache transition and the exact sample which produced the reusable state
-new source session, same chain cache
-cold.cached                                 (against that exact prime sample)
-keep that session and cache identity
-warm.cached.noop
-warm.cached.incremental                     (against the exact named warm prime)
-remove the chain only after its observation is written
+project.cold.<root>          fresh session; exactly the named root invalidated; ancestors stay hits
+project.cached.fresh         fresh session against that command's own completed prime
+project.warm.noop            same source and cache, run again with nothing changed
+project.incremental.<edit>   from the exact prime, one deterministic edit shape
+environment.bootstrap        builder creation, pulls, toolchain acquisition — diagnostic only
 ```
 
-## 3A.2 Session and cache are separate axes
+Isolation is by INVALIDATION, not by namespace: a root forced to rebuild cannot be satisfied by anything an
+earlier measured command cached. Commands share immutable infrastructure and never share a project result in a
+way that would satisfy another command's declared cold sample.
 
-`cold` versus `warm` is the SOURCE SESSION. `cached` versus `uncached` is the PROJECT CACHE. A run states both
-and can establish both; a name that stands for neither is forbidden.
+## 3A.3 Every sample carries its cache cut and what actually happened
 
-## 3A.3 Cache authorities are exact
+```text
+cache_cut          stable_through, invalidated_from,
+                   registry_pulls_included, builder_bootstrap_included
+cache_observation  per stable stage ID: hit | rebuilt | skipped | not-required | unavailable
+```
+
+A sample fails validation when a registry pull or builder bootstrap occurs inside the interval, a declared
+stable ancestor rebuilds, the named root stays cached, actual stage behaviour contradicts the declared cut, a
+cached sample cannot identify its exact prime result, or the cut is absent. Where BuildKit does not expose a
+stage's state, record `unavailable` and say why — never infer a hit from elapsed time.
+
+## 3A.4 Cache authorities are exact
 
 One `buildkit_layers` state cannot say both that toolchain layers are primed and that project layers are
 empty, so the authorities are split:
@@ -118,7 +134,7 @@ ESTABLISH it. A lightweight command that touches no project cache records `not-a
 `cache_after` is observed after the command, never copied from `cache_before`. A command that fills a cache
 and reports no transition is stating something false.
 
-## 3A.4 Metric identity
+## 3A.5 Metric identity
 
 One identity is used by every sample, summary, comparison row, raw-log path and recommendation:
 
@@ -130,14 +146,14 @@ Pooling six edit shapes into one median, or one Docker stage observed under four
 answers a question nobody asked. A selected derived child is marked selected even when its live parent is
 support.
 
-## 3A.5 Incremental samples must be independent
+## 3A.6 Incremental samples must be independent
 
 Repeating identical edit bytes in a fresh worktree against one builder cache produces one rebuild and then
 cache hits. Each sample therefore applies a DISTINCT deterministic inert edit, owned by the registry with its
 own fingerprint, and the runner verifies the intended rebuild actually ran rather than accepting a cached
 no-op under an incremental label. Comparison requires the same edit fingerprint.
 
-## 3A.6 Provenance is exact
+## 3A.7 Provenance is exact
 
 Every disposable source is created from the SELECTED SOURCE VIEW — working tree, staged index or committed
 tree — never silently from `HEAD` while the subject describes a dirty tree. Each sample retains its own source
@@ -155,34 +171,34 @@ Durations are monotonic everywhere, including hook anchors. A sum of BuildKit st
 work and is named as such, because parallel steps overlap and the sum is not elapsed time. Zero is a measured
 claim and is false when work occurred.
 
-## 3A.7 Coverage closes in both directions
+## 3A.8 Coverage closes in both directions
 
 The expected measurement relation is derived from the validated registry — command, scenario, sample count,
 edit multiplicity, derived parent context, role — and recording requires exact equality with the observation:
 no missing pair, no extra pair, exact counts, and every derived pair producible by a parent in that scenario.
 A command measured once may not stand in for a scenario it never ran.
 
-## 3A.8 Comparison validates before it concludes
+## 3A.9 Comparison validates before it concludes
 
 Both observations are validated and their summaries recomputed before any verdict. Command, scenario, edit,
 metric identity, derived parent context, resource scope and concurrency are fingerprinted; a changed
 definition makes that metric incomparable rather than improved or regressed. Comparison uses the same
 registry-aware selector expansion as a run, so a group resolves and an unknown name fails.
 
-## 3A.9 Bundles survive interruption
+## 3A.10 Bundles survive interruption
 
 The local observation is written incrementally and updated after every completed sample, and cancellation
 leaves it inspectable and marked incomplete. Run identity carries full precision plus a collision-safe part,
 and an existing bundle path is never reused. Recording verifies every direct raw log exists and matches its
 retained digest.
 
-## 3A.10 One authority per registry fact
+## 3A.11 One authority per registry fact
 
 Group membership is derived from command entries. Scenario applicability either derives the command-scenario
 matrix or does not exist. Numeric sample counts are authoritative and usage wording is generated from them.
 Dependency cycles are a registry defect rejected at load.
 
-## 3A.11 Repeated work is machine-readable
+## 3A.12 Repeated work is machine-readable
 
 The observation retains a containment and repeated-execution relation over Make targets, pre-commit stages,
 Docker stages and analysis steps, by stable ID. M2 reports it; M3 decides whether any of it is safe to merge.
