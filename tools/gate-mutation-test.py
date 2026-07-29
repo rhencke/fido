@@ -71,6 +71,21 @@ MUTANTS = (
      ('an unknown cache accepted as primed', 'a cached run with no priming run recorded',
       'a cache primed on another builder', 'a cache primed under a different BuildKit')),
 
+    (OBS, 'the empty-graph refusal',
+     "    if not any(edges.values()):",
+     "    if False:",
+     ('a dependency output with no module edges',)),
+
+    (OBS, 'the transitive downstream closure',
+     "                    frontier.append(other)",
+     "                    pass  # neutered: direct dependents only",
+     ('downstream is transitive',)),
+
+    (OBS, 'the retained weighting inputs',
+     "        rows.append({'module': module, 'edit_frequency': frequency,",
+     "        rows.append({'module': module,",
+     ('weighted rebuild cost must retain BOTH inputs beside the product',)),
+
     (OBS, 'comparison compatibility',
      "        if not same_host:",
      "        if False:",

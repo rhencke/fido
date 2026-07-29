@@ -285,6 +285,63 @@ SH
 FROM scratch AS profile-log
 COPY --from=profile /workspace/profile/ /
 
+# ── Stage 3c: module-graph — the M2 Build Observatory's per-module evidence.  Dune builds the theory ONCE
+#    into the shared cache; then the TOOLCHAIN'S OWN dependency tool emits the adjacency, and every module in
+#    the pinned build authority's module set is recompiled alone with `rocq c -time` against those already
+#    built dependencies.  Inferring the graph from `Require Import` lines would be a second authority that
+#    can disagree with the build, which is exactly the thing this repository does not allow.  A DIAGNOSTIC
+#    stage: it verifies nothing and gates nothing.
+FROM rocq-base AS module-graph
+ARG TARGETARCH
+RUN mkdir -p /workspace/graph
+COPY --chown=opam:opam dune-project dune ./
+COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam gate/ gate/
+COPY --chown=opam:opam plugin/ plugin/
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+set -eu
+fail() { echo "fido: module-graph FAILED — $*"; exit 1; }
+if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
+
+# the module set is the pinned build authority's own `(modules ...)` stanza, not a glob and not a prose list
+modules=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune | head -1)
+[ -n "$modules" ] || fail "dune declares no (modules ...) stanza, so the certified module set is undiscoverable"
+echo "fido: module-graph — $(echo $modules | wc -w) certified module(s) from dune"
+
+# the toolchain's own dependency tool; this rocq may spell it either way, and guessing is not an option
+# `rocq dep --help` prints usage and exits NONZERO — it reads --help as a missing filename — so probing with
+# it reports "absent" for a subcommand that is right there.  The driver's own subcommand list is the authority.
+if rocq --help 2>&1 | grep -qE '^[[:space:]]+dep[[:space:]]'; then dep="rocq dep"
+elif command -v rocqdep >/dev/null 2>&1; then dep="rocqdep"
+elif command -v coqdep >/dev/null 2>&1; then dep="coqdep"
+else
+  echo "fido: module-graph — rocq subcommands:"; rocq --help 2>&1 | sed -n '/Supported subcommands/,$p'
+  fail "no toolchain dependency tool (tried 'rocq dep', 'rocqdep', 'coqdep')"
+fi
+echo "fido: module-graph — adjacency from '$dep'"
+files=""
+for m in $modules; do [ -f "$m.v" ] || fail "dune names $m but $m.v is absent"; files="$files $m.v"; done
+# shellcheck disable=SC2086
+$dep -Q _build/default Fido $files > /workspace/graph/depend.mk 2> /workspace/graph/depend.err \
+  || { cat /workspace/graph/depend.err; fail "$dep failed"; }
+
+# per-module cost: each module recompiled ALONE against dependencies dune already built
+for m in $modules; do
+  start=$(date +%s%N)
+  if ! rocq c -Q _build/default Fido -time "$m.v" > "/workspace/graph/time.$m.log" 2>&1; then
+    tail -20 "/workspace/graph/time.$m.log"; fail "rocq c -time $m.v FAILED"
+  fi
+  end=$(date +%s%N)
+  echo "$m $((end - start))" >> /workspace/graph/module-wall-ns.txt
+  echo "fido: module-graph — $m $(( (end - start) / 1000000 )) ms"
+done
+SH
+
+# the export surface: adjacency, per-module wall time and the raw per-sentence logs.
+FROM scratch AS module-graph-log
+COPY --from=module-graph /workspace/graph/ /
+
 # ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (shared cache id with prover).
 #    Then, in EXPLICIT always-run steps (never .vo side effects): `Fido Materialize` writes each witness's
 #    authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the emit-time assumption-closure guard

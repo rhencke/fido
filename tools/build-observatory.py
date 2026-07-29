@@ -858,6 +858,201 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     return satisfied
 
 
+# ─────────────────────────────────────────────────────────────── module graph
+def parse_module_graph(depend_mk: str, wall_ns: dict[str, int]) -> dict:
+    """The adjacency the TOOLCHAIN emitted, plus what it implies about rebuild cost.
+
+    `rocq dep` prints Makefile rules — targets before the colon, dependencies after. Only `.vo` dependencies
+    are edges between certified modules; `.v` sources and glob files are the rule's own inputs, not module
+    edges. Reading the toolchain's output rather than scanning `Require Import` lines is the whole point: an
+    import scan is a second authority that can disagree with the build, and would disagree silently."""
+    edges: dict[str, set[str]] = {m: set() for m in wall_ns}
+    for raw in depend_mk.replace('\\\n', ' ').split('\n'):
+        line = raw.strip()
+        if not line or ':' not in line:
+            continue
+        targets, _, deps = line.partition(':')
+        owners = {Path(t).stem for t in targets.split() if t.endswith('.vo')}
+        needed = {Path(d).stem for d in deps.split() if d.endswith('.vo')}
+        for owner in owners & set(edges):
+            edges[owner] |= (needed & set(edges)) - {owner}
+    if not any(edges.values()):
+        raise ObservatoryError(
+            'the dependency output contains no module-to-module edges; the graph would be a list of isolated '
+            'modules, which no rebuild set can be derived from')
+
+    def transitive_downstream(module: str) -> set[str]:
+        out, frontier = set(), [module]
+        while frontier:
+            current = frontier.pop()
+            for other, deps in edges.items():
+                if current in deps and other not in out:
+                    out.add(other)
+                    frontier.append(other)
+        return out
+
+    downstream = {m: sorted(transitive_downstream(m)) for m in edges}
+    downstream_cost = {m: wall_ns[m] + sum(wall_ns.get(d, 0) for d in ds) for m, ds in downstream.items()}
+
+    # Longest path by summed compile cost. The graph is acyclic by construction — Rocq forbids cyclic
+    # requires — so one memoised walk suffices, and a cycle would be a toolchain defect, not a slow build.
+    best: dict[str, tuple[int, list[str]]] = {}
+
+    def longest(module: str, seen: frozenset) -> tuple[int, list[str]]:
+        if module in best:
+            return best[module]
+        if module in seen:
+            raise ObservatoryError(f'the dependency graph has a cycle through {module!r}')
+        cost, path = wall_ns[module], [module]
+        for dep in sorted(edges[module]):
+            sub_cost, sub_path = longest(dep, seen | {module})
+            if sub_cost > cost - wall_ns[module]:
+                cost, path = wall_ns[module] + sub_cost, sub_path + [module]
+        best[module] = (cost, path)
+        return best[module]
+
+    critical = max((longest(m, frozenset()) for m in edges), key=lambda cp: cp[0])
+    return {
+        'source': 'rocq dep',
+        'modules': sorted(edges),
+        'adjacency': {m: sorted(d) for m, d in sorted(edges.items())},
+        'self_ns': dict(sorted(wall_ns.items())),
+        'downstream': downstream,
+        'downstream_cost_ns': dict(sorted(downstream_cost.items())),
+        'critical_path': {'modules': critical[1], 'total_ns': critical[0]},
+    }
+
+
+def broad_import_findings(graph: dict, threshold_share: float = 0.5) -> list[dict]:
+    """Modules whose rebuild set is most of the theory — recorded as FINDINGS, never fixed here.
+
+    A module that half the tree depends on is not automatically wrong; a foundation legitimately looks like
+    this. What is reportable is the COST it implies, so M3 can decide whether the dependency is real. M2 does
+    not split a module or move a theorem."""
+    total = len(graph['modules'])
+    out = []
+    for module in graph['modules']:
+        share = len(graph['downstream'][module]) / total if total else 0
+        if share >= threshold_share:
+            out.append({'module': module, 'downstream_modules': len(graph['downstream'][module]),
+                        'share_of_theory': round(share, 3),
+                        'downstream_rebuild_ns': graph['downstream_cost_ns'][module]})
+    return sorted(out, key=lambda r: (-r['downstream_rebuild_ns'], r['module']))
+
+
+# ───────────────────────────────────────────────────────────── history analysis
+# The exact accepted range this analysis is defined over, named by the contract.
+HISTORY_START = '39ea7e3b012ec798c6a756c971c10bb363557ef8'
+HISTORY_END = '6524b437bd7a7d6b2616563b8789e28a00c7af13'
+
+# A commit belongs to the M1 source-diet campaign by its SUBJECT, not by its position in the range. M1 was a
+# one-time sweep across nearly every file in the repository; letting it define "normal" edit frequency would
+# make every module look equally hot and the weighting worthless.
+CAMPAIGN_PREFIXES = ('diet(', 'repair(m1)', 'freeze(m1)', 'accept(m1)')
+
+HISTORY_VIEWS = ('all', 'implementation', 'excluding_campaign')
+
+CHANGE_CLASSES = ('rocq-source', 'tool-and-build', 'current-documentation', 'generated-artifact',
+                  'review-only', 'life-md')
+
+
+def classify_path(rel: str) -> str:
+    if rel.endswith('.v'):
+        return 'rocq-source'
+    if rel == 'life.md':
+        return 'life-md'
+    if rel == 'go.mod' or rel.endswith('.go'):
+        return 'generated-artifact'
+    if (rel.startswith('tools/') or rel.startswith('.githooks/') or rel.startswith('plugin/')
+            or rel.startswith('e2e/') or rel in ('Makefile', 'Dockerfile', 'dune', 'dune-project',
+                                                 '.dockerignore', '.editorconfig', '.gitignore')):
+        return 'tool-and-build'
+    if rel.startswith('.review/'):
+        return 'review-only'
+    return 'current-documentation'
+
+
+def history_analysis(root: Path, start: str = HISTORY_START, end: str = HISTORY_END) -> dict:
+    """Edit frequency, co-change and edit shapes over one exact range, reported three ways.
+
+    Three views, because one would lie. `all` is what happened. `implementation` drops review-only and
+    life-only commits, which move no build input. `excluding_campaign` additionally drops M1's one-time sweep
+    — a campaign that touched almost every file at once, and which would otherwise flatten every module's
+    apparent edit frequency into the same number."""
+    if not _git(root, 'cat-file', '-t', start, check=False).strip():
+        raise ObservatoryError(f'history range start {start[:12]} is not an object in this repository')
+    if not _git(root, 'cat-file', '-t', end, check=False).strip():
+        raise ObservatoryError(f'history range end {end[:12]} is not an object in this repository')
+
+    raw = _git(root, 'log', '--no-merges', '--format=%x01%H%x02%s', '--name-only', f'{start}..{end}')
+    commits = []
+    for chunk in raw.split('\x01'):
+        if not chunk.strip():
+            continue
+        head, _, body = chunk.partition('\n')
+        sha, _, subject = head.partition('\x02')
+        paths = sorted(p for p in body.split('\n') if p.strip())
+        classes = sorted({classify_path(p) for p in paths})
+        commits.append({'commit': sha, 'subject': subject, 'paths': paths, 'classes': classes,
+                        'campaign': subject.startswith(CAMPAIGN_PREFIXES),
+                        'implementation_bearing': bool(
+                            {'rocq-source', 'tool-and-build', 'generated-artifact'} & set(classes))})
+    if not commits:
+        raise ObservatoryError(f'the range {start[:7]}..{end[:7]} contains no commits to analyse')
+
+    def view(selected: list[dict]) -> dict:
+        edits: dict[str, int] = {}
+        pairs: dict[str, int] = {}
+        shapes: dict[str, int] = {}
+        for c in selected:
+            for p in c['paths']:
+                edits[p] = edits.get(p, 0) + 1
+            for i, a in enumerate(c['paths']):
+                for b in c['paths'][i + 1:]:
+                    pairs[f'{a}\x00{b}'] = pairs.get(f'{a}\x00{b}', 0) + 1
+            shape = '+'.join(c['classes']) or '(empty)'
+            shapes[shape] = shapes.get(shape, 0) + 1
+        return {
+            'commits': len(selected),
+            'edit_count_by_file': dict(sorted(edits.items(), key=lambda kv: (-kv[1], kv[0]))),
+            'co_change_by_pair': {k.replace('\x00', ' + '): v for k, v in
+                                  sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0]))[:200]},
+            'common_edit_shapes': dict(sorted(shapes.items(), key=lambda kv: (-kv[1], kv[0]))),
+            'change_class_totals': {cl: sum(1 for c in selected if cl in c['classes'])
+                                    for cl in CHANGE_CLASSES},
+        }
+
+    implementation = [c for c in commits if c['implementation_bearing']]
+    return {
+        'range': {'start': start, 'end': end},
+        'views': dict(zip(HISTORY_VIEWS, (
+            view(commits),
+            view(implementation),
+            view([c for c in implementation if not c['campaign']]),
+        ))),
+        'campaign_commits': sum(1 for c in commits if c['campaign']),
+    }
+
+
+def weighted_rebuild_cost(history: dict, module_graph: dict | None, view: str = 'excluding_campaign') -> dict:
+    """Edit frequency x measured downstream rebuild cost, with BOTH inputs retained beside the product.
+
+    Storing only the product would leave a number nobody can argue with: a file could rank high because it
+    changes constantly or because rebuilding it is ruinous, and those call for opposite responses."""
+    if not module_graph:
+        return {'view': view, 'basis': 'unavailable', 'rows': [],
+                'reason': 'no module graph was measured in this observation'}
+    downstream = module_graph.get('downstream_cost_ns', {})
+    edits = history['views'][view]['edit_count_by_file']
+    rows = []
+    for module, cost_ns in sorted(downstream.items()):
+        frequency = edits.get(f'{module}.v', 0)
+        rows.append({'module': module, 'edit_frequency': frequency,
+                     'downstream_rebuild_ns': cost_ns, 'weighted_ns': frequency * cost_ns})
+    rows.sort(key=lambda r: (-r['weighted_ns'], r['module']))
+    return {'view': view, 'basis': 'edit_frequency x downstream_rebuild_ns', 'rows': rows}
+
+
 # ────────────────────────────────────────────────────────────────── comparison
 CLASSIFICATIONS = ('improved', 'regressed', 'overlapping-range', 'unchanged', 'added', 'removed',
                    'incomparable')
@@ -1656,6 +1851,63 @@ def self_test(root: Path) -> int:
     text = render_comparison(compare(timed(100, 110, 120), timed(900, 1_000, 1_100)))
     if 'regressed' not in text or 'n=3/3' not in text:
         failures.append('the plain comparison must show the classification and the sample counts')
+
+    # ── module graph: adjacency, rebuild sets and the critical path, over a small exact fixture
+    DEP = ('A.vo A.glob A.v.beautified: A.v /opt/rocq/rocqworker\n'
+           'B.vo B.glob: B.v _build/default/A.vo\n'
+           'C.vo: C.v _build/default/B.vo\n'
+           'D.vo: D.v _build/default/A.vo\n')
+    WALL = {'A': 1_000, 'B': 2_000, 'C': 4_000, 'D': 8_000}
+
+    counts['total'] += 1
+    try:
+        g = parse_module_graph(DEP, WALL)
+        checks = {
+            'adjacency reads .vo edges only': g['adjacency'] == {'A': [], 'B': ['A'], 'C': ['B'],
+                                                                 'D': ['A']},
+            'downstream is transitive': g['downstream']['A'] == ['B', 'C', 'D'],
+            'a leaf has no downstream': g['downstream']['C'] == [],
+            'downstream cost sums the set': g['downstream_cost_ns']['A'] == 1_000 + 2_000 + 4_000 + 8_000,
+            'the critical path is the costliest chain': g['critical_path']['modules'] == ['A', 'D'],
+            'the critical path total is its sum': g['critical_path']['total_ns'] == 9_000,
+        }
+        for why, ok_ in checks.items():
+            if not ok_:
+                failures.append(f'the module graph: {why} — got {json.dumps(g["adjacency"])}, '
+                                f'downstream {json.dumps(g["downstream"])}, cp {json.dumps(g["critical_path"])}')
+    except ObservatoryError as exc:
+        failures.append(f'the module graph: expected success, failed with: {exc}')
+
+    observed('a dependency output with no module edges',
+             lambda: parse_module_graph('A.vo: A.v\nB.vo: B.v\n', {'A': 1, 'B': 1}),
+             expect='no module-to-module edges')
+    observed('a dependency cycle',
+             lambda: parse_module_graph('A.vo: A.v _build/default/B.vo\nB.vo: B.v _build/default/A.vo\n',
+                                        {'A': 1, 'B': 1}),
+             expect='has a cycle')
+
+    counts['total'] += 1
+    findings = broad_import_findings(parse_module_graph(DEP, WALL), threshold_share=0.5)
+    if [f['module'] for f in findings] != ['A']:
+        failures.append(f'a broad-import finding must name the module half the theory depends on: {findings}')
+
+    counts['total'] += 1
+    hist = {'views': {'excluding_campaign': {'edit_count_by_file': {'A.v': 3, 'D.v': 1}}}}
+    w = weighted_rebuild_cost(hist, parse_module_graph(DEP, WALL))
+    top = w['rows'][0]
+    if top['module'] != 'A' or top['weighted_ns'] != 3 * 15_000:
+        failures.append(f'weighted rebuild cost must multiply frequency by downstream cost: {top}')
+    if 'edit_frequency' not in top or 'downstream_rebuild_ns' not in top:
+        failures.append('weighted rebuild cost must retain BOTH inputs beside the product')
+
+    counts['total'] += 1
+    if weighted_rebuild_cost(hist, None)['basis'] != 'unavailable':
+        failures.append('with no module graph, the weighting must say it is unavailable, not report zeros')
+
+    counts['total'] += 1
+    for view in ('all', 'implementation', 'excluding_campaign'):
+        if view not in HISTORY_VIEWS:
+            failures.append(f'the history views must be declared once: {view} is missing')
 
     counts['total'] += 1
     usage = render_usage(suite)

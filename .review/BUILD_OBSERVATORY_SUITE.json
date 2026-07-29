@@ -197,6 +197,66 @@
     },
     {
       "dependencies": [
+        "analysis.rocq-modules"
+      ],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "analysis",
+        "docker"
+      ],
+      "id": "docker.module-graph",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:module-graph",
+      "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency for the certified module set.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [
+        "analysis.rocq-modules"
+      ],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "analysis",
+        "docker"
+      ],
+      "id": "docker.module-graph-log",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:module-graph-log",
+      "purpose": "The scratch stage exporting the adjacency, per-module wall time and the raw per-sentence logs.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [
         "make.profile"
       ],
       "execution": [
@@ -1638,7 +1698,9 @@
       "members": [
         "analysis.dune-graph",
         "analysis.history",
-        "analysis.rocq-modules"
+        "analysis.rocq-modules",
+        "docker.module-graph",
+        "docker.module-graph-log"
       ]
     },
     {
@@ -1658,6 +1720,8 @@
         "docker.generated-artifact",
         "docker.generated-module",
         "docker.go-e2e",
+        "docker.module-graph",
+        "docker.module-graph-log",
         "docker.profile",
         "docker.profile-log",
         "docker.prover",
