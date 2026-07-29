@@ -234,9 +234,9 @@ Run only the named command IDs or groups plus their required setup. This is an a
 tracked canonical observation.
 
 ```text
-make observe SCENARIO=cold.uncached
-make observe SCENARIO=warm.cached.noop
-make observe ONLY=make.prove SCENARIO=warm.cached.noop
+make observe SCENARIO=project.cold.prover
+make observe SCENARIO=project.warm.noop
+make observe ONLY=make.prove SCENARIO=project.warm.noop
 ```
 
 Run only the named scenarios. `ONLY` and `SCENARIO` may be combined.
@@ -690,101 +690,19 @@ It cannot be recorded.
 
 # 10. Cold, warm, cached, and uncached
 
-Cold/warm and cached/uncached are separate axes.
+**Superseded by §3A.** The scenario families, the cache cut, the cache authorities and the provenance rules
+are stated once, in §3A, under `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`. This section previously named
+`cold.uncached`, `cold.cached`, `warm.cached.noop` and `warm.cached.incremental`, and a single
+`buildkit_layers` authority — the exact model the amendment replaced and the exact authority finding D split.
+Two scenario vocabularies in one contract is a second authority for one fact, so this one is retired rather
+than kept in agreement by hand.
 
-The canonical scenario set must include:
+Two operational rules live here because §3A does not state them:
 
-```text
-cold.uncached
-cold.cached
-warm.cached.noop
-warm.cached.incremental
-```
-
-A separately selectable scenario may include:
-
-```text
-bootstrap.cold.uncached
-```
-
-## 10.1 Definitions
-
-### `cold.uncached`
-
-- Fresh execution session.
-- Pinned toolchain and base image may be primed by the suite’s exact toolchain-prime step.
-- Project-controlled BuildKit layers are not reusable.
-- The Dune `_build` cache mount starts empty.
-- Project-controlled Go build state starts empty or is explicitly recorded as layer-only.
-- No prior measured project command populated the caches.
-
-This is the clean project-build cost, not an uncontrolled network download benchmark.
-
-### `cold.cached`
-
-- Fresh execution session.
-- Uses the exact caches produced by the named prime run.
-- No process or shell state from the prime run survives.
-- Cache identity and prime observation are retained.
-
-### `warm.cached.noop`
-
-- Same execution session and cache identity as the preceding cached run.
-- No source byte changes.
-- Measures no-op command and gate overhead.
-
-### `warm.cached.incremental`
-
-- Same execution session and cache identity.
-- Runs in a disposable exact source copy.
-- Applies one deterministic named edit.
-- Runs the selected command.
-- Restores the exact original bytes and verifies the source digest.
-
-### `bootstrap.cold.uncached`
-
-- New builder.
-- Empty builder cache.
-- Includes toolchain/base acquisition and setup.
-- Kept separate because network and registry service time may dominate.
-- Never substitutes for `cold.uncached`.
-
-## 10.2 Cache authorities
-
-Record each cache independently:
-
-```text
-buildkit_layers
-dune_build
-apt_download
-opam_download
-go_build
-go_module
-generated_intermediate
-```
-
-Each state is one of:
-
-```text
-empty
-primed
-reused
-not-applicable
-uncontrolled
-```
-
-The host page cache is `uncontrolled` unless the suite can control it without privilege or system-wide effects.
-Do not flush the host page cache as part of the canonical suite.
-
-## 10.3 Cache provenance
-
-A cached run retains the exact prime run and cache identity which produced it.
-
-The suite must fail rather than label a discovered unknown cache as primed.
-
-Use isolated observatory builders and cache roots. Do not prune or alter the developer’s normal builder cache.
-
-No performance optimization may be introduced while creating cache isolation.
+- The host page cache is `uncontrolled` unless the suite can control it without privilege or system-wide
+  effects, and the canonical suite never flushes it.
+- The observatory uses its own builder and cache root, and never prunes or alters the developer's normal
+  builder cache. Creating that isolation may not introduce a performance optimization.
 
 ---
 
@@ -796,7 +714,7 @@ The registry owns the scenario matrix.
 
 Required principles:
 
-1. Full acceptance paths run in cold-uncached, cold-cached, and warm-cached-noop forms.
+1. Full acceptance paths run in project-cold, project-cached-fresh and project-warm-noop forms.
 2. Major proof, emission, e2e, and pre-commit paths run in the cache forms which are meaningful to them.
 3. Lightweight policy commands run enough samples to show their stable direct cost.
 4. Pre-commit child stages are derived from the instrumented full hook and remain individually selectable.
@@ -1174,8 +1092,8 @@ make observe LIST=1
 make observe
 make observe ONLY=make.prove
 make observe ONLY=precommit.prover
-make observe SCENARIO=cold.uncached ONLY=make.check
-make observe SCENARIO=warm.cached.noop ONLY=make.check
+make observe SCENARIO=project.cold.go-e2e ONLY=make.check
+make observe SCENARIO=project.warm.noop ONLY=make.check
 make observe COMPARE=<one local run> BASE=<one Git ref>
 make observe RECORD=1
 

@@ -115,6 +115,21 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'one summary, one program',
+     "        if group[0].get('edit_id') is None:",
+     "        if False:",
+     ('a summary pooling samples taken against different sources',)),
+
+    (OBS, 'distinct sources across incremental samples',
+     "        elif len(set(digests)) != len(digests):",
+     "        elif False:",
+     ('an incremental scenario whose samples repeat one source',)),
+
+    (OBS, 'the incomplete-run guard on comparison',
+     "    if (obs.get('derived') or {}).get('status') == 'incomplete':",
+     "    if False:",
+     ('comparing against a run that never finished',)),
+
     (OBS, 'the usable-input guard on comparison',
      "    if obs.get('state') == 'pending':",
      "    if False:",

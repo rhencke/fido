@@ -737,6 +737,19 @@ def release_isolation(command: dict, where: Path) -> None:
     shutil.rmtree(where, ignore_errors=True)
 
 
+def host_load() -> float | None:
+    """Report the host's 1-minute load average, or None where the kernel does not publish one.
+
+    Wall-clock taken while the machine is busy with unrelated work is inflated by that work. This is
+    recorded so a reader can see the condition; it is deliberately NOT a threshold and never rejects a
+    sample, because a numeric cut-off invented here would stand in for a judgement nobody made.
+    """
+    try:
+        return float(Path('/proc/loadavg').read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def sample_role(sel, cid: str, scenario_id: str) -> str:
     """Report whether a sample answers the operator's request or only supports it.
 
@@ -771,6 +784,7 @@ def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
     env = {**os.environ, **(env_extra or {})}
     start_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+    load_before = host_load()
     t0 = _monotonic_ns()
     with log.open('wb') as sink:
         try:
@@ -783,6 +797,7 @@ def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
         _, status, usage = os.wait4(proc.pid, 0)
         proc.returncode = os.waitstatus_to_exitcode(status)
     wall_ns = _monotonic_ns() - t0
+    load_after = host_load()
 
     if wall_ns < 0:
         raise ObservatoryError(
@@ -806,6 +821,7 @@ def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
             'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
             'user_cpu_ns': int(usage.ru_utime * 1e9), 'system_cpu_ns': int(usage.ru_stime * 1e9),
             'max_rss_bytes': usage.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
+            'host_load': {'before': load_before, 'after': load_after},
             'exit_code': proc.returncode, 'expected_exit': expected,
             'status': status_word, 'expected_failure_reason': reason,
             'cache_before': cache_before, 'cache_after': observe_cache_after(cache_before, stages),
@@ -912,6 +928,7 @@ def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
             'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
             'resource_scope': SCOPE_UNAVAILABLE, 'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
+            'host_load': {'before': host_load(), 'after': host_load()},
             'expected_failure_reason': None, 'cache_before': provenance,
             'cache_after': dict(provenance, observed=True), 'cache_cut': dict(scenario['cache_cut']),
             'cache_observation': {'stages': {}}, 'source_digest': source_digest,
@@ -1366,10 +1383,10 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 
 # ──────────────────────────────────────────────────────── observation and record
 OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model', 'commands',
-                       'measurements', 'module_graph', 'history_analysis', 'derived')
+                       'measurements', 'module_graph', 'history_analysis', 'derived', 'selection')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
-                 'max_rss_bytes', 'resource_scope', 'exit_code', 'expected_exit', 'status',
+                 'max_rss_bytes', 'resource_scope', 'host_load', 'exit_code', 'expected_exit', 'status',
                  'cache_before', 'cache_after', 'cache_cut', 'cache_observation', 'source_digest',
                  'raw_log_sha256', 'expected_failure_reason', 'derived_stage_events')
 
@@ -1427,6 +1444,26 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
                 f'work, so it measures nothing')
         if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
             raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
+
+    # A median is only meaningful over samples of the SAME program. Metric identity deliberately excludes the
+    # source digest — an incremental scenario changes bytes on purpose — so the rule is stated in both
+    # directions: without an edit the digests must agree, with an edit they must all differ.
+    by_identity: dict[str, list[dict]] = {}
+    for s in samples:
+        if s.get('source_digest'):
+            by_identity.setdefault(metric_identity(s), []).append(s)
+    for key, group in sorted(by_identity.items()):
+        digests = [g['source_digest'] for g in group]
+        if group[0].get('edit_id') is None:
+            if len(set(digests)) != 1:
+                raise ObservatoryError(
+                    f'{key}: {len(set(digests))} different source digests are pooled into one summary, but '
+                    f'this scenario applies no edit; the tree moved during the run and the samples measure '
+                    f'different programs')
+        elif len(set(digests)) != len(digests):
+            raise ObservatoryError(
+                f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
+                f'source, so a cached no-op is recorded under an incremental label')
 
     recomputed = summarise(samples)
     stored = obs['derived'].get('summaries', {})
@@ -1839,6 +1876,13 @@ def _comparable(obs: dict, side: str) -> None:
         raise ObservatoryError(
             f'the {side} observation is still pending — it records no measurement, so there is nothing to '
             f'compare against')
+    # Ask about incompleteness BEFORE reaching for members an unfinished run has not written yet. A partial
+    # bundle blamed for a missing 'environment' sends the reader looking for a corrupt file instead of a run
+    # that is still going.
+    if (obs.get('derived') or {}).get('status') == 'incomplete':
+        raise ObservatoryError(
+            f'the {side} observation is an incomplete run — it was checkpointed mid-suite and its samples do '
+            f'not cover what it claims to; finish or discard the run before comparing')
     for member in ('environment', 'derived', 'measurements'):
         if not isinstance(obs.get(member), (dict, list)):
             raise ObservatoryError(f'the {side} observation has no usable {member!r} member')
@@ -2898,6 +2942,7 @@ def self_test(root: Path) -> int:
                 'selected_or_support': 'selected', 'start_utc': '2026-01-01T00:00:00+00:00',
                 'wall_ns': 1_000_000, 'user_cpu_ns': 500_000, 'system_cpu_ns': 400_000,
                 'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'exit_code': 0, 'expected_exit': 0,
+                'host_load': {'before': 0.5, 'after': 0.5},
                 'status': 'ok', 'cache_before': {'authorities': {}, 'primed_by_run': 'run-a'},
                 'cache_after': {}, 'raw_log_sha256': 'ab' * 32,
                 'expected_failure_reason': None, 'derived_stage_events': []}
@@ -2915,6 +2960,8 @@ def self_test(root: Path) -> int:
                                 'stable_through': 'rocq-base'},
                 'measurements': samples,
                 'module_graph': None, 'history_analysis': None,
+                'selection': {'partial': False, 'commands_selected': ['make.fmt'], 'commands_support': [],
+                              'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': []},
                 'derived': {'summaries': summarise(samples)}}
         return {**base, **over}
 
@@ -2975,9 +3022,13 @@ def self_test(root: Path) -> int:
             every = []
             for spec in expected_relation(suite).values():
                 for i in range(spec['samples']):
+                    # An incremental sample edits distinct bytes, so its disposable copy hashes differently.
+                    # The fixture has to model that or it would not reach the rule which requires it.
+                    digest_i = (_sha256(f'{spec["command_id"]}|{spec["scenario_id"]}|{i}'.encode('utf-8'))
+                                if spec['edit_id'] else 'e0' * 32)
                     every.append(sample(command_id=spec['command_id'], scenario_id=spec['scenario_id'],
                                         edit_id=spec['edit_id'], derived_parent_id=spec['derived_parent_id'],
-                                        sample_index=i))
+                                        sample_index=i, source_digest=digest_i))
         over.setdefault('derived', {'summaries': summarise(every)})
         return observation(samples=every, **over)
 
@@ -3560,9 +3611,35 @@ def self_test(root: Path) -> int:
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),
              expect='still pending')
+    # Both directions, because a rule that only rejects one shape launders the other.
+    observed('a summary pooling samples taken against different sources',
+             lambda: validate_observation(
+                 observation(samples=[sample(sample_index=0, source_digest='1a' * 32),
+                                      sample(sample_index=1, source_digest='2b' * 32)]), digest),
+             expect='the tree moved during the run')
+    observed('an incremental scenario whose samples repeat one source',
+             lambda: validate_observation(
+                 observation(samples=[sample(sample_index=0, edit_id='edit.leaf.emit',
+                                             scenario_id='project.incremental.leaf.emit'),
+                                      sample(sample_index=1, edit_id='edit.leaf.emit',
+                                             scenario_id='project.incremental.leaf.emit')]), digest),
+             expect='a cached no-op is recorded under an incremental label')
+
+    observed('comparing against a run that never finished',
+             lambda: compare({**observation(), 'derived': {'summaries': {}, 'status': 'incomplete'}},
+                             observation()),
+             expect='incomplete run')
     observed('comparing against an observation with no environment',
              lambda: compare({k: v for k, v in observation().items() if k != 'environment'}, observation()),
              expect="no usable 'environment'")
+
+    # Recording the condition is only worth something if the reading is real where the kernel offers one.
+    counts['total'] += 1
+    if Path('/proc/loadavg').is_file():
+        if not isinstance(host_load(), float):
+            failures.append('the host load is published by this kernel but was not read')
+    elif host_load() is not None:
+        failures.append('a load reading was invented on a kernel that publishes none')
 
     counts['total'] += 1
     usage_text = render_usage(suite)
