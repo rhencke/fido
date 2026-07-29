@@ -115,6 +115,11 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'the partition between the shell and analysis runners',
+     "    return 'analysis' if command['kind'] in ANALYSIS_KINDS else 'shell'",
+     "    return 'shell'",
+     ('the shell runner would try to exec these non-programs',)),
+
     (OBS, 'a selected command that measured nothing must say so',
      "    if orphans:",
      "    if False:",

@@ -797,6 +797,19 @@ def host_load() -> float | None:
         return None
 
 
+# Two runners, one partition. A shell runner spawns the command; the analysis runner performs the work in
+# this process. `analysis.rocq-modules` declares `execution: ['observatory', ...]`, which is a marker rather
+# than a program, so handing it to the shell runner tried to exec a binary named `observatory`.
+ANALYSIS_KINDS = ('rocq-module-analysis', 'history-analysis')
+
+
+def runner_for(command: dict) -> str | None:
+    """Which runner owns this command: 'shell', 'analysis', or None for one that is never executed."""
+    if command['measurement'] != 'direct':
+        return None
+    return 'analysis' if command['kind'] in ANALYSIS_KINDS else 'shell'
+
+
 def sample_role(sel, cid: str, scenario_id: str) -> str:
     """Report whether a sample answers the operator's request or only supports it.
 
@@ -2271,7 +2284,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
     for cid in sel.order:
         command = commands[cid]
-        if command['measurement'] != 'direct':
+        if runner_for(command) != 'shell':
             continue
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
         if not chain:
@@ -2384,9 +2397,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
     for cid in sel.order:
         command = commands[cid]
-        if command['kind'] not in ('rocq-module-analysis', 'history-analysis'):
-            continue
-        if command['measurement'] != 'direct':
+        if runner_for(command) != 'analysis':
             continue
         for scenario_id in [s for s in sel.scenarios if s in command['scenarios']]:
             scenario = scenarios[scenario_id]
@@ -3656,11 +3667,28 @@ def self_test(root: Path) -> int:
     if scopes.get('analysis.dune-graph') != SCOPE_UNAVAILABLE:
         failures.append('a child produced by the same build has no resource figures of its own')
 
+    # Two runners, one partition: every direct command belongs to exactly one, and nothing else is executed.
+    # An analysis command reached the shell runner and it tried to exec a binary named `observatory`, which
+    # cost the chain its prime and every cached sample that depended on it.
+    counts['total'] += 1
+    direct = [c for c in suite['commands'] if c['measurement'] == 'direct']
+    shell = {c['id'] for c in direct if runner_for(c) == 'shell'}
+    analysis = {c['id'] for c in direct if runner_for(c) == 'analysis'}
+    if shell & analysis:
+        failures.append(f'commands claimed by both runners: {sorted(shell & analysis)}')
+    if shell | analysis != {c['id'] for c in direct}:
+        missing = {c['id'] for c in direct} - shell - analysis
+        failures.append(f'direct commands no runner owns: {sorted(missing)}')
+    spawned = [c['id'] for c in direct if runner_for(c) == 'shell'
+               and c['execution'] and c['execution'][0] not in ('make', 'sh', 'env')]
+    if spawned:
+        failures.append(f'the shell runner would try to exec these non-programs: {spawned}')
+
     # ── every registry execution must actually be runnable, and a bad one must be diagnosable
     counts['total'] += 1
     unrunnable = [c['id'] for c in suite['commands']
                   if c['measurement'] == 'direct'
-                  and c['kind'] not in ('rocq-module-analysis', 'history-analysis')
+                  and runner_for(c) == 'shell'
                   and c['execution'] and c['execution'][0] not in ('make', 'sh', 'env')]
     if unrunnable:
         failures.append(f'these direct commands name an execution nothing can run: {unrunnable}')
