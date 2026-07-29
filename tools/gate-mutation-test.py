@@ -71,6 +71,21 @@ MUTANTS = (
      ('an unknown cache accepted as primed', 'a cached run with no priming run recorded',
       'a cache primed on another builder', 'a cache primed under a different BuildKit')),
 
+    (OBS, 'record eligibility',
+     "    if sel.partial:",
+     "    if False:",
+     ('a partial run with RECORD',)),
+
+    (OBS, 'the summary recomputation',
+     "    if stored != recomputed:",
+     "    if False:",
+     ('a tampered stored summary',)),
+
+    (OBS, 'the recording blast radius',
+     "    unexpected = [p for p in dirty if p != OBSERVATION_REL]",
+     "    unexpected = []",
+     ('recording which changes a second tracked file',)),
+
     (OBS, 'the builder guard',
      "    if name != OBSERVATORY_BUILDER:",
      "    if False:",

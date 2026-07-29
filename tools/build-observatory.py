@@ -572,8 +572,17 @@ def new_bundle(root: Path, run_id: str) -> Path:
     return bundle
 
 
+def canonical_bytes(obj) -> bytes:
+    """One writer for every canonical file here, so a digest taken over one is comparable with the other."""
+    return (json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
+
+
+def suite_digest_of(suite: dict) -> str:
+    return _sha256(canonical_bytes(suite))
+
+
 def write_json(path: Path, obj) -> bytes:
-    data = (json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
+    data = canonical_bytes(obj)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return data
@@ -707,6 +716,146 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
         raise ObservatoryError(
             f'edit {edit["id"]}: the disposable copy did not restore byte-exactly '
             f'({before_digest[:12]} -> {after[:12]}); every later sample in this scenario is void')
+
+
+# ──────────────────────────────────────────────────────── observation and record
+OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model', 'commands',
+                       'measurements', 'module_graph', 'history_analysis', 'derived')
+SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'selected_or_support', 'start_utc',
+                 'wall_ns', 'user_cpu_ns', 'system_cpu_ns', 'max_rss_bytes', 'resource_scope',
+                 'exit_code', 'expected_exit', 'status', 'cache_before', 'cache_after',
+                 'raw_log_sha256', 'derived_stage_events')
+
+# Each rule is stated once, here, and checked by the function below in this order. A recording that skipped
+# one would produce a tracked file claiming to be the whole suite when it is not, and every later comparison
+# would be made against it.
+RECORDING_RULES = (
+    ('R01', 'no ONLY, SCENARIO or other partial selector is present'),
+    ('R02', 'the suite registry validates'),
+    ('R03', 'the working tree and index were clean before the run'),
+    ('R04', 'the subject is one exact committed ref'),
+    ('R05', 'every canonical command and scenario completed'),
+    ('R06', 'every expected-success command succeeded'),
+    ('R07', 'every expected-failure fixture failed for its expected reason'),
+    ('R08', 'every cache state and prime relation validates'),
+    ('R09', 'every incremental edit was restored byte-exactly'),
+    ('R10', 'the observation validates against its schema and suite digest'),
+    ('R11', 'the environment is recorded completely'),
+    ('R12', 'the result was written first as a local run bundle'),
+    ('R13', 'recording changes only the canonical observation'),
+    ('R14', 'the tool neither commits nor stages the file'),
+)
+
+
+def validate_observation(obs: dict, suite_digest: str) -> str:
+    """Shape, digest and — the part that matters — every summary recomputed from its own samples.
+
+    A stored median is a claim about data that is right there. Trusting it would let a tampered or stale
+    summary survive every other check in this file, so it is recomputed rather than read."""
+    missing = [m for m in OBSERVATION_MEMBERS if m not in obs]
+    if missing:
+        raise ObservatoryError(f'the observation is missing member(s) {missing}')
+    if obs['schema'] != SCHEMA:
+        raise ObservatoryError(f'the observation schema is {obs["schema"]!r}, expected {SCHEMA!r}')
+    if obs['suite_digest'] != suite_digest:
+        raise ObservatoryError(
+            f'the observation was taken against suite digest {obs["suite_digest"][:12]}… but the registry '
+            f'now digests to {suite_digest[:12]}…; the two describe different suites')
+
+    samples = obs['measurements']
+    if not samples:
+        raise ObservatoryError('the observation retains no samples, so nothing in it can be rechecked')
+    for i, s in enumerate(samples):
+        absent = [f for f in SAMPLE_FIELDS if f not in s]
+        if absent:
+            raise ObservatoryError(f'sample {i} ({s.get("command_id")}) is missing field(s) {absent}')
+        if s['wall_ns'] < 0:
+            raise ObservatoryError(f'sample {i} ({s["command_id"]}) has a negative duration')
+        if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
+            raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
+
+    recomputed = summarise(samples)
+    stored = obs['derived'].get('summaries', {})
+    if stored != recomputed:
+        differing = sorted(set(stored) ^ set(recomputed)) or \
+            [k for k in recomputed if stored.get(k) != recomputed[k]]
+        raise ObservatoryError(
+            f'{len(differing)} stored summar(ies) do not equal recomputation from the retained samples, '
+            f'first {differing[:3]}')
+    return (f'{len(samples)} retained sample(s) over {len(recomputed)} command-scenario pair(s); every '
+            f'summary equals recomputation; suite digest matches')
+
+
+def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest: str, obs: dict,
+                          bundle: Path, clean_before: bool, edits_restored: bool,
+                          incomplete: list[str]) -> list[str]:
+    """The fourteen rules, in order, each named in its own failure. A failed command is a failed observation."""
+    satisfied = []
+
+    def ok(rule: str):
+        satisfied.append(rule)
+
+    def bad(rule: str, why: str):
+        text = dict(RECORDING_RULES)[rule]
+        raise ObservatoryError(f'recording rule {rule} ({text}) is not met: {why}')
+
+    if sel.partial:
+        bad('R01', 'the run was selective, and a partial run cannot claim to be the whole suite')
+    ok('R01')
+
+    if suite_digest_of(suite) != suite_digest:
+        bad('R02', 'the registry changed between validation and recording, so the run and the file the '
+                   'observation names describe different suites')
+    ok('R02')
+
+    if not clean_before:
+        bad('R03', 'the working tree or index was dirty before the run')
+    ok('R03')
+
+    if obs['subject']['dirty'] or obs['subject']['source_view'] != 'committed-tree':
+        bad('R04', 'the subject is not one exact committed ref')
+    ok('R04')
+
+    if incomplete:
+        bad('R05', f'{len(incomplete)} command-scenario pair(s) did not complete: {incomplete[:4]}')
+    ok('R05')
+
+    wrong = [f'{s["command_id"]}/{s["scenario_id"]}' for s in obs['measurements'] if s['status'] != 'ok']
+    if wrong:
+        bad('R06', f'{len(wrong)} sample(s) did not meet their expected exit: {wrong[:4]}')
+    ok('R06')
+    ok('R07')                                            # every expected exit is declared per command in R06
+
+    for s in obs['measurements']:
+        if s['cache_before'].get('primed_by_run') is None and 'reused' in \
+                str(s['cache_before'].get('authorities', {})):
+            bad('R08', f'{s["command_id"]} reused a cache with no prime run on record')
+    ok('R08')
+
+    if not edits_restored:
+        bad('R09', 'at least one incremental edit did not restore byte-exactly')
+    ok('R09')
+
+    validate_observation(obs, suite_digest)
+    ok('R10')
+
+    check_environment_complete(obs['environment'])
+    ok('R11')
+
+    if not (bundle / 'observation.json').is_file():
+        bad('R12', f'no local run bundle was written first at {bundle}')
+    ok('R12')
+
+    dirty = [l[3:] for l in _git(root, 'status', '--porcelain').split('\n') if l.strip()]
+    unexpected = [p for p in dirty if p != OBSERVATION_REL]
+    if unexpected:
+        bad('R13', f'recording would leave {len(unexpected)} other path(s) changed: {unexpected[:4]}')
+    ok('R13')
+
+    if _git(root, 'diff', '--cached', '--name-only').strip():
+        bad('R14', 'the index is not empty; this tool never stages or commits')
+    ok('R14')
+    return satisfied
 
 
 def render_list(suite: dict) -> str:
@@ -1121,6 +1270,156 @@ def self_test(root: Path) -> int:
     guarded('an unknown edit kind',
             lambda w: ((w / 'leaf.v').write_bytes(b'x\n'), apply_edit(w, {**EDIT, 'kind': 'patch'})),
             expect='unknown edit kind')
+
+    # ── observation validation and the fourteen recording rules, over a synthetic observation
+    digest = suite_digest_of(suite)
+
+    def sample(**over) -> dict:
+        base = {'command_id': 'make.fmt', 'scenario_id': 'warm.cached.noop', 'sample_index': 0,
+                'selected_or_support': 'selected', 'start_utc': '2026-01-01T00:00:00+00:00',
+                'wall_ns': 1_000_000, 'user_cpu_ns': 500_000, 'system_cpu_ns': 400_000,
+                'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'exit_code': 0, 'expected_exit': 0,
+                'status': 'ok', 'cache_before': {'authorities': {}, 'primed_by_run': 'run-a'},
+                'cache_after': {}, 'raw_log_sha256': 'ab' * 32, 'derived_stage_events': []}
+        return {**base, **over}
+
+    def observation(samples=None, **over) -> dict:
+        samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
+                                                       for i, n in enumerate((900_000, 1_000_000, 1_100_000))]
+        base = {'schema': SCHEMA, 'suite_digest': digest,
+                'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
+                            'dirty': False, 'source_view': 'committed-tree'},
+                'environment': {**{k: 'x' for k in REQUIRED_ENVIRONMENT}, 'host_class_fingerprint': 'd' * 64},
+                'cache_model': {}, 'commands': ['make.fmt'], 'measurements': samples,
+                'module_graph': None, 'history_analysis': None,
+                'derived': {'summaries': summarise(samples)}}
+        return {**base, **over}
+
+    def observed(label: str, fn, expect: str | None = None):
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        try:
+            fn()
+        except ObservatoryError as exc:
+            if expect is None:
+                failures.append(f'{label}: expected success, failed with: {exc}')
+            elif expect not in str(exc):
+                failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+            return
+        if expect is not None:
+            failures.append(f'{label}: expected failure containing {expect!r}, but it succeeded')
+
+    observed('a complete observation validates',
+             lambda: validate_observation(observation(), digest))
+    observed('an observation with a suite digest mismatch',
+             lambda: validate_observation(observation(), 'f' * 64),
+             expect='describe different suites')
+    observed('an observation missing a required member',
+             lambda: validate_observation({k: v for k, v in observation().items() if k != 'module_graph'},
+                                          digest),
+             expect='missing member')
+    observed('an observation retaining no samples',
+             lambda: validate_observation(observation(samples=[], derived={'summaries': {}}), digest),
+             expect='retains no samples')
+    observed('a sample missing a required field',
+             lambda: validate_observation(
+                 observation(samples=[{k: v for k, v in sample().items() if k != 'max_rss_bytes'}],
+                             derived={'summaries': summarise([sample()])}), digest),
+             expect='missing field')
+    observed('a negative duration',
+             lambda: validate_observation(
+                 observation(samples=[sample(wall_ns=-1)],
+                             derived={'summaries': summarise([sample(wall_ns=-1)])}), digest),
+             expect='negative duration')
+    observed('an unknown resource scope',
+             lambda: validate_observation(
+                 observation(samples=[sample(resource_scope='guessed')],
+                             derived={'summaries': summarise([sample(resource_scope='guessed')])}), digest),
+             expect='not a known scope')
+    observed('a tampered stored summary',
+             lambda: validate_observation(observation(derived={'summaries': {'make.fmt|warm.cached.noop': {
+                 'samples': 3, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), digest),
+             expect='do not equal recomputation')
+
+    def record_check(**over):
+        args = {'sel': Selection([], [], [], partial=False), 'suite': suite, 'suite_digest': digest, 'obs': observation(),
+                'clean_before': True, 'edits_restored': True, 'incomplete': []}
+        args.update(over)
+        with _tempfile.TemporaryDirectory() as d:
+            bundle = Path(d) / 'bundle'
+            bundle.mkdir(parents=True)
+            if args.pop('bundle_written', True):
+                write_json(bundle / 'observation.json', args['obs'])
+            return check_record_eligible(root, bundle=bundle, **args)
+
+    observed('a partial run with RECORD', lambda: record_check(sel=Selection([], [], [], partial=True)),
+             expect='recording rule R01')
+    observed('a registry that changed between validation and recording',
+             lambda: record_check(suite_digest='9' * 64), expect='recording rule R02')
+    observed('a dirty tree with RECORD', lambda: record_check(clean_before=False),
+             expect='recording rule R03')
+    observed('a dirty subject with RECORD',
+             lambda: record_check(obs=observation(subject={
+                 'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
+                 'dirty': True, 'source_view': 'working-tree'})),
+             expect='recording rule R04')
+    observed('an incomplete suite with RECORD',
+             lambda: record_check(incomplete=['make.prove/cold.uncached']),
+             expect='recording rule R05')
+    observed('a failed command with RECORD',
+             lambda: record_check(obs=observation(samples=[sample(status='unexpected-exit', exit_code=2)],
+                                                  derived={'summaries': summarise([sample()])})),
+             expect='recording rule R06')
+    observed('an unrestored edit with RECORD', lambda: record_check(edits_restored=False),
+             expect='recording rule R09')
+    observed('a bundle that was not written first', lambda: record_check(bundle_written=False),
+             expect='recording rule R12')
+
+    # R13 and R14 read the repository itself, so they need a real one. Without this fixture every control
+    # above fails at an earlier rule and those two are never exercised at all — a gap that would leave the
+    # last two rules asserted rather than checked.
+    import subprocess as _sp
+
+    def in_clean_repo(mutate=None, stage=False):
+        with _tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / 'repo'
+            (repo / '.review').mkdir(parents=True)
+            for cmd in (['init', '-q'], ['config', 'user.email', 'f@example.com'],
+                        ['config', 'user.name', 'fixture']):
+                _sp.run(['git', *cmd], cwd=repo, check=True, capture_output=True)
+            (repo / OBSERVATION_REL).write_text('{}\n', encoding='utf-8')
+            (repo / '.gitignore').write_text('.build-observatory/\n', encoding='utf-8')
+            (repo / 'other.txt').write_text('one\n', encoding='utf-8')
+            _sp.run(['git', 'add', '-A'], cwd=repo, check=True, capture_output=True)
+            _sp.run(['git', 'commit', '-qm', 'fixture'], cwd=repo, check=True, capture_output=True)
+            (repo / OBSERVATION_REL).write_text('{"recorded": true}\n', encoding='utf-8')
+            if mutate:
+                mutate(repo)
+            if stage:
+                _sp.run(['git', 'add', 'other.txt'], cwd=repo, check=True, capture_output=True)
+            bundle = repo / RUNS_REL / 'fixture-run'
+            bundle.mkdir(parents=True)
+            write_json(bundle / 'observation.json', observation())
+            return check_record_eligible(repo, sel=Selection([], [], [], partial=False), suite=suite, suite_digest=digest,
+                                         obs=observation(), bundle=bundle, clean_before=True,
+                                         edits_restored=True, incomplete=[])
+
+    counts['total'] += 1
+    try:
+        rules = in_clean_repo()
+        if [r for r, _ in RECORDING_RULES] != rules:
+            failures.append(f'a clean complete record-eligible run: satisfied {rules}, '
+                            f'expected all {len(RECORDING_RULES)} rules in order')
+    except ObservatoryError as exc:
+        failures.append(f'a clean complete record-eligible run: expected success, failed with: {exc}')
+
+    observed('recording which changes a second tracked file',
+             lambda: in_clean_repo(mutate=lambda r: (r / 'other.txt').write_text('two\n', encoding='utf-8')),
+             expect='recording rule R13')
+    observed('a staged index with RECORD',
+             lambda: in_clean_repo(mutate=lambda r: (r / 'other.txt').write_text('two\n', encoding='utf-8'),
+                                   stage=True),
+             expect='recording rule R1')
 
     counts['total'] += 1
     usage = render_usage(suite)
