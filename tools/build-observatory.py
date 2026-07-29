@@ -58,8 +58,7 @@ SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
 MEASUREMENTS = ('direct', 'derived', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
                   'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner')
-SCENARIO_FIELDS = ('id', 'purpose', 'session_state', 'cache_state', 'prime_steps', 'sample_policy',
-                   'applicable_groups')
+SCENARIO_FIELDS = ('id', 'purpose', 'session_state', 'cache_state', 'prime_steps')
 
 # A kind whose members are discovered from a live surface, paired with the surface that discovers them. A
 # registry entry of one of these kinds is a claim about the repository, checked in BOTH directions.
@@ -95,10 +94,10 @@ def make_targets(root: Path) -> set[str]:
     Reading the declaration rather than every `name:` line is the point: `.PHONY` is where the Makefile states
     which targets are an interface, and a private helper rule is not part of the measured surface."""
     text = read_text(root / MAKEFILE_REL, 'Makefile')
-    m = re.search(r'^\.PHONY:((?:[^\n\\]*\\\n)*[^\n]*)$', text, re.M)
-    if not m:
+    decls = re.findall(r'^\.PHONY:((?:[^\n\\]*\\\n)*[^\n]*)$', text, re.M)
+    if not decls:
         raise ObservatoryError(f'{MAKEFILE_REL}: no .PHONY declaration, so the public surface is undiscoverable')
-    names = set(m.group(1).replace('\\\n', ' ').split())
+    names = {n for d in decls for n in d.replace('\\\n', ' ').split()}
     if not names:
         raise ObservatoryError(f'{MAKEFILE_REL}: the .PHONY declaration is empty')
     return names
@@ -106,7 +105,7 @@ def make_targets(root: Path) -> set[str]:
 
 def docker_stages(root: Path) -> set[str]:
     text = read_text(root / DOCKERFILE_REL, 'Dockerfile')
-    names = set(re.findall(r'^FROM\s+\S+\s+AS\s+(\S+)\s*$', text, re.M))
+    names = set(re.findall(r'^FROM\s+\S+\s+AS\s+(\S+)\s*$', text, re.M | re.I))
     if not names:
         raise ObservatoryError(f'{DOCKERFILE_REL}: no named build stages, so the stage surface is undiscoverable')
     return names
@@ -156,7 +155,7 @@ def load_suite(root: Path) -> dict:
         raise ObservatoryError(f'{SUITE_REL}: not valid JSON ({exc})')
     if suite.get('schema') != SCHEMA:
         raise ObservatoryError(f'{SUITE_REL}: schema is {suite.get("schema")!r}, expected {SCHEMA!r}')
-    for member in ('commands', 'groups', 'scenarios'):
+    for member in ('commands', 'scenarios'):
         if not isinstance(suite.get(member), list):
             raise ObservatoryError(f'{SUITE_REL}: member {member!r} is missing or not a list')
 
@@ -190,15 +189,14 @@ def load_suite(root: Path) -> dict:
             if s not in c['samples']:
                 raise ObservatoryError(f'{SUITE_REL}: {cid}: scenario {s!r} has no sample count')
 
-    seen_grp = set()
-    for g in suite['groups']:
-        gid = g.get('id')
-        if gid in seen_grp:
-            raise ObservatoryError(f'{SUITE_REL}: duplicate group id {gid!r}')
-        seen_grp.add(gid)
-        for member in g.get('members', []):
-            if member not in seen_cmd:
-                raise ObservatoryError(f'{SUITE_REL}: group {gid!r} names unknown command {member!r}')
+    # §9.2 — commands declare their groups and group membership is DERIVED. Storing both invites two
+    # statements of one fact that agree today and diverge silently later.
+    if 'groups' in suite:
+        raise ObservatoryError(
+            f'{SUITE_REL}: a stored `groups` member is a second authority for a fact the command entries '
+            f'already state; membership is derived from them')
+    suite['groups'] = [{'id': g, 'members': sorted(c['id'] for c in suite['commands'] if g in c['groups'])}
+                       for g in sorted({g for c in suite['commands'] for g in c['groups']})]
 
     seen_scn = set()
     for s in suite['scenarios']:
@@ -208,6 +206,17 @@ def load_suite(root: Path) -> dict:
         if s['id'] in seen_scn:
             raise ObservatoryError(f'{SUITE_REL}: duplicate scenario id {s["id"]!r}')
         seen_scn.add(s['id'])
+        # §9.3 — command entries own applicability. A second inert representation of it is deleted rather
+        # than kept for documentation.
+        if 'applicable_groups' in s:
+            raise ObservatoryError(
+                f'{SUITE_REL}: scenario {s["id"]}: `applicable_groups` states an applicability the command '
+                f'entries already own, and nothing consumes it')
+        # §9.4 — the numbers decide what runs, so the numbers are the authority and the wording is generated.
+        if 'sample_policy' in s:
+            raise ObservatoryError(
+                f'{SUITE_REL}: scenario {s["id"]}: `sample_policy` prose is a second statement of the sample '
+                f'counts the command entries own; it is generated, not stored')
 
     # An incremental scenario with no edits would measure a no-op and file it as incremental, which is a
     # wrong number rather than a missing one. Every declared edit must also name a real, applicable file.
@@ -243,6 +252,38 @@ def load_suite(root: Path) -> dict:
         missing_dep = [d for d in c['dependencies'] if d not in seen_cmd]
         if missing_dep:
             raise ObservatoryError(f'{SUITE_REL}: {c["id"]}: unknown dependenc(ies) {missing_dep}')
+        # §9.7 — a sample count is what actually runs, so a non-positive or non-integer one is a defect
+        for scen, n in c['samples'].items():
+            if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {c["id"]}: sample count for {scen!r} is {n!r}; a count must be a positive '
+                    f'integer, because it is the number of times the command is actually run')
+
+    # §9.5 — a cycle closes under selection without ever reporting itself
+    by_id = {c['id']: c for c in suite['commands']}
+
+    def walk(cid: str, seen: tuple):
+        if cid in seen:
+            raise ObservatoryError(
+                f'{SUITE_REL}: dependency cycle through {cid!r}: {" -> ".join(seen + (cid,))}')
+        for dep in by_id[cid]['dependencies']:
+            walk(dep, seen + (cid,))
+
+    for cid in by_id:
+        walk(cid, ())
+
+    # §9.6 — a derived child measured in a scenario its live parent never runs is a pair nothing can produce
+    for c in suite['commands']:
+        if c['measurement'] != 'derived' or not c['dependencies']:
+            continue
+        producible = set()
+        for dep in c['dependencies']:
+            producible |= set(by_id[dep]['scenarios'])
+        impossible = sorted(set(c['scenarios']) - producible)
+        if impossible:
+            raise ObservatoryError(
+                f'{SUITE_REL}: {c["id"]}: declares scenario(s) {impossible} that no parent in '
+                f'{c["dependencies"]} runs, so nothing can ever produce that sample')
     return suite
 
 
@@ -1711,6 +1752,21 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
     return graph
 
 
+def sample_policy(suite: dict, scenario_id: str) -> str:
+    """The sample policy stated FROM the counts that will actually run.
+
+    The registry used to carry prose beside the numbers. Two statements of one fact agree until they do not,
+    and the prose is the one nobody re-reads — so the numbers are the authority and this is generated."""
+    counts = sorted({c['samples'][scenario_id] for c in suite['commands']
+                     if scenario_id in c['scenarios']})
+    if not counts:
+        return 'no command runs in this scenario'
+    words = {1: 'one sample', 2: 'two samples', 3: 'three samples'}
+    if len(counts) == 1:
+        return words.get(counts[0], f'{counts[0]} samples')
+    return ' to '.join(words.get(n, f'{n} samples') for n in (counts[0], counts[-1]))
+
+
 def render_list(suite: dict) -> str:
     """Every stable ID with what it is and how it is measured. Counts are reported, never copied into prose."""
     rows = ['ID                                KIND                  MEASURED   SIDE EFFECT              SOURCE VIEW',
@@ -1733,7 +1789,7 @@ def render_list(suite: dict) -> str:
     rows.append(f'{len(suite["scenarios"])} scenario(s):')
     for s in suite['scenarios']:
         caches = ', '.join(f'{k}={v}' for k, v in sorted(s['cache_state'].items()))
-        rows.append(f'  {s["id"]:<26} {s["sample_policy"]}')
+        rows.append(f'  {s["id"]:<26} {sample_policy(suite, s["id"])}')
         rows.append(f'    {s["purpose"]}')
         rows.append(f'    session: {s["session_state"]}   primed by: '
                     f'{", ".join(s["prime_steps"]) or "(nothing — this is the prime)"}')
@@ -1851,16 +1907,11 @@ def self_test(root: Path) -> int:
     def edit(work: Path, cid: str, field: str, value):
         s = suite_of(work)
         next(c for c in s['commands'] if c['id'] == cid)[field] = value
-        if field == 'id':                       # a rename must move every reference, or the shape check
-            s['groups'] = [{'id': g['id'],      # fires first and the control reports the wrong reason
-                            'members': [value if m == cid else m for m in g['members']]}
-                           for g in s['groups']]
         write_suite(work, s)
 
     def drop(work: Path, cid: str):
         s = suite_of(work)
         s['commands'] = [c for c in s['commands'] if c['id'] != cid]
-        s['groups'] = [{'id': g['id'], 'members': [m for m in g['members'] if m != cid]} for g in s['groups']]
         write_suite(work, s)
 
     def append_hook(work: Path, text: str):
@@ -1891,7 +1942,7 @@ def self_test(root: Path) -> int:
     scenario('a scenario no command can run in',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': suite_of(w)['scenarios'] + [
                  {'id': 'orphan.scenario', 'canonical': False, 'purpose': 'p', 'session_state': 'fresh',
-                  'cache_state': {}, 'prime_steps': [], 'sample_policy': 'one', 'applicable_groups': []}]}),
+                  'cache_state': {}, 'prime_steps': []}]}),
              expect='no command runs in it')
     scenario('a scenario that does not say whether it is canonical',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
@@ -1917,10 +1968,31 @@ def self_test(root: Path) -> int:
     scenario('a duplicate command id',
              lambda w: edit(w, 'make.diet', 'id', 'make.fmt'),
              expect='duplicate command id')
-    scenario('a duplicate group id',
-             lambda w: write_suite(w, {**suite_of(w),
-                                       'groups': suite_of(w)['groups'] + [suite_of(w)['groups'][0]]}),
-             expect='duplicate group id')
+    scenario('a stored group membership beside the command entries',
+             lambda w: write_suite(w, {**suite_of(w), 'groups': [{'id': 'x', 'members': []}]}),
+             expect='second authority for a fact the command entries already state')
+    scenario('a scenario carrying an applicability nothing consumes',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'applicable_groups': ['acceptance']} for s in suite_of(w)['scenarios']]}),
+             expect='nothing consumes it')
+    scenario('a scenario carrying sample-policy prose beside the counts',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'sample_policy': 'three samples'} for s in suite_of(w)['scenarios']]}),
+             expect='generated, not stored')
+    scenario('a dependency cycle in the registry',
+             lambda w: (edit(w, 'make.prove', 'dependencies', ['make.emit']),
+                        edit(w, 'make.emit', 'dependencies', ['make.prove'])),
+             expect='dependency cycle')
+    scenario('a zero sample count',
+             lambda w: edit(w, 'make.diet', 'samples', {'warm.cached.noop': 0}),
+             expect='must be a positive integer')
+    scenario('a fractional sample count',
+             lambda w: edit(w, 'make.diet', 'samples', {'warm.cached.noop': 1.5}),
+             expect='must be a positive integer')
+    scenario('a derived child declaring a scenario no parent runs',
+             lambda w: (edit(w, 'docker.profile', 'scenarios', ['cold.uncached']),
+                        edit(w, 'docker.profile', 'samples', {'cold.uncached': 1})),
+             expect='no parent in')
     scenario('a duplicate anchor pair in the hook',
              lambda w: append_hook(w, 'fido_observe begin precommit.naming\n'
                                       'fido_observe end precommit.naming\n'),
@@ -1971,9 +2043,6 @@ def self_test(root: Path) -> int:
     scenario('an unknown dependency',
              lambda w: edit(w, 'make.diet', 'dependencies', ['make.no-such']),
              expect='unknown dependenc')
-    scenario('a group naming an unknown command',
-             lambda w: write_suite(w, {**suite_of(w), 'groups': [{'id': 'ghost', 'members': ['make.ghost']}]}),
-             expect='names unknown command')
     scenario('a registry that is not valid JSON',
              lambda w: (w / SUITE_REL).write_text('{ not json', encoding='utf-8'),
              expect='not valid JSON')

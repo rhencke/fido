@@ -75,6 +75,26 @@ MUTANTS = (
      "        if False:",
      ('a scenario no command can run in',)),
 
+    (OBS, 'the single group authority',
+     "    if 'groups' in suite:",
+     "    if False:",
+     ('a stored group membership beside the command entries',)),
+
+    (OBS, 'the dependency cycle rejection',
+     "        for dep in by_id[cid]['dependencies']:",
+     "        for dep in []:",
+     ('a dependency cycle in the registry',)),
+
+    (OBS, 'the positive sample count',
+     "            if not isinstance(n, int) or isinstance(n, bool) or n < 1:",
+     "            if False:",
+     ('a zero sample count', 'a fractional sample count')),
+
+    (OBS, 'derived scenarios must be producible',
+     "        impossible = sorted(set(c['scenarios']) - producible)",
+     "        impossible = []",
+     ('a derived child declaring a scenario no parent runs',)),
+
     (OBS, 'the incremental-edit requirement',
      "        if 'incremental' in s['id'] and not s.get('edits'):",
      "        if False:",

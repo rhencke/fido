@@ -98,11 +98,15 @@
       "purpose": "Fido Materialize of every pristine tree plus the provenance and sink tests.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -127,12 +131,18 @@
       "owner": "Dockerfile:generated-artifact",
       "purpose": "The scratch stage exporting those pristine bytes to the host.",
       "samples": {
+        "bootstrap.cold.uncached": 1,
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "bootstrap.cold.uncached",
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -158,11 +168,15 @@
       "purpose": "The pristine generated module the Go stage and the byte compare both consume.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -188,11 +202,15 @@
       "purpose": "The pinned Go toolchain building the whole generated tree and running the differential.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -217,11 +235,9 @@
       "owner": "Dockerfile:module-graph",
       "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency for the certified module set.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.cached": 1
       },
       "scenarios": [
-        "cold.uncached",
         "cold.cached"
       ],
       "side_effect": "none",
@@ -247,11 +263,9 @@
       "owner": "Dockerfile:module-graph-log",
       "purpose": "The scratch stage exporting the adjacency, per-module wall time and the raw per-sentence logs.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.cached": 1
       },
       "scenarios": [
-        "cold.uncached",
         "cold.cached"
       ],
       "side_effect": "none",
@@ -277,12 +291,10 @@
       "owner": "Dockerfile:profile",
       "purpose": "The single-module Rocq profiling stage.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1
+        "warm.cached.noop": 3
       },
       "scenarios": [
-        "cold.uncached",
-        "cold.cached"
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -307,12 +319,10 @@
       "owner": "Dockerfile:profile-log",
       "purpose": "The scratch stage exporting the profiling log.",
       "samples": {
-        "cold.cached": 1,
-        "cold.uncached": 1
+        "warm.cached.noop": 3
       },
       "scenarios": [
-        "cold.uncached",
-        "cold.cached"
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -338,11 +348,15 @@
       "purpose": "The complete proof gate inside the pinned container.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -368,11 +382,15 @@
       "purpose": "The pinned Debian base carrying that switch.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -398,11 +416,15 @@
       "purpose": "Build the pinned opam switch that every later Rocq stage copies.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
       },
       "scenarios": [
+        "cold.cached",
         "cold.uncached",
-        "cold.cached"
+        "warm.cached.incremental",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -428,11 +450,11 @@
       "purpose": "The publication stage whose buildability depends on the go-e2e edge.",
       "samples": {
         "cold.cached": 1,
-        "cold.uncached": 1
+        "warm.cached.noop": 3
       },
       "scenarios": [
-        "cold.uncached",
-        "cold.cached"
+        "cold.cached",
+        "warm.cached.noop"
       ],
       "side_effect": "none",
       "source_view": "disposable-copy"
@@ -1717,176 +1739,8 @@
       "text": ""
     }
   ],
-  "groups": [
-    {
-      "id": "acceptance",
-      "members": [
-        "docker.emit",
-        "docker.generated-artifact",
-        "docker.generated-module",
-        "docker.go-e2e",
-        "docker.prover",
-        "docker.sync",
-        "make.audit-fresh",
-        "make.check",
-        "make.e2e",
-        "make.emit",
-        "make.prove",
-        "make.regen-guard",
-        "make.regenerate",
-        "precommit.full",
-        "precommit.generated-artifact",
-        "precommit.generated-compare",
-        "precommit.go-e2e",
-        "precommit.prover"
-      ]
-    },
-    {
-      "id": "analysis",
-      "members": [
-        "analysis.dune-graph",
-        "analysis.history",
-        "analysis.rocq-modules",
-        "docker.module-graph",
-        "docker.module-graph-log"
-      ]
-    },
-    {
-      "id": "diagnostic",
-      "members": [
-        "docker.profile",
-        "docker.profile-log",
-        "make.profile",
-        "make.prove-errors",
-        "make.prover-log"
-      ]
-    },
-    {
-      "id": "docker",
-      "members": [
-        "docker.emit",
-        "docker.generated-artifact",
-        "docker.generated-module",
-        "docker.go-e2e",
-        "docker.module-graph",
-        "docker.module-graph-log",
-        "docker.profile",
-        "docker.profile-log",
-        "docker.prover",
-        "docker.rocq-base",
-        "docker.rocq-builder",
-        "docker.sync"
-      ]
-    },
-    {
-      "id": "make",
-      "members": [
-        "make.audit-fresh",
-        "make.builder",
-        "make.check",
-        "make.claims",
-        "make.diet",
-        "make.e2e",
-        "make.emit",
-        "make.fcb",
-        "make.fcb-write",
-        "make.fmt",
-        "make.install-hooks",
-        "make.names",
-        "make.observatory",
-        "make.observe",
-        "make.profile",
-        "make.prove",
-        "make.prove-errors",
-        "make.prover-log",
-        "make.regen-guard",
-        "make.regenerate"
-      ]
-    },
-    {
-      "id": "observatory",
-      "members": [
-        "make.observe"
-      ]
-    },
-    {
-      "id": "policy",
-      "members": [
-        "make.claims",
-        "make.diet",
-        "make.fcb",
-        "make.fcb-write",
-        "make.fmt",
-        "make.names",
-        "make.observatory",
-        "precommit.claims.check",
-        "precommit.claims.self-test",
-        "precommit.closure-ledger",
-        "precommit.generated-mode",
-        "precommit.generated-output",
-        "precommit.human-acts.check",
-        "precommit.human-acts.self-test",
-        "precommit.mutation",
-        "precommit.naming",
-        "precommit.observatory",
-        "precommit.ocaml-origin",
-        "precommit.references.check",
-        "precommit.references.self-test",
-        "precommit.source-diet.check",
-        "precommit.source-diet.self-test",
-        "precommit.source-diet.wiring"
-      ]
-    },
-    {
-      "id": "precommit",
-      "members": [
-        "precommit.builder",
-        "precommit.claims.check",
-        "precommit.claims.self-test",
-        "precommit.closure-ledger",
-        "precommit.export-index",
-        "precommit.full",
-        "precommit.generated-artifact",
-        "precommit.generated-compare",
-        "precommit.generated-mode",
-        "precommit.generated-output",
-        "precommit.go-e2e",
-        "precommit.human-acts.check",
-        "precommit.human-acts.self-test",
-        "precommit.mutation",
-        "precommit.naming",
-        "precommit.observatory",
-        "precommit.ocaml-origin",
-        "precommit.prover",
-        "precommit.references.check",
-        "precommit.references.self-test",
-        "precommit.source-diet.check",
-        "precommit.source-diet.self-test",
-        "precommit.source-diet.wiring"
-      ]
-    },
-    {
-      "id": "setup",
-      "members": [
-        "make.builder",
-        "make.install-hooks",
-        "precommit.builder"
-      ]
-    },
-    {
-      "id": "toolchain",
-      "members": [
-        "docker.rocq-base",
-        "docker.rocq-builder"
-      ]
-    }
-  ],
   "scenarios": [
     {
-      "applicable_groups": [
-        "acceptance",
-        "toolchain"
-      ],
       "cache_state": {
         "apt_download": "empty",
         "buildkit_layers": "empty",
@@ -1900,16 +1754,9 @@
       "id": "bootstrap.cold.uncached",
       "prime_steps": [],
       "purpose": "A new builder with an empty cache, including toolchain and base acquisition.",
-      "sample_policy": "one sample",
       "session_state": "fresh"
     },
     {
-      "applicable_groups": [
-        "acceptance",
-        "docker",
-        "precommit",
-        "analysis"
-      ],
       "cache_state": {
         "apt_download": "reused",
         "buildkit_layers": "reused",
@@ -1925,15 +1772,9 @@
         "cold.uncached"
       ],
       "purpose": "A fresh session reusing exactly the caches the named prime run produced.",
-      "sample_policy": "one sample",
       "session_state": "fresh"
     },
     {
-      "applicable_groups": [
-        "acceptance",
-        "docker",
-        "setup"
-      ],
       "cache_state": {
         "apt_download": "primed",
         "buildkit_layers": "empty",
@@ -1949,13 +1790,9 @@
         "toolchain-prime"
       ],
       "purpose": "The clean project-build cost with no reusable project-controlled cache.",
-      "sample_policy": "one sample",
       "session_state": "fresh"
     },
     {
-      "applicable_groups": [
-        "acceptance"
-      ],
       "cache_state": {
         "apt_download": "reused",
         "buildkit_layers": "reused",
@@ -1979,18 +1816,9 @@
         "cold.cached"
       ],
       "purpose": "The same session and cache identity after one deterministic edit in a disposable copy.",
-      "sample_policy": "three samples per edit shape",
       "session_state": "same"
     },
     {
-      "applicable_groups": [
-        "acceptance",
-        "policy",
-        "precommit",
-        "diagnostic",
-        "analysis",
-        "setup"
-      ],
       "cache_state": {
         "apt_download": "reused",
         "buildkit_layers": "reused",
@@ -2006,7 +1834,6 @@
         "cold.cached"
       ],
       "purpose": "The same session and cache identity with no source byte changed.",
-      "sample_policy": "three samples",
       "session_state": "same"
     }
   ],
