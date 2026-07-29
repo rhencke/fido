@@ -178,6 +178,10 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is catalog-only with no reason — a command excluded from the canonical '
                 f'timing run must say why, and must stay selectable when safe')
+        if c['expected_exit'] != 0 and not c.get('expected_failure_reason', '').strip():
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} expects exit {c["expected_exit"]} but declares no '
+                f'expected_failure_reason; an exit code alone cannot tell one failure from another')
         if POSITIONAL_OWNER.search(c['owner']):
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid}: owner {c["owner"]!r} identifies its source by line number; a registry '
@@ -577,13 +581,20 @@ def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: st
 
     data = log.read_bytes()
     expected = command['expected_exit']
+    status = 'ok' if proc.returncode == expected else 'unexpected-exit'
+    # A fixture that exits nonzero for a reason nobody expected is a DIFFERENT failure wearing the right
+    # exit code. When a command declares the reason it must fail for, the raw log has to carry it.
+    reason = command.get('expected_failure_reason')
+    if status == 'ok' and expected != 0 and reason:
+        if reason.encode('utf-8') not in data:
+            status = 'wrong-failure-reason'
     return {'command_id': command['id'], 'scenario_id': scenario_id, 'sample_index': index,
             'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
             'user_cpu_ns': int((after.ru_utime - before.ru_utime) * 1e9),
             'system_cpu_ns': int((after.ru_stime - before.ru_stime) * 1e9),
             'max_rss_bytes': after.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
             'exit_code': proc.returncode, 'expected_exit': expected,
-            'status': 'ok' if proc.returncode == expected else 'unexpected-exit',
+            'status': status, 'expected_failure_reason': reason,
             'cache_before': cache_before, 'cache_after': dict(cache_before),
             'raw_log_sha256': _sha256(data), 'raw_log_bytes': len(data),
             'derived_stage_events': []}
@@ -801,7 +812,7 @@ OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cach
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'selected_or_support', 'start_utc',
                  'wall_ns', 'user_cpu_ns', 'system_cpu_ns', 'max_rss_bytes', 'resource_scope',
                  'exit_code', 'expected_exit', 'status', 'cache_before', 'cache_after',
-                 'raw_log_sha256', 'derived_stage_events')
+                 'raw_log_sha256', 'expected_failure_reason', 'derived_stage_events')
 
 # Each rule is stated once, here, and checked by the function below in this order. A recording that skipped
 # one would produce a tracked file claiming to be the whole suite when it is not, and every later comparison
@@ -901,7 +912,20 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     if wrong:
         bad('R06', f'{len(wrong)} sample(s) did not meet their expected exit: {wrong[:4]}')
     ok('R06')
-    ok('R07')                                            # every expected exit is declared per command in R06
+
+    # R06 compares exit CODES. R07 is about the REASON, which is a different claim: a fixture that fails for
+    # the wrong reason still exits nonzero. An earlier draft marked this satisfied because R06 had run, which
+    # was prose outrunning proof inside the rule that exists to stop exactly that.
+    fixtures = [c for c in suite['commands'] if c['expected_exit'] != 0]
+    wrong_reason = [f'{s["command_id"]}/{s["scenario_id"]}' for s in obs['measurements']
+                    if s['status'] == 'wrong-failure-reason']
+    if wrong_reason:
+        bad('R07', f'{len(wrong_reason)} expected-failure sample(s) failed for the wrong reason: '
+                   f'{wrong_reason[:4]}')
+    if not fixtures:
+        satisfied.append('R07(vacuous: no command declares a nonzero expected exit)')
+    else:
+        ok('R07')
 
     for s in obs['measurements']:
         if s['cache_before'].get('primed_by_run') is None and 'reused' in \
@@ -1000,20 +1024,19 @@ def parse_module_graph(depend_mk: str, wall_ns: dict[str, int]) -> dict:
     }
 
 
-def broad_import_findings(graph: dict, threshold_share: float = 0.5) -> list[dict]:
-    """Modules whose rebuild set is most of the theory — recorded as FINDINGS, never fixed here.
+def rebuild_impact(graph: dict) -> list[dict]:
+    """Every module ranked by what an edit to it costs downstream. No threshold, and that is deliberate.
 
-    A module that half the tree depends on is not automatically wrong; a foundation legitimately looks like
-    this. What is reportable is the COST it implies, so M3 can decide whether the dependency is real. M2 does
-    not split a module or move a theorem."""
+    An earlier draft reported only modules above a 0.5 share. That constant would have decided, on a number
+    nobody reviewed, which dependencies count as "too broad" — and a foundation with half the theory below it
+    is not automatically wrong. Ranking everything reports the cost and leaves the judgement to M3, which is
+    the only part of this M2 is allowed to do."""
     total = len(graph['modules'])
-    out = []
-    for module in graph['modules']:
-        share = len(graph['downstream'][module]) / total if total else 0
-        if share >= threshold_share:
-            out.append({'module': module, 'downstream_modules': len(graph['downstream'][module]),
-                        'share_of_theory': round(share, 3),
-                        'downstream_rebuild_ns': graph['downstream_cost_ns'][module]})
+    out = [{'module': m, 'downstream_modules': len(graph['downstream'][m]),
+            'share_of_theory': round(len(graph['downstream'][m]) / total, 3) if total else 0,
+            'downstream_rebuild_ns': graph['downstream_cost_ns'][m],
+            'self_ns': graph['self_ns'][m]}
+           for m in graph['modules']]
     return sorted(out, key=lambda r: (-r['downstream_rebuild_ns'], r['module']))
 
 
@@ -1093,7 +1116,7 @@ def history_analysis(root: Path, start: str = HISTORY_START, end: str = HISTORY_
             'commits': len(selected),
             'edit_count_by_file': dict(sorted(edits.items(), key=lambda kv: (-kv[1], kv[0]))),
             'co_change_by_pair': {k.replace('\x00', ' + '): v for k, v in
-                                  sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0]))[:200]},
+                                  sorted(pairs.items(), key=lambda kv: (-kv[1], kv[0]))},
             'common_edit_shapes': dict(sorted(shapes.items(), key=lambda kv: (-kv[1], kv[0]))),
             'change_class_totals': {cl: sum(1 for c in selected if cl in c['classes'])
                                     for cl in CHANGE_CLASSES},
@@ -1496,7 +1519,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                'selected': sel.selected, 'support': sel.support,
                'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
     if graph:
-        derived['broad_import_findings'] = broad_import_findings(graph)
+        derived['rebuild_impact'] = rebuild_impact(graph)
     if history:
         derived['weighted_rebuild_cost'] = weighted_rebuild_cost(history, graph)
 
@@ -1766,6 +1789,10 @@ def self_test(root: Path) -> int:
                                       'fido_observe end precommit.inner\n'),
              expect='anchor pairs must nest')
 
+    scenario('an expected-failure fixture with no declared reason',
+             lambda w: edit(w, 'make.diet', 'expected_exit', 2),
+             expect='declares no expected_failure_reason')
+
     scenario('a catalog-only command with no reason',
              lambda w: edit(w, 'make.observe', 'catalog_only_reason', '   '),
              expect='catalog-only with no reason')
@@ -2007,7 +2034,8 @@ def self_test(root: Path) -> int:
                 'wall_ns': 1_000_000, 'user_cpu_ns': 500_000, 'system_cpu_ns': 400_000,
                 'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'exit_code': 0, 'expected_exit': 0,
                 'status': 'ok', 'cache_before': {'authorities': {}, 'primed_by_run': 'run-a'},
-                'cache_after': {}, 'raw_log_sha256': 'ab' * 32, 'derived_stage_events': []}
+                'cache_after': {}, 'raw_log_sha256': 'ab' * 32,
+                'expected_failure_reason': None, 'derived_stage_events': []}
         return {**base, **over}
 
     def observation(samples=None, **over) -> dict:
@@ -2134,9 +2162,13 @@ def self_test(root: Path) -> int:
     counts['total'] += 1
     try:
         rules = in_clean_repo()
-        if [r for r, _ in RECORDING_RULES] != rules:
+        ids = [r.split('(')[0] for r in rules]
+        if [r for r, _ in RECORDING_RULES] != ids:
             failures.append(f'a clean complete record-eligible run: satisfied {rules}, '
                             f'expected all {len(RECORDING_RULES)} rules in order')
+        if not any(r.startswith('R07(vacuous') for r in rules):
+            failures.append('R07 must declare itself vacuous while no command declares a nonzero '
+                            'expected exit, rather than reporting a check it did not make')
     except ObservatoryError as exc:
         failures.append(f'a clean complete record-eligible run: expected success, failed with: {exc}')
 
@@ -2269,9 +2301,12 @@ def self_test(root: Path) -> int:
              expect='has a cycle')
 
     counts['total'] += 1
-    findings = broad_import_findings(parse_module_graph(DEP, WALL), threshold_share=0.5)
-    if [f['module'] for f in findings] != ['A']:
-        failures.append(f'a broad-import finding must name the module half the theory depends on: {findings}')
+    impact = rebuild_impact(parse_module_graph(DEP, WALL))
+    if [f['module'] for f in impact] != ['A', 'D', 'B', 'C']:
+        failures.append(f'rebuild impact must rank EVERY module by downstream cost: '
+                        f'{[f["module"] for f in impact]}')
+    if any('threshold' in k for f in impact for k in f):
+        failures.append('rebuild impact must not carry a cutoff; ranking is the report')
 
     counts['total'] += 1
     hist = {'views': {'excluding_campaign': {'edit_count_by_file': {'A.v': 3, 'D.v': 1}}}}

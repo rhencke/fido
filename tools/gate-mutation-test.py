@@ -126,6 +126,11 @@ MUTANTS = (
      "        if False:",
      ('a changed resource scope must be incomparable, not a delta',)),
 
+    (OBS, 'the expected-failure reason requirement',
+     "        if c['expected_exit'] != 0 and not c.get('expected_failure_reason', '').strip():",
+     "        if False:",
+     ('an expected-failure fixture with no declared reason',)),
+
     (OBS, 'record eligibility',
      "    if sel.partial:",
      "    if False:",
