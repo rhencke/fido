@@ -17,6 +17,33 @@ implement any recommendation it produces.
 
 ## Blocking defect classes
 
+The first candidate was blocked on measurement truth rather than on shape. These classes are stated first
+because they are the ones that were missed: a label that does not describe the executed state, a summary that
+pools unlike samples, and a coverage claim wider than what ran.
+
+- a scenario or cache label that does not describe the state the command actually ran in;
+- a cold sample that followed another measured project command in the same cache namespace;
+- `cache_after` copied from `cache_before` rather than observed;
+- one cache authority asked to state two different facts at once;
+- a cache state the runner cannot establish;
+- a reused cache naming a run but not the exact prime sample, source, suite, builder and namespace;
+- repeated identical incremental edits, so later samples are exact cache hits under an incremental label;
+- a summary that omits edit identity or derived parent context, pooling unlike samples into one median;
+- a selected derived child reported as support;
+- a command measured once standing in for a scenario it never ran;
+- a raw-log path that two samples share, or a retained digest whose file is absent;
+- a disposable source taken from a different source view than the observation subject;
+- environment identity read from a builder that did not perform the work;
+- a cumulative resource high-water mark attributed to one sample;
+- a wall-clock duration presented as monotonic, or aggregate step work presented as elapsed time;
+- zero recorded as a duration where work occurred;
+- a comparison verdict from stored summaries that were never recomputed;
+- two observations compared across a changed scenario, edit, parent or concurrency definition;
+- a selector model that differs between run and comparison modes;
+- a cancelled run leaving no inspectable bundle, or a run identity that can collide;
+- two registry fields stating one fact, or a required field nothing consumes.
+
+
 - a public Make target, anchored pre-commit stage, or Docker stage with no registry classification;
 - a registry entry naming a target, stage or anchor that no longer exists;
 - a command, scenario, cache state or observation identified by line number or list position;

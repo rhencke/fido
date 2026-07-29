@@ -10,15 +10,16 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY IS THE SOLE ACTIVE WORK.**
+- **M2 BUILD OBSERVATORY REPAIR 1 IS THE SOLE ACTIVE WORK.**
   Authority: `.review/M2_BUILD_OBSERVATORY.md`.
-  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all closed.
+  The blocking review it answers is `.review/M2_IMPLEMENTATION_REPAIR_1.md`. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
+  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-02` through `M2-19` reopened; only `M2-01` is closed.
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
-- **The M2 candidate is `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43`**, frozen and awaiting Rob's review.
-  One canonical observation measured it: `.review/BUILD_OBSERVATION.json`. Findings are
-  assigned in `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain; M2 implements none of them.
+- **The first M2 candidate is BLOCKED.** Git history owns its ref, its freeze and this review's findings.
+  Its observation was exploratory: several scenario, cache and coverage labels did not describe the work
+  that ran, so its timing conclusions close nothing.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M2 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.

@@ -67,6 +67,128 @@ implementation work.
 
 ---
 
+# 3A. The repaired measurement model
+
+The first M2 candidate implemented the shape above and got the MEASUREMENTS wrong: it reset and primed once
+per scenario and then ran every command in that shared state, so a command labelled cold observed a cache an
+earlier measured command had filled. This section states the model exactly, because the shape being right is
+not the same as the numbers being true.
+
+## 3A.1 Measurement chains
+
+The unit of isolation is the ROOT COMMAND CHAIN, not the scenario. Each direct root command that uses BuildKit
+owns an isolated cache namespace and an isolated builder for the whole of its cold -> cached -> warm ->
+incremental sequence. Two root chains cannot contaminate each other, and a cold sample never follows another
+measured project command in the same namespace.
+
+Within one chain:
+
+```text
+create or reset the chain's isolated cache
+prime ONLY the pinned toolchain layers      (retained, never counted as project build time)
+create a fresh exact source session
+cold.uncached                               (no reusable project result from another measured command)
+record the cache transition and the exact sample which produced the reusable state
+new source session, same chain cache
+cold.cached                                 (against that exact prime sample)
+keep that session and cache identity
+warm.cached.noop
+warm.cached.incremental                     (against the exact named warm prime)
+remove the chain only after its observation is written
+```
+
+## 3A.2 Session and cache are separate axes
+
+`cold` versus `warm` is the SOURCE SESSION. `cached` versus `uncached` is the PROJECT CACHE. A run states both
+and can establish both; a name that stands for neither is forbidden.
+
+## 3A.3 Cache authorities are exact
+
+One `buildkit_layers` state cannot say both that toolchain layers are primed and that project layers are
+empty, so the authorities are split:
+
+```text
+buildkit_toolchain_layers   buildkit_project_layers   dune_build   go_build
+go_module                   generated_intermediate    apt_download opam_download
+```
+
+A state is `empty`, `primed`, `reused`, `not-applicable` or `uncontrolled`, and only when the runner can
+ESTABLISH it. A lightweight command that touches no project cache records `not-applicable` — never `empty`.
+
+`cache_after` is observed after the command, never copied from `cache_before`. A command that fills a cache
+and reports no transition is stating something false.
+
+## 3A.4 Metric identity
+
+One identity is used by every sample, summary, comparison row, raw-log path and recommendation:
+
+```text
+command_id | scenario_id | edit_id or none | derived_parent_id or none | resource_scope
+```
+
+Pooling six edit shapes into one median, or one Docker stage observed under four parents into one median,
+answers a question nobody asked. A selected derived child is marked selected even when its live parent is
+support.
+
+## 3A.5 Incremental samples must be independent
+
+Repeating identical edit bytes in a fresh worktree against one builder cache produces one rebuild and then
+cache hits. Each sample therefore applies a DISTINCT deterministic inert edit, owned by the registry with its
+own fingerprint, and the runner verifies the intended rebuild actually ran rather than accepting a cached
+no-op under an incremental label. Comparison requires the same edit fingerprint.
+
+## 3A.6 Provenance is exact
+
+Every disposable source is created from the SELECTED SOURCE VIEW — working tree, staged index or committed
+tree — never silently from `HEAD` while the subject describes a dirty tree. Each sample retains its own source
+digest.
+
+Environment identity is read from the chain's own builder, not from the developer's. Effective concurrency is
+decoded rather than captured raw, and takes part in comparison compatibility. Filesystem identity is that of
+the measured root.
+
+`RUSAGE_CHILDREN.ru_maxrss` is a high-water mark across all prior children and cannot be attributed to one
+sample; per-sample resource use is measured per process or reported unavailable. Wrapper RSS is never reported
+as container RSS.
+
+Durations are monotonic everywhere, including hook anchors. A sum of BuildKit step durations is aggregate step
+work and is named as such, because parallel steps overlap and the sum is not elapsed time. Zero is a measured
+claim and is false when work occurred.
+
+## 3A.7 Coverage closes in both directions
+
+The expected measurement relation is derived from the validated registry — command, scenario, sample count,
+edit multiplicity, derived parent context, role — and recording requires exact equality with the observation:
+no missing pair, no extra pair, exact counts, and every derived pair producible by a parent in that scenario.
+A command measured once may not stand in for a scenario it never ran.
+
+## 3A.8 Comparison validates before it concludes
+
+Both observations are validated and their summaries recomputed before any verdict. Command, scenario, edit,
+metric identity, derived parent context, resource scope and concurrency are fingerprinted; a changed
+definition makes that metric incomparable rather than improved or regressed. Comparison uses the same
+registry-aware selector expansion as a run, so a group resolves and an unknown name fails.
+
+## 3A.9 Bundles survive interruption
+
+The local observation is written incrementally and updated after every completed sample, and cancellation
+leaves it inspectable and marked incomplete. Run identity carries full precision plus a collision-safe part,
+and an existing bundle path is never reused. Recording verifies every direct raw log exists and matches its
+retained digest.
+
+## 3A.10 One authority per registry fact
+
+Group membership is derived from command entries. Scenario applicability either derives the command-scenario
+matrix or does not exist. Numeric sample counts are authoritative and usage wording is generated from them.
+Dependency cycles are a registry defect rejected at load.
+
+## 3A.11 Repeated work is machine-readable
+
+The observation retains a containment and repeated-execution relation over Make targets, pre-commit stages,
+Docker stages and analysis steps, by stable ID. M2 reports it; M3 decides whether any of it is safe to merge.
+
+---
+
 # 4. One Make interface
 
 Add one public Make target:
