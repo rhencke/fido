@@ -115,6 +115,16 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'a bootstrap sample building the builder it times',
+     "        argv = argv + [f'BUILDER={builder}']",
+     "        argv = argv + [f'BUILDER={OBSERVATORY_BUILDER}']",
+     ('a bootstrap invocation did not use the builder it creates',)),
+
+    (OBS, 'the empty builder a bootstrap claim requires',
+     "        if 'environment.bootstrap' in c['scenarios'] and c.get('isolation') != 'temporary-docker-config':",
+     "        if False:",
+     ('a bootstrap claim with no builder to establish it',)),
+
     (OBS, 'invalidation roots agreeing with the cold scenarios',
      "            if declared_roots != cold_roots:",
      "            if False:",

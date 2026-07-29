@@ -206,6 +206,13 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is {c["measurement"]} but declares invalidation roots '
                 f'{declared_roots}; it performs no build of its own')
+        # A scenario declaring every cache `empty` can only be honoured by a builder that has none. The
+        # isolation which creates and removes a throwaway builder is what establishes that; without it the
+        # sample would run on the warm shared builder while recording `empty`, which §3A.4 forbids.
+        if 'environment.bootstrap' in c['scenarios'] and c.get('isolation') != 'temporary-docker-config':
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} claims environment.bootstrap with isolation {c.get("isolation")!r}; '
+                f'only temporary-docker-config gives it the empty builder that scenario declares')
         if c['expected_exit'] != 0 and not c.get('expected_failure_reason', '').strip():
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} expects exit {c["expected_exit"]} but declares no '
@@ -734,7 +741,7 @@ def isolate(root: Path, command: dict, where: Path):
         cfg = where / 'docker-config'
         cfg.mkdir(parents=True, exist_ok=True)
         return None, {'DOCKER_CONFIG': str(cfg),
-                      'FIDO_OBSERVATORY_THROWAWAY_BUILDER': f'fido-throwaway-{where.name}'}
+                      'FIDO_OBSERVATORY_THROWAWAY_BUILDER': throwaway_builder(where)}
     if kind == 'temporary-git-repo':
         import subprocess
         repo = where / 'repo'
@@ -748,13 +755,20 @@ def isolate(root: Path, command: dict, where: Path):
     raise ObservatoryError(f'{command["id"]}: isolation {kind!r} is declared but not implemented')
 
 
+def throwaway_builder(scratch: Path) -> str:
+    """The builder name a temporarily-isolated sample creates and destroys.
+
+    Named in one place because three call sites must agree: the isolation that announces it, the invocation
+    that must actually USE it, and the release that removes it."""
+    return f'fido-throwaway-{scratch.name}'
+
+
 def release_isolation(command: dict, where: Path) -> None:
     """Undo whatever the isolation created. A throwaway builder that survives the sample is a leak."""
     import shutil
     import subprocess
     if command.get('isolation') == 'temporary-docker-config':
-        name = f'fido-throwaway-{where.name}'
-        subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True)
+        subprocess.run(['docker', 'buildx', 'rm', throwaway_builder(where)], capture_output=True)
     shutil.rmtree(where, ignore_errors=True)
 
 
@@ -2079,7 +2093,8 @@ def render_comparison(cmp: dict) -> str:
 
 
 # ───────────────────────────────────────────────────────────────── the run
-def materialise_execution(command: dict, scenario: dict | None = None) -> list[str]:
+def materialise_execution(command: dict, scenario: dict | None = None,
+                          builder: str = OBSERVATORY_BUILDER) -> list[str]:
     """The live invocation, with builder and cache cut supplied from OUTSIDE the registry.
 
     Which builder a command uses, and which stage a scenario invalidates, are properties of this run rather
@@ -2094,12 +2109,12 @@ def materialise_execution(command: dict, scenario: dict | None = None) -> list[s
     root = (scenario or {}).get('cache_cut', {}).get('invalidated_from')
     cold = bool(scenario) and scenario['id'].startswith('project.cold.')
     if command['kind'] == 'make-target':
-        argv = argv + [f'BUILDER={OBSERVATORY_BUILDER}']
+        argv = argv + [f'BUILDER={builder}']
         if cold and root:
             argv.append(f'NOCACHE={root}')
         return argv
     if command['kind'] == 'precommit-full':
-        env = ['env', f'FIDO_BUILDER={OBSERVATORY_BUILDER}']
+        env = ['env', f'FIDO_BUILDER={builder}']
         if cold and root:
             env.append(f'FIDO_NOCACHE={root}')
         return env + argv
@@ -2250,6 +2265,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 label = f'{cid}/{scenario_id}' + (f'/{edit["id"]}' if edit else '')
                 progress(f'fido: observe — {label} sample {index + 1}/{wanted} ({role})')
                 copy = None
+                scratch = None
                 try:
                     iso_kind = command.get('isolation')
                     needs_copy = iso_kind == 'disposable-copy' or edit is not None
@@ -2259,9 +2275,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         copy.parent.mkdir(parents=True, exist_ok=True)
                         disposable_copy(root, copy, subj['source_view'])
                     elif iso_kind:
-                        copy = raw_dir.parent / 'isolated' / f'{cid}.{scenario_id}.{index}'
-                        cwd_override, iso_env = isolate(root, command, copy)
-                        copy = cwd_override or copy
+                        scratch = raw_dir.parent / 'isolated' / f'{cid}.{scenario_id}.{index}'
+                        # The scratch directory is where an isolation keeps ITS OWN files. It becomes the
+                        # working directory only if the isolation says so: `temporary-docker-config` supplies
+                        # environment variables and the command still runs in the repository.
+                        cwd_override, iso_env = isolate(root, command, scratch)
+                        copy = cwd_override
                     target = copy or root
                     before = None
                     if edit:
@@ -2271,11 +2290,19 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         apply_edit(target, edit, index)
                         if tree_digest(target, paths) == before:
                             raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
-                    digest = content_digest(target)
+                    # A command declared environment-only reads no repository source, so a repository
+                    # digest beside it would suggest an input it never had.
+                    digest = None if command['source_view'] == 'environment-only' else content_digest(target)
                     anchor_log = raw_dir / (raw_log_name(cid, scenario_id, index,
                                                          edit['id'] if edit else None) + '.anchors')
+                    # A bootstrap sample must build the builder it is timing. Handing it the observatory's
+                    # existing builder measured `buildx inspect` finding one already there — 0.20s, and
+                    # `builder_bootstrap_included: false` under a scenario whose whole subject is bootstrap.
+                    builder = (throwaway_builder(scratch)
+                               if scratch is not None and iso_kind == 'temporary-docker-config'
+                               else OBSERVATORY_BUILDER)
                     s = run_sample(root, {**command,
-                                          'execution': materialise_execution(command, scenario)},
+                                          'execution': materialise_execution(command, scenario, builder)},
                                    scenario, index, role, raw_dir, provenance, cwd=copy,
                                    env_extra={**instrumentation_env(command, anchor_log, scenario),
                                               **iso_env},
@@ -2299,11 +2326,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     progress(f'fido: observe — {label} did not complete: {exc}')
                     break
                 finally:
-                    if copy is not None:
-                        if command.get('isolation') in ('temporary-docker-config', 'temporary-git-repo'):
-                            release_isolation(command, copy.parent / copy.name)
-                        else:
-                            drop_disposable_copy(root, copy)
+                    # The scratch directory owns the isolation's own artefacts, including a throwaway
+                    # builder, and must be released whether or not the isolation also moved the cwd.
+                    if scratch is not None:
+                        release_isolation(command, scratch)
+                    elif copy is not None:
+                        drop_disposable_copy(root, copy)
 
     for cid in sel.order:
         command = commands[cid]
@@ -2732,6 +2760,10 @@ def self_test(root: Path) -> int:
              lambda w: (edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
                         edit(w, 'make.diet', 'invalidation_roots', ['prover'])),
              expect='has no sample count')
+    scenario('a bootstrap claim with no builder to establish it',
+             lambda w: edit(w, 'make.builder', 'isolation', None),
+             expect='only temporary-docker-config gives it the empty builder')
+
     scenario('a command claiming a root its cold scenarios do not name',
              lambda w: edit(w, 'make.diet', 'invalidation_roots', ['prover']),
              expect='a command rebuilds exactly the roots it can be measured cold from')
@@ -3656,6 +3688,25 @@ def self_test(root: Path) -> int:
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),
              expect='still pending')
+    # The isolation announces a throwaway builder, the invocation must USE it, and the release removes it.
+    # When the invocation used the observatory's builder instead, `make builder` found one already there and
+    # a bootstrap sample timed `buildx inspect`.
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        scratch = Path(d) / 'iso'
+        scratch.mkdir()
+        name = throwaway_builder(scratch)
+        builder_cmd = [c for c in suite['commands'] if c['id'] == 'make.builder'][0]
+        boot = [s for s in suite['scenarios'] if s['id'] == 'environment.bootstrap'][0]
+        argv = materialise_execution(builder_cmd, boot, name)
+        if f'BUILDER={name}' not in argv:
+            failures.append(f'a bootstrap invocation did not use the builder it creates: {argv}')
+        if f'BUILDER={OBSERVATORY_BUILDER}' in argv:
+            failures.append('a bootstrap invocation reused the observatory builder, so it times an inspect')
+        _, env = isolate(Path(d), builder_cmd, scratch)
+        if env.get('FIDO_OBSERVATORY_THROWAWAY_BUILDER') != name:
+            failures.append('the isolation and the invocation named different throwaway builders')
+
     # A policy command builds nothing, so it cannot claim the caches a build scenario declares.
     counts['total'] += 1
     warm = [s for s in suite['scenarios'] if s['id'] == 'project.warm.noop'][0]
