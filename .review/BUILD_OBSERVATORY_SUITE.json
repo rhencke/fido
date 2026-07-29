@@ -1668,6 +1668,56 @@
       "source_view": "staged-index-export"
     }
   ],
+  "edits": [
+    {
+      "id": "edit.foundation.float",
+      "kind": "append-comment-line",
+      "path": "Float.v",
+      "purpose": "A high fan-out foundation module on the measured critical path.",
+      "rationale": "eight downstream modules, half the theory, and the head of the critical path",
+      "text": "(* observatory: inert edit probe *)\n"
+    },
+    {
+      "id": "edit.proof.compilable",
+      "kind": "append-comment-line",
+      "path": "Compilable.v",
+      "purpose": "The largest single proof module.",
+      "rationale": "the costliest module measured, a third of total compile time",
+      "text": "(* observatory: inert edit probe *)\n"
+    },
+    {
+      "id": "edit.leaf.emit",
+      "kind": "append-comment-line",
+      "path": "Emit.v",
+      "purpose": "A low fan-out leaf at the end of the chain.",
+      "rationale": "nothing depends on it, so it isolates the cost of the module itself",
+      "text": "(* observatory: inert edit probe *)\n"
+    },
+    {
+      "id": "edit.tool.source-diet",
+      "kind": "append-comment-line",
+      "path": "tools/source-diet.py",
+      "purpose": "A policy-tool edit, which rebuilds no theory.",
+      "rationale": "the most frequently edited tool in the implementation-bearing history",
+      "text": "# observatory: inert edit probe\n"
+    },
+    {
+      "id": "edit.doc.architecture",
+      "kind": "append-comment-line",
+      "path": "ARCHITECTURE.md",
+      "purpose": "A documentation-only edit, which is a build input to nothing.",
+      "rationale": "establishes the floor: what a gate run costs when no build input moved",
+      "text": "\n<!-- observatory: inert edit probe -->\n"
+    },
+    {
+      "id": "edit.none.generated",
+      "kind": "no-edit",
+      "path": null,
+      "purpose": "No source edit at all — the generated-byte compare path.",
+      "rationale": "the acceptance path still materializes and byte-compares the generated module",
+      "text": ""
+    }
+  ],
   "groups": [
     {
       "id": "acceptance",
@@ -1913,6 +1963,14 @@
         "go_module": "reused",
         "opam_download": "reused"
       },
+      "edits": [
+        "edit.foundation.float",
+        "edit.proof.compilable",
+        "edit.leaf.emit",
+        "edit.tool.source-diet",
+        "edit.doc.architecture",
+        "edit.none.generated"
+      ],
       "id": "warm.cached.incremental",
       "prime_steps": [
         "cold.cached"

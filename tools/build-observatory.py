@@ -205,6 +205,25 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(f'{SUITE_REL}: duplicate scenario id {s["id"]!r}')
         seen_scn.add(s['id'])
 
+    # An incremental scenario with no edits would measure a no-op and file it as incremental, which is a
+    # wrong number rather than a missing one. Every declared edit must also name a real, applicable file.
+    edits = {e['id']: e for e in suite.get('edits', [])}
+    if len(edits) != len(suite.get('edits', [])):
+        raise ObservatoryError(f'{SUITE_REL}: duplicate edit id')
+    for e in edits.values():
+        if e['kind'] not in ('append-comment-line', 'no-edit'):
+            raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]}: unknown kind {e["kind"]!r}')
+        if e['kind'] != 'no-edit' and not (root / e['path']).is_file():
+            raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]} names {e["path"]!r}, which is not a file')
+    for s in suite['scenarios']:
+        unknown_edits = [x for x in s.get('edits', []) if x not in edits]
+        if unknown_edits:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: unknown edit(s) {unknown_edits}')
+        if 'incremental' in s['id'] and not s.get('edits'):
+            raise ObservatoryError(
+                f'{SUITE_REL}: scenario {s["id"]} is incremental but declares no edits; it would measure a '
+                f'no-op and record it as an incremental rebuild')
+
     for c in suite['commands']:
         unknown = [s for s in c['scenarios'] if s not in seen_scn]
         if unknown:
@@ -702,6 +721,8 @@ def apply_edit(copy_root: Path, edit: dict) -> None:
     The real working tree is never touched. Verifying that the intended file changed AND that nothing else
     did is the half that matters: an edit scenario whose blast radius is wrong measures a rebuild nobody
     asked about and attributes it to the wrong shape."""
+    if edit['kind'] == 'no-edit':
+        return None                                   # the floor case: measure the path with nothing moved
     target = copy_root / edit['path']
     if not target.is_file():
         raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} is not a file in the disposable copy')
@@ -713,6 +734,20 @@ def apply_edit(copy_root: Path, edit: dict) -> None:
     else:
         raise ObservatoryError(f'edit {edit["id"]}: unknown edit kind {edit["kind"]!r}')
     return None
+
+
+def disposable_copy(root: Path, dest: Path) -> Path:
+    """An exact, throwaway copy of the committed tree — a Git worktree, so `git` still answers inside it.
+
+    A plain file copy would break every target that reads the index, and copying `.git` would be slow and
+    would share state. A detached worktree is exact, cheap and genuinely separate. Recording already requires
+    a clean tree, so the committed tree IS the working tree at that point."""
+    _git(root, 'worktree', 'add', '--detach', '--quiet', str(dest), 'HEAD')
+    return dest
+
+
+def drop_disposable_copy(root: Path, dest: Path) -> None:
+    _git(root, 'worktree', 'remove', '--force', str(dest), check=False)
 
 
 def tree_digest(root: Path, paths: list[str]) -> str:
@@ -1299,6 +1334,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
     samples: list[dict] = []
     incomplete: list[str] = []
+    edits_ok = True
     cache_model: dict[str, dict] = {}
 
     for scenario_id in scenario_order(suite, sel.scenarios):
@@ -1327,6 +1363,40 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 continue                                  # derived children come from their parent's events
             role = 'selected' if cid in sel.selected else 'support'
             wanted = command['samples'][scenario_id]
+
+            # An incremental scenario without an applied edit measures a no-op and files it as incremental.
+            # Every sample gets its own disposable worktree, its own edit, and its own restore proof.
+            if scenario.get('edits'):
+                for edit in [e for e in suite.get('edits', []) if e['id'] in scenario['edits']]:
+                    for index in range(wanted):
+                        label = f'{cid}/{scenario_id}/{edit["id"]}'
+                        progress(f'fido: observe — {label} sample {index + 1}/{wanted} ({role})')
+                        copy = raw_dir.parent / 'copies' / f'{edit["id"]}.{index}'
+                        try:
+                            copy.parent.mkdir(parents=True, exist_ok=True)
+                            disposable_copy(root, copy)
+                            paths = [edit['path']] if edit['path'] else []
+                            before = tree_digest(copy, paths)
+                            original = (copy / edit['path']).read_bytes() if edit['path'] else b''
+                            apply_edit(copy, edit)
+                            if edit['path'] and tree_digest(copy, paths) == before:
+                                raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
+                            s = run_sample(root, {**command,
+                                                  'execution': materialise_execution(command)},
+                                           scenario_id, index, role, raw_dir, provenance, cwd=copy)
+                            if edit['path']:
+                                restore_and_verify(copy, edit, original, before, paths)
+                            s['edit_id'] = edit['id']
+                            samples.append(s)
+                            ran_here += 1
+                        except ObservatoryError as exc:
+                            incomplete.append(label)
+                            edits_ok = False
+                            progress(f'fido: observe — {label} did not complete: {exc}')
+                        finally:
+                            drop_disposable_copy(root, copy)
+                continue
+
             for index in range(wanted):
                 progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
                 try:
@@ -1387,7 +1457,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'cache_model': cache_model, 'commands': command_fingerprints(suite), 'measurements': samples,
         'module_graph': graph, 'history_analysis': history, 'derived': derived,
     }
-    return observation, incomplete, True
+    return observation, incomplete, edits_ok
 
 
 def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
@@ -1528,6 +1598,13 @@ def self_test(root: Path) -> int:
                 dst = work / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(root / rel, dst)
+            # every file the registry's edits name must exist in the fixture, or the edit-path rule fires
+            # first and every control above it reports the wrong reason
+            for e in json.loads((work / SUITE_REL).read_text(encoding='utf-8')).get('edits', []):
+                if e.get('path'):
+                    stub = work / e['path']
+                    stub.parent.mkdir(parents=True, exist_ok=True)
+                    stub.write_text('placeholder\n', encoding='utf-8')
             try:
                 mutate(work)
             except Exception as exc:                                  # a fixture that cannot be built
@@ -1590,6 +1667,22 @@ def self_test(root: Path) -> int:
     scenario('a registry pre-commit stage with no anchor pair',
              lambda w: edit(w, 'precommit.naming', 'id', 'precommit.no-such-stage'),
              expect='carries no such anchor pair')
+
+    scenario('an incremental scenario with no edits',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'edits': []} if 'incremental' in s['id'] else s
+                 for s in suite_of(w)['scenarios']]}),
+             expect='would measure a no-op and record it as an incremental rebuild')
+    scenario('a scenario naming an unknown edit',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'edits': ['edit.no.such']} if 'incremental' in s['id'] else s
+                 for s in suite_of(w)['scenarios']]}),
+             expect='unknown edit')
+    scenario('an edit naming a file that is not there',
+             lambda w: write_suite(w, {**suite_of(w), 'edits': [
+                 {**e, 'path': 'NoSuchModule.v'} if e['kind'] != 'no-edit' else e
+                 for e in suite_of(w)['edits']]}),
+             expect='which is not a file')
 
     scenario('a duplicate command id',
              lambda w: edit(w, 'make.diet', 'id', 'make.fmt'),

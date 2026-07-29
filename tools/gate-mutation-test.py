@@ -65,6 +65,11 @@ MUTANTS = (
      ('a derived child is measured through the live parent',
       'a docker stage names its live parent build')),
 
+    (OBS, 'the incremental-edit requirement',
+     "        if 'incremental' in s['id'] and not s.get('edits'):",
+     "        if False:",
+     ('an incremental scenario with no edits',)),
+
     (OBS, 'scenario prime ordering',
      "        for prime in scenarios[sid]['prime_steps']:",
      "        for prime in []:",
