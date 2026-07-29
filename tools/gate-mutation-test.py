@@ -237,6 +237,16 @@ MUTANTS = (
      "    unexpected = []",
      ('recording which changes a second tracked file',)),
 
+    (OBS, 'the declared-policy grouping',
+     "        if not c.get('policy'):",
+     "        if True:",
+     ('the source-comment law runs in both places and must be recorded',)),
+
+    (OBS, 'isolation implementation',
+     "    raise ObservatoryError(f'{command[\"id\"]}: isolation {kind!r} is declared but not implemented')",
+     "    return None, {}",
+     ('an isolation the runner does not implement',)),
+
     (OBS, 'the builder guard',
      "    if name != OBSERVATORY_BUILDER:",
      "    if False:",

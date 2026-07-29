@@ -671,6 +671,52 @@ def _monotonic_ns() -> int:
     return time.monotonic_ns()
 
 
+def isolate(root: Path, command: dict, where: Path):
+    """Contain a command's side effect for the duration of the sample, and return (cwd, env).
+
+    A setup command that changes the machine cannot be measured in place and must not be excluded for
+    having an effect — that would leave the surface unmeasured. Each isolation contains exactly what its
+    command writes:
+
+      disposable-copy         a detached worktree; the repository is untouched
+      temporary-docker-config a private DOCKER_CONFIG and a throwaway builder name, so `buildx use`
+                              switches a default nobody else reads
+      temporary-git-repo      a standalone repository, because `git config` in a LINKED worktree writes the
+                              config shared with the main checkout
+    """
+    kind = command.get('isolation')
+    if kind is None:
+        return None, {}
+    if kind == 'disposable-copy':
+        return where, {}
+    if kind == 'temporary-docker-config':
+        cfg = where / 'docker-config'
+        cfg.mkdir(parents=True, exist_ok=True)
+        return None, {'DOCKER_CONFIG': str(cfg),
+                      'FIDO_OBSERVATORY_THROWAWAY_BUILDER': f'fido-throwaway-{where.name}'}
+    if kind == 'temporary-git-repo':
+        import subprocess
+        repo = where / 'repo'
+        repo.mkdir(parents=True, exist_ok=True)
+        for args in (['init', '-q'], ['config', 'user.email', 'observatory@example.invalid'],
+                     ['config', 'user.name', 'observatory']):
+            subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
+        (repo / '.githooks').mkdir(exist_ok=True)
+        (repo / 'Makefile').write_bytes((root / 'Makefile').read_bytes())
+        return repo, {}
+    raise ObservatoryError(f'{command["id"]}: isolation {kind!r} is declared but not implemented')
+
+
+def release_isolation(command: dict, where: Path) -> None:
+    """Undo whatever the isolation created. A throwaway builder that survives the sample is a leak."""
+    import shutil
+    import subprocess
+    if command.get('isolation') == 'temporary-docker-config':
+        name = f'fido-throwaway-{where.name}'
+        subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True)
+    shutil.rmtree(where, ignore_errors=True)
+
+
 def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
                raw_dir: Path, cache_before: dict, cwd: Path | None = None,
                env_extra: dict | None = None, source_digest: str | None = None,
@@ -1065,18 +1111,21 @@ def repeated_work(suite: dict, samples: list[dict]) -> dict:
         for dep in c['dependencies']:
             contains.setdefault(dep, []).append(c['id'])
 
-    # a policy check performed both by a Make target and by a hook stage is repeated execution
-    def tail(cid: str) -> str:
-        return cid.split('.', 1)[1] if '.' in cid else cid
-
-    make_tails = {tail(c['id']): c['id'] for c in suite['commands'] if c['kind'] == 'make-target'}
-    repeated = []
+    # A policy performed both by a Make target and by a hook stage is repeated execution. Which policy a
+    # command performs is DECLARED: inferring it from name similarity matched some pairs by coincidence of
+    # spelling and missed others entirely.
+    by_policy: dict[str, dict] = {}
     for c in suite['commands']:
-        if c['kind'] != 'precommit-stage':
+        if not c.get('policy'):
             continue
-        t = tail(c['id']).split('.')[0]
-        if t in make_tails:
-            repeated.append({'policy': t, 'make_command': make_tails[t], 'hook_stage': c['id'],
+        side = 'make' if c['kind'] == 'make-target' else (
+            'hook' if c['kind'] in ('precommit-stage', 'precommit-full') else 'other')
+        by_policy.setdefault(c['policy'], {}).setdefault(side, []).append(c['id'])
+    repeated = []
+    for policy, sides in sorted(by_policy.items()):
+        if 'make' in sides and 'hook' in sides:
+            repeated.append({'policy': policy, 'make_commands': sorted(sides['make']),
+                             'hook_stages': sorted(sides['hook']),
                              'reason': 'the working tree and the proposed commit are different subjects, '
                                        'so both runs are wanted; the cost of running both is the finding'})
     measured = {s['command_id'] for s in samples}
@@ -2086,12 +2135,17 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 progress(f'fido: observe — {label} sample {index + 1}/{wanted} ({role})')
                 copy = None
                 try:
-                    view = command['source_view']
-                    needs_copy = view == 'disposable-copy' or edit is not None
+                    iso_kind = command.get('isolation')
+                    needs_copy = iso_kind == 'disposable-copy' or edit is not None
+                    iso_env = {}
                     if needs_copy:
                         copy = raw_dir.parent / 'copies' / f'{cid}.{scenario_id}.{index}'
                         copy.parent.mkdir(parents=True, exist_ok=True)
                         disposable_copy(root, copy, subj['source_view'])
+                    elif iso_kind:
+                        copy = raw_dir.parent / 'isolated' / f'{cid}.{scenario_id}.{index}'
+                        cwd_override, iso_env = isolate(root, command, copy)
+                        copy = cwd_override or copy
                     target = copy or root
                     before = None
                     if edit and edit['kind'] != 'no-edit':
@@ -2107,7 +2161,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     s = run_sample(root, {**command,
                                           'execution': materialise_execution(command, scenario)},
                                    scenario, index, role, raw_dir, provenance, cwd=copy,
-                                   env_extra=instrumentation_env(command, anchor_log, scenario),
+                                   env_extra={**instrumentation_env(command, anchor_log, scenario),
+                                              **iso_env},
                                    source_digest=digest, edit_id=edit['id'] if edit else None)
                     s['derived_stage_events'] = collect_events(
                         command, anchor_log,
@@ -2129,7 +2184,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     break
                 finally:
                     if copy is not None:
-                        drop_disposable_copy(root, copy)
+                        if command.get('isolation') in ('temporary-docker-config', 'temporary-git-repo'):
+                            release_isolation(command, copy.parent / copy.name)
+                        else:
+                            drop_disposable_copy(root, copy)
 
     for cid in sel.order:
         command = commands[cid]
@@ -3017,6 +3075,51 @@ def self_test(root: Path) -> int:
     filtered = compare(observation(), observation(), only='make.nothing')
     if filtered['metrics']:
         failures.append('ONLY must be able to filter comparison output')
+
+    # ── §5.4 isolations: every declared one is implemented and contains what it claims
+    counts['total'] += 1
+    declared_iso = {c.get('isolation') for c in suite['commands'] if c.get('isolation')}
+    for kind in sorted(declared_iso - {'not-measured'}):
+        with _tempfile.TemporaryDirectory() as d:
+            fake = {'id': 'probe', 'isolation': kind}
+            try:
+                cwd, env = isolate(root, fake, Path(d) / 'iso')
+            except ObservatoryError as exc:
+                failures.append(f'isolation {kind!r} is declared but not implemented: {exc}')
+                continue
+            if kind == 'temporary-docker-config' and 'DOCKER_CONFIG' not in env:
+                failures.append('a temporary Docker config must redirect DOCKER_CONFIG, or `buildx use` '
+                                'switches the developer default')
+            if kind == 'temporary-git-repo':
+                if cwd is None or not (cwd / '.git').exists():
+                    failures.append('a temporary Git repo must be standalone: git config in a LINKED '
+                                    'worktree writes the config shared with the main checkout')
+            release_isolation(fake, Path(d) / 'iso')
+
+    guarded('an isolation the runner does not implement',
+            lambda w: isolate(root, {'id': 'probe', 'isolation': 'wishful-thinking'}, w),
+            expect='declared but not implemented')
+
+    counts['total'] += 1
+    setup_cmds = [c for c in suite['commands'] if 'setup' in c['groups'] and c['measurement'] == 'direct']
+    unisolated = [c['id'] for c in setup_cmds if not c.get('isolation')]
+    if unisolated:
+        failures.append(f'a safely measurable setup command must be measured, not cataloged: {unisolated}')
+
+    # ── the repeated-work relation the contract requires as machine-readable fact
+    counts['total'] += 1
+    rw = repeated_work(suite, [sample(command_id='make.diet')])
+    if not rw['repeated_execution']:
+        failures.append('the repeated-work relation must record policies run by both make and the hook')
+    by_policy = {r['policy']: r for r in rw['repeated_execution']}
+    law = by_policy.get('source-comment-law')
+    if not law or 'make.diet' not in law['make_commands'] or \
+            'precommit.source-diet.check' not in law['hook_stages']:
+        failures.append(f'the source-comment law runs in both places and must be recorded: {law}')
+    if not by_policy.get('scoped-names'):
+        failures.append('the scoped-name policy runs in both places and must be recorded')
+    if not rw['containment']:
+        failures.append('the repeated-work relation must record containment by stable ID')
 
     # ── §8 bundles: identity that cannot collide, evidence that must exist
     counts['total'] += 1

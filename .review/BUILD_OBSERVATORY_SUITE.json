@@ -19,6 +19,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.dune-graph",
+      "policy": null,
       "purpose": "The Dune adjacency, critical path and downstream rebuild sets, derived from the same build that times the modules.",
       "samples": {
         "project.cold.module-graph": 1,
@@ -48,6 +49,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.history",
+      "policy": null,
       "purpose": "Edit frequency, co-change, edit shapes and weighted rebuild cost over the exact accepted range.",
       "samples": {
         "project.warm.noop": 3
@@ -77,6 +79,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.rocq-modules",
+      "policy": null,
       "purpose": "Per-module Rocq compile time for the certified module set, measured with the pinned toolchain.",
       "samples": {
         "project.cold.module-graph": 1,
@@ -109,6 +112,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:emit",
+      "policy": null,
       "purpose": "Fido Materialize of every pristine tree plus the provenance and sink tests.",
       "samples": {
         "project.cached.fresh": 1,
@@ -155,6 +159,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:generated-artifact",
+      "policy": null,
       "purpose": "The scratch stage exporting those pristine bytes to the host.",
       "samples": {
         "environment.bootstrap": 1,
@@ -203,6 +208,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:generated-module",
+      "policy": null,
       "purpose": "The pristine generated module the Go stage and the byte compare both consume.",
       "samples": {
         "project.cached.fresh": 1,
@@ -249,6 +255,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:go-e2e",
+      "policy": null,
       "purpose": "The pinned Go toolchain building the whole generated tree and running the differential.",
       "samples": {
         "project.cached.fresh": 1,
@@ -295,6 +302,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:module-graph",
+      "policy": null,
       "purpose": "Per-module Rocq compile time and the toolchain-native dependency adjacency.",
       "samples": {
         "project.cold.module-graph": 1,
@@ -327,6 +335,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:module-graph-log",
+      "policy": null,
       "purpose": "The scratch stage exporting the adjacency, per-module wall time and raw logs.",
       "samples": {
         "project.cold.module-graph": 1,
@@ -359,6 +368,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:profile",
+      "policy": null,
       "purpose": "The single-module Rocq profiling stage.",
       "samples": {
         "project.cold.profile": 1,
@@ -391,6 +401,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:profile-log",
+      "policy": null,
       "purpose": "The scratch stage exporting the profiling log.",
       "samples": {
         "project.cold.profile": 1,
@@ -423,6 +434,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:prover",
+      "policy": null,
       "purpose": "The complete proof gate inside the pinned container.",
       "samples": {
         "project.cached.fresh": 1,
@@ -469,6 +481,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:rocq-base",
+      "policy": null,
       "purpose": "The pinned Debian base carrying that switch.",
       "samples": {
         "project.cached.fresh": 1,
@@ -515,6 +528,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:rocq-builder",
+      "policy": null,
       "purpose": "Build the pinned opam switch that every later Rocq stage copies.",
       "samples": {
         "project.cached.fresh": 1,
@@ -561,6 +575,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": "Dockerfile:sync",
+      "policy": null,
       "purpose": "The publication stage whose buildability depends on the go-e2e edge.",
       "samples": {
         "project.cached.fresh": 1,
@@ -595,6 +610,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:audit-fresh",
+      "policy": null,
       "purpose": "The proof gate and the whole-tree e2e forced to RUN rather than report a Buildx cache hit.",
       "samples": {
         "project.cold.prover": 1
@@ -623,6 +639,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:builder",
+      "policy": null,
       "purpose": "Create the pinned Buildx builder if it is absent, and make it the default.",
       "samples": {
         "environment.bootstrap": 1
@@ -653,6 +670,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:check",
+      "policy": "whole-acceptance",
       "purpose": "The whole working-tree acceptance path: policy gates, the pinned proof, the whole-tree Go e2e and the generated byte compare.",
       "samples": {
         "environment.bootstrap": 1,
@@ -699,6 +717,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:claims",
+      "policy": "claim-matrix",
       "purpose": "The claim-to-theorem matrix and its adversarial controls.",
       "samples": {
         "project.warm.noop": 3
@@ -727,6 +746,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:diet",
+      "policy": "source-comment-law",
       "purpose": "The permanent source-comment policy: the comment law, the exception relation and the permanent-wiring check.",
       "samples": {
         "project.warm.noop": 3
@@ -757,6 +777,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:e2e",
+      "policy": "go-e2e",
       "purpose": "Emit plus the pinned Go build over the whole generated tree, the differential fixtures and the reviewed goldens.",
       "samples": {
         "project.cached.fresh": 1,
@@ -803,6 +824,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:emit",
+      "policy": null,
       "purpose": "Theory and plugin build plus the explicit Fido Materialize of every pristine witness tree, the provenance boundary and the sink tests.",
       "samples": {
         "project.cached.fresh": 1,
@@ -847,6 +869,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fcb",
+      "policy": "live-fcb-documents",
       "purpose": "The live-FCB document gates: human acts, typed references, the generated closure view and the gate-mutation harness.",
       "samples": {
         "project.warm.noop": 3
@@ -875,6 +898,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fcb-write",
+      "policy": null,
       "purpose": "Regenerate every generated FCB view from its canonical source.",
       "samples": {
         "project.warm.noop": 3
@@ -903,6 +927,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fmt",
+      "policy": null,
       "purpose": "The .editorconfig whitespace and format report; reports rather than rewrites, and is not a gate.",
       "samples": {
         "project.warm.noop": 3
@@ -931,6 +956,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:install-hooks",
+      "policy": null,
       "purpose": "Point core.hooksPath at the tracked hook directory.",
       "samples": {
         "project.warm.noop": 3
@@ -959,6 +985,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:names",
+      "policy": "scoped-names",
       "purpose": "The A005 scoped-name policy gate.",
       "samples": {
         "project.warm.noop": 3
@@ -987,6 +1014,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:observatory",
+      "policy": "command-surface",
       "purpose": "The permanent command-surface coverage validator and its controls; reads three files and runs no timing suite.",
       "samples": {
         "project.warm.noop": 3
@@ -1016,6 +1044,7 @@
       "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:observe",
+      "policy": null,
       "purpose": "The Build Observatory itself.",
       "samples": {},
       "scenarios": [],
@@ -1043,6 +1072,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:profile",
+      "policy": null,
       "purpose": "The existing single-module Rocq profiling path, reused by the module analysis.",
       "samples": {
         "project.cold.profile": 1,
@@ -1075,6 +1105,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prove",
+      "policy": "proof-gate",
       "purpose": "The complete proof gate: dune build, the axiom-free readable gate, certified-module coverage and the whole-theory assumption audit.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1119,6 +1150,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prove-errors",
+      "policy": null,
       "purpose": "Print only the Rocq File and Error lines, which a failing Buildx recipe otherwise buries.",
       "samples": {
         "project.warm.noop": 3
@@ -1147,6 +1179,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:prover-log",
+      "policy": null,
       "purpose": "Stream the plain Rocq log for diagnosis.",
       "samples": {
         "project.warm.noop": 3
@@ -1177,6 +1210,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:regen-guard",
+      "policy": null,
       "purpose": "Prove the validate-before-publish DAG edge load-bearing: a failed go build must make the sync image unbuildable.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1211,6 +1245,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:regenerate",
+      "policy": null,
       "purpose": "Rebuild the pristine canonical module and sync those exact bytes into the tree through the Sink.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1245,6 +1280,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.builder",
+      "policy": null,
       "purpose": "Ensure the pinned Buildx builder exists before the staged verification.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1279,6 +1315,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.claims.check",
+      "policy": "claim-matrix",
       "purpose": "The claim-to-theorem matrix over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1313,6 +1350,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.claims.self-test",
+      "policy": "claim-matrix",
       "purpose": "The claim-matrix controls, run on the staged copy of the gate.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1347,6 +1385,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.closure-ledger",
+      "policy": "live-fcb-documents",
       "purpose": "The generated closure-ledger view against its canonical CSV.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1380,6 +1419,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.export-index",
+      "policy": null,
       "purpose": "Export the Git index exactly once into the staged snapshot every later stage reads.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1414,6 +1454,7 @@
       "measurement": "direct",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.full",
+      "policy": "whole-acceptance",
       "purpose": "The whole staged-index verification, measured directly; every child stage is derived from its anchors.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1448,6 +1489,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-artifact",
+      "policy": null,
       "purpose": "Materialize the pristine generated module from the staged inputs only.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1482,6 +1524,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-compare",
+      "policy": null,
       "purpose": "Byte-compare the staged generated tree against that pristine artifact.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1516,6 +1559,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-mode",
+      "policy": null,
       "purpose": "The index-authoritative Git mode check for every tracked generated file.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1550,6 +1594,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.generated-output",
+      "policy": null,
       "purpose": "The generated-output policy over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1584,6 +1629,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.go-e2e",
+      "policy": "go-e2e",
       "purpose": "The whole-tree Go build and differential built from the staged context.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1618,6 +1664,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.human-acts.check",
+      "policy": "live-fcb-documents",
       "purpose": "The D-07 human-acts relation over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1652,6 +1699,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.human-acts.self-test",
+      "policy": "live-fcb-documents",
       "purpose": "The human-acts gate controls, run on the staged copy of the gate.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1686,6 +1734,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.mutation",
+      "policy": "live-fcb-documents",
       "purpose": "Every document-gate root helper proved load-bearing by deleting its effect.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1720,6 +1769,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.naming",
+      "policy": "scoped-names",
       "purpose": "The A005 scoped-name gate in snapshot mode.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1754,6 +1804,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.observatory",
+      "policy": "command-surface",
       "purpose": "The permanent command-surface coverage validator over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1788,6 +1839,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.ocaml-origin",
+      "policy": null,
       "purpose": "The transport-only OCaml boundary over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1822,6 +1874,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.prover",
+      "policy": "proof-gate",
       "purpose": "The complete proof gate built from the staged context.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1856,6 +1909,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.references.check",
+      "policy": "live-fcb-documents",
       "purpose": "The D-24 operational-reference relation over the staged snapshot.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1890,6 +1944,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.references.self-test",
+      "policy": "live-fcb-documents",
       "purpose": "The reference-gate controls, run on the staged copy of the gate.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1924,6 +1979,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.check",
+      "policy": "source-comment-law",
       "purpose": "The permanent comment law over every staged .v file.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1958,6 +2014,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.self-test",
+      "policy": "source-comment-law",
       "purpose": "The source-comment policy controls, run on the staged copy of the checker.",
       "samples": {
         "project.cached.fresh": 1,
@@ -1992,6 +2049,7 @@
       "measurement": "derived",
       "outputs": [],
       "owner": ".githooks/pre-commit:precommit.source-diet.wiring",
+      "policy": "source-comment-law",
       "purpose": "The guarantee that no permanent path invokes a checkpoint-only mode.",
       "samples": {
         "project.cached.fresh": 1,
