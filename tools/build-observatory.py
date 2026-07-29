@@ -552,7 +552,8 @@ def _monotonic_ns() -> int:
 
 
 def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: str,
-               raw_dir: Path, cache_before: dict, cwd: Path | None = None) -> dict:
+               raw_dir: Path, cache_before: dict, cwd: Path | None = None,
+               env_extra: dict | None = None) -> dict:
     """Run one command once and retain everything needed to defend the number afterwards.
 
     Duration is monotonic: a wall clock can step backwards under NTP and produce a negative or absurd
@@ -564,13 +565,15 @@ def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: st
     import resource
     import subprocess
 
+    import os
     raw_dir.mkdir(parents=True, exist_ok=True)
     log = raw_dir / f'{command["id"]}.{scenario_id}.{index}.log'
+    env = {**os.environ, **(env_extra or {})}
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     t0 = _monotonic_ns()
     with log.open('wb') as sink:
-        proc = subprocess.run(command['execution'], cwd=str(cwd or root),
+        proc = subprocess.run(command['execution'], cwd=str(cwd or root), env=env,
                               stdout=sink, stderr=subprocess.STDOUT)
     wall_ns = _monotonic_ns() - t0
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -598,6 +601,87 @@ def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: st
             'cache_before': cache_before, 'cache_after': dict(cache_before),
             'raw_log_sha256': _sha256(data), 'raw_log_bytes': len(data),
             'derived_stage_events': []}
+
+
+ANCHOR_EVENT = re.compile(r'^(begin|end) (\S+) (\d+)$')
+BUILDKIT_STEP = re.compile(r'^#(\d+) \[([^\]]+)\]')
+BUILDKIT_DONE = re.compile(r'^#(\d+) (DONE ([0-9.]+)s|CACHED)\s*$')
+
+
+def parse_anchor_log(text: str) -> list[dict]:
+    """Hook stage durations from the anchor log the instrumented hook writes.
+
+    The hook's clock is wall-clock, because POSIX sh has no monotonic one at useful resolution. A clock step
+    would show up as an end before its begin — so that is REJECTED rather than reported as a negative or
+    absurd duration. A wrong number is worse than a missing one."""
+    open_at: dict[str, int] = {}
+    events = []
+    for line in text.split('\n'):
+        m = ANCHOR_EVENT.match(line.strip())
+        if not m:
+            continue
+        kind, anchor, ns = m.group(1), m.group(2), int(m.group(3))
+        if kind == 'begin':
+            open_at[anchor] = ns
+        elif anchor in open_at:
+            wall = ns - open_at.pop(anchor)
+            if wall < 0:
+                raise ObservatoryError(
+                    f'hook anchor {anchor!r} ended before it began; the wall clock stepped during the run '
+                    f'and every stage duration in this sample is void')
+            events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor'})
+    return events
+
+
+def parse_buildkit_progress(text: str) -> list[dict]:
+    """Per-stage durations from BuildKit's plain progress output.
+
+    Steps are numbered and the stage name appears once, in the step header; the DONE line carries only the
+    number. Resolving one to the other is why this reads the whole log rather than grepping for durations."""
+    stage_of: dict[str, str] = {}
+    totals: dict[str, int] = {}
+    cached: dict[str, int] = {}
+    for line in text.split('\n'):
+        head = BUILDKIT_STEP.match(line.strip())
+        if head:
+            step, label = head.group(1), head.group(2)
+            name = label.split()[0]
+            if name != 'internal':
+                stage_of[step] = name
+            continue
+        done = BUILDKIT_DONE.match(line.strip())
+        if done:
+            step = done.group(1)
+            name = stage_of.get(step)
+            if not name:
+                continue
+            if done.group(3):
+                totals[name] = totals.get(name, 0) + int(float(done.group(3)) * 1e9)
+            else:
+                cached[name] = cached.get(name, 0) + 1
+    return sorted(
+        ({'id': f'docker.{name}', 'wall_ns': totals.get(name, 0), 'cached_steps': cached.get(name, 0),
+          'source': 'buildkit-progress'} for name in set(totals) | set(cached)),
+        key=lambda e: e['id'])
+
+
+def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> list[dict]:
+    """One sample per derived child, from its parent's own events.
+
+    A registry that classifies 34 derived commands and an observation that holds data for none of them is
+    coverage on paper only. These carry the parent's scenario and role so they compare like any other metric,
+    and `resource_scope` says the CPU and memory numbers are the parent's, not theirs."""
+    out = []
+    for event in events:
+        if event['id'] not in known:
+            continue
+        out.append({**parent, 'command_id': event['id'], 'wall_ns': event['wall_ns'],
+                    'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
+                    'resource_scope': SCOPE_BUILDKIT if event['source'] == 'buildkit-progress'
+                    else SCOPE_UNAVAILABLE,
+                    'measurement_source': event['source'], 'derived_from': parent['command_id'],
+                    'derived_stage_events': []})
+    return out
 
 
 def run_id_for(subject_info: dict, started_utc: str, digest: str) -> str:
@@ -1344,6 +1428,30 @@ def ensure_observatory_builder() -> None:
             raise ObservatoryError(f'could not create {OBSERVATORY_BUILDER}: {created.stderr.strip()}')
 
 
+def instrumentation_env(command: dict, anchor_log: Path) -> dict:
+    """Switch the instrumentation on, by environment only.
+
+    `FIDO_OBSERVE` makes the hook's anchors write instead of no-op; `BUILDKIT_PROGRESS=plain` makes buildx
+    emit the structured step output the stage timings are read from. Neither changes a hook line or a Make
+    recipe, so behaviour with the observatory absent is exactly what it always was."""
+    env = {}
+    if command['kind'] == 'precommit-full':
+        env['FIDO_OBSERVE'] = str(anchor_log)
+    if command['kind'] in ('make-target', 'precommit-full'):
+        env['BUILDKIT_PROGRESS'] = 'plain'
+    return env
+
+
+def collect_events(command: dict, anchor_log: Path, raw_log: Path) -> list[dict]:
+    """Every derived event this sample produced, from whichever instrumentation applies to it."""
+    events = []
+    if anchor_log.is_file():
+        events.extend(parse_anchor_log(read_text(anchor_log, 'hook anchor log')))
+    if raw_log.is_file():
+        events.extend(parse_buildkit_progress(raw_log.read_text(encoding='utf-8', errors='replace')))
+    return events
+
+
 def scenario_order(suite: dict, wanted: list[str]) -> list[str]:
     """Scenarios in prime order: a scenario that reuses a cache runs after the one that filled it.
 
@@ -1390,6 +1498,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     samples: list[dict] = []
     incomplete: list[str] = []
     edits_ok = True
+    derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
     cache_model: dict[str, dict] = {}
 
     for scenario_id in scenario_order(suite, sel.scenarios):
@@ -1468,8 +1577,13 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         copy = raw_dir.parent / 'copies' / f'{cid}.{scenario_id}.{index}'
                         copy.parent.mkdir(parents=True, exist_ok=True)
                         disposable_copy(root, copy)
+                    anchor_log = raw_dir / f'{cid}.{scenario_id}.{index}.anchors'
                     s = run_sample(root, {**command, 'execution': materialise_execution(command)},
-                                   scenario_id, index, role, raw_dir, provenance, cwd=copy)
+                                   scenario_id, index, role, raw_dir, provenance, cwd=copy,
+                                   env_extra=instrumentation_env(command, anchor_log))
+                    s['derived_stage_events'] = collect_events(command, anchor_log,
+                                                               raw_dir / f'{cid}.{scenario_id}.{index}.log')
+                    samples.extend(derive_child_samples(s, s['derived_stage_events'], derived_ids))
                 except ObservatoryError as exc:
                     incomplete.append(f'{cid}/{scenario_id}')
                     progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
@@ -2325,6 +2439,50 @@ def self_test(root: Path) -> int:
     for view in ('all', 'implementation', 'excluding_campaign'):
         if view not in HISTORY_VIEWS:
             failures.append(f'the history views must be declared once: {view} is missing')
+
+    # ── derived stage events: the instrumentation must be switched on, and must produce child samples
+    counts['total'] += 1
+    hook_cmd = next(c for c in suite['commands'] if c['kind'] == 'precommit-full')
+    env = instrumentation_env(hook_cmd, Path('/tmp/x.anchors'))
+    if 'FIDO_OBSERVE' not in env:
+        failures.append('the hook must be measured with its anchors switched on, or they are dead weight')
+    make_cmd = next(c for c in suite['commands'] if c['kind'] == 'make-target')
+    if instrumentation_env(make_cmd, Path('/tmp/x')).get('BUILDKIT_PROGRESS') != 'plain':
+        failures.append('a make target must be measured with structured BuildKit progress')
+
+    counts['total'] += 1
+    events = parse_anchor_log('begin a 1000\nbegin b 1100\nend b 1400\nend a 2000\n')
+    if {e['id']: e['wall_ns'] for e in events} != {'b': 300, 'a': 1000}:
+        failures.append(f'nested anchors must each get their own duration: {events}')
+
+    observed('a hook anchor whose clock went backwards',
+             lambda: parse_anchor_log('begin a 2000\nend a 1000\n'),
+             expect='ended before it began')
+
+    counts['total'] += 1
+    stages = parse_buildkit_progress('#5 [prover 5/5] RUN x\n#5 DONE 2.5s\n'
+                                     '#6 [internal] load metadata\n#6 DONE 9.9s\n'
+                                     '#7 [emit 1/7] COPY y\n#7 CACHED\n')
+    by_id = {e['id']: e for e in stages}
+    if 'docker.internal' in by_id:
+        failures.append('BuildKit internal steps are not Docker stages of this project')
+    if by_id.get('docker.prover', {}).get('wall_ns') != 2_500_000_000:
+        failures.append(f'a stage duration must come from its own DONE line: {stages}')
+    if by_id.get('docker.emit', {}).get('cached_steps') != 1:
+        failures.append(f'a cached step must be recorded as cached, not as zero time: {stages}')
+
+    counts['total'] += 1
+    parent = {'command_id': 'make.e2e', 'scenario_id': 'cold.cached', 'sample_index': 0,
+              'selected_or_support': 'selected', 'wall_ns': 99, 'max_rss_bytes': 5}
+    kids = derive_child_samples(parent, [{'id': 'docker.go-e2e', 'wall_ns': 42, 'source': 'buildkit-progress'},
+                                         {'id': 'docker.unknown', 'wall_ns': 7, 'source': 'buildkit-progress'}],
+                                {'docker.go-e2e'})
+    if [k['command_id'] for k in kids] != ['docker.go-e2e']:
+        failures.append(f'only REGISTERED derived commands become child samples: {kids}')
+    elif kids[0]['max_rss_bytes'] is not None or kids[0]['resource_scope'] != SCOPE_BUILDKIT:
+        failures.append("a derived child must not inherit its parent's host RSS as its own")
+    elif kids[0]['derived_from'] != 'make.e2e':
+        failures.append('a derived child must name the parent it came from')
 
     # ── scenario ordering and unusable comparison inputs
     counts['total'] += 1

@@ -111,6 +111,21 @@ MUTANTS = (
      "        rows.append({'module': module,",
      ('weighted rebuild cost must retain BOTH inputs beside the product',)),
 
+    (OBS, 'switching the hook instrumentation on',
+     "        env['FIDO_OBSERVE'] = str(anchor_log)",
+     "        pass  # neutered: the anchors stay inert",
+     ('the hook must be measured with its anchors switched on',)),
+
+    (OBS, 'the anchor clock-step refusal',
+     "            if wall < 0:",
+     "            if False:",
+     ('a hook anchor whose clock went backwards',)),
+
+    (OBS, 'derived children come only from registered commands',
+     "        if event['id'] not in known:",
+     "        if False:",
+     ('only REGISTERED derived commands become child samples',)),
+
     (OBS, 'comparison compatibility',
      "        if not same_host:",
      "        if False:",
