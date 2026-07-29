@@ -27,9 +27,53 @@ FCB = 'tools/fcb-reference-gate.py'
 ACTS = 'tools/human-review-index.py'
 NAMES = 'tools/naming-gate.py'
 DIET = 'tools/source-diet.py'
+OBS = 'tools/build-observatory.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
+    (OBS, 'live command-surface discovery',
+     "    if not names:\n"
+     "        raise ObservatoryError(f'{MAKEFILE_REL}: the .PHONY declaration is empty')",
+     "    names = {'diet', 'observatory', 'observe'}  # neutered: fixed, not the live .PHONY closure\n"
+     "    if not names:\n"
+     "        raise ObservatoryError(f'{MAKEFILE_REL}: the .PHONY declaration is empty')",
+     ('the canonical registry classifies the whole live surface',)),
+
+    (OBS, 'the surface-to-registry direction',
+     "        for missing in sorted(live[kind] - declared[kind]):",
+     "        for missing in []:",
+     ('a public Make target absent from the registry', 'a Docker stage absent from the registry')),
+
+    (OBS, 'the registry-to-surface direction',
+     "        for stale in sorted(declared[kind] - live[kind]):",
+     "        for stale in []:",
+     ('a stale registry Make target', 'a stale registry Docker stage')),
+
+    (OBS, 'the anchor-to-registry direction',
+     "    for missing in sorted(anchors - hook_declared):",
+     "    for missing in []:",
+     ('a pre-commit anchor absent from the registry',)),
+
+    (OBS, 'the registry-to-anchor direction',
+     "    for stale in sorted(hook_declared - anchors):",
+     "    for stale in []:",
+     ('a registry pre-commit stage with no anchor pair',)),
+
+    (OBS, 'the anchor pairing relation',
+     "            if anchor in seen:",
+     "            if False:",
+     ('a duplicate anchor pair in the hook',)),
+
+    (OBS, 'anchor nesting',
+     "            if stack[-1] != anchor:",
+     "            if False:",
+     ('interleaved anchor pairs',)),
+
+    (OBS, 'the owner-token resolution',
+     "        elif token not in read_text(target, f'{c[\"id\"]} owner'):",
+     "        elif False:",
+     ('an owner token that does not occur in its file',)),
+
     (FCB, 'repository inventory derivation',
      "    if not files:\n        raise ReferenceError_(",
      "    files = {'CLAUDE.md'}  # neutered: a fixed list, not the exact snapshot\n"

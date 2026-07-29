@@ -1,7 +1,1870 @@
 {
-  "commands": [],
-  "groups": [],
-  "scenarios": [],
+  "commands": [
+    {
+      "dependencies": [],
+      "execution": [
+        "observatory",
+        "analysis.dune-graph"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "analysis"
+      ],
+      "id": "analysis.dune-graph",
+      "kind": "rocq-module-analysis",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.dune-graph",
+      "purpose": "The Dune dependency adjacency, critical path and downstream rebuild set for each module.",
+      "samples": {
+        "cold.cached": 1
+      },
+      "scenarios": [
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "observatory",
+        "analysis.history"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "analysis"
+      ],
+      "id": "analysis.history",
+      "kind": "history-analysis",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.history",
+      "purpose": "Edit frequency, co-change, edit shapes and weighted rebuild cost over the exact accepted range.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "committed-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "observatory",
+        "analysis.rocq-modules"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "analysis"
+      ],
+      "id": "analysis.rocq-modules",
+      "kind": "rocq-module-analysis",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": ".review/M2_BUILD_OBSERVATORY.md:analysis.rocq-modules",
+      "purpose": "Per-module Rocq compile time for the certified module set, measured with the pinned toolchain.",
+      "samples": {
+        "cold.cached": 1
+      },
+      "scenarios": [
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.emit",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:emit",
+      "purpose": "Fido Materialize of every pristine tree plus the provenance and sink tests.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.generated-artifact",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:generated-artifact",
+      "purpose": "The scratch stage exporting those pristine bytes to the host.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.generated-module",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:generated-module",
+      "purpose": "The pristine generated module the Go stage and the byte compare both consume.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.go-e2e",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:go-e2e",
+      "purpose": "The pinned Go toolchain building the whole generated tree and running the differential.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "diagnostic",
+        "docker"
+      ],
+      "id": "docker.profile",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:profile",
+      "purpose": "The single-module Rocq profiling stage.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "diagnostic",
+        "docker"
+      ],
+      "id": "docker.profile-log",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:profile-log",
+      "purpose": "The scratch stage exporting the profiling log.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.prover",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:prover",
+      "purpose": "The complete proof gate inside the pinned container.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "docker",
+        "toolchain"
+      ],
+      "id": "docker.rocq-base",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:rocq-base",
+      "purpose": "The pinned Debian base carrying that switch.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "docker",
+        "toolchain"
+      ],
+      "id": "docker.rocq-builder",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:rocq-builder",
+      "purpose": "Build the pinned opam switch that every later Rocq stage copies.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "docker"
+      ],
+      "id": "docker.sync",
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:sync",
+      "purpose": "The publication stage whose buildability depends on the go-e2e edge.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached",
+        "cold.cached"
+      ],
+      "side_effect": "none",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "audit-fresh"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.audit-fresh",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:audit-fresh",
+      "purpose": "The proof gate and the whole-tree e2e forced to RUN rather than report a Buildx cache hit.",
+      "samples": {
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "builder"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "setup"
+      ],
+      "id": "make.builder",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:builder",
+      "purpose": "Create the pinned Buildx builder if it is absent.",
+      "samples": {
+        "cold.uncached": 1
+      },
+      "scenarios": [
+        "cold.uncached"
+      ],
+      "side_effect": "changes-repository-config",
+      "source_view": "environment-only"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "check"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.check",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:check",
+      "purpose": "The whole working-tree acceptance path: policy gates, the pinned proof, the whole-tree Go e2e and the generated byte compare.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "cold.uncached",
+        "warm.cached.incremental",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "claims"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.claims",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:claims",
+      "purpose": "The claim-to-theorem matrix and its adversarial controls.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "diet"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.diet",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:diet",
+      "purpose": "The permanent source-comment policy: the comment law, the exception relation and the permanent-wiring check.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "e2e"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.e2e",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:e2e",
+      "purpose": "Emit plus the pinned Go build over the whole generated tree, the differential fixtures and the reviewed goldens.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "cold.uncached",
+        "warm.cached.incremental",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "emit"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.emit",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:emit",
+      "purpose": "Theory and plugin build plus the explicit Fido Materialize of every pristine witness tree, the provenance boundary and the sink tests.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "cold.uncached",
+        "warm.cached.incremental",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "fcb"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.fcb",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:fcb",
+      "purpose": "The live-FCB document gates: human acts, typed references, the generated closure view and the gate-mutation harness.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "fcb-write"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.fcb-write",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:fcb-write",
+      "purpose": "Regenerate every generated FCB view from its canonical source.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "writes-disposable-copy",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "fmt"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.fmt",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:fmt",
+      "purpose": "The .editorconfig whitespace and format report; reports rather than rewrites, and is not a gate.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "install-hooks"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "setup"
+      ],
+      "id": "make.install-hooks",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:install-hooks",
+      "purpose": "Point core.hooksPath at the tracked hook directory.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "changes-repository-config",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "names"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.names",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:names",
+      "purpose": "The A005 scoped-name policy gate.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "observatory"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.observatory",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:observatory",
+      "purpose": "The permanent command-surface coverage validator and its controls; reads three files and runs no timing suite.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "catalog_only_reason": "Benchmarking the observatory through the observatory would measure the measurer and recurse; it is cataloged so it can never silently disappear from the surface.",
+      "dependencies": [],
+      "execution": [
+        "make",
+        "observe"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "observatory"
+      ],
+      "id": "make.observe",
+      "kind": "make-target",
+      "measurement": "catalog-only",
+      "outputs": [],
+      "owner": "Makefile:observe",
+      "purpose": "The Build Observatory itself.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "writes-local-observation",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "profile"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "diagnostic",
+        "make"
+      ],
+      "id": "make.profile",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:profile",
+      "purpose": "The existing single-module Rocq profiling path, reused by the module analysis.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "prove"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.prove",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:prove",
+      "purpose": "The complete proof gate: dune build, the axiom-free readable gate, certified-module coverage and the whole-theory assumption audit.",
+      "samples": {
+        "cold.cached": 1,
+        "cold.uncached": 1,
+        "warm.cached.incremental": 3,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "cold.uncached",
+        "warm.cached.incremental",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "prove-errors"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "diagnostic",
+        "make"
+      ],
+      "id": "make.prove-errors",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:prove-errors",
+      "purpose": "Print only the Rocq File and Error lines, which a failing Buildx recipe otherwise buries.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "prover-log"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "diagnostic",
+        "make"
+      ],
+      "id": "make.prover-log",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:prover-log",
+      "purpose": "Stream the plain Rocq log for diagnosis.",
+      "samples": {
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "regen-guard"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.regen-guard",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:regen-guard",
+      "purpose": "Prove the validate-before-publish DAG edge load-bearing: a failed go build must make the sync image unbuildable.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "writes-disposable-copy",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "make",
+        "regenerate"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "make"
+      ],
+      "id": "make.regenerate",
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:regenerate",
+      "purpose": "Rebuild the pristine canonical module and sync those exact bytes into the tree through the Sink.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "writes-disposable-copy",
+      "source_view": "disposable-copy"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "precommit",
+        "setup"
+      ],
+      "id": "precommit.builder",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.builder",
+      "purpose": "Ensure the pinned Buildx builder exists before the staged verification.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.claims.check",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.claims.check",
+      "purpose": "The claim-to-theorem matrix over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.claims.self-test",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.claims.self-test",
+      "purpose": "The claim-matrix controls, run on the staged copy of the gate.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.closure-ledger",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.closure-ledger",
+      "purpose": "The generated closure-ledger view against its canonical CSV.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "precommit"
+      ],
+      "id": "precommit.export-index",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.export-index",
+      "purpose": "Export the Git index exactly once into the staged snapshot every later stage reads.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [],
+      "execution": [
+        "git",
+        "hook",
+        "pre-commit"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "precommit"
+      ],
+      "id": "precommit.full",
+      "kind": "precommit-full",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.full",
+      "purpose": "The whole staged-index verification, measured directly; every child stage is derived from its anchors.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "precommit"
+      ],
+      "id": "precommit.generated-artifact",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.generated-artifact",
+      "purpose": "Materialize the pristine generated module from the staged inputs only.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "precommit"
+      ],
+      "id": "precommit.generated-compare",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.generated-compare",
+      "purpose": "Byte-compare the staged generated tree against that pristine artifact.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.generated-mode",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.generated-mode",
+      "purpose": "The index-authoritative Git mode check for every tracked generated file.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.generated-output",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.generated-output",
+      "purpose": "The generated-output policy over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "precommit"
+      ],
+      "id": "precommit.go-e2e",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.go-e2e",
+      "purpose": "The whole-tree Go build and differential built from the staged context.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.human-acts.check",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.human-acts.check",
+      "purpose": "The D-07 human-acts relation over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.human-acts.self-test",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.human-acts.self-test",
+      "purpose": "The human-acts gate controls, run on the staged copy of the gate.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.mutation",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.mutation",
+      "purpose": "Every document-gate root helper proved load-bearing by deleting its effect.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.naming",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.naming",
+      "purpose": "The A005 scoped-name gate in snapshot mode.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.observatory",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.observatory",
+      "purpose": "The permanent command-surface coverage validator over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.ocaml-origin",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.ocaml-origin",
+      "purpose": "The transport-only OCaml boundary over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "acceptance",
+        "precommit"
+      ],
+      "id": "precommit.prover",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.prover",
+      "purpose": "The complete proof gate built from the staged context.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.references.check",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.references.check",
+      "purpose": "The D-24 operational-reference relation over the staged snapshot.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.references.self-test",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.references.self-test",
+      "purpose": "The reference-gate controls, run on the staged copy of the gate.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.source-diet.check",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.source-diet.check",
+      "purpose": "The permanent comment law over every staged .v file.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.source-diet.self-test",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.source-diet.self-test",
+      "purpose": "The source-comment policy controls, run on the staged copy of the checker.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.source-diet.wiring",
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.source-diet.wiring",
+      "purpose": "The guarantee that no permanent path invokes a checkpoint-only mode.",
+      "samples": {
+        "cold.cached": 1,
+        "warm.cached.noop": 3
+      },
+      "scenarios": [
+        "cold.cached",
+        "warm.cached.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    }
+  ],
+  "groups": [
+    {
+      "id": "acceptance",
+      "members": [
+        "docker.emit",
+        "docker.generated-artifact",
+        "docker.generated-module",
+        "docker.go-e2e",
+        "docker.prover",
+        "docker.sync",
+        "make.audit-fresh",
+        "make.check",
+        "make.e2e",
+        "make.emit",
+        "make.prove",
+        "make.regen-guard",
+        "make.regenerate",
+        "precommit.full",
+        "precommit.generated-artifact",
+        "precommit.generated-compare",
+        "precommit.go-e2e",
+        "precommit.prover"
+      ]
+    },
+    {
+      "id": "analysis",
+      "members": [
+        "analysis.dune-graph",
+        "analysis.history",
+        "analysis.rocq-modules"
+      ]
+    },
+    {
+      "id": "diagnostic",
+      "members": [
+        "docker.profile",
+        "docker.profile-log",
+        "make.profile",
+        "make.prove-errors",
+        "make.prover-log"
+      ]
+    },
+    {
+      "id": "docker",
+      "members": [
+        "docker.emit",
+        "docker.generated-artifact",
+        "docker.generated-module",
+        "docker.go-e2e",
+        "docker.profile",
+        "docker.profile-log",
+        "docker.prover",
+        "docker.rocq-base",
+        "docker.rocq-builder",
+        "docker.sync"
+      ]
+    },
+    {
+      "id": "make",
+      "members": [
+        "make.audit-fresh",
+        "make.builder",
+        "make.check",
+        "make.claims",
+        "make.diet",
+        "make.e2e",
+        "make.emit",
+        "make.fcb",
+        "make.fcb-write",
+        "make.fmt",
+        "make.install-hooks",
+        "make.names",
+        "make.observatory",
+        "make.observe",
+        "make.profile",
+        "make.prove",
+        "make.prove-errors",
+        "make.prover-log",
+        "make.regen-guard",
+        "make.regenerate"
+      ]
+    },
+    {
+      "id": "observatory",
+      "members": [
+        "make.observe"
+      ]
+    },
+    {
+      "id": "policy",
+      "members": [
+        "make.claims",
+        "make.diet",
+        "make.fcb",
+        "make.fcb-write",
+        "make.fmt",
+        "make.names",
+        "make.observatory",
+        "precommit.claims.check",
+        "precommit.claims.self-test",
+        "precommit.closure-ledger",
+        "precommit.generated-mode",
+        "precommit.generated-output",
+        "precommit.human-acts.check",
+        "precommit.human-acts.self-test",
+        "precommit.mutation",
+        "precommit.naming",
+        "precommit.observatory",
+        "precommit.ocaml-origin",
+        "precommit.references.check",
+        "precommit.references.self-test",
+        "precommit.source-diet.check",
+        "precommit.source-diet.self-test",
+        "precommit.source-diet.wiring"
+      ]
+    },
+    {
+      "id": "precommit",
+      "members": [
+        "precommit.builder",
+        "precommit.claims.check",
+        "precommit.claims.self-test",
+        "precommit.closure-ledger",
+        "precommit.export-index",
+        "precommit.full",
+        "precommit.generated-artifact",
+        "precommit.generated-compare",
+        "precommit.generated-mode",
+        "precommit.generated-output",
+        "precommit.go-e2e",
+        "precommit.human-acts.check",
+        "precommit.human-acts.self-test",
+        "precommit.mutation",
+        "precommit.naming",
+        "precommit.observatory",
+        "precommit.ocaml-origin",
+        "precommit.prover",
+        "precommit.references.check",
+        "precommit.references.self-test",
+        "precommit.source-diet.check",
+        "precommit.source-diet.self-test",
+        "precommit.source-diet.wiring"
+      ]
+    },
+    {
+      "id": "setup",
+      "members": [
+        "make.builder",
+        "make.install-hooks",
+        "precommit.builder"
+      ]
+    },
+    {
+      "id": "toolchain",
+      "members": [
+        "docker.rocq-base",
+        "docker.rocq-builder"
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "applicable_groups": [
+        "acceptance",
+        "toolchain"
+      ],
+      "cache_state": {
+        "apt_download": "empty",
+        "buildkit_layers": "empty",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "empty",
+        "opam_download": "empty"
+      },
+      "id": "bootstrap.cold.uncached",
+      "prime_steps": [],
+      "purpose": "A new builder with an empty cache, including toolchain and base acquisition.",
+      "sample_policy": "one sample",
+      "session_state": "fresh"
+    },
+    {
+      "applicable_groups": [
+        "acceptance",
+        "docker",
+        "precommit",
+        "analysis"
+      ],
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "id": "cold.cached",
+      "prime_steps": [
+        "cold.uncached"
+      ],
+      "purpose": "A fresh session reusing exactly the caches the named prime run produced.",
+      "sample_policy": "one sample",
+      "session_state": "fresh"
+    },
+    {
+      "applicable_groups": [
+        "acceptance",
+        "docker",
+        "setup"
+      ],
+      "cache_state": {
+        "apt_download": "primed",
+        "buildkit_layers": "empty",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "primed",
+        "opam_download": "primed"
+      },
+      "id": "cold.uncached",
+      "prime_steps": [
+        "toolchain-prime"
+      ],
+      "purpose": "The clean project-build cost with no reusable project-controlled cache.",
+      "sample_policy": "one sample",
+      "session_state": "fresh"
+    },
+    {
+      "applicable_groups": [
+        "acceptance"
+      ],
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "id": "warm.cached.incremental",
+      "prime_steps": [
+        "cold.cached"
+      ],
+      "purpose": "The same session and cache identity after one deterministic edit in a disposable copy.",
+      "sample_policy": "three samples per edit shape",
+      "session_state": "same"
+    },
+    {
+      "applicable_groups": [
+        "acceptance",
+        "policy",
+        "precommit",
+        "diagnostic",
+        "analysis",
+        "setup"
+      ],
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_layers": "reused",
+        "dune_build": "reused",
+        "generated_intermediate": "reused",
+        "go_build": "reused",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "id": "warm.cached.noop",
+      "prime_steps": [
+        "cold.cached"
+      ],
+      "purpose": "The same session and cache identity with no source byte changed.",
+      "sample_policy": "three samples",
+      "session_state": "same"
+    }
+  ],
   "schema": "fido.build-observatory/1",
-  "state": "pending-m2-implementation"
+  "state": "active"
 }

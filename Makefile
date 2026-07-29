@@ -3,7 +3,7 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        fcb fcb-write claims diet audit-fresh profile
+        fcb fcb-write claims diet audit-fresh profile observatory observe
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -17,7 +17,7 @@ override PLATFORM := linux/amd64
 # `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
 # tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
-check: names fcb claims diet prove e2e builder
+check: names fcb claims diet observatory prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  git ls-files -z --cached --others --exclude-standard \
 	    | python3 -c 'import sys,os;d=sys.stdin.buffer.read().split(b"\x00");sys.stdout.buffer.write(b"\x00".join(p for p in d if p and os.path.lexists(p)))' > "$$tmp/list.nul" && \
@@ -111,6 +111,31 @@ diet:
 	@python3 tools/source-diet.py --self-test
 	@python3 tools/source-diet.py --check
 	@python3 tools/source-diet.py --wiring
+
+# The PERMANENT command-surface coverage validator, and only that: every public Make target, paired
+# pre-commit anchor and Docker stage has exactly one registry entry, in both directions.  It reads three
+# files and runs nothing, so it belongs beside the other cheap policy gates and ahead of the expensive
+# ones.  It is NOT an observe mode — it never runs, lists, compares, records or subsets a suite, which is
+# why `observe` remains the single public entry point for measurement.
+observatory:
+	@python3 tools/build-observatory.py --self-test
+	@python3 tools/build-observatory.py --check
+
+# The Build Observatory's ONE public entry point.  Every mode is a variable on this target rather than a
+# target of its own, so the interface cannot drift into a second build graph:
+#   make observe                       the complete canonical suite, compared with the tracked observation
+#   make observe ONLY=make.prove       one command or group, plus its required setup
+#   make observe SCENARIO=cold.cached  one cache scenario
+#   make observe BASE=<ref-or-path>    compare against an observation from a Git ref or a local bundle
+#   make observe COMPARE=<ref-or-path> compare two existing observations without running anything
+#   make observe RECORD=1              replace the tracked observation, only from a clean complete run
+#   make observe LIST=1                every stable command ID and how it is measured
+#   make observe HELP=1                usage, cache definitions, recording and comparison rules
+observe:
+	@python3 tools/build-observatory.py --observe \
+	  $(if $(ONLY),--only "$(ONLY)") $(if $(SCENARIO),--scenario "$(SCENARIO)") \
+	  $(if $(BASE),--base "$(BASE)") $(if $(COMPARE),--compare "$(COMPARE)") \
+	  $(if $(RECORD),--record) $(if $(LIST),--list) $(if $(HELP),--usage)
 
 # The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
 # runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
