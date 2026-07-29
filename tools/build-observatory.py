@@ -990,6 +990,14 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
 
     if incomplete:
         bad('R05', f'{len(incomplete)} command-scenario pair(s) did not complete: {incomplete[:4]}')
+    canonical = {s['id'] for s in suite['scenarios'] if s.get('canonical')}
+    expected = {c['id'] for c in suite['commands']
+                if c['measurement'] != 'catalog-only' and set(c['scenarios']) & canonical}
+    measured = {s['command_id'] for s in obs['measurements']}
+    unmeasured = sorted(expected - measured)
+    if unmeasured:
+        bad('R05', f'{len(unmeasured)} classified command(s) produced no sample at all: {unmeasured[:6]}; '
+                   f'a registry that classifies more than the observation measures is coverage on paper')
     ok('R05')
 
     wrong = [f'{s["command_id"]}/{s["scenario_id"]}' for s in obs['measurements'] if s['status'] != 'ok']
@@ -2210,8 +2218,20 @@ def self_test(root: Path) -> int:
                  'samples': 3, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), digest),
              expect='do not equal recomputation')
 
+    def complete_observation(**over):
+        """An observation that measured everything the registry classifies, so a control aimed at a LATER
+        rule is not stopped by R05 first."""
+        canonical = {s['id'] for s in suite['scenarios'] if s.get('canonical')}
+        want = [c['id'] for c in suite['commands']
+                if c['measurement'] != 'catalog-only' and set(c['scenarios']) & canonical]
+        every = over.pop('samples', None) or [sample(command_id=cid, sample_index=i)
+                                              for i, cid in enumerate(want)]
+        over.setdefault('derived', {'summaries': summarise(every)})
+        return observation(samples=every, **over)
+
     def record_check(**over):
-        args = {'sel': Selection([], [], [], partial=False), 'suite': suite, 'suite_digest': digest, 'obs': observation(),
+        args = {'sel': Selection([], [], [], partial=False), 'suite': suite, 'suite_digest': digest,
+                'obs': complete_observation(),
                 'clean_before': True, 'edits_restored': True, 'incomplete': []}
         args.update(over)
         with _tempfile.TemporaryDirectory() as d:
@@ -2228,17 +2248,21 @@ def self_test(root: Path) -> int:
     observed('a dirty tree with RECORD', lambda: record_check(clean_before=False),
              expect='recording rule R03')
     observed('a dirty subject with RECORD',
-             lambda: record_check(obs=observation(subject={
+             lambda: record_check(obs=complete_observation(subject={
                  'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
                  'dirty': True, 'source_view': 'working-tree'})),
              expect='recording rule R04')
+    observed('a classified command that produced no sample',
+             lambda: record_check(obs=observation()),
+             expect='coverage on paper')
     observed('an incomplete suite with RECORD',
              lambda: record_check(incomplete=['make.prove/cold.uncached']),
              expect='recording rule R05')
     observed('a failed command with RECORD',
-             lambda: record_check(obs=observation(samples=[sample(status='unexpected-exit', exit_code=2)],
-                                                  derived={'summaries': summarise([sample()])})),
-             expect='recording rule R06')
+             lambda: record_check(obs=complete_observation(
+                 samples=[sample(status='unexpected-exit', exit_code=2)],
+                 derived={'summaries': summarise([sample(status='unexpected-exit', exit_code=2)])})),
+             expect='recording rule R0')
     observed('an unrestored edit with RECORD', lambda: record_check(edits_restored=False),
              expect='recording rule R09')
     observed('a bundle that was not written first', lambda: record_check(bundle_written=False),
@@ -2268,9 +2292,9 @@ def self_test(root: Path) -> int:
                 _sp.run(['git', 'add', 'other.txt'], cwd=repo, check=True, capture_output=True)
             bundle = repo / RUNS_REL / 'fixture-run'
             bundle.mkdir(parents=True)
-            write_json(bundle / 'observation.json', observation())
+            write_json(bundle / 'observation.json', complete_observation())
             return check_record_eligible(repo, sel=Selection([], [], [], partial=False), suite=suite, suite_digest=digest,
-                                         obs=observation(), bundle=bundle, clean_before=True,
+                                         obs=complete_observation(), bundle=bundle, clean_before=True,
                                          edits_restored=True, incomplete=[])
 
     counts['total'] += 1

@@ -146,6 +146,11 @@ MUTANTS = (
      "        if False:",
      ('an expected-failure fixture with no declared reason',)),
 
+    (OBS, 'measurement coverage of the registry',
+     "    unmeasured = sorted(expected - measured)",
+     "    unmeasured = []",
+     ('a classified command that produced no sample',)),
+
     (OBS, 'record eligibility',
      "    if sel.partial:",
      "    if False:",
