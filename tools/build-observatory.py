@@ -46,6 +46,7 @@ DECLARED = (CONTRACT_REL, MATRIX_REL, SUITE_REL, OBSERVATION_REL, RECOMMENDATION
 MAKEFILE_REL = 'Makefile'
 DOCKERFILE_REL = 'Dockerfile'
 HOOK_REL = '.githooks/pre-commit'
+BUILDER = 'fido-builder'
 
 SCHEMA = 'fido.build-observatory/1'
 KINDS = ('make-target', 'precommit-stage', 'precommit-full', 'docker-stage',
@@ -265,6 +266,157 @@ def check_coverage(root: Path, suite: dict) -> str:
             f'every owner token resolves and none names a line number')
 
 
+# ──────────────────────────────────────────────────────────── subject identity
+def _git(root: Path, *args: str, check: bool = True) -> str:
+    import subprocess
+    proc = subprocess.run(['git', *args], cwd=root, capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise ObservatoryError(f'git {" ".join(args)} failed in {root}: {proc.stderr.strip()}')
+    return proc.stdout
+
+
+def _sha256(data: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def inventory_digest(root: Path) -> str:
+    """One digest over every tracked path AND its blob hash, straight from the Git index.
+
+    A commit id alone does not identify what was measured once the tree is dirty, and a path list alone does
+    not notice an edited file. Hashing the index entries covers both without walking the filesystem."""
+    entries = _git(root, 'ls-files', '-s')
+    if not entries.strip():
+        raise ObservatoryError(f'{root}: the Git index lists no files, so the subject cannot be identified')
+    return _sha256(entries.encode('utf-8'))
+
+
+def subject(root: Path) -> dict:
+    """What exactly was measured. A dirty run says so and carries enough to tell two dirty runs apart."""
+    porcelain = _git(root, 'status', '--porcelain')
+    dirty = bool(porcelain.strip())
+    head = _git(root, 'rev-parse', 'HEAD').strip()
+    tree = _git(root, 'rev-parse', 'HEAD^{tree}').strip()
+    out = {'commit': head, 'tree': tree, 'inventory_digest': inventory_digest(root),
+           'dirty': dirty, 'source_view': 'working-tree' if dirty else 'committed-tree'}
+    if dirty:
+        paths = sorted(l[3:] for l in porcelain.split('\n') if l.strip())
+        blobs = []
+        for rel in paths:
+            f = root / rel
+            blobs.append(f'{rel}:{_sha256(f.read_bytes()) if f.is_file() else "absent"}')
+        out['head_commit'] = head
+        out['working_tree_digest'] = _sha256('\n'.join(blobs).encode('utf-8'))
+        out['dirty_paths_digest'] = _sha256('\n'.join(paths).encode('utf-8'))
+    return out
+
+
+# ──────────────────────────────────────────────────────── environment identity
+def _pinned(root: Path) -> dict:
+    """Toolchain identity read from the Dockerfile, which is where this repository PINS it.
+
+    Asking a running container for its versions would report whatever happened to be there; the Dockerfile is
+    the authority, and a drift between the two is a build defect rather than an environment reading."""
+    text = read_text(root / DOCKERFILE_REL, 'Dockerfile')
+    digests = dict(sorted(set(re.findall(r'^FROM\s+(\S+?)@(sha256:[0-9a-f]{64})', text, re.M))))
+    versions = {}
+    for pkg in ('rocq-core', 'rocq-stdlib', 'dune'):
+        m = re.search(rf'\b{re.escape(pkg)}\.([0-9][0-9A-Za-z.+-]*)', text)
+        versions[pkg] = m.group(1) if m else None
+    m = re.search(r'ocaml/opam:debian-\d+-ocaml-([0-9.]+)', text)
+    versions['ocaml'] = m.group(1) if m else None
+    m = re.search(r'golang:([0-9.]+)-alpine', text)
+    versions['go'] = m.group(1) if m else None
+    if not digests or any(v is None for v in versions.values()):
+        raise ObservatoryError(
+            f'{DOCKERFILE_REL}: the pinned toolchain is not fully readable ({versions}); an observation may '
+            f'not record an environment it could not identify')
+    return {'base_image_digests': digests, 'toolchain_versions': versions}
+
+
+def _host() -> dict:
+    import os
+    import platform
+    import subprocess
+    cpu_model = None
+    try:
+        for line in Path('/proc/cpuinfo').read_text(encoding='utf-8').split('\n'):
+            if line.startswith('model name'):
+                cpu_model = line.split(':', 1)[1].strip()
+                break
+    except OSError:
+        pass
+    mem_bytes = None
+    try:
+        for line in Path('/proc/meminfo').read_text(encoding='utf-8').split('\n'):
+            if line.startswith('MemTotal:'):
+                mem_bytes = int(line.split()[1]) * 1024
+                break
+    except OSError:
+        pass
+
+    def cmd(*args) -> str | None:
+        try:
+            p = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            return p.stdout.strip() or None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    # `docker buildx inspect --format` does not exist before buildx 0.14, and asking for it there returns a
+    # usage error rather than a driver. Parse the human table once — every version prints it, and inspect
+    # without --bootstrap does not start anything.
+    inspect = dict(
+        (k.strip(), v.strip())
+        for k, _, v in (l.partition(':') for l in (cmd('docker', 'buildx', 'inspect', BUILDER) or '').split('\n'))
+        if v.strip())
+
+    return {'platform': f'{platform.system()}/{platform.machine()}', 'kernel': platform.release(),
+            'cpu_model': cpu_model, 'logical_cpus': os.cpu_count(), 'memory_bytes': mem_bytes,
+            'filesystem_type': cmd('stat', '-f', '-c', '%T', '.'),
+            'docker_version': cmd('docker', 'version', '--format', '{{.Server.Version}}'),
+            'buildx_version': cmd('docker', 'buildx', 'version'),
+            'buildkit_identity': inspect.get('BuildKit version'),
+            'builder_driver': inspect.get('Driver'),
+            'buildkit_snapshotter': inspect.get('org.mobyproject.buildkit.worker.snapshotter'),
+            'concurrency': {'make_jobs': os.environ.get('MAKEFLAGS', ''),
+                            'buildkit_max_parallelism': os.environ.get('BUILDKIT_MAX_PARALLELISM', '')}}
+
+
+# Fields whose value changes the timing a comparison may be made against. Free memory and load average are
+# deliberately absent: they move between two runs on one machine, and folding them in would make every
+# observation incomparable with every other.
+FINGERPRINT_FIELDS = ('platform', 'kernel', 'cpu_model', 'logical_cpus', 'memory_bytes',
+                      'docker_version', 'buildx_version', 'buildkit_identity', 'builder_driver',
+                      'buildkit_snapshotter', 'filesystem_type')
+
+
+REQUIRED_ENVIRONMENT = ('platform', 'kernel', 'cpu_model', 'logical_cpus', 'memory_bytes',
+                        'docker_version', 'buildx_version', 'buildkit_identity', 'builder_driver',
+                        'buildkit_snapshotter', 'filesystem_type')
+
+
+def check_environment_complete(env: dict) -> None:
+    """Recording requires a COMPLETE environment, so an unread field fails rather than becoming null.
+
+    A comparison decides compatibility from these values. A null one does not mean "the same as the other
+    side"; it means nobody knows, and reporting a delta across it would be a number with no basis."""
+    unread = [k for k in REQUIRED_ENVIRONMENT if env.get(k) in (None, '')]
+    if unread:
+        raise ObservatoryError(
+            f'the environment is incomplete: {", ".join(unread)} could not be read; an observation may not '
+            f'record an environment it could not identify')
+
+
+def environment(root: Path) -> dict:
+    env = {**_host(), **_pinned(root)}
+    stable = {k: env[k] for k in FINGERPRINT_FIELDS}
+    stable['base_image_digests'] = env['base_image_digests']
+    stable['toolchain_versions'] = env['toolchain_versions']
+    env['host_class_fingerprint'] = _sha256(
+        json.dumps(stable, sort_keys=True, ensure_ascii=False).encode('utf-8'))
+    return env
+
+
 # ──────────────────────────────────────────────────────────────────── selection
 class Selection:
     """What one run will measure: the chosen commands, the support they pulled in, and the scenarios.
@@ -349,6 +501,100 @@ def select(suite: dict, only: str | None = None, scenario: str | None = None,
 
     partial = bool(only or scenario)
     return Selection(selected, support, sorted(want_scenarios), partial)
+
+
+# ──────────────────────────────────────────────────────────────── measurement
+RUNS_REL = '.build-observatory/runs'
+# What `resource.getrusage` can honestly answer for. A command that shells out to Buildx does its real work
+# in the daemon, so the wrapper's peak RSS is the wrapper's, not the build's. Saying which is measured is the
+# difference between a number and a wrong number.
+SCOPE_HOST = 'host-wrapper'
+SCOPE_BUILDKIT = 'buildkit-stage'
+SCOPE_UNAVAILABLE = 'unavailable'
+
+
+def _monotonic_ns() -> int:
+    import time
+    return time.monotonic_ns()
+
+
+def run_sample(root: Path, command: dict, scenario_id: str, index: int, role: str,
+               raw_dir: Path, cache_before: dict, cwd: Path | None = None) -> dict:
+    """Run one command once and retain everything needed to defend the number afterwards.
+
+    Duration is monotonic: a wall clock can step backwards under NTP and produce a negative or absurd
+    interval, and a timing tool that reports one has said something false rather than nothing.
+
+    The raw log stays local and only its digest is retained, so the tracked observation stays useful long
+    after the bundle is gone without pretending the log is still there."""
+    import datetime
+    import resource
+    import subprocess
+
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    log = raw_dir / f'{command["id"]}.{scenario_id}.{index}.log'
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    start_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    t0 = _monotonic_ns()
+    with log.open('wb') as sink:
+        proc = subprocess.run(command['execution'], cwd=str(cwd or root),
+                              stdout=sink, stderr=subprocess.STDOUT)
+    wall_ns = _monotonic_ns() - t0
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+
+    if wall_ns < 0:
+        raise ObservatoryError(
+            f'{command["id"]}: the monotonic clock went backwards, which cannot happen; the sample is void')
+
+    data = log.read_bytes()
+    expected = command['expected_exit']
+    return {'command_id': command['id'], 'scenario_id': scenario_id, 'sample_index': index,
+            'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
+            'user_cpu_ns': int((after.ru_utime - before.ru_utime) * 1e9),
+            'system_cpu_ns': int((after.ru_stime - before.ru_stime) * 1e9),
+            'max_rss_bytes': after.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
+            'exit_code': proc.returncode, 'expected_exit': expected,
+            'status': 'ok' if proc.returncode == expected else 'unexpected-exit',
+            'cache_before': cache_before, 'cache_after': dict(cache_before),
+            'raw_log_sha256': _sha256(data), 'raw_log_bytes': len(data),
+            'derived_stage_events': []}
+
+
+def run_id_for(subject_info: dict, started_utc: str, digest: str) -> str:
+    """Descriptive, not authority: UTC start, subject identity and a content digest, in that order."""
+    stamp = started_utc.replace(':', '').replace('-', '').split('.')[0]
+    return f'{stamp}-{subject_info["commit"][:7]}-{digest[:8]}'
+
+
+def new_bundle(root: Path, run_id: str) -> Path:
+    bundle = root / RUNS_REL / run_id
+    (bundle / 'raw').mkdir(parents=True, exist_ok=True)
+    return bundle
+
+
+def write_json(path: Path, obj) -> bytes:
+    data = (json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return data
+
+
+def summarise(samples: list[dict]) -> dict:
+    """Derived median, minimum and maximum, alongside the samples they came from — never instead of them.
+
+    An average alone cannot be rechecked and hides the spread that decides whether a delta means anything.
+    The validator recomputes every value here from the retained samples."""
+    by_key: dict[str, list[int]] = {}
+    for s in samples:
+        by_key.setdefault(f'{s["command_id"]}|{s["scenario_id"]}', []).append(s['wall_ns'])
+    out = {}
+    for key, values in sorted(by_key.items()):
+        ordered = sorted(values)
+        mid = len(ordered) // 2
+        median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) // 2
+        out[key] = {'samples': len(ordered), 'median_wall_ns': median,
+                    'min_wall_ns': ordered[0], 'max_wall_ns': ordered[-1]}
+    return out
 
 
 def render_list(suite: dict) -> str:
