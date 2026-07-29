@@ -626,6 +626,22 @@ def _assert_observatory_builder(name: str) -> None:
             f'{OBSERVATORY_BUILDER!r}, and never the developer\'s builder or its cache')
 
 
+def reset_observatory_cache(progress=print) -> None:
+    """Empty the observatory's own BuildKit cache so a cold scenario is actually cold.
+
+    Routed through the builder guard, because this is the one operation in the file that destroys something.
+    A `cold.uncached` number taken against a full cache is not a cold number, and would be worse than no
+    number at all: it would look authoritative."""
+    import subprocess
+    _assert_observatory_builder(OBSERVATORY_BUILDER)
+    ensure_observatory_builder()
+    progress(f'fido: observe — emptying the {OBSERVATORY_BUILDER} cache for a cold scenario')
+    proc = subprocess.run(['docker', 'buildx', 'prune', '--builder', OBSERVATORY_BUILDER, '--all', '--force'],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise ObservatoryError(f'could not empty the {OBSERVATORY_BUILDER} cache: {proc.stderr.strip()}')
+
+
 def read_cache_state(root: Path) -> dict | None:
     p = root / CACHE_STATE_REL
     if not p.is_file():
@@ -1095,12 +1111,25 @@ def _scope_of(obs: dict, key: str) -> str | None:
     return None
 
 
+def _comparable(obs: dict, side: str) -> None:
+    """An observation that never measured anything is not a baseline; say so rather than fail on its nulls."""
+    if obs.get('state') == 'pending':
+        raise ObservatoryError(
+            f'the {side} observation is still pending — it records no measurement, so there is nothing to '
+            f'compare against')
+    for member in ('environment', 'derived', 'measurements'):
+        if not isinstance(obs.get(member), (dict, list)):
+            raise ObservatoryError(f'the {side} observation has no usable {member!r} member')
+
+
 def compare(base: dict, cand: dict, only: str | None = None) -> dict:
     """Two observations, metric by metric, with the reason for every verdict it declines to give.
 
     There is no fixed percentage threshold anywhere in here. A hidden one would decide, on a constant nobody
     reviewed, which measured differences are allowed to count — so when two sample ranges overlap this says
     they overlap, and when one side has a single sample it reports the delta and refuses the noise call."""
+    _comparable(base, 'baseline')
+    _comparable(cand, 'candidate')
     same_host = (base['environment'].get('host_class_fingerprint')
                  == cand['environment'].get('host_class_fingerprint'))
     b_sum, c_sum = base['derived'].get('summaries', {}), cand['derived'].get('summaries', {})
@@ -1201,6 +1230,195 @@ def render_comparison(cmp: dict) -> str:
             lines.append(f'{"":<46} {m["reason"]}')
     lines += ['', '  '.join(f'{k}={v}' for k, v in cmp['counts'].items() if v)]
     return '\n'.join(lines)
+
+
+# ───────────────────────────────────────────────────────────────── the run
+def materialise_execution(command: dict) -> list[str]:
+    """The live invocation, with the isolated builder supplied as ENVIRONMENT rather than baked into the
+    registry.
+
+    Which builder a command uses is a property of this machine, not of what the command IS. Storing it in the
+    registry would make two observations from different machines look like different commands."""
+    argv = list(command['execution'])
+    if command['kind'] == 'make-target':
+        return argv + [f'BUILDER={OBSERVATORY_BUILDER}']
+    if command['kind'] == 'precommit-full':
+        return ['env', f'FIDO_BUILDER={OBSERVATORY_BUILDER}', *argv]
+    return argv
+
+
+def ensure_observatory_builder() -> None:
+    import subprocess
+    _assert_observatory_builder(OBSERVATORY_BUILDER)
+    probe = subprocess.run(['docker', 'buildx', 'inspect', OBSERVATORY_BUILDER],
+                           capture_output=True, text=True)
+    if probe.returncode != 0:
+        created = subprocess.run(['docker', 'buildx', 'create', '--name', OBSERVATORY_BUILDER,
+                                  '--driver', 'docker-container', '--bootstrap'],
+                                 capture_output=True, text=True)
+        if created.returncode != 0:
+            raise ObservatoryError(f'could not create {OBSERVATORY_BUILDER}: {created.stderr.strip()}')
+
+
+def scenario_order(suite: dict, wanted: list[str]) -> list[str]:
+    """Scenarios in prime order: a scenario that reuses a cache runs after the one that filled it.
+
+    Running `warm.cached.noop` before its prime would either fail the provenance check or, worse, measure a
+    cache someone else filled. The order is derived from the registry's own `prime_steps`, not assumed."""
+    scenarios = {s['id']: s for s in suite['scenarios']}
+    ordered, placed = [], set()
+
+    def place(sid: str, seen: frozenset):
+        if sid in placed or sid not in scenarios:
+            return
+        if sid in seen:
+            raise ObservatoryError(f'scenario prime steps form a cycle through {sid!r}')
+        for prime in scenarios[sid]['prime_steps']:
+            place(prime, seen | {sid})
+        placed.add(sid)
+        ordered.append(sid)
+
+    for sid in wanted:
+        place(sid, frozenset())
+    return [s for s in ordered if s in wanted]
+
+
+def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str = 'ad-hoc',
+                    progress=print) -> tuple[dict, list[str], bool]:
+    """Execute the selection and return the observation, the pairs that did not complete, and edit status.
+
+    Support commands run BEFORE selected ones so a derived child's parent has already produced its events.
+    Every pair that the registry says should run is either measured or named in `incomplete` — a pair that
+    quietly did not run would let a partial suite present itself as whole."""
+    import datetime
+    commands = {c['id']: c for c in suite['commands']}
+    scenarios = {s['id']: s for s in suite['scenarios']}
+    env = environment(root)
+    subj = subject(root)
+    ensure_observatory_builder()
+
+    samples: list[dict] = []
+    incomplete: list[str] = []
+    cache_model: dict[str, dict] = {}
+
+    for scenario_id in scenario_order(suite, sel.scenarios):
+        scenario = scenarios[scenario_id]
+        declared = scenario['cache_state']
+        is_prime = 'empty' in declared.values() and 'reused' not in declared.values()
+        try:
+            if is_prime:
+                reset_observatory_cache(progress)
+            provenance = check_cache_provenance(root, scenario, env)
+        except ObservatoryError as exc:
+            for cid in sel.order:
+                if scenario_id in commands[cid]['scenarios']:
+                    incomplete.append(f'{cid}/{scenario_id}')
+            progress(f'fido: observe — scenario {scenario_id} skipped: {exc}')
+            continue
+        cache_model[scenario_id] = provenance
+        before_count = len(incomplete)
+        ran_here = 0
+
+        for cid in sel.order:
+            command = commands[cid]
+            if scenario_id not in command['scenarios']:
+                continue
+            if command['measurement'] != 'direct':
+                continue                                  # derived children come from their parent's events
+            role = 'selected' if cid in sel.selected else 'support'
+            wanted = command['samples'][scenario_id]
+            for index in range(wanted):
+                progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
+                try:
+                    s = run_sample(root, {**command, 'execution': materialise_execution(command)},
+                                   scenario_id, index, role, raw_dir, provenance)
+                except ObservatoryError as exc:
+                    incomplete.append(f'{cid}/{scenario_id}')
+                    progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
+                    break
+                samples.append(s)
+                ran_here += 1
+                if s['status'] != 'ok':
+                    progress(f'fido: observe — {cid} [{scenario_id}] exited {s["exit_code"]}, '
+                             f'expected {s["expected_exit"]}')
+
+        # A prime scenario that completed IS the cache provenance every later cached scenario points at.
+        # Recording it only on success is the point: a half-finished prime leaves no record, so the next
+        # cached scenario refuses rather than reusing a cache nobody can describe.
+        if is_prime and ran_here == 0:
+            progress(f'fido: observe — {scenario_id} ran no command, so it is NOT recorded as a cache prime')
+        elif is_prime and len(incomplete) == before_count:
+            import datetime as _dt
+            write_cache_state(root, {'builder': OBSERVATORY_BUILDER, 'primed_by_run': run_id,
+                                     'primed_at_utc': _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                                     'primed_by_scenario': scenario_id,
+                                     'buildkit_identity': env.get('buildkit_identity'),
+                                     'subject_inventory_digest': subj['inventory_digest']})
+            progress(f'fido: observe — {scenario_id} completed and is now the cache prime on record')
+
+    # Analysis commands do not produce a timed sample; they produce the graph and history members. Running
+    # them through run_sample would file a wall time under a command whose result is a structure.
+    graph, history = None, None
+    if any(commands[c]['kind'] == 'rocq-module-analysis' for c in sel.order):
+        progress('fido: observe — analysis.rocq-modules: building the module-graph stage')
+        try:
+            graph = measure_module_graph(root, raw_dir / 'module-graph', progress)
+        except ObservatoryError as exc:
+            incomplete.append('analysis.rocq-modules')
+            progress(f'fido: observe — analysis.rocq-modules did not complete: {exc}')
+    if any(commands[c]['kind'] == 'history-analysis' for c in sel.order):
+        progress('fido: observe — analysis.history: reading the accepted range')
+        try:
+            history = history_analysis(root)
+        except ObservatoryError as exc:
+            incomplete.append('analysis.history')
+            progress(f'fido: observe — analysis.history did not complete: {exc}')
+
+    derived = {'summaries': summarise(samples) if samples else {},
+               'selected': sel.selected, 'support': sel.support,
+               'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    if graph:
+        derived['broad_import_findings'] = broad_import_findings(graph)
+    if history:
+        derived['weighted_rebuild_cost'] = weighted_rebuild_cost(history, graph)
+
+    observation = {
+        'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'subject': subj, 'environment': env,
+        'cache_model': cache_model, 'commands': command_fingerprints(suite), 'measurements': samples,
+        'module_graph': graph, 'history_analysis': history, 'derived': derived,
+    }
+    return observation, incomplete, True
+
+
+def measure_module_graph(root: Path, out_dir: Path, progress=print) -> dict:
+    """Build the pinned module-graph stage, export its artifacts, and derive the graph from them.
+
+    The heavy work happens in the container, where the toolchain is pinned; this side only reads what came
+    out. Raw per-sentence logs stay local in the bundle, and only per-module totals reach the observation."""
+    import subprocess
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ensure_observatory_builder()
+    proc = subprocess.run(
+        ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
+         '--progress=plain', '--target', 'module-graph-log', '--output', f'type=local,dest={out_dir}', '.'],
+        cwd=str(root), capture_output=True, text=True)
+    (out_dir / 'build.log').write_text(proc.stdout + proc.stderr, encoding='utf-8')
+    if proc.returncode != 0:
+        raise ObservatoryError(f'the module-graph stage failed (exit {proc.returncode}); its log is at '
+                               f'{out_dir / "build.log"}')
+    wall_file = out_dir / 'module-wall-ns.txt'
+    depend_file = out_dir / 'depend.mk'
+    if not wall_file.is_file() or not depend_file.is_file():
+        raise ObservatoryError(f'the module-graph stage produced no adjacency or timing under {out_dir}')
+    wall = {}
+    for line in read_text(wall_file, 'module wall times').split('\n'):
+        if line.strip():
+            name, _, ns = line.partition(' ')
+            wall[name] = int(ns)
+    if not wall:
+        raise ObservatoryError('the module-graph stage measured no modules')
+    progress(f'fido: observe — analysis.rocq-modules: {len(wall)} module(s) measured')
+    return parse_module_graph(read_text(depend_file, 'module adjacency'), wall)
 
 
 def render_list(suite: dict) -> str:
@@ -1909,6 +2127,29 @@ def self_test(root: Path) -> int:
         if view not in HISTORY_VIEWS:
             failures.append(f'the history views must be declared once: {view} is missing')
 
+    # ── scenario ordering and unusable comparison inputs
+    counts['total'] += 1
+    order = scenario_order(suite, ['warm.cached.noop', 'cold.uncached', 'cold.cached'])
+    if order.index('cold.uncached') > order.index('cold.cached') or \
+            order.index('cold.cached') > order.index('warm.cached.noop'):
+        failures.append(f'scenarios must run in prime order, got {order}')
+
+    counts['total'] += 1
+    if scenario_order(suite, ['cold.uncached']) != ['cold.uncached']:
+        failures.append('a scenario with no prime step must order to itself alone')
+
+    observed('a cycle in scenario prime steps',
+             lambda: scenario_order({'scenarios': [
+                 {'id': 'a', 'prime_steps': ['b']}, {'id': 'b', 'prime_steps': ['a']}]}, ['a']),
+             expect='prime steps form a cycle')
+
+    observed('comparing against a pending observation',
+             lambda: compare({'state': 'pending'}, observation()),
+             expect='still pending')
+    observed('comparing against an observation with no environment',
+             lambda: compare({k: v for k, v in observation().items() if k != 'environment'}, observation()),
+             expect="no usable 'environment'")
+
     counts['total'] += 1
     usage = render_usage(suite)
     missing_in_usage = [s['id'] for s in suite['scenarios'] if s['id'] not in usage]
@@ -1966,15 +2207,64 @@ def main(argv: list[str] | None = None) -> int:
         if args.list:
             print(render_list(load_suite(root)))
             return 0
+        if args.compare:
+            base_where = args.base or OBSERVATION_REL
+            base_obs, base_from = load_observation(root, base_where)
+            cand_obs, cand_from = load_observation(root, args.compare)
+            print(f'fido: build-observatory — comparing {cand_from} against {base_from}')
+            print(render_comparison(compare(base_obs, cand_obs, only=args.only)))
+            return 0
+
         if args.observe:
+            import datetime
             suite = load_suite(root)
             check_coverage(root, suite)
             sel = select(suite, only=args.only, scenario=args.scenario, record=args.record)
+            clean_before = not _git(root, 'status', '--porcelain').strip()
             if sel.support:
                 print(f'fido: build-observatory — {len(sel.support)} dependenc(ies) added to the selection '
                       f'and measured as support: {", ".join(sel.support)}')
             print(f'fido: build-observatory — {len(sel.selected)} selected command(s) over '
                   f'{len(sel.scenarios)} scenario(s){" (PARTIAL run)" if sel.partial else ""}')
+
+            started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            subj = subject(root)
+            run_id = run_id_for(subj, started, subj['inventory_digest'])
+            bundle = new_bundle(root, run_id)
+            print(f'fido: build-observatory — run {run_id}, bundle {bundle}')
+
+            obs, incomplete, edits_restored = run_observation(root, suite, sel, bundle / 'raw', run_id)
+            if incomplete:
+                obs['derived']['status'] = 'incomplete'
+                obs['derived']['incomplete'] = incomplete
+            write_json(bundle / 'observation.json', obs)
+
+            base_where = args.base or OBSERVATION_REL
+            try:
+                base_obs, base_from = load_observation(root, base_where)
+                result = compare(base_obs, obs, only=args.only)
+                write_json(bundle / 'comparison.json', result)
+                (bundle / 'comparison.txt').write_text(render_comparison(result) + '\n', encoding='utf-8')
+                print(render_comparison(result))
+            except ObservatoryError as exc:
+                print(f'fido: build-observatory — no comparison: {exc}')
+
+            if incomplete:
+                print(f'fido: BUILD-OBSERVATORY INCOMPLETE — {len(incomplete)} pair(s) did not complete: '
+                      f'{", ".join(incomplete[:6])}; the bundle is kept and cannot be recorded',
+                      file=sys.stderr)
+                return 1
+
+            if args.record:
+                rules = check_record_eligible(root, sel, suite, suite_digest_of(suite), obs, bundle,
+                                              clean_before, edits_restored, incomplete)
+                write_json(root / OBSERVATION_REL, obs)
+                print(f'fido: build-observatory recorded — {OBSERVATION_REL} replaced after all '
+                      f'{len(rules)} recording rules passed; nothing was staged or committed ✓')
+            else:
+                print(f'fido: build-observatory OK — {len(obs["measurements"])} sample(s) in {bundle}; '
+                      f'RECORD=1 would replace {OBSERVATION_REL} ✓')
+            return 0
     except ObservatoryError as exc:
         print(f'fido: BUILD-OBSERVATORY FAILED — {exc}', file=sys.stderr)
         return 1

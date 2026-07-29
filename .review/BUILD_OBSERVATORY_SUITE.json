@@ -1132,9 +1132,8 @@
     {
       "dependencies": [],
       "execution": [
-        "git",
-        "hook",
-        "pre-commit"
+        "sh",
+        ".githooks/pre-commit"
       ],
       "expected_exit": 0,
       "groups": [

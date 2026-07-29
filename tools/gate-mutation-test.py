@@ -65,6 +65,16 @@ MUTANTS = (
      ('a derived child is measured through the live parent',
       'a docker stage names its live parent build')),
 
+    (OBS, 'scenario prime ordering',
+     "        for prime in scenarios[sid]['prime_steps']:",
+     "        for prime in []:",
+     ('scenarios must run in prime order',)),
+
+    (OBS, 'the usable-input guard on comparison',
+     "    if obs.get('state') == 'pending':",
+     "    if False:",
+     ('comparing against a pending observation',)),
+
     (OBS, 'cache provenance',
      "    needs_prime = any(v == 'reused' for v in declared.values())",
      "    needs_prime = False",
