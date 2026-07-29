@@ -224,6 +224,14 @@ def load_suite(root: Path) -> dict:
                 f'{SUITE_REL}: scenario {s["id"]} is incremental but declares no edits; it would measure a '
                 f'no-op and record it as an incremental rebuild')
 
+    for s in suite['scenarios']:
+        if 'canonical' not in s:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]} does not say whether it is canonical')
+        if not any(s['id'] in c['scenarios'] for c in suite['commands']):
+            raise ObservatoryError(
+                f'{SUITE_REL}: scenario {s["id"]} is declared but no command runs in it; a scenario nothing '
+                f'can exercise reads as coverage it does not provide')
+
     for c in suite['commands']:
         unknown = [s for s in c['scenarios'] if s not in seen_scn]
         if unknown:
@@ -496,7 +504,9 @@ def select(suite: dict, only: str | None = None, scenario: str | None = None,
 
     chosen = _expand(only, commands, groups, 'ONLY name') if only else set(commands)
     want_scenarios = (_expand(scenario, scenarios, {}, 'SCENARIO name') if scenario
-                      else set(scenarios))
+                      else {sid for sid, s in scenarios.items() if s.get('canonical')})
+    if not want_scenarios:
+        raise ObservatoryError('no canonical scenario is declared, so the default run would measure nothing')
 
     closure, frontier = set(chosen), list(chosen)
     while frontier:
@@ -1334,8 +1344,14 @@ def scenario_order(suite: dict, wanted: list[str]) -> list[str]:
     return [s for s in ordered if s in wanted]
 
 
+def _flushed(message: str) -> None:
+    """Progress must reach the operator as it happens: stdout is block-buffered when it is not a terminal,
+    so an unflushed multi-hour suite is indistinguishable from a hung one."""
+    print(message, flush=True)
+
+
 def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str = 'ad-hoc',
-                    progress=print) -> tuple[dict, list[str], bool]:
+                    progress=_flushed) -> tuple[dict, list[str], bool]:
     """Execute the selection and return the observation, the pairs that did not complete, and edit status.
 
     Support commands run BEFORE selected ones so a derived child's parent has already produced its events.
@@ -1700,6 +1716,16 @@ def self_test(root: Path) -> int:
              lambda w: edit(w, 'precommit.naming', 'id', 'precommit.no-such-stage'),
              expect='carries no such anchor pair')
 
+    scenario('a scenario no command can run in',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': suite_of(w)['scenarios'] + [
+                 {'id': 'orphan.scenario', 'canonical': False, 'purpose': 'p', 'session_state': 'fresh',
+                  'cache_state': {}, 'prime_steps': [], 'sample_policy': 'one', 'applicable_groups': []}]}),
+             expect='no command runs in it')
+    scenario('a scenario that does not say whether it is canonical',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {k: v for k, v in s.items() if k != 'canonical'} for s in suite_of(w)['scenarios']]}),
+             expect='does not say whether it is canonical')
+
     scenario('an incremental scenario with no edits',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
                  {**s, 'edits': []} if 'incremental' in s['id'] else s
@@ -1810,6 +1836,19 @@ def self_test(root: Path) -> int:
         counts['total'] += 1
         if not ok:
             failures.append(f'{label}: {why}')
+
+    counts['total'] += 1
+    default = select(suite)
+    non_canonical = [s['id'] for s in suite['scenarios'] if not s.get('canonical')]
+    if any(s in default.scenarios for s in non_canonical):
+        failures.append(f'the default run must be the canonical closure, but took {default.scenarios}')
+    if not default.scenarios:
+        failures.append('the default run selected no scenario at all')
+
+    counts['total'] += 1
+    named = select(suite, scenario='bootstrap.cold.uncached')
+    if named.scenarios != ['bootstrap.cold.uncached']:
+        failures.append(f'a non-canonical scenario must still be selectable by name: {named.scenarios}')
 
     full = selection('the whole registry selects with no ONLY or SCENARIO')
     if full:

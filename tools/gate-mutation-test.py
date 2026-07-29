@@ -65,6 +65,16 @@ MUTANTS = (
      ('a derived child is measured through the live parent',
       'a docker stage names its live parent build')),
 
+    (OBS, 'the canonical scenario default',
+     "                      else {sid for sid, s in scenarios.items() if s.get('canonical')})",
+     "                      else set(scenarios))",
+     ('the default run must be the canonical closure',)),
+
+    (OBS, 'the unreachable-scenario refusal',
+     "        if not any(s['id'] in c['scenarios'] for c in suite['commands']):",
+     "        if False:",
+     ('a scenario no command can run in',)),
+
     (OBS, 'the incremental-edit requirement',
      "        if 'incremental' in s['id'] and not s.get('edits'):",
      "        if False:",
