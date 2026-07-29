@@ -1423,12 +1423,16 @@ def check_cache_provenance(root: Path, scenario: dict, env: dict) -> dict:
 
 
 # ───────────────────────────────────────────────── deterministic source edits
-def apply_edit(copy_root: Path, edit: dict, index: int = 0) -> None:
+def apply_edit(copy_root: Path, edit: dict, index: int = 0, probe: str = '') -> None:
     """Apply one named edit to a DISPOSABLE copy, and prove exactly one file changed.
 
     The real working tree is never touched. Verifying that the intended file changed AND that nothing else
     did is the half that matters: an edit scenario whose blast radius is wrong measures a rebuild nobody
-    asked about and attributes it to the wrong shape."""
+    asked about and attributes it to the wrong shape.
+
+    `probe` carries the OWNING COMMAND into the bytes. Distinct bytes per sample INDEX stopped a command
+    from being its own cache hit; it did nothing about four commands whose sample 0 wrote the same probe to
+    the same file, produced the same tree, and let whichever ran first pay for all of them."""
     target = copy_root / edit['path']
     if not target.is_file():
         raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} is not a file in the disposable copy')
@@ -1436,8 +1440,9 @@ def apply_edit(copy_root: Path, edit: dict, index: int = 0) -> None:
     if edit['kind'] == 'append-comment-line':
         if not original.endswith(b'\n'):
             raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} does not end in a newline')
-        # `{n}` makes each sample's bytes distinct, so sample two cannot be sample one's exact cache hit
-        target.write_bytes(original + edit['text'].format(n=index).encode('utf-8'))
+        # Unique across the whole suite: `{n}` separates samples, the probe separates commands.
+        stamp = f'{probe}-{index}' if probe else str(index)
+        target.write_bytes(original + edit['text'].format(n=stamp).encode('utf-8'))
     else:
         raise ObservatoryError(f'edit {edit["id"]}: unknown edit kind {edit["kind"]!r}')
     return None
@@ -1582,6 +1587,21 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{orphans} are recorded as selected but produced no sample and are not listed among the '
             f'commands this selection could not measure')
+
+    # The same rule ACROSS commands. Distinct bytes per sample stopped a command being its own cache hit;
+    # four commands whose sample 0 wrote identical bytes to Float.v still produced one tree, so whichever
+    # ran first paid the rebuild and the rest recorded ~1.7s under an incremental label — against 117.5s
+    # for the same scenario measured on its own.
+    owners: dict[str, set] = {}
+    for s in samples:
+        if s.get('edit_id') and s.get('source_digest') and not s.get('derived_parent_id'):
+            owners.setdefault(s['source_digest'], set()).add(s['command_id'])
+    shared = {d: sorted(c) for d, c in owners.items() if len(c) > 1}
+    if shared:
+        first = next(iter(shared.items()))
+        raise ObservatoryError(
+            f'{len(shared)} incremental source(s) are shared between commands, so one command\'s rebuild '
+            f'satisfies another\'s incremental sample; {first[0][:12]} is used by {first[1]}')
 
     recomputed = summarise(samples)
     stored = obs['derived'].get('summaries', {})
@@ -2364,7 +2384,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         paths = [edit['path']]
                         before = tree_digest(target, paths)
                         original = (target / edit['path']).read_bytes()
-                        apply_edit(target, edit, index)
+                        apply_edit(target, edit, index, probe=f'{cid}.{scenario_id}')
                         if tree_digest(target, paths) == before:
                             raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
                     # A command declared environment-only reads no repository source, so a repository
@@ -3062,6 +3082,22 @@ def self_test(root: Path) -> int:
 
     EDIT = {'id': 'edit.leaf', 'path': 'leaf.v', 'kind': 'append-comment-line',
             'text': '(* observatory: inert timing probe *)\n'}
+    STAMPED = {**EDIT, 'text': '(* observatory: inert edit probe {n} *)\n'}
+
+    # Same edit shape, same sample index, two different commands: the bytes must differ, or the two trees
+    # are identical and whichever command builds first pays for both.
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        w = Path(d)
+        written = []
+        for probe in ('make.prove.project.incremental.leaf.emit',
+                      'make.check.project.incremental.leaf.emit'):
+            (w / 'leaf.v').write_bytes(b'Definition x := 1.\n')
+            apply_edit(w, STAMPED, 0, probe=probe)
+            written.append((w / 'leaf.v').read_bytes())
+        if written[0] == written[1]:
+            failures.append('two commands wrote identical incremental bytes for the same sample index, so '
+                            'one command\'s rebuild would satisfy the other\'s incremental sample')
 
     def edit_cycle(work: Path, restore: bool):
         (work / 'leaf.v').write_bytes(b'Definition x := 1.\n')
@@ -3915,6 +3951,15 @@ def self_test(root: Path) -> int:
                  observation(samples=[sample(sample_index=0, source_digest='1a' * 32),
                                       sample(sample_index=1, source_digest='2b' * 32)]), digest),
              expect='the tree moved during the run')
+    observed('two commands whose incremental samples share one source',
+             lambda: validate_observation(
+                 observation(samples=[
+                     sample(command_id='make.prove', sample_index=0, edit_id='edit.leaf.emit',
+                            scenario_id='project.incremental.leaf.emit', source_digest='aa' * 32),
+                     sample(command_id='make.check', sample_index=0, edit_id='edit.leaf.emit',
+                            scenario_id='project.incremental.leaf.emit', source_digest='aa' * 32)]), digest),
+             expect='satisfies another')
+
     observed('an incremental scenario whose samples repeat one source',
              lambda: validate_observation(
                  observation(samples=[sample(sample_index=0, edit_id='edit.leaf.emit',

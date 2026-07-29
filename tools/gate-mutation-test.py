@@ -180,6 +180,16 @@ MUTANTS = (
      "        if False:",
      ('a summary pooling samples taken against different sources',)),
 
+    (OBS, 'incremental sources unique across commands, not just within one',
+     "    shared = {d: sorted(c) for d, c in owners.items() if len(c) > 1}",
+     "    shared = {}",
+     ('two commands whose incremental samples share one source',)),
+
+    (OBS, 'the probe that separates one command\'s edit bytes from another\'s',
+     "        stamp = f'{probe}-{index}' if probe else str(index)",
+     "        stamp = str(index)",
+     ('two commands wrote identical incremental bytes for the same sample index',)),
+
     (OBS, 'distinct sources across incremental samples',
      "        elif len(set(digests)) != len(digests):",
      "        elif False:",
