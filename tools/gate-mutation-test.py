@@ -71,6 +71,21 @@ MUTANTS = (
      ('an unknown cache accepted as primed', 'a cached run with no priming run recorded',
       'a cache primed on another builder', 'a cache primed under a different BuildKit')),
 
+    (OBS, 'comparison compatibility',
+     "        if not same_host:",
+     "        if False:",
+     ('an incomparable host class must not be reported as an ordinary percentage delta',)),
+
+    (OBS, 'the overlapping-range refusal',
+     "        elif not single and overlap:",
+     "        elif False:",
+     ('overlapping sample ranges refuse a verdict',)),
+
+    (OBS, 'the resource-scope compatibility check',
+     "        if b_scope != c_scope:",
+     "        if False:",
+     ('a changed resource scope must be incomparable, not a delta',)),
+
     (OBS, 'record eligibility',
      "    if sel.partial:",
      "    if False:",

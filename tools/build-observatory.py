@@ -858,6 +858,156 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     return satisfied
 
 
+# ────────────────────────────────────────────────────────────────── comparison
+CLASSIFICATIONS = ('improved', 'regressed', 'overlapping-range', 'unchanged', 'added', 'removed',
+                   'incomparable')
+
+
+def command_fingerprints(suite: dict) -> dict:
+    """A digest per command definition, retained in every observation.
+
+    The suite digest alone can only say two runs used different suites. Keeping a fingerprint per command
+    lets a comparison say WHICH definitions were added, removed or changed — so a registry edit narrows an
+    old observation rather than voiding it."""
+    return {c['id']: _sha256(canonical_bytes(c)) for c in suite['commands']}
+
+
+def load_observation(root: Path, where: str) -> tuple[dict, str]:
+    """An observation from a local path or a Git ref. Unreadable input is an error, never an empty result."""
+    p = Path(where)
+    if p.is_file():
+        try:
+            return json.loads(p.read_text(encoding='utf-8')), str(p)
+        except json.JSONDecodeError as exc:
+            raise ObservatoryError(f'{where}: not a valid observation ({exc})')
+    if p.is_dir():
+        return load_observation(root, str(p / 'observation.json'))
+    raw = _git(root, 'show', f'{where}:{OBSERVATION_REL}', check=False)
+    if not raw.strip():
+        raise ObservatoryError(
+            f'{where}: no readable observation — not a file, not a run bundle, and no {OBSERVATION_REL} at '
+            f'that Git ref')
+    try:
+        return json.loads(raw), f'{where}:{OBSERVATION_REL}'
+    except json.JSONDecodeError as exc:
+        raise ObservatoryError(f'{where}:{OBSERVATION_REL}: not a valid observation ({exc})')
+
+
+def _scope_of(obs: dict, key: str) -> str | None:
+    for s in obs['measurements']:
+        if f'{s["command_id"]}|{s["scenario_id"]}' == key:
+            return s['resource_scope']
+    return None
+
+
+def compare(base: dict, cand: dict, only: str | None = None) -> dict:
+    """Two observations, metric by metric, with the reason for every verdict it declines to give.
+
+    There is no fixed percentage threshold anywhere in here. A hidden one would decide, on a constant nobody
+    reviewed, which measured differences are allowed to count — so when two sample ranges overlap this says
+    they overlap, and when one side has a single sample it reports the delta and refuses the noise call."""
+    same_host = (base['environment'].get('host_class_fingerprint')
+                 == cand['environment'].get('host_class_fingerprint'))
+    b_sum, c_sum = base['derived'].get('summaries', {}), cand['derived'].get('summaries', {})
+    b_cmds = base.get('commands', {}) or {}
+    c_cmds = cand.get('commands', {}) or {}
+    if isinstance(b_cmds, list):
+        b_cmds = {cid: None for cid in b_cmds}
+    if isinstance(c_cmds, list):
+        c_cmds = {cid: None for cid in c_cmds}
+
+    definitions = {
+        'added': sorted(set(c_cmds) - set(b_cmds)),
+        'removed': sorted(set(b_cmds) - set(c_cmds)),
+        'changed': sorted(k for k in set(b_cmds) & set(c_cmds)
+                          if b_cmds[k] is not None and c_cmds[k] is not None and b_cmds[k] != c_cmds[k]),
+    }
+
+    wanted = None
+    if only:
+        wanted = {t.strip() for t in only.split(',') if t.strip()}
+
+    metrics = []
+    for key in sorted(set(b_sum) | set(c_sum)):
+        command_id = key.split('|')[0]
+        if wanted is not None and command_id not in wanted:
+            continue
+        b, c = b_sum.get(key), c_sum.get(key)
+        row = {'key': key, 'command_id': command_id, 'scenario_id': key.split('|')[1],
+               'baseline': b, 'candidate': c}
+        if b is None:
+            metrics.append({**row, 'classification': 'added', 'reason': 'absent from the baseline'})
+            continue
+        if c is None:
+            metrics.append({**row, 'classification': 'removed', 'reason': 'absent from the candidate'})
+            continue
+        if not same_host:
+            metrics.append({**row, 'classification': 'incomparable',
+                            'reason': 'the two runs have different host-class fingerprints'})
+            continue
+        b_scope, c_scope = _scope_of(base, key), _scope_of(cand, key)
+        if b_scope != c_scope:
+            metrics.append({**row, 'classification': 'incomparable',
+                            'reason': f'resource scope changed: {b_scope} -> {c_scope}'})
+            continue
+        if command_id in definitions['changed']:
+            metrics.append({**row, 'classification': 'incomparable',
+                            'reason': 'the command definition changed between the two suites'})
+            continue
+
+        delta = c['median_wall_ns'] - b['median_wall_ns']
+        pct = (delta / b['median_wall_ns'] * 100) if b['median_wall_ns'] else None
+        single = b['samples'] < 2 or c['samples'] < 2
+        overlap = max(b['min_wall_ns'], c['min_wall_ns']) <= min(b['max_wall_ns'], c['max_wall_ns'])
+        if delta == 0:
+            classification, reason = 'unchanged', 'the medians are equal'
+        elif not single and overlap:
+            classification, reason = 'overlapping-range', 'the two sample ranges overlap'
+        elif delta < 0:
+            classification, reason = 'improved', 'the candidate median is lower'
+        else:
+            classification, reason = 'regressed', 'the candidate median is higher'
+        metrics.append({**row, 'delta_ns': delta, 'delta_percent': pct,
+                        'classification': classification, 'reason': reason,
+                        'noise_basis': 'single-sample' if single else 'sample-ranges'})
+
+    counts = {c: sum(1 for m in metrics if m['classification'] == c) for c in CLASSIFICATIONS}
+    return {'schema': SCHEMA, 'same_host_class': same_host,
+            'baseline_subject': base['subject'], 'candidate_subject': cand['subject'],
+            'suite_definitions': definitions, 'metrics': metrics, 'counts': counts}
+
+
+def render_comparison(cmp: dict) -> str:
+    def ms(ns):
+        return f'{ns / 1e6:,.1f}ms' if ns is not None else '—'
+
+    lines = [f'baseline  {cmp["baseline_subject"]["commit"][:12]}  '
+             f'{"dirty" if cmp["baseline_subject"]["dirty"] else "clean"}',
+             f'candidate {cmp["candidate_subject"]["commit"][:12]}  '
+             f'{"dirty" if cmp["candidate_subject"]["dirty"] else "clean"}',
+             f'host class {"same" if cmp["same_host_class"] else "DIFFERENT — every metric is incomparable"}',
+             '']
+    d = cmp['suite_definitions']
+    if d['added'] or d['removed'] or d['changed']:
+        lines += [f'suite definitions: {len(d["added"])} added, {len(d["removed"])} removed, '
+                  f'{len(d["changed"])} changed', '']
+    lines += [f'{"METRIC":<46} {"BASELINE":>12} {"CANDIDATE":>12} {"DELTA":>12} {"":>8}  CLASSIFICATION', '─' * 118]
+    for m in cmp['metrics']:
+        b, c = m['baseline'], m['candidate']
+        pct = f'{m["delta_percent"]:+.1f}%' if m.get('delta_percent') is not None else ''
+        lines.append(f'{m["key"]:<46} {ms(b["median_wall_ns"]) if b else "—":>12} '
+                     f'{ms(c["median_wall_ns"]) if c else "—":>12} '
+                     f'{ms(m.get("delta_ns")):>12} {pct:>8}  {m["classification"]}')
+        if b and c:
+            lines.append(f'{"":<46} [{ms(b["min_wall_ns"])}–{ms(b["max_wall_ns"])}] '
+                         f'[{ms(c["min_wall_ns"])}–{ms(c["max_wall_ns"])}]  '
+                         f'n={b["samples"]}/{c["samples"]}  {m["reason"]}')
+        else:
+            lines.append(f'{"":<46} {m["reason"]}')
+    lines += ['', '  '.join(f'{k}={v}' for k, v in cmp['counts'].items() if v)]
+    return '\n'.join(lines)
+
+
 def render_list(suite: dict) -> str:
     """Every stable ID with what it is and how it is measured. Counts are reported, never copied into prose."""
     rows = ['ID                                KIND                  MEASURED   SIDE EFFECT              SOURCE VIEW',
@@ -1290,7 +1440,7 @@ def self_test(root: Path) -> int:
                 'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
                             'dirty': False, 'source_view': 'committed-tree'},
                 'environment': {**{k: 'x' for k in REQUIRED_ENVIRONMENT}, 'host_class_fingerprint': 'd' * 64},
-                'cache_model': {}, 'commands': ['make.fmt'], 'measurements': samples,
+                'cache_model': {}, 'commands': {'make.fmt': 'f0' * 32}, 'measurements': samples,
                 'module_graph': None, 'history_analysis': None,
                 'derived': {'summaries': summarise(samples)}}
         return {**base, **over}
@@ -1420,6 +1570,92 @@ def self_test(root: Path) -> int:
              lambda: in_clean_repo(mutate=lambda r: (r / 'other.txt').write_text('two\n', encoding='utf-8'),
                                    stage=True),
              expect='recording rule R1')
+
+    # ── comparison: the classification for a pair, and the reasons it declines to give one
+    def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|warm.cached.noop'):
+        counts['total'] += 1
+        result = compare(base_obs, cand_obs)
+        row = next((m for m in result['metrics'] if m['key'] == key), None)
+        if row is None:
+            failures.append(f'{label}: no metric row for {key}')
+        elif row['classification'] != expect:
+            failures.append(f'{label}: classified {row["classification"]!r}, expected {expect!r} '
+                            f'({row.get("reason")})')
+
+    def timed(*walls) -> dict:
+        s = [sample(sample_index=i, wall_ns=n) for i, n in enumerate(walls)]
+        return observation(samples=s, derived={'summaries': summarise(s)})
+
+    verdict('an equal median is unchanged', timed(1_000_000, 1_000_000), timed(1_000_000, 1_000_000),
+            'unchanged')
+    verdict('a clearly faster candidate is improved', timed(900, 1_000, 1_100), timed(100, 110, 120),
+            'improved')
+    verdict('a clearly slower candidate is regressed', timed(100, 110, 120), timed(900, 1_000, 1_100),
+            'regressed')
+    verdict('overlapping sample ranges refuse a verdict', timed(100, 200, 300), timed(150, 250, 350),
+            'overlapping-range')
+    verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
+
+    counts['total'] += 1
+    single = compare(timed(100), timed(900))['metrics'][0]
+    if single.get('noise_basis') != 'single-sample':
+        failures.append(f'a one-sample side must say so: noise_basis was {single.get("noise_basis")!r}')
+
+    counts['total'] += 1
+    other_host = observation()
+    other_host['environment'] = {**other_host['environment'], 'host_class_fingerprint': 'e' * 64}
+    row = compare(observation(), other_host)['metrics'][0]
+    if row['classification'] != 'incomparable' or 'delta_percent' in row:
+        failures.append('an incomparable host class must not be reported as an ordinary percentage delta')
+
+    counts['total'] += 1
+    scoped = timed(100, 110, 120)
+    scoped['measurements'] = [dict(s, resource_scope=SCOPE_BUILDKIT) for s in scoped['measurements']]
+    if compare(timed(100, 110, 120), scoped)['metrics'][0]['classification'] != 'incomparable':
+        failures.append('a changed resource scope must be incomparable, not a delta')
+
+    counts['total'] += 1
+    changed_def = observation(commands={'make.fmt': 'aa' * 32})
+    if compare(observation(), changed_def)['metrics'][0]['classification'] != 'incomparable':
+        failures.append('a changed command definition must be incomparable')
+
+    counts['total'] += 1
+    empty = observation(samples=[sample()], derived={'summaries': {}})
+    added = compare(empty, observation())
+    removed = compare(observation(), empty)
+    if added['counts']['added'] != 1 or removed['counts']['removed'] != 1:
+        failures.append(f'added/removed metrics were not reported: {added["counts"]}, {removed["counts"]}')
+
+    counts['total'] += 1
+    defs = compare(observation(commands={'make.fmt': 'f0' * 32, 'make.gone': 'a1' * 32}),
+                   observation(commands={'make.fmt': 'f0' * 32, 'make.new': 'b2' * 32}))['suite_definitions']
+    if defs['added'] != ['make.new'] or defs['removed'] != ['make.gone']:
+        failures.append(f'a suite change must narrow an old observation, not void it: {defs}')
+
+    counts['total'] += 1
+    filtered = compare(observation(), observation(), only='make.nothing')
+    if filtered['metrics']:
+        failures.append('ONLY must be able to filter comparison output')
+
+    observed('an observation path that does not exist',
+             lambda: load_observation(root, '/nonexistent/observation.json'),
+             expect='no readable observation')
+    observed('a Git ref with no tracked observation',
+             lambda: load_observation(root, '0000000000000000000000000000000000000000'),
+             expect='no readable observation')
+
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'observation.json'
+        write_json(p, observation())
+        loaded, where = load_observation(root, str(p))
+        if loaded['schema'] != SCHEMA or where != str(p):
+            failures.append('a local path comparison input did not load')
+
+    counts['total'] += 1
+    text = render_comparison(compare(timed(100, 110, 120), timed(900, 1_000, 1_100)))
+    if 'regressed' not in text or 'n=3/3' not in text:
+        failures.append('the plain comparison must show the classification and the sample counts')
 
     counts['total'] += 1
     usage = render_usage(suite)
