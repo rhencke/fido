@@ -12,11 +12,13 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
 - **M2 BUILD OBSERVATORY IS THE SOLE ACTIVE WORK.**
   Authority: `.review/M2_BUILD_OBSERVATORY.md`.
-  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all open.
+  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all closed.
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
-- **No M2 candidate exists yet.** The exact candidate is named here once its documentation-only freeze lands.
+- **The M2 candidate is `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43`**, frozen and awaiting Rob's review.
+  One canonical observation measured it: `.review/BUILD_OBSERVATION.json`. Findings are
+  assigned in `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain; M2 implements none of them.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M2 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.

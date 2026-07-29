@@ -1,25 +1,43 @@
 # Review Request
 
-state: closed
+state: requested
 review: Implementation Review
 confirmation: no
 confirmation_used: no
 human_override: (M2 Build Observatory, authorized by Rob's acceptance token `M1-ACCEPT-6524b43`)
-result: M1 accepted; M2 implementation in progress
-candidate: (none — the M2 candidate is named by its documentation-only freeze)
+result: awaiting Rob's human M2 review
+candidate: 8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43
 
 contract: .review/M2_BUILD_OBSERVATORY.md
 review_basis: .review/REVIEW_BASIS.md
 
-`.review/NEXT_STEPS.md` owns mutable checkpoint and candidate state. This file may pin the exact candidate
-under human review, but it does not own mutable state. Canonical data rows carry no candidate identity.
+`.review/NEXT_STEPS.md` owns mutable checkpoint and candidate state. This file pins the exact candidate under
+human review; it does not own mutable state. Canonical data rows carry no candidate identity.
 
-M1 Source Diet is **ACCEPTED** at `6524b437bd7a7d6b2616563b8789e28a00c7af13` under Rob's disposition
-`M1-ACCEPT-6524b43`. C4 is accepted under `C4-ACCEPT-39ea7e3` and M0 under `M0-ACCEPT-86a63db`. Git history
-owns M1's contract, its obligation matrix and its evidence.
+**A human M2 review is requested for candidate `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43`.** M1 is ACCEPTED under `M1-ACCEPT-6524b43`, C4 under
+`C4-ACCEPT-39ea7e3` and M0 under `M0-ACCEPT-86a63db`. Every required obligation in
+`.review/M2_OBLIGATION_MATRIX.tsv` is closed.
 
-M2 Build Observatory is the sole active implementation work. Its contract is `.review/M2_BUILD_OBSERVATORY.md`
-and its nineteen obligations are open in `.review/M2_OBLIGATION_MATRIX.tsv`. No review is requested: a review
-cannot be requested while any required obligation is open, which the claim gate enforces rather than asserts.
+The Build Observatory is one registry, one runner and one tracked observation. The canonical suite recorded
+399 sample(s) over 107 command-scenario pair(s) against this exact committed candidate.
 
-M3, M4, C5 Step 0 and C5 remain forbidden. Automatic Codex review is disabled. Only Rob accepts M2.
+**Permanent, run by every build and every commit:**
+
+```text
+make observatory   # the command-surface coverage validator and its controls
+```
+
+**M2 evidence, run explicitly for this review:**
+
+```text
+make observe HELP=1
+make observe LIST=1
+make observe COMPARE=.review/BUILD_OBSERVATION.json BASE=<a git ref carrying one>
+python3 tools/build-observatory.py --self-test
+python3 tools/gate-mutation-test.py
+```
+
+M2 measures and reports. It implements no optimization: every finding in
+`.review/M2_RECOMMENDATIONS.tsv` carries an owner of M3, M4 or retain.
+
+M3, M4, C5 Step 0 and C5 remain forbidden until Rob accepts M2. Only Rob accepts M2.
