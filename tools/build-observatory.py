@@ -576,9 +576,11 @@ class Selection:
     behalf is real work and is measured, but it is not what the user asked about, and reporting the two as one
     set would let a selective run quietly present itself as broader than it was."""
 
-    def __init__(self, selected: list[str], support: list[str], scenarios: list[str], partial: bool):
+    def __init__(self, selected: list[str], support: list[str], scenarios: list[str], partial: bool,
+                 scenario_support: list[str] | None = None):
         self.selected, self.support = selected, support
         self.scenarios, self.partial = scenarios, partial
+        self.scenario_support = scenario_support or []
 
     @property
     def order(self) -> list[str]:
@@ -652,8 +654,20 @@ def select(suite: dict, only: str | None = None, scenario: str | None = None,
             f'no selected command runs in scenario(s) {sorted(want_scenarios)}; '
             f'the registry owns the scenario matrix, and an empty run is not a result')
 
+    # §5.5 — required setup is added automatically, and a cached or warm scenario REQUIRES the cold prime
+    # of the same chain. Without it the run would name a prime it never took, and the provenance check would
+    # correctly refuse every sample. Adding it is the same courtesy already extended to dependencies.
+    needs_prime = any(family_rank(s) > 0 and s != 'environment.bootstrap' for s in want_scenarios)
+    if needs_prime:
+        colds = {c for cid in closure for c in commands[cid]['scenarios']
+                 if c.startswith('project.cold.')}
+        added = colds - want_scenarios
+        if added:
+            want_scenarios = want_scenarios | added
+
     partial = bool(only or scenario)
-    return Selection(selected, support, sorted(want_scenarios), partial)
+    return Selection(selected, support, sorted(want_scenarios), partial,
+                     scenario_support=sorted(added) if needs_prime else [])
 
 
 # ──────────────────────────────────────────────────────────────── measurement
@@ -715,6 +729,18 @@ def release_isolation(command: dict, where: Path) -> None:
         name = f'fido-throwaway-{where.name}'
         subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True)
     shutil.rmtree(where, ignore_errors=True)
+
+
+def sample_role(sel, cid: str, scenario_id: str) -> str:
+    """Report whether a sample answers the operator's request or only supports it.
+
+    A scenario the tool added on its own — the cold prime a warm selection needs — is support even when
+    its command was named explicitly. Calling it `selected` would report a 130-second cold build as
+    something the operator asked for.
+    """
+    if scenario_id in sel.scenario_support:
+        return 'support'
+    return 'selected' if cid in sel.selected else 'support'
 
 
 def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
@@ -1005,6 +1031,11 @@ def checkpointer(bundle: Path, header: dict):
                    'derived': {'summaries': summarise(samples), 'status': 'incomplete',
                                'incomplete': list(incomplete)}}
         write_json(bundle / 'observation.json', partial)
+
+    # Write it once at creation. A bundle that only becomes inspectable after the FIRST sample completes
+    # leaves the longest samples — the expensive ones, the ones most likely to be interrupted — with a
+    # directory that says nothing about what was being attempted.
+    write([], [])
     return write
 
 
@@ -2102,7 +2133,6 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         command = commands[cid]
         if command['measurement'] != 'direct':
             continue
-        role = 'selected' if cid in sel.selected else 'support'
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
         if not chain:
             continue
@@ -2110,6 +2140,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
         for scenario_id in chain:
             scenario = scenarios[scenario_id]
+            role = sample_role(sel, cid, scenario_id)
             provenance = {'authorities': dict(scenario['cache_state']),
                           'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
                           'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
@@ -2195,9 +2226,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             continue
         if command['measurement'] != 'direct':
             continue
-        role = 'selected' if cid in sel.selected else 'support'
         for scenario_id in [s for s in sel.scenarios if s in command['scenarios']]:
             scenario = scenarios[scenario_id]
+            role = sample_role(sel, cid, scenario_id)
             provenance = {'authorities': dict(scenario['cache_state']), 'builder': OBSERVATORY_BUILDER,
                           'chain_command': cid, 'prime_sample_id': None,
                           'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
@@ -2240,6 +2271,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'cache_model': {s: scenarios[s]['cache_cut'] for s in sel.scenarios if s in scenarios},
         'commands': command_fingerprints(suite), 'definitions': definition_fingerprints(suite),
         'measurements': samples, 'module_graph': graph, 'history_analysis': history, 'derived': derived,
+        # What was asked for, and what the tool added on its own to make the answer mean anything. A reader
+        # who sees a cold build in a warm-only run is owed the reason in the bundle, not in the terminal
+        # scrollback that outlived it.
+        'selection': {'partial': sel.partial, 'commands_selected': sorted(sel.selected),
+                      'commands_support': sorted(sel.support), 'scenarios': list(sel.scenarios),
+                      'scenarios_added_as_support': list(sel.scenario_support)},
     }
     return observation, incomplete, edits_ok
 
@@ -2343,6 +2380,21 @@ def render_usage(suite: dict) -> str:
 ONLY and SCENARIO take comma-separated stable IDs. ONLY also accepts a group:
   groups     {groups}
   scenarios  {scenarios}
+
+Examples
+  make observe ONLY=make.prove SCENARIO=project.cold.prover
+  make observe ONLY=make.check SCENARIO=project.warm.noop
+  make observe ONLY=precommit.prover SCENARIO=project.cached.fresh
+  make observe ONLY=acceptance SCENARIO=project.incremental.foundation.float
+
+Cold means PROJECT-cold, from one declared invalidation root downward. The builder, the base images and the
+pinned toolchain are already present and stay cache hits; exactly the named root and its dependents rebuild.
+Registry pulls and builder bootstrap are excluded from the measured interval and fail a canonical sample.
+There is never a reason to clear your Docker or registry caches for ordinary observatory use — an
+empty-machine run is `environment.bootstrap`, which is diagnostic and never canonical.
+
+A cached, warm or incremental selection automatically adds its own cold prime, because a cached number whose
+prime was never taken is a comparison against an unknown baseline.
 
 Selection rules
   Unknown names fail and name the nearest valid ones; an empty expansion fails.
@@ -2684,10 +2736,36 @@ def self_test(root: Path) -> int:
         expect_that('a docker stage names its live parent build', stage.support == ['make.e2e'],
                     f'support was {stage.support}')
 
+    counts['total'] += 1
+    warm_only = select(suite, only='make.prove', scenario='project.warm.noop')
+    if 'project.cold.prover' not in warm_only.scenarios:
+        failures.append(f'a warm selection must pull in its own cold prime: {warm_only.scenarios}')
+    if 'project.cold.prover' not in warm_only.scenario_support:
+        failures.append('the added prime must be reported as support, not presented as requested')
+
+    # The role a SAMPLE carries, not just the role the selection computed. These are separate mistakes:
+    # the selection can know the prime was added and the sample can still be stamped `selected`.
+    counts['total'] += 1
+    if sample_role(warm_only, 'make.prove', 'project.cold.prover') != 'support':
+        failures.append('a sample in an auto-added prime scenario must be stamped support, '
+                        'or the observation claims the operator asked for the cold build')
+    counts['total'] += 1
+    if sample_role(warm_only, 'make.prove', 'project.warm.noop') != 'selected':
+        failures.append('the scenario the operator actually asked for must stay selected')
+    counts['total'] += 1
+    if sample_role(warm_only, 'docker.prover', 'project.warm.noop') != 'support':
+        failures.append('a command that was never selected stays support')
+
+    counts['total'] += 1
+    cold_only = select(suite, only='make.prove', scenario='project.cold.prover')
+    if cold_only.scenario_support:
+        failures.append(f'a cold selection needs no prime added: {cold_only.scenario_support}')
+
     combo = selection('ONLY and SCENARIO combine', only='make.check', scenario='project.warm.noop')
     if combo:
-        expect_that('a combined selection keeps only the named scenario',
-                    combo.scenarios == ['project.warm.noop'], f'scenarios were {combo.scenarios}')
+        expect_that('a combined selection keeps the named scenario and its required prime',
+                    set(combo.scenarios) == {'project.warm.noop', 'project.cold.generated-artifact'},
+                    f'scenarios were {combo.scenarios}')
 
     selection('an unknown ONLY name', expect='unknown ONLY name', only='make.prov')
     selection('an unknown SCENARIO name', expect='unknown SCENARIO name', scenario='warm.noop')
@@ -3158,6 +3236,8 @@ def self_test(root: Path) -> int:
         b = Path(d) / 'bundle'
         (b / 'raw').mkdir(parents=True)
         write = checkpointer(b, {'schema': SCHEMA, 'suite_digest': digest})
+        if not (b / 'observation.json').is_file():
+            failures.append('a bundle must be inspectable from creation, not only after the first sample')
         write([sample()], ['make.prove/project.cold.prover'])
         mid = json.loads((b / 'observation.json').read_text(encoding='utf-8'))
         if mid['derived'].get('status') != 'incomplete':
@@ -3470,6 +3550,21 @@ def self_test(root: Path) -> int:
     observed('comparing against an observation with no environment',
              lambda: compare({k: v for k, v in observation().items() if k != 'environment'}, observation()),
              expect="no usable 'environment'")
+
+    counts['total'] += 1
+    usage_text = render_usage(suite)
+    # §Usage — help that teaches a path the tool does not support is a failure, so every example is parsed
+    import re as _re
+    for line in usage_text.split('\n'):
+        m = _re.match(r'\s+make observe (ONLY=(\S+))?\s*(SCENARIO=(\S+))?\s*$', line)
+        if not m or not (m.group(2) or m.group(4)):
+            continue
+        try:
+            select(suite, only=m.group(2), scenario=m.group(4))
+        except ObservatoryError as exc:
+            failures.append(f'a documented example does not resolve: {line.strip()} -> {exc}')
+    if 'empty' in usage_text.lower() and 'docker cache' in usage_text.lower():
+        failures.append('help must not teach clearing the Docker cache as ordinary use')
 
     counts['total'] += 1
     usage = render_usage(suite)

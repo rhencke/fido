@@ -105,6 +105,16 @@ MUTANTS = (
      "    return list(wanted)",
      ('scenarios must run in prime order',)),
 
+    (OBS, 'the automatic cold prime a cached selection needs',
+     "        if added:",
+     "        if False:",
+     ('a warm selection must pull in its own cold prime',)),
+
+    (OBS, 'the support role of an automatically added scenario',
+     "    if scenario_id in sel.scenario_support:",
+     "    if False:",
+     ('a sample in an auto-added prime scenario must be stamped support',)),
+
     (OBS, 'the usable-input guard on comparison',
      "    if obs.get('state') == 'pending':",
      "    if False:",
