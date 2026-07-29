@@ -26,3 +26,29 @@ parser rather than a lookup.
 M3 owns tool and build architecture and is the right place to decide. Until then the hand-maintained set
 stands: it is small, exact, machine-checked in both directions, and a wrong entry cannot hide a tracked file,
 only exempt a namespace that Git already refuses to carry.
+
+## OQ-M2-02 — should the observatory run inside buildx, so the host needs no Python?
+
+**Owner:** Rob, for M3. **Blocks M2:** no. **Default if unanswered:** the observatory stays a host-side
+Python tool.
+
+Rob's direction, recorded here so it is not lost with the chat. `tools/build-observatory.py` runs on the
+host and requires Python there, which makes the measurement environment the developer's machine rather than
+a pinned one. Everything else in this repository is hermetic: the proof, the emission, the e2e and the
+generated-byte compare all run inside pinned images, and `make check` states plainly that a local host Rocq
+is not supported. The timing facility is the exception.
+
+The shape Rob described: an OUTER harness that can talk to buildx and drives an INNER harness, both in
+buildx. The objection I had raised — that a containerised harness would perturb the timings it collects —
+does not apply, because the harness does not measure itself. Its own cost only has to stay small relative
+to the work under measurement, not be accounted for.
+
+This is tool architecture, which M3 owns. The accepted M2 repair may not change it: §13 forbids changes to
+M3 or M4 tool and build architecture, and the cache-cut amendment does not authorize Make or hook
+architecture refactoring. So M2 records the direction and implements none of it.
+
+Two things a decision will have to settle. The outer harness needs the Docker socket to drive buildx, which
+is a different trust posture from the current host tool and should be stated deliberately rather than
+inherited. And the pre-commit anchors are written by `/bin/sh` inside the hook on the host; if the hook
+itself remains host-side, its instrumentation stays host-side with it, so "no Python on the host" and "no
+host-side measurement" are not the same goal and the decision should say which one it is buying.

@@ -30,7 +30,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -58,7 +59,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "committed-tree"
+      "source_view": "committed-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -90,7 +92,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "module-graph-log"
+      ]
     },
     {
       "dependencies": [
@@ -135,7 +140,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -180,7 +186,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -225,7 +232,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -270,7 +278,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -303,7 +312,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -336,7 +346,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -369,7 +380,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -402,7 +414,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -447,7 +460,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -492,7 +506,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -537,7 +552,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -572,7 +588,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -603,7 +620,11 @@
         "project.cold.prover"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "go-e2e",
+        "prover"
+      ]
     },
     {
       "dependencies": [],
@@ -632,7 +653,8 @@
         "environment.bootstrap"
       ],
       "side_effect": "changes-repository-config",
-      "source_view": "environment-only"
+      "source_view": "environment-only",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -677,7 +699,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "generated-artifact",
+        "go-e2e",
+        "prover"
+      ]
     },
     {
       "dependencies": [],
@@ -706,7 +733,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -735,7 +763,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -780,7 +809,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "go-e2e"
+      ]
     },
     {
       "dependencies": [],
@@ -825,7 +857,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "emit"
+      ]
     },
     {
       "dependencies": [],
@@ -854,7 +889,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -883,7 +919,8 @@
         "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy"
+      "source_view": "disposable-copy",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -912,7 +949,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -941,7 +979,8 @@
         "project.warm.noop"
       ],
       "side_effect": "changes-repository-config",
-      "source_view": "disposable-copy"
+      "source_view": "disposable-copy",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -970,7 +1009,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -999,7 +1039,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "catalog_only_reason": "Benchmarking the observatory through the observatory would measure the measurer and recurse; it is cataloged so it can never silently disappear from the surface.",
@@ -1025,7 +1066,8 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "writes-local-observation",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -1059,7 +1101,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "profile-log"
+      ]
     },
     {
       "dependencies": [],
@@ -1104,7 +1149,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "prover"
+      ]
     },
     {
       "dependencies": [],
@@ -1118,26 +1166,20 @@
         "make"
       ],
       "id": "make.prove-errors",
-      "invalidation_roots": [
-        "prover"
-      ],
+      "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:prove-errors",
       "policy": null,
       "purpose": "Print only the Rocq File and Error lines, which a failing Buildx recipe otherwise buries.",
-      "samples": {
-        "project.cold.prover": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "catalog_only_reason": "Redirects its build output to a file and greps it, so no stage state can be observed and no cache claim about it could be verified; it stays classified and selectable, and is excluded from canonical timing rather than measured under a label nothing can check.",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -1170,7 +1212,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree"
+      "source_view": "working-tree",
+      "build_targets": [
+        "prover"
+      ]
     },
     {
       "dependencies": [],
@@ -1184,28 +1229,20 @@
         "make"
       ],
       "id": "make.regen-guard",
-      "invalidation_roots": [
-        "sync"
-      ],
+      "invalidation_roots": [],
       "isolation": "disposable-copy",
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:regen-guard",
       "policy": null,
       "purpose": "Prove the validate-before-publish DAG edge load-bearing: a failed go build must make the sync image unbuildable.",
-      "samples": {
-        "project.cached.fresh": 1,
-        "project.cold.sync": 1,
-        "project.warm.noop": 3
-      },
-      "scenarios": [
-        "project.cached.fresh",
-        "project.cold.sync",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy"
+      "source_view": "disposable-copy",
+      "catalog_only_reason": "Sends both of its buildx invocations to /dev/null on purpose, because one of them must fail; with no observable stage state its cold claim would rest on absent evidence.",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -1240,7 +1277,10 @@
         "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy"
+      "source_view": "disposable-copy",
+      "build_targets": [
+        "sync"
+      ]
     },
     {
       "dependencies": [
@@ -1275,7 +1315,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1310,7 +1351,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1345,7 +1387,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1380,7 +1423,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1414,7 +1458,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [],
@@ -1449,7 +1494,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": [
+        "generated-artifact",
+        "go-e2e",
+        "prover"
+      ]
     },
     {
       "dependencies": [
@@ -1484,7 +1534,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1519,7 +1570,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1554,7 +1606,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1589,7 +1642,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1624,7 +1678,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1659,7 +1714,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1694,7 +1750,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1729,7 +1786,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1764,7 +1822,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1799,7 +1858,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1834,7 +1894,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1869,7 +1930,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1904,7 +1966,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1939,7 +2002,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -1974,7 +2038,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -2009,7 +2074,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     },
     {
       "dependencies": [
@@ -2044,7 +2110,8 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export"
+      "source_view": "staged-index-export",
+      "build_targets": []
     }
   ],
   "edits": [

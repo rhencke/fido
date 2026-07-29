@@ -155,6 +155,26 @@ MUTANTS = (
      "        if False:",
      ('a bootstrap claim with no builder to establish it',)),
 
+    (OBS, 'the derived-child relation computed from the stage graph',
+     "                    if sid not in commands[parent]['scenarios']:",
+     "                    if False:",
+     ('expects a child under a parent that never runs in that scenario',)),
+
+    (OBS, 'build targets naming real Dockerfile stages',
+     "        unknown_targets = [x for x in c.get('build_targets', []) if x not in stage_names]",
+     "        unknown_targets = []",
+     ('a build target naming no Dockerfile stage',)),
+
+    (OBS, 'only a command that runs may declare build targets',
+     "        if c['measurement'] != 'direct' and c.get('build_targets'):",
+     "        if False:",
+     ('a derived command claiming it builds something',)),
+
+    (OBS, 'a cold root must be a stage the command builds',
+     "        if outside:",
+     "        if False:",
+     ('a cold root the command never builds',)),
+
     (OBS, 'invalidation roots agreeing with the cold scenarios',
      "            if declared_roots != cold_roots:",
      "            if False:",
@@ -256,8 +276,13 @@ MUTANTS = (
      "    return '|'.join((sample['command_id'], sample['scenario_id'], '-', '-', '-'))  # neutered\n    return '|'.join((sample['command_id'], sample['scenario_id'],",
      ('a changed resource scope must not produce a delta',)),
 
+    (OBS, 'a cold claim needs evidence for it, not absent evidence against it',
+     "    if cold and stages.get(root) is None:",
+     "    if False:",
+     ('a cold sample with no observed stage state was accepted',)),
+
     (OBS, 'the declared cut against what happened',
-     "    if scenario['id'].startswith('project.cold.') and root in stages and stages[root] != 'rebuilt':",
+     "    if cold and stages[root] != 'rebuilt':",
      "    if False:",
      ('a cold sample whose invalidation root stayed cached',)),
 

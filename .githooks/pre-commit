@@ -15,7 +15,14 @@ set -e
 # negative interval, and a duration that can go backwards is not a duration.  Its resolution is 10 ms, which
 # the observation records rather than implies.
 if [ -n "${FIDO_OBSERVE:-}" ]; then
-  fido_now() { IFS='. ' read -r _s _c _rest < /proc/uptime; echo $(( _s * 1000000000 + _c * 10000000 )); }
+  # The centiseconds field is two digits, so 08 and 09 have a leading zero and the shell reads them as
+  # OCTAL: an arithmetic error, an empty timestamp, and an anchor silently dropped 2% of the time. Stripping
+  # the zero is the POSIX fix; `10#` is a bashism and this hook is /bin/sh.
+  fido_now() {
+    IFS='. ' read -r _s _c _rest < /proc/uptime
+    _c=${_c#0}
+    echo $(( _s * 1000000000 + ${_c:-0} * 10000000 ))
+  }
   fido_observe() { printf '%s %s %s\n' "$1" "$2" "$(fido_now)" >>"$FIDO_OBSERVE"; }
 else
   fido_observe() { :; }

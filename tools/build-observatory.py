@@ -61,7 +61,7 @@ SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
 MEASUREMENTS = ('direct', 'derived', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
                   'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner',
-                  'invalidation_roots')
+                  'invalidation_roots', 'build_targets')
 SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state', 'prime_steps',
                    'cache_cut')
 # §3A.1 — a cache cut says what stays a hit, what must rebuild, and that nothing was pulled or
@@ -123,6 +123,45 @@ def docker_stages(root: Path) -> set[str]:
     return names
 
 
+def docker_stage_graph(root: Path) -> dict:
+    """Each named stage's direct stage predecessors, from `FROM <stage>` and `COPY --from=<stage>`.
+
+    A predecessor counts only if it is a DECLARED stage: `FROM scratch` and `FROM <external image>` name no
+    stage, and counting them invented a `scratch` stage in every command's build set."""
+    text = read_text(root / DOCKERFILE_REL, 'Dockerfile')
+    names = docker_stages(root)
+    stage, pred = None, {n: set() for n in names}
+    for line in text.split('\n'):
+        s = line.strip()
+        m = re.match(r'^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$', s, re.I)
+        if m:
+            base, name = m.group(1), m.group(2)
+            if name:
+                stage = name
+                if base in names:
+                    pred[stage].add(base)
+            continue
+        if stage:
+            pred[stage] |= {f for f in re.findall(r'--from=(\S+)', s) if f in names}
+    return pred
+
+
+def stages_built_by(graph: dict, targets) -> set:
+    """Every stage BuildKit must produce for these targets: the targets and all their ancestors.
+
+    This is what makes the derived-child relation derivable instead of declared per stage. `docker.rocq-base`
+    is observed under ten commands, and a registry that named one parent per stage called the other nine
+    undeclared."""
+    out, stack = set(), list(targets)
+    while stack:
+        node = stack.pop()
+        if node in out:
+            continue
+        out.add(node)
+        stack.extend(graph.get(node, ()))
+    return out
+
+
 def hook_anchor_pairs(root: Path) -> list[str]:
     """Anchor IDs in the live hook, proved paired and properly nested by one stack walk.
 
@@ -171,6 +210,9 @@ def load_suite(root: Path) -> dict:
         if not isinstance(suite.get(member), list):
             raise ObservatoryError(f'{SUITE_REL}: member {member!r} is missing or not a list')
 
+    stage_names = docker_stages(root)
+    stage_graph = docker_stage_graph(root)
+
     seen_cmd = set()
     for c in suite['commands']:
         missing = [f for f in COMMAND_FIELDS if f not in c]
@@ -189,6 +231,24 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is catalog-only with no reason — a command excluded from the canonical '
                 f'timing run must say why, and must stay selectable when safe')
+        # Build targets must name stages the Dockerfile actually declares, or the derived stage relation is
+        # computed over a graph node that does not exist.
+        unknown_targets = [x for x in c.get('build_targets', []) if x not in stage_names]
+        if unknown_targets:
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} declares build target(s) {unknown_targets} that name no Dockerfile '
+                f'stage; the stages it produces could not be derived')
+        if c['measurement'] != 'direct' and c.get('build_targets'):
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} is {c["measurement"]} but declares build targets; only a command that '
+                f'runs can build anything')
+        # A root it can be measured cold from must be a stage it actually builds.
+        outside = [r for r in c['invalidation_roots']
+                   if c.get('build_targets') and r not in stages_built_by(stage_graph, c['build_targets'])]
+        if outside:
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} claims invalidation root(s) {outside} its build never reaches')
+
         # A command's invalidation roots and its cold scenarios state the same fact, so they must agree
         # exactly. `make prover-log` declared no root while running a buildx build of the prover stage,
         # which left it with a warm scenario and no prime it could ever take.
@@ -922,8 +982,16 @@ def parse_anchor_log(text: str) -> list[dict]:
     open_at: dict[str, int] = {}
     events = []
     for line in text.split('\n'):
-        m = ANCHOR_EVENT.match(line.strip())
+        stripped = line.strip()
+        m = ANCHOR_EVENT.match(stripped)
         if not m:
+            # A line that ANNOUNCES itself as an anchor and does not parse is a defect, not noise. The hook's
+            # clock read `08` as octal and wrote an anchor with an empty timestamp; skipping it left the
+            # anchor open, dropped the stage, and surfaced 100 minutes later as a coverage mismatch.
+            if re.match(r'^(?:begin|end)\b', stripped):
+                raise ObservatoryError(
+                    f'malformed hook anchor {stripped!r}: an anchor line must carry a monotonic timestamp, '
+                    f'so this sample lost a stage rather than measuring one')
             continue
         kind, anchor, ns = m.group(1), m.group(2), int(m.group(3))
         if kind == 'begin':
@@ -936,6 +1004,10 @@ def parse_anchor_log(text: str) -> list[dict]:
                     f'duration in this sample is void')
             events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
                            'clock': HOOK_CLOCK})
+    if open_at:
+        raise ObservatoryError(
+            f'hook anchor(s) {sorted(open_at)} began and never ended; the stages they name are missing from '
+            f'this sample and their absence would read as coverage')
     return events
 
 
@@ -1234,15 +1306,24 @@ def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
         raise ObservatoryError(
             f'{sample["command_id"]} [{scenario["id"]}]: the builder was bootstrapped inside the measured '
             f'interval, which the cache cut excludes')
+    root = cut.get('invalidated_from')
+    cold = scenario['id'].startswith('project.cold.')
+    # A cold claim needs evidence FOR it, not merely the absence of evidence against it. Two commands
+    # discard their build output on purpose, and their cold samples were passing this check vacuously:
+    # no stage map, nothing to contradict, cold by default.
+    if cold and stages.get(root) is None:
+        raise ObservatoryError(
+            f'{sample["command_id"]} [{scenario["id"]}]: no observed state for the invalidation root '
+            f'{root!r}, so its cold claim rests on absent evidence; record `unavailable` and do not call it '
+            f'cold')
     if not stages:
-        return                                     # a command that drives no BuildKit graph has none to show
+        return                                     # a command that drives no BuildKit graph claims nothing
     stable = cut.get('stable_through')
     if stable and stages.get(stable) == 'rebuilt':
         raise ObservatoryError(
             f'{sample["command_id"]} [{scenario["id"]}]: the declared stable ancestor {stable!r} rebuilt, so '
             f'this measured more than the cut says it did')
-    root = cut.get('invalidated_from')
-    if scenario['id'].startswith('project.cold.') and root in stages and stages[root] != 'rebuilt':
+    if cold and stages[root] != 'rebuilt':
         raise ObservatoryError(
             f'{sample["command_id"]} [{scenario["id"]}]: the invalidation root {root!r} was {stages[root]}, '
             f'not rebuilt; a cold sample whose root stayed cached is not a cold sample')
@@ -1615,17 +1696,30 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             f'summary equals recomputation; suite digest matches')
 
 
-def expected_relation(suite: dict, canonical_only: bool = True) -> dict:
+def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | None = None) -> dict:
     """The exact set of metrics a complete run must produce, derived from the validated registry.
 
     R05 used to check that each classified command appeared at least ONCE. A command measured in one scenario
     could therefore stand in for every scenario it never ran, which is how seven canonical pairs went missing
     while coverage read green. This states the relation the observation must equal — in both directions."""
     scenarios = {s['id']: s for s in suite['scenarios']}
+    commands = {c['id']: c for c in suite['commands']}
+
+    # A Docker stage is observed under EVERY command whose build reaches it, so its parents are derived from
+    # the stage graph and each command's declared build targets — not declared one-per-stage. `dependencies`
+    # keeps its own job: the single parent to RUN when this child is selected.
+    stage_parents: dict[str, set] = {}
+    if graph:
+        for c in suite['commands']:
+            if c['measurement'] != 'direct' or not c.get('build_targets'):
+                continue
+            for st in stages_built_by(graph, c['build_targets']):
+                stage_parents.setdefault(f'docker.{st}', set()).add(c['id'])
+
     derived_parents: dict[str, list[str]] = {}
     for c in suite['commands']:
         if c['measurement'] == 'derived':
-            derived_parents[c['id']] = list(c['dependencies'])
+            derived_parents[c['id']] = sorted(stage_parents.get(c['id'], set())) or list(c['dependencies'])
 
     expected: dict[str, dict] = {}
     for c in suite['commands']:
@@ -1638,6 +1732,9 @@ def expected_relation(suite: dict, canonical_only: bool = True) -> dict:
             if c['measurement'] == 'derived':
                 # a derived child exists once per parent that can produce it in that scenario
                 for parent in derived_parents[c['id']]:
+                    # A parent that does not run in this scenario cannot produce a child in it.
+                    if sid not in commands[parent]['scenarios']:
+                        continue
                     key = '|'.join((c['id'], sid, edit or '-', parent, '*'))
                     expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
                                      'derived_parent_id': parent, 'samples': c['samples'][sid]}
@@ -1658,9 +1755,10 @@ def observed_relation(samples: list[dict]) -> dict:
     return out
 
 
-def check_relation_closed(suite: dict, samples: list[dict], canonical_only: bool = True) -> str:
+def check_relation_closed(suite: dict, samples: list[dict], canonical_only: bool = True,
+                          graph: dict | None = None) -> str:
     """Exact equality in both directions: nothing missing, nothing extra, every count right."""
-    expected = expected_relation(suite, canonical_only)
+    expected = expected_relation(suite, canonical_only, graph)
     observed = observed_relation(samples)
     missing = sorted(set(expected) - set(observed))
     extra = sorted(set(observed) - set(expected))
@@ -1684,6 +1782,7 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
                           incomplete: list[str]) -> list[str]:
     """The fourteen rules, in order, each named in its own failure. A failed command is a failed observation."""
     satisfied = []
+    graph = docker_stage_graph(root)
 
     def ok(rule: str):
         satisfied.append(rule)
@@ -1712,7 +1811,7 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     if incomplete:
         bad('R05', f'{len(incomplete)} command-scenario pair(s) did not complete: {incomplete[:4]}')
     try:
-        check_relation_closed(suite, obs['measurements'])
+        check_relation_closed(suite, obs['measurements'], graph=graph)
     except ObservatoryError as exc:
         bad('R05', f'{exc}; a registry that declares more than the observation measures is coverage on paper')
     ok('R05')
@@ -2860,6 +2959,16 @@ def self_test(root: Path) -> int:
              lambda w: (edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
                         edit(w, 'make.diet', 'invalidation_roots', ['prover'])),
              expect='has no sample count')
+    scenario('a build target naming no Dockerfile stage',
+             lambda w: edit(w, 'make.prove', 'build_targets', ['no-such-stage']),
+             expect='name no Dockerfile stage')
+    scenario('a derived command claiming it builds something',
+             lambda w: edit(w, 'docker.prover', 'build_targets', ['prover']),
+             expect='only a command that runs can build anything')
+    scenario('a cold root the command never builds',
+             lambda w: edit(w, 'make.emit', 'invalidation_roots', ['go-e2e']),
+             expect='its build never reaches')
+
     scenario('a bootstrap claim with no builder to establish it',
              lambda w: edit(w, 'make.builder', 'isolation', None),
              expect='only temporary-docker-config gives it the empty builder')
@@ -2969,6 +3078,25 @@ def self_test(root: Path) -> int:
     if stage:
         expect_that('a docker stage names its live parent build', stage.support == ['make.e2e'],
                     f'support was {stage.support}')
+
+    # The fixture observation is generated FROM expected_relation, so it cannot judge it. These assertions
+    # state the relation independently: from the Dockerfile graph, and from the registry's own scenario lists.
+    counts['total'] += 1
+    _graph = docker_stage_graph(root)
+    _rel = expected_relation(suite, graph=_graph)
+    _cmds = {c['id']: c for c in suite['commands']}
+    for key, spec in _rel.items():
+        parent = spec['derived_parent_id']
+        if parent and spec['scenario_id'] not in _cmds[parent]['scenarios']:
+            failures.append(f'{key} expects a child under a parent that never runs in that scenario')
+            break
+    builders = {c['id'] for c in suite['commands'] if c.get('build_targets')}
+    for stage, want in (('docker.sync', {'make.regenerate'}),
+                        ('docker.generated-artifact', {'make.check', 'precommit.full'})):
+        got = {spec['derived_parent_id'] for k, spec in _rel.items() if spec['command_id'] == stage}
+        if got != want & builders:
+            failures.append(f'{stage} is expected under {sorted(got)}, but the Dockerfile graph and the '
+                            f'declared build targets say {sorted(want & builders)}')
 
     counts['total'] += 1
     warm_only = select(suite, only='make.prove', scenario='project.warm.noop')
@@ -3219,7 +3347,7 @@ def self_test(root: Path) -> int:
         every = over.pop('samples', None)
         if every is None:
             every = []
-            for spec in expected_relation(suite).values():
+            for spec in expected_relation(suite, graph=docker_stage_graph(root)).values():
                 for i in range(spec['samples']):
                     # An incremental sample edits distinct bytes, so its disposable copy hashes differently.
                     # The fixture has to model that or it would not reach the rule which requires it.
@@ -3300,6 +3428,9 @@ def self_test(root: Path) -> int:
             (repo / OBSERVATION_REL).write_text('{}\n', encoding='utf-8')
             (repo / '.gitignore').write_text('.build-observatory/\n', encoding='utf-8')
             (repo / 'other.txt').write_text('one\n', encoding='utf-8')
+            # The registry's build targets name real Dockerfile stages, and the expected derived-child
+            # relation is derived from that graph, so the fixture repository needs the same Dockerfile.
+            (repo / DOCKERFILE_REL).write_bytes((root / DOCKERFILE_REL).read_bytes())
             _sp.run(['git', 'add', '-A'], cwd=repo, check=True, capture_output=True)
             _sp.run(['git', 'commit', '-qm', 'fixture'], cwd=repo, check=True, capture_output=True)
             (repo / OBSERVATION_REL).write_text('{"recorded": true}\n', encoding='utf-8')
@@ -3784,6 +3915,25 @@ def self_test(root: Path) -> int:
     events = parse_anchor_log('begin a 1000\nbegin b 1100\nend b 1400\nend a 2000\n')
     if {e['id']: e['wall_ns'] for e in events} != {'b': 300, 'a': 1000}:
         failures.append(f'nested anchors must each get their own duration: {events}')
+
+    # A cold sample with no stage evidence at all used to pass: nothing observed, nothing to contradict.
+    counts['total'] += 1
+    cold_scen = next(s for s in suite['scenarios'] if s['id'] == 'project.cold.prover')
+    blind = {'command_id': 'make.prove', 'cache_cut': dict(cold_scen['cache_cut']),
+             'cache_observation': {'stages': {}}}
+    try:
+        check_cut_observed(blind, cold_scen, suite)
+        failures.append('a cold sample with no observed stage state was accepted, so a command that hides '
+                        'its build output is cold by default')
+    except ObservatoryError:
+        pass
+
+    observed('a hook anchor with no timestamp',
+             lambda: parse_anchor_log('begin a 1000\nend a \n'),
+             expect='must carry a monotonic timestamp')
+    observed('a hook anchor that never ends',
+             lambda: parse_anchor_log('begin a 1000\nbegin b 1100\nend b 1400\n'),
+             expect='began and never ended')
 
     observed('a hook anchor whose clock went backwards',
              lambda: parse_anchor_log('begin a 2000\nend a 1000\n'),
