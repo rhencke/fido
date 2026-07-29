@@ -763,13 +763,28 @@ def throwaway_builder(scratch: Path) -> str:
     return f'fido-throwaway-{scratch.name}'
 
 
-def release_isolation(command: dict, where: Path) -> None:
-    """Undo whatever the isolation created. A throwaway builder that survives the sample is a leak."""
+def release_isolation(command: dict, where: Path) -> str | None:
+    """Undo whatever the isolation created, and report a leak rather than hiding one.
+
+    The builder is created under the sample's PRIVATE `DOCKER_CONFIG`, so removing it with the ambient
+    environment always failed with `no builder found` — and the failure was discarded. `rmtree` then deleted
+    that private config, erasing the registry entry and orphaning a running BuildKit container for good.
+    Removal now runs against the same config that created it, BEFORE the directory goes, and says so when it
+    cannot.
+    """
+    import os
     import shutil
     import subprocess
+    problem = None
     if command.get('isolation') == 'temporary-docker-config':
-        subprocess.run(['docker', 'buildx', 'rm', throwaway_builder(where)], capture_output=True)
+        name = throwaway_builder(where)
+        done = subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True, text=True,
+                              env={**os.environ, 'DOCKER_CONFIG': str(where / 'docker-config')})
+        if done.returncode != 0:
+            problem = (f'{command["id"]}: could not remove the throwaway builder {name} '
+                       f'({(done.stderr or done.stdout).strip().splitlines()[-1:] or ["no output"]})')
     shutil.rmtree(where, ignore_errors=True)
+    return problem
 
 
 def declared_authorities(command: dict, scenario: dict) -> dict:
@@ -2391,7 +2406,11 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     # The scratch directory owns the isolation's own artefacts, including a throwaway
                     # builder, and must be released whether or not the isolation also moved the cwd.
                     if scratch is not None:
-                        release_isolation(command, scratch)
+                        # Collected rather than raised: this runs in a `finally`, and raising here would
+                        # replace whatever exception sent us into it.
+                        leak = release_isolation(command, scratch)
+                        if leak:
+                            incomplete.append(leak)
                     elif copy is not None:
                         drop_disposable_copy(root, copy)
 
@@ -3380,7 +3399,14 @@ def self_test(root: Path) -> int:
                 if cwd is None or not (cwd / '.git').exists():
                     failures.append('a temporary Git repo must be standalone: git config in a LINKED '
                                     'worktree writes the config shared with the main checkout')
-            release_isolation(fake, Path(d) / 'iso')
+            # A builder that was never created cannot be removed, and the release must SAY so rather than
+            # discard the failure — that discarded failure orphaned a running container for two hours.
+            leak = release_isolation(fake, Path(d) / 'iso')
+            if kind == 'temporary-docker-config' and not leak:
+                failures.append('removing a throwaway builder that was never created reported success, so '
+                                'a real leak would report success too')
+            if kind != 'temporary-docker-config' and leak:
+                failures.append(f'isolation {kind!r} reported a builder leak it cannot have: {leak}')
 
     guarded('an isolation the runner does not implement',
             lambda w: isolate(root, {'id': 'probe', 'isolation': 'wishful-thinking'}, w),

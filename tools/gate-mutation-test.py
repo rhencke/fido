@@ -115,6 +115,11 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'a throwaway builder whose removal failed is reported, not discarded',
+     "        if done.returncode != 0:",
+     "        if False:",
+     ('removing a throwaway builder that was never created reported success',)),
+
     (OBS, 'the partition between the shell and analysis runners',
      "    return 'analysis' if command['kind'] in ANALYSIS_KINDS else 'shell'",
      "    return 'shell'",
