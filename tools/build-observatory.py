@@ -235,9 +235,15 @@ def load_suite(root: Path) -> dict:
     if len(edits) != len(suite.get('edits', [])):
         raise ObservatoryError(f'{SUITE_REL}: duplicate edit id')
     for e in edits.values():
-        if e['kind'] not in ('append-comment-line', 'no-edit'):
+        if e['kind'] not in ('append-comment-line',):
             raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]}: unknown kind {e["kind"]!r}')
-        if e['kind'] != 'no-edit' and not (root / e['path']).is_file():
+        # Check the shape before using it as a path. A registry defect must arrive as a stated defect,
+        # not as a TypeError from deep inside the loader.
+        if not isinstance(e.get('path'), str) or not e['path'].strip():
+            raise ObservatoryError(
+                f'{SUITE_REL}: edit {e["id"]} declares path {e.get("path")!r}; an edit shape must name '
+                f'exactly one file to change')
+        if not (root / e['path']).is_file():
             raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]} names {e["path"]!r}, which is not a file')
     for s in suite['scenarios']:
         # One incremental scenario, one edit shape: the edit IS the metric identity, so it cannot be a set
@@ -1299,8 +1305,6 @@ def apply_edit(copy_root: Path, edit: dict, index: int = 0) -> None:
     The real working tree is never touched. Verifying that the intended file changed AND that nothing else
     did is the half that matters: an edit scenario whose blast radius is wrong measures a rebuild nobody
     asked about and attributes it to the wrong shape."""
-    if edit['kind'] == 'no-edit':
-        return None                                   # the floor case: measure the path with nothing moved
     target = copy_root / edit['path']
     if not target.is_file():
         raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} is not a file in the disposable copy')
@@ -2179,7 +2183,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         copy = cwd_override or copy
                     target = copy or root
                     before = None
-                    if edit and edit['kind'] != 'no-edit':
+                    if edit:
                         paths = [edit['path']]
                         before = tree_digest(target, paths)
                         original = (target / edit['path']).read_bytes()
@@ -2203,7 +2207,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     emit(s)
                     for child in derive_child_samples(s, s['derived_stage_events'], derived_ids):
                         emit(child)
-                    if edit and edit['kind'] != 'no-edit':
+                    if edit:
                         restore_and_verify(target, edit, original, before, [edit['path']], index)
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
                         primes[(cid, 'prime')] = {'id': sample_id(s), 'root': root_stage}
@@ -2538,6 +2542,16 @@ def self_test(root: Path) -> int:
                  if s['id'].startswith('project.incremental.') else s
                  for s in suite_of(w)['scenarios']]}),
              expect='would measure a no-op and record it as a rebuild')
+    scenario('an incremental scenario whose edit changes nothing',
+             lambda w: write_suite(w, {**suite_of(w),
+                 'edits': suite_of(w)['edits'] + [{'id': 'edit.nothing', 'kind': 'append-comment-line',
+                                                   'path': None, 'purpose': 'p', 'rationale': 'r',
+                                                   'text': ''}],
+                 'scenarios': [{**s, 'edit': 'edit.nothing'}
+                               if s['id'].startswith('project.incremental.') else s
+                               for s in suite_of(w)['scenarios']]}),
+             expect='an edit shape must name exactly one file to change')
+
     scenario('an incremental scenario naming an unregistered edit',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
                  {**s, 'edit': 'edit.no.such'} if s['id'].startswith('project.incremental.') else s
@@ -2562,8 +2576,7 @@ def self_test(root: Path) -> int:
              expect='is not the root its own name declares')
     scenario('an edit naming a file that is not there',
              lambda w: write_suite(w, {**suite_of(w), 'edits': [
-                 {**e, 'path': 'NoSuchModule.v'} if e['kind'] != 'no-edit' else e
-                 for e in suite_of(w)['edits']]}),
+                 {**e, 'path': 'NoSuchModule.v'} for e in suite_of(w)['edits']]}),
              expect='which is not a file')
 
     scenario('a duplicate command id',

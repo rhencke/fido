@@ -120,7 +120,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -131,7 +130,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -168,7 +166,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -180,7 +177,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -216,7 +212,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -227,7 +222,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -263,7 +257,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -274,7 +267,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -442,7 +434,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -453,7 +444,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -489,7 +479,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -500,7 +489,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -536,7 +524,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -547,7 +534,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -679,7 +665,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -691,7 +676,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -785,7 +769,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -796,7 +779,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -832,7 +814,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -843,7 +824,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -1113,7 +1093,6 @@
         "project.incremental.doc.architecture": 3,
         "project.incremental.foundation.float": 3,
         "project.incremental.leaf.emit": 3,
-        "project.incremental.none.generated": 3,
         "project.incremental.proof.compilable": 3,
         "project.incremental.tool.source-diet": 3,
         "project.warm.noop": 3
@@ -1124,7 +1103,6 @@
         "project.incremental.doc.architecture",
         "project.incremental.foundation.float",
         "project.incremental.leaf.emit",
-        "project.incremental.none.generated",
         "project.incremental.proof.compilable",
         "project.incremental.tool.source-diet",
         "project.warm.noop"
@@ -2105,14 +2083,6 @@
       "purpose": "A documentation-only edit, a build input to nothing.",
       "rationale": "the floor: what a gate run costs when no build input moved",
       "text": "\n<!-- observatory: inert edit probe {n} -->\n"
-    },
-    {
-      "id": "edit.none.generated",
-      "kind": "no-edit",
-      "path": null,
-      "purpose": "No source edit at all.",
-      "rationale": "the acceptance path still materializes and byte-compares the generated module",
-      "text": ""
     }
   ],
   "scenarios": [
@@ -2401,32 +2371,6 @@
         "project.cached.fresh"
       ],
       "purpose": "A low fan-out leaf at the end of the chain. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
-      "session_state": "same"
-    },
-    {
-      "cache_cut": {
-        "builder_bootstrap_included": false,
-        "invalidated_from": "source",
-        "registry_pulls_included": false,
-        "stable_through": "rocq-base"
-      },
-      "cache_state": {
-        "apt_download": "reused",
-        "buildkit_project_layers": "reused",
-        "buildkit_toolchain_layers": "reused",
-        "dune_build": "reused",
-        "generated_intermediate": "reused",
-        "go_build": "reused",
-        "go_module": "reused",
-        "opam_download": "reused"
-      },
-      "canonical": true,
-      "edit": "edit.none.generated",
-      "id": "project.incremental.none.generated",
-      "prime_steps": [
-        "project.cached.fresh"
-      ],
-      "purpose": "No source edit at all. Each sample applies distinct bytes, so no sample can be another's exact cache hit.",
       "session_state": "same"
     },
     {
