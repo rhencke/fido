@@ -1004,7 +1004,18 @@ _BK_DONE = re.compile(r'^#(\d+) DONE\s+[0-9.]+s\s*$')
 # A real pull moves bytes or extracts a layer. `resolve <ref> 0.1s done` is LOCAL reference resolution and
 # is not a pull — matching it would fail every canonical sample on a machine that already has the images,
 # which is precisely the machine the amendment says to measure on.
-_BK_PULL = re.compile(r'^#\d+ (?:extracting |sha256:\S+ [0-9.]+[KMG]?B / )', re.I)
+_BK_PULL = re.compile(r'^#\d+ (?:extracting |pulling image |sha256:\S+ [0-9.]+[KMG]?B / )', re.I)
+# Builder bootstrap is a BuildKit step, not an English word. Matching a bare `bootstrap` anywhere in the
+# log matched this tool's OWN control names, printed by the mutation harness the pre-commit hook runs, and
+# rejected a valid cold sample for a builder nobody created.
+_BK_BOOTSTRAP = re.compile(
+    r'^#\d+ (?:\[internal\] booting buildkit|creating container buildx_buildkit_)', re.I)
+
+
+# One buildx invocation numbers its steps from #1. A command that runs several — the pre-commit hook runs
+# one per stage it verifies — concatenates them into one log, and the numbers START OVER. This line is where
+# one invocation ends and the next begins.
+_BK_INVOCATION = re.compile(r'^#0 building with ')
 
 
 def observe_stages(text: str) -> dict:
@@ -1012,31 +1023,51 @@ def observe_stages(text: str) -> dict:
 
     A stage's FROM step is base-image RESOLUTION, and it reports DONE even when the image is already local.
     Counting that as work would report every stable ancestor as rebuilt, which is exactly the claim a
-    project-cold sample must be able to deny. Only an executed non-FROM step means the stage rebuilt."""
-    stage_of, is_from, cached, ran = {}, {}, {}, {}
+    project-cold sample must be able to deny. Only an executed non-FROM step means the stage rebuilt.
+
+    A step number identifies a step only WITHIN its invocation, so the log is split per invocation before
+    anything is attributed. Resolving `#27` against a map built from the whole file reported `rocq-base` as
+    rebuilt from another build's ordinal, which is the copied-ordinal failure in log form."""
+    segments, current = [], []
     for line in text.split('\n'):
-        head = BUILDKIT_STEP.match(line.strip())
-        if head:
-            step, label = head.group(1), head.group(2)
-            name = label.split()[0]
-            if name == 'internal':
+        if _BK_INVOCATION.match(line.strip()) and current:
+            segments.append(current)
+            current = []
+        current.append(line)
+    segments.append(current)
+
+    cached, ran, seen = {}, {}, set()
+    for segment in segments:
+        stage_of, is_from = {}, {}
+        for line in segment:
+            head = BUILDKIT_STEP.match(line.strip())
+            if head:
+                step, label = head.group(1), head.group(2)
+                name = label.split()[0]
+                if name == 'internal':
+                    continue
+                if stage_of.get(step, name) != name:
+                    raise ObservatoryError(
+                        f'step #{step} names both {stage_of[step]!r} and {name!r} in one invocation; the log '
+                        f'holds concatenated builds this reader failed to separate, and every stage state '
+                        f'read from it would be attributed to the wrong stage')
+                stage_of[step] = name
+                seen.add(name)
+                rest = line.strip()[head.end():].strip()
+                if rest.startswith('FROM '):
+                    is_from[step] = True
                 continue
-            stage_of[step] = name
-            rest = line.strip()[head.end():].strip()
-            if rest.startswith('FROM '):
-                is_from[step] = True
-            continue
-        m = _BK_CACHED.match(line.strip())
-        if m and m.group(1) in stage_of:
-            name = stage_of[m.group(1)]
-            cached[name] = cached.get(name, 0) + 1
-            continue
-        m = _BK_DONE.match(line.strip())
-        if m and m.group(1) in stage_of and not is_from.get(m.group(1)):
-            name = stage_of[m.group(1)]
-            ran[name] = ran.get(name, 0) + 1
+            m = _BK_CACHED.match(line.strip())
+            if m and m.group(1) in stage_of:
+                name = stage_of[m.group(1)]
+                cached[name] = cached.get(name, 0) + 1
+                continue
+            m = _BK_DONE.match(line.strip())
+            if m and m.group(1) in stage_of and not is_from.get(m.group(1)):
+                name = stage_of[m.group(1)]
+                ran[name] = ran.get(name, 0) + 1
     out = {}
-    for name in sorted(set(stage_of.values())):
+    for name in sorted(seen):
         if ran.get(name):
             out[name] = 'rebuilt'
         elif cached.get(name):
@@ -1052,7 +1083,8 @@ def pulled_from_registry(text: str) -> bool:
 
 
 def bootstrapped_builder(text: str) -> bool:
-    return 'creating new builder' in text.lower() or 'bootstrap' in text.lower()
+    """Whether a builder was booted inside the measured interval, which a canonical sample forbids."""
+    return any(_BK_BOOTSTRAP.match(l.strip()) for l in text.split('\n'))
 
 
 def observe_cache_after(before: dict, stages: dict) -> dict:
@@ -1511,6 +1543,17 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             raise ObservatoryError(
                 f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
                 f'source, so a cached no-op is recorded under an incremental label')
+
+    # A command named as selected and measured in nothing must say which it was. Otherwise the reader sees
+    # it listed beside the results and reads its absence as a measurement that went missing.
+    sel_block = obs.get('selection') or {}
+    measured = {s['command_id'] for s in samples}
+    accounted = set(sel_block.get('commands_with_no_scenario_here') or [])
+    orphans = sorted(set(sel_block.get('commands_selected') or []) - measured - accounted)
+    if orphans:
+        raise ObservatoryError(
+            f'{orphans} are recorded as selected but produced no sample and are not listed among the '
+            f'commands this selection could not measure')
 
     recomputed = summarise(samples)
     stored = obs['derived'].get('summaries', {})
@@ -2213,6 +2256,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
     samples: list[dict] = []
     incomplete: list[str] = []
+    unmeasured: list[str] = []
     edits_ok = True
     graph, history = None, None
     primes: dict[tuple, dict] = {}          # (command_id, root) -> the exact prime sample identity
@@ -2231,6 +2275,11 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             continue
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
         if not chain:
+            # Selected, and measured in nothing. Silence here would leave the command listed as selected with
+            # no sample beside it and no reason, which reads as a measurement that went missing.
+            unmeasured.append(cid)
+            progress(f'fido: observe — {cid} has no scenario in this selection ('
+                     f'{", ".join(command["scenarios"])}), so it contributes no sample')
             continue
         progress(f'fido: observe — chain {cid}: {", ".join(chain)}')
 
@@ -2389,7 +2438,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         # scrollback that outlived it.
         'selection': {'partial': sel.partial, 'commands_selected': sorted(sel.selected),
                       'commands_support': sorted(sel.support), 'scenarios': list(sel.scenarios),
-                      'scenarios_added_as_support': list(sel.scenario_support)},
+                      'scenarios_added_as_support': list(sel.scenario_support),
+                      'commands_with_no_scenario_here': sorted(unmeasured)},
     }
     return observation, incomplete, edits_ok
 
@@ -3037,8 +3087,14 @@ def self_test(root: Path) -> int:
                                 'stable_through': 'rocq-base'},
                 'measurements': samples,
                 'module_graph': None, 'history_analysis': None,
-                'selection': {'partial': False, 'commands_selected': ['make.fmt'], 'commands_support': [],
-                              'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': []},
+                # Derived from the samples this fixture actually holds, so it cannot drift into naming a
+                # command the observation never measured.
+                'selection': {'partial': False,
+                              'commands_selected': sorted({s['command_id'] for s in samples}),
+                              'commands_support': [],
+                              'scenarios': sorted({s['scenario_id'] for s in samples}),
+                              'scenarios_added_as_support': [],
+                              'commands_with_no_scenario_here': []},
                 'derived': {'summaries': summarise(samples)}}
         return {**base, **over}
 
@@ -3688,6 +3744,65 @@ def self_test(root: Path) -> int:
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),
              expect='still pending')
+    counts['total'] += 1
+    try:
+        validate_observation(observation(selection={
+            'partial': True, 'commands_selected': ['make.fmt', 'make.builder'], 'commands_support': [],
+            'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
+            'commands_with_no_scenario_here': []}), digest)
+        failures.append('a selected command with no sample and no reason was accepted')
+    except ObservatoryError:
+        pass
+
+    # A command that runs several buildx invocations concatenates their logs, and step numbers restart at
+    # #1 each time. Resolving a step number against the whole file attributed one build's ordinal to another
+    # build's stage and reported a stable ancestor as rebuilt.
+    counts['total'] += 1
+    # The second invocation reuses #5 for an INTERNAL step, which carries no stage name. Without splitting,
+    # #5 still resolves to the first invocation's stage and its DONE marks that stage rebuilt.
+    two_invocations = (
+        '#0 building with "b" instance using docker-container driver\n'
+        '#5 [rocq-base 2/5] RUN apt-get update\n'
+        '#5 CACHED\n'
+        '#0 building with "b" instance using docker-container driver\n'
+        '#5 [internal] load build context\n'
+        '#5 DONE 12.0s\n'
+        '#6 [go-e2e 9/9] RUN go build ./...\n'
+        '#6 DONE 12.0s\n')
+    stages = observe_stages(two_invocations)
+    if stages.get('rocq-base') != 'hit':
+        failures.append(f"a later invocation's step number was attributed to an earlier stage: {stages}")
+    if stages.get('go-e2e') != 'rebuilt':
+        failures.append(f'the stage that actually ran was not reported rebuilt: {stages}')
+
+    counts['total'] += 1
+    unsplit = ('#5 [rocq-base 2/5] RUN apt-get update\n#5 CACHED\n'
+               '#5 [go-e2e 9/9] RUN go build ./...\n#5 DONE 12.0s\n')
+    try:
+        observe_stages(unsplit)
+        failures.append('concatenated builds with no invocation marker were read as one, so every stage '
+                        'state would be attributed to the wrong stage')
+    except ObservatoryError:
+        pass
+
+    # Both detectors read BuildKit steps. The word `bootstrap` appears in this tool's own control names,
+    # which the pre-commit hook prints, and a log carrying arbitrary tool output must not be read for
+    # English words that happen to name a Docker action.
+    counts['total'] += 1
+    innocent = ('  detected  a bootstrap sample building the builder it times  (tools/x.py)\n'
+                '  detected  the empty builder a bootstrap claim requires\n'
+                '#5 [prover 2/5] COPY *.v ./\n#5 CACHED\n'
+                '#9 resolve docker.io/library/debian:12-slim@sha256:abc 0.1s done\n')
+    if bootstrapped_builder(innocent):
+        failures.append('a bootstrap was reported from log text that only NAMES bootstrapping')
+    if pulled_from_registry(innocent):
+        failures.append('a registry pull was reported from local reference resolution')
+    real_boot = '#1 [internal] booting buildkit\n#1 creating container buildx_buildkit_fido-throwaway-x\n'
+    if not bootstrapped_builder(real_boot):
+        failures.append('a builder that was actually booted went unreported')
+    if not pulled_from_registry('#1 pulling image moby/buildkit:buildx-stable-1\n'):
+        failures.append('an image pulled inside the interval went unreported')
+
     # The isolation announces a throwaway builder, the invocation must USE it, and the release removes it.
     # When the invocation used the observatory's builder instead, `make builder` found one already there and
     # a bootstrap sample timed `buildx inspect`.

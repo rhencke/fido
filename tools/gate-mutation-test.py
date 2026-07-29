@@ -115,6 +115,26 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'a selected command that measured nothing must say so',
+     "    if orphans:",
+     "    if False:",
+     ('a selected command with no sample and no reason was accepted',)),
+
+    (OBS, 'step numbers resolved inside their own invocation',
+     "        if _BK_INVOCATION.match(line.strip()) and current:",
+     "        if False:",
+     ("a later invocation's step number was attributed to an earlier stage",)),
+
+    (OBS, 'the refusal to read concatenated builds as one',
+     "                if stage_of.get(step, name) != name:",
+     "                if False:",
+     ('concatenated builds with no invocation marker were read as one',)),
+
+    (OBS, 'bootstrap read as a BuildKit step, not an English word',
+     "    return any(_BK_BOOTSTRAP.match(l.strip()) for l in text.split('\\n'))",
+     "    return 'bootstrap' in text.lower()",
+     ('a bootstrap was reported from log text that only NAMES bootstrapping',)),
+
     (OBS, 'a bootstrap sample building the builder it times',
      "        argv = argv + [f'BUILDER={builder}']",
      "        argv = argv + [f'BUILDER={OBSERVATORY_BUILDER}']",
