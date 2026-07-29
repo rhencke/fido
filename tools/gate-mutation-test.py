@@ -37,6 +37,11 @@ MUTANTS = (
      ('authority names an existing but unmanifested root .v file',
       'authority names an existing but unmanifested dotfile')),
 
+    (FCB, 'the residue exemption in the token scan',
+     "        if _residue(t):\n            continue",
+     "        if False:\n            continue",
+     ('an authority naming an ignored residue namespace',)),
+
     (FCB, 'canonical path parsing',
      "    for seg in text.split('/'):\n        if seg == '':",
      "    for seg in []:\n        if seg == '':",

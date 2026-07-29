@@ -56,7 +56,7 @@ CORPUS_ROLES = ('authority', 'reference')
 
 # Residue that cannot be part of a committed snapshot, so its absence from the inventory is not a subset
 # choice about namespaces — it is a statement about what Git tracks.
-RESIDUE_DIRS = {'.git', '_build', '__pycache__', '.fido'}
+RESIDUE_DIRS = {'.git', '_build', '__pycache__', '.fido', '.build-observatory'}
 RESIDUE_SUFFIXES = ('.vo', '.vok', '.vos', '.vio', '.glob', '.pyc', '.aux', '.fido-tmp-v1')
 
 # Characters that may appear in a repository path token. Used for BOUNDARY tests, never to decide membership.
@@ -382,7 +382,12 @@ def operational_references(text: str, inventory: set, directories: set, top_dirs
       3. a dot-prefixed repository name carrying a directory part or an extension;
       4. the explicit root-relative `./name` form, which is how the corpus names a MISSING root path.
     A bare word is never a path. That is why rule 4 exists: without an explicit form, a missing root file
-    would be indistinguishable from ordinary prose, and the rule must be exact rather than greedy."""
+    would be indistinguishable from ordinary prose, and the rule must be exact rather than greedy.
+
+    A token rooted in RESIDUE is not an operational reference. `.gitignore` states that Git never holds it, so
+    there is no tracked target for a row to point at, and requiring one would force a document to declare a
+    path that cannot exist in any committed snapshot. The exemption is exactly residue: a dangling path in a
+    tracked namespace still fails."""
     found = {}
     for m in TOKEN.finditer(text):
         raw = m.group(0)
@@ -403,6 +408,8 @@ def operational_references(text: str, inventory: set, directories: set, top_dirs
         elif t.startswith('.') and ('/' in t or '.' in t[1:]):
             pass
         else:
+            continue
+        if _residue(t):
             continue
         found.setdefault(t, raw)
     return found
@@ -638,6 +645,12 @@ def self_test(root: Path) -> int:
     scenario('active repair names a malformed parent-traversal path',
              lambda w: append_to(w, active_repair(w), 'See `.review/../outside.md` for the annex.'),
              expect='MALFORMED operational reference')
+    scenario('an authority naming an ignored residue namespace',
+             lambda w: append_to(w, active_repair(w),
+                                 'Local run bundles live under `.build-observatory/runs` and are ignored.'))
+    scenario('a namespace that merely resembles residue is still an operational reference',
+             lambda w: append_to(w, active_repair(w), 'See `.build-observatory-notes/x.md` for the notes.'),
+             expect='UNDECLARED operational reference')
 
     # ── §5.6-5.7 : owner containment
     scenario('manifest owner escapes the repository by traversal',

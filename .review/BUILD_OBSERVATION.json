@@ -1,0 +1,13 @@
+{
+  "cache_model": null,
+  "commands": [],
+  "derived": null,
+  "environment": null,
+  "history_analysis": null,
+  "measurements": [],
+  "module_graph": null,
+  "schema": "fido.build-observatory/1",
+  "state": "pending",
+  "subject": null,
+  "suite_digest": "f05824aa195c2fd60b11c51c2f833b0b65499795187991d0a48804c95278c5d7"
+}

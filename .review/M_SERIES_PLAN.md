@@ -3,9 +3,9 @@
 > **Live authority.** Installed by accepted amendment `FCB-A007-POST-C4-MECHANICAL-SERIES` and governed by
 > Governance `D-27`. Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log.
-> **Sequencing:** M0 is accepted; M1 through M4 follow, then checkpoint-definition Step 0 for C5.
-> **C4 and M0 are ACCEPTED.** M1 Source Diet is the sole active work; M2, M3 and M4 implementation are
-> FORBIDDEN until Rob accepts M1. Installing a plan does not authorize implementing it.
+> **Sequencing:** M0 and M1 are accepted; M2 through M4 follow, then checkpoint-definition Step 0 for C5.
+> **C4, M0 and M1 are ACCEPTED.** M2 Build Observatory is the sole active work; M3 and M4 implementation are
+> FORBIDDEN. Installing a plan does not authorize implementing it.
 
 The current repository carries source prose, proof text and build tooling that has accumulated without one
 owned build architecture. Much of the prose records superseded design history that Git already preserves. Full
@@ -21,7 +21,7 @@ not be frozen on top of it.
 ```text
 C4 acceptance closeout
 → M0 Governance Closeout (accepted)
-→ M1 Source Diet
+→ M1 Source Diet (accepted)
 → M2 Build Observatory
 → M3 Tool and Build Architecture Audit
 → Rob approves the exact M4 plan
@@ -30,17 +30,19 @@ C4 acceptance closeout
 → C5 Machine base
 ```
 
-Each M candidate is a separate reviewed candidate. M0 is accepted, and Git history owns its contract.
-**M1 Source Diet is active**, and its full contract is `.review/M1_SOURCE_DIET.md`, which owns the
-comment law, the exception ledger and the measurement rules the summary below states in outline. M2 is
-forbidden until Rob accepts M1. M4 begins only after M2 and M3 evidence exists and Rob accepts the exact
-refactor plan produced by M3 — the tracked human act is `M4-PLAN-APPROVAL`.
+Each M candidate is a separate reviewed candidate. M0 and M1 are accepted, and Git history owns each of
+their contracts, obligation matrices and evidence. M1's permanent result — the source-comment law — survives
+its checkpoint and is stated normatively below, because a law with no live owner is a law nothing enforces.
+**M2 Build Observatory is active**, and its full contract is `.review/M2_BUILD_OBSERVATORY.md`. <!-- FIDO-FCB-REF:REVIEW-M2-BUILD-OBSERVATORY-MD -->
+M4 begins only after M2 and M3 evidence exists and Rob accepts the exact refactor plan produced by M3 — the
+tracked human act is `M4-PLAN-APPROVAL`.
 <!-- FIDO-HUMAN-ACT:M4-PLAN-APPROVAL -->
 
-## M1 — Source Diet
+## The permanent source-comment law
 
-**Purpose:** remove every non-load-bearing byte without reducing accuracy, proof strength, or current
-comprehension.
+Established by M1 Source Diet, accepted at `6524b437bd7a7d6b2616563b8789e28a00c7af13` under
+`M1-ACCEPT-6524b43`. M1's baseline, metrics, disposition and deletion ledgers were that checkpoint's exit
+evidence and are retired to Git history. This law is permanent and outlives it.
 
 Git owns history. Current source must not explain what the code used to be.
 
@@ -101,24 +103,34 @@ A gate entry does not give a theorem purpose.
 Do not minify proofs, shorten good names, hide structure in broad automation, or merge distinct concepts to
 reduce bytes.
 
-### M1 evidence
+### Enforcement
 
-Capture before and after:
+There is no arbitrary byte quota. Every byte must earn its place, and the law is checked rather than trusted.
 
-- total tracked bytes;
-- bytes by file and file kind;
-- `.v` comment bytes;
-- `.v` non-comment bytes;
-- live-document bytes;
-- tool and build bytes;
-- declaration and theorem counts;
-- compressed archive size;
-- every deleted file and declaration with its exact disposition;
-- every surviving comment exception.
+`tools/source-diet.py` is the one checker. Its permanent modes are `--self-test`, `--check` and `--wiring`: <!-- FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY -->
+the comment law over every tracked `.v` file, the bidirectional exception relation, and the guarantee that no
+permanent path invokes a checkpoint-only mode. It consumes `.review/M1_COMMENT_EXCEPTIONS.tsv` and nothing <!-- FIDO-FCB-REF:REVIEW-M1-COMMENT-EXCEPTIONS-TSV -->
+else, which is why the law survived M1's acceptance without a single edit.
 
-There is no arbitrary byte quota. Every byte must earn its place.
+Its root enforcement helpers are covered by `tools/gate-mutation-test.py`: deleting each helper's effect must <!-- FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY -->
+make that helper's own named controls fail. A gate never shown to fail is not evidence.
+
+The permanent path runs from `Makefile` under the `diet` target, on which `check` depends, and from <!-- FIDO-FCB-REF:MAKEFILE -->
+`.githooks/pre-commit` against the exported staged index. A checkpoint's exit evidence never runs there — a <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT -->
+permanent gate enforcing one checkpoint's baseline would reject every later file and declaration forever.
 
 ## M2 — Build Observatory
+
+**Active.** The full contract is `.review/M2_BUILD_OBSERVATORY.md`; its nineteen obligations are tracked in
+`.review/M2_OBLIGATION_MATRIX.tsv`. The permanent facility is one registry, one runner and one tracked <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
+observation: `.review/BUILD_OBSERVATORY_SUITE.json` classifies every command and scenario, <!-- FIDO-FCB-REF:REVIEW-BUILD-OBSERVATORY-SUITE-JSON -->
+`tools/build-observatory.py` runs, validates, records and compares, and <!-- FIDO-FCB-REF:TOOLS-BUILD-OBSERVATORY-PY -->
+`.review/BUILD_OBSERVATION.json` is the one canonical observation, made historical by Git rather than by a <!-- FIDO-FCB-REF:REVIEW-BUILD-OBSERVATION-JSON -->
+growing ledger. Findings land in `.review/M2_RECOMMENDATIONS.tsv`, assigned to M3, M4 or retain. <!-- FIDO-FCB-REF:REVIEW-M2-RECOMMENDATIONS-TSV -->
+
+Every run — ad hoc or canonical — is written first to a local bundle under `.build-observatory/runs`,
+Git ignores: raw logs stay local, the tracked observation records only their digests, and an interrupted suite
+stays there marked incomplete rather than becoming a result.
 
 M2 measures. It does not restructure.
 
@@ -206,8 +218,8 @@ before Rob accepts M1.
    N lines" and other positional assumptions; list-position identity; and prose restating a count a registry
    or generated view already owns. Do not add a generic number scanner — classify actual ownership and replace
    fragile identity with stable identity.
-8. `tools/source-diet.py` retains M1 replay modes that will be dormant once M1 is accepted; M3 classifies or
-   deletes them.
+8. `tools/source-diet.py` retains M1 replay modes which are now dormant, and whose ledgers are retired; M3
+   classifies or deletes them.
 9. `tools/claim-matrix-gate.py` has no entry in the mutation harness, so its controls are exercised but never
    proved load-bearing.
 

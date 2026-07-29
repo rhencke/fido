@@ -38,3 +38,6 @@ __pycache__/
 .nia.cache
 .coq-native/
 _build/
+
+# Local Build Observatory run bundles and raw logs; Git history is the observation database.
+.build-observatory/
