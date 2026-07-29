@@ -60,7 +60,8 @@ SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
                 'writes-tracked-observation', 'changes-repository-config')
 MEASUREMENTS = ('direct', 'derived', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
-                  'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner')
+                  'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner',
+                  'invalidation_roots')
 SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state', 'prime_steps',
                    'cache_cut')
 # §3A.1 — a cache cut says what stays a hit, what must rebuild, and that nothing was pulled or
@@ -188,6 +189,23 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is catalog-only with no reason — a command excluded from the canonical '
                 f'timing run must say why, and must stay selectable when safe')
+        # A command's invalidation roots and its cold scenarios state the same fact, so they must agree
+        # exactly. `make prover-log` declared no root while running a buildx build of the prover stage,
+        # which left it with a warm scenario and no prime it could ever take.
+        declared_roots = sorted(c['invalidation_roots'])
+        cold_roots = sorted(s.split('project.cold.', 1)[1]
+                            for s in c['scenarios'] if s.startswith('project.cold.'))
+        if c['measurement'] == 'direct':
+            if declared_roots != cold_roots:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} declares invalidation roots {declared_roots} but its cold scenarios '
+                    f'name {cold_roots}; a command rebuilds exactly the roots it can be measured cold from')
+        elif declared_roots:
+            # A derived command is an observation of work done inside a parent's run, and a catalog-only
+            # entry never runs at all. Neither invalidates anything, and its scenarios mirror its parent's.
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} is {c["measurement"]} but declares invalidation roots '
+                f'{declared_roots}; it performs no build of its own')
         if c['expected_exit'] != 0 and not c.get('expected_failure_reason', '').strip():
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} expects exit {c["expected_exit"]} but declares no '
@@ -469,19 +487,22 @@ def _concurrency(inspect: dict) -> dict:
 
     The first candidate recorded `make_jobs: " -- RECORD=1"` — the raw MAKEFLAGS string, which is not a job
     count and cannot be compared. Concurrency changes timing, so it belongs in the compatibility fingerprint
-    as a NUMBER or as an explicit unknown."""
+    as a NUMBER or as an explicit unknown.
+
+    The provenance says HOW the count was decided, never the raw MAKEFLAGS text. MAKEFLAGS carries the
+    variables of the invocation, so `ONLY=` and `SCENARIO=` end up in it; fingerprinting that string made
+    every pair of runs with different selectors permanently incomparable for a reason unrelated to timing."""
     import os
     flags = os.environ.get('MAKEFLAGS', '')
-    jobs = None
     m = re.search(r'(?:^|\s)-?-j\s*(\d+)', flags)
     if m:
-        jobs = int(m.group(1))
+        jobs, source = int(m.group(1)), 'makeflags-explicit'
     elif re.search(r'(?:^|\s)-?-j(?:\s|$)', flags):
-        jobs = 0                                    # -j with no argument: unbounded
+        jobs, source = 0, 'makeflags-unbounded'     # -j with no argument
     else:
-        jobs = 1                                    # make is serial unless told otherwise
+        jobs, source = 1, 'default-serial'          # make is serial unless told otherwise
     bk = os.environ.get('BUILDKIT_MAX_PARALLELISM', '')
-    return {'make_jobs': jobs, 'make_jobs_source': flags or '(unset)',
+    return {'make_jobs': jobs, 'make_jobs_source': source,
             'buildkit_max_parallelism': int(bk) if bk.isdigit() else None,
             'buildkit_workers': inspect.get('Platforms', '').count(',') + 1 if inspect else None,
             'logical_cpus': os.cpu_count()}
@@ -735,6 +756,18 @@ def release_isolation(command: dict, where: Path) -> None:
         name = f'fido-throwaway-{where.name}'
         subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True)
     shutil.rmtree(where, ignore_errors=True)
+
+
+def declared_authorities(command: dict, scenario: dict) -> dict:
+    """The cache states that are true OF THIS COMMAND in this scenario.
+
+    A command that invalidates no build root touches no project cache, so the scenario's generic `reused`
+    states are not true of it. §3A.4 requires `not-applicable` rather than a state the runner cannot
+    establish, and such a command has no prime to take either.
+    """
+    if command['invalidation_roots']:
+        return dict(scenario['cache_state'])
+    return {k: 'not-applicable' for k in scenario['cache_state']}
 
 
 def host_load() -> float | None:
@@ -2189,11 +2222,15 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         for scenario_id in chain:
             scenario = scenarios[scenario_id]
             role = sample_role(sel, cid, scenario_id)
-            provenance = {'authorities': dict(scenario['cache_state']),
+            # A command that invalidates no build root touches no project cache, so the scenario's generic
+            # `reused` states are not true of it and there is no prime for it to take. §3A.4 requires
+            # `not-applicable` here rather than a state the runner cannot establish.
+            builds = bool(command['invalidation_roots'])
+            provenance = {'authorities': declared_authorities(command, scenario),
                           'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
                           'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
             root_stage = scenario['cache_cut']['invalidated_from']
-            if scenario_id.startswith('project.cold.'):
+            if scenario_id.startswith('project.cold.') or not builds:
                 provenance['prime_sample_id'] = None
             else:
                 key = (cid, 'prime')
@@ -2692,8 +2729,16 @@ def self_test(root: Path) -> int:
              lambda w: edit(w, 'make.diet', 'side_effect', 'harmless'),
              expect='not one of')
     scenario('a scenario reference with no sample count',
-             lambda w: edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
+             lambda w: (edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
+                        edit(w, 'make.diet', 'invalidation_roots', ['prover'])),
              expect='has no sample count')
+    scenario('a command claiming a root its cold scenarios do not name',
+             lambda w: edit(w, 'make.diet', 'invalidation_roots', ['prover']),
+             expect='a command rebuilds exactly the roots it can be measured cold from')
+    scenario('a derived command claiming it invalidates something',
+             lambda w: edit(w, 'docker.prover', 'invalidation_roots', ['prover']),
+             expect='it performs no build of its own')
+
     scenario('an unknown scenario reference',
              lambda w: (edit(w, 'make.diet', 'scenarios', ['no.such.scenario']),
                         edit(w, 'make.diet', 'samples', {'no.such.scenario': 1})),
@@ -3611,6 +3656,39 @@ def self_test(root: Path) -> int:
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),
              expect='still pending')
+    # A policy command builds nothing, so it cannot claim the caches a build scenario declares.
+    counts['total'] += 1
+    warm = [s for s in suite['scenarios'] if s['id'] == 'project.warm.noop'][0]
+    fmt_cmd = [c for c in suite['commands'] if c['id'] == 'make.fmt'][0]
+    prove_cmd = [c for c in suite['commands'] if c['id'] == 'make.prove'][0]
+    if set(declared_authorities(fmt_cmd, warm).values()) != {'not-applicable'}:
+        failures.append('a command that invalidates no root claimed a project cache it never touches')
+    if declared_authorities(prove_cmd, warm) != dict(warm['cache_state']):
+        failures.append('a command that does build lost the scenario cache states that apply to it')
+
+    # Two invocations that differ only in what the operator selected must stay comparable. MAKEFLAGS carries
+    # `ONLY=` and `SCENARIO=`, so this is the difference between a compatibility check and a coin flip.
+    counts['total'] += 1
+    import os as _os
+    _saved = _os.environ.get('MAKEFLAGS')
+    try:
+        _os.environ['MAKEFLAGS'] = ' -- SCENARIO=project.warm.noop ONLY=make.prove'
+        first = _concurrency({})
+        _os.environ['MAKEFLAGS'] = ' -- SCENARIO=project.cold.prover ONLY=make.check RECORD=1'
+        second = _concurrency({})
+        _os.environ['MAKEFLAGS'] = ' -j4 -- ONLY=make.prove'
+        parallel = _concurrency({})
+    finally:
+        if _saved is None:
+            _os.environ.pop('MAKEFLAGS', None)
+        else:
+            _os.environ['MAKEFLAGS'] = _saved
+    if first != second:
+        failures.append('two runs differing only in the selector recorded different concurrency: '
+                        f'{first} vs {second}')
+    if parallel['make_jobs'] != 4 or parallel['make_jobs_source'] != 'makeflags-explicit':
+        failures.append(f'an explicit -j4 was not decoded: {parallel}')
+
     # Both directions, because a rule that only rejects one shape launders the other.
     observed('a summary pooling samples taken against different sources',
              lambda: validate_observation(

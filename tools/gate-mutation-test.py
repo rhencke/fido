@@ -115,6 +115,26 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'invalidation roots agreeing with the cold scenarios',
+     "            if declared_roots != cold_roots:",
+     "            if False:",
+     ('a command claiming a root its cold scenarios do not name',)),
+
+    (OBS, 'derived commands invalidate nothing',
+     "        elif declared_roots:",
+     "        elif False:",
+     ('a derived command claiming it invalidates something',)),
+
+    (OBS, 'a command claims only the caches it touches',
+     "    if command['invalidation_roots']:",
+     "    if True:",
+     ('a command that invalidates no root claimed a project cache it never touches',)),
+
+    (OBS, 'concurrency provenance decoded instead of echoed',
+     "        jobs, source = 1, 'default-serial'          # make is serial unless told otherwise",
+     "        jobs, source = 1, flags",
+     ('two runs differing only in the selector recorded different concurrency',)),
+
     (OBS, 'one summary, one program',
      "        if group[0].get('edit_id') is None:",
      "        if False:",

@@ -1122,7 +1122,9 @@
         "make"
       ],
       "id": "make.prove-errors",
-      "invalidation_roots": [],
+      "invalidation_roots": [
+        "prover"
+      ],
       "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
@@ -1131,9 +1133,11 @@
       "policy": null,
       "purpose": "Print only the Rocq File and Error lines, which a failing Buildx recipe otherwise buries.",
       "samples": {
+        "project.cold.prover": 1,
         "project.warm.noop": 3
       },
       "scenarios": [
+        "project.cold.prover",
         "project.warm.noop"
       ],
       "side_effect": "none",
@@ -1151,7 +1155,9 @@
         "make"
       ],
       "id": "make.prover-log",
-      "invalidation_roots": [],
+      "invalidation_roots": [
+        "prover"
+      ],
       "isolation": null,
       "kind": "make-target",
       "measurement": "direct",
@@ -1160,9 +1166,11 @@
       "policy": null,
       "purpose": "Stream the plain Rocq log for diagnosis.",
       "samples": {
+        "project.cold.prover": 1,
         "project.warm.noop": 3
       },
       "scenarios": [
+        "project.cold.prover",
         "project.warm.noop"
       ],
       "side_effect": "none",
