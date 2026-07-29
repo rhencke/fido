@@ -59,6 +59,28 @@ MUTANTS = (
      "    for stale in []:",
      ('a registry pre-commit stage with no anchor pair',)),
 
+    (OBS, 'the selection dependency closure',
+     "        for dep in commands[cid]['dependencies']:",
+     "        for dep in []:",
+     ('a derived child is measured through the live parent',
+      'a docker stage names its live parent build')),
+
+    (OBS, 'cache provenance',
+     "    needs_prime = any(v == 'reused' for v in declared.values())",
+     "    needs_prime = False",
+     ('an unknown cache accepted as primed', 'a cached run with no priming run recorded',
+      'a cache primed on another builder', 'a cache primed under a different BuildKit')),
+
+    (OBS, 'the builder guard',
+     "    if name != OBSERVATORY_BUILDER:",
+     "    if False:",
+     ("the developer's builder is never modified",)),
+
+    (OBS, 'edit restoration',
+     "    if after != before_digest:",
+     "    if False:",
+     ('an incremental edit that is not restored',)),
+
     (OBS, 'the anchor pairing relation',
      "            if anchor in seen:",
      "            if False:",

@@ -597,6 +597,118 @@ def summarise(samples: list[dict]) -> dict:
     return out
 
 
+# ────────────────────────────────────────────────────────── cache provenance
+OBSERVATORY_BUILDER = 'fido-observatory'
+CACHE_STATE_REL = '.build-observatory/cache-state.json'
+CACHE_AUTHORITIES = ('buildkit_layers', 'dune_build', 'apt_download', 'opam_download',
+                     'go_build', 'go_module', 'generated_intermediate')
+CACHE_STATES = ('empty', 'primed', 'reused', 'not-applicable', 'uncontrolled')
+
+
+def _assert_observatory_builder(name: str) -> None:
+    """The one guard between a measurement and a developer's afternoon.
+
+    Every destructive cache operation routes through here. The observatory owns exactly one builder; being
+    handed any other name is a bug in the observatory, and pruning someone else's build cache to produce a
+    cold number is not a trade this project makes."""
+    if name != OBSERVATORY_BUILDER:
+        raise ObservatoryError(
+            f'refusing to modify builder {name!r}: the observatory may only create, prune or remove '
+            f'{OBSERVATORY_BUILDER!r}, and never the developer\'s builder or its cache')
+
+
+def read_cache_state(root: Path) -> dict | None:
+    p = root / CACHE_STATE_REL
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        raise ObservatoryError(f'{CACHE_STATE_REL}: not valid JSON ({exc}); the cache provenance is unknown')
+
+
+def write_cache_state(root: Path, state: dict) -> None:
+    write_json(root / CACHE_STATE_REL, state)
+
+
+def check_cache_provenance(root: Path, scenario: dict, env: dict) -> dict:
+    """A cached sample must name the exact prime run that produced the cache it reused.
+
+    A builder that merely EXISTS says nothing about what filled it. It may hold layers from another branch,
+    another toolchain, or a half-finished run that was killed. Labelling that "primed" would make every
+    cached number a comparison against an unknown baseline, so an unrecognised cache FAILS here instead."""
+    declared = scenario['cache_state']
+    unknown = {k: v for k, v in declared.items() if v not in CACHE_STATES}
+    if unknown:
+        raise ObservatoryError(f'scenario {scenario["id"]}: cache state(s) {unknown} are not one of '
+                               f'{", ".join(CACHE_STATES)}')
+    missing = [a for a in CACHE_AUTHORITIES if a not in declared]
+    if missing:
+        raise ObservatoryError(f'scenario {scenario["id"]}: cache authorities {missing} are unstated; each '
+                               f'must be recorded independently')
+
+    needs_prime = any(v == 'reused' for v in declared.values())
+    state = read_cache_state(root)
+    if not needs_prime:
+        return {'authorities': dict(declared), 'primed_by_run': None,
+                'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER}
+    if state is None:
+        raise ObservatoryError(
+            f'scenario {scenario["id"]} reuses a cache, but no prime run is on record in {CACHE_STATE_REL}; '
+            f'the suite will not label a discovered cache as primed')
+    if state.get('builder') != OBSERVATORY_BUILDER:
+        raise ObservatoryError(
+            f'{CACHE_STATE_REL} names builder {state.get("builder")!r}, not {OBSERVATORY_BUILDER!r}')
+    if state.get('buildkit_identity') != env.get('buildkit_identity'):
+        raise ObservatoryError(
+            f'the cache was primed under BuildKit {state.get("buildkit_identity")!r} but this run is '
+            f'{env.get("buildkit_identity")!r}; a cache is not reusable across a BuildKit change')
+    if not state.get('primed_by_run'):
+        raise ObservatoryError(f'{CACHE_STATE_REL} records no priming run, so the cache has no provenance')
+    return {'authorities': dict(declared), 'primed_by_run': state['primed_by_run'],
+            'primed_at_utc': state.get('primed_at_utc'),
+            'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER}
+
+
+# ───────────────────────────────────────────────── deterministic source edits
+def apply_edit(copy_root: Path, edit: dict) -> None:
+    """Apply one named edit to a DISPOSABLE copy, and prove exactly one file changed.
+
+    The real working tree is never touched. Verifying that the intended file changed AND that nothing else
+    did is the half that matters: an edit scenario whose blast radius is wrong measures a rebuild nobody
+    asked about and attributes it to the wrong shape."""
+    target = copy_root / edit['path']
+    if not target.is_file():
+        raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} is not a file in the disposable copy')
+    original = target.read_bytes()
+    if edit['kind'] == 'append-comment-line':
+        if not original.endswith(b'\n'):
+            raise ObservatoryError(f'edit {edit["id"]}: {edit["path"]} does not end in a newline')
+        target.write_bytes(original + edit['text'].encode('utf-8'))
+    else:
+        raise ObservatoryError(f'edit {edit["id"]}: unknown edit kind {edit["kind"]!r}')
+    return None
+
+
+def tree_digest(root: Path, paths: list[str]) -> str:
+    parts = []
+    for rel in sorted(paths):
+        f = root / rel
+        parts.append(f'{rel}:{_sha256(f.read_bytes()) if f.is_file() else "absent"}')
+    return _sha256('\n'.join(parts).encode('utf-8'))
+
+
+def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_digest: str,
+                       paths: list[str]) -> None:
+    """Put the exact bytes back and prove it, or the next sample measures a tree nobody described."""
+    (copy_root / edit['path']).write_bytes(original)
+    after = tree_digest(copy_root, paths)
+    if after != before_digest:
+        raise ObservatoryError(
+            f'edit {edit["id"]}: the disposable copy did not restore byte-exactly '
+            f'({before_digest[:12]} -> {after[:12]}); every later sample in this scenario is void')
+
+
 def render_list(suite: dict) -> str:
     """Every stable ID with what it is and how it is measured. Counts are reported, never copied into prose."""
     rows = ['ID                                KIND                  MEASURED   SIDE EFFECT              SOURCE VIEW',
@@ -921,6 +1033,94 @@ def self_test(root: Path) -> int:
         near = str(exc)
     if not near or 'make.prove' not in near:
         failures.append(f'an unknown name names the nearest valid one: got {near!r}')
+
+    # ── cache provenance and edit restoration, over disposable fixtures
+    import tempfile as _tempfile
+
+    def guarded(label: str, fn, expect: str | None = None):
+        counts['total'] += 1
+        counts['must_fail'] += (expect is not None)
+        with _tempfile.TemporaryDirectory() as d:
+            work = Path(d) / 'tree'
+            work.mkdir(parents=True)
+            try:
+                fn(work)
+            except ObservatoryError as exc:
+                if expect is None:
+                    failures.append(f'{label}: expected success, failed with: {exc}')
+                elif expect not in str(exc):
+                    failures.append(f'{label}: failed for the WRONG reason — wanted {expect!r}, got: {exc}')
+                return
+            if expect is not None:
+                failures.append(f'{label}: expected failure containing {expect!r}, but it succeeded')
+
+    reusing = next(s for s in suite['scenarios'] if 'reused' in s['cache_state'].values())
+    priming = next(s for s in suite['scenarios'] if 'reused' not in s['cache_state'].values())
+    env_now = {'buildkit_identity': 'v0.30.0'}
+
+    def primed(work: Path, **over):
+        write_cache_state(work, {'builder': OBSERVATORY_BUILDER, 'primed_by_run': 'run-a',
+                                 'primed_at_utc': '2026-01-01T00:00:00+00:00',
+                                 'buildkit_identity': 'v0.30.0', **over})
+
+    guarded('a priming scenario needs no prior cache',
+            lambda w: check_cache_provenance(w, priming, env_now))
+    guarded('a cached scenario with a recorded prime run',
+            lambda w: (primed(w), check_cache_provenance(w, reusing, env_now)))
+    guarded('an unknown cache accepted as primed',
+            lambda w: check_cache_provenance(w, reusing, env_now),
+            expect='will not label a discovered cache as primed')
+    guarded('a cached run with no priming run recorded',
+            lambda w: (primed(w, primed_by_run=''), check_cache_provenance(w, reusing, env_now)),
+            expect='records no priming run')
+    guarded('a cache primed on another builder',
+            lambda w: (primed(w, builder='fido-builder'), check_cache_provenance(w, reusing, env_now)),
+            expect=f'not {OBSERVATORY_BUILDER!r}')
+    guarded('a cache primed under a different BuildKit',
+            lambda w: (primed(w, buildkit_identity='v0.12.0'), check_cache_provenance(w, reusing, env_now)),
+            expect='not reusable across a BuildKit change')
+    guarded('an unstated cache authority',
+            lambda w: check_cache_provenance(
+                w, {**priming, 'cache_state': {k: v for k, v in priming['cache_state'].items()
+                                               if k != 'dune_build'}}, env_now),
+            expect='are unstated')
+    guarded('an invented cache state value',
+            lambda w: check_cache_provenance(
+                w, {**priming, 'cache_state': {**priming['cache_state'], 'dune_build': 'warmish'}}, env_now),
+            expect='are not one of')
+
+    guarded('the developer\'s builder is never modified',
+            lambda _: _assert_observatory_builder('fido-builder'),
+            expect='refusing to modify builder')
+    guarded('the observatory builder is the one it may modify',
+            lambda _: _assert_observatory_builder(OBSERVATORY_BUILDER))
+
+    EDIT = {'id': 'edit.leaf', 'path': 'leaf.v', 'kind': 'append-comment-line',
+            'text': '(* observatory: inert timing probe *)\n'}
+
+    def edit_cycle(work: Path, restore: bool):
+        (work / 'leaf.v').write_bytes(b'Definition x := 1.\n')
+        (work / 'other.v').write_bytes(b'Definition y := 2.\n')
+        paths = ['leaf.v', 'other.v']
+        before = tree_digest(work, paths)
+        original = (work / 'leaf.v').read_bytes()
+        apply_edit(work, EDIT)
+        if tree_digest(work, paths) == before:
+            raise ObservatoryError('edit.leaf: the intended file did not change')
+        if (work / 'other.v').read_bytes() != b'Definition y := 2.\n':
+            raise ObservatoryError('edit.leaf: a file outside the edit changed')
+        if not restore:
+            (work / 'leaf.v').write_bytes(original + b'stray\n')
+        restore_and_verify(work, EDIT, original if restore else original + b'stray\n', before, paths)
+
+    guarded('one exact incremental edit and restore', lambda w: edit_cycle(w, restore=True))
+    guarded('an incremental edit that is not restored', lambda w: edit_cycle(w, restore=False),
+            expect='did not restore byte-exactly')
+    guarded('an edit whose target is missing',
+            lambda w: apply_edit(w, EDIT), expect='is not a file in the disposable copy')
+    guarded('an unknown edit kind',
+            lambda w: ((w / 'leaf.v').write_bytes(b'x\n'), apply_edit(w, {**EDIT, 'kind': 'patch'})),
+            expect='unknown edit kind')
 
     counts['total'] += 1
     usage = render_usage(suite)
