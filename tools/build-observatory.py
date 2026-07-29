@@ -645,6 +645,22 @@ def _assert_observatory_builder(name: str) -> None:
             f'{OBSERVATORY_BUILDER!r}, and never the developer\'s builder or its cache')
 
 
+def toolchain_prime(root: Path, progress=print) -> None:
+    """Rebuild the pinned base so a cold PROJECT build is not also a toolchain download.
+
+    `cold.uncached` and `bootstrap.cold.uncached` are different questions: the first asks what building this
+    project costs, the second what starting from nothing costs. Without this step they collapse into one
+    number dominated by apt and opam."""
+    import subprocess
+    ensure_observatory_builder()
+    progress('fido: observe — priming the pinned toolchain (not counted as project build cost)')
+    proc = subprocess.run(
+        ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
+         '--target', 'rocq-base', '.'], cwd=str(root), capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise ObservatoryError(f'the toolchain prime failed: {proc.stderr.strip()[-400:]}')
+
+
 def reset_observatory_cache(progress=print) -> None:
     """Empty the observatory's own BuildKit cache so a cold scenario is actually cold.
 
@@ -1344,6 +1360,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         try:
             if is_prime:
                 reset_observatory_cache(progress)
+                if 'toolchain-prime' in scenario['prime_steps']:
+                    toolchain_prime(root, progress)
             provenance = check_cache_provenance(root, scenario, env)
         except ObservatoryError as exc:
             for cid in sel.order:
@@ -1397,15 +1415,29 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                             drop_disposable_copy(root, copy)
                 continue
 
+            # A command the registry classifies as writing must never run in the real tree. `make regenerate`
+            # and `make fcb-write` rewrite tracked files; `make install-hooks` rewrites repository config.
+            # Measuring them in place would leave the repository changed by an act of measurement.
+            mutating = command['source_view'] == 'disposable-copy'
+
             for index in range(wanted):
-                progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
+                progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})'
+                         + (' [disposable copy]' if mutating else ''))
+                copy = None
                 try:
+                    if mutating:
+                        copy = raw_dir.parent / 'copies' / f'{cid}.{scenario_id}.{index}'
+                        copy.parent.mkdir(parents=True, exist_ok=True)
+                        disposable_copy(root, copy)
                     s = run_sample(root, {**command, 'execution': materialise_execution(command)},
-                                   scenario_id, index, role, raw_dir, provenance)
+                                   scenario_id, index, role, raw_dir, provenance, cwd=copy)
                 except ObservatoryError as exc:
                     incomplete.append(f'{cid}/{scenario_id}')
                     progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
                     break
+                finally:
+                    if copy is not None:
+                        drop_disposable_copy(root, copy)
                 samples.append(s)
                 ran_here += 1
                 if s['status'] != 'ok':
