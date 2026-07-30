@@ -866,8 +866,12 @@ def edit_probe(run_id: str, command_id: str, scenario_id: str) -> str:
     on every run, so the first run ever to use them pays the rebuild and every later run reads that result
     out of the BuildKit cache and records ~1.6s for work that costs ~116s. `edit_id` stays the comparison
     identity, so making the bytes run-unique costs no comparability.
+
+    It is a DIGEST rather than the names themselves because the probe is written into a `.v` comment, and
+    the M1 source law caps a comment at 120 characters. Spelled out it reached 136, so `make check` failed
+    its own source-diet gate on every scenario that edits a `.v` file.
     """
-    return f'{run_id}.{command_id}.{scenario_id}'
+    return _sha256(f'{run_id}.{command_id}.{scenario_id}'.encode('utf-8'))[:12]
 
 
 def sample_provenance(command: dict, scenario: dict, primes: dict):
@@ -3262,6 +3266,20 @@ def self_test(root: Path) -> int:
     EDIT = {'id': 'edit.leaf', 'path': 'leaf.v', 'kind': 'append-comment-line',
             'text': '(* observatory: inert timing probe *)\n'}
     STAMPED = {**EDIT, 'text': '(* observatory: inert edit probe {n} *)\n'}
+
+    # The observatory writes its probe into a `.v` comment, so the line it writes must obey the repository's
+    # own source law: one line, at most 120 characters. Spelled out it was 136 and `make check` failed its
+    # own gate on every scenario that edits a `.v` file — the M1 law catching an M2 edit.
+    counts['total'] += 1
+    long_probe = edit_probe('20260730T031242123456p0000-6ffb586-5ea202d6-bcb7a8',
+                            'make.check', 'project.incremental.foundation.float')
+    for e in suite['edits']:
+        if not e['path'].endswith('.v'):
+            continue
+        rendered = e['text'].format(n=f'{long_probe}-0').rstrip('\n')
+        if len(rendered) > 120 or '\n' in rendered:
+            failures.append(f'the edit written into {e["path"]} is {len(rendered)} characters, past the '
+                            f'120-character source law it must satisfy: {rendered!r}')
 
     # Same edit shape, same sample index, two different RUNS: the bytes must differ, or the second run reads
     # the first run's build out of the BuildKit cache and records a hit as though it were a rebuild. This is

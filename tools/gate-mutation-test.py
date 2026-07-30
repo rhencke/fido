@@ -222,9 +222,14 @@ MUTANTS = (
      ('two commands whose incremental samples share one source',)),
 
     (OBS, 'the run id in the edit bytes, so a later run cannot read an earlier build',
-     "    return f'{run_id}.{command_id}.{scenario_id}'",
-     "    return f'{command_id}.{scenario_id}'",
+     "    return _sha256(f'{run_id}.{command_id}.{scenario_id}'.encode('utf-8'))[:12]",
+     "    return _sha256(f'{command_id}.{scenario_id}'.encode('utf-8'))[:12]",
      ('two runs wrote identical incremental bytes',)),
+
+    (OBS, 'the probe kept inside the source law it is written into',
+     "    return _sha256(f'{run_id}.{command_id}.{scenario_id}'.encode('utf-8'))[:12]",
+     "    return f'{run_id}.{command_id}.{scenario_id}'",
+     ('past the 120-character source law it must satisfy',)),
 
     (OBS, 'the probe that separates one command\'s edit bytes from another\'s',
      "        stamp = f'{probe}-{index}' if probe else str(index)",
