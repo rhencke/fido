@@ -1854,7 +1854,20 @@ def disposable_copy(root: Path, dest: Path, view_kind: str = 'committed-tree') -
     import os
     import shutil
     import stat as _stat
-    _git(root, 'worktree', 'add', '--detach', '--quiet', str(dest), 'HEAD')
+    # A SELF-CONTAINED repository, not a linked worktree.
+    #
+    # A worktree's `.git` is a FILE pointing back into the main repository's `.git/worktrees/<name>`. Every
+    # gate that runs inside the copy is given the copy and nothing else — the pinned image mounts one
+    # directory — so git there resolves that pointer to a path which does not exist and reports "not a git
+    # repository". `make check` and the staged hook both died exactly that way, and a shallow local clone
+    # costs a second and carries its own object store.
+    head = _git(root, 'rev-parse', 'HEAD').strip()
+    _git(root, 'clone', '--quiet', '--depth', '1', f'file://{root}', str(dest))
+    got = _git(dest, 'rev-parse', 'HEAD').strip()
+    if got != head:
+        raise ObservatoryError(
+            f'the disposable copy is at {got[:12]} but the repository is at {head[:12]}; a copy that is not '
+            f'the subject would measure a tree nobody selected')
     if view_kind == 'working-tree':
         listing = [p for p in _git(root, 'ls-files', '-z', '--cached', '--others',
                                    '--exclude-standard').split('\0') if p]
@@ -1897,7 +1910,9 @@ def disposable_copy(root: Path, dest: Path, view_kind: str = 'committed-tree') -
 
 
 def drop_disposable_copy(root: Path, dest: Path) -> None:
-    _git(root, 'worktree', 'remove', '--force', str(dest), check=False)
+    """Remove the copy. It is a standalone clone, so the main repository holds no registration to undo."""
+    import shutil
+    shutil.rmtree(dest, ignore_errors=True)
 
 
 def tree_digest(root: Path, paths: list[str]) -> str:
@@ -2986,8 +3001,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 done = _subprocess.run(materialise_execution(command, None, OBSERVATORY_BUILDER),
                                        cwd=str(chain_copy), capture_output=True, text=True)
                 if done.returncode != command['expected_exit']:
-                    incomplete.append(f'{cid}: the chain tree prime exited {done.returncode}, so every '
-                                      f'sample in this chain would measure an unprimed tree')
+                    # The REASON, not only the code. Reporting the exit status alone cost a whole diagnosis
+                    # cycle: the prime was failing because the copy was a linked worktree whose gitdir the
+                    # container could not resolve, and the message said none of that.
+                    why = ((done.stderr or done.stdout).strip().splitlines() or ['no output'])[-1][:200]
+                    incomplete.append(f'{cid}: the chain tree prime exited {done.returncode} ({why}), so '
+                                      f'every sample in this chain would measure an unprimed tree')
                     drop_disposable_copy(root, chain_copy)
                     continue
 
