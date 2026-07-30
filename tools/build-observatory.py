@@ -1805,6 +1805,85 @@ RECORDING_RULES = (
 )
 
 
+def identity_problems(obs: dict) -> list[str]:
+    """Every defect in this observation's run, sample, parent and prime relations, from retained data alone.
+
+    ONE implementation, because there were two consumers with two answers: recording checked these relations
+    and comparison did not. Returning problems rather than raising lets the recording path report all of
+    them and the validator refuse on the first.
+    """
+    problems: list[str] = []
+    # Keyed by the exact SAMPLE identity, not the metric class: a class matches any of three repetitions,
+    # so `prime not in retained` could only ever prove that SOME sample of that class existed.
+    retained = {s['sample_id']: s for s in obs['measurements'] if s.get('sample_id')}
+    order = {s.get('sample_id'): i for i, s in enumerate(obs['measurements'])}
+
+    for s in obs['measurements']:
+        authorities = (s.get('cache_before') or {}).get('authorities', {})
+        if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):
+            continue
+        prime = (s.get('cache_before') or {}).get('prime_sample_id')
+        where = f'{s["command_id"]} [{s["scenario_id"]}]'
+        if not prime:
+            problems.append(f'{where} reuses a project cache and names no prime sample, so its number is a '
+                            f'comparison against an unknown baseline')
+        elif prime not in retained:
+            problems.append(f'{where} names prime {prime!r}, which this observation does not retain')
+        elif not retained[prime]['scenario_id'].startswith('project.cold.'):
+            problems.append(f'{where} names a prime that is not a cold sample: '
+                            f'{retained[prime]["scenario_id"]}')
+        elif retained[prime]['status'] != 'ok':
+            problems.append(f'{where} names a prime whose own status is {retained[prime]["status"]!r}')
+        elif retained[prime].get('derived_parent_id'):
+            # Asked BEFORE "does it belong to this command": whether the named sample ran at all is the more
+            # basic question, and every derived child carries a different command id, so the command check
+            # would otherwise answer first and this rule could never be reached.
+            problems.append(f'{where} names a DERIVED sample as its prime; only a sample that actually ran '
+                            f'can have populated a cache')
+        elif retained[prime]['command_id'] != s['command_id']:
+            problems.append(f'{where} names a prime belonging to {retained[prime]["command_id"]}; another '
+                            f"command's cold run did not populate this chain")
+        elif (retained[prime].get('cache_before') or {}).get('cache_chain_id') != \
+                (s.get('cache_before') or {}).get('cache_chain_id'):
+            problems.append(f'{where} names a prime from another cache chain')
+        elif order.get(prime, -1) >= order.get(s.get('sample_id'), -1):
+            problems.append(f'{where} names a prime that does not precede it; a cache cannot have been '
+                            f'populated by a run that had not happened yet')
+
+    # Identity itself: one run, and one id per retained sample. A duplicate would let two measurements be
+    # cited as one, and every relation above is keyed on it.
+    if not obs.get('run_id'):
+        problems.append('the observation retains no run identity, so no sample in it can be named exactly')
+    ids = [s.get('sample_id') for s in obs['measurements']]
+    if any(not i for i in ids):
+        problems.append('a retained sample carries no sample identity')
+    elif len(set(ids)) != len(ids):
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        problems.append(f'duplicate sample identit(ies) {dup[:3]}; two measurements sharing one id can be '
+                        f'cited as each other')
+
+    for s in obs['measurements']:
+        parent = s.get('parent_sample_id')
+        if not s.get('derived_parent_id'):
+            if parent:
+                problems.append(f'{s["command_id"]} is a direct sample yet names a parent sample')
+            continue
+        if not parent:
+            problems.append(f'{s["command_id"]} is derived and names no exact parent sample')
+        elif parent not in retained:
+            problems.append(f'{s["command_id"]} names parent sample {parent!r}, which this observation does '
+                            f'not retain')
+        elif retained[parent]['command_id'] != s['derived_parent_id']:
+            problems.append(f'{s["command_id"]} names a parent sample belonging to '
+                            f'{retained[parent]["command_id"]}, not its declared parent '
+                            f'{s["derived_parent_id"]}')
+        elif retained[parent]['scenario_id'] != s['scenario_id']:
+            problems.append(f'{s["command_id"]} was observed under a parent running a different scenario')
+        elif order.get(parent, 1 << 30) >= order.get(s.get('sample_id'), -1):
+            problems.append(f'{s["command_id"]} was observed inside a parent run that had not started yet')
+    return problems
+
+
 def validate_observation(obs: dict, suite_digest: str) -> str:
     """Shape, digest and — the part that matters — every summary recomputed from its own samples.
 
@@ -1927,8 +2006,14 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{len(differing)} stored summar(ies) do not equal recomputation from the retained samples, '
             f'first {differing[:3]}')
+    # The identity relations are part of VALIDITY, not only of recording eligibility. Leaving them out of
+    # here is what let comparison conclude from an observation recording would have refused.
+    problems = identity_problems(obs)
+    if problems:
+        raise ObservatoryError(f'{len(problems)} identity defect(s), first: {problems[0]}')
     return (f'{len(samples)} retained sample(s) over {len(recomputed)} command-scenario pair(s); every '
-            f'summary equals recomputation; suite digest matches')
+            f'summary equals recomputation; run, sample, parent and prime identities resolve; suite digest '
+            f'matches')
 
 
 def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | None = None) -> dict:
@@ -2108,74 +2193,12 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     # be a cold, successful sample retained in THIS observation. The old rule asked a stringified dict
     # whether it contained the word `reused`, which is true of the stable caches in every cold sample, and
     # then looked for `primed_by_run` — a key live samples have never carried.
-    # Keyed by the exact SAMPLE identity, not the metric class: a class matches any of three repetitions,
-    # so `prime not in retained` could only ever prove that SOME sample of that class existed.
-    retained = {s['sample_id']: s for s in obs['measurements'] if s.get('sample_id')}
-    order = {s.get('sample_id'): i for i, s in enumerate(obs['measurements'])}
-    for s in obs['measurements']:
-        authorities = s['cache_before'].get('authorities', {})
-        if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):
-            continue
-        prime = s['cache_before'].get('prime_sample_id')
-        if not prime:
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] reuses a project cache and names no prime '
-                       f'sample, so its number is a comparison against an unknown baseline')
-        elif prime not in retained:
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names prime {prime!r}, which this '
-                       f'observation does not retain')
-        elif not retained[prime]['scenario_id'].startswith('project.cold.'):
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime that is not a cold sample: '
-                       f'{retained[prime]["scenario_id"]}')
-        elif retained[prime]['status'] != 'ok':
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime whose own status is '
-                       f'{retained[prime]["status"]!r}')
-        elif retained[prime].get('derived_parent_id'):
-            # Asked BEFORE "does it belong to this command": whether the named sample ran at all is the more
-            # basic question, and every derived child carries a different command id, so the command check
-            # would otherwise answer first and this rule could never be reached.
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a DERIVED sample as its prime; only a '
-                       f'sample that actually ran can have populated a cache')
-        elif retained[prime]['command_id'] != s['command_id']:
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime belonging to '
-                       f'{retained[prime]["command_id"]}; another command\'s cold run did not populate '
-                       f'this chain')
-        elif (retained[prime].get('cache_before') or {}).get('cache_chain_id') != \
-                s['cache_before'].get('cache_chain_id'):
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime from another cache chain')
-        elif order.get(prime, -1) >= order.get(s.get('sample_id'), -1):
-            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime that does not precede it; a '
-                       f'cache cannot have been populated by a run that had not happened yet')
+    # ONE implementation of these relations, shared with `validate_observation`. Recording checked them and
+    # comparison did not, so an observation that comparison happily produced verdicts from was one recording
+    # would have refused. Reporting every problem rather than the first is why this returns a list.
+    for problem in identity_problems(obs):
+        bad('R08', problem)
     ok('R08')
-
-    # Identity itself: one run, and one id per retained sample. A duplicate would let two measurements be
-    # cited as one, and every relation above is keyed on it.
-    if not obs.get('run_id'):
-        bad('R08', 'the observation retains no run identity, so no sample in it can be named exactly')
-    ids = [s.get('sample_id') for s in obs['measurements']]
-    if any(not i for i in ids):
-        bad('R08', 'a retained sample carries no sample identity')
-    elif len(set(ids)) != len(ids):
-        dup = sorted({i for i in ids if ids.count(i) > 1})
-        bad('R08', f'duplicate sample identit(ies) {dup[:3]}; two measurements sharing one id can be cited '
-                   f'as each other')
-    for s in obs['measurements']:
-        parent = s.get('parent_sample_id')
-        if not s.get('derived_parent_id'):
-            if parent:
-                bad('R08', f'{s["command_id"]} is a direct sample yet names a parent sample')
-            continue
-        if not parent:
-            bad('R08', f'{s["command_id"]} is derived and names no exact parent sample')
-        elif parent not in retained:
-            bad('R08', f'{s["command_id"]} names parent sample {parent!r}, which this observation does not '
-                       f'retain')
-        elif retained[parent]['command_id'] != s['derived_parent_id']:
-            bad('R08', f'{s["command_id"]} names a parent sample belonging to '
-                       f'{retained[parent]["command_id"]}, not its declared parent {s["derived_parent_id"]}')
-        elif retained[parent]['scenario_id'] != s['scenario_id']:
-            bad('R08', f'{s["command_id"]} was observed under a parent running a different scenario')
-        elif order.get(parent, 1 << 30) >= order.get(s.get('sample_id'), -1):
-            bad('R08', f'{s["command_id"]} was observed inside a parent run that had not started yet')
 
     if not edits_restored:
         bad('R09', 'at least one incremental edit did not restore byte-exactly')
@@ -2462,17 +2485,22 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     they overlap, and when one side has a single sample it reports the delta and refuses the noise call."""
     _comparable(base, 'baseline')
     _comparable(cand, 'candidate')
-    # §7.2 — a stored summary is a CLAIM about samples that are right there. Trusting it lets a tampered
-    # median produce a verdict about data that never changed.
+    # §13 — the COMPLETE validator, on both sides, before any verdict. Comparison used to check basic
+    # members and recompute summaries only, so an observation with a member removed still produced metric
+    # verdicts: the system had more than one definition of a valid observation, and comparison held the
+    # weaker one. A selector may be applied after this, never instead of it.
     for side, obs in (('baseline', base), ('candidate', cand)):
-        recomputed = summarise(obs['measurements'])
-        if obs['derived'].get('summaries', {}) != recomputed:
-            raise ObservatoryError(
-                f'the {side} observation\'s stored summaries do not equal recomputation from its own '
-                f'retained samples; no verdict can rest on them')
-        # §7.5 asks for one exact scope per metric. That is now STRUCTURAL rather than checked: resource
-        # scope is part of the metric identity, so two scopes are two metrics and cannot meet in one row.
-        # A check here would be unreachable, and an unreachable guard reads as protection it does not give.
+        try:
+            validate_observation(obs, obs.get('suite_digest', ''))
+        except ObservatoryError as exc:
+            raise ObservatoryError(f'the {side} observation does not validate, so no verdict can rest on '
+                                   f'it: {exc}') from None
+    # §7.2 — a stored summary is a CLAIM about samples that are right there, and trusting it would let a
+    # tampered median produce a verdict about data that never changed. It is recomputed inside the complete
+    # validator above, for both sides, so there is no second copy of that rule here to drift away from it.
+    # §7.5 asks for one exact scope per metric. That is now STRUCTURAL rather than checked: resource scope
+    # is part of the metric identity, so two scopes are two metrics and cannot meet in one row. A check
+    # here would be unreachable, and an unreachable guard reads as protection it does not give.
     same_host = (base['environment'].get('host_class_fingerprint')
                  == cand['environment'].get('host_class_fingerprint'))
     b_sum, c_sum = base['derived'].get('summaries', {}), cand['derived'].get('summaries', {})
@@ -4136,10 +4164,27 @@ def self_test(root: Path) -> int:
                                    stage=True),
              expect='recording rule R1')
 
+    def cmp_guard(*args, **kw):
+        """`compare`, but a refusal is REPORTED rather than raised.
+
+        An unguarded raise inside the self-test discards every failure collected before it, so a mutation
+        that makes a fixture invalid aborted the run and the control that was supposed to catch it never
+        printed. A control nobody can see failing is not evidence.
+        """
+        try:
+            return compare(*args, **kw)
+        except ObservatoryError as exc:
+            failures.append(f'a self-test comparison was refused: {exc}')
+            # The SAME members a real comparison returns, so a caller that renders the result reports the
+            # refusal instead of dying on a missing key — which is the abort this helper exists to prevent.
+            return {'metrics': [{'key': '-', 'classification': 'refused', 'reason': str(exc)}],
+                    'counts': {'added': 0, 'removed': 0, 'refused': 1},
+                    'suite_definitions': {'added': [], 'removed': []}}
+
     # ── comparison: the classification for a pair, and the reasons it declines to give one
     def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|project.warm.noop|-|-|selected|host-wrapper|wall_elapsed'):
         counts['total'] += 1
-        result = compare(base_obs, cand_obs)
+        result = cmp_guard(base_obs, cand_obs)
         row = next((m for m in result['metrics'] if m['key'] == key), None)
         if row is None:
             failures.append(f'{label}: no metric row for {key}')
@@ -4162,14 +4207,14 @@ def self_test(root: Path) -> int:
     verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
 
     counts['total'] += 1
-    single = compare(timed(100), timed(900))['metrics'][0]
+    single = cmp_guard(timed(100), timed(900))['metrics'][0]
     if single.get('noise_basis') != 'single-sample':
         failures.append(f'a one-sample side must say so: noise_basis was {single.get("noise_basis")!r}')
 
     counts['total'] += 1
     other_host = observation()
     other_host['environment'] = {**other_host['environment'], 'host_class_fingerprint': 'e' * 64}
-    row = compare(observation(), other_host)['metrics'][0]
+    row = cmp_guard(observation(), other_host)['metrics'][0]
     if row['classification'] != 'incomparable' or 'delta_percent' in row:
         failures.append('an incomparable host class must not be reported as an ordinary percentage delta')
 
@@ -4179,31 +4224,36 @@ def self_test(root: Path) -> int:
     scoped = timed(100, 110, 120)
     scoped['measurements'] = [dict(s, resource_scope=SCOPE_BUILDKIT) for s in scoped['measurements']]
     scoped['derived'] = {'summaries': summarise(scoped['measurements'])}
-    rows = compare(timed(100, 110, 120), scoped)['metrics']
+    rows = cmp_guard(timed(100, 110, 120), scoped)['metrics']
     verdicts = {r['classification'] for r in rows}
     if verdicts - {'added', 'removed'}:
         failures.append(f'a changed resource scope must not produce a delta: {verdicts}')
 
     counts['total'] += 1
     changed_def = observation(commands={'make.fmt': 'aa' * 32})
-    if compare(observation(), changed_def)['metrics'][0]['classification'] != 'incomparable':
+    if cmp_guard(observation(), changed_def)['metrics'][0]['classification'] != 'incomparable':
         failures.append('a changed command definition must be incomparable')
 
     counts['total'] += 1
-    empty = observation(samples=[], derived={'summaries': {}})
-    added = compare(empty, observation())
-    removed = compare(observation(), empty)
+    # A metric present on one side and absent on the other — which is what added/removed MEANS. This used
+    # to compare against a zero-sample observation, and a run that measured nothing is not a valid
+    # observation to draw any verdict from, so the fixture was asking the comparator a question it should
+    # refuse rather than answer.
+    other = observation(samples=[sample(command_id='make.diet', sample_index=i, wall_ns=n)
+                                 for i, n in enumerate((900_000, 1_000_000, 1_100_000))])
+    added = cmp_guard(other, observation())
+    removed = cmp_guard(observation(), other)
     if added['counts']['added'] != 1 or removed['counts']['removed'] != 1:
         failures.append(f'added/removed metrics were not reported: {added["counts"]}, {removed["counts"]}')
 
     counts['total'] += 1
-    defs = compare(observation(commands={'make.fmt': 'f0' * 32, 'make.gone': 'a1' * 32}),
+    defs = cmp_guard(observation(commands={'make.fmt': 'f0' * 32, 'make.gone': 'a1' * 32}),
                    observation(commands={'make.fmt': 'f0' * 32, 'make.new': 'b2' * 32}))['suite_definitions']
     if defs['added'] != ['make.new'] or defs['removed'] != ['make.gone']:
         failures.append(f'a suite change must narrow an old observation, not void it: {defs}')
 
     counts['total'] += 1
-    filtered = compare(observation(), observation(), only='make.nothing')
+    filtered = cmp_guard(observation(), observation(), only='make.nothing')
     if filtered['metrics']:
         failures.append('ONLY must be able to filter comparison output')
 
@@ -4342,10 +4392,22 @@ def self_test(root: Path) -> int:
             failures.append('a checkpoint must retain the samples taken so far')
 
     # ── §7 comparison: validated before it concludes, and one selector model
+    def without(member):
+        """An observation with one sample member removed — the reviewer's own reproduction."""
+        obs = observation()
+        obs['measurements'][0].pop(member)
+        return obs
+
+    observed('a comparison against an observation with a sample member removed',
+             lambda: compare(without('cache_before'), observation()),
+             expect='does not validate, so no verdict can rest on it')
+    observed('a comparison against an observation with no run identity',
+             lambda: compare(observation(run_id=None), observation()),
+             expect='does not validate, so no verdict can rest on it')
     observed('a comparison against a tampered stored summary',
              lambda: compare(observation(derived={'summaries': {'x|y|-|-|host-wrapper': {
                  'samples': 1, 'median_ns': 1, 'min_ns': 1, 'max_ns': 1}}}), observation()),
-             expect='do not equal recomputation from its own')
+             expect='do not equal recomputation from the retained samples')
 
     counts['total'] += 1
     two_scopes = [sample(sample_index=0), dict(sample(sample_index=1), resource_scope=SCOPE_BUILDKIT)]
@@ -4353,7 +4415,7 @@ def self_test(root: Path) -> int:
         failures.append('one metric must measure one resource scope: two scopes must be two metrics')
 
     counts['total'] += 1
-    grp = compare(observation(), observation(), only='policy', suite=suite)
+    grp = cmp_guard(observation(), observation(), only='policy', suite=suite)
     if grp['metrics'] and False:
         pass
     try:
@@ -4367,7 +4429,7 @@ def self_test(root: Path) -> int:
     base_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'aa' * 32}}
     cand_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'bb' * 32}}
     changed_scn = observation(definitions=base_defs)
-    row = compare(changed_scn, observation(definitions=cand_defs))['metrics'][0]
+    row = cmp_guard(changed_scn, observation(definitions=cand_defs))['metrics'][0]
     if row['classification'] != 'incomparable' or 'meaning of' not in row['reason']:
         failures.append(f'a changed scenario meaning must be incomparable: {row}')
 
@@ -4375,7 +4437,7 @@ def self_test(root: Path) -> int:
     slow = observation()
     slow['environment'] = {**slow['environment'],
                            'concurrency': {'make_jobs': 4, 'make_jobs_source': '-j4'}}
-    row = compare(slow, observation())['metrics'][0]
+    row = cmp_guard(slow, observation())['metrics'][0]
     if row['classification'] != 'incomparable' or 'concurrency' not in row['reason']:
         failures.append(f'a changed effective concurrency must be incomparable: {row}')
 
@@ -4395,7 +4457,10 @@ def self_test(root: Path) -> int:
             failures.append('a local path comparison input did not load')
 
     counts['total'] += 1
-    text = render_comparison(compare(timed(100, 110, 120), timed(900, 1_000, 1_100)))
+    # A REFUSED comparison is not rendered: the renderer reads members a refusal has no values for, and
+    # the assertion below reports the empty text rather than the run dying inside the formatter.
+    _cmp = cmp_guard(timed(100, 110, 120), timed(900, 1_000, 1_100))
+    text = '' if _cmp['counts'].get('refused') else render_comparison(_cmp)
     if 'regressed' not in text or 'n=3/3' not in text:
         failures.append('the plain comparison must show the classification and the sample counts')
 
@@ -4591,6 +4656,12 @@ def self_test(root: Path) -> int:
     kids += derive_child_samples(ana, [{'id': 'analysis.dune-graph', 'wall_ns': None, 'untimed': True,
                                         'source': 'same-build'}], {'analysis.dune-graph'})
     mixed = [direct, ana, *kids]
+    # Stamped exactly as `emit` stamps them, and in emission order, because that is the shape a real run
+    # assembles: the constructors leave `sample_id` unset and one place fills it in.
+    for _s in mixed:
+        _s['sample_id'] = sample_id_for('run-fixture', _s)
+    for _kid, _parent in ((kids[0], direct), (kids[1], ana)):
+        _kid['parent_sample_id'] = _parent['sample_id']
     shaped = observation(samples=mixed, derived={'summaries': summarise(mixed)})
     try:
         validate_observation(shaped, digest)

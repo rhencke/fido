@@ -158,6 +158,17 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'comparison using the COMPLETE observation validator, not a weaker local one',
+     "            validate_observation(obs, obs.get('suite_digest', ''))",
+     "            pass",
+     ('a comparison against an observation with a sample member removed',
+      'a comparison against an observation with no run identity')),
+
+    (OBS, 'the identity relations being part of validity, not only of recording',
+     "    problems = identity_problems(obs)\n    if problems:",
+     "    problems = []\n    if problems:",
+     ('a comparison against an observation with no run identity',)),
+
     (OBS, 'one run identity per observation',
      "    if not obs.get('run_id'):",
      "    if False:",
@@ -506,9 +517,11 @@ MUTANTS = (
      ('a retained raw-log digest whose file is absent',
       'a raw log that changed after it was measured')),
 
-    (OBS, 'stored summaries recomputed before comparison',
-     "        if obs['derived'].get('summaries', {}) != recomputed:",
-     "        if False:",
+    # Comparison no longer keeps its own copy of this rule; it reaches it through the one complete
+    # validator, so the anchor is the validator's.
+    (OBS, 'stored summaries recomputed before any verdict',
+     "    if stored != recomputed:",
+     "    if False:",
      ('a comparison against a tampered stored summary',)),
 
     (OBS, 'the incremental checkpoint',
