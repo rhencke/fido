@@ -136,6 +136,11 @@ MUTANTS = (
      "                    'selected_or_support': (parent['selected_or_support'] if role_of",
      ('a SELECTED derived child was stamped support',)),
 
+    (OBS, 'a command never measured by classification is accounted for',
+     "    catalog = set(sel_block.get('commands_never_measured') or [])",
+     "    catalog = set()",
+     ('a catalog-only command listed as never measured was refused',)),
+
     (OBS, 'a selected command that measured nothing must say so',
      "    if orphans:",
      "    if False:",

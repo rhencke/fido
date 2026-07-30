@@ -1666,7 +1666,13 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
     sel_block = obs.get('selection') or {}
     measured = {s['command_id'] for s in samples}
     accounted = set(sel_block.get('commands_with_no_scenario_here') or [])
-    orphans = sorted(set(sel_block.get('commands_selected') or []) - measured - accounted)
+    # A catalog-only command is never measured BY DEFINITION and the registry already carries the reason,
+    # so it is accounted for by its classification rather than by a per-run note. My rule flagged all three
+    # of them, which would have made every complete observation unrecordable.
+    # Self-contained on purpose: a baseline from another ref may have been built against a different
+    # registry, so the observation carries this itself rather than being judged against today's suite.
+    catalog = set(sel_block.get('commands_never_measured') or [])
+    orphans = sorted(set(sel_block.get('commands_selected') or []) - measured - accounted - catalog)
     if orphans:
         raise ObservatoryError(
             f'{orphans} are recorded as selected but produced no sample and are not listed among the '
@@ -2618,7 +2624,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'selection': {'partial': sel.partial, 'commands_selected': sorted(sel.selected),
                       'commands_support': sorted(sel.support), 'scenarios': list(sel.scenarios),
                       'scenarios_added_as_support': list(sel.scenario_support),
-                      'commands_with_no_scenario_here': sorted(unmeasured)},
+                      'commands_with_no_scenario_here': sorted(unmeasured),
+                      'commands_never_measured': sorted(
+                          c['id'] for c in suite['commands'] if c['measurement'] == 'catalog-only')},
     }
     return observation, incomplete, edits_ok
 
@@ -3316,7 +3324,8 @@ def self_test(root: Path) -> int:
                               'commands_support': [],
                               'scenarios': sorted({s['scenario_id'] for s in samples}),
                               'scenarios_added_as_support': [],
-                              'commands_with_no_scenario_here': []},
+                              'commands_with_no_scenario_here': [],
+                              'commands_never_measured': []},
                 'derived': {'summaries': summarise(samples)}}
         return {**base, **over}
 
@@ -4032,12 +4041,23 @@ def self_test(root: Path) -> int:
     observed('comparing against a pending observation',
              lambda: compare({'state': 'pending'}, observation()),
              expect='still pending')
+    # A catalog-only command is never measured by classification, and an observation that lists it as
+    # never-measured is complete. Without this exemption every complete observation was unrecordable.
+    counts['total'] += 1
+    try:
+        validate_observation(observation(selection={
+            'partial': False, 'commands_selected': ['make.fmt', 'make.observe'], 'commands_support': [],
+            'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
+            'commands_with_no_scenario_here': [], 'commands_never_measured': ['make.observe']}), digest)
+    except ObservatoryError as exc:
+        failures.append(f'a catalog-only command listed as never measured was refused: {exc}')
+
     counts['total'] += 1
     try:
         validate_observation(observation(selection={
             'partial': True, 'commands_selected': ['make.fmt', 'make.builder'], 'commands_support': [],
             'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
-            'commands_with_no_scenario_here': []}), digest)
+            'commands_with_no_scenario_here': [], 'commands_never_measured': []}), digest)
         failures.append('a selected command with no sample and no reason was accepted')
     except ObservatoryError:
         pass
