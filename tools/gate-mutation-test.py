@@ -204,6 +204,28 @@ MUTANTS = (
      "            if False:",
      ('an authority map that disagrees with the stage evidence beside it',)),
 
+    (OBS, 'the Git mode in a source view, so a chmod is not invisible',
+     "                entries.append(f'{rel}\\t{\"100755\" if st.st_mode & 0o111 else \"100644\"}\\t'",
+     "                entries.append(f'{rel}\\t100644\\t'",
+     ('a mode-only change left the source view identical',)),
+
+    # Simulating a FOLLOWED link rather than deleting the branch: removing it makes a symlink match neither
+    # arm and raise, which fails the run without reaching the control that names this rule.
+    (OBS, 'lstat, so a symlink is recorded rather than followed',
+     "                entries.append(f'{rel}\\t120000\\t{os.readlink(full)}')",
+     "                entries.append(f'{rel}\\t100644\\t{_sha256(full.read_bytes())}')",
+     ('shared one source view identity',)),
+
+    (OBS, 'a tracked deletion retained as an explicit absence',
+     "                if rel in tracked:\n                    deleted.append(rel)",
+     "                if False:\n                    deleted.append(rel)",
+     ('is not retained as an absence in the view',)),
+
+    (OBS, 'the declared source view deciding a sample digest',
+     "    return source_view(root, {'staged-index-export': 'staged-index',",
+     "    return source_view(root, {'staged-index-export': 'working-tree',",
+     ('a staged-index-export command was identified by something other than the staged index',)),
+
     (OBS, 'an incremental edit exhibiting the effect it was chosen for',
      "        if not rebuilt:\n            raise ObservatoryError(",
      "        if False:\n            raise ObservatoryError(",

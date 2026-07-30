@@ -543,24 +543,84 @@ def inventory_digest(root: Path) -> str:
     return _sha256(entries.encode('utf-8'))
 
 
-def content_digest(root: Path) -> str:
-    """An exact digest of the source a command will actually see.
+SOURCE_VIEW_KINDS = ('committed-tree', 'staged-index', 'working-tree')
 
-    `git status --porcelain` sliced at character three is not a path model: it mangles renames, quoted names,
-    spaces and staged-versus-unstaged combinations. This hashes CONTENT over tracked plus
-    untracked-nonignored files instead, which needs no path parsing at all and answers the question the
-    subject is really asking — what bytes were built."""
-    listing = _git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
-    parts = []
-    for rel in sorted(p for p in listing.split('\0') if p):
-        f = root / rel
-        try:
-            parts.append(f'{rel}:{_sha256(f.read_bytes())}')
-        except (OSError, IsADirectoryError):
-            parts.append(f'{rel}:unreadable')
-    if not parts:
+
+def source_view(root: Path, kind: str) -> dict:
+    """The exact source a command will see — the ONE object that both identifies it and materialises it.
+
+    Content alone was not a source view. Hashing bytes over tracked-plus-untracked files answered "what
+    bytes were built" and nothing else, so a chmod-only change produced the same digest, a symlink was read
+    through as though it were its target, and a staged index that differed from the working tree was
+    described by the working tree's digest. The pre-commit path measured an exported INDEX while its sample
+    carried a WORKING-TREE identity.
+
+    So an entry carries path, Git mode (which is where the executable bit and the symlink type live) and
+    either the blob identity or the link target. A tracked path deleted on disk is retained as an explicit
+    ABSENCE rather than silently dropped, because absence is part of what the tree is.
+    """
+    import os
+    import stat as _stat
+    entries: list[str] = []
+    deleted: list[str] = []
+    if kind in ('staged-index', 'staged-index-export'):
+        for line in _git(root, 'ls-files', '--stage', '-z').split('\0'):
+            if not line:
+                continue
+            meta, path = line.split('\t', 1)
+            mode, blob, _stage = meta.split()
+            entries.append(f'{path}\t{mode}\t{blob}')
+    elif kind == 'committed-tree':
+        for line in _git(root, 'ls-tree', '-r', '-z', 'HEAD').split('\0'):
+            if not line:
+                continue
+            meta, path = line.split('\t', 1)
+            mode, _type, sha = meta.split()
+            entries.append(f'{path}\t{mode}\t{sha}')
+    elif kind == 'working-tree':
+        tracked = {p for p in _git(root, 'ls-files', '-z').split('\0') if p}
+        listing = _git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+        for rel in sorted(p for p in listing.split('\0') if p):
+            full = root / rel
+            try:
+                st = full.lstat()                  # lstat, so a symlink is a symlink and not its target
+            except OSError:
+                if rel in tracked:
+                    deleted.append(rel)            # a tracked deletion IS part of the view
+                continue
+            if _stat.S_ISLNK(st.st_mode):
+                entries.append(f'{rel}\t120000\t{os.readlink(full)}')
+            elif _stat.S_ISREG(st.st_mode):
+                entries.append(f'{rel}\t{"100755" if st.st_mode & 0o111 else "100644"}\t'
+                               f'{_sha256(full.read_bytes())}')
+            else:
+                raise ObservatoryError(f'{rel}: neither a regular file nor a symlink, so this source view '
+                                       f'cannot be reproduced exactly')
+    else:
+        raise ObservatoryError(f'source view {kind!r} is not one this tool can identify exactly')
+    if not entries:
         raise ObservatoryError(f'{root}: no source files enumerated, so the subject cannot be identified')
-    return _sha256('\n'.join(parts).encode('utf-8'))
+    body = '\n'.join(sorted(entries) + [f'\x00absent\t{d}' for d in sorted(deleted)])
+    return {'kind': kind, 'entry_count': len(entries), 'deleted': sorted(deleted),
+            'id': _sha256(body.encode('utf-8'))}
+
+
+def content_digest(root: Path) -> str:
+    """The working-tree source view's identity."""
+    return source_view(root, 'working-tree')['id']
+
+
+def declared_source_digest(root: Path, command: dict) -> str | None:
+    """The identity of the view this command DECLARES it reads, not always the working tree.
+
+    A pre-commit sample measures an exported staged index; describing it with a working-tree digest named a
+    tree the command never saw.
+    """
+    kind = command['source_view']
+    if kind == 'environment-only':
+        return None
+    return source_view(root, {'staged-index-export': 'staged-index',
+                              'disposable-copy': 'working-tree'}.get(kind, kind))['id']
 
 
 def subject(root: Path) -> dict:
@@ -1784,25 +1844,55 @@ def apply_edit(copy_root: Path, edit: dict, index: int = 0, probe: str = '') -> 
     return None
 
 
-def disposable_copy(root: Path, dest: Path, source_view: str = 'committed-tree') -> Path:
+def disposable_copy(root: Path, dest: Path, view_kind: str = 'committed-tree') -> Path:
     """An exact, throwaway copy of the SELECTED source view — never silently of HEAD.
 
     The first candidate always took HEAD. On a dirty run its non-mutating samples ran in the dirty tree while
     its incremental samples ran at HEAD, so one observation contained samples from two different source trees
     under one subject. A worktree is used because a plain copy breaks every target that reads the index; for
     a dirty view the uncommitted bytes are then applied on top, so the copy is what was really there."""
+    import os
+    import shutil
+    import stat as _stat
     _git(root, 'worktree', 'add', '--detach', '--quiet', str(dest), 'HEAD')
-    if source_view == 'working-tree':
-        import shutil
-        listing = _git(root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
-        for rel in (p for p in listing.split('\0') if p):
+    if view_kind == 'working-tree':
+        listing = [p for p in _git(root, 'ls-files', '-z', '--cached', '--others',
+                                   '--exclude-standard').split('\0') if p]
+        present = set()
+        for rel in listing:
             src, dst = root / rel, dest / rel
-            if src.is_file():
-                dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                st = src.lstat()
+            except OSError:
+                continue                           # a tracked deletion: handled below, never copied back
+            present.add(rel)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.is_symlink() or dst.exists():
+                dst.unlink()
+            if _stat.S_ISLNK(st.st_mode):
+                # Reproduced AS a symlink. Copying through it wrote the target's bytes into a regular file,
+                # which is a different tree than the one being measured.
+                os.symlink(os.readlink(src), dst)
+            elif _stat.S_ISREG(st.st_mode):
                 shutil.copy2(src, dst)
-    elif source_view != 'committed-tree':
+        # A tracked file DELETED in the working tree must be absent here too. The worktree starts at HEAD,
+        # so without this the deletion was silently reintroduced and the copy measured a tree that no
+        # longer existed.
+        for rel in [p for p in _git(root, 'ls-files', '-z').split('\0') if p]:
+            if rel not in present:
+                (dest / rel).unlink(missing_ok=True)
+    elif view_kind != 'committed-tree':
         raise ObservatoryError(
-            f'disposable copy: source view {source_view!r} is not one this tool can materialise exactly')
+            f'disposable copy: source view {view_kind!r} is not one this tool can materialise exactly')
+
+    # The materialised tree must BE the view that was selected. Identity and materialisation come from one
+    # object precisely so this can be asserted rather than assumed; two parallel authorities disagreed.
+    want = source_view(root, view_kind)['id']
+    got = source_view(dest, view_kind)['id']
+    if want != got:
+        raise ObservatoryError(
+            f'the disposable copy of the {view_kind} view is not that view ({want[:12]} vs {got[:12]}); '
+            f'every sample taken in it would describe a tree nobody selected')
     return dest
 
 
@@ -2914,7 +3004,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                             raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
                     # A command declared environment-only reads no repository source, so a repository
                     # digest beside it would suggest an input it never had.
-                    digest = None if command['source_view'] == 'environment-only' else content_digest(target)
+                    digest = declared_source_digest(target, command)
                     anchor_log = raw_dir / (raw_log_name(cid, scenario_id, index,
                                                          edit['id'] if edit else None) + '.anchors')
                     # A bootstrap sample must build the builder it is timing. Handing it the observatory's
@@ -4658,6 +4748,63 @@ def self_test(root: Path) -> int:
             definition_fingerprints(suite)['scenarios']['project.cold.audit-fresh']:
         failures.append('a changed invalidation root set left the scenario fingerprint unchanged, so two '
                         'observations taken under different cuts would compare as if they matched')
+
+    # ── §5 the source view owns identity AND materialisation, and distinguishes what bytes alone cannot
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        w = Path(d) / 'r'
+        w.mkdir()
+        _sp.run(['git', 'init', '-q'], cwd=w, check=True, capture_output=True)
+        for k, v in (('user.email', 'o@example.invalid'), ('user.name', 'observatory')):
+            _sp.run(['git', 'config', k, v], cwd=w, check=True, capture_output=True)
+        (w / 'kept.v').write_text('Definition x := 1.\n', encoding='utf-8')
+        (w / 'gone.v').write_text('Definition y := 2.\n', encoding='utf-8')
+        (w / 'tool.sh').write_text('#!/bin/sh\n', encoding='utf-8')
+        _sp.run(['git', 'add', '-A'], cwd=w, check=True, capture_output=True)
+        _sp.run(['git', 'commit', '-qm', 'base'], cwd=w, check=True, capture_output=True)
+        base = source_view(w, 'working-tree')['id']
+
+        (w / 'tool.sh').chmod(0o755)
+        if source_view(w, 'working-tree')['id'] == base:
+            failures.append('a mode-only change left the source view identical, so an executable bit could '
+                            'change under one identity')
+        (w / 'tool.sh').chmod(0o644)
+
+        target = w / 'target.txt'
+        target.write_text('payload\n', encoding='utf-8')
+        (w / 'link').symlink_to('target.txt')
+        with_link = source_view(w, 'working-tree')
+        (w / 'link').unlink()
+        (w / 'link').write_text('payload\n', encoding='utf-8')   # the SAME bytes, as a regular file
+        if source_view(w, 'working-tree')['id'] == with_link['id']:
+            failures.append('a symlink and a regular file holding its target\'s bytes shared one source '
+                            'view identity, so the link was followed rather than recorded')
+        (w / 'link').unlink()
+        target.unlink()
+
+        _sp.run(['git', 'add', '-A'], cwd=w, check=True, capture_output=True)
+        staged = source_view(w, 'staged-index')['id']
+        (w / 'kept.v').write_text('Definition x := 999.\n', encoding='utf-8')
+        if source_view(w, 'staged-index')['id'] != staged:
+            failures.append('an unstaged working-tree edit changed the STAGED index identity')
+        if source_view(w, 'working-tree')['id'] == staged:
+            failures.append('the staged index and a differing working tree shared one identity, so a '
+                            'pre-commit sample could carry a digest for a tree it never saw')
+
+        # A command declaring `staged-index-export` must be identified by the STAGED index it will export,
+        # not by the working tree it never sees.
+        hook_cmd = {'source_view': 'staged-index-export'}
+        if declared_source_digest(w, hook_cmd) != staged:
+            failures.append('a staged-index-export command was identified by something other than the '
+                            'staged index it exports')
+        if declared_source_digest(w, {'source_view': 'working-tree'}) == staged:
+            failures.append('a working-tree command and a staged-index-export command were given the same '
+                            'identity for two different trees')
+
+        (w / 'gone.v').unlink()
+        view = source_view(w, 'working-tree')
+        if 'gone.v' not in view['deleted']:
+            failures.append('a tracked file deleted on disk is not retained as an absence in the view')
 
     # ── §8 an incremental sample must exhibit the effect its edit was chosen for
     _inputs = docker_context_inputs(root)
