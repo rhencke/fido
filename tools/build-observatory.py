@@ -2953,6 +2953,24 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             continue
         progress(f'fido: observe — chain {cid}: {", ".join(chain)}')
 
+        # ONE disposable tree per CHAIN, not one per sample.
+        #
+        # A fresh copy per sample is a fresh Docker build CONTEXT per sample, and its COPY layers cannot hit
+        # the cache the chain's earlier samples filled: measured directly, an ARCHITECTURE.md-only edit —
+        # which no stage copies — re-ran every COPY step and rebuilt the theory for 123.2s. So every
+        # incremental sample was measuring "build in a new directory", not "the cost of this edit", and a
+        # leaf edit came out the same as a critical-path edit because neither edit was what rebuilt.
+        #
+        # Sharing one tree across the chain makes the edit the ONLY difference between a warm sample and the
+        # incremental sample after it. The chain's cold sample pays the new-tree cost, which is correct: a
+        # cold sample rebuilds its declared roots by definition.
+        chain_copy = None
+        if command.get('isolation') == 'disposable-copy' or any(
+                scenarios[s].get('edit') for s in chain):
+            chain_copy = raw_dir.parent / 'copies' / cid
+            chain_copy.parent.mkdir(parents=True, exist_ok=True)
+            disposable_copy(root, chain_copy, subj['source_view'])
+
         for scenario_id in chain:
             scenario = scenarios[scenario_id]
             role = sample_role(sel, cid, scenario_id)
@@ -2976,12 +2994,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 scratch = None
                 try:
                     iso_kind = command.get('isolation')
-                    needs_copy = iso_kind == 'disposable-copy' or edit is not None
                     iso_env = {}
-                    if needs_copy:
-                        copy = raw_dir.parent / 'copies' / f'{cid}.{scenario_id}.{index}'
-                        copy.parent.mkdir(parents=True, exist_ok=True)
-                        disposable_copy(root, copy, subj['source_view'])
+                    if chain_copy is not None:
+                        copy = chain_copy           # the chain's one tree; see the note above the loop
                     elif iso_kind:
                         scratch = raw_dir.parent / 'isolated' / f'{cid}.{scenario_id}.{index}'
                         # The scratch directory is where an isolation keeps ITS OWN files. It becomes the
@@ -3050,8 +3065,13 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         leak = release_isolation(command, scratch, _subprocess.run)
                         if leak:
                             incomplete.append(leak)
-                    elif copy is not None:
+                    elif copy is not None and copy is not chain_copy:
                         drop_disposable_copy(root, copy)
+
+        # The chain's tree outlives its samples and is dropped once, here — dropping it per sample is what
+        # made every sample build in a new directory.
+        if chain_copy is not None:
+            drop_disposable_copy(root, chain_copy)
 
     for cid in sel.order:
         command = commands[cid]
