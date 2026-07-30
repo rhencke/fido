@@ -10,9 +10,12 @@
 # Project Python never runs on the host; every gate, writer, profiler and observatory operation runs here.
 # The project's Python imports the standard library alone, so no Python package is installed at any point:
 # `tools/python-requirements.lock` states that closure and `tools/host-python-gate.py` proves it still holds.
-# Git is here because four of the gates read Git's own index and ignore rules rather than reimplementing
-# them; it is an OS utility they shell out to, not a Python dependency.  The apt pin is exact, so a
-# withdrawn version fails this build loudly instead of drifting silently to another one.
+# Git is here because the gates read Git's own index and ignore rules rather than reimplementing them, and
+# `editorconfig` because the whitespace check delegates property resolution to the EditorConfig reference
+# implementation rather than guessing at it.  Both are OS utilities the tools shell out to, not Python
+# dependencies, and `tools/host-python-gate.py` proves this image carries every binary they invoke — that
+# rule exists because `make fmt` shipped broken without it, and only the observatory measuring the target
+# found out.  The apt pins are exact, so a withdrawn version fails this build loudly instead of drifting.
 # Project sources are MOUNTED read-only from the exact source view under measurement, never COPYed in, so a
 # stale green verdict from an incomplete COPY set is unrepresentable here rather than merely checked for.
 # The base is Debian bookworm rather than Alpine, and that is a measured choice, not a preference: the
@@ -20,7 +23,7 @@
 FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS python-tools
 RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked \
     apt-get update \
-    && apt-get install -y --no-install-recommends git=1:2.39.5-0+deb12u3 \
+    && apt-get install -y --no-install-recommends git=1:2.39.5-0+deb12u3 editorconfig=0.12.6-0.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # The Docker client and Buildx by digest, so the observatory runner's client provenance is pinned like the

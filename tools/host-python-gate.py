@@ -319,7 +319,52 @@ def check_closure(root: Path, findings: list[str]) -> None:
                     f'{rel}: imports {top!r}, which is neither standard library nor pinned in {LOCK}')
 
 
-CHECKS = (check_recipes, check_hook, check_scripts, check_docs, check_modes, check_image, check_closure)
+# Binaries the pinned image supplies, and where each comes from. `docker` is deliberately absent from the
+# gate image: the deterministic self-test must not be able to reach a daemon, so only the observatory runner
+# carries a client.
+IMAGE_BINARIES = {'git': 'apt in python-tools', 'tar': 'the base image',
+                  'editorconfig': 'apt in python-tools', 'sh': 'the base image',
+                  'docker': 'copied into observatory-runner only'}
+
+
+def invoked_binaries(root: Path, rel: str) -> set[str]:
+    """Every external command this tool shells out to, from its parsed syntax."""
+    out: set[str] = set()
+    try:
+        tree = ast.parse((root / rel).read_text(encoding='utf-8'), filename=rel)
+    except SyntaxError:
+        return out
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ('run', 'Popen', 'check_output', 'call') and node.args):
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.List) and first.elts and isinstance(first.elts[0], ast.Constant):
+            if isinstance(first.elts[0].value, str):
+                out.add(first.elts[0].value)
+        elif isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value.split():
+            out.add(first.value.split()[0])
+    return out
+
+
+def check_binaries(root: Path, findings: list[str]) -> None:
+    """Every binary a tool invokes is one the pinned image actually supplies.
+
+    `make fmt` shipped broken because `fmt-check.py` shells out to `editorconfig` and the image did not
+    carry it. Nothing noticed: fmt reports rather than gates, so it is not in `make check`, and the failure
+    only surfaced when the observatory measured the target. A tool's external commands are part of its
+    dependency set exactly as its imports are, and they are checked here for the same reason.
+    """
+    for rel in tracked(root, '.py'):
+        for binary in sorted(invoked_binaries(root, rel)):
+            if binary not in IMAGE_BINARIES:
+                findings.append(
+                    f'{rel}: invokes {binary!r}, which the pinned image does not declare; add it to the '
+                    f'image and to IMAGE_BINARIES, or the tool is broken wherever it runs')
+
+
+CHECKS = (check_recipes, check_hook, check_scripts, check_docs, check_modes, check_image, check_closure,
+          check_binaries)
 
 
 def run(root: Path) -> list[str]:
@@ -419,6 +464,13 @@ def self_test(root: Path) -> int:
     must_flag('an unpinned third-party package',
               lambda w: (w / 'tools' / 'rogue.py').write_text('import requests\n', encoding='utf-8'),
               'neither standard library nor pinned')
+    must_flag('a tool shelling out to a binary the image does not carry',
+              lambda w: (w / 'tools' / 'rogue.py').write_text(
+                  'import subprocess\nsubprocess.run(["ripgrep", "x"])\n', encoding='utf-8'),
+              'which the pinned image does not declare')
+    must_accept('a tool shelling out to a binary the image does carry',
+                lambda w: (w / 'tools' / 'ok.py').write_text(
+                    'import subprocess\nsubprocess.run(["git", "status"])\n', encoding='utf-8'))
     must_flag('a lock entry with no integrity hash',
               append(LOCK, '\nrequests==2.32.3\n'), 'is not an exact')
     must_accept('a pinned lock entry and its import',

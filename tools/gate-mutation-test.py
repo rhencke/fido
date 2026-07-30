@@ -63,6 +63,11 @@ MUTANTS = (
      "        if False:",
      ('project Python copied into an image',)),
 
+    (HOSTPY, 'the external-binary closure, so a tool cannot need a binary the image lacks',
+     "            if binary not in IMAGE_BINARIES:",
+     "            if False:",
+     ('a tool shelling out to a binary the image does not carry',)),
+
     (HOSTPY, 'the standard-library-or-pinned import closure',
      "                if not top or top in stdlib or top in pinned:",
      "                if True:",

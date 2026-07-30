@@ -2970,6 +2970,26 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             chain_copy = raw_dir.parent / 'copies' / cid
             chain_copy.parent.mkdir(parents=True, exist_ok=True)
             disposable_copy(root, chain_copy, subj['source_view'])
+            # And PRIME it, outside every measured interval.
+            #
+            # A new tree is a new Docker build context, so the first build in it rebuilds every stage whose
+            # COPY reads that context — not only the root a cold scenario declares. Measured directly, a
+            # cold `make.e2e` in a fresh tree rebuilt `emit`, which is UPSTREAM of its declared `go-e2e`
+            # root, and the cut checker refused the sample for describing less work than it did. It was
+            # right to: the sample was measuring the tree's newness on top of its declared cut.
+            #
+            # Same principle as the toolchain preflight. What a project-cold scenario means is "everything
+            # present except this root and its descendants", so the tree has to be warm before the cut can
+            # mean anything.
+            if command.get('build_targets'):
+                progress(f'fido: observe — priming {cid} tree (outside every measured interval)')
+                done = _subprocess.run(materialise_execution(command, None, OBSERVATORY_BUILDER),
+                                       cwd=str(chain_copy), capture_output=True, text=True)
+                if done.returncode != command['expected_exit']:
+                    incomplete.append(f'{cid}: the chain tree prime exited {done.returncode}, so every '
+                                      f'sample in this chain would measure an unprimed tree')
+                    drop_disposable_copy(root, chain_copy)
+                    continue
 
         for scenario_id in chain:
             scenario = scenarios[scenario_id]

@@ -180,14 +180,19 @@ observatory: pytools
 #   make observe RECORD=1              replace the tracked observation, only from a clean complete run
 #   make observe LIST=1                every stable command ID and how it is measured
 #   make observe HELP=1                usage, cache definitions, recording and comparison rules
+# Every path is mounted AT ITS HOST PATH, and that is load-bearing rather than tidy.  The runner drives the
+# host daemon through the socket, so any `-v` a measured command issues is resolved by the HOST — a repo
+# mounted at /repo inside the runner made `make check` ask the host for /repo, which does not exist, and
+# Docker silently supplied an empty directory instead of failing.  Identical paths on both sides means a
+# nested mount names the same bytes either way.
 observe: observatory-runner
 	@bundles=$${FIDO_OBSERVATORY_HOME:-$${TMPDIR:-/tmp}/fido-observatory}; mkdir -p "$$bundles"; \
 	  docker run --rm -u $(shell id -u):$(shell id -g) $(if $(DOCKER_GID),--group-add $(DOCKER_GID)) \
 	    -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp -e DOCKER_CONFIG=/tmp/.docker \
 	    -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-	    -v "$(CURDIR)":/repo -v "$$bundles":/observatory -v "$$HOME/.docker":/tmp/.docker \
-	    -v /var/run/docker.sock:/var/run/docker.sock -w /repo $(OBSTAG) \
-	    python3 tools/build-observatory.py --observe --bundle-root /observatory \
+	    -v "$(CURDIR)":"$(CURDIR)" -v "$$bundles":"$$bundles" -v "$$HOME/.docker":/tmp/.docker \
+	    -v /var/run/docker.sock:/var/run/docker.sock -w "$(CURDIR)" $(OBSTAG) \
+	    python3 tools/build-observatory.py --observe --bundle-root "$$bundles" \
 	      $(if $(ONLY),--only "$(ONLY)") $(if $(SCENARIO),--scenario "$(SCENARIO)") \
 	      $(if $(BASE),--base "$(BASE)") $(if $(COMPARE),--compare "$(COMPARE)") \
 	      $(if $(RECORD),--record) $(if $(LIST),--list) $(if $(HELP),--usage)
