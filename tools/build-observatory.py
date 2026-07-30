@@ -1042,7 +1042,8 @@ def parse_buildkit_progress(text: str) -> list[dict]:
         key=lambda e: e['id'])
 
 
-def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> list[dict]:
+def derive_child_samples(parent: dict, events: list[dict], known: set[str],
+                         role_of=None) -> list[dict]:
     """One sample per derived child, from its parent's own events, keyed BY that parent.
 
     Merging one stage observed under four parents into a single median answers a question nobody asked, so
@@ -1052,7 +1053,12 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str]) -> l
         if event['id'] not in known:
             continue
         buildkit = event['source'] == 'buildkit-progress'
+        # The child's OWN role, not the parent's. Spreading the parent stamped a selected child `support`
+        # whenever its live parent was support — `ONLY=docker.prover` is exactly that shape, and §3A.5 claims
+        # the opposite in as many words.
         out.append({**parent, 'command_id': event['id'],
+                    'selected_or_support': (role_of(event['id']) if role_of
+                                            else parent['selected_or_support']),
                     'derived_parent_id': parent['command_id'],
                     'wall_ns': event.get('wall_ns') if not buildkit else None,
                     'aggregate_step_ns': event.get('aggregate_step_ns'),
@@ -1375,6 +1381,20 @@ def repeated_work(suite: dict, samples: list[dict]) -> dict:
             'measured_commands': sorted(measured)}
 
 
+def observed_load(samples: list[dict]) -> dict:
+    """The host load actually seen across a run, so the condition each number was taken under is readable.
+
+    Reported, never judged. A threshold here would be a magic number standing in for a judgement nobody
+    made, and load is deliberately absent from the comparison fingerprint because it moves between two runs
+    on one machine."""
+    seen = [v for s in samples
+            for v in ((s.get('host_load') or {}).get('before'), (s.get('host_load') or {}).get('after'))
+            if isinstance(v, (int, float))]
+    if not seen:
+        return {'samples': 0, 'min': None, 'max': None, 'unavailable': True}
+    return {'samples': len(seen), 'min': min(seen), 'max': max(seen), 'unavailable': False}
+
+
 def summarise(samples: list[dict]) -> dict:
     """Derived median, minimum and maximum, alongside the samples they came from — never instead of them.
 
@@ -1479,7 +1499,11 @@ def check_cache_provenance(root: Path, scenario: dict, env: dict) -> dict:
         raise ObservatoryError(f'scenario {scenario["id"]}: cache authorities {missing} are unstated; each '
                                f'must be recorded independently')
 
-    needs_prime = any(v == 'reused' for v in declared.values())
+    # Only a reused PROJECT result needs a prime. The stable infrastructure caches are `reused` by the cache
+    # cut's own premise — the builder, base images and pinned toolchain are already present, primed by the
+    # machine's history, which the amendment places outside the measured interval and outside canonical
+    # evidence. Demanding a prime for those refused every cold sample that had no cached sibling.
+    needs_prime = any(declared.get(a) == 'reused' for a in PROJECT_CACHES)
     state = read_cache_state(root)
     if not needs_prime:
         return {'authorities': dict(declared), 'primed_by_run': None,
@@ -2512,7 +2536,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                                                 edit['id'] if edit else None) + '.log'))
                     check_cut_observed(s, scenario, suite)
                     emit(s)
-                    for child in derive_child_samples(s, s['derived_stage_events'], derived_ids):
+                    for child in derive_child_samples(
+                            s, s['derived_stage_events'], derived_ids,
+                            role_of=lambda kid: sample_role(sel, kid, scenario_id)):
                         emit(child)
                     if edit:
                         restore_and_verify(target, edit, original, before, [edit['path']], index)
@@ -2562,7 +2588,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
                                         subj['content_digest'], index)
                     emit(s)
-                    for child in derive_child_samples(s, events, derived_ids):
+                    for child in derive_child_samples(
+                            s, events, derived_ids,
+                            role_of=lambda kid: sample_role(sel, kid, scenario_id)):
                         emit(child)
                 except ObservatoryError as exc:
                     incomplete.append(f'{cid}/{scenario_id}')
@@ -2579,6 +2607,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         derived['weighted_rebuild_cost'] = weighted_rebuild_cost(history, graph)
     if graph or history:
         derived['repeated_work'] = repeated_work(suite, samples)
+
+    # The reader I claimed this had. Recording the host load and then surfacing it nowhere made it a required
+    # field nothing consumes, which is a blocked class in the accepted review basis — and I committed it in
+    # the same batch where I made `invalidation_roots` load-bearing for exactly that reason. It stays a
+    # DISCLOSURE and never a threshold: the range is reported, and no rule rejects a sample for it.
+    derived['host_load'] = observed_load(samples)
 
     observation = {
         'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'subject': subj, 'environment': env,
@@ -3124,6 +3158,24 @@ def self_test(root: Path) -> int:
     if sample_role(warm_only, 'docker.prover', 'project.warm.noop') != 'support':
         failures.append('a command that was never selected stays support')
 
+    # §3A.5 in as many words: a selected derived child is marked selected even when its live parent is
+    # support. Spreading the parent's fields into the child stamped it `support` and the control that
+    # existed only checked the Selection object, which was right, rather than the sample, which was not.
+    counts['total'] += 1
+    child_sel = select(suite, only='docker.prover')
+    parent_of_child = 'make.prove'
+    if parent_of_child not in child_sel.support:
+        failures.append(f'selecting a derived child must pull in its live parent: {child_sel.support}')
+    kid = derive_child_samples(
+        {'command_id': parent_of_child, 'scenario_id': 'project.cold.prover',
+         'selected_or_support': sample_role(child_sel, parent_of_child, 'project.cold.prover')},
+        [{'id': 'docker.prover', 'aggregate_step_ns': 5, 'source': 'buildkit-progress'}],
+        {'docker.prover'},
+        role_of=lambda k: sample_role(child_sel, k, 'project.cold.prover'))
+    if not kid or kid[0]['selected_or_support'] != 'selected':
+        failures.append('a SELECTED derived child was stamped support because it inherited its parent\'s '
+                        'role, which is the reverse of what the contract states')
+
     counts['total'] += 1
     cold_only = select(suite, only='make.prove', scenario='project.cold.prover')
     if cold_only.scenario_support:
@@ -3188,6 +3240,18 @@ def self_test(root: Path) -> int:
             lambda w: (primed(w), check_cache_provenance(w, reusing, env_now)))
     guarded('an unknown cache accepted as primed',
             lambda w: check_cache_provenance(w, reusing, env_now),
+            expect='will not label a discovered cache as primed')
+    # The other direction. A cold sample reuses the STABLE infrastructure by the cut's own premise and has
+    # no prime; requiring one refused every cold command that had no cached sibling to prime it.
+    guarded('a cold scenario reusing only stable infrastructure, with no prime',
+            lambda w: check_cache_provenance(
+                w, {**reusing, 'cache_state': {**reusing['cache_state'],
+                                               **{a: 'empty' for a in PROJECT_CACHES}}}, env_now))
+    guarded('a project cache reused with no prime is still refused',
+            lambda w: check_cache_provenance(
+                w, {**reusing, 'cache_state': {**reusing['cache_state'],
+                                               **{a: 'empty' for a in STABLE_CACHES},
+                                               'dune_build': 'reused'}}, env_now),
             expect='will not label a discovered cache as primed')
     guarded('a cached run with no priming run recorded',
             lambda w: (primed(w, primed_by_run=''), check_cache_provenance(w, reusing, env_now)),
@@ -4030,6 +4094,16 @@ def self_test(root: Path) -> int:
                         'state would be attributed to the wrong stage')
     except ObservatoryError:
         pass
+
+    # Recorded AND read: the range is derived from the retained samples, so a reader sees the condition and
+    # the validator can recompute it. No rule rejects a sample for load — that would be an invented cut-off.
+    counts['total'] += 1
+    loaded = observed_load([{'host_load': {'before': 0.5, 'after': 2.5}},
+                            {'host_load': {'before': 1.5, 'after': None}}])
+    if (loaded['samples'], loaded['min'], loaded['max']) != (3, 0.5, 2.5):
+        failures.append(f'the observed host-load range was not derived from the samples: {loaded}')
+    if observed_load([{'host_load': {'before': None, 'after': None}}])['unavailable'] is not True:
+        failures.append('a run whose kernel published no load must say unavailable, not invent a range')
 
     # Both detectors read BuildKit steps. The word `bootstrap` appears in this tool's own control names,
     # which the pre-commit hook prints, and a log carrying arbitrary tool output must not be read for

@@ -126,6 +126,16 @@ MUTANTS = (
      "    return 'shell'",
      ('the shell runner would try to exec these non-programs',)),
 
+    (OBS, 'the host-load range derived from the retained samples',
+     "    seen = [v for s in samples",
+     "    seen = [v for s in []",
+     ('the observed host-load range was not derived from the samples',)),
+
+    (OBS, 'a derived child carries its own role, not its parent\'s',
+     "                    'selected_or_support': (role_of(event['id']) if role_of",
+     "                    'selected_or_support': (parent['selected_or_support'] if role_of",
+     ('a SELECTED derived child was stamped support',)),
+
     (OBS, 'a selected command that measured nothing must say so',
      "    if orphans:",
      "    if False:",
@@ -227,10 +237,15 @@ MUTANTS = (
      ('comparing against a pending observation',)),
 
     (OBS, 'cache provenance',
-     "    needs_prime = any(v == 'reused' for v in declared.values())",
+     "    needs_prime = any(declared.get(a) == 'reused' for a in PROJECT_CACHES)",
      "    needs_prime = False",
      ('an unknown cache accepted as primed', 'a cached run with no priming run recorded',
       'a cache primed on another builder', 'a cache primed under a different BuildKit')),
+
+    (OBS, 'the prime requirement belongs to project caches, not stable infrastructure',
+     "    needs_prime = any(declared.get(a) == 'reused' for a in PROJECT_CACHES)",
+     "    needs_prime = any(declared.get(a) == 'reused' for a in CACHE_AUTHORITIES)",
+     ('a cold scenario reusing only stable infrastructure, with no prime',)),
 
     (OBS, 'the empty-graph refusal',
      "    if not any(edges.values()):",
