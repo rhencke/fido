@@ -1482,6 +1482,62 @@ def metric_identity(sample: dict) -> str:
                      sample.get('measurement_kind') or KIND_WALL))
 
 
+def docker_context_inputs(root: Path) -> list[str]:
+    """Every path pattern the Dockerfile COPYs FROM THE BUILD CONTEXT, in Dockerfile order.
+
+    `COPY --from=<stage>` is excluded: that moves bytes between stages and names nothing in the context, so
+    counting it would make every stage output look like a repository input.
+    """
+    patterns: list[str] = []
+    for line in read_text(root / DOCKERFILE_REL, 'Dockerfile').split('\n'):
+        s = line.strip()
+        if not s.upper().startswith('COPY ') or '--from=' in s:
+            continue
+        parts = [p for p in s.split()[1:] if not p.startswith('--')]
+        patterns.extend(parts[:-1])                # the last operand is the destination
+    return patterns
+
+
+def is_build_input(rel_path: str, patterns: list[str]) -> bool:
+    """Whether editing this path can invalidate a Docker stage at all.
+
+    Derived from the Dockerfile's own COPY set rather than declared a second time beside it. A tool or a
+    document that no stage copies cannot rebuild anything, and an incremental sample that claims otherwise
+    is describing work that did not happen.
+    """
+    import fnmatch
+    for pat in patterns:
+        clean = pat.rstrip('/')
+        if fnmatch.fnmatch(rel_path, clean) or fnmatch.fnmatch(rel_path, f'{clean}/*'):
+            return True
+        if '/' not in clean and fnmatch.fnmatch(rel_path.split('/')[-1], clean) and '/' not in rel_path:
+            return True
+    return False
+
+
+def check_edit_effect(sample: dict, edit: dict, command: dict, patterns: list[str]) -> None:
+    """The intended invalidation actually happened, not merely that the edit bytes differed.
+
+    Unique bytes prove the runner did not reuse a previous sample's result. They do NOT prove the edit
+    reached the build: a future `.v` incremental sample whose stages were all cache hits would have been
+    accepted, and it would have reported a rebuild cost for a rebuild that never ran.
+    """
+    stages = (sample.get('cache_observation') or {}).get('stages', {})
+    if not stages or not command.get('build_targets'):
+        return                                     # a command that drives no Docker graph claims nothing
+    rebuilt = sorted(st for st, state in stages.items() if state == 'rebuilt')
+    where = f'{sample["command_id"]} [{sample["scenario_id"]}] {edit["id"]}'
+    if is_build_input(edit['path'], patterns):
+        if not rebuilt:
+            raise ObservatoryError(
+                f'{where}: {edit["path"]!r} is copied into the build, yet every stage was a cache hit; this '
+                f'sample reports the cost of a rebuild that never ran')
+    elif rebuilt:
+        raise ObservatoryError(
+            f'{where}: {edit["path"]!r} is copied into no stage, yet {rebuilt} rebuilt; the edit cannot be '
+            f'what invalidated them, so this sample attributes work to the wrong cause')
+
+
 def sample_id_for(run_id: str, sample: dict) -> str:
     """The identity of ONE retained sample, distinct from the metric CLASS it belongs to.
 
@@ -2773,8 +2829,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     env = environment(root)
     env['preflight'] = preflight
     # The Dockerfile's own stage graph, so a cold sample can be asked what ELSE rebuilt and not merely
-    # whether its declared root did.
+    # whether its declared root did, and its COPY set, so an incremental sample can be asked whether the
+    # edit it made could have invalidated anything at all.
     stage_graph = docker_stage_graph(root)
+    context_inputs = docker_context_inputs(root)
 
     samples: list[dict] = []
     incomplete: list[str] = []
@@ -2876,6 +2934,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         raw_dir / (raw_log_name(cid, scenario_id, index,
                                                 edit['id'] if edit else None) + '.log'))
                     check_cut_observed(s, scenario, suite, stage_graph)
+                    if edit:
+                        check_edit_effect(s, edit, command, context_inputs)
                     emit(s)
                     for child in derive_child_samples(
                             s, s['derived_stage_events'], derived_ids,
@@ -4598,6 +4658,59 @@ def self_test(root: Path) -> int:
             definition_fingerprints(suite)['scenarios']['project.cold.audit-fresh']:
         failures.append('a changed invalidation root set left the scenario fingerprint unchanged, so two '
                         'observations taken under different cuts would compare as if they matched')
+
+    # ── §8 an incremental sample must exhibit the effect its edit was chosen for
+    _inputs = docker_context_inputs(root)
+    counts['total'] += 1
+    for path, want in (('Float.v', True), ('Compilable.v', True), ('Emit.v', True),
+                       ('plugin/sink.ml', True), ('gate/Assumptions.v', True),
+                       ('tools/source-diet.py', False), ('ARCHITECTURE.md', False),
+                       ('.review/NEXT_STEPS.md', False)):
+        if is_build_input(path, _inputs) != want:
+            failures.append(f'{path!r} was classified {"a" if not want else "not a"} Docker build input, '
+                            f'which the Dockerfile COPY set contradicts')
+
+    def edit_sample(edit_id, path, stages, cmd='make.prove'):
+        s = sample(command_id=cmd, scenario_id=f'project.incremental.{edit_id}', edit_id=f'edit.{edit_id}',
+                   cache_observation={'stages': stages})
+        return s, {'id': f'edit.{edit_id}', 'path': path}, \
+            [c for c in suite['commands'] if c['id'] == cmd][0]
+
+    observed('a .v edit whose stages were all cache hits',
+             lambda: check_edit_effect(*edit_sample('foundation.float', 'Float.v',
+                                                    {'prover': 'hit', 'rocq-base': 'hit'}), _inputs),
+             expect='reports the cost of a rebuild that never ran')
+    observed('a tool edit claiming a project rebuild',
+             lambda: check_edit_effect(*edit_sample('tool.source-diet', 'tools/source-diet.py',
+                                                    {'prover': 'rebuilt'}), _inputs),
+             expect='attributes work to the wrong cause')
+    observed('a documentation edit claiming a project rebuild',
+             lambda: check_edit_effect(*edit_sample('doc.architecture', 'ARCHITECTURE.md',
+                                                    {'prover': 'rebuilt'}), _inputs),
+             expect='attributes work to the wrong cause')
+
+    counts['total'] += 1
+    for label, args in (('a .v edit that rebuilt its stage',
+                         edit_sample('foundation.float', 'Float.v',
+                                     {'prover': 'rebuilt', 'rocq-base': 'hit'})),
+                        ('a tool edit that rebuilt nothing',
+                         edit_sample('tool.source-diet', 'tools/source-diet.py',
+                                     {'prover': 'hit', 'rocq-base': 'hit'})),
+                        ('a documentation edit that rebuilt nothing',
+                         edit_sample('doc.architecture', 'ARCHITECTURE.md',
+                                     {'prover': 'hit', 'rocq-base': 'hit'}))):
+        try:
+            check_edit_effect(*args, _inputs)
+        except ObservatoryError as exc:
+            failures.append(f'{label} was refused: {exc}')
+
+    # Every registered edit must be classifiable, or a later edit could be added whose intended effect
+    # nothing checks.
+    counts['total'] += 1
+    for e in suite.get('edits', []):
+        scen = [s for s in suite['scenarios'] if s.get('edit') == e['id']]
+        if not scen:
+            failures.append(f'edit {e["id"]} belongs to no scenario, so its effect is never observed')
 
     observed('a cold sample whose invalidation root stayed cached',
              lambda: check_cut_observed(cut_sample({'prover': 'hit', 'rocq-base': 'hit'}), cold_scn, suite),

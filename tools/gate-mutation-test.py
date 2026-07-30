@@ -204,6 +204,21 @@ MUTANTS = (
      "            if False:",
      ('an authority map that disagrees with the stage evidence beside it',)),
 
+    (OBS, 'an incremental edit exhibiting the effect it was chosen for',
+     "        if not rebuilt:\n            raise ObservatoryError(",
+     "        if False:\n            raise ObservatoryError(",
+     ('a .v edit whose stages were all cache hits',)),
+
+    (OBS, 'an edit that copies into no stage explaining no rebuild',
+     "    elif rebuilt:\n        raise ObservatoryError(",
+     "    elif False:\n        raise ObservatoryError(",
+     ('a tool edit claiming a project rebuild', 'a documentation edit claiming a project rebuild')),
+
+    (OBS, 'build-input classification read from the Dockerfile COPY set',
+     "        if fnmatch.fnmatch(rel_path, clean) or fnmatch.fnmatch(rel_path, f'{clean}/*'):",
+     "        if False:",
+     ('was classified',)),
+
     (OBS, 'exact root closure over what actually rebuilt',
      "    unexplained = sorted(st for st, state in stages.items()\n"
      "                         if state == 'rebuilt' and st not in reachable and st != stable)",
