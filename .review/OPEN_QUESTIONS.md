@@ -27,10 +27,26 @@ M3 owns tool and build architecture and is the right place to decide. Until then
 stands: it is small, exact, machine-checked in both directions, and a wrong entry cannot hide a tracked file,
 only exempt a namespace that Git already refuses to carry.
 
+**Recommended M3 disposition, recorded by the reviewer in Repair 2 §18:** do not write an ad hoc `.gitignore`
+parser. If M3 derives ignored residue, use Git's own ignore engine through exact Git queries such as
+`git check-ignore`. Until M3, retain the small explicit residue set with exact controls. Repair 2 implements
+none of this beyond the narrow observatory containment §12 required.
+
 ## OQ-M2-02 — should the observatory run inside buildx, so the host needs no Python?
 
-**Owner:** Rob, for M3. **Blocks M2:** no. **Default if unanswered:** the observatory stays a host-side
-Python tool.
+**ANSWERED by Rob, in the M2 Repair 2 scope amendment.** The no-host-Python half is settled and implemented:
+project Python runs only in the pinned image, `make observe` runs in a pinned runner container that drives
+the host daemon through the mounted socket, and `tools/host-python-gate.py` holds the boundary permanently.
+Docker-socket trust was decided deliberately rather than inherited — §8 requires the runner to address the
+same builder and cache authorities the real project commands use, so an independent daemon was rejected.
+
+The second half below stands and remains M3's: "no Python on the host" and "no host-side MEASUREMENT" are
+different goals, and only the first is bought. The hook's anchors are still written by `/bin/sh` on the host,
+which is where the hook itself runs, so its instrumentation is still host-side. Whether the whole harness
+should move inside buildx is tool architecture, which M3 owns.
+
+**Owner:** Rob, for M3. **Blocks M2:** no. **Default if unanswered:** the host keeps only the launcher
+boundary — shell, Make, Git, Docker, Buildx — and the hook's own instrumentation stays with the hook.
 
 Rob's direction, recorded here so it is not lost with the chat. `tools/build-observatory.py` runs on the
 host and requires Python there, which makes the measurement environment the developer's machine rather than
@@ -43,12 +59,12 @@ buildx. The objection I had raised — that a containerised harness would pertur
 does not apply, because the harness does not measure itself. Its own cost only has to stay small relative
 to the work under measurement, not be accounted for.
 
-This is tool architecture, which M3 owns. The accepted M2 repair may not change it: §13 forbids changes to
-M3 or M4 tool and build architecture, and the cache-cut amendment does not authorize Make or hook
-architecture refactoring. So M2 records the direction and implements none of it.
+Rob's amendment moved the no-host-Python part into M2 and it is implemented. What it did NOT settle is
+whether the measurement harness itself belongs inside buildx, which remains tool architecture and M3's.
 
-Two things a decision will have to settle. The outer harness needs the Docker socket to drive buildx, which
-is a different trust posture from the current host tool and should be stated deliberately rather than
-inherited. And the pre-commit anchors are written by `/bin/sh` inside the hook on the host; if the hook
-itself remains host-side, its instrumentation stays host-side with it, so "no Python on the host" and "no
-host-side measurement" are not the same goal and the decision should say which one it is buying.
+Of the two things I said a decision would have to settle, one is settled and one is not. The Docker-socket
+trust posture was decided deliberately: the runner drives the host daemon through the mounted socket so it
+addresses the same builder and cache authorities the real commands use, because an independent daemon would
+make the timings mean nothing. The other stands — the pre-commit anchors are written by `/bin/sh` inside the
+hook on the host, and while the hook itself is host-side its instrumentation stays host-side with it. "No
+Python on the host" and "no host-side measurement" are not the same goal, and only the first is bought here.

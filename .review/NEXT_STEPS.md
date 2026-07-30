@@ -10,15 +10,21 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 1 IS FROZEN AND AWAITS ROB'S REVIEW.** The candidate is
+- **M2 BUILD OBSERVATORY REPAIR 2 IS IN PROGRESS.** Both blocked candidates are history:
+  `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43` and `e534b0ae5cc47da510e46583e47f74566589d538`.
+  Authority: `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which carries Rob's accepted scope amendment —
+  project Python never runs on the host — and blocking findings A through M.
+  `.review/BUILD_OBSERVATION.json` still holds the REJECTED round-2 observation and does not validate
+  against the repaired rules; it is exploratory Git history, never this candidate's evidence, and the freeze
+  replaces it. Sixteen obligation rows are open with pending evidence for exactly that reason.
+- **The superseded Repair 1 state, for reference.** The candidate was
   `e534b0ae5cc47da510e46583e47f74566589d538`.
-  Authority: `.review/M2_BUILD_OBSERVATORY.md`.
-  The blocking review it answers is `.review/M2_IMPLEMENTATION_REPAIR_1.md`, <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
-  superseded by `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which blocks that candidate. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD -->
-  amended by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`, which governs what cold means. <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
-  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all closed.
-  One canonical observation measured that candidate: `.review/BUILD_OBSERVATION.json` — 719 samples over 19
-  commands, zero non-ok, recorded after all fourteen recording rules passed.
+  Its contract, still the live M2 contract, is `.review/M2_BUILD_OBSERVATORY.md`.
+  The blocking review it answered is `.review/M2_IMPLEMENTATION_REPAIR_1.md`, <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
+  amended by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`, which governs what cold means, <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
+  and it is superseded by `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which blocks that candidate. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD -->
+  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`; Repair 2 reopened sixteen.
+  Its observation measured 719 samples over 19 commands and is now rejected as acceptance evidence.
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
