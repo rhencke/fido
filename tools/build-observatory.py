@@ -925,9 +925,13 @@ def sample_provenance(command: dict, scenario: dict, primes: dict):
     shell runner and left the analysis runner behind, every time because each had its own hand-built dict.
     """
     cid, sid = command['id'], scenario['id']
+    # `cache_chain_id`, not `cache_namespace`. Every command shares ONE BuildKit store; this is a LOGICAL
+    # causal chain, and calling it a namespace claimed a physical isolation that does not exist. What makes
+    # a cold sample immune to another command's cache is the forced rebuild of its declared roots, not a
+    # label. The chain id still distinguishes causal chains and still participates in prime validation.
     provenance = {'authorities': declared_authorities(command, scenario),
                   'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
-                  'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+                  'chain_command': cid, 'cache_chain_id': f'{OBSERVATORY_BUILDER}:{cid}'}
     builds = bool(command['invalidation_roots'])
     if sid.startswith('project.cold.') or not builds or sid == 'environment.bootstrap':
         provenance['prime_sample_id'] = None
@@ -1055,6 +1059,7 @@ def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
 
     return {'command_id': command['id'], 'scenario_id': scenario_id, 'sample_index': index,
             'edit_id': edit_id, 'derived_parent_id': None,
+            'sample_id': None, 'parent_sample_id': None,
             'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
             'user_cpu_ns': int(usage.ru_utime * 1e9), 'system_cpu_ns': int(usage.ru_stime * 1e9),
             'max_rss_bytes': usage.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
@@ -1171,6 +1176,11 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str],
         # whenever its live parent was support — `ONLY=docker.prover` is exactly that shape, and §3A.5 claims
         # the opposite in as many words.
         out.append({**parent, 'command_id': event['id'],
+                    # The exact parent SAMPLE, not merely its command: one stage is observed under several
+                    # parents and several repetitions, and naming only the command left a child that could
+                    # not say which run of which parent produced it. `sample_id` is cleared so the child is
+                    # stamped with its own rather than inheriting the parent's through the spread above.
+                    'parent_sample_id': parent.get('sample_id'), 'sample_id': None,
                     'selected_or_support': (role_of(event['id']) if role_of
                                             else parent['selected_or_support']),
                     'derived_parent_id': parent['command_id'],
@@ -1201,6 +1211,7 @@ def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
     import datetime
     return {'command_id': command_id, 'scenario_id': scenario['id'], 'sample_index': index,
             'edit_id': None, 'derived_parent_id': None, 'selected_or_support': role,
+            'sample_id': None, 'parent_sample_id': None,
             'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
             'resource_scope': SCOPE_UNAVAILABLE, 'measurement_kind': KIND_WALL,
@@ -1469,6 +1480,18 @@ def metric_identity(sample: dict) -> str:
                      sample.get('selected_or_support') or '-',
                      sample.get('resource_scope') or '-',
                      sample.get('measurement_kind') or KIND_WALL))
+
+
+def sample_id_for(run_id: str, sample: dict) -> str:
+    """The identity of ONE retained sample, distinct from the metric CLASS it belongs to.
+
+    `prime_sample_id` used to hold a metric class — `make.prove|project.cold.prover|-|-|host-wrapper` — and
+    the record-time check could then only prove that SOME retained metric of that class was cold and
+    successful. It could not prove the reused sample descended from the exact prime that populated its
+    cache. A class is not an identity: it omits the run, the sample index, and therefore which of three
+    repetitions is being named.
+    """
+    return f'{run_id}#{metric_identity(sample)}#{sample["sample_index"]}'
 
 
 def check_cut_observed(sample: dict, scenario: dict, suite: dict, graph: dict | None = None) -> None:
@@ -1755,6 +1778,7 @@ OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cach
                        'measurements', 'module_graph', 'history_analysis', 'derived', 'selection')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
+                 'sample_id', 'parent_sample_id',
                  'max_rss_bytes', 'resource_scope', 'measurement_kind',
                  'host_load', 'exit_code', 'expected_exit', 'status',
                  'cache_before', 'cache_after', 'cache_cut', 'cache_observation', 'source_digest',
@@ -2084,7 +2108,10 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     # be a cold, successful sample retained in THIS observation. The old rule asked a stringified dict
     # whether it contained the word `reused`, which is true of the stable caches in every cold sample, and
     # then looked for `primed_by_run` — a key live samples have never carried.
-    retained = {metric_identity(s): s for s in obs['measurements']}
+    # Keyed by the exact SAMPLE identity, not the metric class: a class matches any of three repetitions,
+    # so `prime not in retained` could only ever prove that SOME sample of that class existed.
+    retained = {s['sample_id']: s for s in obs['measurements'] if s.get('sample_id')}
+    order = {s.get('sample_id'): i for i, s in enumerate(obs['measurements'])}
     for s in obs['measurements']:
         authorities = s['cache_before'].get('authorities', {})
         if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):
@@ -2102,7 +2129,53 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
         elif retained[prime]['status'] != 'ok':
             bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime whose own status is '
                        f'{retained[prime]["status"]!r}')
+        elif retained[prime].get('derived_parent_id'):
+            # Asked BEFORE "does it belong to this command": whether the named sample ran at all is the more
+            # basic question, and every derived child carries a different command id, so the command check
+            # would otherwise answer first and this rule could never be reached.
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a DERIVED sample as its prime; only a '
+                       f'sample that actually ran can have populated a cache')
+        elif retained[prime]['command_id'] != s['command_id']:
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime belonging to '
+                       f'{retained[prime]["command_id"]}; another command\'s cold run did not populate '
+                       f'this chain')
+        elif (retained[prime].get('cache_before') or {}).get('cache_chain_id') != \
+                s['cache_before'].get('cache_chain_id'):
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime from another cache chain')
+        elif order.get(prime, -1) >= order.get(s.get('sample_id'), -1):
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime that does not precede it; a '
+                       f'cache cannot have been populated by a run that had not happened yet')
     ok('R08')
+
+    # Identity itself: one run, and one id per retained sample. A duplicate would let two measurements be
+    # cited as one, and every relation above is keyed on it.
+    if not obs.get('run_id'):
+        bad('R08', 'the observation retains no run identity, so no sample in it can be named exactly')
+    ids = [s.get('sample_id') for s in obs['measurements']]
+    if any(not i for i in ids):
+        bad('R08', 'a retained sample carries no sample identity')
+    elif len(set(ids)) != len(ids):
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        bad('R08', f'duplicate sample identit(ies) {dup[:3]}; two measurements sharing one id can be cited '
+                   f'as each other')
+    for s in obs['measurements']:
+        parent = s.get('parent_sample_id')
+        if not s.get('derived_parent_id'):
+            if parent:
+                bad('R08', f'{s["command_id"]} is a direct sample yet names a parent sample')
+            continue
+        if not parent:
+            bad('R08', f'{s["command_id"]} is derived and names no exact parent sample')
+        elif parent not in retained:
+            bad('R08', f'{s["command_id"]} names parent sample {parent!r}, which this observation does not '
+                       f'retain')
+        elif retained[parent]['command_id'] != s['derived_parent_id']:
+            bad('R08', f'{s["command_id"]} names a parent sample belonging to '
+                       f'{retained[parent]["command_id"]}, not its declared parent {s["derived_parent_id"]}')
+        elif retained[parent]['scenario_id'] != s['scenario_id']:
+            bad('R08', f'{s["command_id"]} was observed under a parent running a different scenario')
+        elif order.get(parent, 1 << 30) >= order.get(s.get('sample_id'), -1):
+            bad('R08', f'{s["command_id"]} was observed inside a parent run that had not started yet')
 
     if not edits_restored:
         bad('R09', 'at least one incremental edit did not restore byte-exactly')
@@ -2683,6 +2756,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     primes: dict[tuple, dict] = {}          # (command_id, root) -> the exact prime sample identity
 
     def emit(sample: dict):
+        # Stamped HERE, in the one place every sample passes through, rather than in each of the three
+        # constructors — a fourth constructor would otherwise be one more chance to forget.
+        sample['sample_id'] = sample_id_for(run_id, sample)
         samples.append(sample)
         if checkpoint:
             checkpoint(samples, incomplete)
@@ -2780,7 +2856,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if edit:
                         restore_and_verify(target, edit, original, before, [edit['path']], index)
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
-                        primes[(cid, 'prime')] = {'id': metric_identity(s), 'root': root_stage}
+                        primes[(cid, 'prime')] = {'id': s['sample_id'], 'root': root_stage}
                 except ObservatoryError as exc:
                     incomplete.append(label)
                     if edit:
@@ -2832,7 +2908,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     emit(s)
                     # An analysis command that builds has a prime to offer, exactly like a shell command.
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
-                        primes[(cid, 'prime')] = {'id': metric_identity(s),
+                        primes[(cid, 'prime')] = {'id': s['sample_id'],
                                                   'root': tuple(scenario['cache_cut']['invalidated_roots'])}
                     for child in derive_child_samples(
                             s, events, derived_ids,
@@ -3582,13 +3658,17 @@ def self_test(root: Path) -> int:
                 'host_load': {'before': 0.5, 'after': 0.5},
                 'status': 'ok', 'cache_before': {'authorities': {}, 'primed_by_run': 'run-a'},
                 'cache_after': {}, 'raw_log_sha256': 'ab' * 32,
-                'expected_failure_reason': None, 'derived_stage_events': []}
-        return {**base, **over}
+                'expected_failure_reason': None, 'derived_stage_events': [], 'parent_sample_id': None}
+        s = {**base, **over}
+        # Stamped exactly as the runner stamps it, so a fixture cannot satisfy an identity rule the live
+        # path would fail.
+        s['sample_id'] = over.get('sample_id') or sample_id_for('run-fixture', s)
+        return s
 
     def observation(samples=None, **over) -> dict:
         samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
                                                        for i, n in enumerate((900_000, 1_000_000, 1_100_000))]
-        base = {'schema': SCHEMA, 'suite_digest': digest,
+        base = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture',
                 'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
                             'dirty': False, 'source_view': 'committed-tree'},
                 'environment': {**{k: 'x' for k in REQUIRED_ENVIRONMENT}, 'host_class_fingerprint': 'd' * 64},
@@ -3724,6 +3804,18 @@ def self_test(root: Path) -> int:
                                         resource_scope=spec['resource_scope'],
                                         measurement_kind=spec['measurement_kind'],
                                         sample_index=i, source_digest=digest_i, **value))
+            # Parents before children, then each child bound to the EXACT parent sample it came from. The
+            # relation is generated from a sorted key set, which does not put a producer before the stage it
+            # produces, and a child whose parent had not happened yet is exactly what the ordering rule
+            # exists to refuse.
+            every.sort(key=lambda s: bool(s.get('derived_parent_id')))
+            by_parent: dict[tuple, str] = {}
+            for s in every:
+                if not s.get('derived_parent_id'):
+                    by_parent.setdefault((s['command_id'], s['scenario_id']), s['sample_id'])
+            for s in every:
+                if s.get('derived_parent_id'):
+                    s['parent_sample_id'] = by_parent.get((s['derived_parent_id'], s['scenario_id']))
         over.setdefault('derived', {'summaries': summarise(every)})
         return observation(samples=every, **over)
 
@@ -3744,6 +3836,24 @@ def self_test(root: Path) -> int:
 
     # R08 against the LIVE prime authority, over a COMPLETE observation with exactly one sample perturbed,
     # so coverage still closes and R08 is the rule that speaks.
+    def pick(obs, what, predicate):
+        """One retained sample matching `predicate`, or a REPORTED failure.
+
+        Never a bare `next()`: an uncaught StopIteration aborts the whole self-test, so every control after
+        this one would go unexercised while still looking load-bearing to the mutation harness.
+        """
+        found = next((s for s in obs['measurements'] if predicate(s)), None)
+        if found is None:
+            raise ObservatoryError(f'the fixture retains no {what} to select')
+        return found
+
+    def first_derived(obs):
+        return pick(obs, 'derived sample', lambda s: s.get('derived_parent_id'))
+
+    def prove_sample(obs, scenario_id):
+        return pick(obs, f'make.prove sample in {scenario_id}',
+                    lambda s: s['command_id'] == 'make.prove' and s['scenario_id'] == scenario_id)
+
     def with_reuse(prime):
         obs = complete_observation()
         target = next(s for s in obs['measurements']
@@ -3758,9 +3868,21 @@ def self_test(root: Path) -> int:
     observed('a reused project cache naming a prime nothing retains',
              lambda: record_check(obs=with_reuse('make.prove|project.cold.prover|-|-|selected|nowhere|wall_elapsed')),
              expect='recording rule R08')
+    def not_cold_prime():
+        """A prime that is a real retained sample of the right command, and simply is not COLD.
+
+        It used to name a metric CLASS string, which now fails at "this observation does not retain that
+        sample" — so the cold rule was never reached and its mutant reported the rule unprotected.
+        `project.cached.fresh` sorts before `project.warm.noop`, so it also precedes the sample it primes.
+        """
+        obs = with_reuse(None)
+        warm = prove_sample(obs, 'project.warm.noop')
+        warm['cache_before']['prime_sample_id'] = prove_sample(obs, 'project.cached.fresh')['sample_id']
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
     observed('a prime that is not a cold sample',
-             lambda: record_check(obs=with_reuse('make.prove|project.warm.noop|-|-|selected|host-wrapper|wall_elapsed')),
-             expect='recording rule R08')
+             lambda: record_check(obs=not_cold_prime()), expect='is not a cold sample')
     # ── §14 the exact relation closes over role, scope and kind, not only over command and scenario
     def relabelled(command_id: str, scenario_id: str, **fields):
         """One retained sample given a different role, scope or kind than the registry requires.
@@ -3789,7 +3911,7 @@ def self_test(root: Path) -> int:
         ONLY thing that distinguishes it is its role. Without role in the key it would be invisible.
         """
         obs = complete_observation()
-        twin = dict(next(s for s in obs['measurements'] if s['command_id'] == 'make.diet'),
+        twin = dict(pick(obs, 'make.diet sample', lambda s: s['command_id'] == 'make.diet'),
                     selected_or_support='support')
         obs['measurements'] = obs['measurements'] + [twin]
         obs['derived'] = {'summaries': summarise(obs['measurements'])}
@@ -3823,6 +3945,92 @@ def self_test(root: Path) -> int:
             failures.append(f'a summary did not state which kind of measurement it holds: {kinds}')
         if any('wall' in field for v in pooled.values() for field in v if field.endswith('_ns')):
             failures.append('a summary field still names wall time for a value that may be aggregate work')
+
+    # ── §4 exact run, sample, parent and prime identities
+    def mangled(fn):
+        obs = complete_observation()
+        fn(obs)
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('an observation with no run identity',
+             lambda: record_check(obs=mangled(lambda o: o.pop('run_id'))),
+             expect='retains no run identity')
+    observed('two samples sharing one identity',
+             lambda: record_check(obs=mangled(
+                 lambda o: o['measurements'][1].update(sample_id=o['measurements'][0]['sample_id']))),
+             expect='duplicate sample identit')
+    observed('a derived child naming no exact parent sample',
+             lambda: record_check(obs=mangled(lambda o: first_derived(o).update(parent_sample_id=None))),
+             expect='names no exact parent sample')
+    observed('a derived child naming a parent from another run',
+             lambda: record_check(obs=mangled(
+                 lambda o: first_derived(o).update(parent_sample_id='run-elsewhere#x#0'))),
+             expect='does not retain')
+    observed('a direct sample claiming a parent sample',
+             lambda: record_check(obs=mangled(
+                 lambda o: pick(o, 'direct sample',
+                                lambda s: not s.get('derived_parent_id')).update(parent_sample_id='x'))),
+             expect='direct sample yet names a parent sample')
+
+    def reuse_naming(choose):
+        """A cached make.prove sample whose prime is chosen by `choose` from the retained samples."""
+        obs = with_reuse(None)
+        warm = prove_sample(obs, 'project.warm.noop')
+        warm['cache_before']['prime_sample_id'] = choose(obs)
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a cached sample naming a metric class instead of a sample',
+             lambda: record_check(obs=reuse_naming(
+                 lambda o: metric_identity(prove_sample(o, 'project.cold.prover')))),
+             expect='does not retain')
+    observed("a cached sample naming another command's prime",
+             lambda: record_check(obs=reuse_naming(
+                 lambda o: pick(o, "another command's cold sample",
+                                lambda s: s['command_id'] == 'make.emit'
+                                and s['scenario_id'].startswith('project.cold.'))['sample_id'])),
+             expect='belonging to')
+    observed('a cached sample naming a derived sample as its prime',
+             lambda: record_check(obs=reuse_naming(
+                 lambda o: first_derived(o)['sample_id'])),
+             expect='names a DERIVED sample as its prime')
+
+    def prime_after():
+        """The prime moved to AFTER the sample that claims it: a cache cannot have been filled by a run
+        that had not happened yet."""
+        obs = with_reuse(None)
+        warm, cold = prove_sample(obs, 'project.warm.noop'), prove_sample(obs, 'project.cold.prover')
+        warm['cache_before']['prime_sample_id'] = cold['sample_id']
+        obs['measurements'].remove(cold)
+        obs['measurements'].append(cold)
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a cached sample naming a prime that does not precede it',
+             lambda: record_check(obs=prime_after()), expect='does not precede it')
+
+    # A sample reusing only STABLE infrastructure needs no project prime: the preflight established it
+    # outside every measured interval, so demanding one would refuse every honest warm sample.
+    counts['total'] += 1
+    stable_only = sample(cache_before={'authorities': {k: 'reused' for k in STABLE_CACHES},
+                                       'cache_chain_id': 'x', 'prime_sample_id': None})
+    try:
+        record_check(obs=complete_observation(samples=[stable_only]))
+    except ObservatoryError as exc:
+        if 'R08' in str(exc):
+            failures.append(f'stable-only cache reuse was made to require a project prime: {exc}')
+
+    # The chain identity is LOGICAL. Claiming physical isolation would be a claim about a BuildKit store
+    # that does not exist — every command shares one.
+    counts['total'] += 1
+    _prov, _ = sample_provenance([c for c in suite['commands'] if c['id'] == 'make.prove'][0],
+                                 [s for s in suite['scenarios'] if s['id'] == 'project.cold.prover'][0], {})
+    if 'cache_namespace' in _prov:
+        failures.append('the cache chain is recorded as a namespace, which claims a physical isolation no '
+                        'command has: they share one BuildKit store')
+    if not _prov.get('cache_chain_id'):
+        failures.append('a sample records no cache chain identity, so two causal chains cannot be told apart')
 
     observed('a registry that changed between validation and recording',
              lambda: record_check(suite_digest='9' * 64), expect='recording rule R02')

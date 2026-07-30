@@ -158,6 +158,26 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'one run identity per observation',
+     "    if not obs.get('run_id'):",
+     "    if False:",
+     ('an observation with no run identity',)),
+
+    (OBS, 'one identity per retained sample',
+     "    elif len(set(ids)) != len(ids):",
+     "    elif False:",
+     ('two samples sharing one identity',)),
+
+    (OBS, 'a prime that is a sample which actually ran',
+     "        elif retained[prime].get('derived_parent_id'):",
+     "        elif False:",
+     ('a cached sample naming a derived sample as its prime',)),
+
+    (OBS, 'a prime that precedes the sample reusing it',
+     "        elif order.get(prime, -1) >= order.get(s.get('sample_id'), -1):",
+     "        elif False:",
+     ('a cached sample naming a prime that does not precede it',)),
+
     (OBS, 'a cache transition derived from the stages that touch THAT cache',
      "        touched = [stages[st] for st in CACHE_STAGES.get(k, ()) if st in stages]",
      "        touched = list(stages.values())",
