@@ -342,6 +342,19 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: scenario {s["id"]} names an edit but is not an incremental scenario')
 
+        # The cache vocabulary, validated at LOAD so every run checks it. It used to live inside a function
+        # only the self-test called, which meant the registry's cache states were never validated by a
+        # measurement — only by the controls that tested the validator.
+        declared = s.get('cache_state') or {}
+        unknown = {k: v for k, v in declared.items() if v not in CACHE_STATES}
+        if unknown:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache state(s) {unknown} are not one '
+                                   f'of {", ".join(CACHE_STATES)}')
+        absent = [a for a in CACHE_AUTHORITIES if a not in declared]
+        if absent:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache authorities {absent} are '
+                                   f'unstated; each must be recorded independently')
+
         # §3A.1 — the cut is what makes a cold number mean something
         cut = s.get('cache_cut') or {}
         missing_cut = [f for f in CUT_FIELDS if f not in cut]
@@ -1420,7 +1433,6 @@ def summarise(samples: list[dict]) -> dict:
 
 # ────────────────────────────────────────────────────────── cache provenance
 OBSERVATORY_BUILDER = 'fido-observatory'
-CACHE_STATE_REL = '.build-observatory/cache-state.json'
 CACHE_AUTHORITIES = PROJECT_CACHES + STABLE_CACHES
 CACHE_STATES = ('empty', 'primed', 'reused', 'not-applicable', 'uncontrolled')
 
@@ -1469,64 +1481,9 @@ def reset_observatory_cache(progress=print) -> None:
         raise ObservatoryError(f'could not empty the {OBSERVATORY_BUILDER} cache: {proc.stderr.strip()}')
 
 
-def read_cache_state(root: Path) -> dict | None:
-    p = root / CACHE_STATE_REL
-    if not p.is_file():
-        return None
-    try:
-        return json.loads(p.read_text(encoding='utf-8'))
-    except json.JSONDecodeError as exc:
-        raise ObservatoryError(f'{CACHE_STATE_REL}: not valid JSON ({exc}); the cache provenance is unknown')
 
 
-def write_cache_state(root: Path, state: dict) -> None:
-    write_json(root / CACHE_STATE_REL, state)
 
-
-def check_cache_provenance(root: Path, scenario: dict, env: dict) -> dict:
-    """A cached sample must name the exact prime run that produced the cache it reused.
-
-    A builder that merely EXISTS says nothing about what filled it. It may hold layers from another branch,
-    another toolchain, or a half-finished run that was killed. Labelling that "primed" would make every
-    cached number a comparison against an unknown baseline, so an unrecognised cache FAILS here instead."""
-    declared = scenario['cache_state']
-    unknown = {k: v for k, v in declared.items() if v not in CACHE_STATES}
-    if unknown:
-        raise ObservatoryError(f'scenario {scenario["id"]}: cache state(s) {unknown} are not one of '
-                               f'{", ".join(CACHE_STATES)}')
-    missing = [a for a in CACHE_AUTHORITIES if a not in declared]
-    if missing:
-        raise ObservatoryError(f'scenario {scenario["id"]}: cache authorities {missing} are unstated; each '
-                               f'must be recorded independently')
-
-    # Only a reused PROJECT result needs a prime. The stable infrastructure caches are `reused` by the cache
-    # cut's own premise — the builder, base images and pinned toolchain are already present, primed by the
-    # machine's history, which the amendment places outside the measured interval and outside canonical
-    # evidence. Demanding a prime for those refused every cold sample that had no cached sibling.
-    needs_prime = any(declared.get(a) == 'reused' for a in PROJECT_CACHES)
-    state = read_cache_state(root)
-    if not needs_prime:
-        return {'authorities': dict(declared), 'primed_by_run': None,
-                'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER}
-    if state is None:
-        raise ObservatoryError(
-            f'scenario {scenario["id"]} reuses a cache, but no prime run is on record in {CACHE_STATE_REL}; '
-            f'the suite will not label a discovered cache as primed')
-    if state.get('builder') != OBSERVATORY_BUILDER:
-        raise ObservatoryError(
-            f'{CACHE_STATE_REL} names builder {state.get("builder")!r}, not {OBSERVATORY_BUILDER!r}')
-    if state.get('buildkit_identity') != env.get('buildkit_identity'):
-        raise ObservatoryError(
-            f'the cache was primed under BuildKit {state.get("buildkit_identity")!r} but this run is '
-            f'{env.get("buildkit_identity")!r}; a cache is not reusable across a BuildKit change')
-    if not state.get('primed_by_run'):
-        raise ObservatoryError(f'{CACHE_STATE_REL} records no priming run, so the cache has no provenance')
-    return {'authorities': dict(declared), 'primed_by_run': state['primed_by_run'],
-            'primed_at_utc': state.get('primed_at_utc'),
-            'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER}
-
-
-# ───────────────────────────────────────────────── deterministic source edits
 def apply_edit(copy_root: Path, edit: dict, index: int = 0, probe: str = '') -> None:
     """Apply one named edit to a DISPOSABLE copy, and prove exactly one file changed.
 
@@ -1862,10 +1819,28 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     else:
         ok('R07')
 
+    # A sample that reuses a PROJECT result must name the exact prime that produced it, and that prime must
+    # be a cold, successful sample retained in THIS observation. The old rule asked a stringified dict
+    # whether it contained the word `reused`, which is true of the stable caches in every cold sample, and
+    # then looked for `primed_by_run` — a key live samples have never carried.
+    retained = {metric_identity(s): s for s in obs['measurements']}
     for s in obs['measurements']:
-        if s['cache_before'].get('primed_by_run') is None and 'reused' in \
-                str(s['cache_before'].get('authorities', {})):
-            bad('R08', f'{s["command_id"]} reused a cache with no prime run on record')
+        authorities = s['cache_before'].get('authorities', {})
+        if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):
+            continue
+        prime = s['cache_before'].get('prime_sample_id')
+        if not prime:
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] reuses a project cache and names no prime '
+                       f'sample, so its number is a comparison against an unknown baseline')
+        elif prime not in retained:
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names prime {prime!r}, which this '
+                       f'observation does not retain')
+        elif not retained[prime]['scenario_id'].startswith('project.cold.'):
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime that is not a cold sample: '
+                       f'{retained[prime]["scenario_id"]}')
+        elif retained[prime]['status'] != 'ok':
+            bad('R08', f'{s["command_id"]} [{s["scenario_id"]}] names a prime whose own status is '
+                       f'{retained[prime]["status"]!r}')
     ok('R08')
 
     if not edits_restored:
@@ -2440,9 +2415,6 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         if checkpoint:
             checkpoint(samples, incomplete)
 
-    def sample_id(s: dict) -> str:
-        return metric_identity(s)
-
     for cid in sel.order:
         command = commands[cid]
         if runner_for(command) != 'shell':
@@ -2543,7 +2515,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if edit:
                         restore_and_verify(target, edit, original, before, [edit['path']], index)
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
-                        primes[(cid, 'prime')] = {'id': sample_id(s), 'root': root_stage}
+                        primes[(cid, 'prime')] = {'id': metric_identity(s), 'root': root_stage}
                 except ObservatoryError as exc:
                     incomplete.append(label)
                     if edit:
@@ -2868,10 +2840,21 @@ def self_test(root: Path) -> int:
              lambda w: edit(w, 'precommit.naming', 'id', 'precommit.no-such-stage'),
              expect='carries no such anchor pair')
 
+    scenario('an invented cache state value',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'cache_state': {**s['cache_state'], 'dune_build': 'warmish'}}
+                 for s in suite_of(w)['scenarios']]}),
+             expect='are not one of')
+    scenario('a scenario leaving a cache authority unstated',
+             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
+                 {**s, 'cache_state': {k: v for k, v in s['cache_state'].items() if k != 'dune_build'}}
+                 for s in suite_of(w)['scenarios']]}),
+             expect='are unstated')
+
     scenario('a scenario no command can run in',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': suite_of(w)['scenarios'] + [
                  {'id': 'orphan.scenario', 'canonical': False, 'purpose': 'p', 'session_state': 'fresh',
-                  'cache_state': {}, 'prime_steps': [],
+                  'cache_state': {a: 'not-applicable' for a in CACHE_AUTHORITIES}, 'prime_steps': [],
                   'cache_cut': {'stable_through': 'rocq-base', 'invalidated_from': None,
                                 'registry_pulls_included': False,
                                 'builder_bootstrap_included': False}}]}),
@@ -3226,52 +3209,6 @@ def self_test(root: Path) -> int:
                 failures.append(f'{label}: expected failure containing {expect!r}, but it succeeded')
 
     reusing = next(s for s in suite['scenarios'] if 'reused' in s['cache_state'].values())
-    priming = next(s for s in suite['scenarios'] if 'reused' not in s['cache_state'].values())
-    env_now = {'buildkit_identity': 'v0.30.0'}
-
-    def primed(work: Path, **over):
-        write_cache_state(work, {'builder': OBSERVATORY_BUILDER, 'primed_by_run': 'run-a',
-                                 'primed_at_utc': '2026-01-01T00:00:00+00:00',
-                                 'buildkit_identity': 'v0.30.0', **over})
-
-    guarded('a priming scenario needs no prior cache',
-            lambda w: check_cache_provenance(w, priming, env_now))
-    guarded('a cached scenario with a recorded prime run',
-            lambda w: (primed(w), check_cache_provenance(w, reusing, env_now)))
-    guarded('an unknown cache accepted as primed',
-            lambda w: check_cache_provenance(w, reusing, env_now),
-            expect='will not label a discovered cache as primed')
-    # The other direction. A cold sample reuses the STABLE infrastructure by the cut's own premise and has
-    # no prime; requiring one refused every cold command that had no cached sibling to prime it.
-    guarded('a cold scenario reusing only stable infrastructure, with no prime',
-            lambda w: check_cache_provenance(
-                w, {**reusing, 'cache_state': {**reusing['cache_state'],
-                                               **{a: 'empty' for a in PROJECT_CACHES}}}, env_now))
-    guarded('a project cache reused with no prime is still refused',
-            lambda w: check_cache_provenance(
-                w, {**reusing, 'cache_state': {**reusing['cache_state'],
-                                               **{a: 'empty' for a in STABLE_CACHES},
-                                               'dune_build': 'reused'}}, env_now),
-            expect='will not label a discovered cache as primed')
-    guarded('a cached run with no priming run recorded',
-            lambda w: (primed(w, primed_by_run=''), check_cache_provenance(w, reusing, env_now)),
-            expect='records no priming run')
-    guarded('a cache primed on another builder',
-            lambda w: (primed(w, builder='fido-builder'), check_cache_provenance(w, reusing, env_now)),
-            expect=f'not {OBSERVATORY_BUILDER!r}')
-    guarded('a cache primed under a different BuildKit',
-            lambda w: (primed(w, buildkit_identity='v0.12.0'), check_cache_provenance(w, reusing, env_now)),
-            expect='not reusable across a BuildKit change')
-    guarded('an unstated cache authority',
-            lambda w: check_cache_provenance(
-                w, {**priming, 'cache_state': {k: v for k, v in priming['cache_state'].items()
-                                               if k != 'dune_build'}}, env_now),
-            expect='are unstated')
-    guarded('an invented cache state value',
-            lambda w: check_cache_provenance(
-                w, {**priming, 'cache_state': {**priming['cache_state'], 'dune_build': 'warmish'}}, env_now),
-            expect='are not one of')
-
     guarded('the developer\'s builder is never modified',
             lambda _: _assert_observatory_builder('fido-builder'),
             expect='refusing to modify builder')
@@ -3443,6 +3380,26 @@ def self_test(root: Path) -> int:
 
     observed('a partial run with RECORD', lambda: record_check(sel=Selection([], [], [], partial=True)),
              expect='recording rule R01')
+
+    # R08 against the LIVE prime authority, over a COMPLETE observation with exactly one sample perturbed,
+    # so coverage still closes and R08 is the rule that speaks.
+    def with_reuse(prime):
+        obs = complete_observation()
+        target = next(s for s in obs['measurements']
+                      if s['command_id'] == 'make.prove' and s['scenario_id'] == 'project.warm.noop')
+        target['cache_before'] = {**target['cache_before'],
+                                  'authorities': {a: 'reused' for a in PROJECT_CACHES},
+                                  'prime_sample_id': prime}
+        return obs
+
+    observed('a reused project cache naming no prime',
+             lambda: record_check(obs=with_reuse(None)), expect='recording rule R08')
+    observed('a reused project cache naming a prime nothing retains',
+             lambda: record_check(obs=with_reuse('make.prove|project.cold.prover|-|-|nowhere')),
+             expect='recording rule R08')
+    observed('a prime that is not a cold sample',
+             lambda: record_check(obs=with_reuse('make.prove|project.warm.noop|-|-|host-wrapper')),
+             expect='recording rule R08')
     observed('a registry that changed between validation and recording',
              lambda: record_check(suite_digest='9' * 64), expect='recording rule R02')
     observed('a dirty tree with RECORD', lambda: record_check(clean_before=False),
