@@ -172,7 +172,7 @@ observatory: pytools
 # target of its own, so the interface cannot drift into a second build graph:
 #   make observe                       the complete canonical suite, compared with the tracked observation
 #   make observe ONLY=make.prove       one command or group, plus its required setup
-#   make observe SCENARIO=cold.cached  one cache scenario
+#   make observe SCENARIO=project.warm.noop   one cache scenario, by its registry ID
 #   make observe BASE=<ref-or-path>    compare against an observation from a Git ref or a local bundle
 #   make observe COMPARE=<ref-or-path> compare two existing observations without running anything
 #   make observe RECORD=1              replace the tracked observation, only from a clean complete run

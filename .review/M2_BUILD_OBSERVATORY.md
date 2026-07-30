@@ -428,9 +428,25 @@ purpose
 session_state
 cache_state
 prime_steps
-sample_policy
-applicable_groups
 ```
+
+**Scenario scope owns scenario meaning; command scope owns applicability and multiplicity.** A scenario entry
+owns what the scenario *means* — its family, its cache cut, its prime steps and whether it is canonical. It
+does not own who runs in it or how many times, because both differ by command: `make.prove` and `make.check`
+take different sample counts in the same scenario, and a scenario-level copy would be a second authority that
+drifts the moment one command changes.
+
+So there is deliberately no `sample_policy` and no `applicable_groups` at scenario scope:
+
+- **applicability** is the command's `scenarios` list;
+- **multiplicity** is the command's `samples` map, keyed by scenario;
+- **groups** derive from command membership rather than being restated per scenario;
+- **a derived child's applicability derives from its producing parents** — a stage is observed in whatever
+  scenario a command that builds it runs in, so declaring the child's own list would state the same fact
+  twice and let the two disagree.
+
+The registry is validated against this: a scenario entry carrying either field is rejected, with the reason
+naming the command-scoped owner it duplicates.
 
 Do not manually copy command counts into prose. The tool reports current counts.
 

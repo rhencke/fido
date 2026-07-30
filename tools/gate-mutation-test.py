@@ -158,6 +158,45 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'the refusal of an exact zero where work happened',
+     "        if kind != KIND_UNTIMED and s.get('wall_ns') == 0 and s.get('aggregate_step_ns') is None:",
+     "        if False:",
+     ('work timed as exactly zero',)),
+
+    (OBS, 'a sub-tick hook stage becoming a bound rather than a zero',
+     "            if wall == 0:",
+     "            if False:",
+     ('a hook stage faster than one clock tick',)),
+
+    (OBS, 'an untimed artifact carrying no duration',
+     "        if kind == KIND_UNTIMED and (s.get('wall_ns') is not None or "
+     "s.get('aggregate_step_ns') is not None):",
+     "        if False:",
+     ('an untimed artifact still carrying a duration',)),
+
+    (OBS, 'role in the exact measurement key',
+     "                     sample.get('selected_or_support') or '-',",
+     "                     '-',",
+     # Only the in-place relabel isolates this rule. The extra-support-sample control is caught by the
+     # COUNT check whether or not role is in the key, so naming it here would claim a dependency it does
+     # not have.
+     ('a selected sample relabelled support',)),
+
+    (OBS, 'measurement kind in the exact measurement key',
+     "                     sample.get('measurement_kind') or KIND_WALL))",
+     "                     KIND_WALL))",
+     ('aggregate step work presented as elapsed wall time',)),
+
+    (OBS, 'resource scope in the exact measurement key',
+     "                     sample.get('resource_scope') or '-',",
+     "                     '-',",
+     ('a direct sample claiming BuildKit stage scope',)),
+
+    (OBS, 'the separation of aggregate step work from elapsed wall time',
+     "    if kind == KIND_AGGREGATE:\n        return sample.get('aggregate_step_ns'), kind",
+     "    if False:\n        return sample.get('aggregate_step_ns'), kind",
+     ('aggregate step work and elapsed wall time were pooled into one summary',)),
+
     (OBS, 'a throwaway builder whose removal failed is reported, not discarded',
      "        if done.returncode != 0:",
      "        if False:",

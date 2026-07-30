@@ -1010,6 +1010,7 @@ def run_sample(root: Path, command: dict, scenario: dict, index: int, role: str,
             'selected_or_support': role, 'start_utc': start_utc, 'wall_ns': wall_ns,
             'user_cpu_ns': int(usage.ru_utime * 1e9), 'system_cpu_ns': int(usage.ru_stime * 1e9),
             'max_rss_bytes': usage.ru_maxrss * 1024, 'resource_scope': SCOPE_HOST,
+            'measurement_kind': KIND_WALL,
             'host_load': {'before': load_before, 'after': load_after},
             'exit_code': proc.returncode, 'expected_exit': expected,
             'status': status_word, 'expected_failure_reason': reason,
@@ -1056,8 +1057,18 @@ def parse_anchor_log(text: str) -> list[dict]:
                 raise ObservatoryError(
                     f'hook anchor {anchor!r} ended before it began on a monotonic clock; every stage '
                     f'duration in this sample is void')
-            events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
-                           'clock': HOOK_CLOCK})
+            if wall == 0:
+                # The hook clock resolves to 10 ms, so a stage faster than one tick reads as exactly zero.
+                # Zero is a measured claim and a false one: the stage ran. What is known is a BOUND — the
+                # duration lies somewhere in [0, one tick) — and that is what gets retained, so a summary
+                # can say "below resolution" instead of inventing a percentage against nothing.
+                events.append({'id': anchor, 'wall_ns': None, 'source': 'hook-anchor',
+                               'clock': HOOK_CLOCK, 'kind': KIND_INTERVAL,
+                               'lower_ns': 0, 'upper_ns': HOOK_CLOCK['resolution_ns'],
+                               'below_resolution': True})
+            else:
+                events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
+                               'clock': HOOK_CLOCK})
     if open_at:
         raise ObservatoryError(
             f'hook anchor(s) {sorted(open_at)} began and never ended; the stages they name are missing from '
@@ -1115,11 +1126,21 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str],
                     'selected_or_support': (role_of(event['id']) if role_of
                                             else parent['selected_or_support']),
                     'derived_parent_id': parent['command_id'],
-                    'wall_ns': event.get('wall_ns') if not buildkit else None,
+                    'wall_ns': None if (buildkit or event.get('untimed')) else event.get('wall_ns'),
                     'aggregate_step_ns': event.get('aggregate_step_ns'),
+                    'untimed': bool(event.get('untimed')),
                     'cached_steps': event.get('cached_steps'),
                     'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
                     'resource_scope': SCOPE_BUILDKIT if buildkit else SCOPE_UNAVAILABLE,
+                    # A BuildKit child contributes the SUM of its step durations; a hook anchor contributes
+                    # a real elapsed interval; an artifact derived from another command's build contributes
+                    # no duration at all. Naming which one it is here is what stops the summary from
+                    # printing the first under the second's name, or the third as an exact zero.
+                    'measurement_kind': (KIND_AGGREGATE if buildkit
+                                         else KIND_UNTIMED if event.get('untimed')
+                                         else event.get('kind') or KIND_WALL),
+                    'lower_ns': event.get('lower_ns'), 'upper_ns': event.get('upper_ns'),
+                    'below_resolution': bool(event.get('below_resolution')),
                     'measurement_source': event['source'],
                     'clock': event.get('clock'), 'derived_stage_events': []})
     return out
@@ -1134,7 +1155,8 @@ def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
             'edit_id': None, 'derived_parent_id': None, 'selected_or_support': role,
             'start_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'wall_ns': wall_ns, 'user_cpu_ns': None, 'system_cpu_ns': None, 'max_rss_bytes': None,
-            'resource_scope': SCOPE_UNAVAILABLE, 'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
+            'resource_scope': SCOPE_UNAVAILABLE, 'measurement_kind': KIND_WALL,
+            'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
             'host_load': {'before': host_load(), 'after': host_load()},
             'expected_failure_reason': None, 'cache_before': provenance,
             'cache_after': dict(provenance, observed=True), 'cache_cut': dict(scenario['cache_cut']),
@@ -1142,17 +1164,19 @@ def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
             'raw_log_sha256': None, 'derived_stage_events': events}
 
 
-def raw_log_name(command_id: str, scenario_id: str, index: int, edit_id: str | None = None,
-                 parent_id: str | None = None) -> str:
-    """The full stable sample identity, so two samples can never share one path.
+def raw_log_name(command_id: str, scenario_id: str, index: int, edit_id: str | None = None) -> str:
+    """The full stable raw-log identity, so two samples can never share one path.
 
     The first candidate keyed logs by command, scenario and index only, so six edit shapes overwrote each
-    other and the observation retained digests for files that were gone."""
+    other and the observation retained digests for files that were gone.
+
+    There is no parent here.  Only DIRECT samples own a raw log — a derived sample is read out of its
+    parent's evidence and carries `raw_log_sha256: None` — so a parent component could never be supplied by
+    any caller, and the one that existed was dead weight reading as provenance.
+    """
     parts = [command_id, scenario_id]
     if edit_id:
         parts.append(edit_id)
-    if parent_id:
-        parts.append(f'from-{parent_id}')
     parts.append(str(index))
     return '.'.join(parts)
 
@@ -1347,15 +1371,48 @@ def write_json(path: Path, obj) -> bytes:
     return data
 
 
+KIND_WALL = 'wall_elapsed'
+KIND_AGGREGATE = 'aggregate_step_work'
+KIND_INTERVAL = 'duration_interval'
+KIND_UNTIMED = 'untimed_artifact'
+MEASUREMENT_KINDS = (KIND_WALL, KIND_AGGREGATE, KIND_INTERVAL, KIND_UNTIMED,
+                     'cpu_user', 'cpu_system', 'rss_peak')
+
+
+def measured(sample: dict) -> tuple[int | None, str]:
+    """The one number a sample contributes to a summary, and WHAT KIND of number it is.
+
+    Elapsed wall time and the sum of BuildKit step durations are different measurements: steps that run in
+    parallel make aggregate work exceed elapsed time, so pooling them or printing one under the other's name
+    states something false. The kind travels with the value from here on, and it is part of the identity, so
+    two kinds can never land in one median.
+    """
+    kind = sample.get('measurement_kind') or KIND_WALL
+    if kind == KIND_UNTIMED:
+        # An artifact derived from another command's build has no duration of its own. It was retained as
+        # `wall_ns: 0`, which is a measured claim and a false one — work happened. It is an ARTIFACT now, so
+        # it stays in the record and out of every median.
+        return None, kind
+    if kind == KIND_AGGREGATE:
+        return sample.get('aggregate_step_ns'), kind
+    return sample.get('wall_ns'), kind
+
+
 def metric_identity(sample: dict) -> str:
     """The one identity every sample, summary, comparison row, log path and citation uses.
 
     The first candidate keyed on command and scenario alone, so six edit shapes shared one median and one
     Docker stage observed under four parents shared another. An identity that omits what distinguishes two
-    measurements makes them look like repetitions of one."""
+    measurements makes them look like repetitions of one.
+
+    Role and measurement kind are in the key for the same reason: a selected child mislabelled `support`, or
+    aggregate step work sitting beside elapsed wall time, would otherwise close the coverage relation while
+    describing a different measurement than the one the registry required."""
     return '|'.join((sample['command_id'], sample['scenario_id'],
                      sample.get('edit_id') or '-', sample.get('derived_parent_id') or '-',
-                     sample.get('resource_scope') or '-'))
+                     sample.get('selected_or_support') or '-',
+                     sample.get('resource_scope') or '-',
+                     sample.get('measurement_kind') or KIND_WALL))
 
 
 def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
@@ -1462,21 +1519,36 @@ def summarise(samples: list[dict]) -> dict:
     An average alone cannot be rechecked and hides the spread that decides whether a delta means anything.
     The validator recomputes every value here from the retained samples."""
     by_key: dict[str, list[int]] = {}
+    kinds: dict[str, str] = {}
+    intervals: dict[str, dict] = {}
     for s in samples:
-        value = s.get('wall_ns')
-        if value is None:                          # a derived BuildKit child has aggregate step work, not wall
-            value = s.get('aggregate_step_ns')
+        value, kind = measured(s)
+        key = metric_identity(s)
+        if kind == KIND_INTERVAL:
+            # A stage faster than one clock tick has a BOUND, not a value. It gets a summary row carrying
+            # that bound, so the report can say "below resolution" rather than either dropping the stage or
+            # printing a median of zero it could then compute a percentage against.
+            row = intervals.setdefault(key, {'samples': 0, 'measurement_kind': kind,
+                                             'below_resolution': True, 'lower_ns': 0, 'upper_ns': 0})
+            row['samples'] += 1
+            row['lower_ns'] = min(row['lower_ns'], s.get('lower_ns') or 0)
+            row['upper_ns'] = max(row['upper_ns'], s.get('upper_ns') or 0)
+            continue
         if value is None:
             continue
-        by_key.setdefault(metric_identity(s), []).append(value)
+        by_key.setdefault(key, []).append(value)
+        kinds[key] = kind
     out = {}
     for key, values in sorted(by_key.items()):
         ordered = sorted(values)
         mid = len(ordered) // 2
         median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) // 2
-        out[key] = {'samples': len(ordered), 'median_wall_ns': median,
-                    'min_wall_ns': ordered[0], 'max_wall_ns': ordered[-1]}
-    return out
+        # `median_ns`, not `median_wall_ns`: the field carried aggregate step work for every derived
+        # BuildKit child while calling it elapsed wall time, and the comparator and report repeated the
+        # claim. The kind is stated beside the number instead of assumed by the field's name.
+        out[key] = {'samples': len(ordered), 'measurement_kind': kinds[key], 'median_ns': median,
+                    'min_ns': ordered[0], 'max_ns': ordered[-1]}
+    return dict(sorted({**out, **intervals}.items()))
 
 
 # ────────────────────────────────────────────────────────── cache provenance
@@ -1497,38 +1569,32 @@ def _assert_observatory_builder(name: str) -> None:
             f'{OBSERVATORY_BUILDER!r}, and never the developer\'s builder or its cache')
 
 
-def toolchain_prime(root: Path, progress=print) -> None:
-    """Rebuild the pinned base so a cold PROJECT build is not also a toolchain download.
+STABLE_BASES = ('rocq-base', 'python-tools')
 
-    `project.cold.prover` and `bootstrap.project.cold.prover` are different questions: the first asks what building this
-    project costs, the second what starting from nothing costs. Without this step they collapse into one
-    number dominated by apt and opam."""
+
+def toolchain_prime(root: Path, progress=print) -> dict:
+    """Establish every stable base so a cold PROJECT build is not also a toolchain download.
+
+    `project.cold.prover` and `bootstrap.project.cold.prover` are different questions: the first asks what
+    building this project costs, the second what starting from nothing costs. Without this step they collapse
+    into one number dominated by apt and opam.
+
+    It returns what it did rather than only doing it, because the observation has to be able to say that the
+    bootstrap and the registry pulls happened OUTSIDE every measured interval. A preflight nobody can see in
+    the record is indistinguishable from one that never ran.
+    """
     import subprocess
-    ensure_observatory_builder()
-    progress('fido: observe — priming the pinned toolchain (not counted as project build cost)')
-    proc = subprocess.run(
-        ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
-         '--target', 'rocq-base', '.'], cwd=str(root), capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise ObservatoryError(f'the toolchain prime failed: {proc.stderr.strip()[-400:]}')
-
-
-def reset_observatory_cache(progress=print) -> None:
-    """Empty the observatory's own BuildKit cache so a cold scenario is actually cold.
-
-    Routed through the builder guard, because this is the one operation in the file that destroys something.
-    A `project.cold.prover` number taken against a full cache is not a cold number, and would be worse than no
-    number at all: it would look authoritative."""
-    import subprocess
-    _assert_observatory_builder(OBSERVATORY_BUILDER)
-    ensure_observatory_builder()
-    progress(f'fido: observe — emptying the {OBSERVATORY_BUILDER} cache for a cold scenario')
-    proc = subprocess.run(['docker', 'buildx', 'prune', '--builder', OBSERVATORY_BUILDER, '--all', '--force'],
-                          capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise ObservatoryError(f'could not empty the {OBSERVATORY_BUILDER} cache: {proc.stderr.strip()}')
-
-
+    primed = []
+    for target in STABLE_BASES:
+        progress(f'fido: observe — priming stable base {target} (outside every measured interval)')
+        proc = subprocess.run(
+            ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
+             '--target', target, '.'], cwd=str(root), capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise ObservatoryError(f'the stable-base prime for {target} failed: {proc.stderr.strip()[-400:]}')
+        primed.append(target)
+    return {'stable_bases_primed': primed, 'required': True,
+            'note': 'builder bootstrap and registry pulls happen here, before any measured interval'}
 
 
 
@@ -1607,7 +1673,8 @@ OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cach
                        'measurements', 'module_graph', 'history_analysis', 'derived', 'selection')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
-                 'max_rss_bytes', 'resource_scope', 'host_load', 'exit_code', 'expected_exit', 'status',
+                 'max_rss_bytes', 'resource_scope', 'measurement_kind',
+                 'host_load', 'exit_code', 'expected_exit', 'status',
                  'cache_before', 'cache_after', 'cache_cut', 'cache_observation', 'source_digest',
                  'raw_log_sha256', 'expected_failure_reason', 'derived_stage_events')
 
@@ -1659,10 +1726,27 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         for field in ('wall_ns', 'aggregate_step_ns'):
             if s.get(field) is not None and s[field] < 0:
                 raise ObservatoryError(f'sample {i} ({s["command_id"]}) has a negative {field}')
-        if s.get('wall_ns') is None and s.get('aggregate_step_ns') is None:
+        kind = s.get('measurement_kind') or KIND_WALL
+        if kind not in MEASUREMENT_KINDS:
+            raise ObservatoryError(f'sample {i}: measurement_kind {kind!r} is not a known kind')
+        if kind == KIND_INTERVAL and (s.get('lower_ns') is None or s.get('upper_ns') is None
+                                      or s['lower_ns'] > s['upper_ns']):
+            raise ObservatoryError(
+                f'sample {i} ({s["command_id"]}) is a below-resolution interval without a usable bound')
+        if (s.get('wall_ns') is None and s.get('aggregate_step_ns') is None
+                and kind not in (KIND_UNTIMED, KIND_INTERVAL)):
             raise ObservatoryError(
                 f'sample {i} ({s["command_id"]}) records neither an elapsed duration nor aggregate step '
                 f'work, so it measures nothing')
+        # An untimed artifact must SAY it is one and carry no duration. Zero was the old representation and
+        # it is a measured claim: it asserts the work took no time, which was never true.
+        if kind == KIND_UNTIMED and (s.get('wall_ns') is not None or s.get('aggregate_step_ns') is not None):
+            raise ObservatoryError(
+                f'sample {i} ({s["command_id"]}) is declared an untimed artifact yet carries a duration')
+        if kind != KIND_UNTIMED and s.get('wall_ns') == 0 and s.get('aggregate_step_ns') is None:
+            raise ObservatoryError(
+                f'sample {i} ({s["command_id"]}) records an elapsed duration of exactly zero; work that '
+                f'happened takes time, so this is either an untimed artifact or a below-resolution interval')
         if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
             raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
 
@@ -1735,9 +1819,29 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
 
     R05 used to check that each classified command appeared at least ONCE. A command measured in one scenario
     could therefore stand in for every scenario it never ran, which is how seven canonical pairs went missing
-    while coverage read green. This states the relation the observation must equal — in both directions."""
+    while coverage read green. This states the relation the observation must equal — in both directions.
+
+    Both sides of that equality are keyed by `metric_identity` and nothing else. Building the required key
+    here by hand would be a second key authority, and the two would drift the moment either changed — which
+    is exactly how a wildcard crept into one side and stayed invisible."""
     scenarios = {s['id']: s for s in suite['scenarios']}
     commands = {c['id']: c for c in suite['commands']}
+
+    def scope_and_kind(c: dict) -> tuple[str, str]:
+        """What a command MUST report, derived from how it is executed rather than read back from a sample.
+
+        Deriving it is the point: read back from the sample it would agree with itself no matter what the
+        sample said, which is how a direct command could have claimed BuildKit stage scope unchallenged.
+        """
+        if c['measurement'] == 'derived':
+            if c['execution'][1] == 'buildkit-progress':
+                return SCOPE_BUILDKIT, KIND_AGGREGATE
+            if c['execution'][0] == 'observatory':
+                return SCOPE_UNAVAILABLE, KIND_UNTIMED
+            return SCOPE_UNAVAILABLE, KIND_WALL
+        if c['kind'] in ANALYSIS_KINDS:
+            return SCOPE_UNAVAILABLE, KIND_WALL
+        return SCOPE_HOST, KIND_WALL
 
     # A Docker stage is observed under EVERY command whose build reaches it, so its parents are derived from
     # the stage graph and each command's declared build targets — not declared one-per-stage. `dependencies`
@@ -1769,26 +1873,36 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
                     if canonical_only and not scenarios[sid].get('canonical'):
                         continue
                     edit = scenarios[sid].get('edit')
-                    key = '|'.join((c['id'], sid, edit or '-', parent, '*'))
-                    expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                                     'derived_parent_id': parent, 'samples': count}
+                    scope, kind = scope_and_kind(c)
+                    spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                            'derived_parent_id': parent, 'selected_or_support': 'selected',
+                            'resource_scope': scope, 'measurement_kind': kind, 'samples': count}
+                    expected[metric_identity(spec)] = spec
             continue
         for sid in c['scenarios']:
             if canonical_only and not scenarios[sid].get('canonical'):
                 continue
             edit = scenarios[sid].get('edit')
-            key = '|'.join((c['id'], sid, edit or '-', '-', '*'))
-            expected[key] = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                             'derived_parent_id': None, 'samples': c['samples'][sid]}
+            scope, kind = scope_and_kind(c)
+            spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
+                    'derived_parent_id': None, 'selected_or_support': 'selected',
+                    'resource_scope': scope, 'measurement_kind': kind,
+                    'samples': c['samples'][sid]}
+            expected[metric_identity(spec)] = spec
     return expected
 
 
 def observed_relation(samples: list[dict]) -> dict:
-    """The same shape, taken from what actually ran, with resource scope wildcarded so the two can meet."""
+    """The same shape, taken from what actually ran, under the SAME identity the summaries use.
+
+    This used to wildcard resource scope "so the two can meet", which is the wrong way round: the relation
+    was made to close by discarding the fields that distinguish one measurement from another. A selected
+    child mislabelled `support`, a direct command claiming BuildKit stage scope, or aggregate step work
+    standing in for elapsed wall time all closed the relation while describing a different measurement than
+    the registry asked for. The two sides meet on the full key or they do not meet."""
     out: dict[str, int] = {}
     for s in samples:
-        key = '|'.join((s['command_id'], s['scenario_id'], s.get('edit_id') or '-',
-                        s.get('derived_parent_id') or '-', '*'))
+        key = metric_identity(s)
         out[key] = out.get(key, 0) + 1
     return out
 
@@ -2156,13 +2270,6 @@ def load_observation(root: Path, where: str) -> tuple[dict, str]:
         raise ObservatoryError(f'{where}:{OBSERVATION_REL}: not a valid observation ({exc})')
 
 
-def _scope_of(obs: dict, key: str) -> str | None:
-    for s in obs['measurements']:
-        if f'{s["command_id"]}|{s["scenario_id"]}' == key:
-            return s['resource_scope']
-    return None
-
-
 def _comparable(obs: dict, side: str) -> None:
     """An observation that never measured anything is not a baseline; say so rather than fail on its nulls."""
     if obs.get('state') == 'pending':
@@ -2263,11 +2370,11 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
             metrics.append({**row, 'classification': 'incomparable',
                             'reason': 'the two runs have different host-class fingerprints'})
             continue
-        b_scope, c_scope = _scope_of(base, key), _scope_of(cand, key)
-        if b_scope != c_scope:
-            metrics.append({**row, 'classification': 'incomparable',
-                            'reason': f'resource scope changed: {b_scope} -> {c_scope}'})
-            continue
+        # No scope guard here, and deliberately none: resource scope is a FIELD OF THE KEY, so two sides of
+        # one key cannot disagree about it. The guard that used to sit here compared a two-part
+        # `command|scenario` string against the full five-part key and so could never match — an unreachable
+        # check reading as evidence. A scope that really changes now changes the key, and surfaces as an
+        # added/removed pair, which is what it is.
         scenario_id = key.split('|')[1]
         edit_id = key.split('|')[2]
         for changed, why in ((command_id in definitions['changed'], 'the command definition changed'),
@@ -2285,10 +2392,17 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
                 metrics[-1]['classification'] == 'incomparable':
             continue
 
-        delta = c['median_wall_ns'] - b['median_wall_ns']
-        pct = (delta / b['median_wall_ns'] * 100) if b['median_wall_ns'] else None
+        # A below-resolution row carries a BOUND rather than a median. Asking it for one, or computing a
+        # percentage against it, would manufacture an exact delta out of "we could not tell".
+        if 'median_ns' not in b or 'median_ns' not in c:
+            metrics.append({**row, 'classification': 'incomparable',
+                            'reason': 'the stage is below the clock resolution on at least one side, so '
+                                      'only a bound is known'})
+            continue
+        delta = c['median_ns'] - b['median_ns']
+        pct = (delta / b['median_ns'] * 100) if b['median_ns'] else None
         single = b['samples'] < 2 or c['samples'] < 2
-        overlap = max(b['min_wall_ns'], c['min_wall_ns']) <= min(b['max_wall_ns'], c['max_wall_ns'])
+        overlap = max(b['min_ns'], c['min_ns']) <= min(b['max_ns'], c['max_ns'])
         if delta == 0:
             classification, reason = 'unchanged', 'the medians are equal'
         elif not single and overlap:
@@ -2325,12 +2439,12 @@ def render_comparison(cmp: dict) -> str:
     for m in cmp['metrics']:
         b, c = m['baseline'], m['candidate']
         pct = f'{m["delta_percent"]:+.1f}%' if m.get('delta_percent') is not None else ''
-        lines.append(f'{m["key"]:<46} {ms(b["median_wall_ns"]) if b else "—":>12} '
-                     f'{ms(c["median_wall_ns"]) if c else "—":>12} '
+        lines.append(f'{m["key"]:<46} {ms(b["median_ns"]) if b else "—":>12} '
+                     f'{ms(c["median_ns"]) if c else "—":>12} '
                      f'{ms(m.get("delta_ns")):>12} {pct:>8}  {m["classification"]}')
         if b and c:
-            lines.append(f'{"":<46} [{ms(b["min_wall_ns"])}–{ms(b["max_wall_ns"])}] '
-                         f'[{ms(c["min_wall_ns"])}–{ms(c["max_wall_ns"])}]  '
+            lines.append(f'{"":<46} [{ms(b["min_ns"])}–{ms(b["max_ns"])}] '
+                         f'[{ms(c["min_ns"])}–{ms(c["max_ns"])}]  '
                          f'n={b["samples"]}/{c["samples"]}  {m["reason"]}')
         else:
             lines.append(f'{"":<46} {m["reason"]}')
@@ -2454,9 +2568,16 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     edits = {e['id']: e for e in suite.get('edits', [])}
     derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
 
-    env = environment(root)
+    # The canonical order, and every step of it is load-bearing.  Capturing the environment BEFORE the
+    # builder existed described a builder the suite then replaced: on first use the observation named one
+    # builder and the samples ran against another.  Priming stable infrastructure before the environment is
+    # read means the recorded identities are the ones the samples actually used, and that the toolchain
+    # download is outside every measured interval rather than inside the first cold sample.
     subj = subject(root)
     ensure_observatory_builder()
+    preflight = toolchain_prime(root, progress)
+    env = environment(root)
+    env['preflight'] = preflight
 
     samples: list[dict] = []
     incomplete: list[str] = []
@@ -2609,7 +2730,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         graph = measure_module_graph(root, raw_dir / f'module-graph.{index}',
                                                      progress, scenario)
                         events = graph.pop('stage_events', []) + [
-                            {'id': 'analysis.dune-graph', 'wall_ns': 0, 'source': 'same-build'}]
+                            {'id': 'analysis.dune-graph', 'wall_ns': None, 'untimed': True, 'source': 'same-build'}]
                     s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
                                         subj['content_digest'], index)
                     emit(s)
@@ -3359,7 +3480,8 @@ def self_test(root: Path) -> int:
                 'cache_observation': {'stages': {}}, 'source_digest': 'e0' * 32,
                 'selected_or_support': 'selected', 'start_utc': '2026-01-01T00:00:00+00:00',
                 'wall_ns': 1_000_000, 'user_cpu_ns': 500_000, 'system_cpu_ns': 400_000,
-                'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'exit_code': 0, 'expected_exit': 0,
+                'max_rss_bytes': 1024, 'resource_scope': SCOPE_HOST, 'measurement_kind': KIND_WALL,
+                'exit_code': 0, 'expected_exit': 0,
                 'host_load': {'before': 0.5, 'after': 0.5},
                 'status': 'ok', 'cache_before': {'authorities': {}, 'primed_by_run': 'run-a'},
                 'cache_after': {}, 'raw_log_sha256': 'ab' * 32,
@@ -3426,6 +3548,42 @@ def self_test(root: Path) -> int:
                  observation(samples=[sample(wall_ns=-1)],
                              derived={'summaries': summarise([sample(wall_ns=-1)])}), digest),
              expect='negative wall_ns')
+
+    # ── §10 zero is a measured claim, and it is false whenever work happened
+    def only(s):
+        return lambda: validate_observation(
+            observation(samples=[s], derived={'summaries': summarise([s])}), digest)
+
+    observed('work timed as exactly zero',
+             only(sample(wall_ns=0)), expect='elapsed duration of exactly zero')
+    observed('an untimed artifact still carrying a duration',
+             only(sample(measurement_kind=KIND_UNTIMED, wall_ns=5)),
+             expect='untimed artifact yet carries a duration')
+    observed('a below-resolution interval with no bound',
+             only(sample(measurement_kind=KIND_INTERVAL, wall_ns=None, lower_ns=None, upper_ns=None)),
+             expect='without a usable bound')
+    observed('a below-resolution interval whose bounds are inverted',
+             only(sample(measurement_kind=KIND_INTERVAL, wall_ns=None, lower_ns=9, upper_ns=1)),
+             expect='without a usable bound')
+
+    counts['total'] += 1
+    accepted = sample(measurement_kind=KIND_UNTIMED, wall_ns=None, aggregate_step_ns=None)
+    interval = sample(measurement_kind=KIND_INTERVAL, wall_ns=None, aggregate_step_ns=None,
+                      lower_ns=0, upper_ns=HOOK_CLOCK['resolution_ns'], below_resolution=True)
+    for label, s in (('an untimed artifact', accepted), ('a below-resolution interval', interval)):
+        try:
+            validate_observation(observation(samples=[s], derived={'summaries': summarise([s])}), digest)
+        except ObservatoryError as exc:
+            failures.append(f'{label} was rejected: {exc}')
+    rows = summarise([interval])
+    if not rows or not all(r.get('below_resolution') and 'median_ns' not in r for r in rows.values()):
+        failures.append('a below-resolution stage was summarised with a median it cannot have')
+    # A hook anchor that begins and ends within one clock tick must become a BOUND, never a zero.
+    counts['total'] += 1
+    ticks = parse_anchor_log('begin precommit.fast 1000000000\nend precommit.fast 1000000000\n')
+    if not ticks or ticks[0].get('wall_ns') is not None or not ticks[0].get('below_resolution'):
+        failures.append(f'a hook stage faster than one clock tick was recorded as {ticks} rather than a '
+                        'below-resolution bound')
     observed('an unknown resource scope',
              lambda: validate_observation(
                  observation(samples=[sample(resource_scope='guessed')],
@@ -3433,7 +3591,7 @@ def self_test(root: Path) -> int:
              expect='not a known scope')
     observed('a tampered stored summary',
              lambda: validate_observation(observation(derived={'summaries': {'make.fmt|project.warm.noop': {
-                 'samples': 3, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), digest),
+                 'samples': 3, 'median_ns': 1, 'min_ns': 1, 'max_ns': 1}}}), digest),
              expect='do not equal recomputation')
 
     def complete_observation(**over):
@@ -3451,9 +3609,19 @@ def self_test(root: Path) -> int:
                     # The fixture has to model that or it would not reach the rule which requires it.
                     digest_i = (_sha256(f'{spec["command_id"]}|{spec["scenario_id"]}|{i}'.encode('utf-8'))
                                 if spec['edit_id'] else 'e0' * 32)
+                    # Scope and kind come from the SPEC, not from the generic fixture default. Stamping
+                    # every fixture sample `host-wrapper`/`wall_elapsed` modelled a world where an analysis
+                    # command and a BuildKit stage report the same thing a shell command does, and the
+                    # relation could only close because it wildcarded exactly those fields.
+                    value = {KIND_AGGREGATE: {'aggregate_step_ns': 1_000_000, 'wall_ns': None},
+                             KIND_UNTIMED: {'aggregate_step_ns': None, 'wall_ns': None},
+                             }.get(spec['measurement_kind'], {})
                     every.append(sample(command_id=spec['command_id'], scenario_id=spec['scenario_id'],
                                         edit_id=spec['edit_id'], derived_parent_id=spec['derived_parent_id'],
-                                        sample_index=i, source_digest=digest_i))
+                                        selected_or_support=spec['selected_or_support'],
+                                        resource_scope=spec['resource_scope'],
+                                        measurement_kind=spec['measurement_kind'],
+                                        sample_index=i, source_digest=digest_i, **value))
         over.setdefault('derived', {'summaries': summarise(every)})
         return observation(samples=every, **over)
 
@@ -3486,11 +3654,74 @@ def self_test(root: Path) -> int:
     observed('a reused project cache naming no prime',
              lambda: record_check(obs=with_reuse(None)), expect='recording rule R08')
     observed('a reused project cache naming a prime nothing retains',
-             lambda: record_check(obs=with_reuse('make.prove|project.cold.prover|-|-|nowhere')),
+             lambda: record_check(obs=with_reuse('make.prove|project.cold.prover|-|-|selected|nowhere|wall_elapsed')),
              expect='recording rule R08')
     observed('a prime that is not a cold sample',
-             lambda: record_check(obs=with_reuse('make.prove|project.warm.noop|-|-|host-wrapper')),
+             lambda: record_check(obs=with_reuse('make.prove|project.warm.noop|-|-|selected|host-wrapper|wall_elapsed')),
              expect='recording rule R08')
+    # ── §14 the exact relation closes over role, scope and kind, not only over command and scenario
+    def relabelled(command_id: str, scenario_id: str, **fields):
+        """One retained sample given a different role, scope or kind than the registry requires.
+
+        A missing target is reported rather than raised as `StopIteration`: an uncaught exception here
+        aborts the whole self-test, so a later control's rule would go unexercised and look load-bearing
+        when nothing had reached it.
+        """
+        obs = complete_observation()
+        target = next((s for s in obs['measurements']
+                       if s['command_id'] == command_id and s['scenario_id'] == scenario_id), None)
+        if target is None:
+            raise ObservatoryError(f'the fixture retains no {command_id} sample in {scenario_id} to relabel')
+        target.update(fields)
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a selected sample relabelled support',
+             lambda: record_check(obs=relabelled('make.diet', 'project.warm.noop',
+                                                 selected_or_support='support')),
+             expect='coverage on paper')
+    def with_support_extra():
+        """A support-role sample beside the selected ones for a pair the registry declares.
+
+        It keeps the command, scenario and index of a real sample, so the raw-log rule still passes and the
+        ONLY thing that distinguishes it is its role. Without role in the key it would be invisible.
+        """
+        obs = complete_observation()
+        twin = dict(next(s for s in obs['measurements'] if s['command_id'] == 'make.diet'),
+                    selected_or_support='support')
+        obs['measurements'] = obs['measurements'] + [twin]
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a support sample beside the selected ones for a declared pair',
+             lambda: record_check(obs=with_support_extra()), expect='coverage on paper')
+    observed('a direct sample claiming BuildKit stage scope',
+             lambda: record_check(obs=relabelled('make.diet', 'project.warm.noop',
+                                                 resource_scope=SCOPE_BUILDKIT)),
+             expect='coverage on paper')
+    observed('aggregate step work presented as elapsed wall time',
+             lambda: record_check(obs=relabelled('docker.prover', 'project.cold.prover',
+                                                 measurement_kind=KIND_WALL)),
+             expect='coverage on paper')
+
+    # A parallel stage does MORE aggregate work than the elapsed time it took. Pooling the two, or printing
+    # one under the other's name, states something arithmetically impossible; the kind is in the key, so the
+    # summary keeps them apart and says which is which.
+    counts['total'] += 1
+    parallel = [sample(command_id='docker.prover', derived_parent_id='make.prove',
+                       resource_scope=SCOPE_BUILDKIT, measurement_kind=KIND_AGGREGATE,
+                       wall_ns=None, aggregate_step_ns=9_000_000),
+                sample(command_id='make.prove', wall_ns=3_000_000)]
+    pooled = summarise(parallel)
+    if len(pooled) != 2:
+        failures.append('aggregate step work and elapsed wall time were pooled into one summary')
+    else:
+        kinds = {v['measurement_kind'] for v in pooled.values()}
+        if kinds != {KIND_AGGREGATE, KIND_WALL}:
+            failures.append(f'a summary did not state which kind of measurement it holds: {kinds}')
+        if any('wall' in field for v in pooled.values() for field in v if field.endswith('_ns')):
+            failures.append('a summary field still names wall time for a value that may be aggregate work')
+
     observed('a registry that changed between validation and recording',
              lambda: record_check(suite_digest='9' * 64), expect='recording rule R02')
     observed('a dirty tree with RECORD', lambda: record_check(clean_before=False),
@@ -3596,7 +3827,7 @@ def self_test(root: Path) -> int:
              expect='recording rule R1')
 
     # ── comparison: the classification for a pair, and the reasons it declines to give one
-    def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|project.warm.noop|-|-|host-wrapper'):
+    def verdict(label: str, base_obs: dict, cand_obs: dict, expect: str, key: str = 'make.fmt|project.warm.noop|-|-|selected|host-wrapper|wall_elapsed'):
         counts['total'] += 1
         result = compare(base_obs, cand_obs)
         row = next((m for m in result['metrics'] if m['key'] == key), None)
@@ -3803,7 +4034,7 @@ def self_test(root: Path) -> int:
     # ── §7 comparison: validated before it concludes, and one selector model
     observed('a comparison against a tampered stored summary',
              lambda: compare(observation(derived={'summaries': {'x|y|-|-|host-wrapper': {
-                 'samples': 1, 'median_wall_ns': 1, 'min_wall_ns': 1, 'max_wall_ns': 1}}}), observation()),
+                 'samples': 1, 'median_ns': 1, 'min_ns': 1, 'max_ns': 1}}}), observation()),
              expect='do not equal recomputation from its own')
 
     counts['total'] += 1
@@ -3998,7 +4229,7 @@ def self_test(root: Path) -> int:
                           'selected', 5_000, {}, [])
     kids = derive_child_samples(direct, [{'id': 'docker.prover', 'aggregate_step_ns': 900,
                                           'source': 'buildkit-progress'}], {'docker.prover'})
-    kids += derive_child_samples(ana, [{'id': 'analysis.dune-graph', 'wall_ns': 0,
+    kids += derive_child_samples(ana, [{'id': 'analysis.dune-graph', 'wall_ns': None, 'untimed': True,
                                         'source': 'same-build'}], {'analysis.dune-graph'})
     mixed = [direct, ana, *kids]
     shaped = observation(samples=mixed, derived={'summaries': summarise(mixed)})
