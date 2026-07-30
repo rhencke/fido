@@ -37,8 +37,10 @@ fido_observe begin precommit.builder
 : "${FIDO_BUILDER:=fido-builder}"
 # Inert cache cut: unset, this expands to nothing and the hook builds exactly as it always has.  The
 # observatory sets it to invalidate one declared stage for a project-cold measurement.
+# FIDO_NOCACHE carries the SET of declared invalidation roots, space-separated: a compound cut forces more
+# than one root, and one name could only describe half of it.
 FIDO_NC=""
-[ -n "${FIDO_NOCACHE:-}" ] && FIDO_NC="--no-cache-filter ${FIDO_NOCACHE}"
+for _root in ${FIDO_NOCACHE:-}; do FIDO_NC="$FIDO_NC --no-cache-filter $_root"; done
 docker buildx inspect "$FIDO_BUILDER" >/dev/null 2>&1 || docker buildx create --name "$FIDO_BUILDER" --driver docker-container --bootstrap >/dev/null
 fido_observe end precommit.builder
 

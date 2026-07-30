@@ -66,7 +66,7 @@ SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state',
                    'cache_cut')
 # §3A.1 — a cache cut says what stays a hit, what must rebuild, and that nothing was pulled or
 # bootstrapped inside the measured interval. A sample without one is a number with no meaning.
-CUT_FIELDS = ('stable_through', 'invalidated_from', 'registry_pulls_included',
+CUT_FIELDS = ('stable_through', 'invalidated_roots', 'registry_pulls_included',
               'builder_bootstrap_included')
 STAGE_STATES = ('hit', 'rebuilt', 'skipped', 'not-required', 'unavailable')
 PROJECT_CACHES = ('buildkit_project_layers', 'dune_build', 'go_build', 'generated_intermediate')
@@ -213,6 +213,38 @@ def load_suite(root: Path) -> dict:
     stage_names = docker_stages(root)
     stage_graph = docker_stage_graph(root)
 
+    by_scenario = {s['id']: s for s in suite['scenarios']}
+
+    # A scenario's own cut is validated BEFORE any command is, because the command checks read it: asking
+    # whether a command's roots agree with its cold scenarios is meaningless while a scenario's root set is
+    # still unchecked, and it reported the disagreement instead of the malformed scenario that caused it.
+    for s in suite['scenarios']:
+        cut = s.get('cache_cut') or {}
+        missing_cut = [f for f in CUT_FIELDS if f not in cut]
+        if missing_cut:
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache_cut lacks {missing_cut}')
+        roots = cut['invalidated_roots']
+        if not isinstance(roots, list):
+            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: invalidated_roots must be a list')
+        if s['id'].startswith('project.cold.'):
+            if not roots:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]} is project-cold and invalidates nothing')
+            suffix = s['id'].split('project.cold.', 1)[1]
+            # A ONE-root cut must be named for its root. A COMPOUND cut gets a stable identity of its own —
+            # `make audit-fresh` forces `prover` and `go-e2e` independently, and squeezing that into one
+            # root name is what let a sample declare half of what it rebuilt. What a compound cut may NOT
+            # do is borrow a single root's name, which would read as the smaller claim.
+            if len(roots) == 1:
+                if roots[0] != suffix:
+                    raise ObservatoryError(
+                        f'{SUITE_REL}: scenario {s["id"]} invalidates {roots[0]!r}, which is not the root '
+                        f'its own name declares')
+            elif suffix in roots:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: scenario {s["id"]} invalidates {sorted(roots)} but is named for just '
+                    f'{suffix!r}, so its name understates the cut')
+
     seen_cmd = set()
     for c in suite['commands']:
         missing = [f for f in COMMAND_FIELDS if f not in c]
@@ -252,9 +284,12 @@ def load_suite(root: Path) -> dict:
         # A command's invalidation roots and its cold scenarios state the same fact, so they must agree
         # exactly. `make prover-log` declared no root while running a buildx build of the prover stage,
         # which left it with a warm scenario and no prime it could ever take.
+        # Read from each cold scenario's declared ROOT SET, not from its name: a compound cut carries a
+        # stable identity of its own (`project.cold.audit-fresh`) precisely because no single root name
+        # could describe the two independent roots that command forces.
         declared_roots = sorted(c['invalidation_roots'])
-        cold_roots = sorted(s.split('project.cold.', 1)[1]
-                            for s in c['scenarios'] if s.startswith('project.cold.'))
+        cold_roots = sorted({r for sid in c['scenarios'] if sid.startswith('project.cold.')
+                             for r in by_scenario[sid]['cache_cut']['invalidated_roots']})
         if c['measurement'] == 'direct':
             if declared_roots != cold_roots:
                 raise ObservatoryError(
@@ -355,17 +390,11 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache authorities {absent} are '
                                    f'unstated; each must be recorded independently')
 
-        # §3A.1 — the cut is what makes a cold number mean something
-        cut = s.get('cache_cut') or {}
-        missing_cut = [f for f in CUT_FIELDS if f not in cut]
-        if missing_cut:
-            raise ObservatoryError(f'{SUITE_REL}: scenario {s["id"]}: cache_cut lacks {missing_cut}')
-        root = cut['invalidated_from']
+        # §3A.1 — the cut is what makes a cold number mean something. Its root set and name were checked in
+        # the pre-pass above; what remains is what the cut ADMITS into the measured interval.
+        cut = s['cache_cut']
+        suffix = s['id'].split('project.cold.', 1)[-1]
         if s['id'].startswith('project.cold.'):
-            if root != s['id'].split('project.cold.', 1)[1]:
-                raise ObservatoryError(
-                    f'{SUITE_REL}: scenario {s["id"]} invalidates {root!r}, which is not the root its own '
-                    f'name declares')
             if cut['registry_pulls_included'] or cut['builder_bootstrap_included']:
                 raise ObservatoryError(
                     f'{SUITE_REL}: scenario {s["id"]} is canonical project-cold but admits registry pulls or '
@@ -1415,7 +1444,7 @@ def metric_identity(sample: dict) -> str:
                      sample.get('measurement_kind') or KIND_WALL))
 
 
-def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
+def check_cut_observed(sample: dict, scenario: dict, suite: dict, graph: dict | None = None) -> None:
     """What the scenario DECLARED against what BuildKit actually did.
 
     A declared cut is a claim about the run. Left unchecked it is exactly the defect that blocked the first
@@ -1429,16 +1458,17 @@ def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
         raise ObservatoryError(
             f'{sample["command_id"]} [{scenario["id"]}]: the builder was bootstrapped inside the measured '
             f'interval, which the cache cut excludes')
-    root = cut.get('invalidated_from')
+    roots = list(cut.get('invalidated_roots') or [])
     cold = scenario['id'].startswith('project.cold.')
     # A cold claim needs evidence FOR it, not merely the absence of evidence against it. Two commands
     # discard their build output on purpose, and their cold samples were passing this check vacuously:
     # no stage map, nothing to contradict, cold by default.
-    if cold and stages.get(root) is None:
-        raise ObservatoryError(
-            f'{sample["command_id"]} [{scenario["id"]}]: no observed state for the invalidation root '
-            f'{root!r}, so its cold claim rests on absent evidence; record `unavailable` and do not call it '
-            f'cold')
+    for root in roots if cold else []:
+        if stages.get(root) is None:
+            raise ObservatoryError(
+                f'{sample["command_id"]} [{scenario["id"]}]: no observed state for the invalidation root '
+                f'{root!r}, so its cold claim rests on absent evidence; record `unavailable` and do not '
+                f'call it cold')
     if not stages:
         return                                     # a command that drives no BuildKit graph claims nothing
     stable = cut.get('stable_through')
@@ -1446,10 +1476,35 @@ def check_cut_observed(sample: dict, scenario: dict, suite: dict) -> None:
         raise ObservatoryError(
             f'{sample["command_id"]} [{scenario["id"]}]: the declared stable ancestor {stable!r} rebuilt, so '
             f'this measured more than the cut says it did')
-    if cold and stages[root] != 'rebuilt':
+    for root in roots if cold else []:
+        if stages[root] != 'rebuilt':
+            raise ObservatoryError(
+                f'{sample["command_id"]} [{scenario["id"]}]: the invalidation root {root!r} was '
+                f'{stages[root]}, not rebuilt; a cold sample whose root stayed cached is not a cold sample')
+    if not cold:
+        return
+
+    # Every OTHER rebuilt stage must be explained by a declared root: either it is one, or it is downstream
+    # of one. An undeclared INDEPENDENT root is the defect this closes — `make audit-fresh` forces `prover`
+    # and `go-e2e` separately, declared only `prover`, and the extra rebuild was invisible because nothing
+    # asked what else had run.
+    graph = graph or {}
+    reachable = set(roots)
+    if graph:
+        frontier = list(roots)
+        while frontier:
+            stage = frontier.pop()
+            for child, parents in graph.items():
+                if stage in parents and child not in reachable:
+                    reachable.add(child)
+                    frontier.append(child)
+    unexplained = sorted(st for st, state in stages.items()
+                         if state == 'rebuilt' and st not in reachable and st != stable)
+    if unexplained and graph:
         raise ObservatoryError(
-            f'{sample["command_id"]} [{scenario["id"]}]: the invalidation root {root!r} was {stages[root]}, '
-            f'not rebuilt; a cold sample whose root stayed cached is not a cold sample')
+            f'{sample["command_id"]} [{scenario["id"]}]: stage(s) {unexplained} rebuilt but are neither a '
+            f'declared invalidation root {sorted(roots)} nor downstream of one; an undeclared independent '
+            f'root means the cut describes less work than the sample did')
 
 
 def definition_fingerprints(suite: dict) -> dict:
@@ -2466,17 +2521,17 @@ def materialise_execution(command: dict, scenario: dict | None = None,
     emptying the machine — and it is also what makes it immune to an earlier measured command's cache,
     because the root is forced to rebuild whatever anyone else left behind."""
     argv = list(command['execution'])
-    root = (scenario or {}).get('cache_cut', {}).get('invalidated_from')
+    roots = (scenario or {}).get('cache_cut', {}).get('invalidated_roots') or []
     cold = bool(scenario) and scenario['id'].startswith('project.cold.')
     if command['kind'] == 'make-target':
         argv = argv + [f'BUILDER={builder}']
-        if cold and root:
-            argv.append(f'NOCACHE={root}')
+        if cold and roots:
+            argv.append('NOCACHE=' + ' '.join(roots))
         return argv
     if command['kind'] == 'precommit-full':
         env = ['env', f'FIDO_BUILDER={builder}']
-        if cold and root:
-            env.append(f'FIDO_NOCACHE={root}')
+        if cold and roots:
+            env.append('FIDO_NOCACHE=' + ' '.join(roots))
         return env + argv
     return argv
 
@@ -2578,6 +2633,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     preflight = toolchain_prime(root, progress)
     env = environment(root)
     env['preflight'] = preflight
+    # The Dockerfile's own stage graph, so a cold sample can be asked what ELSE rebuilt and not merely
+    # whether its declared root did.
+    stage_graph = docker_stage_graph(root)
 
     samples: list[dict] = []
     incomplete: list[str] = []
@@ -2612,7 +2670,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             # `reused` states are not true of it and there is no prime for it to take. §3A.4 requires
             # `not-applicable` here rather than a state the runner cannot establish.
             provenance, skip = sample_provenance(command, scenario, primes)
-            root_stage = scenario['cache_cut']['invalidated_from']
+            root_stage = tuple(scenario['cache_cut']['invalidated_roots'])
             if skip:
                 incomplete.append(f'{cid}/{scenario_id}')
                 progress(f'fido: observe — {skip}')
@@ -2675,7 +2733,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         command, anchor_log,
                         raw_dir / (raw_log_name(cid, scenario_id, index,
                                                 edit['id'] if edit else None) + '.log'))
-                    check_cut_observed(s, scenario, suite)
+                    check_cut_observed(s, scenario, suite, stage_graph)
                     emit(s)
                     for child in derive_child_samples(
                             s, s['derived_stage_events'], derived_ids,
@@ -2737,7 +2795,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     # An analysis command that builds has a prime to offer, exactly like a shell command.
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
                         primes[(cid, 'prime')] = {'id': metric_identity(s),
-                                                  'root': scenario['cache_cut']['invalidated_from']}
+                                                  'root': tuple(scenario['cache_cut']['invalidated_roots'])}
                     for child in derive_child_samples(
                             s, events, derived_ids,
                             role_of=lambda kid: sample_role(sel, kid, scenario_id)):
@@ -2792,8 +2850,9 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print, scenario: di
     ensure_observatory_builder()
     proc = subprocess.run(
         ['docker', 'buildx', 'build', '--builder', OBSERVATORY_BUILDER, '--platform', 'linux/amd64',
-         *(['--no-cache-filter', (scenario or {}).get('cache_cut', {}).get('invalidated_from')]
-           if (scenario or {}).get('id', '').startswith('project.cold.') else []),
+         *[a for r in ((scenario or {}).get('cache_cut', {}).get('invalidated_roots') or []
+                       if (scenario or {}).get('id', '').startswith('project.cold.') else [])
+             for a in ('--no-cache-filter', r)],
          '--progress=plain', '--target', 'module-graph-log', '--output', f'type=local,dest={out_dir}', '.'],
         cwd=str(root), capture_output=True, text=True)
     build_log = proc.stdout + proc.stderr
@@ -3035,7 +3094,7 @@ def self_test(root: Path) -> int:
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': suite_of(w)['scenarios'] + [
                  {'id': 'orphan.scenario', 'canonical': False, 'purpose': 'p', 'session_state': 'fresh',
                   'cache_state': {a: 'not-applicable' for a in CACHE_AUTHORITIES}, 'prime_steps': [],
-                  'cache_cut': {'stable_through': 'rocq-base', 'invalidated_from': None,
+                  'cache_cut': {'stable_through': 'rocq-base', 'invalidated_roots': [],
                                 'registry_pulls_included': False,
                                 'builder_bootstrap_included': False}}]}),
              expect='no command runs in it')
@@ -3078,7 +3137,7 @@ def self_test(root: Path) -> int:
              expect='measures machine setup, not this repository')
     scenario('a cold scenario invalidating a root its own name does not declare',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
-                 {**s, 'cache_cut': {**s['cache_cut'], 'invalidated_from': 'emit'}}
+                 {**s, 'cache_cut': {**s['cache_cut'], 'invalidated_roots': ['emit']}}
                  if s['id'] == 'project.cold.prover' else s
                  for s in suite_of(w)['scenarios']]}),
              expect='is not the root its own name declares')
@@ -3475,7 +3534,7 @@ def self_test(root: Path) -> int:
     def sample(**over) -> dict:
         base = {'command_id': 'make.fmt', 'scenario_id': 'project.warm.noop', 'sample_index': 0,
                 'edit_id': None, 'derived_parent_id': None,
-                'cache_cut': {'stable_through': 'rocq-base', 'invalidated_from': None,
+                'cache_cut': {'stable_through': 'rocq-base', 'invalidated_roots': [],
                               'registry_pulls_included': False, 'builder_bootstrap_included': False},
                 'cache_observation': {'stages': {}}, 'source_digest': 'e0' * 32,
                 'selected_or_support': 'selected', 'start_utc': '2026-01-01T00:00:00+00:00',
@@ -4170,11 +4229,60 @@ def self_test(root: Path) -> int:
     # ── the cache cut: a declared claim checked against what BuildKit actually did
     def cut_sample(stages, scenario_id='project.cold.prover', **over):
         s = sample(scenario_id=scenario_id, cache_observation={'stages': stages})
-        s['cache_cut'] = {'stable_through': 'rocq-base', 'invalidated_from': 'prover',
+        s['cache_cut'] = {'stable_through': 'rocq-base', 'invalidated_roots': ['prover'],
                           'registry_pulls_included': False, 'builder_bootstrap_included': False, **over}
         return s
 
     cold_scn = {'id': 'project.cold.prover', 'canonical': True}
+
+    # ── §7 a cut owns an exact ROOT SET, and the set must explain every project stage that rebuilt
+    _g = docker_stage_graph(root)
+    compound = {'id': 'project.cold.audit-fresh', 'canonical': True}
+
+    def two_root_sample(stages):
+        s = sample(scenario_id='project.cold.audit-fresh', cache_observation={'stages': stages})
+        s['cache_cut'] = {'stable_through': 'rocq-base', 'invalidated_roots': ['go-e2e', 'prover'],
+                          'registry_pulls_included': False, 'builder_bootstrap_included': False}
+        return s
+
+    observed('a compound cut missing one of its declared roots',
+             lambda: check_cut_observed(two_root_sample({'prover': 'rebuilt', 'go-e2e': 'hit',
+                                                         'rocq-base': 'hit'}), compound, suite, _g),
+             expect="root 'go-e2e' was hit, not rebuilt")
+    observed('an undeclared independent root that rebuilt alongside the declared one',
+             lambda: check_cut_observed(cut_sample({'prover': 'rebuilt', 'go-e2e': 'rebuilt',
+                                                    'rocq-base': 'hit'}), cold_scn, suite, _g),
+             expect='neither a declared invalidation root')
+
+    counts['total'] += 1
+    emit_scn = {'id': 'project.cold.emit', 'canonical': True}
+    emit_sample = sample(scenario_id='project.cold.emit',
+                         cache_observation={'stages': {'emit': 'rebuilt', 'generated-module': 'rebuilt',
+                                                       'rocq-base': 'hit'}})
+    emit_sample['cache_cut'] = {'stable_through': 'rocq-base', 'invalidated_roots': ['emit'],
+                                'registry_pulls_included': False, 'builder_bootstrap_included': False}
+    try:
+        # `generated-module` COPYs from `emit`, so its rebuild is EXPLAINED by the declared root and must be
+        # accepted; refusing it would make every real cold sample unrecordable. (`prover` has no descendants
+        # at all — it and `emit` are siblings from `rocq-base` — which is why the fixture uses `emit`.)
+        check_cut_observed(emit_sample, emit_scn, suite, _g)
+        check_cut_observed(two_root_sample({'prover': 'rebuilt', 'go-e2e': 'rebuilt', 'rocq-base': 'hit'}),
+                           compound, suite, _g)
+    except ObservatoryError as exc:
+        failures.append(f'a rebuild downstream of a declared root was refused: {exc}')
+
+    # A changed root set changes the scenario definition, so two observations across it are incomparable
+    # rather than comparable — the same command measured under a different cut is a different question.
+    counts['total'] += 1
+    _base_suite = {**suite, 'scenarios': [{**s, 'cache_cut': {**s['cache_cut'],
+                                                              'invalidated_roots': ['prover']}}
+                                          if s['id'] == 'project.cold.audit-fresh' else s
+                                          for s in suite['scenarios']]}
+    if definition_fingerprints(_base_suite)['scenarios']['project.cold.audit-fresh'] == \
+            definition_fingerprints(suite)['scenarios']['project.cold.audit-fresh']:
+        failures.append('a changed invalidation root set left the scenario fingerprint unchanged, so two '
+                        'observations taken under different cuts would compare as if they matched')
+
     observed('a cold sample whose invalidation root stayed cached',
              lambda: check_cut_observed(cut_sample({'prover': 'hit', 'rocq-base': 'hit'}), cold_scn, suite),
              expect='not rebuilt; a cold sample whose root stayed cached is not a cold sample')

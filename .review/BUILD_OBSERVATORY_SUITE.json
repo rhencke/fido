@@ -528,6 +528,7 @@
       ],
       "id": "make.audit-fresh",
       "invalidation_roots": [
+        "go-e2e",
         "prover"
       ],
       "isolation": null,
@@ -538,10 +539,10 @@
       "policy": null,
       "purpose": "The proof gate and the whole-tree e2e forced to RUN rather than report a Buildx cache hit.",
       "samples": {
-        "project.cold.prover": 1
+        "project.cold.audit-fresh": 1
       },
       "scenarios": [
-        "project.cold.prover"
+        "project.cold.audit-fresh"
       ],
       "side_effect": "none",
       "source_view": "working-tree"
@@ -2044,7 +2045,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": true,
-        "invalidated_from": "everything",
+        "invalidated_roots": [
+          "everything"
+        ],
         "registry_pulls_included": true,
         "stable_through": null
       },
@@ -2067,7 +2070,7 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": null,
+        "invalidated_roots": [],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2092,7 +2095,35 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "emit",
+        "invalidated_roots": [
+          "go-e2e",
+          "prover"
+        ],
+        "registry_pulls_included": false,
+        "stable_through": "rocq-base"
+      },
+      "cache_state": {
+        "apt_download": "reused",
+        "buildkit_project_layers": "empty",
+        "buildkit_toolchain_layers": "reused",
+        "dune_build": "empty",
+        "generated_intermediate": "empty",
+        "go_build": "empty",
+        "go_module": "reused",
+        "opam_download": "reused"
+      },
+      "canonical": true,
+      "id": "project.cold.audit-fresh",
+      "prime_steps": [],
+      "purpose": "Both acceptance roots forced to rebuild: the proof gate and the whole-tree Go e2e are independent cuts, and one root name could not describe both.",
+      "session_state": "fresh"
+    },
+    {
+      "cache_cut": {
+        "builder_bootstrap_included": false,
+        "invalidated_roots": [
+          "emit"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2115,7 +2146,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "generated-artifact",
+        "invalidated_roots": [
+          "generated-artifact"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2138,7 +2171,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "go-e2e",
+        "invalidated_roots": [
+          "go-e2e"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2161,7 +2196,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "module-graph",
+        "invalidated_roots": [
+          "module-graph"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2184,7 +2221,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "profile",
+        "invalidated_roots": [
+          "profile"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2207,7 +2246,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "prover",
+        "invalidated_roots": [
+          "prover"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2230,7 +2271,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "sync",
+        "invalidated_roots": [
+          "sync"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2253,7 +2296,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "source",
+        "invalidated_roots": [
+          "source"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2279,7 +2324,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "source",
+        "invalidated_roots": [
+          "source"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2305,7 +2352,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "source",
+        "invalidated_roots": [
+          "source"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2331,7 +2380,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "source",
+        "invalidated_roots": [
+          "source"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2357,7 +2408,9 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": "source",
+        "invalidated_roots": [
+          "source"
+        ],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },
@@ -2383,7 +2436,7 @@
     {
       "cache_cut": {
         "builder_bootstrap_included": false,
-        "invalidated_from": null,
+        "invalidated_roots": [],
         "registry_pulls_included": false,
         "stable_through": "rocq-base"
       },

@@ -2,10 +2,12 @@ BUILDER := fido-builder
 # The 64-bit target the theory assumes; `override` makes a command-line or environment change inert.
 override PLATFORM := linux/amd64
 # Inert observatory hook: unset, this expands to nothing and every recipe below is exactly the one
-# that has always run.  The Build Observatory sets NOCACHE=<stage> to invalidate one declared
-# invalidation root while its stable ancestors stay cache hits — a project-cold measurement, not an
-# empty machine.  It is never set by an ordinary build.
-NC := $(if $(NOCACHE),--no-cache-filter $(NOCACHE))
+# that has always run.  The Build Observatory sets NOCACHE to the SET of declared invalidation roots,
+# space-separated, so each is forced to rebuild while their stable ancestors stay cache hits — a
+# project-cold measurement, not an empty machine.  A set rather than one name because a compound command
+# can force two independent roots, and one name could only ever describe half of that.  Never set by an
+# ordinary build.
+NC := $(foreach root,$(NOCACHE),--no-cache-filter $(root))
 
 # ── The Python boundary ───────────────────────────────────────────────────────
 # Project Python never runs on the host.  This block is the whole boundary: every Python-consuming recipe

@@ -158,6 +158,19 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'exact root closure over what actually rebuilt',
+     "    unexplained = sorted(st for st, state in stages.items()\n"
+     "                         if state == 'rebuilt' and st not in reachable and st != stable)",
+     "    unexplained = []",
+     ('an undeclared independent root that rebuilt alongside the declared one',)),
+
+    (OBS, 'every declared root of a compound cut having rebuilt',
+     "    for root in roots if cold else []:\n"
+     "        if stages[root] != 'rebuilt':",
+     "    for root in [] if cold else []:\n"
+     "        if stages[root] != 'rebuilt':",
+     ('a compound cut missing one of its declared roots',)),
+
     (OBS, 'the refusal of an exact zero where work happened',
      "        if kind != KIND_UNTIMED and s.get('wall_ns') == 0 and s.get('aggregate_step_ns') is None:",
      "        if False:",
@@ -403,13 +416,13 @@ MUTANTS = (
      ('a changed resource scope must not produce a delta',)),
 
     (OBS, 'a cold claim needs evidence for it, not absent evidence against it',
-     "    if cold and stages.get(root) is None:",
-     "    if False:",
+     "    for root in roots if cold else []:\n        if stages.get(root) is None:",
+     "    for root in []:\n        if stages.get(root) is None:",
      ('a cold sample with no observed stage state was accepted',)),
 
     (OBS, 'the declared cut against what happened',
-     "    if cold and stages[root] != 'rebuilt':",
-     "    if False:",
+     "        if stages[root] != 'rebuilt':\n            raise ObservatoryError(",
+     "        if False:\n            raise ObservatoryError(",
      ('a cold sample whose invalidation root stayed cached',)),
 
     (OBS, 'observed cache transitions',
