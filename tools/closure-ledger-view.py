@@ -100,13 +100,17 @@ def split_header(current: str) -> str:
     return current[:i]
 
 
-def run(root: Path, write: bool) -> str:
+def run(root: Path, write: bool, out: Path | None = None) -> str:
     _banner, rows = load(root)
     md = root / MD_REL
     current = read_text(md, 'closure ledger view')
     generated = render(rows, split_header(current))
     if write:
-        md.write_text(generated, encoding='utf-8')
+        # `--out` sends the view to an isolated directory so a caller can validate the complete output set
+        # before publishing any of it; without it the writer still updates the tracked view in place.
+        dest = ((out / MD_REL) if out else md)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(generated, encoding='utf-8')
         return f'wrote {MD_REL} from {len(rows)} canonical row(s)'
     if current != generated:
         cur, gen = current.split('\n'), generated.split('\n')
@@ -124,12 +128,14 @@ def run(root: Path, write: bool) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description='spec-closure ledger view generator and checker')
     ap.add_argument('--root', default='.')
+    ap.add_argument('--out', default=None, help='write the view into this directory instead of the tree')
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument('--write', action='store_true')
     mode.add_argument('--check', action='store_true')
     args = ap.parse_args()
     try:
-        msg = run(Path(args.root).resolve(), write=args.write)
+        msg = run(Path(args.root).resolve(), write=args.write,
+                  out=Path(args.out).resolve() if args.out else None)
     except LedgerError as exc:
         print(f'fido: CLOSURE-LEDGER VIEW FAILED — {exc}', file=sys.stderr)
         return 1

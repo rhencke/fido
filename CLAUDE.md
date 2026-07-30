@@ -220,6 +220,9 @@ pristine built from the SAME inputs — since `.dockerignore` hides the committe
 ONLY check that catches a header-preserving edit to a tracked `.go`). The pre-commit hook runs the SAME shared
 compare over the STAGED snapshot instead.
 
+**Never run project Python on the host.** Use the Make targets: project Python and its dependencies run only in
+the pinned Docker/Buildx environment. The host boundary is shell, Make, Git, Docker and Buildx.
+
 - **`make prove`** — the COMPLETE proof gate: `dune build` + `gate/Assumptions.v` axiom-free count-checked +
   certified-module coverage + the whole-certified-theory `Fido Audit Assumptions` + adversarial self-tests A-E.
 - **`make e2e`** — Dune-cached theory+plugin; EXPLICIT `Fido Materialize` writes each pristine tree (witness,
@@ -241,6 +244,7 @@ make fcb-write   # regenerate every generated FCB view from its canonical source
 make claims      # the claim-to-theorem matrix: every completion claim names a surface that exists
 make diet        # the M1 source-diet gate: the comment law, the exact ledgers, the baseline comparison
 make names       # the A005 scoped-name policy gate
+make hostpython  # the permanent no-host-Python boundary gate
 make fmt         # the .editorconfig whitespace/format report (reports, never rewrites; not a gate) <!-- FIDO-FCB-REF:EDITORCONFIG -->
 make prover-log  # stream the plain Rocq log
 make prove-errors# just the Rocq File/Error lines (Buildx echoes the whole recipe on failure and buries them)

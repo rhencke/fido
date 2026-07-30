@@ -186,13 +186,18 @@ Delete or propose consolidation for:
 - duplicate scanners;
 - weaker checks subsumed by stronger ones;
 - repeated source-enumeration logic;
-- host checks whose policy logic belongs in the pinned Buildx environment;
 - targets that rebuild the same theory or artifact independently;
 - helpers with no distinct invariant;
 - ad hoc branches outside one acceptance graph.
 
 Host work may read the Git index and export the exact staged snapshot. Proof and policy logic normally runs in
 the pinned environment against that snapshot.
+
+**Host/container placement of project Python is no longer deferred here.** Rob's M2 Repair 2 amendment moved
+it into M2 and it is settled: project Python runs only in the pinned image, the host boundary is shell, Make,
+Git, Docker and Buildx, and `tools/host-python-gate.py` holds that line permanently. <!-- FIDO-FCB-REF:TOOLS-HOST-PYTHON-GATE-PY -->
+Its runtime and dependency authority are `Dockerfile` and `tools/python-requirements.lock`. <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:TOOLS-PYTHON-REQUIREMENTS-LOCK -->
+Every other host/container architecture question above remains M3's.
 
 M3 must produce the exact proposed M4 graph and refactor plan. It does not implement the plan.
 

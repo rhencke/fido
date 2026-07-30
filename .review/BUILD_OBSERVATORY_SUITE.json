@@ -1,6 +1,7 @@
 {
   "commands": [
     {
+      "build_targets": [],
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -24,10 +25,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "observatory",
@@ -53,10 +54,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "committed-tree",
-      "build_targets": []
+      "source_view": "committed-tree"
     },
     {
+      "build_targets": [
+        "module-graph-log"
+      ],
       "dependencies": [],
       "execution": [
         "observatory",
@@ -86,12 +89,38 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "module-graph-log"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "dependencies": [
+        "make.observatory-runner"
+      ],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "docker",
+        "setup"
+      ],
+      "id": "docker.docker-cli",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:docker-cli",
+      "policy": null,
+      "purpose": "The digest-pinned Docker client and Buildx the observatory runner carries.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "build_targets": [],
       "dependencies": [
         "make.emit"
       ],
@@ -116,10 +145,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.check"
       ],
@@ -144,10 +173,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.e2e"
       ],
@@ -172,10 +201,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.e2e"
       ],
@@ -200,10 +229,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -228,10 +257,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -256,10 +285,38 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "dependencies": [
+        "make.observatory-runner"
+      ],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "docker",
+        "setup"
+      ],
+      "id": "docker.observatory-runner",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:observatory-runner",
+      "policy": null,
+      "purpose": "The one Python image carrying a Docker client, in which make observe runs.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "build_targets": [],
       "dependencies": [
         "make.profile"
       ],
@@ -284,10 +341,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.profile"
       ],
@@ -312,10 +369,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.prove"
       ],
@@ -340,10 +397,38 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "dependencies": [
+        "make.pytools"
+      ],
+      "execution": [
+        "derived",
+        "buildkit-progress"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "docker",
+        "setup"
+      ],
+      "id": "docker.python-tools",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "docker-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": "Dockerfile:python-tools",
+      "policy": null,
+      "purpose": "The pinned Python runtime every gate, writer and profiler runs in.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "build_targets": [],
       "dependencies": [
         "make.prove"
       ],
@@ -368,10 +453,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.prove"
       ],
@@ -396,10 +481,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "make.regenerate"
       ],
@@ -424,10 +509,13 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "go-e2e",
+        "prover"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -456,13 +544,10 @@
         "project.cold.prover"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "go-e2e",
-        "prover"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -489,10 +574,14 @@
         "environment.bootstrap"
       ],
       "side_effect": "changes-repository-config",
-      "source_view": "environment-only",
-      "build_targets": []
+      "source_view": "environment-only"
     },
     {
+      "build_targets": [
+        "generated-artifact",
+        "go-e2e",
+        "prover"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -535,14 +624,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "generated-artifact",
-        "go-e2e",
-        "prover"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -569,10 +654,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -599,10 +684,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "go-e2e"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -645,12 +732,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "go-e2e"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "emit"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -693,12 +780,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "emit"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -725,10 +810,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -755,10 +840,10 @@
         "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy",
-      "build_targets": []
+      "source_view": "disposable-copy"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -785,10 +870,40 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "dependencies": [],
+      "execution": [
+        "make",
+        "hostpython"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "policy"
+      ],
+      "id": "make.hostpython",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "make-target",
+      "measurement": "direct",
+      "outputs": [],
+      "owner": "Makefile:hostpython",
+      "policy": "host-python-boundary",
+      "purpose": "The permanent no-host-Python boundary gate and its adversarial controls.",
+      "samples": {
+        "project.warm.noop": 3
+      },
+      "scenarios": [
+        "project.warm.noop"
+      ],
+      "side_effect": "none",
+      "source_view": "working-tree"
+    },
+    {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -815,10 +930,10 @@
         "project.warm.noop"
       ],
       "side_effect": "changes-repository-config",
-      "source_view": "disposable-copy",
-      "build_targets": []
+      "source_view": "disposable-copy"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -845,10 +960,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
       "dependencies": [],
       "execution": [
         "make",
@@ -875,10 +990,37 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "catalog_only_reason": "The pinned tooling image is stable infrastructure, and the cache-cut model requires stable infrastructure to be established OUTSIDE every measured interval; measuring this target as project work would contradict the preflight rule it exists to satisfy. It is cataloged so it can never silently disappear from the surface.",
+      "dependencies": [],
+      "execution": [
+        "make",
+        "observatory-runner"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "setup"
+      ],
+      "id": "make.observatory-runner",
+      "invalidation_roots": [],
+      "isolation": "not-measured",
+      "kind": "make-target",
+      "measurement": "catalog-only",
+      "outputs": [],
+      "owner": "Makefile:observatory-runner",
+      "policy": null,
+      "purpose": "Build the pinned observatory runner image, the one Python image carrying a Docker client.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "changes-repository-config",
+      "source_view": "environment-only"
+    },
+    {
+      "build_targets": [],
       "catalog_only_reason": "Benchmarking the observatory through the observatory would measure the measurer and recurse; it is cataloged so it can never silently disappear from the surface.",
       "dependencies": [],
       "execution": [
@@ -902,10 +1044,12 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "writes-local-observation",
-      "source_view": "working-tree",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "profile-log"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -937,12 +1081,12 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "profile-log"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "prover"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -985,12 +1129,11 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "prover"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "catalog_only_reason": "Redirects its build output to a file and greps it, so no stage state can be observed and no cache claim about it could be verified; it stays classified and selectable, and is excluded from canonical timing rather than measured under a label nothing can check.",
       "dependencies": [],
       "execution": [
         "make",
@@ -1013,11 +1156,12 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "catalog_only_reason": "Redirects its build output to a file and greps it, so no stage state can be observed and no cache claim about it could be verified; it stays classified and selectable, and is excluded from canonical timing rather than measured under a label nothing can check.",
-      "build_targets": []
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [
+        "prover"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -1048,12 +1192,38 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "working-tree",
-      "build_targets": [
-        "prover"
-      ]
+      "source_view": "working-tree"
     },
     {
+      "build_targets": [],
+      "catalog_only_reason": "The pinned tooling image is stable infrastructure, and the cache-cut model requires stable infrastructure to be established OUTSIDE every measured interval; measuring this target as project work would contradict the preflight rule it exists to satisfy. It is cataloged so it can never silently disappear from the surface.",
+      "dependencies": [],
+      "execution": [
+        "make",
+        "pytools"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "make",
+        "setup"
+      ],
+      "id": "make.pytools",
+      "invalidation_roots": [],
+      "isolation": "not-measured",
+      "kind": "make-target",
+      "measurement": "catalog-only",
+      "outputs": [],
+      "owner": "Makefile:pytools",
+      "policy": null,
+      "purpose": "Build the pinned Python tooling image if this exact tag is absent.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "changes-repository-config",
+      "source_view": "environment-only"
+    },
+    {
+      "build_targets": [],
+      "catalog_only_reason": "Sends both of its buildx invocations to /dev/null on purpose, because one of them must fail; with no observable stage state its cold claim would rest on absent evidence.",
       "dependencies": [],
       "execution": [
         "make",
@@ -1076,11 +1246,12 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy",
-      "catalog_only_reason": "Sends both of its buildx invocations to /dev/null on purpose, because one of them must fail; with no observable stage state its cold claim would rest on absent evidence.",
-      "build_targets": []
+      "source_view": "disposable-copy"
     },
     {
+      "build_targets": [
+        "sync"
+      ],
       "dependencies": [],
       "execution": [
         "make",
@@ -1113,12 +1284,10 @@
         "project.warm.noop"
       ],
       "side_effect": "writes-disposable-copy",
-      "source_view": "disposable-copy",
-      "build_targets": [
-        "sync"
-      ]
+      "source_view": "disposable-copy"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1143,10 +1312,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1171,10 +1340,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1199,10 +1368,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1227,10 +1396,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1254,10 +1423,14 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [
+        "generated-artifact",
+        "go-e2e",
+        "prover"
+      ],
       "dependencies": [],
       "execution": [
         "sh",
@@ -1290,14 +1463,10 @@
         "project.warm.noop"
       ],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": [
-        "generated-artifact",
-        "go-e2e",
-        "prover"
-      ]
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1322,10 +1491,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1350,10 +1519,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1378,10 +1547,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1406,10 +1575,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1434,10 +1603,38 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "policy",
+        "precommit"
+      ],
+      "id": "precommit.hostpython",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.hostpython",
+      "policy": "host-python-boundary",
+      "purpose": "The permanent no-host-Python boundary and its controls, on the proposed commit.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1462,10 +1659,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1490,10 +1687,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1518,10 +1715,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1546,10 +1743,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1574,10 +1771,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1602,10 +1799,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1630,10 +1827,38 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
+      "dependencies": [
+        "precommit.full"
+      ],
+      "execution": [
+        "derived",
+        "precommit.full"
+      ],
+      "expected_exit": 0,
+      "groups": [
+        "precommit",
+        "setup"
+      ],
+      "id": "precommit.pytools",
+      "invalidation_roots": [],
+      "isolation": null,
+      "kind": "precommit-stage",
+      "measurement": "derived",
+      "outputs": [],
+      "owner": ".githooks/pre-commit:precommit.pytools",
+      "policy": null,
+      "purpose": "Build the pinned Python image from the STAGED context, so the proposed commit contains the container authority that judges it.",
+      "samples": {},
+      "scenarios": [],
+      "side_effect": "none",
+      "source_view": "staged-index-export"
+    },
+    {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1658,10 +1883,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1686,10 +1911,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1714,10 +1939,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1742,10 +1967,10 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     },
     {
+      "build_targets": [],
       "dependencies": [
         "precommit.full"
       ],
@@ -1770,8 +1995,7 @@
       "samples": {},
       "scenarios": [],
       "side_effect": "none",
-      "source_view": "staged-index-export",
-      "build_targets": []
+      "source_view": "staged-index-export"
     }
   ],
   "edits": [

@@ -835,7 +835,7 @@ def throwaway_builder(scratch: Path) -> str:
     return f'fido-throwaway-{scratch.name}'
 
 
-def release_isolation(command: dict, where: Path) -> str | None:
+def release_isolation(command: dict, where: Path, run) -> str | None:
     """Undo whatever the isolation created, and report a leak rather than hiding one.
 
     The builder is created under the sample's PRIVATE `DOCKER_CONFIG`, so removing it with the ambient
@@ -843,15 +843,19 @@ def release_isolation(command: dict, where: Path) -> str | None:
     that private config, erasing the registry entry and orphaning a running BuildKit container for good.
     Removal now runs against the same config that created it, BEFORE the directory goes, and says so when it
     cannot.
+
+    `run` is the external-command effect, and it is REQUIRED rather than defaulted to `subprocess.run` on
+    purpose: the deterministic self-test must exercise this decision logic on a machine with no Docker at
+    all, and a default would let a future edit drop the injection and reach silently for the ambient
+    `docker` binary again.  With no default, that edit is a `TypeError` at the call site instead.
     """
     import os
     import shutil
-    import subprocess
     problem = None
     if command.get('isolation') == 'temporary-docker-config':
         name = throwaway_builder(where)
-        done = subprocess.run(['docker', 'buildx', 'rm', name], capture_output=True, text=True,
-                              env={**os.environ, 'DOCKER_CONFIG': str(where / 'docker-config')})
+        done = run(['docker', 'buildx', 'rm', name], capture_output=True, text=True,
+                   env={**os.environ, 'DOCKER_CONFIG': str(where / 'docker-config')})
         if done.returncode != 0:
             problem = (f'{command["id"]}: could not remove the throwaway builder {name} '
                        f'({(done.stderr or done.stdout).strip().splitlines()[-1:] or ["no output"]})')
@@ -1268,9 +1272,15 @@ def run_id_for(subject_info: dict, started_utc: str, digest: str) -> str:
     return f'{stamp}-{subject_info["commit"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'
 
 
-def new_bundle(root: Path, run_id: str) -> Path:
-    """A fresh bundle. Reusing an existing path would let one run overwrite another's evidence."""
-    bundle = root / RUNS_REL / run_id
+def new_bundle(root: Path, run_id: str, bundle_root: Path | None = None) -> Path:
+    """A fresh bundle. Reusing an existing path would let one run overwrite another's evidence.
+
+    `bundle_root` puts the ACTIVE bundle outside every measured source tree.  Written inside the repository,
+    a run's own growing raw logs join the input of every later sample: one exact source subject then times
+    differently depending on how much old residue happens to be lying around, and the observer has changed
+    what it observes.  The containerized runner mounts a directory outside the repository and names it here.
+    """
+    bundle = (bundle_root / run_id) if bundle_root else (root / RUNS_REL / run_id)
     if bundle.exists():
         raise ObservatoryError(f'{bundle}: a bundle already exists at this run id; refusing to overwrite '
                                f'another run\'s evidence')
@@ -2438,6 +2448,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     Isolation is by INVALIDATION rather than by namespace. A root forced to rebuild cannot be satisfied by
     anything another command left behind, which is what makes one shared builder honest."""
     import datetime
+    import subprocess as _subprocess
     commands = {c['id']: c for c in suite['commands']}
     scenarios = {s['id']: s for s in suite['scenarios']}
     edits = {e['id']: e for e in suite.get('edits', [])}
@@ -2565,7 +2576,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if scratch is not None:
                         # Collected rather than raised: this runs in a `finally`, and raising here would
                         # replace whatever exception sent us into it.
-                        leak = release_isolation(command, scratch)
+                        leak = release_isolation(command, scratch, _subprocess.run)
                         if leak:
                             incomplete.append(leak)
                     elif copy is not None:
@@ -3673,14 +3684,50 @@ def self_test(root: Path) -> int:
                 if cwd is None or not (cwd / '.git').exists():
                     failures.append('a temporary Git repo must be standalone: git config in a LINKED '
                                     'worktree writes the config shared with the main checkout')
-            # A builder that was never created cannot be removed, and the release must SAY so rather than
-            # discard the failure — that discarded failure orphaned a running container for two hours.
-            leak = release_isolation(fake, Path(d) / 'iso')
-            if kind == 'temporary-docker-config' and not leak:
-                failures.append('removing a throwaway builder that was never created reported success, so '
-                                'a real leak would report success too')
-            if kind != 'temporary-docker-config' and leak:
-                failures.append(f'isolation {kind!r} reported a builder leak it cannot have: {leak}')
+            # The release is exercised through a FAKE command runner, never the real Docker CLI.  These
+            # controls have to pass on a machine with no Docker at all — the review environment is one, and
+            # so is the pinned image they now run in — and a real `docker buildx rm` here would reach out and
+            # remove a builder belonging to whoever ran the self-test.
+            seen: list[tuple[list[str], str | None]] = []
+
+            def runner(code: int):
+                def _run(argv, **kwargs):
+                    seen.append(([str(a) for a in argv], (kwargs.get('env') or {}).get('DOCKER_CONFIG')))
+                    return _sp.CompletedProcess(argv, code, '', 'no builder found')
+                return _run
+
+            # A builder that could not be removed must be REPORTED rather than discarded — that discarded
+            # failure orphaned a running container for two hours.
+            leak = release_isolation(fake, Path(d) / 'iso', runner(1))
+            if kind == 'temporary-docker-config':
+                if not leak:
+                    failures.append('a throwaway builder that could not be removed reported success, so a '
+                                    'real leak would report success too')
+                if not seen:
+                    failures.append('releasing a temporary Docker config removed no builder at all')
+                else:
+                    argv, cfg = seen[-1]
+                    if throwaway_builder(Path(d) / 'iso') not in argv:
+                        failures.append(f'the release removed {argv} rather than this sample\'s own '
+                                        'throwaway builder')
+                    if cfg is None or 'docker-config' not in cfg:
+                        failures.append('the release ran outside the private DOCKER_CONFIG that created the '
+                                        'builder, which is how the original leak reported success')
+            if kind != 'temporary-docker-config':
+                if leak:
+                    failures.append(f'isolation {kind!r} reported a builder leak it cannot have: {leak}')
+                if seen:
+                    failures.append(f'isolation {kind!r} ran an external command it has no builder for')
+
+        # A release that SUCCEEDS must report no leak, or the leak signal carries no information.
+        with _tempfile.TemporaryDirectory() as d:
+            probe = {'id': 'probe', 'isolation': 'temporary-docker-config'}
+            isolate(root, probe, Path(d) / 'iso')
+            if release_isolation(probe, Path(d) / 'iso', lambda argv, **kw:
+                                 _sp.CompletedProcess(argv, 0, '', '')) is not None:
+                failures.append('a throwaway builder that was removed cleanly still reported a leak')
+            if (Path(d) / 'iso').exists():
+                failures.append('the release left its scratch directory behind')
 
     guarded('an isolation the runner does not implement',
             lambda w: isolate(root, {'id': 'probe', 'isolation': 'wishful-thinking'}, w),
@@ -4345,6 +4392,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--list', action='store_true', help='print every stable command ID')
     p.add_argument('--usage', action='store_true', help='print the generated usage text')
     p.add_argument('--observe', action='store_true', help='the measurement entry point')
+    p.add_argument('--bundle-root', default=None,
+                   help='write the active run bundle here, outside every measured source tree')
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
 
@@ -4388,7 +4437,8 @@ def main(argv: list[str] | None = None) -> int:
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             subj = subject(root)
             run_id = run_id_for(subj, started, subj['inventory_digest'])
-            bundle = new_bundle(root, run_id)
+            bundle = new_bundle(root, run_id,
+                                Path(args.bundle_root).resolve() if args.bundle_root else None)
             print(f'fido: build-observatory — run {run_id}, bundle {bundle}')
 
             header = {'schema': SCHEMA, 'suite_digest': suite_digest_of(suite),

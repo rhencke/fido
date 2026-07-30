@@ -28,9 +28,51 @@ ACTS = 'tools/human-review-index.py'
 NAMES = 'tools/naming-gate.py'
 DIET = 'tools/source-diet.py'
 OBS = 'tools/build-observatory.py'
+HOSTPY = 'tools/host-python-gate.py'
+WORKTREE = 'tools/worktree-list.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
+    (HOSTPY, 'the host-interpreter classification itself',
+     "            if INTERPRETER_RE.match(bare) or bare.endswith('.py'):",
+     "            if False:",
+     ('a gate restored to host python3', 'host Python in the pre-commit hook')),
+
+    (HOSTPY, 'the container-entry resolution, so a launcher cannot be forged',
+     "                if 'docker run' in '\\n'.join(body):",
+     "                if True:",
+     ('a wrapper function that never enters a container',)),
+
+    (HOSTPY, 'folding continuations, so a launcher and its interpreter stay one command',
+     "        if stripped.endswith('\\\\'):",
+     "        if False:",
+     ('a recipe using the container launcher',)),
+
+    (HOSTPY, 'the executable-mode rule',
+     "        if os.access(root / rel, os.X_OK):",
+     "        if False:",
+     ('an executable project .py',)),
+
+    (HOSTPY, 'the digest-pin rule for external bases',
+     "            if '@sha256:' not in ref and not local and ref != 'scratch':",
+     "            if False:",
+     ('an unpinned Python base image',)),
+
+    (HOSTPY, 'the no-project-Python-in-an-image rule',
+     "        if stripped.startswith('COPY ') and re.search(r'(^|[\\s/])tools/\\S*\\.py|\\btools/\\*', stripped):",
+     "        if False:",
+     ('project Python copied into an image',)),
+
+    (HOSTPY, 'the standard-library-or-pinned import closure',
+     "                if not top or top in stdlib or top in pinned:",
+     "                if True:",
+     ('an unpinned third-party package',)),
+
+    (WORKTREE, 'the on-disk filter, so a staged deletion is not resurrected',
+     "    return [name for name in tracked_and_untracked(root)\n"
+     "            if os.path.lexists(os.path.join(os.fsencode(root), name))]",
+     "    return tracked_and_untracked(root)",
+     ('a tracked file deleted on disk is not resurrected from the index',)),
     (OBS, 'live command-surface discovery',
      "    if not names:\n"
      "        raise ObservatoryError(f'{MAKEFILE_REL}: the .PHONY declaration is empty')",
@@ -119,7 +161,7 @@ MUTANTS = (
     (OBS, 'a throwaway builder whose removal failed is reported, not discarded',
      "        if done.returncode != 0:",
      "        if False:",
-     ('removing a throwaway builder that was never created reported success',)),
+     ('a throwaway builder that could not be removed reported success',)),
 
     (OBS, 'the partition between the shell and analysis runners',
      "    return 'analysis' if command['kind'] in ANALYSIS_KINDS else 'shell'",
@@ -785,8 +827,12 @@ def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-te
         return None, f'anchor occurs {n} time(s), expected exactly 1'
     with tempfile.TemporaryDirectory() as d:
         work = Path(d) / 'tree'
+        # `.build-observatory` and `.claude` are measurement and assistant OUTPUT, not repository input.
+        # Copying them made every mutant fixture carry however many old run bundles happened to be lying
+        # around, which both inflated the copy and let the observer change what it observed.
         shutil.copytree(root, work, symlinks=True,
-                        ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob', '__pycache__'))
+                        ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob', '__pycache__',
+                                                      '.build-observatory', '.claude'))
         (work / tool).write_text(src.replace(old, new, 1), encoding='utf-8')
         proc = subprocess.run([sys.executable, str(work / tool), '--root', str(work), mode],
                               capture_output=True, text=True, cwd=work)

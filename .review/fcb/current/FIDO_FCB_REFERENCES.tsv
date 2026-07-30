@@ -3,6 +3,7 @@ ARCHITECTURE-MD	repository-file	ARCHITECTURE.md	present	CLAUDE.md	FIDO-FCB-REF:A
 CLAUDE-MD	repository-file	CLAUDE.md	present	.review/fcb/current/FIDO_FCB_INDEX.md	FIDO-FCB-REF:CLAUDE-MD	authority
 COMPILABLE-V	repository-file	Compilable.v	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:COMPILABLE-V	reference
 COMPLEX-V	repository-file	Complex.v	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:COMPLEX-V	reference
+DOCKERFILE	repository-file	Dockerfile	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:DOCKERFILE	reference
 DOCKERIGNORE	repository-file	.dockerignore	present	CLAUDE.md	FIDO-FCB-REF:DOCKERIGNORE	reference
 DUNE	repository-file	dune	present	CLAUDE.md	FIDO-FCB-REF:DUNE	reference
 DUNE-PROJECT	repository-file	dune-project	present	.review/fcb/current/FIDO_FCB_GOVERNANCE.md	FIDO-FCB-REF:DUNE-PROJECT	reference
@@ -50,6 +51,7 @@ REVIEW-M-SERIES-PLAN-MD	repository-file	.review/M_SERIES_PLAN.md	present	.review
 REVIEW-M1-COMMENT-EXCEPTIONS-TSV	repository-file	.review/M1_COMMENT_EXCEPTIONS.tsv	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:REVIEW-M1-COMMENT-EXCEPTIONS-TSV	reference
 REVIEW-M2-BUILD-OBSERVATORY-MD	repository-file	.review/M2_BUILD_OBSERVATORY.md	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:REVIEW-M2-BUILD-OBSERVATORY-MD	authority
 REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD	repository-file	.review/M2_IMPLEMENTATION_REPAIR_1.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD	reference
+REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD	repository-file	.review/M2_IMPLEMENTATION_REPAIR_2.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD	reference
 REVIEW-M2-OBLIGATION-MATRIX-TSV	repository-file	.review/M2_OBLIGATION_MATRIX.tsv	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV	reference
 REVIEW-M2-RECOMMENDATIONS-TSV	repository-file	.review/M2_RECOMMENDATIONS.tsv	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:REVIEW-M2-RECOMMENDATIONS-TSV	reference
 REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD	repository-file	.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md	present	.review/NEXT_STEPS.md	FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD	reference
@@ -62,6 +64,8 @@ TOOLS-CLAIM-MATRIX-GATE-PY	repository-file	tools/claim-matrix-gate.py	present	.r
 TOOLS-FCB-REFERENCE-GATE-PY	repository-file	tools/fcb-reference-gate.py	present	.review/fcb/current/FIDO_FCB_INDEX.md	FIDO-FCB-REF:TOOLS-FCB-REFERENCE-GATE-PY	reference
 TOOLS-GATE-MUTATION-TEST-PY	repository-file	tools/gate-mutation-test.py	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:TOOLS-GATE-MUTATION-TEST-PY	reference
 TOOLS-GENERATED-OUTPUT-GATE-SH	repository-file	tools/generated-output-gate.sh	present	CLAUDE.md	FIDO-FCB-REF:TOOLS-GENERATED-OUTPUT-GATE-SH	reference
+TOOLS-HOST-PYTHON-GATE-PY	repository-file	tools/host-python-gate.py	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:TOOLS-HOST-PYTHON-GATE-PY	reference
 TOOLS-NAMING-GATE-PY	repository-file	tools/naming-gate.py	present	.review/fcb/current/FIDO_FCB_CHECKPOINT_AUTHORING_GUIDE.md	FIDO-FCB-REF:TOOLS-NAMING-GATE-PY	reference
 TOOLS-OCAML-ORIGIN-GATE-SH	repository-file	tools/ocaml-origin-gate.sh	present	CLAUDE.md	FIDO-FCB-REF:TOOLS-OCAML-ORIGIN-GATE-SH	reference
+TOOLS-PYTHON-REQUIREMENTS-LOCK	repository-file	tools/python-requirements.lock	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:TOOLS-PYTHON-REQUIREMENTS-LOCK	reference
 TOOLS-SOURCE-DIET-PY	repository-file	tools/source-diet.py	present	.review/M_SERIES_PLAN.md	FIDO-FCB-REF:TOOLS-SOURCE-DIET-PY	reference

@@ -14,6 +14,7 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `e534b0ae5cc47da510e46583e47f74566589d538`.
   Authority: `.review/M2_BUILD_OBSERVATORY.md`.
   The blocking review it answers is `.review/M2_IMPLEMENTATION_REPAIR_1.md`, <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
+  superseded by `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which blocks that candidate. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD -->
   amended by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`, which governs what cold means. <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
   Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all closed.
   One canonical observation measured that candidate: `.review/BUILD_OBSERVATION.json` — 719 samples over 19

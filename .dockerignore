@@ -8,6 +8,13 @@
 /go.mod
 **/*.go
 
+# Build Observatory run bundles and assistant residue.  These are OUTPUT of measuring this repository, and
+# a measurement whose own output joins the context it measures changes what it reports: later samples would
+# see more raw logs than earlier ones, so one exact source subject could time differently depending on how
+# much old local residue happened to be lying around.
+.build-observatory/
+.claude/
+
 # Local build output + transient control/crash residue (never a build input)
 /.fido/
 **/*.fido-tmp-v1

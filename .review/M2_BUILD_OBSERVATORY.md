@@ -13,6 +13,40 @@ M2 measures and reports. It does not optimize or restructure. Only Rob accepts M
 
 ---
 
+# 1A. Accepted scope amendment — no project Python on the host
+
+Rob amended M2's scope in `.review/M2_IMPLEMENTATION_REPAIR_2.md` (PART I). This is a deliberate human scope
+amendment, not discovery-driven scope creep, and it is part of M2 rather than deferred follow-up work.
+
+> Project Python must never execute on the host system. Every project-authored Python tool, gate, writer,
+> profiler, observatory operation, comparison, and self-test must run inside the pinned Docker/Buildx
+> environment. The host may provide only the narrow launcher boundary: POSIX shell, Make, Git, Docker, and
+> Docker Buildx.
+
+The realized architecture:
+
+```text
+Dockerfile:python-tools        the pinned runtime every gate, writer and profiler runs in
+Dockerfile:observatory-runner  the one Python image carrying a Docker client, for make observe
+tools/python-requirements.lock the one dependency authority — EMPTY, and proved empty
+tools/host-python-gate.py      the permanent boundary gate and its adversarial controls
+make hostpython                its public entry point; it also runs inside make check and the hook
+```
+
+Two consequences are worth stating because they are what make the boundary cheap to keep:
+
+- **Sources are mounted, never copied into a policy image.** A stale green layer from an incomplete `COPY`
+  set is therefore unrepresentable rather than something the gate has to detect, and the gate forbids the
+  `COPY` to keep it that way. Gates are always-run by construction, not by policy.
+- **The project imports the standard library alone.** "No package installation during an ordinary gate run"
+  is a property of the image rather than a rule anyone has to remember, and the import-closure check turns
+  the empty lock into a claim that fails loudly the moment a dependency appears.
+
+The staged hook builds its image from the **staged** Dockerfile and lock, under a tag content-addressed over
+both, so the proposed commit contains the container authority that judges it.
+
+---
+
 # 2. Purpose
 
 Build one permanent, reproducible timing facility for Fido.
@@ -46,7 +80,7 @@ The permanent system has five parts:
 .review/BUILD_OBSERVATION.json        one tracked canonical observation
 tools/build-observatory.py            one runner, validator, writer, and comparator
 .build-observatory/                    ignored local run bundles and raw logs
-make observe                          one human and Claude entry point
+make observe                          one human and Claude entry point (runs in the pinned runner image)
 ```
 
 Git history is the historical observation database.
@@ -966,7 +1000,11 @@ executing gate exist.
 
 # 18. Controls
 
-`tools/build-observatory.py --self-test` must run deterministic fixtures without Docker or Rocq.
+`make observatory` must run deterministic fixtures without Docker or Rocq. Since the amendment this is
+structural rather than a promise: the self-test runs in `python-tools`, which carries no Docker client at
+all, so a control cannot reach the daemon even if its code tried. External command effects are injected, and
+the injection point takes no default — dropping it is a `TypeError` at the call site, not a silent fallback
+to the ambient `docker` binary.
 
 At minimum, must-fail controls cover:
 

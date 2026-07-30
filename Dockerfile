@@ -6,6 +6,41 @@
 #   go-e2e:  the pinned Go toolchain validates the pristine image with `go build ./...` and the goldens.
 #   sync:    only after that validation marker may `make regenerate` publish the same validated bytes.
 
+# ── Python tooling runtime ────────────────────────────────────────────────────
+# Project Python never runs on the host; every gate, writer, profiler and observatory operation runs here.
+# The project's Python imports the standard library alone, so no Python package is installed at any point:
+# `tools/python-requirements.lock` states that closure and `tools/host-python-gate.py` proves it still holds.
+# Git is here because four of the gates read Git's own index and ignore rules rather than reimplementing
+# them; it is an OS utility they shell out to, not a Python dependency.  The apt pin is exact, so a
+# withdrawn version fails this build loudly instead of drifting silently to another one.
+# Project sources are MOUNTED read-only from the exact source view under measurement, never COPYed in, so a
+# stale green verdict from an incomplete COPY set is unrepresentable here rather than merely checked for.
+# The base is Debian bookworm rather than Alpine, and that is a measured choice, not a preference: the
+# naming gate is allocation-heavy Python and musl runs it at 1.74x the host against glibc's 1.27x.
+FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS python-tools
+RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends git=1:2.39.5-0+deb12u3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# The Docker client and Buildx by digest, so the observatory runner's client provenance is pinned like the
+# Rocq and Go toolchains are.
+FROM docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c AS docker-cli
+
+# ── Observatory runner ────────────────────────────────────────────────────────
+# `make observe` runs here and drives the host daemon through the mounted socket.  This is the ONLY Python
+# image carrying a Docker client: the gate-and-self-test image above has none, so the deterministic
+# self-test cannot reach Docker even if its code tried to.  The apt pin is exact, so a withdrawn version
+# fails this build loudly instead of drifting silently to another one.
+FROM python-tools AS observatory-runner
+RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends make=4.3-4.1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
+                       /usr/local/libexec/docker/cli-plugins/docker-buildx
+
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
 RUN --mount=type=cache,id=fido-apt-builder,target=/var/cache/apt,sharing=locked \
@@ -255,9 +290,9 @@ SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
 #    module is recompiled with `rocq c -time`, which prints a per-sentence timing keyed by byte offset.  The
-#    raw log is EXPORTED and ranked on the host by tools/rocq-profile.py (the prover image has no python3, and
-#    it should not grow one for a diagnostic).  Nothing here verifies anything: it exists so "the build is
-#    slow" becomes "this lemma is 40% of the file".
+#    raw log is EXPORTED and then ranked by tools/rocq-profile.py in the pinned Python image — the prover
+#    image stays free of a Python toolchain and the ranking still never touches the host.  Nothing here
+#    verifies anything: it exists so "the build is slow" becomes "this lemma is 40% of the file".
 FROM rocq-base AS profile
 ARG TARGETARCH
 ARG PROFILE_FILE=Compilable.v
@@ -281,7 +316,8 @@ end=$(date +%s.%N)
 echo "fido: $PROFILE_FILE recompiled alone in $(echo "$end $start" | awk '{printf "%.1f", $1-$2}') s (deps already built)"
 SH
 
-# the export surface: the raw -time log only, so the host can rank it without the image growing a toolchain.
+# the export surface: the raw -time log only; the pinned Python image ranks it without this image growing a
+# toolchain, and `make profile` keeps both the raw log and the ranked report beside each other.
 FROM scratch AS profile-log
 COPY --from=profile /workspace/profile/ /
 
