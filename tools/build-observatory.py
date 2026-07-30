@@ -69,7 +69,17 @@ SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state',
 CUT_FIELDS = ('stable_through', 'invalidated_roots', 'registry_pulls_included',
               'builder_bootstrap_included')
 STAGE_STATES = ('hit', 'rebuilt', 'skipped', 'not-required', 'unavailable')
-PROJECT_CACHES = ('buildkit_project_layers', 'dune_build', 'go_build', 'generated_intermediate')
+# There is no coarse `buildkit_project_layers` authority, and its absence is the point: BuildKit stage
+# truth is MIXED — a cold `make.e2e` rebuilds `go-e2e` while `emit` and `generated-module` are hits — and
+# one field cannot hold that. The per-stage evidence in `cache_observation.stages` owns it instead.
+#
+# Each remaining project authority names the exact stages that touch it, so a transition can be derived
+# from what those stages did rather than from whether ANY stage rebuilt. `make.prove` was reporting the Go
+# build cache and the generated intermediates as primed without running a single Go or generated stage.
+PROJECT_CACHES = ('dune_build', 'go_build', 'generated_intermediate')
+CACHE_STAGES = {'dune_build': ('prover', 'emit', 'profile', 'module-graph'),
+                'go_build': ('go-e2e',),
+                'generated_intermediate': ('emit', 'generated-module', 'generated-artifact', 'sync')}
 STABLE_CACHES = ('buildkit_toolchain_layers', 'apt_download', 'opam_download', 'go_module')
 
 # A kind whose members are discovered from a live surface, paired with the surface that discovers them. A
@@ -937,9 +947,18 @@ def declared_authorities(command: dict, scenario: dict) -> dict:
     states are not true of it. §3A.4 requires `not-applicable` rather than a state the runner cannot
     establish, and such a command has no prime to take either.
     """
-    if command['invalidation_roots']:
-        return dict(scenario['cache_state'])
-    return {k: 'not-applicable' for k in scenario['cache_state']}
+    if not command['invalidation_roots']:
+        return {k: 'not-applicable' for k in scenario['cache_state']}
+    state = dict(scenario['cache_state'])
+    # A scenario states a GENERIC cache posture; which of it is true depends on what this command builds.
+    # A project cache none of whose stages this command reaches is `not-applicable` rather than inheriting
+    # `empty` or `reused` — `make.prove` declaring the Go build cache empty described a cache its build
+    # never comes near.
+    reached = set(command.get('build_targets') or ())
+    for k in PROJECT_CACHES:
+        if k in state and not (set(CACHE_STAGES.get(k, ())) & reached):
+            state[k] = 'not-applicable'
+    return state
 
 
 def host_load() -> float | None:
@@ -1305,10 +1324,18 @@ def observe_cache_after(before: dict, stages: dict) -> dict:
     a command that built the whole theory reported that nothing changed."""
     after = {k: v for k, v in before.items() if k != 'authorities'}
     authorities = dict(before.get('authorities', {}))
-    rebuilt = any(v == 'rebuilt' for v in stages.values())
     for k in PROJECT_CACHES:
-        if k in authorities:
-            authorities[k] = 'primed' if rebuilt else authorities[k]
+        if k not in authorities or authorities[k] == 'not-applicable':
+            continue
+        # Derived from the stages that touch THIS authority, never from "did anything rebuild". The old
+        # rule marked every project cache primed whenever one stage ran, so a `make.prove` sample claimed
+        # the Go build cache and the generated intermediates had been filled by a run that compiled no Go
+        # and generated nothing.
+        touched = [stages[st] for st in CACHE_STAGES.get(k, ()) if st in stages]
+        if not touched:
+            continue
+        if 'rebuilt' in touched:
+            authorities[k] = 'primed'
     after['authorities'] = authorities
     after['observed'] = True
     return after
@@ -1802,6 +1829,17 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             raise ObservatoryError(
                 f'sample {i} ({s["command_id"]}) records an elapsed duration of exactly zero; work that '
                 f'happened takes time, so this is either an untimed artifact or a below-resolution interval')
+        # The authority map must be DERIVABLE from the stage evidence beside it. Two records of one fact
+        # that are merely stored next to each other will disagree eventually, and the one that disagreed
+        # here was the one a reader would have trusted.
+        if s.get('cache_before') and s.get('cache_after') and not s.get('derived_parent_id'):
+            want = observe_cache_after(s['cache_before'],
+                                       (s.get('cache_observation') or {}).get('stages', {}))
+            if s['cache_after'].get('authorities') != want.get('authorities'):
+                raise ObservatoryError(
+                    f'sample {i} ({s["command_id"]}): the recorded cache authorities '
+                    f'{s["cache_after"].get("authorities")} are not what the retained stage evidence '
+                    f'derives ({want.get("authorities")})')
         if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
             raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
 
@@ -3613,6 +3651,11 @@ def self_test(root: Path) -> int:
         return lambda: validate_observation(
             observation(samples=[s], derived={'summaries': summarise([s])}), digest)
 
+    observed('an authority map that disagrees with the stage evidence beside it',
+             only(sample(cache_observation={'stages': {'prover': 'rebuilt'}},
+                         cache_before={'authorities': {'dune_build': 'empty'}, 'primed_by_run': 'run-a'},
+                         cache_after={'authorities': {'dune_build': 'empty'}})),
+             expect='not what the retained stage evidence derives')
     observed('work timed as exactly zero',
              only(sample(wall_ns=0)), expect='elapsed duration of exactly zero')
     observed('an untimed artifact still carrying a duration',
@@ -4601,10 +4644,42 @@ def self_test(root: Path) -> int:
         cmd = [c for c in suite['commands'] if c['id'] == cid][0]
         want = declared_authorities(cmd, _warm)
         builds = bool(cmd['build_targets']) or bool(cmd['invalidation_roots'])
-        if builds and want != dict(_warm['cache_state']):
-            failures.append(f'{cid} builds and lost the scenario cache states that apply to it')
         if not builds and set(want.values()) != {'not-applicable'}:
             failures.append(f'{cid} builds nothing yet claims {sorted(set(want.values()))}')
+        if builds:
+            # A building command keeps the scenario's posture for the authorities its stages TOUCH, and
+            # `not-applicable` for the rest. Inheriting the scenario state wholesale is what let `make.prove`
+            # describe the Go build cache its build never comes near.
+            reached = set(cmd.get('build_targets') or ())
+            for auth, state in want.items():
+                touches = bool(set(CACHE_STAGES.get(auth, ())) & reached) or auth not in PROJECT_CACHES
+                expected = _warm['cache_state'][auth] if touches else 'not-applicable'
+                if state != expected:
+                    failures.append(f'{cid}: authority {auth} is {state!r}, expected {expected!r} for a '
+                                    f'command whose build reaches {sorted(reached)}')
+
+    # ── §6 a cache transition states what THAT cache did, not what any stage did
+    counts['total'] += 1
+    _before = {'authorities': {'dune_build': 'empty', 'go_build': 'empty',
+                               'generated_intermediate': 'empty'}}
+    _after = observe_cache_after(_before, {'prover': 'rebuilt', 'rocq-base': 'hit'})['authorities']
+    if _after['dune_build'] != 'primed':
+        failures.append('a rebuilt prover left the dune build cache unprimed, which it cannot')
+    if _after['go_build'] == 'primed' or _after['generated_intermediate'] == 'primed':
+        failures.append('one rebuilt stage marked every project cache primed: a prover-only run cannot '
+                        f'have filled the Go build cache or the generated intermediates ({_after})')
+    # A MIXED stage map is the ordinary case and must be reported as mixed, not collapsed either way.
+    _mixed = observe_cache_after({'authorities': {k: 'reused' for k in PROJECT_CACHES}},
+                                 {'go-e2e': 'rebuilt', 'emit': 'hit', 'generated-module': 'hit'})
+    if _mixed['authorities']['go_build'] != 'primed':
+        failures.append('a rebuilt go-e2e left the Go build cache unprimed')
+    if _mixed['authorities']['generated_intermediate'] != 'reused':
+        failures.append('stages observed as HITS were reported as having primed their cache: '
+                        f'{_mixed["authorities"]}')
+    # An authority the runner cannot establish stays untouched rather than being invented.
+    if observe_cache_after({'authorities': {'go_build': 'not-applicable'}},
+                           {'go-e2e': 'rebuilt'})['authorities']['go_build'] != 'not-applicable':
+        failures.append('a not-applicable cache was given a transition the runner never established')
 
     # A policy command builds nothing, so it cannot claim the caches a build scenario declares.
     counts['total'] += 1
@@ -4613,8 +4688,15 @@ def self_test(root: Path) -> int:
     prove_cmd = [c for c in suite['commands'] if c['id'] == 'make.prove'][0]
     if set(declared_authorities(fmt_cmd, warm).values()) != {'not-applicable'}:
         failures.append('a command that invalidates no root claimed a project cache it never touches')
-    if declared_authorities(prove_cmd, warm) != dict(warm['cache_state']):
-        failures.append('a command that does build lost the scenario cache states that apply to it')
+    # `make.prove` builds only `prover`: the dune build cache is the one project authority it touches, and
+    # the Go build cache and the generated intermediates are `not-applicable` to it. Reporting the scenario's
+    # posture for all three is the overclaim this closes.
+    _prove_auth = declared_authorities(prove_cmd, warm)
+    if _prove_auth.get('dune_build') != warm['cache_state']['dune_build']:
+        failures.append('a command that does build lost the cache state of an authority it touches')
+    if {_prove_auth.get('go_build'), _prove_auth.get('generated_intermediate')} != {'not-applicable'}:
+        failures.append('make.prove claims a project cache no stage of its build reaches: '
+                        f'{_prove_auth}')
 
     # Two invocations that differ only in what the operator selected must stay comparable. MAKEFLAGS carries
     # `ONLY=` and `SCENARIO=`, so this is the difference between a compatibility check and a coin flip.

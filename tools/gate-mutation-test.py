@@ -158,6 +158,21 @@ MUTANTS = (
      "    if False:",
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
+    (OBS, 'a cache transition derived from the stages that touch THAT cache',
+     "        touched = [stages[st] for st in CACHE_STAGES.get(k, ()) if st in stages]",
+     "        touched = list(stages.values())",
+     ('one rebuilt stage marked every project cache primed',)),
+
+    (OBS, 'an authority a command never reaches being not-applicable',
+     "        if k in state and not (set(CACHE_STAGES.get(k, ())) & reached):",
+     "        if False:",
+     ('make.prove claims a project cache no stage of its build reaches',)),
+
+    (OBS, 'the authority map agreeing with the stage evidence beside it',
+     "            if s['cache_after'].get('authorities') != want.get('authorities'):",
+     "            if False:",
+     ('an authority map that disagrees with the stage evidence beside it',)),
+
     (OBS, 'exact root closure over what actually rebuilt',
      "    unexplained = sorted(st for st, state in stages.items()\n"
      "                         if state == 'rebuilt' and st not in reachable and st != stable)",
@@ -296,8 +311,8 @@ MUTANTS = (
      ('a derived command claiming it invalidates something',)),
 
     (OBS, 'a command claims only the caches it touches',
-     "    if command['invalidation_roots']:",
-     "    if True:",
+     "    if not command['invalidation_roots']:",
+     "    if False:",
      ('a command that invalidates no root claimed a project cache it never touches',)),
 
     (OBS, 'concurrency provenance decoded instead of echoed',
@@ -426,8 +441,8 @@ MUTANTS = (
      ('a cold sample whose invalidation root stayed cached',)),
 
     (OBS, 'observed cache transitions',
-     "    rebuilt = any(v == 'rebuilt' for v in stages.values())",
-     "    rebuilt = False",
+     "        if 'rebuilt' in touched:\n            authorities[k] = 'primed'",
+     "        if False:\n            authorities[k] = 'primed'",
      ('cache_after must be observed, not copied',)),
 
     (OBS, 'FROM steps are resolution, not work',
