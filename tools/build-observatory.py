@@ -859,6 +859,17 @@ def release_isolation(command: dict, where: Path) -> str | None:
     return problem
 
 
+def edit_probe(run_id: str, command_id: str, scenario_id: str) -> str:
+    """The stamp written into an incremental edit's bytes, unique to this run, command and scenario.
+
+    The RUN ID is the part that matters and the part that was missing. Without it the bytes are identical
+    on every run, so the first run ever to use them pays the rebuild and every later run reads that result
+    out of the BuildKit cache and records ~1.6s for work that costs ~116s. `edit_id` stays the comparison
+    identity, so making the bytes run-unique costs no comparability.
+    """
+    return f'{run_id}.{command_id}.{scenario_id}'
+
+
 def sample_provenance(command: dict, scenario: dict, primes: dict):
     """One provenance record for a sample, and the reason to skip it when its prime was never taken.
 
@@ -2411,7 +2422,7 @@ def _flushed(message: str) -> None:
     print(message, flush=True)
 
 
-def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str = 'ad-hoc',
+def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str,
                     progress=_flushed, checkpoint=None) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
@@ -2500,7 +2511,11 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         paths = [edit['path']]
                         before = tree_digest(target, paths)
                         original = (target / edit['path']).read_bytes()
-                        apply_edit(target, edit, index, probe=f'{cid}.{scenario_id}')
+                        # The RUN ID belongs in the bytes. Without it the probe is the same on every run,
+                        # so the first run ever to use it pays the rebuild and every later run reads that
+                        # result out of the BuildKit cache and records ~1.6s for work that costs ~116s.
+                        # `edit_id` remains the comparison identity, so comparability is unaffected.
+                        apply_edit(target, edit, index, probe=edit_probe(run_id, cid, scenario_id))
                         if tree_digest(target, paths) == before:
                             raise ObservatoryError(f'edit {edit["id"]}: the intended file did not change')
                     # A command declared environment-only reads no repository source, so a repository
@@ -3247,6 +3262,23 @@ def self_test(root: Path) -> int:
     EDIT = {'id': 'edit.leaf', 'path': 'leaf.v', 'kind': 'append-comment-line',
             'text': '(* observatory: inert timing probe *)\n'}
     STAMPED = {**EDIT, 'text': '(* observatory: inert edit probe {n} *)\n'}
+
+    # Same edit shape, same sample index, two different RUNS: the bytes must differ, or the second run reads
+    # the first run's build out of the BuildKit cache and records a hit as though it were a rebuild. This is
+    # the across-time twin of the across-command case below, and it cost two canonical observations.
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        w = Path(d)
+        runs = []
+        for rid in ('20260730T010101-aaaaaaa-1111', '20260730T020202-bbbbbbb-2222'):
+            (w / 'leaf.v').write_bytes(b'Definition x := 1.\n')
+            apply_edit(w, {'id': 'edit.leaf', 'path': 'leaf.v', 'kind': 'append-comment-line',
+                           'text': '(* observatory: inert edit probe {n} *)\n'},
+                       0, probe=edit_probe(rid, 'make.prove', 'project.incremental.leaf.emit'))
+            runs.append((w / 'leaf.v').read_bytes())
+        if runs[0] == runs[1]:
+            failures.append('two runs wrote identical incremental bytes, so the second measures the first '
+                            'run\'s cached build and reports it as a rebuild')
 
     # Same edit shape, same sample index, two different commands: the bytes must differ, or the two trees
     # are identical and whichever command builds first pays for both.
