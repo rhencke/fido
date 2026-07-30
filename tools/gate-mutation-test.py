@@ -236,6 +236,11 @@ MUTANTS = (
      "    if False:",
      ('comparing against a pending observation',)),
 
+    (OBS, 'one provenance builder, so a warm sample names the prime its chain took',
+     "    provenance['prime_sample_id'] = primes[key]['id']",
+     "    provenance['prime_sample_id'] = None",
+     ('a warm analysis sample must name the prime its chain took',)),
+
     (OBS, 'a reused project cache must name a retained cold prime',
      "        if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):",
      "        if True:",

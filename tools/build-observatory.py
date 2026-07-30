@@ -859,6 +859,29 @@ def release_isolation(command: dict, where: Path) -> str | None:
     return problem
 
 
+def sample_provenance(command: dict, scenario: dict, primes: dict):
+    """One provenance record for a sample, and the reason to skip it when its prime was never taken.
+
+    Returns (provenance, skip_reason). Built in ONE place because there are two runners: three separate
+    fixes today — the runner partition, the authority derivation, and the prime chain — each landed on the
+    shell runner and left the analysis runner behind, every time because each had its own hand-built dict.
+    """
+    cid, sid = command['id'], scenario['id']
+    provenance = {'authorities': declared_authorities(command, scenario),
+                  'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
+                  'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+    builds = bool(command['invalidation_roots'])
+    if sid.startswith('project.cold.') or not builds or sid == 'environment.bootstrap':
+        provenance['prime_sample_id'] = None
+        return provenance, None
+    key = (cid, 'prime')
+    if key not in primes:
+        return provenance, (f'{cid} [{sid}] skipped: this chain has no completed prime sample, and a cached '
+                            f'number with no prime is a comparison against an unknown baseline')
+    provenance['prime_sample_id'] = primes[key]['id']
+    return provenance, None
+
+
 def declared_authorities(command: dict, scenario: dict) -> dict:
     """The cache states that are true OF THIS COMMAND in this scenario.
 
@@ -2435,23 +2458,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             # A command that invalidates no build root touches no project cache, so the scenario's generic
             # `reused` states are not true of it and there is no prime for it to take. §3A.4 requires
             # `not-applicable` here rather than a state the runner cannot establish.
-            builds = bool(command['invalidation_roots'])
-            provenance = {'authorities': declared_authorities(command, scenario),
-                          'host_page_cache': 'uncontrolled', 'builder': OBSERVATORY_BUILDER,
-                          'chain_command': cid, 'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+            provenance, skip = sample_provenance(command, scenario, primes)
             root_stage = scenario['cache_cut']['invalidated_from']
-            if scenario_id.startswith('project.cold.') or not builds:
-                provenance['prime_sample_id'] = None
-            else:
-                key = (cid, 'prime')
-                if key not in primes and scenario_id != 'environment.bootstrap':
-                    for spec in (f'{cid}/{scenario_id}',):
-                        incomplete.append(spec)
-                    progress(f'fido: observe — {cid} [{scenario_id}] skipped: this chain has no completed '
-                             f'prime sample, and a cached number with no prime is a comparison against an '
-                             f'unknown baseline')
-                    continue
-                provenance['prime_sample_id'] = primes.get(key, {}).get('id')
+            if skip:
+                incomplete.append(f'{cid}/{scenario_id}')
+                progress(f'fido: observe — {skip}')
+                continue
 
             edit = edits.get(scenario.get('edit'))
             wanted = command['samples'][scenario_id]
@@ -2538,12 +2550,17 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         command = commands[cid]
         if runner_for(command) != 'analysis':
             continue
-        for scenario_id in [s for s in sel.scenarios if s in command['scenarios']]:
+        # Chain order, same as the shell runner: a cold sample fills the cache before a warm one reuses it.
+        # Iterating the selection's order ran the warm sample first whenever the selection listed it first.
+        for scenario_id in [s for s in scenario_order(suite, sel.scenarios)
+                            if s in command['scenarios']]:
             scenario = scenarios[scenario_id]
             role = sample_role(sel, cid, scenario_id)
-            provenance = {'authorities': dict(scenario['cache_state']), 'builder': OBSERVATORY_BUILDER,
-                          'chain_command': cid, 'prime_sample_id': None,
-                          'cache_namespace': f'{OBSERVATORY_BUILDER}:{cid}'}
+            provenance, skip = sample_provenance(command, scenario, primes)
+            if skip:
+                incomplete.append(f'{cid}/{scenario_id}')
+                progress(f'fido: observe — {skip}')
+                continue
             wanted = command['samples'][scenario_id]
             for index in range(wanted):
                 progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
@@ -2560,6 +2577,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
                                         subj['content_digest'], index)
                     emit(s)
+                    # An analysis command that builds has a prime to offer, exactly like a shell command.
+                    if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
+                        primes[(cid, 'prime')] = {'id': metric_identity(s),
+                                                  'root': scenario['cache_cut']['invalidated_from']}
                     for child in derive_child_samples(
                             s, events, derived_ids,
                             role_of=lambda kid: sample_role(sel, kid, scenario_id)):
@@ -4098,6 +4119,36 @@ def self_test(root: Path) -> int:
         _, env = isolate(Path(d), builder_cmd, scratch)
         if env.get('FIDO_OBSERVATORY_THROWAWAY_BUILDER') != name:
             failures.append('the isolation and the invocation named different throwaway builders')
+
+    # One provenance builder for both runners, exercised directly. Three fixes today landed on the shell
+    # runner and left the analysis runner behind, each time because each loop built its own dict.
+    counts['total'] += 1
+    _cold = [s for s in suite['scenarios'] if s['id'] == 'project.cold.module-graph'][0]
+    _warm2 = [s for s in suite['scenarios'] if s['id'] == 'project.warm.noop'][0]
+    _ana = [c for c in suite['commands'] if c['id'] == 'analysis.rocq-modules'][0]
+    prov, skip = sample_provenance(_ana, _cold, {})
+    if skip or prov['prime_sample_id'] is not None:
+        failures.append(f'a cold analysis sample must need no prime: skip={skip} prov={prov}')
+    prov, skip = sample_provenance(_ana, _warm2, {})
+    if not skip:
+        failures.append('a warm analysis sample with no prime taken must be skipped, not recorded')
+    prov, skip = sample_provenance(_ana, _warm2, {('analysis.rocq-modules', 'prime'): {'id': 'X', 'root': 'r'}})
+    if skip or prov['prime_sample_id'] != 'X':
+        failures.append(f'a warm analysis sample must name the prime its chain took: {prov}')
+
+    # Both runners must derive a sample's cache authorities identically. They did not: the shell runner used
+    # the helper and the analysis runner took the scenario's raw state, which handed `analysis.history` a
+    # reused project cache it never touches. One derivation, checked here so the two cannot drift again.
+    counts['total'] += 1
+    _warm = [s for s in suite['scenarios'] if s['id'] == 'project.warm.noop'][0]
+    for cid in ('analysis.history', 'make.diet', 'make.prove'):
+        cmd = [c for c in suite['commands'] if c['id'] == cid][0]
+        want = declared_authorities(cmd, _warm)
+        builds = bool(cmd['build_targets']) or bool(cmd['invalidation_roots'])
+        if builds and want != dict(_warm['cache_state']):
+            failures.append(f'{cid} builds and lost the scenario cache states that apply to it')
+        if not builds and set(want.values()) != {'not-applicable'}:
+            failures.append(f'{cid} builds nothing yet claims {sorted(set(want.values()))}')
 
     # A policy command builds nothing, so it cannot claim the caches a build scenario declares.
     counts['total'] += 1
