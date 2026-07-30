@@ -10,11 +10,14 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 1 IS THE SOLE ACTIVE WORK.**
+- **M2 BUILD OBSERVATORY REPAIR 1 IS FROZEN AND AWAITS ROB'S REVIEW.** The candidate is
+  `e534b0ae5cc47da510e46583e47f74566589d538`.
   Authority: `.review/M2_BUILD_OBSERVATORY.md`.
   The blocking review it answers is `.review/M2_IMPLEMENTATION_REPAIR_1.md`, <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
   amended by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`, which governs what cold means. <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
-  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-02` through `M2-19` reopened; only `M2-01` is closed.
+  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`, all closed.
+  One canonical observation measured that candidate: `.review/BUILD_OBSERVATION.json` — 719 samples over 19
+  commands, zero non-ok, recorded after all fourteen recording rules passed.
   Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
