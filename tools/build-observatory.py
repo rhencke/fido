@@ -4459,6 +4459,19 @@ def self_test(root: Path) -> int:
             bundle.mkdir(parents=True)
             if args.pop('bundle_written', True):
                 write_json(bundle / 'observation.json', args['obs'])
+                # R12 wants a raw log per DIRECT sample. Writing none made every control here depend on an
+                # earlier rule firing first: the moment one of them started passing, R12 spoke instead and
+                # six controls reported the wrong reason. A control that only works while another rule fails
+                # is not testing what it says it tests.
+                raw = bundle / 'raw'
+                raw.mkdir(parents=True, exist_ok=True)
+                for s in args['obs'].get('measurements', []):
+                    if s.get('derived_parent_id') or s.get('raw_log_sha256') is None:
+                        continue
+                    name = raw_log_name(s['command_id'], s['scenario_id'], s['sample_index'], s.get('edit_id'))
+                    body = f'{s["sample_id"]}\n'.encode('utf-8')
+                    (raw / f'{name}.log').write_bytes(body)
+                    s['raw_log_sha256'] = _sha256(body)
             return check_record_eligible(root, bundle=bundle, **args)
 
     observed('a partial run with RECORD', lambda: record_check(sel=Selection([], [], [], partial=True)),

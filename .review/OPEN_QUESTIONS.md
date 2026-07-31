@@ -97,3 +97,25 @@ unanswered:** build the planner first, then express `prove` and `e2e` as contain
 retaining their direct rows for ad hoc selection, so §11's examples keep resolving. If a reviewer would
 rather `SCENARIO=project.cold.prover` be replaced in §11 by the compound `project.cold.acceptance` this
 repair introduced, that is a smaller change and I will take it — but I am not going to make it silently.
+
+### Addendum — what actually blocks containing `prove` and `e2e`
+
+Diagnosed rather than guessed, by applying the relation and reading what broke.
+
+The obstacle is NOT the containment rule. It is that six R08 controls perturb the prime of a sample they
+select from the fixture, and once `prove` is contained the sample they select is a CONTAINED one — whose
+prime relation `identity_problems` deliberately skips, because a contained sample's cache provenance is a
+copy of its root's and asking the child to answer for it compares a stage id against the command that built
+it. That skip is correct and was proved load-bearing in Repair 2. So the perturbation stops having an effect
+and the control reports whatever rule speaks next.
+
+Which exposed a second thing worth keeping: `record_check` wrote NO raw logs, so every one of those controls
+only worked while R08 fired first. The moment it stopped, R12 spoke instead — and with R12 satisfied, R13
+spoke, because it reads the real repository's `git status` and the working tree is dirty during development.
+A control that only works while another rule fails is not testing what it says it tests. `record_check` now
+writes a raw log per direct sample, which removes one masking layer permanently.
+
+**Owner:** me, inside Repair 3. **Blocks M2:** no. **Default:** build §12's production-shaped synthetic
+observation through the real producer functions, then point those six controls at samples that are direct in
+the state they perturb. Containing `prove` and `e2e` removes sixteen redundant traces, so this is worth doing
+properly rather than by patching six pick predicates until the colour changes.
