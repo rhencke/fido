@@ -10,13 +10,16 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 2 IS IN PROGRESS.** Both blocked candidates are history:
+- **M2 BUILD OBSERVATORY REPAIR 2 IS FROZEN AND AWAITS ROB.** The candidate is
+  `641ac9034b280ddfd0930a12635e60322a2d4686`. Both earlier candidates are history:
   `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43` and `e534b0ae5cc47da510e46583e47f74566589d538`.
   Authority: `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which carries Rob's accepted scope amendment —
   project Python never runs on the host — and blocking findings A through M.
-  `.review/BUILD_OBSERVATION.json` still holds the REJECTED round-2 observation and does not validate
-  against the repaired rules; it is exploratory Git history, never this candidate's evidence, and the freeze
-  replaces it. Sixteen obligation rows are open with pending evidence for exactly that reason.
+  `.review/BUILD_OBSERVATION.json` now holds this candidate's canonical observation, recorded from a
+  complete clean committed run of the whole suite after all fourteen recording rules passed. All nineteen
+  obligation rows are closed against evidence that exists. No comparison accompanies it: the previous
+  baseline predates the sample fields this repair introduced, so it does not validate and no verdict may
+  rest on it. This observation is the baseline the next candidate is compared against.
 - **The superseded Repair 1 state, for reference.** The candidate was
   `e534b0ae5cc47da510e46583e47f74566589d538`.
   Its contract, still the live M2 contract, is `.review/M2_BUILD_OBSERVATORY.md`.
