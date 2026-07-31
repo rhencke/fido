@@ -1176,7 +1176,7 @@ def parse_anchor_log(text: str) -> list[dict]:
                 # duration lies somewhere in [0, one tick) — and that is what gets retained, so a summary
                 # can say "below resolution" instead of inventing a percentage against nothing.
                 events.append({'id': anchor, 'wall_ns': None, 'source': 'hook-anchor',
-                               'clock': HOOK_CLOCK, 'kind': KIND_INTERVAL,
+                               'clock': HOOK_CLOCK,
                                'lower_ns': 0, 'upper_ns': HOOK_CLOCK['resolution_ns'],
                                'below_resolution': True})
             else:
@@ -1500,9 +1500,8 @@ def write_json(path: Path, obj) -> bytes:
 
 KIND_WALL = 'wall_elapsed'
 KIND_AGGREGATE = 'aggregate_step_work'
-KIND_INTERVAL = 'duration_interval'
 KIND_UNTIMED = 'untimed_artifact'
-MEASUREMENT_KINDS = (KIND_WALL, KIND_AGGREGATE, KIND_INTERVAL, KIND_UNTIMED,
+MEASUREMENT_KINDS = (KIND_WALL, KIND_AGGREGATE, KIND_UNTIMED,
                      'cpu_user', 'cpu_system', 'rss_peak')
 
 
@@ -1513,8 +1512,13 @@ def measured(sample: dict) -> tuple[int | None, str]:
     parallel make aggregate work exceed elapsed time, so pooling them or printing one under the other's name
     states something false. The kind travels with the value from here on, and it is part of the identity, so
     two kinds can never land in one median.
+
+    A hook stage that finished inside one clock tick is elapsed time too — it is the same quantity on the
+    same clock, known only as a bound. It contributes no point value here and is summarised as a bound.
     """
     kind = sample.get('measurement_kind') or KIND_WALL
+    if sample.get('below_resolution'):
+        return None, kind
     if kind == KIND_UNTIMED:
         # An artifact derived from another command's build has no duration of its own. It was retained as
         # `wall_ns: 0`, which is a measured claim and a false one — work happened. It is an ARTIFACT now, so
@@ -1534,7 +1538,14 @@ def metric_identity(sample: dict) -> str:
 
     Role and measurement kind are in the key for the same reason: a selected child mislabelled `support`, or
     aggregate step work sitting beside elapsed wall time, would otherwise close the coverage relation while
-    describing a different measurement than the one the registry required."""
+    describing a different measurement than the one the registry required.
+
+    PRECISION is deliberately NOT in the key. A hook stage that runs faster than one 10 ms tick is known as a
+    bound rather than a point, and a `duration_interval` kind once carried that — which made a metric's
+    identity depend on its own value, so a stage changed identity by being fast. The registry declared
+    `wall_elapsed` and could not have declared otherwise; the run produced a kind nobody could predict, and
+    the coverage rule correctly reported the declared metric unmeasured and the produced one undeclared. The
+    quantity and its instrument name the metric; `below_resolution` and the bound describe the read."""
     return '|'.join((sample['command_id'], sample['scenario_id'],
                      sample.get('edit_id') or '-', sample.get('derived_parent_id') or '-',
                      sample.get('selected_or_support') or '-',
@@ -1741,35 +1752,46 @@ def summarise(samples: list[dict]) -> dict:
     The validator recomputes every value here from the retained samples."""
     by_key: dict[str, list[int]] = {}
     kinds: dict[str, str] = {}
-    intervals: dict[str, dict] = {}
+    # A stage faster than one clock tick has a BOUND, not a value, and precision is not part of the identity,
+    # so the SAME metric can hold both point reads and below-resolution ones across its repetitions. Both are
+    # collected under one key here and the row shape is decided once, below, from what actually landed.
+    bounds: dict[str, dict] = {}
     for s in samples:
         value, kind = measured(s)
         key = metric_identity(s)
-        if kind == KIND_INTERVAL:
-            # A stage faster than one clock tick has a BOUND, not a value. It gets a summary row carrying
-            # that bound, so the report can say "below resolution" rather than either dropping the stage or
-            # printing a median of zero it could then compute a percentage against.
-            row = intervals.setdefault(key, {'samples': 0, 'measurement_kind': kind,
-                                             'below_resolution': True, 'lower_ns': 0, 'upper_ns': 0})
+        kinds.setdefault(key, kind)
+        if s.get('below_resolution'):
+            row = bounds.setdefault(key, {'samples': 0, 'lower_ns': None, 'upper_ns': None})
             row['samples'] += 1
-            row['lower_ns'] = min(row['lower_ns'], s.get('lower_ns') or 0)
-            row['upper_ns'] = max(row['upper_ns'], s.get('upper_ns') or 0)
+            low, high = s.get('lower_ns') or 0, s.get('upper_ns') or 0
+            row['lower_ns'] = low if row['lower_ns'] is None else min(row['lower_ns'], low)
+            row['upper_ns'] = high if row['upper_ns'] is None else max(row['upper_ns'], high)
             continue
         if value is None:
             continue
         by_key.setdefault(key, []).append(value)
-        kinds[key] = kind
     out = {}
-    for key, values in sorted(by_key.items()):
-        ordered = sorted(values)
-        mid = len(ordered) // 2
-        median = ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) // 2
-        # `median_ns`, not `median_wall_ns`: the field carried aggregate step work for every derived
-        # BuildKit child while calling it elapsed wall time, and the comparator and report repeated the
-        # claim. The kind is stated beside the number instead of assumed by the field's name.
-        out[key] = {'samples': len(ordered), 'measurement_kind': kinds[key], 'median_ns': median,
-                    'min_ns': ordered[0], 'max_ns': ordered[-1]}
-    return dict(sorted({**out, **intervals}.items()))
+    for key in sorted(set(by_key) | set(bounds)):
+        values = sorted(by_key.get(key, []))
+        bound = bounds.get(key)
+        if bound is None:
+            mid = len(values) // 2
+            median = values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) // 2
+            # `median_ns`, not `median_wall_ns`: the field carried aggregate step work for every derived
+            # BuildKit child while calling it elapsed wall time, and the comparator and report repeated the
+            # claim. The kind is stated beside the number instead of assumed by the field's name.
+            out[key] = {'samples': len(values), 'measurement_kind': kinds[key], 'median_ns': median,
+                        'min_ns': values[0], 'max_ns': values[-1]}
+            continue
+        # ANY below-resolution repetition makes the whole row a bound. A median over only the point reads
+        # would describe a subset while being labelled the metric — with two ticks under 10 ms and one read
+        # at 20 ms, "median 20 ms" is the maximum wearing the median's name. The bound spans every read, so
+        # it stays true of all of them and no percentage can be computed against a number nobody measured.
+        out[key] = {'samples': len(values) + bound['samples'], 'measurement_kind': kinds[key],
+                    'below_resolution': True, 'below_resolution_samples': bound['samples'],
+                    'lower_ns': min([bound['lower_ns']] + values),
+                    'upper_ns': max([bound['upper_ns']] + values)}
+    return dict(sorted(out.items()))
 
 
 # ────────────────────────────────────────────────────────── cache provenance
@@ -2075,12 +2097,17 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         kind = s.get('measurement_kind') or KIND_WALL
         if kind not in MEASUREMENT_KINDS:
             raise ObservatoryError(f'sample {i}: measurement_kind {kind!r} is not a known kind')
-        if kind == KIND_INTERVAL and (s.get('lower_ns') is None or s.get('upper_ns') is None
-                                      or s['lower_ns'] > s['upper_ns']):
+        if s.get('below_resolution') and (s.get('lower_ns') is None or s.get('upper_ns') is None
+                                          or s['lower_ns'] > s['upper_ns']):
             raise ObservatoryError(
                 f'sample {i} ({s["command_id"]}) is a below-resolution interval without a usable bound')
+        # A below-resolution read is elapsed time known as a bound, so it carries no point value on purpose.
+        # It must SAY so: without the flag this is a sample that measured nothing and claimed a kind.
+        if s.get('below_resolution') and s.get('wall_ns') is not None:
+            raise ObservatoryError(
+                f'sample {i} ({s["command_id"]}) is declared below resolution yet carries a point duration')
         if (s.get('wall_ns') is None and s.get('aggregate_step_ns') is None
-                and kind not in (KIND_UNTIMED, KIND_INTERVAL)):
+                and not s.get('below_resolution') and kind != KIND_UNTIMED):
             raise ObservatoryError(
                 f'sample {i} ({s["command_id"]}) records neither an elapsed duration nor aggregate step '
                 f'work, so it measures nothing')
@@ -4011,15 +4038,18 @@ def self_test(root: Path) -> int:
              only(sample(measurement_kind=KIND_UNTIMED, wall_ns=5)),
              expect='untimed artifact yet carries a duration')
     observed('a below-resolution interval with no bound',
-             only(sample(measurement_kind=KIND_INTERVAL, wall_ns=None, lower_ns=None, upper_ns=None)),
+             only(sample(below_resolution=True, wall_ns=None, lower_ns=None, upper_ns=None)),
              expect='without a usable bound')
     observed('a below-resolution interval whose bounds are inverted',
-             only(sample(measurement_kind=KIND_INTERVAL, wall_ns=None, lower_ns=9, upper_ns=1)),
+             only(sample(below_resolution=True, wall_ns=None, lower_ns=9, upper_ns=1)),
              expect='without a usable bound')
+    observed('a below-resolution read that also carries a point duration',
+             only(sample(below_resolution=True, wall_ns=7, lower_ns=0, upper_ns=9)),
+             expect='below resolution yet carries a point duration')
 
     counts['total'] += 1
     accepted = sample(measurement_kind=KIND_UNTIMED, wall_ns=None, aggregate_step_ns=None)
-    interval = sample(measurement_kind=KIND_INTERVAL, wall_ns=None, aggregate_step_ns=None,
+    interval = sample(wall_ns=None, aggregate_step_ns=None,
                       lower_ns=0, upper_ns=HOOK_CLOCK['resolution_ns'], below_resolution=True)
     for label, s in (('an untimed artifact', accepted), ('a below-resolution interval', interval)):
         try:
@@ -4029,6 +4059,28 @@ def self_test(root: Path) -> int:
     rows = summarise([interval])
     if not rows or not all(r.get('below_resolution') and 'median_ns' not in r for r in rows.values()):
         failures.append('a below-resolution stage was summarised with a median it cannot have')
+
+    # PRECISION IS NOT IDENTITY. A stage that reads as a bound in one repetition and as a point in another is
+    # ONE metric; when the bound carried its own `measurement_kind` the two repetitions keyed apart, and the
+    # registry — which cannot predict which way a 10 ms tick falls — was told it had declared a metric nobody
+    # measured and measured one nobody declared. This is the control for that whole failure.
+    counts['total'] += 1
+    point = sample(wall_ns=20_000_000)
+    if metric_identity(point) != metric_identity(interval):
+        failures.append('a stage measured as a bound and as a point keyed as two metrics, so being fast '
+                        'changed what a metric was')
+    mixed_rows = summarise([interval, interval, point])
+    if len(mixed_rows) != 1:
+        failures.append(f'one metric with mixed precision summarised into {len(mixed_rows)} rows')
+    else:
+        row = next(iter(mixed_rows.values()))
+        if 'median_ns' in row:
+            failures.append('a metric with a below-resolution repetition published a median over the point '
+                            'reads alone, which is a subset wearing the whole metric\'s name')
+        if (row.get('samples'), row.get('below_resolution_samples')) != (3, 2):
+            failures.append(f'a mixed-precision row lost repetitions: {row}')
+        if (row.get('lower_ns'), row.get('upper_ns')) != (0, 20_000_000):
+            failures.append(f'a mixed-precision bound does not span every read: {row}')
     # A hook anchor that begins and ends within one clock tick must become a BOUND, never a zero.
     counts['total'] += 1
     ticks = parse_anchor_log('begin precommit.fast 1000000000\nend precommit.fast 1000000000\n')

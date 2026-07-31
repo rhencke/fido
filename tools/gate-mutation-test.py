@@ -275,6 +275,28 @@ MUTANTS = (
      "        if False:",
      ('an untimed artifact still carrying a duration',)),
 
+    (OBS, 'a below-resolution read carrying no point duration',
+     "        if s.get('below_resolution') and s.get('wall_ns') is not None:",
+     "        if False:",
+     ('a below-resolution read that also carries a point duration',)),
+
+    (OBS, 'a below-resolution repetition counted rather than dropped',
+     "        if s.get('below_resolution'):\n"
+     "            row = bounds.setdefault(key, {'samples': 0, 'lower_ns': None, 'upper_ns': None})",
+     "        if False:\n"
+     "            row = bounds.setdefault(key, {'samples': 0, 'lower_ns': None, 'upper_ns': None})",
+     ('a below-resolution stage was summarised with a median it cannot have',
+      'published a median over the point reads alone')),
+
+    # The defect this repair closed, reintroduced exactly: a bound keyed as its own kind, so a stage that ran
+    # faster than one clock tick became a metric the registry could not have declared.
+    (OBS, 'precision kept OUT of the measurement key',
+     "                     sample.get('measurement_kind') or KIND_WALL))",
+     "                     'duration_interval' if sample.get('below_resolution') "
+     "else (sample.get('measurement_kind') or KIND_WALL)))",
+     ('keyed as two metrics, so being fast changed what a metric was',
+      'one metric with mixed precision summarised into')),
+
     (OBS, 'role in the exact measurement key',
      "                     sample.get('selected_or_support') or '-',",
      "                     '-',",
