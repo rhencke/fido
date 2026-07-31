@@ -1590,6 +1590,17 @@ def fragment_problems(partial: dict) -> list[str]:
     return sample_rule_problems(partial.get('measurements', [])) + identity_problems(partial)
 
 
+def wanted_samples(command: dict, scenario_id: str, role: str, repeat: int = 1) -> int:
+    """How many times this command runs in this state.
+
+    §3B.8 — the canonical count is ONE, always. `REPEAT` is ad hoc variance for a named investigation, so it
+    multiplies only what the operator SELECTED: a support command pulled in to make the answer mean anything
+    is not what they asked about, and repeating it would spend minutes nobody wanted on a number nobody
+    requested. The registry's own count stays the authority for everything else."""
+    base = command['samples'][scenario_id]
+    return base * repeat if (repeat > 1 and role == 'selected') else base
+
+
 def resume_incompatibilities(prior: dict, subj: dict, suite: dict, env: dict, plan: dict) -> list[str]:
     """Every reason this bundle's traces may NOT be carried into the current run, named individually.
 
@@ -3331,7 +3342,8 @@ def _flushed(message: str) -> None:
 def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str,
                     progress=_flushed, checkpoint=None,
                     resume_done: set | None = None,
-                    resume_samples: list | None = None) -> tuple[dict, list[str], bool]:
+                    resume_samples: list | None = None,
+                    repeat: int = 1) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
     The first candidate primed once per scenario and then ran every command in that shared state, so a
@@ -3488,7 +3500,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 continue
 
             edit = edits.get(scenario.get('edit'))
-            wanted = command['samples'][scenario_id]
+            wanted = wanted_samples(command, scenario_id, role, repeat)
 
             for index in range(wanted):
                 label = f'{cid}/{scenario_id}' + (f'/{edit["id"]}' if edit else '')
@@ -3591,7 +3603,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                 incomplete.append(f'{cid}/{scenario_id}')
                 progress(f'fido: observe — {skip}')
                 continue
-            wanted = command['samples'][scenario_id]
+            wanted = wanted_samples(command, scenario_id, role, repeat)
             for index in range(wanted):
                 progress(f'fido: observe — {cid} [{scenario_id}] sample {index + 1}/{wanted} ({role})')
                 try:
@@ -3780,6 +3792,8 @@ def render_usage(suite: dict) -> str:
   make observe RECORD=1               replace the tracked observation from a clean, complete run
   make observe LIST=1                 every stable command ID and how it is measured
   make observe PLAN=1                 the exact acquisition plan; runs nothing and cannot record
+  make observe RESUME=<bundle>        reuse an exact same-subject bundle's completed traces
+  make observe REPEAT=<n>             ad hoc repetition of a NAMED selection; never with RECORD=1
   make observe HELP=1                 this text
 
 ONLY and SCENARIO take comma-separated stable IDs. ONLY also accepts a group:
@@ -5103,6 +5117,18 @@ def self_test(root: Path) -> int:
             'overlapping-range')
     verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
 
+    # §10 — REPEAT multiplies only what was SELECTED. Repeating support work spends minutes nobody asked for
+    # on a number nobody requested, and repeating the whole suite is the fixed multiplicity this repair
+    # deleted wearing a different name.
+    counts['total'] += 1
+    probe_cmd = {'samples': {'project.warm.noop': 1}}
+    for role, rep, want in (('selected', 3, 3), ('support', 3, 1), ('selected', 1, 1), ('support', 1, 1)):
+        got = wanted_samples(probe_cmd, 'project.warm.noop', role, rep)
+        if got != want:
+            failures.append(f'REPEAT={rep} on a {role} command asked for {got} sample(s), wanted {want}')
+    if wanted_samples({'samples': {'project.warm.noop': 1}}, 'project.warm.noop', 'selected') != 1:
+        failures.append('canonical acquisition without REPEAT is not one sample per identity')
+
     # §13 — RESUME refuses across every identity it names. Its whole value is the refusal: reusing a sample
     # from another candidate would be indistinguishable from measuring this one, and cheaper.
     counts['total'] += 1
@@ -6225,6 +6251,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--plan', action='store_true',
                    help='print the exact acquisition plan and run nothing (M2 measurement)')
     p.add_argument('--resume', help='reuse the completed traces of an exact same-subject local bundle')
+    p.add_argument('--repeat', type=int, default=1,
+                   help='ad hoc repetition of a NAMED selection; never with --record')
     p.add_argument('--usage', action='store_true', help='print the generated usage text')
     p.add_argument('--observe', action='store_true', help='the measurement entry point')
     p.add_argument('--bundle-root', default=None,
@@ -6286,6 +6314,21 @@ def main(argv: list[str] | None = None) -> int:
                         f'{len(problems)} acquisition defect(s) in the plan; nothing was run')
                 return 0
 
+            # §10 — REPEAT is AD HOC variance and can never touch a canonical result. Both refusals happen
+            # before any measurement: a run that would be rejected at the end is a run nobody should start.
+            repeat = max(1, int(args.repeat or 1))
+            if repeat > 1:
+                if args.record:
+                    raise ObservatoryError(
+                        'REPEAT and RECORD are exclusive: canonical acquisition is one real trace per '
+                        'identity, so a repeated run is an investigation and never the tracked observation')
+                if not sel.partial:
+                    raise ObservatoryError(
+                        'REPEAT needs a named selection: repeating the WHOLE suite is the fixed multiplicity '
+                        'this repair deleted, and it costs hours to buy precision where there is none to buy')
+                print(f'fido: build-observatory — REPEAT={repeat}: each selected command runs {repeat} times '
+                      f'in each of its states; support commands keep their registry count')
+
             # §13 — RESUME is decided BEFORE anything runs, and refuses with every reason at once. A bundle
             # that cannot be carried is a rerun the operator should learn about now, not after the first
             # trace has already been paid for.
@@ -6326,7 +6369,7 @@ def main(argv: list[str] | None = None) -> int:
             obs, incomplete, edits_restored = run_observation(
                 root, suite, sel, bundle / 'raw', run_id,
                 checkpoint=checkpointer(bundle, header),
-                resume_done=resume_done, resume_samples=resume_samples)
+                resume_done=resume_done, resume_samples=resume_samples, repeat=repeat)
             if incomplete:
                 obs['derived']['status'] = 'incomplete'
                 obs['derived']['incomplete'] = incomplete

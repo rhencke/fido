@@ -132,6 +132,12 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §10 — ad hoc variance that cannot leak into a canonical result or onto work nobody selected.
+    (OBS, 'REPEAT multiplying only the selected commands',
+     "    return base * repeat if (repeat > 1 and role == 'selected') else base",
+     "    return base * repeat if repeat > 1 else base",
+     ('on a support command asked for',)),
+
     # §13 — resume's whole value is the refusal. Reusing a sample from another candidate would be
     # indistinguishable from measuring this one, and cheaper.
     (OBS, 'resume refusing a changed subject',
