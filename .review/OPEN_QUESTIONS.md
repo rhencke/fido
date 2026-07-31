@@ -68,3 +68,32 @@ addresses the same builder and cache authorities the real commands use, because 
 make the timings mean nothing. The other stands — the pre-commit anchors are written by `/bin/sh` inside the
 hook on the host, and while the hook itself is host-side its instrumentation stays host-side with it. "No
 Python on the host" and "no host-side measurement" are not the same goal, and only the first is bought here.
+
+## Acquisition is a property of the RELATION, not of the command
+
+Repair 3 §8 says a command-scenario-edit relation may be direct-root, contained, serial-projection or
+catalog-only. I first modelled acquisition as a property of the COMMAND — a `measurement: contained` row
+naming its trace root — which is adequate for a gate like `make names` that has one warm state and no reason
+to run standalone. It is NOT adequate for `make.prove` and `make.e2e`, and the directive says so itself: §11
+lists `make observe ONLY=make.prove SCENARIO=project.cold.prover` among the examples that must stay useful,
+and a per-command `contained` classification erases exactly that capability. Converting those two turned
+sixteen controls red, one of them the documented-example check, which is the directive telling me the model
+is wrong rather than the fixtures being inconvenient.
+
+So the same command is acquired two ways: contained inside a `make.check` trace under the canonical cold,
+cached, warm and incremental states, and direct when someone asks for it ad hoc under a state of its own. The
+planner §11 requires — "use the direct command when it is a valid ad hoc execution and cheaper than its
+containing acceptance trace" — is the thing that chooses between them, and it does not exist yet. Converting
+`prove` and `e2e` before it does would mean either breaking a documented requirement or pretending the
+example still resolves.
+
+The six warm-only gates — `hostpython`, `names`, `fcb`, `claims`, `diet`, `observatory` — are converted and
+green, because for them the per-command form is honest: they have one state, and an ad hoc `ONLY=` on any of
+them can simply run the owning trace.
+
+**Owner:** reviewer. **Blocks M2:** no — it blocks only the order of work inside Repair 3, and the work order
+already puts the plan representation (§19 step 3) before the registry model (step 6). **Default if
+unanswered:** build the planner first, then express `prove` and `e2e` as contained CANONICALLY while
+retaining their direct rows for ad hoc selection, so §11's examples keep resolving. If a reviewer would
+rather `SCENARIO=project.cold.prover` be replaced in §11 by the compound `project.cold.acceptance` this
+repair introduced, that is a smaller change and I will take it — but I am not going to make it silently.

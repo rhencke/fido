@@ -3720,7 +3720,7 @@ def self_test(root: Path) -> int:
                         edit(w, 'make.names', 'samples', {'project.cold.profile': 1})),
              expect='never runs, so no trace could ever establish it')
     scenario('a direct command claiming a trace root',
-             lambda w: edit(w, 'make.diet', 'contained_in', 'make.check'),
+             lambda w: edit(w, 'make.fmt', 'contained_in', 'make.check'),
              expect='only a contained command is established inside')
 
     scenario('a derived child declaring its own scenarios',
@@ -3775,9 +3775,11 @@ def self_test(root: Path) -> int:
     scenario('an unknown side-effect class',
              lambda w: edit(w, 'make.diet', 'side_effect', 'harmless'),
              expect='not one of')
+    # These edit a command that still RUNS. `make.diet` used to serve here and is now contained, so the same
+    # edits trip the containment rules first and prove a different rule than the one being asked about.
     scenario('a scenario reference with no sample count',
-             lambda w: (edit(w, 'make.diet', 'scenarios', ['project.cold.prover']),
-                        edit(w, 'make.diet', 'invalidation_roots', ['prover'])),
+             lambda w: (edit(w, 'make.emit', 'scenarios', ['project.cold.emit', 'project.warm.noop']),
+                        edit(w, 'make.emit', 'samples', {'project.cold.emit': 1})),
              expect='has no sample count')
     scenario('a build target naming no Dockerfile stage',
              lambda w: edit(w, 'make.prove', 'build_targets', ['no-such-stage']),
@@ -3794,15 +3796,15 @@ def self_test(root: Path) -> int:
              expect='only temporary-docker-config gives it the empty builder')
 
     scenario('a command claiming a root its cold scenarios do not name',
-             lambda w: edit(w, 'make.diet', 'invalidation_roots', ['prover']),
+             lambda w: edit(w, 'make.fmt', 'invalidation_roots', ['prover']),
              expect='a command rebuilds exactly the roots it can be measured cold from')
     scenario('a derived command claiming it invalidates something',
              lambda w: edit(w, 'docker.prover', 'invalidation_roots', ['prover']),
              expect='it performs no build of its own')
 
     scenario('an unknown scenario reference',
-             lambda w: (edit(w, 'make.diet', 'scenarios', ['no.such.scenario']),
-                        edit(w, 'make.diet', 'samples', {'no.such.scenario': 1})),
+             lambda w: (edit(w, 'make.fmt', 'scenarios', ['no.such.scenario']),
+                        edit(w, 'make.fmt', 'samples', {'no.such.scenario': 1})),
              expect='unknown scenario')
     scenario('an unknown dependency',
              lambda w: edit(w, 'make.diet', 'dependencies', ['make.no-such']),
@@ -3957,14 +3959,17 @@ def self_test(root: Path) -> int:
                         'role, which is the reverse of what the contract states')
 
     counts['total'] += 1
-    cold_only = select(suite, only='make.prove', scenario='project.cold.prover')
+    cold_only = select(suite, only='make.check', scenario='project.cold.acceptance')
     if cold_only.scenario_support:
         failures.append(f'a cold selection needs no prime added: {cold_only.scenario_support}')
 
     combo = selection('ONLY and SCENARIO combine', only='make.check', scenario='project.warm.noop')
     if combo:
+        # ONE cold prime, not one per cold state. `make.check` used to name a cold scenario per stage, which
+        # made a warm selection drag in three cold traces; the compound acceptance cut is a single state that
+        # leaves the cache warm for what follows.
         expect_that('a combined selection keeps the named scenario and its required prime',
-                    set(combo.scenarios) == {'project.warm.noop', 'project.cold.generated-artifact'},
+                    set(combo.scenarios) == {'project.warm.noop', 'project.cold.acceptance'},
                     f'scenarios were {combo.scenarios}')
 
     selection('an unknown ONLY name', expect='unknown ONLY name', only='make.prov')
