@@ -255,6 +255,12 @@ def load_suite(root: Path) -> dict:
                     f'{SUITE_REL}: scenario {s["id"]} invalidates {sorted(roots)} but is named for just '
                     f'{suffix!r}, so its name understates the cut')
 
+    # Which commands never run, and which Docker stages a command that DOES run actually builds. Both are
+    # read below to catch a derived child that no runnable parent can ever produce.
+    cataloged_ids = {c['id'] for c in suite['commands'] if c.get('measurement') == 'catalog-only'}
+    reachable_stages = {st for c in suite['commands'] if c.get('measurement') != 'catalog-only'
+                        for st in stages_built_by(stage_graph, c.get('build_targets', []))}
+
     seen_cmd = set()
     for c in suite['commands']:
         missing = [f for f in COMMAND_FIELDS if f not in c]
@@ -273,6 +279,19 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is catalog-only with no reason — a command excluded from the canonical '
                 f'timing run must say why, and must stay selectable when safe')
+        # A derived command is observed INSIDE a parent's run, so if every parent is cataloged there is no
+        # run to be observed inside and this child is selected forever and measured never. Three Docker
+        # stages sat in exactly that state: I cataloged make.pytools and make.observatory-runner correctly
+        # and left their stage children derived, and nothing objected until the very last recording rule of
+        # a four-hour run. The parent set is the stage graph's where the graph reaches it, and the declared
+        # dependencies otherwise — the same rule the coverage relation uses, not a second one.
+        if c['measurement'] == 'derived':
+            built_here = cid.startswith('docker.') and cid[len('docker.'):] in reachable_stages
+            parents = built_here or [p for p in c['dependencies'] if p not in cataloged_ids]
+            if not parents:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} is derived but every command that could produce it is cataloged, so '
+                    f'it can only ever be selected and never measured; catalog it with the reason instead')
         # Build targets must name stages the Dockerfile actually declares, or the derived stage relation is
         # computed over a graph node that does not exist.
         unknown_targets = [x for x in c.get('build_targets', []) if x not in stage_names]
@@ -2883,19 +2902,24 @@ def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None =
     emit the structured step output the stage timings are read from. Neither changes a hook line or a Make
     recipe, so behaviour with the observatory absent is exactly what it always was."""
     env = {}
+    # EVERY observed command gets a temp directory the HOST daemon can see at the same absolute path.
+    # A recipe that `mktemp -d`s and then BIND-MOUNTS that path has the mount resolved by the HOST daemon,
+    # which substitutes a fresh root-owned empty directory for a path existing only inside the runner. The
+    # hook's staged export vanished that way. I fixed it for the hook alone — the instance I had just
+    # debugged — and left the class open, so `make fcb-write`, which publishes through exactly such a mount,
+    # failed identically for three more runs while an earlier recording rule masked it. Scoping a fix to the
+    # instance you happen to be holding is how the second one gets to hide.
+    #
+    # The bundle is mounted at its own host path and is the same tmpfs as the default TMPDIR, so this is
+    # visible from both sides and changes no measured cost; recipes clean up their own temp trees.
+    #
+    # Verifying the first one on the HOST is what let it through: there the path is already a host path, so
+    # the bug cannot appear. The test has to run where the thing runs.
+    command_tmp = anchor_log.parent / f'{anchor_log.stem}.tmp'
+    command_tmp.mkdir(parents=True, exist_ok=True)
+    env['TMPDIR'] = str(command_tmp)
     if command['kind'] == 'precommit-full':
         env['FIDO_OBSERVE'] = str(anchor_log)
-        # The hook exports the staged index into a `mktemp -d` directory and then BIND-MOUNTS that path
-        # into the pinned image. That mount is resolved by the HOST daemon, so a temp directory existing
-        # only inside the observatory runner is silently replaced by an empty one and every staged gate
-        # reports its own tool missing. `mktemp` honours TMPDIR, and the bundle is mounted at its own host
-        # path, so pointing it here makes the export visible from both sides.
-        #
-        # Verifying this by running the hook on the HOST is what let it through: there `$ctx` is already a
-        # host path, so the bug cannot appear. The test has to run where the thing runs.
-        hook_tmp = anchor_log.parent / 'hook-tmp'
-        hook_tmp.mkdir(parents=True, exist_ok=True)
-        env['TMPDIR'] = str(hook_tmp)
     if command['kind'] in ('make-target', 'precommit-full'):
         env['BUILDKIT_PROGRESS'] = 'plain'
     return env
@@ -3611,6 +3635,11 @@ def self_test(root: Path) -> int:
     scenario('a catalog-only command with no reason',
              lambda w: edit(w, 'make.observe', 'catalog_only_reason', '   '),
              expect='catalog-only with no reason')
+    # Turning a cataloged stage back into a derived one restores the exact state that survived to the last
+    # recording rule of a four-hour run: a child whose only producer never runs.
+    scenario('a derived child whose every producer is cataloged',
+             lambda w: edit(w, 'docker.python-tools', 'measurement', 'derived'),
+             expect='every command that could produce it is cataloged')
     scenario('a command identified by source line number',
              lambda w: edit(w, 'make.diet', 'owner', 'Makefile:110'),
              expect='identifies its source by line number')
@@ -5128,6 +5157,20 @@ def self_test(root: Path) -> int:
     make_cmd = next(c for c in suite['commands'] if c['kind'] == 'make-target')
     if instrumentation_env(make_cmd, Path('/tmp/x')).get('BUILDKIT_PROGRESS') != 'plain':
         failures.append('a make target must be measured with structured BuildKit progress')
+
+    # EVERY kind, not just the hook. A recipe that bind-mounts a `mktemp -d` path needs that path to exist
+    # on the HOST; scoping the guarantee to the one command whose failure I had already debugged is what let
+    # `make fcb-write` fail the same way. This asks the question of every kind the registry declares.
+    counts['total'] += 1
+    for kind in sorted({c['kind'] for c in suite['commands']}):
+        some = next(c for c in suite['commands'] if c['kind'] == kind)
+        where = instrumentation_env(some, Path('/tmp/x')).get('TMPDIR')
+        if not where:
+            failures.append(f'a {kind} command is measured without a host-visible TMPDIR, so any recipe of '
+                            f'that kind that bind-mounts a temp directory silently gets an empty one')
+        elif not Path(where).is_absolute():
+            failures.append(f'a {kind} command was given a relative TMPDIR {where!r}, which cannot name the '
+                            f'same directory to the runner and to the host daemon')
 
     counts['total'] += 1
     events = parse_anchor_log('begin a 1000\nbegin b 1100\nend b 1400\nend a 2000\n')

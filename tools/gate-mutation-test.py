@@ -275,6 +275,17 @@ MUTANTS = (
      "        if False:",
      ('an untimed artifact still carrying a duration',)),
 
+    # Scoped back to the hook alone — the shape the second instance hid behind for three runs.
+    (OBS, 'a host-visible temp directory for EVERY command kind, not just the hook',
+     "    command_tmp = anchor_log.parent / f'{anchor_log.stem}.tmp'\n"
+     "    command_tmp.mkdir(parents=True, exist_ok=True)\n"
+     "    env['TMPDIR'] = str(command_tmp)",
+     "    if command['kind'] == 'precommit-full':\n"
+     "        command_tmp = anchor_log.parent / f'{anchor_log.stem}.tmp'\n"
+     "        command_tmp.mkdir(parents=True, exist_ok=True)\n"
+     "        env['TMPDIR'] = str(command_tmp)",
+     ('is measured without a host-visible TMPDIR',)),
+
     (OBS, 'a below-resolution read carrying no point duration',
      "        if s.get('below_resolution') and s.get('wall_ns') is not None:",
      "        if False:",
