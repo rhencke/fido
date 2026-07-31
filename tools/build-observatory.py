@@ -4493,14 +4493,23 @@ def self_test(root: Path) -> int:
     def first_derived(obs):
         return pick(obs, 'derived sample', lambda s: s.get('derived_parent_id'))
 
-    def prove_sample(obs, scenario_id):
-        return pick(obs, f'make.prove sample in {scenario_id}',
-                    lambda s: s['command_id'] == 'make.prove' and s['scenario_id'] == scenario_id)
+    # The prime relation applies to samples that RAN — `identity_problems` skips contained ones on purpose,
+    # because their cache provenance is a copy of their root's. So a control that perturbs a prime has to
+    # perturb a sample which actually ran, and the trace root is the command that always does. Pinning these
+    # to `make.prove` made them silently inert the moment it became contained: the perturbation had no effect
+    # and whichever rule spoke next was reported as the answer.
+    ROOT_CMD, ROOT_COLD = 'make.check', 'project.cold.acceptance'
+
+    def prove_sample(obs, scenario_id, cid=ROOT_CMD):
+        return pick(obs, f'{cid} sample in {scenario_id}',
+                    lambda s: s['command_id'] == cid and s['scenario_id'] == scenario_id
+                    and not s.get('derived_parent_id'))
 
     def with_reuse(prime):
         obs = complete_observation()
         target = next(s for s in obs['measurements']
-                      if s['command_id'] == 'make.prove' and s['scenario_id'] == 'project.warm.noop')
+                      if s['command_id'] == ROOT_CMD and s['scenario_id'] == 'project.warm.noop'
+                      and not s.get('derived_parent_id'))
         target['cache_before'] = {**target['cache_before'],
                                   'authorities': {a: 'reused' for a in PROJECT_CACHES},
                                   'prime_sample_id': prime}
@@ -4626,7 +4635,7 @@ def self_test(root: Path) -> int:
 
     observed('a cached sample naming a metric class instead of a sample',
              lambda: record_check(obs=reuse_naming(
-                 lambda o: metric_identity(prove_sample(o, 'project.cold.prover')))),
+                 lambda o: metric_identity(prove_sample(o, ROOT_COLD)))),
              expect='does not retain')
     observed("a cached sample naming another command's prime",
              lambda: record_check(obs=reuse_naming(
@@ -4643,7 +4652,7 @@ def self_test(root: Path) -> int:
         """The prime moved to AFTER the sample that claims it: a cache cannot have been filled by a run
         that had not happened yet."""
         obs = with_reuse(None)
-        warm, cold = prove_sample(obs, 'project.warm.noop'), prove_sample(obs, 'project.cold.prover')
+        warm, cold = prove_sample(obs, 'project.warm.noop'), prove_sample(obs, ROOT_COLD)
         warm['cache_before']['prime_sample_id'] = cold['sample_id']
         obs['measurements'].remove(cold)
         obs['measurements'].append(cold)

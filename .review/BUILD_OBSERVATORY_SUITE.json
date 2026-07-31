@@ -723,7 +723,7 @@
       "build_targets": [
         "go-e2e"
       ],
-      "contained_in": "",
+      "contained_in": "make.check",
       "dependencies": [],
       "execution": [
         "make",
@@ -1140,7 +1140,7 @@
       "build_targets": [
         "prover"
       ],
-      "contained_in": "",
+      "contained_in": "make.check",
       "dependencies": [],
       "execution": [
         "make",
