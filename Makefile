@@ -238,6 +238,7 @@ observatory: pytools
 #   make observe RECORD=1              replace the tracked observation, only from a clean complete run
 #   make observe LIST=1                every stable command ID and how it is measured
 #   make observe PLAN=1                the exact acquisition plan; runs nothing and cannot record
+#   make observe RESUME=<bundle>       reuse an exact same-subject bundle's completed traces
 #   make observe HELP=1                usage, cache definitions, recording and comparison rules
 # Every path is mounted AT ITS HOST PATH, and that is load-bearing rather than tidy.  The runner drives the
 # host daemon through the socket, so any `-v` a measured command issues is resolved by the HOST — a repo
@@ -254,7 +255,7 @@ observe: observatory-runner
 	    python3 tools/build-observatory.py --observe --bundle-root "$$bundles" \
 	      $(if $(ONLY),--only "$(ONLY)") $(if $(SCENARIO),--scenario "$(SCENARIO)") \
 	      $(if $(BASE),--base "$(BASE)") $(if $(COMPARE),--compare "$(COMPARE)") \
-	      $(if $(RECORD),--record) $(if $(LIST),--list) $(if $(HELP),--usage) $(if $(PLAN),--plan)
+	      $(if $(RECORD),--record) $(if $(LIST),--list) $(if $(HELP),--usage) $(if $(PLAN),--plan) $(if $(RESUME),--resume "$(RESUME)")
 
 # The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
 # runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.

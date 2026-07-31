@@ -3329,7 +3329,9 @@ def _flushed(message: str) -> None:
 
 
 def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_id: str,
-                    progress=_flushed, checkpoint=None) -> tuple[dict, list[str], bool]:
+                    progress=_flushed, checkpoint=None,
+                    resume_done: set | None = None,
+                    resume_samples: list | None = None) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
     The first candidate primed once per scenario and then ran every command in that shared state, so a
@@ -3368,7 +3370,11 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     stage_graph = docker_stage_graph(root)
     context_inputs = docker_context_inputs(root)
 
-    samples: list[dict] = []
+    # §13 — reused samples seed the record so the coverage relation sees the whole suite, not only what this
+    # invocation ran. They arrive already validated: `resumable_traces` refuses a bundle that does not, and
+    # offers only traces that completed.
+    samples: list[dict] = list(resume_samples or [])
+    resume_done = resume_done or set()
     incomplete: list[str] = []
     unmeasured: list[str] = []
     edits_ok = True
@@ -3388,6 +3394,15 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         if runner_for(command) != 'shell':
             continue
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
+        # §13 — a trace this bundle already completed is not rerun. The filter is per SCENARIO rather than
+        # per command, so an interrupted chain resumes at the scenario it stopped in instead of from the top;
+        # only complete, individually validated fragments reach `resume_done` at all.
+        if resume_done:
+            keep = [s for s in chain if (cid, s) not in resume_done]
+            if len(keep) != len(chain):
+                progress(f'fido: observe — {cid}: {len(chain) - len(keep)} trace(s) reused from the resumed '
+                         f'bundle, {len(keep)} still to run')
+            chain = keep
         if not chain:
             # Selected, and measured in nothing. Silence here would leave the command listed as selected with
             # no sample beside it and no reason, which reads as a measurement that went missing.
@@ -6209,6 +6224,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--list', action='store_true', help='print every stable command ID')
     p.add_argument('--plan', action='store_true',
                    help='print the exact acquisition plan and run nothing (M2 measurement)')
+    p.add_argument('--resume', help='reuse the completed traces of an exact same-subject local bundle')
     p.add_argument('--usage', action='store_true', help='print the generated usage text')
     p.add_argument('--observe', action='store_true', help='the measurement entry point')
     p.add_argument('--bundle-root', default=None,
@@ -6270,6 +6286,34 @@ def main(argv: list[str] | None = None) -> int:
                         f'{len(problems)} acquisition defect(s) in the plan; nothing was run')
                 return 0
 
+            # §13 — RESUME is decided BEFORE anything runs, and refuses with every reason at once. A bundle
+            # that cannot be carried is a rerun the operator should learn about now, not after the first
+            # trace has already been paid for.
+            resume_done, resume_samples = set(), []
+            if args.resume:
+                prior_path = Path(args.resume).resolve()
+                if prior_path.is_dir():
+                    prior_path = prior_path / 'observation.json'
+                if not prior_path.is_file():
+                    raise ObservatoryError(f'no observation to resume at {prior_path}')
+                prior = json.loads(prior_path.read_text(encoding='utf-8'))
+                plan = acquisition_plan(suite, sel, graph=docker_stage_graph(root))
+                why = resume_incompatibilities(prior, subject(root), suite, environment(root), plan)
+                if why:
+                    raise ObservatoryError(
+                        f'{prior_path} cannot be resumed into this run; {len(why)} reason(s): '
+                        + '; '.join(why))
+                resume_done, notes = resumable_traces(prior)
+                for note in notes:
+                    print(f'fido: build-observatory — resume: {note}')
+                keep = {(t['command_id'], t['scenario_id']) for t in plan['traces']} & resume_done
+                resume_samples = [s for s in prior.get('measurements', [])
+                                  if (s.get('derived_parent_id') or s['command_id'], s['scenario_id']) in keep
+                                  or (s['command_id'], s['scenario_id']) in keep]
+                resume_done = keep
+                print(f'fido: build-observatory — resuming {len(keep)} completed trace(s) from {prior_path}, '
+                      f'carrying {len(resume_samples)} sample(s)')
+
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             subj = subject(root)
             run_id = run_id_for(subj, started, subj['inventory_digest'])
@@ -6281,7 +6325,8 @@ def main(argv: list[str] | None = None) -> int:
                       'subject': subj, 'run_id': run_id}
             obs, incomplete, edits_restored = run_observation(
                 root, suite, sel, bundle / 'raw', run_id,
-                checkpoint=checkpointer(bundle, header))
+                checkpoint=checkpointer(bundle, header),
+                resume_done=resume_done, resume_samples=resume_samples)
             if incomplete:
                 obs['derived']['status'] = 'incomplete'
                 obs['derived']['incomplete'] = incomplete
