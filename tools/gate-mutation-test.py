@@ -132,6 +132,12 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §12 — the stop that keeps a broken record from costing the rest of the suite.
+    (OBS, 'a defective trace fragment stopping the run',
+     "        problems = fragment_problems(partial)\n        if problems:",
+     "        problems = fragment_problems(partial)\n        if False:",
+     ('did not stop the suite',)),
+
     # §6 — the serial claim read back from the builder rather than taken on trust.
     (OBS, 'effective BuildKit parallelism decoded from the builder itself',
      "    seen = OCI_PARALLELISM.search(flags)\n"

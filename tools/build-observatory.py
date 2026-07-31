@@ -1516,8 +1516,82 @@ def new_bundle(root: Path, run_id: str, bundle_root: Path | None = None) -> Path
     return bundle
 
 
+def sample_rule_problems(samples: list[dict]) -> list[str]:
+    """Every per-sample rule, stated ONCE, for both the fragment check and the final validator.
+
+    These began as a raising loop inside the final validator. Copying them into the fragment check gave one
+    fact two statements, and the mutation harness said so immediately: an existing mutant's anchor matched in
+    two places. Two copies of a rule agree until one is edited, and the one a reader would trust is whichever
+    they happened to open."""
+    problems: list[str] = []
+    for i, s in enumerate(samples):
+        absent = [f for f in SAMPLE_FIELDS if f not in s]
+        if absent:
+            problems.append(f'sample {i} ({s.get("command_id")}) is missing field(s) {absent}')
+            continue
+        # A derived BuildKit child has aggregate step work rather than elapsed wall time, so `wall_ns` is
+        # absent by design. What is forbidden is a NEGATIVE duration, which a monotonic clock cannot produce.
+        for field in ('wall_ns', 'aggregate_step_ns'):
+            if s.get(field) is not None and s[field] < 0:
+                problems.append(f'sample {i} ({s["command_id"]}) has a negative {field}')
+        kind = s.get('measurement_kind') or KIND_WALL
+        if kind not in MEASUREMENT_KINDS:
+            problems.append(f'sample {i}: measurement_kind {kind!r} is not a known kind')
+        if s.get('below_resolution') and (s.get('lower_ns') is None or s.get('upper_ns') is None
+                                          or s['lower_ns'] > s['upper_ns']):
+            problems.append(
+                f'sample {i} ({s["command_id"]}) is a below-resolution interval without a usable bound')
+        # A below-resolution read is elapsed time known as a bound, so it carries no point value on purpose.
+        # It must SAY so: without the flag this is a sample that measured nothing and claimed a kind.
+        if s.get('below_resolution') and s.get('wall_ns') is not None:
+            problems.append(
+                f'sample {i} ({s["command_id"]}) is declared below resolution yet carries a point duration')
+        if (s.get('wall_ns') is None and s.get('aggregate_step_ns') is None
+                and not s.get('below_resolution') and kind != KIND_UNTIMED):
+            problems.append(
+                f'sample {i} ({s["command_id"]}) records neither an elapsed duration nor aggregate step '
+                f'work, so it measures nothing')
+        # An untimed artifact must SAY it is one and carry no duration. Zero was the old representation and
+        # it is a measured claim: it asserts the work took no time, which was never true.
+        if kind == KIND_UNTIMED and (s.get('wall_ns') is not None or s.get('aggregate_step_ns') is not None):
+            problems.append(
+                f'sample {i} ({s["command_id"]}) is declared an untimed artifact yet carries a duration')
+        if kind != KIND_UNTIMED and s.get('wall_ns') == 0 and s.get('aggregate_step_ns') is None:
+            problems.append(
+                f'sample {i} ({s["command_id"]}) records an elapsed duration of exactly zero; work that '
+                f'happened takes time, so this is either an untimed artifact or a below-resolution interval')
+        # The authority map must be DERIVABLE from the stage evidence beside it. Two records of one fact
+        # that are merely stored next to each other will disagree eventually, and the one that disagreed
+        # here was the one a reader would have trusted.
+        if s.get('cache_before') and s.get('cache_after') and not s.get('derived_parent_id'):
+            want = observe_cache_after(s['cache_before'],
+                                       (s.get('cache_observation') or {}).get('stages', {}))
+            if s['cache_after'].get('authorities') != want.get('authorities'):
+                problems.append(
+                    f'sample {i} ({s["command_id"]}): the recorded cache authorities '
+                    f'{s["cache_after"].get("authorities")} are not what the retained stage evidence '
+                    f'derives ({want.get("authorities")})')
+        if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
+            problems.append(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
+    return problems
+
+
+def fragment_problems(partial: dict) -> list[str]:
+    """Everything checkable about the samples acquired SO FAR, without executing anything.
+
+    §12 — the canonical suite must never be the first place a structural rule is exercised, and a defect in
+    an earlier trace must not wait for the last recording rule of the run to surface. Repair 2 lost four
+    hours to exactly that twice: once to a metric identity that only misbehaved on a fast stage, once to a
+    run identity nothing produced. Both were visible in the first fragment that contained them.
+
+    It reuses the same per-sample rules and the same identity relations the final validator uses rather than
+    a cheaper local copy, because a fragment check that passes what the final check rejects is worse than no
+    fragment check at all — it would say the expensive part was safe to continue."""
+    return sample_rule_problems(partial.get('measurements', [])) + identity_problems(partial)
+
+
 def checkpointer(bundle: Path, header: dict):
-    """Write the local observation after every completed sample.
+    """Write the local observation after every completed sample, and CHECK it before the next one starts.
 
     The first candidate wrote it only when the suite returned, so a suite that was KILLED left raw logs and
     nothing to inspect. The safety half held — a cancelled run can never record — but the evidence half only
@@ -1527,6 +1601,14 @@ def checkpointer(bundle: Path, header: dict):
                    'derived': {'summaries': summarise(samples), 'status': 'incomplete',
                                'incomplete': list(incomplete)}}
         write_json(bundle / 'observation.json', partial)
+        # §12 — stop IMMEDIATELY. Continuing past a defective fragment spends the rest of the suite proving
+        # nothing, and the bundle is already written, so the evidence for the failure survives the stop.
+        problems = fragment_problems(partial)
+        if problems:
+            raise ObservatoryError(
+                f'trace fragment is invalid after {len(samples)} sample(s), so the rest of the suite would '
+                f'measure against a broken record: {problems[0]}'
+                + (f' (and {len(problems) - 1} more)' if len(problems) > 1 else ''))
 
     # Write it once at creation. A bundle that only becomes inspectable after the FIRST sample completes
     # leaves the longest samples — the expensive ones, the ones most likely to be interrupted — with a
@@ -2180,54 +2262,9 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
     samples = obs['measurements']
     if not samples:
         raise ObservatoryError('the observation retains no samples, so nothing in it can be rechecked')
-    for i, s in enumerate(samples):
-        absent = [f for f in SAMPLE_FIELDS if f not in s]
-        if absent:
-            raise ObservatoryError(f'sample {i} ({s.get("command_id")}) is missing field(s) {absent}')
-        # A derived BuildKit child has aggregate step work rather than elapsed wall time, so `wall_ns` is
-        # absent by design. What is forbidden is a NEGATIVE duration, which a monotonic clock cannot produce.
-        for field in ('wall_ns', 'aggregate_step_ns'):
-            if s.get(field) is not None and s[field] < 0:
-                raise ObservatoryError(f'sample {i} ({s["command_id"]}) has a negative {field}')
-        kind = s.get('measurement_kind') or KIND_WALL
-        if kind not in MEASUREMENT_KINDS:
-            raise ObservatoryError(f'sample {i}: measurement_kind {kind!r} is not a known kind')
-        if s.get('below_resolution') and (s.get('lower_ns') is None or s.get('upper_ns') is None
-                                          or s['lower_ns'] > s['upper_ns']):
-            raise ObservatoryError(
-                f'sample {i} ({s["command_id"]}) is a below-resolution interval without a usable bound')
-        # A below-resolution read is elapsed time known as a bound, so it carries no point value on purpose.
-        # It must SAY so: without the flag this is a sample that measured nothing and claimed a kind.
-        if s.get('below_resolution') and s.get('wall_ns') is not None:
-            raise ObservatoryError(
-                f'sample {i} ({s["command_id"]}) is declared below resolution yet carries a point duration')
-        if (s.get('wall_ns') is None and s.get('aggregate_step_ns') is None
-                and not s.get('below_resolution') and kind != KIND_UNTIMED):
-            raise ObservatoryError(
-                f'sample {i} ({s["command_id"]}) records neither an elapsed duration nor aggregate step '
-                f'work, so it measures nothing')
-        # An untimed artifact must SAY it is one and carry no duration. Zero was the old representation and
-        # it is a measured claim: it asserts the work took no time, which was never true.
-        if kind == KIND_UNTIMED and (s.get('wall_ns') is not None or s.get('aggregate_step_ns') is not None):
-            raise ObservatoryError(
-                f'sample {i} ({s["command_id"]}) is declared an untimed artifact yet carries a duration')
-        if kind != KIND_UNTIMED and s.get('wall_ns') == 0 and s.get('aggregate_step_ns') is None:
-            raise ObservatoryError(
-                f'sample {i} ({s["command_id"]}) records an elapsed duration of exactly zero; work that '
-                f'happened takes time, so this is either an untimed artifact or a below-resolution interval')
-        # The authority map must be DERIVABLE from the stage evidence beside it. Two records of one fact
-        # that are merely stored next to each other will disagree eventually, and the one that disagreed
-        # here was the one a reader would have trusted.
-        if s.get('cache_before') and s.get('cache_after') and not s.get('derived_parent_id'):
-            want = observe_cache_after(s['cache_before'],
-                                       (s.get('cache_observation') or {}).get('stages', {}))
-            if s['cache_after'].get('authorities') != want.get('authorities'):
-                raise ObservatoryError(
-                    f'sample {i} ({s["command_id"]}): the recorded cache authorities '
-                    f'{s["cache_after"].get("authorities")} are not what the retained stage evidence '
-                    f'derives ({want.get("authorities")})')
-        if s['resource_scope'] not in (SCOPE_HOST, SCOPE_BUILDKIT, SCOPE_UNAVAILABLE):
-            raise ObservatoryError(f'sample {i}: resource_scope {s["resource_scope"]!r} is not a known scope')
+    # ONE statement of the per-sample rules, shared with the fragment check that runs between traces.
+    for problem in sample_rule_problems(samples):
+        raise ObservatoryError(problem)
 
     # A median is only meaningful over samples of the SAME program. Metric identity deliberately excludes the
     # source digest — an incremental scenario changes bytes on purpose — so the rule is stated in both
@@ -5137,7 +5174,10 @@ def self_test(root: Path) -> int:
     with _tempfile.TemporaryDirectory() as d:
         b = Path(d) / 'bundle'
         (b / 'raw').mkdir(parents=True)
-        write = checkpointer(b, {'schema': SCHEMA, 'suite_digest': digest})
+        # The header is the one the RUNNER builds. It used to omit `run_id`, which the identity relations
+        # require, so this fixture described a partial observation the tool never writes.
+        head = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'}
+        write = checkpointer(b, head)
         if not (b / 'observation.json').is_file():
             failures.append('a bundle must be inspectable from creation, not only after the first sample')
         write([sample()], ['make.prove/project.cold.prover'])
@@ -5146,6 +5186,25 @@ def self_test(root: Path) -> int:
             failures.append('a checkpoint written mid-run must mark itself incomplete')
         if not mid['measurements']:
             failures.append('a checkpoint must retain the samples taken so far')
+
+    # §12 — a defective fragment STOPS the suite instead of letting the remaining hours measure against a
+    # broken record. Both Repair 2 defects that cost four hours each were visible in the first fragment that
+    # contained them, and neither was looked at until the final recording rule.
+    counts['total'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        b2 = Path(d) / 'bundle'
+        (b2 / 'raw').mkdir(parents=True)
+        stopper = checkpointer(b2, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'})
+        try:
+            stopper([sample(wall_ns=-1)], [])
+            failures.append('a fragment with a negative duration did not stop the suite, so every later '
+                            'trace would have measured against a record already known to be broken')
+        except ObservatoryError as exc:
+            if 'trace fragment is invalid' not in str(exc):
+                failures.append(f'a defective fragment was refused for the wrong reason: {exc}')
+        if not (b2 / 'observation.json').is_file():
+            failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
+                            'failure is the fragment itself')
 
     # ── §7 comparison: validated before it concludes, and one selector model
     def without(member):
