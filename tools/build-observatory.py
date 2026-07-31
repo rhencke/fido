@@ -2858,6 +2858,17 @@ def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None =
     env = {}
     if command['kind'] == 'precommit-full':
         env['FIDO_OBSERVE'] = str(anchor_log)
+        # The hook exports the staged index into a `mktemp -d` directory and then BIND-MOUNTS that path
+        # into the pinned image. That mount is resolved by the HOST daemon, so a temp directory existing
+        # only inside the observatory runner is silently replaced by an empty one and every staged gate
+        # reports its own tool missing. `mktemp` honours TMPDIR, and the bundle is mounted at its own host
+        # path, so pointing it here makes the export visible from both sides.
+        #
+        # Verifying this by running the hook on the HOST is what let it through: there `$ctx` is already a
+        # host path, so the bug cannot appear. The test has to run where the thing runs.
+        hook_tmp = anchor_log.parent / 'hook-tmp'
+        hook_tmp.mkdir(parents=True, exist_ok=True)
+        env['TMPDIR'] = str(hook_tmp)
     if command['kind'] in ('make-target', 'precommit-full'):
         env['BUILDKIT_PROGRESS'] = 'plain'
     return env
