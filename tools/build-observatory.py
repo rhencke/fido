@@ -2928,6 +2928,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     Isolation is by INVALIDATION rather than by namespace. A root forced to rebuild cannot be satisfied by
     anything another command left behind, which is what makes one shared builder honest."""
     import datetime
+    import os as _os
     import subprocess as _subprocess
     commands = {c['id']: c for c in suite['commands']}
     scenarios = {s['id']: s for s in suite['scenarios']}
@@ -3020,6 +3021,26 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                                       f'every sample in this chain would measure an unprimed tree')
                     drop_disposable_copy(root, chain_copy)
                     continue
+        elif command.get('build_targets') and command['side_effect'] == 'none':
+            # A chain with no tree of its own still needs a warm one, and `precommit.full` is the case that
+            # proves it: the hook EXPORTS the staged index into a fresh directory on every run, so its first
+            # build of a subject reads a context BuildKit has never seen. Measured directly, a cold hook run
+            # under a `prover` cut also rebuilt `emit`'s last two steps, and the root-closure check refused
+            # the sample for describing less work than it did.
+            #
+            # One unmeasured run first, so the cache has seen this subject's bytes before anything is timed.
+            # Restricted to commands that change nothing: priming a writer would be a side effect nobody
+            # asked for, performed outside the record.
+            progress(f'fido: observe — priming {cid} (outside every measured interval)')
+            done = _subprocess.run(materialise_execution(command, None, OBSERVATORY_BUILDER),
+                                   cwd=str(root), capture_output=True, text=True,
+                                   env={**_os.environ,
+                                        **instrumentation_env(command, raw_dir / f'{cid}.prime.anchors')})
+            if done.returncode != command['expected_exit']:
+                why = ((done.stderr or done.stdout).strip().splitlines() or ['no output'])[-1][:200]
+                incomplete.append(f'{cid}: the chain prime exited {done.returncode} ({why}), so every '
+                                  f'sample in this chain would measure an unprimed cache')
+                continue
 
         for scenario_id in chain:
             scenario = scenarios[scenario_id]
