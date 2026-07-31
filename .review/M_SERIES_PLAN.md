@@ -132,7 +132,10 @@ Every run — ad hoc or canonical — is written first to a local bundle under `
 Git ignores: raw logs stay local, the tracked observation records only their digests, and an interrupted suite
 stays there marked incomplete rather than becoming a result.
 
-M2 measures. It does not restructure.
+M2 measures. It does not restructure the project. Under Rob's Repair 3 amendment
+`M2-SCOPE-AMENDMENT-TRACE-ACQUISITION` it does restructure its OWN acquisition: the canonical suite takes a
+minimal set of real traces and projects contained commands and stages from stable monotonic checkpoints and
+structured BuildKit events, rather than re-running a relation an exact containing trace already measures.
 
 Run in the pinned environment and record:
 
@@ -170,7 +173,10 @@ no-op build
 
 Under one minute for the common edit loop is a goal, not permission to omit evidence.
 
-M2 produces evidence and recommendations only.
+M2 produces evidence and recommendations about the PROJECT only. It implements no project build optimization:
+every cost reported by `R01`, `R02` and `R03` stays M3's. The one thing it may optimize is the acquisition
+facility it delivers, because a canonical run costing four hours makes the facility itself unusable for
+tracking performance over time — which is the ground D-28 names for blocking on an otherwise wider finding.
 
 ## M3 — Tool and Build Architecture Audit
 
@@ -198,6 +204,13 @@ it into M2 and it is settled: project Python runs only in the pinned image, the 
 Git, Docker and Buildx, and `tools/host-python-gate.py` holds that line permanently. <!-- FIDO-FCB-REF:TOOLS-HOST-PYTHON-GATE-PY -->
 Its runtime and dependency authority are `Dockerfile` and `tools/python-requirements.lock`. <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:TOOLS-PYTHON-REQUIREMENTS-LOCK -->
 Every other host/container architecture question above remains M3's.
+
+**The observatory's own acquisition architecture is no longer deferred here either.** Rob's M2 Repair 3
+amendment moved `R07` — measure once and derive contained cost from the graph — and the canonical-multiplicity
+and suite-self-cost parts of `R09` into M2. What stays M3: the project costs those rows discuss, the variance
+budget per metric, the build-graph remedies in `R01`, `R02` and `R03`, and the reflexivity remedy in `R10`
+apart from the per-trace validation and exact same-subject resume M2 needs to stop paying four hours to find a
+defect in its own producer.
 
 M3 must produce the exact proposed M4 graph and refactor plan. It does not implement the plan.
 
