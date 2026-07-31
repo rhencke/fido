@@ -467,6 +467,36 @@ Run the complete canonical suite and replace `.review/BUILD_OBSERVATION.json` on
 §12 passes.
 
 ```text
+make observe PLAN=1
+```
+
+Print the exact acquisition plan and run NOTHING: the traces that would execute, how many metrics each
+establishes, the metrics established inside them, the cataloged commands with their reasons, and whether the
+run could record. It refuses a plan that acquires one relation twice, a contained metric whose owner the plan
+never runs in that state, or a metric acquired inside a run that names no owner — before any of it costs an
+hour. `PLAN` and `RECORD` are exclusive: a plan measures nothing, so it has nothing to record.
+
+```text
+make observe REPEAT=<n> ONLY=<ids>
+```
+
+Ad hoc repetition, for investigating one named target. It multiplies only what was SELECTED — support work
+pulled in to make the answer mean anything is not what was asked about. `REPEAT` requires a named selection
+and can never accompany `RECORD=1`: canonical acquisition is one real trace per identity, and repeating the
+whole suite is the fixed multiplicity §3B.8 deleted wearing a different name.
+
+```text
+make observe RESUME=<local bundle>
+```
+
+Continue an interrupted suite by reusing that bundle's COMPLETE, individually validated traces, per scenario
+rather than per command, so a chain resumes where it stopped. It refuses — with every reason at once, before
+anything runs — a changed commit, changed measured source, changed source view, a dirty tree against a clean
+one, a changed suite registry, another host class, a changed serial configuration, or a trace this plan does
+not contain. A reused sample is indistinguishable from a measured one and cheaper, which is why the refusal is
+the feature.
+
+```text
 make observe LIST=1
 ```
 

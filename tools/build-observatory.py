@@ -177,6 +177,44 @@ def stages_built_by(graph: dict, targets) -> set:
     return out
 
 
+MAKE_ANCHOR = re.compile(r'\$\(call\s+fido_anchor,(begin|end),([^)]+)\)')
+
+
+def make_anchor_pairs(root: Path) -> list[str]:
+    """Anchor IDs in the live Makefile, proved paired.
+
+    The same relation the hook's anchors have carried since Repair 1, now that Make emits the same grammar.
+    Without it a Make checkpoint could name anything at all: a target could lose its `end`, or gain an anchor
+    for a command the registry has never heard of, and the first sign would be a contained metric that never
+    arrived four hours into a canonical run.
+
+    Nesting is NOT checked here the way it is for the hook. A prerequisite's anchors close before the
+    dependent recipe's body opens, so Make's pairs are siblings in file order rather than a stack, and
+    demanding a stack would reject the correct shape."""
+    text = read_text(root / 'Makefile', 'Makefile')
+    opened: dict[str, int] = {}
+    closed: list[str] = []
+    for n, line in enumerate(text.split('\n'), start=1):
+        m = MAKE_ANCHOR.search(line)
+        if not m:
+            continue
+        event, anchor = m.group(1), m.group(2).strip()
+        if event == 'begin':
+            if anchor in opened:
+                raise ObservatoryError(f'Makefile:{n}: anchor {anchor!r} begins twice')
+            opened[anchor] = n
+        else:
+            if anchor not in opened:
+                raise ObservatoryError(f'Makefile:{n}: anchor {anchor!r} ends without beginning')
+            closed.append(anchor)
+    unmatched = sorted(set(opened) - set(closed))
+    if unmatched:
+        raise ObservatoryError(
+            f'Makefile: anchor(s) {unmatched} begin and never end; the interval they name would be missing '
+            f'from every trace that contains them, and absence reads as coverage')
+    return sorted(closed)
+
+
 def hook_anchor_pairs(root: Path) -> list[str]:
     """Anchor IDs in the live hook, proved paired and properly nested by one stack walk.
 
@@ -567,6 +605,28 @@ def check_coverage(root: Path, suite: dict) -> str:
         problems.append(f'{HOOK_REL} anchors {missing!r} with no registry entry')
     for stale in sorted(hook_declared - anchors):
         problems.append(f'registry has {stale!r} but {HOOK_REL} carries no such anchor pair')
+
+    # §7/§16 — the SAME relation for Make checkpoints, in both directions, now that Make emits the same
+    # anchors. A checkpoint naming nothing the registry knows would produce a contained metric nobody
+    # declared; a public target with neither a checkpoint nor a catalog reason would be measured only as
+    # part of whatever contains it, with no way to say that was intended.
+    make_anchors = set(make_anchor_pairs(root))
+    known = {c['id'] for c in suite['commands']}
+    for missing in sorted(make_anchors - known):
+        # `<command>-body` is the declared form for a compound recipe's own unowned segment: `make.check` is
+        # a trace root measured as a whole process, and its recipe body is a separate interval §7 requires
+        # to be named rather than folded into the parent.
+        if missing.endswith('-body') and missing[:-len('-body')] in known:
+            continue
+        problems.append(f'Makefile anchors {missing!r}, which is neither a registry command nor the '
+                        f'`<command>-body` segment form')
+    for c in suite['commands']:
+        if c['kind'] != 'make-target' or c['measurement'] == 'catalog-only':
+            continue
+        if c['id'] in make_anchors or f'{c["id"]}-body' in make_anchors:
+            continue
+        problems.append(f'{c["id"]} is a public Make target with no checkpoint and no catalog reason, so its '
+                        f'interval cannot be recovered from any trace that contains it')
 
     for c in suite['commands']:
         path, _, token = c['owner'].partition(':')
@@ -3917,11 +3977,37 @@ def self_test(root: Path) -> int:
         p = work / HOOK_REL
         p.write_text(p.read_text(encoding='utf-8') + text, encoding='utf-8')
 
+    def edit_makefile(work: Path, old: str, new: str):
+        """One exact substitution in the working copy's Makefile, refusing an ambiguous target.
+
+        A control that silently matched nothing would prove the rule load-bearing while changing no rule."""
+        p = work / 'Makefile'
+        text = p.read_text(encoding='utf-8')
+        if text.count(old) != 1:
+            raise ObservatoryError(f'the control needs exactly one {old!r} in the Makefile, '
+                                   f'found {text.count(old)}')
+        p.write_text(text.replace(old, new), encoding='utf-8')
+
     scenario('the canonical registry classifies the whole live surface', lambda w: w)
 
     scenario('a public Make target absent from the registry',
              lambda w: drop(w, 'make.diet'),
              expect="has 'make.diet' with no registry entry")
+
+    # §7/§16 — the Make checkpoint relation, both directions and paired.
+    scenario('a Make checkpoint that begins and never ends',
+             lambda w: edit_makefile(w, '\t$(call fido_anchor,end,make.names)\n', ''),
+             expect='begin and never end')
+    scenario('a Make checkpoint naming nothing the registry knows',
+             lambda w: (edit_makefile(w, '$(call fido_anchor,begin,make.names)',
+                                      '$(call fido_anchor,begin,make.nonesuch)'),
+                        edit_makefile(w, '$(call fido_anchor,end,make.names)',
+                                      '$(call fido_anchor,end,make.nonesuch)')),
+             expect='neither a registry command nor the')
+    scenario('a public Make target with no checkpoint and no catalog reason',
+             lambda w: (edit_makefile(w, '\t$(call fido_anchor,begin,make.names)\n', ''),
+                        edit_makefile(w, '\t$(call fido_anchor,end,make.names)\n', '')),
+             expect='no checkpoint and no catalog reason')
     scenario('a stale registry Make target',
              lambda w: edit(w, 'make.diet', 'id', 'make.no-such-target'),
              expect='no longer declares it')

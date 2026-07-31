@@ -132,6 +132,22 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §7/§16 — the Make checkpoint relation, which did not exist until Make started emitting anchors.
+    (OBS, 'Make checkpoints paired',
+     "    unmatched = sorted(set(opened) - set(closed))\n    if unmatched:",
+     "    unmatched = []\n    if unmatched:",
+     ('a Make checkpoint that begins and never ends',)),
+
+    (OBS, 'the Make-anchor-to-registry direction',
+     "        problems.append(f'Makefile anchors {missing!r}, which is neither a registry command nor the '",
+     "        _unused = (f'Makefile anchors {missing!r}, which is neither a registry command nor the '",
+     ('a Make checkpoint naming nothing the registry knows',)),
+
+    (OBS, 'the registry-to-Make-anchor direction',
+     "        if c['id'] in make_anchors or f'{c[\"id\"]}-body' in make_anchors:\n            continue",
+     "        if True:\n            continue",
+     ('a public Make target with no checkpoint and no catalog reason',)),
+
     # §10 — ad hoc variance that cannot leak into a canonical result or onto work nobody selected.
     (OBS, 'REPEAT multiplying only the selected commands',
      "    return base * repeat if (repeat > 1 and role == 'selected') else base",
