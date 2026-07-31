@@ -132,6 +132,27 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    (OBS, 'a contained command naming the trace root that establishes it',
+     "            if not root_id:",
+     "            if False:",
+     ('contained but names no trace root',)),
+
+    (OBS, 'a trace root that is a command which actually runs',
+     "            if root_cmd['measurement'] != 'direct':",
+     "            if False:",
+     ('a trace root has to be something that runs',)),
+
+    # The rule that stops the plan promising a metric no trace can produce.
+    (OBS, 'a contained state its root actually runs in',
+     "            unreachable = sorted(set(c['scenarios']) - set(root_cmd['scenarios']))",
+     "            unreachable = []",
+     ('never runs, so no trace could ever establish it',)),
+
+    (OBS, 'a trace root claimed only by a contained command',
+     "        elif root_id:",
+     "        elif False:",
+     ('only a contained command is established inside',)),
+
     (OBS, 'canonical multiplicity of exactly one',
      "            if isinstance(c['samples'][s], int) and not isinstance(c['samples'][s], bool) \\\n"
      "                    and c['samples'][s] > 1:",

@@ -2,6 +2,7 @@
   "commands": [
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -29,6 +30,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "observatory",
@@ -60,6 +62,7 @@
       "build_targets": [
         "module-graph-log"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "observatory",
@@ -93,6 +96,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.observatory-runner"
       ],
@@ -122,6 +126,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.emit"
       ],
@@ -150,6 +155,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.check"
       ],
@@ -178,6 +184,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.e2e"
       ],
@@ -206,6 +213,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.e2e"
       ],
@@ -234,6 +242,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -262,6 +271,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "analysis.rocq-modules"
       ],
@@ -290,6 +300,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.observatory-runner"
       ],
@@ -319,6 +330,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.profile"
       ],
@@ -347,6 +359,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.profile"
       ],
@@ -375,6 +388,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.prove"
       ],
@@ -403,6 +417,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.pytools"
       ],
@@ -432,6 +447,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.prove"
       ],
@@ -460,6 +476,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.prove"
       ],
@@ -488,6 +505,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "make.regenerate"
       ],
@@ -519,6 +537,7 @@
         "go-e2e",
         "prover"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -552,6 +571,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -586,6 +606,7 @@
         "go-e2e",
         "prover"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -632,6 +653,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -662,6 +684,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -694,6 +717,7 @@
       "build_targets": [
         "go-e2e"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -742,6 +766,7 @@
       "build_targets": [
         "emit"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -788,6 +813,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -818,6 +844,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -848,6 +875,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -878,6 +906,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -908,6 +937,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -938,10 +968,13 @@
     },
     {
       "build_targets": [],
-      "dependencies": [],
+      "contained_in": "make.check",
+      "dependencies": [
+        "make.check"
+      ],
       "execution": [
-        "make",
-        "names"
+        "contained",
+        "make-checkpoint"
       ],
       "expected_exit": 0,
       "groups": [
@@ -952,7 +985,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "contained",
       "outputs": [],
       "owner": "Makefile:names",
       "policy": "scoped-names",
@@ -968,6 +1001,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -998,6 +1032,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "catalog_only_reason": "The pinned tooling image is stable infrastructure, and the cache-cut model requires stable infrastructure to be established OUTSIDE every measured interval; measuring this target as project work would contradict the preflight rule it exists to satisfy. It is cataloged so it can never silently disappear from the surface.",
       "dependencies": [],
       "execution": [
@@ -1025,6 +1060,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "catalog_only_reason": "Benchmarking the observatory through the observatory would measure the measurer and recurse; it is cataloged so it can never silently disappear from the surface.",
       "dependencies": [],
       "execution": [
@@ -1054,6 +1090,7 @@
       "build_targets": [
         "profile-log"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -1091,6 +1128,7 @@
       "build_targets": [
         "prover"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -1137,6 +1175,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "catalog_only_reason": "Redirects its build output to a file and greps it, so no stage state can be observed and no cache claim about it could be verified; it stays classified and selectable, and is excluded from canonical timing rather than measured under a label nothing can check.",
       "dependencies": [],
       "execution": [
@@ -1166,6 +1205,7 @@
       "build_targets": [
         "prover"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -1200,6 +1240,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "catalog_only_reason": "The pinned tooling image is stable infrastructure, and the cache-cut model requires stable infrastructure to be established OUTSIDE every measured interval; measuring this target as project work would contradict the preflight rule it exists to satisfy. It is cataloged so it can never silently disappear from the surface.",
       "dependencies": [],
       "execution": [
@@ -1227,6 +1268,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "catalog_only_reason": "Sends both of its buildx invocations to /dev/null on purpose, because one of them must fail; with no observable stage state its cold claim would rest on absent evidence.",
       "dependencies": [],
       "execution": [
@@ -1256,6 +1298,7 @@
       "build_targets": [
         "sync"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "make",
@@ -1292,6 +1335,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1320,6 +1364,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1348,6 +1393,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1376,6 +1422,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1404,6 +1451,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1435,6 +1483,7 @@
         "go-e2e",
         "prover"
       ],
+      "contained_in": "",
       "dependencies": [],
       "execution": [
         "sh",
@@ -1471,6 +1520,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1499,6 +1549,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1527,6 +1578,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1555,6 +1607,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1583,6 +1636,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1611,6 +1665,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1639,6 +1694,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1667,6 +1723,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1695,6 +1752,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1723,6 +1781,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1751,6 +1810,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1779,6 +1839,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1807,6 +1868,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1835,6 +1897,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1863,6 +1926,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1891,6 +1955,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1919,6 +1984,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1947,6 +2013,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],
@@ -1975,6 +2042,7 @@
     },
     {
       "build_targets": [],
+      "contained_in": "",
       "dependencies": [
         "precommit.full"
       ],

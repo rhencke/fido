@@ -58,10 +58,15 @@ SOURCE_VIEWS = ('working-tree', 'committed-tree', 'staged-index', 'staged-index-
 ISOLATIONS = ('disposable-copy', 'temporary-docker-config', 'temporary-git-repo', 'not-measured')
 SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
                 'writes-tracked-observation', 'changes-repository-config')
-MEASUREMENTS = ('direct', 'derived', 'catalog-only')
+# §3B — how a command's number is ACQUIRED. `direct` runs it; `derived` observes a stage or anchor inside a
+# parent's run and takes its parent's scenarios; `catalog-only` never runs. `contained` is the one this repair
+# adds, and it differs from `derived` in exactly one way that matters: a contained command is a PUBLIC command
+# with a life of its own, so it declares the STATES it must be measured under, and its trace root has to run
+# under every one of them. A derived stage cannot ask for a state; a contained target must.
+MEASUREMENTS = ('direct', 'derived', 'contained', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
                   'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner',
-                  'invalidation_roots', 'build_targets')
+                  'invalidation_roots', 'build_targets', 'contained_in')
 SCENARIO_FIELDS = ('id', 'canonical', 'purpose', 'session_state', 'cache_state', 'prime_steps',
                    'cache_cut')
 # §3A.1 — a cache cut says what stays a hit, what must rebuild, and that nothing was pulled or
@@ -257,6 +262,7 @@ def load_suite(root: Path) -> dict:
 
     # Which commands never run, and which Docker stages a command that DOES run actually builds. Both are
     # read below to catch a derived child that no runnable parent can ever produce.
+    commands_by_id = {c['id']: c for c in suite['commands'] if isinstance(c, dict) and 'id' in c}
     cataloged_ids = {c['id'] for c in suite['commands'] if c.get('measurement') == 'catalog-only'}
     reachable_stages = {st for c in suite['commands'] if c.get('measurement') != 'catalog-only'
                         for st in stages_built_by(stage_graph, c.get('build_targets', []))}
@@ -303,6 +309,35 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: {cid} is {c["measurement"]} but declares build targets; only a command that '
                 f'runs can build anything')
+        # §3B.3 — CONTAINMENT. A contained command names the trace root whose run establishes it, and only a
+        # command that actually RUNS can establish anything. Chaining containment would mean an interval owned
+        # by an owner that is itself only an interval, and the root that must be scheduled would stop being
+        # derivable from the row.
+        root_id = (c.get('contained_in') or '').strip()
+        if c['measurement'] == 'contained':
+            if not root_id:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} is contained but names no trace root; a contained command is '
+                    f'measured INSIDE one exact run, and the row must say which')
+            root_cmd = commands_by_id.get(root_id)
+            if root_cmd is None:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} is contained in {root_id!r}, which is not a command in this registry')
+            if root_cmd['measurement'] != 'direct':
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} is contained in {root_id}, which is {root_cmd["measurement"]} rather '
+                    f'than direct; a trace root has to be something that runs')
+            # The states a contained command is REQUIRED under must be states its root actually runs in,
+            # or the plan promises a metric no trace can produce.
+            unreachable = sorted(set(c['scenarios']) - set(root_cmd['scenarios']))
+            if unreachable:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid} is required under scenario(s) {unreachable} that its trace root '
+                    f'{root_id} never runs, so no trace could ever establish it')
+        elif root_id:
+            raise ObservatoryError(
+                f'{SUITE_REL}: {cid} is {c["measurement"]} but names trace root {root_id!r}; only a contained '
+                f'command is established inside another command\'s run')
         # A root it can be measured cold from must be a stage it actually builds.
         outside = [r for r in c['invalidation_roots']
                    if c.get('build_targets') and r not in stages_built_by(stage_graph, c['build_targets'])]
@@ -1534,7 +1569,12 @@ def write_json(path: Path, obj) -> bytes:
 KIND_WALL = 'wall_elapsed'
 KIND_AGGREGATE = 'aggregate_step_work'
 KIND_UNTIMED = 'untimed_artifact'
-MEASUREMENT_KINDS = (KIND_WALL, KIND_AGGREGATE, KIND_UNTIMED,
+# §3B.4 — an interval measured INSIDE a trace by a checkpoint pair is not the same quantity as running that
+# command yourself: it excludes the process start the standalone run pays and it sits inside a parent's cache
+# and scheduling state. Since acquisition kind is part of metric identity, the two can never land in one
+# median or one delta row, which is what stops a trace-based baseline being compared against a direct one.
+KIND_CONTAINED = 'contained_wall_elapsed'
+MEASUREMENT_KINDS = (KIND_WALL, KIND_CONTAINED, KIND_AGGREGATE, KIND_UNTIMED,
                      'cpu_user', 'cpu_system', 'rss_peak')
 
 
@@ -2269,6 +2309,10 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
         Deriving it is the point: read back from the sample it would agree with itself no matter what the
         sample said, which is how a direct command could have claimed BuildKit stage scope unchallenged.
         """
+        if c['measurement'] == 'contained':
+            # A checkpoint interval inside someone else's process: the CPU and memory belong to the trace
+            # root, so this scope is unavailable, and the duration is explicitly not a direct elapsed one.
+            return SCOPE_UNAVAILABLE, KIND_CONTAINED
         if c['measurement'] == 'derived':
             if c['execution'][1] == 'buildkit-progress':
                 return SCOPE_BUILDKIT, KIND_AGGREGATE
@@ -2298,6 +2342,20 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
     expected: dict[str, dict] = {}
     for c in suite['commands']:
         if c['measurement'] == 'catalog-only':
+            continue
+        if c['measurement'] == 'contained':
+            # One interval per state this command is REQUIRED under, established by its trace root's run in
+            # that state. Its parent is the root, so the identity says which run produced it — and because
+            # the kind is `contained_wall_elapsed`, it can never be mistaken for the direct execution this
+            # repair stopped paying for.
+            for sid in c['scenarios']:
+                if canonical_only and not scenarios[sid].get('canonical'):
+                    continue
+                scope, kind = scope_and_kind(c)
+                spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': scenarios[sid].get('edit'),
+                        'derived_parent_id': c['contained_in'], 'selected_or_support': 'selected',
+                        'resource_scope': scope, 'measurement_kind': kind, 'samples': c['samples'][sid]}
+                expected[metric_identity(spec)] = spec
             continue
         if c['measurement'] == 'derived':
             # A derived child is observed once per PARENT SAMPLE, in whatever scenario the parent ran. Its
@@ -3644,6 +3702,27 @@ def self_test(root: Path) -> int:
     scenario('canonical triplicate sampling',
              lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 3}),
              expect='canonical acquisition is ONE real trace per identity')
+    # §3B.3 — the containment relation. `make.names` is contained in `make.check`, so these edit a real
+    # contained row rather than inventing one the registry has never seen.
+    scenario('a contained command naming no trace root',
+             lambda w: edit(w, 'make.names', 'contained_in', '   '),
+             expect='contained but names no trace root')
+    scenario('a contained command naming a root that does not exist',
+             lambda w: edit(w, 'make.names', 'contained_in', 'make.nonesuch'),
+             expect='not a command in this registry')
+    scenario('a contained command contained in another contained command',
+             lambda w: (edit(w, 'make.claims', 'measurement', 'contained'),
+                        edit(w, 'make.claims', 'contained_in', 'make.check'),
+                        edit(w, 'make.names', 'contained_in', 'make.claims')),
+             expect='a trace root has to be something that runs')
+    scenario('a contained command required under a state its root never runs',
+             lambda w: (edit(w, 'make.names', 'scenarios', ['project.cold.profile']),
+                        edit(w, 'make.names', 'samples', {'project.cold.profile': 1})),
+             expect='never runs, so no trace could ever establish it')
+    scenario('a direct command claiming a trace root',
+             lambda w: edit(w, 'make.diet', 'contained_in', 'make.check'),
+             expect='only a contained command is established inside')
+
     scenario('a derived child declaring its own scenarios',
              lambda w: (edit(w, 'docker.profile', 'scenarios', ['project.cold.prover']),
                         edit(w, 'docker.profile', 'samples', {'project.cold.prover': 1})),
