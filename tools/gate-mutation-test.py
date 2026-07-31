@@ -275,6 +275,20 @@ MUTANTS = (
      "        if False:",
      ('an untimed artifact still carrying a duration',)),
 
+    # The member list is the ONE authority the producer asserts against and the validator reads. Dropping
+    # `run_id` from it restores the exact split that let identity_problems demand a field the producer never
+    # emitted while a hand-built fixture supplied it.
+    (OBS, 'the run identity named in the one member list',
+     "OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',",
+     "OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model',",
+     ('fixture is not the declared shape',)),
+
+    (OBS, 'the prime relation asked only of samples that actually ran',
+     "        if s.get('derived_parent_id'):\n            continue\n        authorities = "
+     "(s.get('cache_before') or {}).get('authorities', {})",
+     "        authorities = (s.get('cache_before') or {}).get('authorities', {})",
+     ('held to a prime relation it cannot satisfy',)),
+
     # Scoped back to the hook alone — the shape the second instance hid behind for three runs.
     (OBS, 'a host-visible temp directory for EVERY command kind, not just the hook',
      "    command_tmp = anchor_log.parent / f'{anchor_log.stem}.tmp'\n"

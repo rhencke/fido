@@ -1976,8 +1976,13 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 
 
 # ──────────────────────────────────────────────────────── observation and record
-OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model', 'commands',
-                       'measurements', 'module_graph', 'history_analysis', 'derived', 'selection')
+# The COMPLETE member set, and the only authority for it. `run_id` was demanded by identity_problems and
+# named nowhere else, so the producer never emitted it, the member check never missed it, and the self-test
+# fixture supplied it by hand — three places disagreeing about one fact, with the fixture making the
+# disagreement invisible. The producer now asserts it emits exactly this set and the fixture must match it.
+OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',
+                       'commands', 'definitions', 'measurements', 'module_graph', 'history_analysis',
+                       'derived', 'selection')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
                  'sample_id', 'parent_sample_id',
@@ -2021,6 +2026,14 @@ def identity_problems(obs: dict) -> list[str]:
     order = {s.get('sample_id'): i for i, s in enumerate(obs['measurements'])}
 
     for s in obs['measurements']:
+        # The prime relation belongs to samples that RAN. A derived child performs no build of its own; its
+        # cache provenance is a copy of its parent's, prime reference included, and asking whether that prime
+        # belongs to the CHILD's command compares a stage id against the command that built it, which can
+        # never match. The parent carries the identical relation and is checked here with the right identity,
+        # so nothing is lost by not asking the child twice. The rule already knew derived samples do not run
+        # — it refuses one AS a prime, two branches below — and then asked this of them anyway.
+        if s.get('derived_parent_id'):
+            continue
         authorities = (s.get('cache_before') or {}).get('authorities', {})
         if not any(authorities.get(a) == 'reused' for a in PROJECT_CACHES):
             continue
@@ -3257,7 +3270,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     derived['host_load'] = observed_load(samples)
 
     observation = {
-        'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'subject': subj, 'environment': env,
+        'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'run_id': run_id,
+        'subject': subj, 'environment': env,
         'cache_model': {s: scenarios[s]['cache_cut'] for s in sel.scenarios if s in scenarios},
         'commands': command_fingerprints(suite), 'definitions': definition_fingerprints(suite),
         'measurements': samples, 'module_graph': graph, 'history_analysis': history, 'derived': derived,
@@ -3271,6 +3285,13 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                       'commands_never_measured': sorted(
                           c['id'] for c in suite['commands'] if c['measurement'] == 'catalog-only')},
     }
+    # The producer answers to the SAME member list the validator reads, here, where a divergence is a bug in
+    # this function rather than a mystery four hours later at the last recording rule.
+    if set(observation) != set(OBSERVATION_MEMBERS):
+        raise ObservatoryError(
+            f'the observation this run assembled does not match the declared member set: '
+            f'missing {sorted(set(OBSERVATION_MEMBERS) - set(observation))}, '
+            f'unexpected {sorted(set(observation) - set(OBSERVATION_MEMBERS))}')
     return observation, incomplete, edits_ok
 
 
@@ -4360,6 +4381,23 @@ def self_test(root: Path) -> int:
     observed('a cached sample naming a prime that does not precede it',
              lambda: record_check(obs=prime_after()), expect='does not precede it')
 
+    # A DERIVED child copies its parent's cache provenance, prime reference included. Asking whether that
+    # prime belongs to the child's own command compares a Docker stage id against the command that built it,
+    # so it can never match and every real observation carrying a warm derived child was unrecordable. The
+    # parent is checked with the right identity; the child must not be asked again.
+    counts['total'] += 1
+    inherited = with_reuse(None)
+    parent = prove_sample(inherited, 'project.warm.noop')
+    child = {**parent, 'command_id': 'docker.prover', 'sample_id': f'{parent["sample_id"]}#child',
+             'derived_parent_id': parent['command_id'], 'parent_sample_id': parent['sample_id'],
+             'wall_ns': None, 'aggregate_step_ns': 1_000_000, 'resource_scope': SCOPE_BUILDKIT,
+             'measurement_kind': KIND_AGGREGATE, 'derived_stage_events': []}
+    inherited['measurements'].append(child)
+    inherited['derived'] = {'summaries': summarise(inherited['measurements'])}
+    kids = [p for p in identity_problems(inherited) if 'docker.prover' in p]
+    if kids:
+        failures.append(f'a derived child was held to a prime relation it cannot satisfy: {kids[0]}')
+
     # A sample reusing only STABLE infrastructure needs no project prime: the preflight established it
     # outside every measured interval, so demanding one would refuse every honest warm sample.
     counts['total'] += 1
@@ -5149,6 +5187,17 @@ def self_test(root: Path) -> int:
         failures.append("an analysis sample must not report the observatory's own memory as the analysis's")
 
     # ── derived stage events: the instrumentation must be switched on, and must produce child samples
+    # THE FIXTURE MUST BE THE SHAPE THE TOOL EMITS. This one hand-supplied `run_id`, which identity_problems
+    # requires and OBSERVATION_MEMBERS did not name, so every control here passed against a shape the real
+    # producer never built: the tool would have failed its own last recording rule at the end of a four-hour
+    # run. A fixture free to carry a field the contract omits tests something that does not exist.
+    counts['total'] += 1
+    fixture_members, declared = set(observation()), set(OBSERVATION_MEMBERS)
+    if fixture_members != declared:
+        failures.append(f'the self-test observation fixture is not the declared shape: it omits '
+                        f'{sorted(declared - fixture_members)} and invents '
+                        f'{sorted(fixture_members - declared)}')
+
     counts['total'] += 1
     hook_cmd = next(c for c in suite['commands'] if c['kind'] == 'precommit-full')
     env = instrumentation_env(hook_cmd, Path('/tmp/x.anchors'))
