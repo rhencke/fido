@@ -3048,9 +3048,26 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
                         'noise_basis': 'single-sample' if single else 'sample-ranges'})
 
     counts = {c: sum(1 for m in metrics if m['classification'] == c) for c in CLASSIFICATIONS}
+    # §14 — the facility's own cost, compared like anything else. Without this the suite is the one thing in
+    # the repository whose regressions are invisible, because `make.observe` is cataloged and can never be a
+    # measured command. A baseline that predates the field says so rather than reporting a delta against
+    # nothing.
+    b_cost, c_cost = base.get('suite_cost') or {}, cand.get('suite_cost') or {}
+    suite_cost: dict = {'comparable': bool(b_cost) and bool(c_cost)}
+    if suite_cost['comparable']:
+        for field in ('suite_wall_ns', 'preflight_wall_ns'):
+            was, now = b_cost.get(field), c_cost.get(field)
+            suite_cost[field] = {'baseline': was, 'candidate': now,
+                                 'delta_ns': (now - was) if was is not None and now is not None else None}
+        for field in ('direct_trace_count', 'contained_metric_count', 'projection_count'):
+            suite_cost[field] = {'baseline': b_cost.get(field), 'candidate': c_cost.get(field)}
+    else:
+        suite_cost['reason'] = ('one side retains no suite cost, so its own elapsed time is not a number this '
+                                'comparison can rest a verdict on')
     return {'schema': SCHEMA, 'same_host_class': same_host,
             'baseline_subject': base['subject'], 'candidate_subject': cand['subject'],
-            'suite_definitions': definitions, 'metrics': metrics, 'counts': counts}
+            'suite_definitions': definitions, 'metrics': metrics, 'counts': counts,
+            'suite_cost': suite_cost}
 
 
 def render_comparison(cmp: dict) -> str:
@@ -3081,6 +3098,21 @@ def render_comparison(cmp: dict) -> str:
         else:
             lines.append(f'{"":<46} {m["reason"]}')
     lines += ['', '  '.join(f'{k}={v}' for k, v in cmp['counts'].items() if v)]
+    # §14 — the suite's own cost, beside the costs it reports. It is deliberately printed apart from the
+    # metric table: it is meta-evidence, not a measured command, and putting it in the same table would
+    # invite it to be read as one.
+    sc = cmp.get('suite_cost') or {}
+    if sc.get('comparable'):
+        wall, pre = sc.get('suite_wall_ns', {}), sc.get('preflight_wall_ns', {})
+        lines += ['', f'SUITE COST   wall {ms(wall.get("baseline"))} -> {ms(wall.get("candidate"))} '
+                      f'({ms(wall.get("delta_ns"))})   preflight {ms(pre.get("baseline"))} -> '
+                      f'{ms(pre.get("candidate"))}',
+                  f'             traces {sc.get("direct_trace_count", {}).get("baseline")} -> '
+                  f'{sc.get("direct_trace_count", {}).get("candidate")}   contained '
+                  f'{sc.get("contained_metric_count", {}).get("baseline")} -> '
+                  f'{sc.get("contained_metric_count", {}).get("candidate")}']
+    elif sc:
+        lines += ['', f'SUITE COST   not compared: {sc.get("reason", "")}']
     return '\n'.join(lines)
 
 
@@ -4998,6 +5030,29 @@ def self_test(root: Path) -> int:
     verdict('overlapping sample ranges refuse a verdict', timed(100, 200, 300), timed(150, 250, 350),
             'overlapping-range')
     verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
+
+    # §14 — the suite's own cost is compared, or the comparison says why it is not. Without this the suite is
+    # the one thing in the repository whose regressions cannot be seen, because `make.observe` is cataloged
+    # forever and can never be a measured command.
+    # ONE sample per side. The default fixture holds three samples of one identity sharing a source digest,
+    # which is fine here but makes this control fail under a mutation of the UNRELATED source-pooling rule —
+    # collateral noise that reports a rule unprotected when it is only untested by this control.
+    counts['total'] += 1
+    one = observation(samples=[sample()])
+    costed = compare(one, observation(samples=[sample()]))
+    if not (costed.get('suite_cost') or {}).get('comparable'):
+        failures.append('two observations that both retain a suite cost were not compared on it')
+    elif 'suite_wall_ns' not in costed['suite_cost']:
+        failures.append('a comparable suite cost reported no wall time delta')
+    older = observation(samples=[sample()])
+    older.pop('suite_cost', None)
+    try:
+        stale = compare(older, observation(samples=[sample()]))
+        if (stale.get('suite_cost') or {}).get('comparable'):
+            failures.append('a baseline retaining no suite cost was compared on it anyway, which is a delta '
+                            'against nothing')
+    except ObservatoryError:
+        pass    # refusing the whole comparison is also honest; inventing the delta is what is forbidden
 
     counts['total'] += 1
     single = cmp_guard(timed(100), timed(900))['metrics'][0]

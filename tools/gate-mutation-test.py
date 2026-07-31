@@ -132,6 +132,12 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §14 — the only regression report the suite can give about itself.
+    (OBS, 'the suite comparing its own cost',
+     "    suite_cost: dict = {'comparable': bool(b_cost) and bool(c_cost)}",
+     "    suite_cost: dict = {'comparable': False}",
+     ('were not compared on it',)),
+
     # §12 — the stop that keeps a broken record from costing the rest of the suite.
     (OBS, 'a defective trace fragment stopping the run',
      "        problems = fragment_problems(partial)\n        if problems:",
