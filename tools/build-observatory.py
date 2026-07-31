@@ -2401,6 +2401,95 @@ def observed_relation(samples: list[dict]) -> dict:
     return out
 
 
+def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -> dict:
+    """What a run WOULD execute, and which required metric each execution establishes.
+
+    Derived from `expected_relation`, never restated beside it. The relation already knows every metric the
+    registry requires and how each is acquired, so a planner that recomputed that from the rows would be a
+    second authority — and the failure mode of a second authority here is a plan that promises coverage the
+    recording rules then refuse, discovered hours later instead of before anything runs."""
+    required = expected_relation(suite, canonical_only=True, graph=graph)
+    commands = {c['id']: c for c in suite['commands']}
+    chosen = set(sel.selected) | set(sel.support)
+    want = set(sel.scenarios)
+
+    traces: dict[tuple, dict] = {}
+    contained: list[dict] = []
+    for key, spec in sorted(required.items()):
+        cid, sid = spec['command_id'], spec['scenario_id']
+        if cid not in chosen or sid not in want:
+            continue
+        cmd = commands[cid]
+        if cmd['measurement'] == 'direct':
+            row = traces.setdefault((cid, sid), {'command_id': cid, 'scenario_id': sid,
+                                                 'edit_id': spec['edit_id'], 'samples': spec['samples'],
+                                                 'establishes': []})
+            row['establishes'].append(key)
+        else:
+            # Established INSIDE someone else's run: a derived stage or anchor by its parent, a contained
+            # target by the trace root it names. Either way this row costs no execution of its own.
+            owner = spec.get('derived_parent_id') or cmd.get('contained_in') or ''
+            contained.append({'command_id': cid, 'scenario_id': sid, 'owner': owner, 'metric': key})
+
+    for row in contained:
+        anchor = (row['owner'], row['scenario_id'])
+        if anchor in traces:
+            traces[anchor]['establishes'].append(row['metric'])
+
+    cataloged = [{'command_id': c['id'], 'reason': c.get('catalog_only_reason', '')}
+                 for c in suite['commands'] if c['measurement'] == 'catalog-only']
+    return {'traces': [traces[k] for k in sorted(traces)],
+            'contained': contained,
+            'cataloged': sorted(cataloged, key=lambda r: r['command_id']),
+            'required_metrics': len(required),
+            'trace_count': len(traces),
+            'direct_executions': sum(t['samples'] for t in traces.values())}
+
+
+def plan_problems(plan: dict) -> list[str]:
+    """The acquisition defects §8 says recording must refuse, checked BEFORE anything runs.
+
+    Each of these was affordable to discover here and expensive to discover at the end of a four-hour run."""
+    problems = []
+    seen: dict[str, str] = {}
+    for trace in plan['traces']:
+        for metric in trace['establishes']:
+            owner = f'{trace["command_id"]}/{trace["scenario_id"]}'
+            if metric in seen and seen[metric] != owner:
+                problems.append(f'{metric} is claimed by two traces, {seen[metric]} and {owner}; one interval '
+                                f'cannot belong to two runs')
+            seen[metric] = owner
+    for row in plan['contained']:
+        if not row['owner']:
+            problems.append(f'{row["command_id"]} in {row["scenario_id"]} is acquired inside another run but '
+                            f'names no owner, so no trace establishes it')
+        elif row['metric'] not in seen:
+            problems.append(f'{row["command_id"]} in {row["scenario_id"]} is owned by {row["owner"]}, which '
+                            f'this plan never runs in that state, so the metric could not be produced')
+    return problems
+
+
+def render_plan(plan: dict, sel: 'Selection', problems: list[str]) -> str:
+    out = [f'fido: acquisition plan — {plan["trace_count"]} trace(s), '
+           f'{plan["direct_executions"]} direct execution(s), '
+           f'{len(plan["contained"])} metric(s) established inside them, '
+           f'{plan["required_metrics"]} required metric(s) total',
+           '', 'TRACES TO RUN']
+    for t in plan['traces']:
+        edit = f'  edit={t["edit_id"]}' if t['edit_id'] else ''
+        out.append(f'  {t["command_id"]:<24} {t["scenario_id"]:<32}{edit}')
+        out.append(f'      establishes {len(t["establishes"])} metric(s)')
+    if plan['cataloged']:
+        out += ['', 'CATALOGED, NOT BENCHMARKED']
+        for c in plan['cataloged']:
+            out.append(f'  {c["command_id"]:<24} {c["reason"][:90]}')
+    out += ['', f'PARTIAL RUN — cannot record' if sel.partial else 'COMPLETE RUN — may record']
+    if problems:
+        out += ['', 'PLAN REFUSED']
+        out += [f'  {p}' for p in problems]
+    return '\n'.join(out)
+
+
 def check_relation_closed(suite: dict, samples: list[dict], canonical_only: bool = True,
                           graph: dict | None = None) -> str:
     """Exact equality in both directions: nothing missing, nothing extra, every count right."""
@@ -3462,6 +3551,7 @@ def render_usage(suite: dict) -> str:
   make observe COMPARE=<ref-or-path>  compare two existing observations without running anything
   make observe RECORD=1               replace the tracked observation from a clean, complete run
   make observe LIST=1                 every stable command ID and how it is measured
+  make observe PLAN=1                 the exact acquisition plan; runs nothing and cannot record
   make observe HELP=1                 this text
 
 ONLY and SCENARIO take comma-separated stable IDs. ONLY also accepts a group:
@@ -3971,6 +4061,46 @@ def self_test(root: Path) -> int:
         expect_that('a combined selection keeps the named scenario and its required prime',
                     set(combo.scenarios) == {'project.warm.noop', 'project.cold.acceptance'},
                     f'scenarios were {combo.scenarios}')
+
+    # ── §8 the acquisition plan. It is computed from the SAME expected relation the recording rules close
+    # over, so a plan that passes here and a run that fails at the end would mean the two had drifted.
+    counts['total'] += 1
+    canonical_sel = select(suite)
+    canonical_plan = acquisition_plan(suite, canonical_sel, graph=docker_stage_graph(root))
+    canonical_problems = plan_problems(canonical_plan)
+    if canonical_problems:
+        failures.append(f'the canonical plan refuses itself: {canonical_problems[0]}')
+    if canonical_plan['trace_count'] < 1 or canonical_plan['required_metrics'] < 1:
+        failures.append(f'the canonical plan measures nothing: {canonical_plan["trace_count"]} trace(s)')
+    # Every trace the plan schedules must establish at least the metric it was scheduled for; a trace that
+    # establishes nothing is an execution nobody asked for.
+    barren = [t for t in canonical_plan['traces'] if not t['establishes']]
+    if barren:
+        failures.append(f'{len(barren)} scheduled trace(s) establish no metric, e.g. {barren[0]}')
+
+    counts['total'] += 1
+    orphan = {'traces': [], 'contained': [{'command_id': 'make.prove', 'scenario_id': 'project.warm.noop',
+                                           'owner': 'make.check', 'metric': 'm'}],
+              'cataloged': [], 'required_metrics': 1, 'trace_count': 0, 'direct_executions': 0}
+    if not any('could not be produced' in p for p in plan_problems(orphan)):
+        failures.append('a contained metric whose owner the plan never runs was accepted')
+
+    counts['total'] += 1
+    ownerless = {'traces': [], 'contained': [{'command_id': 'make.prove', 'scenario_id': 'project.warm.noop',
+                                              'owner': '', 'metric': 'm'}],
+                 'cataloged': [], 'required_metrics': 1, 'trace_count': 0, 'direct_executions': 0}
+    if not any('names no owner' in p for p in plan_problems(ownerless)):
+        failures.append('a metric acquired inside a run that names no owner was accepted')
+
+    counts['total'] += 1
+    twice = {'traces': [{'command_id': 'make.check', 'scenario_id': 'project.warm.noop', 'edit_id': None,
+                         'samples': 1, 'establishes': ['m']},
+                        {'command_id': 'make.e2e', 'scenario_id': 'project.warm.noop', 'edit_id': None,
+                         'samples': 1, 'establishes': ['m']}],
+             'cataloged': [], 'contained': [], 'required_metrics': 1, 'trace_count': 2,
+             'direct_executions': 2}
+    if not any('claimed by two traces' in p for p in plan_problems(twice)):
+        failures.append('one metric claimed by two traces was accepted; an interval cannot belong to two runs')
 
     selection('an unknown ONLY name', expect='unknown ONLY name', only='make.prov')
     selection('an unknown SCENARIO name', expect='unknown SCENARIO name', scenario='warm.noop')
@@ -5698,6 +5828,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--compare', help='observation to compare (M2 measurement)')
     p.add_argument('--record', action='store_true', help='replace the canonical observation (M2 measurement)')
     p.add_argument('--list', action='store_true', help='print every stable command ID')
+    p.add_argument('--plan', action='store_true',
+                   help='print the exact acquisition plan and run nothing (M2 measurement)')
     p.add_argument('--usage', action='store_true', help='print the generated usage text')
     p.add_argument('--observe', action='store_true', help='the measurement entry point')
     p.add_argument('--bundle-root', default=None,
@@ -5741,6 +5873,23 @@ def main(argv: list[str] | None = None) -> int:
                       f'and measured as support: {", ".join(sel.support)}')
             print(f'fido: build-observatory — {len(sel.selected)} selected command(s) over '
                   f'{len(sel.scenarios)} scenario(s){" (PARTIAL run)" if sel.partial else ""}')
+
+            # §8 — PLAN runs nothing. It prints what a run would execute and what each execution establishes,
+            # then stops, so a redundant or unownable acquisition costs a second to find instead of the last
+            # recording rule of a four-hour suite. It cannot record: it has measured nothing to record.
+            if args.plan:
+                # The usage error is refused BEFORE the plan is printed. Printing a plan and then rejecting
+                # the request reads as though the plan were the answer to it.
+                if args.record:
+                    raise ObservatoryError(
+                        'PLAN and RECORD are exclusive: a plan measures nothing, so it has nothing to record')
+                plan = acquisition_plan(suite, sel, graph=docker_stage_graph(root))
+                problems = plan_problems(plan)
+                print(render_plan(plan, sel, problems))
+                if problems:
+                    raise ObservatoryError(
+                        f'{len(problems)} acquisition defect(s) in the plan; nothing was run')
+                return 0
 
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             subj = subject(root)

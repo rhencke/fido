@@ -132,6 +132,21 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    (OBS, 'the plan refusing one interval claimed by two runs',
+     "            if metric in seen and seen[metric] != owner:",
+     "            if False:",
+     ('claimed by two traces',)),
+
+    (OBS, 'the plan refusing a contained metric no scheduled trace owns',
+     "        elif row['metric'] not in seen:",
+     "        elif False:",
+     ('a contained metric whose owner the plan never runs was accepted',)),
+
+    (OBS, 'the plan refusing a metric acquired inside a run with no owner',
+     "        if not row['owner']:",
+     "        if False:",
+     ('names no owner was accepted',)),
+
     (OBS, 'a contained command naming the trace root that establishes it',
      "            if not root_id:",
      "            if False:",
