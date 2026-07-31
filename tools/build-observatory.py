@@ -2045,7 +2045,7 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 # disagreement invisible. The producer now asserts it emits exactly this set and the fixture must match it.
 OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',
                        'commands', 'definitions', 'measurements', 'module_graph', 'history_analysis',
-                       'derived', 'selection')
+                       'derived', 'selection', 'suite_cost')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
                  'sample_id', 'parent_sample_id',
@@ -3226,9 +3226,14 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     # builder and the samples ran against another.  Priming stable infrastructure before the environment is
     # read means the recorded identities are the ones the samples actually used, and that the toolchain
     # download is outside every measured interval rather than inside the first cold sample.
+    # §14 — the suite's own clock starts here, on the SAME monotonic source every measured interval uses, so
+    # its cost and the costs it reports are the same kind of number.
+    suite_t0 = _monotonic_ns()
+    suite_started = datetime.datetime.now(datetime.timezone.utc).isoformat()
     subj = subject(root)
     ensure_observatory_builder()
     preflight = toolchain_prime(root, progress)
+    preflight_ns = _monotonic_ns() - suite_t0
     env = environment(root)
     env['preflight'] = preflight
     # The Dockerfile's own stage graph, so a cold sample can be asked what ELSE rebuilt and not merely
@@ -3491,6 +3496,21 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     # DISCLOSURE and never a threshold: the range is reported, and no rule rejects a sample for it.
     derived['host_load'] = observed_load(samples)
 
+    # Per-trace wall time is the elapsed time of each ROOT execution — the direct samples. A contained metric
+    # is inside one of those, so adding it here would count the same nanoseconds twice.
+    direct = [s for s in samples if not s.get('derived_parent_id')]
+    suite_cost = {
+        'suite_started': suite_started,
+        'suite_completed': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'suite_wall_ns': _monotonic_ns() - suite_t0,
+        'preflight_wall_ns': preflight_ns,
+        'trace_wall_ns': {f'{s["command_id"]}|{s["scenario_id"]}': s.get('wall_ns')
+                          for s in direct if s.get('wall_ns') is not None},
+        'direct_trace_count': len(direct),
+        'contained_metric_count': sum(1 for s in samples if s.get('derived_parent_id')),
+        'projection_count': 0,
+    }
+
     observation = {
         'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'run_id': run_id,
         'subject': subj, 'environment': env,
@@ -3506,6 +3526,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                       'commands_with_no_scenario_here': sorted(unmeasured),
                       'commands_never_measured': sorted(
                           c['id'] for c in suite['commands'] if c['measurement'] == 'catalog-only')},
+        # §14 — THE FACILITY'S OWN COST, retained as meta-evidence rather than measured as a command. It is
+        # not a recursive observation: nothing here is a sample, nothing enters the coverage relation, and
+        # `make.observe` stays cataloged. What it buys is that another multi-hour regression in the suite
+        # cannot hide behind the one command the observatory is forbidden to measure. The last one was found
+        # by a human noticing four hours had passed.
+        'suite_cost': suite_cost,
     }
     # The producer answers to the SAME member list the validator reads, here, where a divergence is a bug in
     # this function rather than a mystery four hours later at the last recording rule.
@@ -4353,6 +4379,14 @@ def self_test(root: Path) -> int:
                                 'stable_through': 'rocq-base'},
                 'measurements': samples,
                 'module_graph': None, 'history_analysis': None,
+                # §14 meta-evidence. The fixture carries it because the DECLARED shape carries it — the
+                # shape control refuses a fixture that invents or omits a member, which is what caught this
+                # the moment `suite_cost` joined the member list.
+                'suite_cost': {'suite_started': '2026-01-01T00:00:00+00:00',
+                               'suite_completed': '2026-01-01T00:01:00+00:00',
+                               'suite_wall_ns': 60_000_000_000, 'preflight_wall_ns': 1_000_000_000,
+                               'trace_wall_ns': {}, 'direct_trace_count': 0,
+                               'contained_metric_count': 0, 'projection_count': 0},
                 # Derived from the samples this fixture actually holds, so it cannot drift into naming a
                 # command the observation never measured.
                 'selection': {'partial': False,
