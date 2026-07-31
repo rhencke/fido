@@ -750,9 +750,15 @@ def _concurrency(inspect: dict) -> dict:
         jobs, source = 0, 'makeflags-unbounded'     # -j with no argument
     else:
         jobs, source = 1, 'default-serial'          # make is serial unless told otherwise
-    bk = os.environ.get('BUILDKIT_MAX_PARALLELISM', '')
+    # §6 — READ BACK, never assumed. This used to report `BUILDKIT_MAX_PARALLELISM` from the environment: a
+    # variable buildkitd does not consult and nothing in this repository sets, so the field was permanently
+    # null while claiming to describe effective parallelism. The builder itself echoes the daemon flags it
+    # was created with, so the observation now records what the builder SAYS rather than what someone hoped.
+    flags = (inspect or {}).get('BuildKit daemon flags', '')
+    seen = OCI_PARALLELISM.search(flags)
     return {'make_jobs': jobs, 'make_jobs_source': source,
-            'buildkit_max_parallelism': int(bk) if bk.isdigit() else None,
+            'buildkit_max_parallelism': int(seen.group(1)) if seen else None,
+            'buildkit_parallelism_source': 'builder-daemon-flags' if seen else 'not-reported',
             'buildkit_workers': inspect.get('Platforms', '').count(',') + 1 if inspect else None,
             'logical_cpus': os.cpu_count()}
 
@@ -3070,17 +3076,58 @@ def materialise_execution(command: dict, scenario: dict | None = None,
     return argv
 
 
+# §6 — the observatory-only serial configuration. A serial projection sums intervals and is only honest if
+# they cannot overlap, so the decomposing layer has to actually be serial. `--oci-max-parallelism=1` is a real
+# buildkitd flag, and `docker buildx inspect` reports it back under "BuildKit daemon flags" — which is why it
+# is used instead of a buildkitd.toml the suite could set and never see again. The normal developer builder is
+# untouched: this flag lives only on the observatory's own builder.
+SERIAL_MAX_PARALLELISM = 1
+SERIAL_MAKE_JOBS = 1
+SERIAL_BUILDKITD_FLAG = f'--oci-max-parallelism={SERIAL_MAX_PARALLELISM}'
+BUILDKITD_FLAGS_LINE = re.compile(r'^BuildKit daemon flags:\s*(.*)$', re.MULTILINE)
+OCI_PARALLELISM = re.compile(r'--oci-max-parallelism[= ](\d+)')
+
+
+def observed_builder_parallelism(name: str) -> int | None:
+    """The parallelism the builder ACTUALLY reports, read back rather than assumed.
+
+    §6 says not to set a variable and trust it. `buildx inspect` echoes the daemon flags the builder was
+    created with, so a builder that predates this setting — or was made by hand without it — is visible as
+    such instead of quietly producing overlapping steps under a serial label."""
+    import subprocess
+    probe = subprocess.run(['docker', 'buildx', 'inspect', name], capture_output=True, text=True)
+    if probe.returncode != 0:
+        return None
+    flags = BUILDKITD_FLAGS_LINE.search(probe.stdout)
+    if not flags:
+        return None
+    found = OCI_PARALLELISM.search(flags.group(1))
+    return int(found.group(1)) if found else None
+
+
 def ensure_observatory_builder() -> None:
     import subprocess
     _assert_observatory_builder(OBSERVATORY_BUILDER)
     probe = subprocess.run(['docker', 'buildx', 'inspect', OBSERVATORY_BUILDER],
                            capture_output=True, text=True)
+    if probe.returncode == 0 and observed_builder_parallelism(OBSERVATORY_BUILDER) != SERIAL_MAX_PARALLELISM:
+        # It exists and is NOT serial. Recreating the observatory's own builder is exactly what the guard
+        # above permits, and leaving it would mean summing intervals that were free to overlap.
+        subprocess.run(['docker', 'buildx', 'rm', OBSERVATORY_BUILDER], capture_output=True, text=True)
+        probe.returncode = 1
     if probe.returncode != 0:
         created = subprocess.run(['docker', 'buildx', 'create', '--name', OBSERVATORY_BUILDER,
-                                  '--driver', 'docker-container', '--bootstrap'],
+                                  '--driver', 'docker-container',
+                                  '--buildkitd-flags', SERIAL_BUILDKITD_FLAG, '--bootstrap'],
                                  capture_output=True, text=True)
         if created.returncode != 0:
             raise ObservatoryError(f'could not create {OBSERVATORY_BUILDER}: {created.stderr.strip()}')
+    seen = observed_builder_parallelism(OBSERVATORY_BUILDER)
+    if seen != SERIAL_MAX_PARALLELISM:
+        raise ObservatoryError(
+            f'{OBSERVATORY_BUILDER} reports BuildKit max parallelism {seen!r}, not {SERIAL_MAX_PARALLELISM}; '
+            f'a serial projection sums intervals that must not be able to overlap, so an unproved serial '
+            f'builder is refused rather than trusted')
 
 
 def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None = None) -> dict:
@@ -4073,6 +4120,30 @@ def self_test(root: Path) -> int:
         expect_that('a combined selection keeps the named scenario and its required prime',
                     set(combo.scenarios) == {'project.warm.noop', 'project.cold.acceptance'},
                     f'scenarios were {combo.scenarios}')
+
+    # §6 — the serial configuration is READ BACK, not declared. A projection sums intervals and is honest
+    # only if they could not overlap, so an unproved serial builder must be refused rather than trusted.
+    counts['total'] += 1
+    if OCI_PARALLELISM.search(SERIAL_BUILDKITD_FLAG) is None:
+        failures.append('the serial buildkitd flag the observatory sets is not one it can read back, so the '
+                        'configuration could never be verified')
+    for flags, want in (('--oci-max-parallelism=1 --allow-insecure-entitlement=network.host', 1),
+                        ('--oci-max-parallelism 4', 4),
+                        ('--allow-insecure-entitlement=network.host', None)):
+        decoded = OCI_PARALLELISM.search(flags)
+        got = int(decoded.group(1)) if decoded else None
+        if got != want:
+            failures.append(f'observed parallelism decoded as {got!r} from {flags!r}, wanted {want!r}')
+
+    counts['total'] += 1
+    serial = _concurrency({'BuildKit daemon flags': '--oci-max-parallelism=1', 'Platforms': 'linux/amd64'})
+    if serial['buildkit_max_parallelism'] != 1 or serial['buildkit_parallelism_source'] != 'builder-daemon-flags':
+        failures.append(f'a serial builder was not recorded as serial from its own flags: {serial}')
+    unproved = _concurrency({'Platforms': 'linux/amd64'})
+    if unproved['buildkit_max_parallelism'] is not None \
+            or unproved['buildkit_parallelism_source'] != 'not-reported':
+        failures.append(f'a builder reporting no parallelism flag was recorded as though it had one: '
+                        f'{unproved}')
 
     # THE CONTAINMENT RELATION ITSELF. The same command is contained where its root runs and direct where it
     # does not — which keeps §11's `ONLY=make.prove SCENARIO=project.cold.prover` a real execution rather than

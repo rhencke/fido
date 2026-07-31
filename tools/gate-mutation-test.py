@@ -132,6 +132,16 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §6 — the serial claim read back from the builder rather than taken on trust.
+    (OBS, 'effective BuildKit parallelism decoded from the builder itself',
+     "    seen = OCI_PARALLELISM.search(flags)\n"
+     "    return {'make_jobs': jobs, 'make_jobs_source': source,\n"
+     "            'buildkit_max_parallelism': int(seen.group(1)) if seen else None,",
+     "    seen = None\n"
+     "    return {'make_jobs': jobs, 'make_jobs_source': source,\n"
+     "            'buildkit_max_parallelism': None,",
+     ('a serial builder was not recorded as serial from its own flags',)),
+
     (OBS, 'the plan refusing one interval claimed by two runs',
      "            if metric in seen and seen[metric] != owner:",
      "            if False:",
