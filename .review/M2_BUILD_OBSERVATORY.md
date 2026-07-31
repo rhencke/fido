@@ -47,6 +47,49 @@ both, so the proposed commit contains the container authority that judges it.
 
 ---
 
+# 1B. Accepted scope amendment — trace acquisition
+
+`M2-SCOPE-AMENDMENT-TRACE-ACQUISITION`
+
+Rob amended M2's scope again in `.review/M2_IMPLEMENTATION_REPAIR_3.md`. This is a deliberate human scope
+amendment, not discovery-driven scope creep.
+
+> The canonical suite acquires a minimal set of real execution traces. Stable monotonic checkpoints and
+> structured BuildKit events project every contained command and stage from those traces. The suite does not
+> rerun a command-scenario-edit relation when one exact containing trace already measures that live execution
+> path under the same source and cache state. Canonical acquisition uses one sample per trace. Optional
+> repeats are ad hoc and never required for recording.
+
+**Why this is inside M2 rather than deferred.** D-28 assigns a wider performance finding to the earliest
+mandatory follow-up and forbids growing a checkpoint merely because the work is useful. It permits blocking
+the active checkpoint when the finding makes that checkpoint's result **unusable**, and that is the ground
+here: M2's deliverable IS a permanent timing facility, and a facility whose canonical run costs four hours —
+so that repairing the observatory itself threatens another four-hour rerun — is not usable for tracking
+performance over time. The measured cost was 4 h 07 m 29 s over 133 direct executions, of which a fixed
+triplicate policy crossed with five edit shapes over four overlapping commands contributed sixty incremental
+executions that largely repeat execution closures the suite already observes.
+
+**What this does NOT authorize.** M2 optimizes its own acquisition facility and nothing else. It implements
+no project build optimization: not the proof, policy, Docker, or acceptance graph; not the mutation harness
+or the naming gate; no merged policy gate, reordered stage, changed cache key, or changed Make dependency.
+The project costs reported by `R01`, `R02` and `R03` remain M3 work, and so does `R10` apart from the early
+trace validation and exact same-subject resume this amendment requires. `R07` and the canonical-multiplicity
+part of `R09` are adopted into M2 under Rob's direction.
+
+`M2-17` therefore no longer claims without qualification that M2 performs no optimization. Its meaning is now:
+project build findings remain assigned to M3 or M4; M2 may optimize only its own acquisition facility under
+this amendment, without implementing a project performance recommendation.
+
+**No FCB amendment is required.** No current FCB authority forbids this contract amendment. D-28 names
+"unusable" among the grounds on which a wider finding may block the active checkpoint; the Governance §5
+amendment rule permits Rob to reopen a settled decision on an implementation fact, which the measured suite
+cost is; and D-29's assignment of auxiliary tool and build-graph architecture to M3 is preserved by the
+prohibitions above, which keep this repair out of that territory.
+
+The realized model is defined in section 3B.
+
+---
+
 # 2. Purpose
 
 Build one permanent, reproducible timing facility for Fido.
@@ -236,6 +279,131 @@ Dependency cycles are a registry defect rejected at load.
 
 The observation retains a containment and repeated-execution relation over Make targets, pre-commit stages,
 Docker stages and analysis steps, by stable ID. M2 reports it; M3 decides whether any of it is safe to merge.
+
+---
+
+# 3B. The trace acquisition model
+
+Section 3A says what a measurement must MEAN. This section says how the canonical suite ACQUIRES it. The
+inventory of commands does not shrink; only the number of live executions does.
+
+## 3B.1 Trace
+
+A **trace** is one real execution of one root command under one exact source view, scenario, cache cut, edit
+identity where present, execution environment and concurrency configuration. It carries a stable `trace_id`
+and retains its root command, source digest, scenario, edit, cache chain, prime, serial configuration, Make
+job count, BuildKit maximum parallelism, start and end, exit result, raw log, checkpoint events and BuildKit
+stage events.
+
+## 3B.2 Checkpoint interval
+
+A **checkpoint interval** is one paired monotonic begin/end event inside one trace, named by a stable ID and
+never by line number or execution order. Checkpoints come from public Make target bodies, meaningful recipe
+segments that are not themselves public targets, the existing pre-commit anchors, structured BuildKit stage
+events, and analysis steps.
+
+## 3B.3 Contained metric
+
+A **contained metric** is a direct elapsed interval observed INSIDE one trace, retaining the exact trace
+sample and checkpoint IDs that establish it. `make.prove` measured inside a `make.check` trace is a contained
+metric; it is not a second execution of `make.prove`.
+
+## 3B.4 Serial projection
+
+A **serial projection** is the sum of exact non-overlapping intervals from ONE serial trace, chosen through
+the registry's containment graph. It models command cost under the declared serial execution and is never
+relabelled as normal parallel wall time. If serial execution cannot be PROVED for a trace, contained
+intervals may still be retained, but summing a projection from possibly-overlapping work is forbidden.
+
+Every metric states exactly one acquisition kind:
+
+```text
+direct_wall_elapsed
+contained_wall_elapsed
+serial_projection
+aggregate_step_work
+untimed_artifact
+```
+
+Two kinds are never compared as one quantity. This extends 3A.5: acquisition kind joins metric identity, so a
+contained interval and a direct execution of the same command cannot land in one median or one delta row.
+
+## 3B.5 Serial acquisition
+
+Canonical decomposition runs under a dedicated observatory-only serial configuration requiring Make jobs = 1
+and BuildKit maximum parallelism = 1. The suite RECORDS and VALIDATES the effective configuration rather than
+setting a variable and assuming it took. The normal developer builder and normal Make behaviour are
+unchanged. Only the layer being decomposed must be serial: Make decomposition needs serial Make, Docker stage
+decomposition needs serial BuildKit, and Dune, Rocq, Go and a policy tool keep their normal internal
+behaviour when the whole invocation is one atomic checkpoint. Internal parallelism is not disabled to support
+a finer claim the suite does not need.
+
+## 3B.6 Inert Make checkpoints
+
+With observation disabled, command order, source bytes, output, exit status, side effects and normal
+parallelism are exactly what they were. With observation enabled, paired monotonic checkpoints surround each
+public Make target recipe, each significant unowned segment of a compound recipe, Python image setup,
+observatory runner setup, the working-tree archive and generated compare, and any other step needed to
+partition a selected trace. A target invoked as a prerequisite emits the same checkpoint as when invoked
+directly.
+
+The top-level process wall time is the parent trace, and in serial mode its children plus explicitly recorded
+overhead partition it without overlap. Gaps are retained under stable overhead IDs rather than hidden. A
+missing or unmatched checkpoint makes that trace incomplete.
+
+## 3B.7 Minimal canonical trace cover
+
+The registry declares trace roots, contained commands, contained stages, checkpoint IDs, scenario and edit
+applicability, projection definitions, and standalone-only commands. The planner computes the minimal exact
+trace set covering every required metric relation, and each relation is direct-root, contained,
+serial-projection, or catalog-only-with-reason. A relation is not both direct and projected in one canonical
+observation unless the registry marks one as an explicit validation spot-check.
+
+Recording FAILS on redundant acquisition: the same relation executed directly twice; a direct execution
+retained when an exact containing trace already owns it; two traces claiming one checkpoint interval; a
+projection with no owning trace; a command retained with no required metric and no catalog reason.
+
+One `make.check` trace per required working-tree state, and one `precommit.full` trace per required staged
+state, yield their contained policy, proof, e2e, materialization, comparison and Docker metrics. A standalone
+measurement survives for a public target only where its live path is materially different from the contained
+interval, and the registry states that difference. One maximal working-tree trace per retained edit shape
+replaces running the same edit through `make.check`, `make.prove`, `make.emit` and `make.e2e` separately.
+Edit shapes are not removed to save time.
+
+## 3B.8 Canonical multiplicity is one
+
+The fixed triplicate policy is deleted. Canonical recording stores one real trace per trace/scenario/edit
+identity. A one-sample comparison reports the point delta and states that no noise conclusion is available;
+it does not invent a confidence judgement. Ad hoc repetition is available through the same target as
+`REPEAT=<n>`, is valid only for partial runs, and can never accompany `RECORD=1`. Git history supplies the
+long-term repeated record.
+
+## 3B.9 Validate before and during expensive work
+
+The canonical suite is never the first exercise of a structural rule. Before any measured trace the suite
+validates the registry and the complete trace/projection coverage relation, runs its deterministic and
+mutation controls, constructs a production-shaped synthetic observation THROUGH THE REAL PRODUCER FUNCTIONS,
+validates and renders it, and prints the plan. After each real trace it writes the fragment, validates every
+direct and contained sample in it together with its checkpoints, parents, primes, cache cuts and source
+identities, proves the fragment closes exactly the registry relations assigned to it, and stops on the first
+failure. The complete final validator stays pure and rerunnable without executing a command.
+
+## 3B.10 Resume
+
+`RESUME=<local bundle>` reuses only complete, individually validated trace fragments, and only when the
+committed subject, suite digest, tool digest, registry digest, environment compatibility, serial builder
+configuration, source view and trace plan all match. A changed commit, suite, producer or trace definition
+makes a fragment incompatible; provenance is never reconstructed to carry a sample across incompatible
+definitions. Resume is ad hoc infrastructure for interrupted runs, and recording still validates the
+assembled observation as one exact candidate result.
+
+## 3B.11 The suite reports its own cost
+
+The observation retains suite start and completion, suite wall time, preflight wall time, per-trace wall
+time, validation wall time, and the direct-trace, contained-metric and projection counts. This is
+meta-evidence, not a recursively measured command, and comparison reports suite-cost change between
+compatible observations — so another multi-hour regression in the facility cannot hide behind `make.observe`
+being catalog-only.
 
 ---
 
