@@ -793,25 +793,13 @@
       "outputs": [],
       "owner": "Makefile:emit",
       "policy": null,
-      "purpose": "Theory and plugin build plus the explicit Fido Materialize of every pristine witness tree, the provenance boundary and the sink tests.",
+      "purpose": "Theory and plugin build plus the explicit Fido Materialize of every pristine witness tree, the provenance boundary and the sink tests. STANDALONE ONLY for cold and warm: this buildx invocation stops at the emit stage and never reaches Go, which is a materially different live path from anything inside make.check, and §9.1 keeps a standalone measurement exactly for that. Its per-EDIT cost is not measured here — the emit stage is an ancestor of go-e2e, so every make.check incremental trace already carries docker.emit's step work for that same edit, and running the edit through this target too is the cross-product §9.4 forbids.",
       "samples": {
-        "project.cached.fresh": 1,
         "project.cold.emit": 1,
-        "project.incremental.doc.architecture": 1,
-        "project.incremental.foundation.float": 1,
-        "project.incremental.leaf.emit": 1,
-        "project.incremental.proof.compilable": 1,
-        "project.incremental.tool.source-diet": 1,
         "project.warm.noop": 1
       },
       "scenarios": [
-        "project.cached.fresh",
         "project.cold.emit",
-        "project.incremental.doc.architecture",
-        "project.incremental.foundation.float",
-        "project.incremental.leaf.emit",
-        "project.incremental.proof.compilable",
-        "project.incremental.tool.source-diet",
         "project.warm.noop"
       ],
       "side_effect": "none",
@@ -1214,9 +1202,8 @@
       "source_view": "working-tree"
     },
     {
-      "build_targets": [
-        "prover"
-      ],
+      "build_targets": [],
+      "catalog_only_reason": "The SAME buildx invocation as make.prove against the SAME Docker target, differing only in --progress=plain, which changes how the client renders output and not what is built. Its cold trace would be a second full theory build for a number make.prove already establishes, and §8 refuses a direct execution retained when the work is already measured. Cataloged rather than deleted so it can never silently leave the command surface.",
       "contained_in": "",
       "dependencies": [],
       "execution": [
@@ -1229,24 +1216,16 @@
         "make"
       ],
       "id": "make.prover-log",
-      "invalidation_roots": [
-        "prover"
-      ],
+      "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "direct",
+      "measurement": "catalog-only",
       "outputs": [],
       "owner": "Makefile:prover-log",
       "policy": null,
       "purpose": "Stream the plain Rocq log for diagnosis.",
-      "samples": {
-        "project.cold.prover": 1,
-        "project.warm.noop": 1
-      },
-      "scenarios": [
-        "project.cold.prover",
-        "project.warm.noop"
-      ],
+      "samples": {},
+      "scenarios": [],
       "side_effect": "none",
       "source_view": "working-tree"
     },
