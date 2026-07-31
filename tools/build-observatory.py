@@ -1590,6 +1590,63 @@ def fragment_problems(partial: dict) -> list[str]:
     return sample_rule_problems(partial.get('measurements', [])) + identity_problems(partial)
 
 
+def resume_incompatibilities(prior: dict, subj: dict, suite: dict, env: dict, plan: dict) -> list[str]:
+    """Every reason this bundle's traces may NOT be carried into the current run, named individually.
+
+    §13 — a changed commit, suite, producer, environment, serial configuration or trace plan makes an earlier
+    fragment incompatible, and provenance is never reconstructed to bridge the gap. Resume exists so an
+    interrupted four-hour suite need not start over; it does not exist to let a sample from one candidate
+    stand in for another. Returning every reason rather than the first is deliberate — a reader deciding
+    whether to rerun wants the whole list, not a scavenger hunt through six invocations.
+
+    `inventory_digest` covers the measured source view, so a changed observatory, a changed registry and a
+    changed theory each move it; they are still reported separately where the record allows it, because
+    "the tree differs" and "the suite you are running is not the suite that produced this" send a reader to
+    different places."""
+    reasons = []
+    before = prior.get('subject') or {}
+    for field, human in (('commit', 'committed subject'), ('inventory_digest', 'measured source'),
+                         ('source_view', 'source view'), ('dirty', 'working-tree cleanliness')):
+        if before.get(field) != subj.get(field):
+            reasons.append(f'{human} differs: {before.get(field)!r} then, {subj.get(field)!r} now')
+    if prior.get('suite_digest') != suite_digest_of(suite):
+        reasons.append('the suite registry differs, so the plan that produced those traces is not this plan')
+    prior_env = prior.get('environment') or {}
+    if prior_env.get('host_class_fingerprint') != env.get('host_class_fingerprint'):
+        reasons.append('the host class differs, so timings from that bundle describe another machine')
+    prior_conc = (prior_env.get('concurrency') or {})
+    now_conc = (env.get('concurrency') or {})
+    for field in ('make_jobs', 'buildkit_max_parallelism'):
+        if prior_conc.get(field) != now_conc.get(field):
+            reasons.append(f'the serial configuration differs: {field} was {prior_conc.get(field)!r}, '
+                           f'now {now_conc.get(field)!r}')
+    prior_traces = {(s['command_id'], s['scenario_id']) for s in prior.get('measurements', [])
+                    if not s.get('derived_parent_id')}
+    planned = {(t['command_id'], t['scenario_id']) for t in plan['traces']}
+    stray = sorted(prior_traces - planned)
+    if stray:
+        reasons.append(f'{len(stray)} retained trace(s) are not in this plan at all, e.g. {stray[0]}; the '
+                       f'trace definition changed and those samples measure something else now')
+    return reasons
+
+
+def resumable_traces(prior: dict) -> tuple[set, list[str]]:
+    """The traces a compatible bundle may contribute, and why the rest may not.
+
+    Only COMPLETE, individually validated fragments qualify. A half-written trace is not a cheap head start:
+    its metrics would enter the coverage relation as though the work had been observed."""
+    problems = fragment_problems(prior)
+    if problems:
+        return set(), [f'the bundle does not validate, so none of its traces may be reused: {problems[0]}']
+    done = {(s['command_id'], s['scenario_id']) for s in prior.get('measurements', [])
+            if not s.get('derived_parent_id') and s.get('status') == 'ok'}
+    unfinished = sorted({(s['command_id'], s['scenario_id']) for s in prior.get('measurements', [])
+                         if not s.get('derived_parent_id') and s.get('status') != 'ok'} - done)
+    notes = [f'{len(unfinished)} trace(s) did not complete and will be rerun, e.g. {unfinished[0]}'] \
+        if unfinished else []
+    return done, notes
+
+
 def checkpointer(bundle: Path, header: dict):
     """Write the local observation after every completed sample, and CHECK it before the next one starts.
 
@@ -5030,6 +5087,61 @@ def self_test(root: Path) -> int:
     verdict('overlapping sample ranges refuse a verdict', timed(100, 200, 300), timed(150, 250, 350),
             'overlapping-range')
     verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
+
+    # §13 — RESUME refuses across every identity it names. Its whole value is the refusal: reusing a sample
+    # from another candidate would be indistinguishable from measuring this one, and cheaper.
+    counts['total'] += 1
+    live_suite = load_suite(root)
+    live_plan = acquisition_plan(live_suite, select(live_suite), graph=docker_stage_graph(root))
+    now_subj = {'commit': 'a' * 40, 'inventory_digest': 'c' * 64, 'source_view': 'committed-tree',
+                'dirty': False}
+    now_env = {'host_class_fingerprint': 'd' * 64,
+               'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}}
+
+    def prior_bundle(**over):
+        # `run_id` is here because the identity relations require it. Without it `resumable_traces` bailed
+        # out on validation before reaching the completeness filter, and the control below passed whether or
+        # not that filter existed — a control made inert by an absent fixture field, which is the fifth time
+        # this checkpoint that exact shape has cost something.
+        base = {'run_id': 'run-fixture', 'subject': dict(now_subj),
+                'suite_digest': suite_digest_of(live_suite),
+                'environment': {'host_class_fingerprint': 'd' * 64,
+                                'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}},
+                'measurements': []}
+        base.update(over)
+        return base
+
+    if resume_incompatibilities(prior_bundle(), now_subj, live_suite, now_env, live_plan):
+        failures.append('an identical bundle was refused for resume, so an interrupted suite could never be '
+                        'continued at all')
+    for label, over, want in (
+            ('a different commit', {'subject': {**now_subj, 'commit': 'b' * 40}}, 'committed subject differs'),
+            ('a different measured source',
+             {'subject': {**now_subj, 'inventory_digest': 'f' * 64}}, 'measured source differs'),
+            ('a dirty tree against a clean one',
+             {'subject': {**now_subj, 'dirty': True}}, 'working-tree cleanliness differs'),
+            ('a different suite', {'suite_digest': 'deadbeef'}, 'the suite registry differs'),
+            ('another machine',
+             {'environment': {'host_class_fingerprint': 'z' * 64,
+                              'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}}},
+             'the host class differs'),
+            ('a non-serial builder',
+             {'environment': {'host_class_fingerprint': 'd' * 64,
+                              'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': None}}},
+             'the serial configuration differs')):
+        reasons = resume_incompatibilities(prior_bundle(**over), now_subj, live_suite, now_env, live_plan)
+        if not any(want in r for r in reasons):
+            failures.append(f'resume accepted {label}: wanted a reason containing {want!r}, got {reasons}')
+
+    counts['total'] += 1
+    half = prior_bundle(measurements=[sample(command_id='make.fmt', scenario_id='project.warm.noop',
+                                             status='unexpected-exit', exit_code=2)])
+    done, notes = resumable_traces(half)
+    if ('make.fmt', 'project.warm.noop') in done:
+        failures.append('a trace that did not complete was offered for reuse, so its metrics would enter the '
+                        'coverage relation as though the work had been observed')
+    if not notes:
+        failures.append('a bundle with an unfinished trace said nothing about it')
 
     # §14 — the suite's own cost is compared, or the comparison says why it is not. Without this the suite is
     # the one thing in the repository whose regressions cannot be seen, because `make.observe` is cataloged

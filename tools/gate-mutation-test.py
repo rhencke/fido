@@ -132,6 +132,28 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    # §13 — resume's whole value is the refusal. Reusing a sample from another candidate would be
+    # indistinguishable from measuring this one, and cheaper.
+    (OBS, 'resume refusing a changed subject',
+     "        if before.get(field) != subj.get(field):",
+     "        if False:",
+     ('resume accepted a different commit',)),
+
+    (OBS, 'resume refusing a changed suite registry',
+     "    if prior.get('suite_digest') != suite_digest_of(suite):",
+     "    if False:",
+     ('resume accepted a different suite',)),
+
+    (OBS, 'resume refusing a changed serial configuration',
+     "        if prior_conc.get(field) != now_conc.get(field):",
+     "        if False:",
+     ('resume accepted a non-serial builder',)),
+
+    (OBS, 'resume reusing only traces that completed',
+     "            if not s.get('derived_parent_id') and s.get('status') == 'ok'}",
+     "            if not s.get('derived_parent_id')}",
+     ('a trace that did not complete was offered for reuse',)),
+
     # §14 — the only regression report the suite can give about itself.
     (OBS, 'the suite comparing its own cost',
      "    suite_cost: dict = {'comparable': bool(b_cost) and bool(c_cost)}",
