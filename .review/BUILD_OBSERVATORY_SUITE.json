@@ -48,7 +48,7 @@
       "policy": null,
       "purpose": "Edit frequency, co-change, edit shapes and weighted rebuild cost over the exact accepted range.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -82,7 +82,7 @@
       "purpose": "Per-module Rocq compile time for the certified module set, measured with the pinned toolchain.",
       "samples": {
         "project.cold.module-graph": 1,
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cold.module-graph",
@@ -610,12 +610,12 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.generated-artifact": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
+        "project.incremental.doc.architecture": 1,
+        "project.incremental.foundation.float": 1,
+        "project.incremental.leaf.emit": 1,
+        "project.incremental.proof.compilable": 1,
+        "project.incremental.tool.source-diet": 1,
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",
@@ -652,7 +652,7 @@
       "policy": "claim-matrix",
       "purpose": "The claim-to-theorem matrix and its adversarial controls.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -682,7 +682,7 @@
       "policy": "source-comment-law",
       "purpose": "The permanent source-comment policy: the comment law, the exception relation and the permanent-wiring check.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -718,12 +718,12 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.go-e2e": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
+        "project.incremental.doc.architecture": 1,
+        "project.incremental.foundation.float": 1,
+        "project.incremental.leaf.emit": 1,
+        "project.incremental.proof.compilable": 1,
+        "project.incremental.tool.source-diet": 1,
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",
@@ -766,12 +766,12 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.emit": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
+        "project.incremental.doc.architecture": 1,
+        "project.incremental.foundation.float": 1,
+        "project.incremental.leaf.emit": 1,
+        "project.incremental.proof.compilable": 1,
+        "project.incremental.tool.source-diet": 1,
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",
@@ -808,7 +808,7 @@
       "policy": "live-fcb-documents",
       "purpose": "The live-FCB document gates: human acts, typed references, the generated closure view and the gate-mutation harness.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -838,7 +838,7 @@
       "policy": null,
       "purpose": "Regenerate every generated FCB view from its canonical source.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -868,7 +868,7 @@
       "policy": null,
       "purpose": "The .editorconfig whitespace and format report; reports rather than rewrites, and is not a gate.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -898,7 +898,7 @@
       "policy": "host-python-boundary",
       "purpose": "The permanent no-host-Python boundary gate and its adversarial controls.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -928,7 +928,7 @@
       "policy": null,
       "purpose": "Point core.hooksPath at the tracked hook directory.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -958,7 +958,7 @@
       "policy": "scoped-names",
       "purpose": "The A005 scoped-name policy gate.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -988,7 +988,7 @@
       "policy": "command-surface",
       "purpose": "The permanent command-surface coverage validator and its controls; reads three files and runs no timing suite.",
       "samples": {
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.warm.noop"
@@ -1078,7 +1078,7 @@
       "purpose": "The existing single-module Rocq profiling path, reused by the module analysis.",
       "samples": {
         "project.cold.profile": 1,
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cold.profile",
@@ -1115,12 +1115,12 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.prover": 1,
-        "project.incremental.doc.architecture": 3,
-        "project.incremental.foundation.float": 3,
-        "project.incremental.leaf.emit": 3,
-        "project.incremental.proof.compilable": 3,
-        "project.incremental.tool.source-diet": 3,
-        "project.warm.noop": 3
+        "project.incremental.doc.architecture": 1,
+        "project.incremental.foundation.float": 1,
+        "project.incremental.leaf.emit": 1,
+        "project.incremental.proof.compilable": 1,
+        "project.incremental.tool.source-diet": 1,
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",
@@ -1189,7 +1189,7 @@
       "purpose": "Stream the plain Rocq log for diagnosis.",
       "samples": {
         "project.cold.prover": 1,
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cold.prover",
@@ -1280,7 +1280,7 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.sync": 1,
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",
@@ -1459,7 +1459,7 @@
       "samples": {
         "project.cached.fresh": 1,
         "project.cold.prover": 1,
-        "project.warm.noop": 3
+        "project.warm.noop": 1
       },
       "scenarios": [
         "project.cached.fresh",

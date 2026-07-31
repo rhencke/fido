@@ -348,6 +348,20 @@ def load_suite(root: Path) -> dict:
         for s in c['scenarios']:
             if s not in c['samples']:
                 raise ObservatoryError(f'{SUITE_REL}: {cid}: scenario {s!r} has no sample count')
+            # §3B.8 — CANONICAL MULTIPLICITY IS ONE. The fixed triplicate cost three warm executions of
+            # every command and, crossed with five edit shapes over four overlapping commands, sixty
+            # incremental executions of work the suite had already observed. It also bought precision where
+            # there was none to buy: `make.check` under a `.v` edit measured 480/481/478s, a 0.6% spread,
+            # while the warm no-op it repeated just as often measured 1.6/1.8/1.6s, a 12% one. Repeats are
+            # ad hoc now, through REPEAT=, and can never accompany RECORD=1.
+            # Only a genuine integer above one is a MULTIPLICITY claim. Zero and a fraction are malformed
+            # counts and belong to the positive-integer rule below, which says so in its own words; catching
+            # them here would answer a different question than the one they ask.
+            if isinstance(c['samples'][s], int) and not isinstance(c['samples'][s], bool) \
+                    and c['samples'][s] > 1:
+                raise ObservatoryError(
+                    f'{SUITE_REL}: {cid}: scenario {s!r} declares {c["samples"][s]} canonical samples; '
+                    f'canonical acquisition is ONE real trace per identity, and repetition is ad hoc')
 
     # §9.2 — commands declare their groups and group membership is DERIVED. Storing both invites two
     # statements of one fact that agree today and diverge silently later.
@@ -3625,6 +3639,11 @@ def self_test(root: Path) -> int:
     scenario('a fractional sample count',
              lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 1.5}),
              expect='must be a positive integer')
+    # The policy this repair deleted, reinstated: three warm executions of every command, and sixty
+    # incremental ones once crossed with five edit shapes over four overlapping commands.
+    scenario('canonical triplicate sampling',
+             lambda w: edit(w, 'make.diet', 'samples', {'project.warm.noop': 3}),
+             expect='canonical acquisition is ONE real trace per identity')
     scenario('a derived child declaring its own scenarios',
              lambda w: (edit(w, 'docker.profile', 'scenarios', ['project.cold.prover']),
                         edit(w, 'docker.profile', 'samples', {'project.cold.prover': 1})),
@@ -4442,10 +4461,20 @@ def self_test(root: Path) -> int:
                  samples=complete_observation()['measurements']
                  + [sample(command_id='make.diet', scenario_id='project.cold.prover')])),
              expect='the registry never declared')
-    observed('a required sample missing from one pair',
-             lambda: record_check(obs=complete_observation(
-                 samples=[s for s in complete_observation()['measurements']
-                          if not (s['command_id'] == 'make.diet' and s['sample_index'] == 2)])),
+    # Under canonical multiplicity of one, a metric cannot be short a repetition — dropping its only sample
+    # removes the metric, which the coverage relation reports as declared-but-unmeasured. The count defect
+    # that remains reachable is the OPPOSITE one, and it is the acquisition defect this repair exists to
+    # refuse: one relation acquired twice.
+    def duplicated_relation():
+        obs = complete_observation()
+        twin = next(s for s in obs['measurements'] if s['command_id'] == 'make.diet')
+        obs['measurements'].append({**twin, 'sample_index': twin['sample_index'] + 1,
+                                    'sample_id': f'{twin["sample_id"]}#twin'})
+        obs['derived'] = {'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('one relation acquired twice',
+             lambda: record_check(obs=duplicated_relation()),
              expect='wrong sample count')
     observed('an incomplete suite with RECORD',
              lambda: record_check(incomplete=['make.prove/project.cold.prover']),

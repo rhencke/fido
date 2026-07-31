@@ -132,6 +132,12 @@ MUTANTS = (
      "        for dep in []:",
      ('a dependency cycle in the registry',)),
 
+    (OBS, 'canonical multiplicity of exactly one',
+     "            if isinstance(c['samples'][s], int) and not isinstance(c['samples'][s], bool) \\\n"
+     "                    and c['samples'][s] > 1:",
+     "            if False:",
+     ('canonical triplicate sampling',)),
+
     (OBS, 'the positive sample count',
      "            if not isinstance(n, int) or isinstance(n, bool) or n < 1:",
      "            if False:",
@@ -588,7 +594,7 @@ MUTANTS = (
     (OBS, 'the required sample count',
      "    wrong = sorted(k for k in set(expected) & set(observed)",
      "    wrong = [] or sorted(k for k in set() & set(observed)",
-     ('a required sample missing from one pair',)),
+     ('one relation acquired twice',)),
 
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
