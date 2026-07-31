@@ -660,8 +660,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "claims"
       ],
       "expected_exit": 0,
       "groups": [
@@ -672,7 +672,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:claims",
       "policy": "claim-matrix",
@@ -693,8 +693,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "diet"
       ],
       "expected_exit": 0,
       "groups": [
@@ -705,7 +705,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:diet",
       "policy": "source-comment-law",
@@ -824,8 +824,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "fcb"
       ],
       "expected_exit": 0,
       "groups": [
@@ -836,7 +836,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:fcb",
       "policy": "live-fcb-documents",
@@ -919,8 +919,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "hostpython"
       ],
       "expected_exit": 0,
       "groups": [
@@ -931,7 +931,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:hostpython",
       "policy": "host-python-boundary",
@@ -983,8 +983,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "names"
       ],
       "expected_exit": 0,
       "groups": [
@@ -995,7 +995,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:names",
       "policy": "scoped-names",
@@ -1016,8 +1016,8 @@
         "make.check"
       ],
       "execution": [
-        "contained",
-        "make-checkpoint"
+        "make",
+        "observatory"
       ],
       "expected_exit": 0,
       "groups": [
@@ -1028,7 +1028,7 @@
       "invalidation_roots": [],
       "isolation": null,
       "kind": "make-target",
-      "measurement": "contained",
+      "measurement": "direct",
       "outputs": [],
       "owner": "Makefile:observatory",
       "policy": "command-surface",

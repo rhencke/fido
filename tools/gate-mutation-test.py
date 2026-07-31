@@ -147,26 +147,27 @@ MUTANTS = (
      "        if False:",
      ('names no owner was accepted',)),
 
-    (OBS, 'a contained command naming the trace root that establishes it',
-     "            if not root_id:",
-     "            if False:",
-     ('contained but names no trace root',)),
-
     (OBS, 'a trace root that is a command which actually runs',
      "            if root_cmd['measurement'] != 'direct':",
      "            if False:",
      ('a trace root has to be something that runs',)),
 
-    # The rule that stops the plan promising a metric no trace can produce.
-    (OBS, 'a contained state its root actually runs in',
-     "            unreachable = sorted(set(c['scenarios']) - set(root_cmd['scenarios']))",
-     "            unreachable = []",
-     ('never runs, so no trace could ever establish it',)),
+    (OBS, 'only a command that runs being contained in another run',
+     "            if c['measurement'] != 'direct':",
+     "            if False:",
+     ('a derived stage claiming to be contained in a run',)),
 
-    (OBS, 'a trace root claimed only by a contained command',
-     "        elif root_id:",
-     "        elif False:",
-     ('only a contained command is established inside',)),
+    (OBS, 'containment refusing to chain',
+     "            if (root_cmd.get('contained_in') or '').strip():",
+     "            if False:",
+     ('containment chained through a second contained command',)),
+
+    # THE RELATION. Making containment unconditional would take a command's number from a trace that never
+    # ran in that state; making it never hold would run it again for a metric the root already establishes.
+    (OBS, 'containment holding exactly where the trace root runs',
+     "    if root is None or sid not in root.get('scenarios', ()):\n        return None",
+     "    if root is None:\n        return None",
+     ('reported contained in a state its trace root never runs',)),
 
     (OBS, 'canonical multiplicity of exactly one',
      "            if isinstance(c['samples'][s], int) and not isinstance(c['samples'][s], bool) \\\n"

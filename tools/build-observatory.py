@@ -63,7 +63,7 @@ SIDE_EFFECTS = ('none', 'writes-disposable-copy', 'writes-local-observation',
 # adds, and it differs from `derived` in exactly one way that matters: a contained command is a PUBLIC command
 # with a life of its own, so it declares the STATES it must be measured under, and its trace root has to run
 # under every one of them. A derived stage cannot ask for a state; a contained target must.
-MEASUREMENTS = ('direct', 'derived', 'contained', 'catalog-only')
+MEASUREMENTS = ('direct', 'derived', 'catalog-only')
 COMMAND_FIELDS = ('id', 'kind', 'groups', 'purpose', 'source_view', 'execution', 'side_effect',
                   'measurement', 'scenarios', 'samples', 'dependencies', 'expected_exit', 'outputs', 'owner',
                   'invalidation_roots', 'build_targets', 'contained_in')
@@ -313,12 +313,20 @@ def load_suite(root: Path) -> dict:
         # command that actually RUNS can establish anything. Chaining containment would mean an interval owned
         # by an owner that is itself only an interval, and the root that must be scheduled would stop being
         # derivable from the row.
+        # §3B.3/§8 — CONTAINMENT IS A RELATION, NOT A CLASSIFICATION. `contained_in` says: when this command
+        # and its root are both required in the SAME state, the root's one run establishes both and this
+        # command is not executed again. It does NOT say the command has stopped being runnable. That
+        # distinction is load-bearing: §11 requires `ONLY=make.prove SCENARIO=project.cold.prover` to keep
+        # working, and a classification that replaced `direct` erased exactly that. So the row keeps its build
+        # targets, its invalidation roots and its own cold state, and the planner decides per scenario.
         root_id = (c.get('contained_in') or '').strip()
-        if c['measurement'] == 'contained':
-            if not root_id:
+        if root_id:
+            if c['measurement'] != 'direct':
                 raise ObservatoryError(
-                    f'{SUITE_REL}: {cid} is contained but names no trace root; a contained command is '
-                    f'measured INSIDE one exact run, and the row must say which')
+                    f'{SUITE_REL}: {cid} is {c["measurement"]} and names trace root {root_id!r}; only a '
+                    f'command that runs can also be contained in another command\'s run')
+            if root_id == cid:
+                raise ObservatoryError(f'{SUITE_REL}: {cid} names itself as its trace root')
             root_cmd = commands_by_id.get(root_id)
             if root_cmd is None:
                 raise ObservatoryError(
@@ -327,17 +335,12 @@ def load_suite(root: Path) -> dict:
                 raise ObservatoryError(
                     f'{SUITE_REL}: {cid} is contained in {root_id}, which is {root_cmd["measurement"]} rather '
                     f'than direct; a trace root has to be something that runs')
-            # The states a contained command is REQUIRED under must be states its root actually runs in,
-            # or the plan promises a metric no trace can produce.
-            unreachable = sorted(set(c['scenarios']) - set(root_cmd['scenarios']))
-            if unreachable:
+            # Chaining would mean an interval owned by an owner that is itself only an interval, and the root
+            # to schedule would stop being derivable from the row.
+            if (root_cmd.get('contained_in') or '').strip():
                 raise ObservatoryError(
-                    f'{SUITE_REL}: {cid} is required under scenario(s) {unreachable} that its trace root '
-                    f'{root_id} never runs, so no trace could ever establish it')
-        elif root_id:
-            raise ObservatoryError(
-                f'{SUITE_REL}: {cid} is {c["measurement"]} but names trace root {root_id!r}; only a contained '
-                f'command is established inside another command\'s run')
+                    f'{SUITE_REL}: {cid} is contained in {root_id}, which is itself contained in '
+                    f'{root_cmd["contained_in"]}; containment does not chain')
         # A root it can be measured cold from must be a stage it actually builds.
         outside = [r for r in c['invalidation_roots']
                    if c.get('build_targets') and r not in stages_built_by(stage_graph, c['build_targets'])]
@@ -2290,6 +2293,23 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             f'matches')
 
 
+def contained_here(cmd: dict, sid: str, commands: dict) -> str | None:
+    """The trace root that establishes this command in THIS state, or None if it must run itself.
+
+    One rule, read by the expected relation, the planner and the runner alike. A command is contained in a
+    state exactly when it names a root AND that root is itself required in the same state: then one run
+    produces both, and scheduling the command again would acquire one relation twice. In any other state the
+    root is not running, so the command has to — which is what keeps an ad hoc `ONLY=make.prove
+    SCENARIO=project.cold.prover` a direct execution rather than an impossible request."""
+    root_id = (cmd.get('contained_in') or '').strip()
+    if not root_id:
+        return None
+    root = commands.get(root_id)
+    if root is None or sid not in root.get('scenarios', ()):
+        return None
+    return root_id
+
+
 def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | None = None) -> dict:
     """The exact set of metrics a complete run must produce, derived from the validated registry.
 
@@ -2309,10 +2329,6 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
         Deriving it is the point: read back from the sample it would agree with itself no matter what the
         sample said, which is how a direct command could have claimed BuildKit stage scope unchallenged.
         """
-        if c['measurement'] == 'contained':
-            # A checkpoint interval inside someone else's process: the CPU and memory belong to the trace
-            # root, so this scope is unavailable, and the duration is explicitly not a direct elapsed one.
-            return SCOPE_UNAVAILABLE, KIND_CONTAINED
         if c['measurement'] == 'derived':
             if c['execution'][1] == 'buildkit-progress':
                 return SCOPE_BUILDKIT, KIND_AGGREGATE
@@ -2343,20 +2359,6 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
     for c in suite['commands']:
         if c['measurement'] == 'catalog-only':
             continue
-        if c['measurement'] == 'contained':
-            # One interval per state this command is REQUIRED under, established by its trace root's run in
-            # that state. Its parent is the root, so the identity says which run produced it — and because
-            # the kind is `contained_wall_elapsed`, it can never be mistaken for the direct execution this
-            # repair stopped paying for.
-            for sid in c['scenarios']:
-                if canonical_only and not scenarios[sid].get('canonical'):
-                    continue
-                scope, kind = scope_and_kind(c)
-                spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': scenarios[sid].get('edit'),
-                        'derived_parent_id': c['contained_in'], 'selected_or_support': 'selected',
-                        'resource_scope': scope, 'measurement_kind': kind, 'samples': c['samples'][sid]}
-                expected[metric_identity(spec)] = spec
-            continue
         if c['measurement'] == 'derived':
             # A derived child is observed once per PARENT SAMPLE, in whatever scenario the parent ran. Its
             # scenarios and counts are therefore its parents', and a child that declared its own list stated
@@ -2368,8 +2370,13 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
                         continue
                     edit = scenarios[sid].get('edit')
                     scope, kind = scope_and_kind(c)
+                    # A stage's parent is the PROCESS whose BuildKit progress carries it. When the command
+                    # that builds it is itself contained in this state, that process is the trace root, not
+                    # the contained command — which never starts a buildx invocation of its own here. Leaving
+                    # the parent unresolved names a sample that state never produced.
+                    owner = contained_here(commands[parent], sid, commands) or parent
                     spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                            'derived_parent_id': parent, 'selected_or_support': 'selected',
+                            'derived_parent_id': owner, 'selected_or_support': 'selected',
                             'resource_scope': scope, 'measurement_kind': kind, 'samples': count}
                     expected[metric_identity(spec)] = spec
             continue
@@ -2378,8 +2385,15 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
                 continue
             edit = scenarios[sid].get('edit')
             scope, kind = scope_and_kind(c)
+            # Contained IN THIS STATE: the root's single run establishes it, so the metric is a checkpoint
+            # interval inside that run rather than an elapsed time of its own. The CPU and memory belong to
+            # the root, and the kind differs — so this can never be pooled with the direct execution of the
+            # same command in a state where the root does not run.
+            owner = contained_here(c, sid, commands)
+            if owner:
+                scope, kind = SCOPE_UNAVAILABLE, KIND_CONTAINED
             spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
-                    'derived_parent_id': None, 'selected_or_support': 'selected',
+                    'derived_parent_id': owner, 'selected_or_support': 'selected',
                     'resource_scope': scope, 'measurement_kind': kind,
                     'samples': c['samples'][sid]}
             expected[metric_identity(spec)] = spec
@@ -2420,15 +2434,15 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
         if cid not in chosen or sid not in want:
             continue
         cmd = commands[cid]
-        if cmd['measurement'] == 'direct':
+        owner = spec.get('derived_parent_id') or ''
+        if cmd['measurement'] == 'direct' and not owner:
             row = traces.setdefault((cid, sid), {'command_id': cid, 'scenario_id': sid,
                                                  'edit_id': spec['edit_id'], 'samples': spec['samples'],
                                                  'establishes': []})
             row['establishes'].append(key)
         else:
             # Established INSIDE someone else's run: a derived stage or anchor by its parent, a contained
-            # target by the trace root it names. Either way this row costs no execution of its own.
-            owner = spec.get('derived_parent_id') or cmd.get('contained_in') or ''
+            # target by the root whose run reaches it in THIS state. Either way it costs no execution here.
             contained.append({'command_id': cid, 'scenario_id': sid, 'owner': owner, 'metric': key})
 
     for row in contained:
@@ -3794,24 +3808,22 @@ def self_test(root: Path) -> int:
              expect='canonical acquisition is ONE real trace per identity')
     # §3B.3 — the containment relation. `make.names` is contained in `make.check`, so these edit a real
     # contained row rather than inventing one the registry has never seen.
-    scenario('a contained command naming no trace root',
-             lambda w: edit(w, 'make.names', 'contained_in', '   '),
-             expect='contained but names no trace root')
-    scenario('a contained command naming a root that does not exist',
+    scenario('a trace root that does not exist',
              lambda w: edit(w, 'make.names', 'contained_in', 'make.nonesuch'),
              expect='not a command in this registry')
-    scenario('a contained command contained in another contained command',
-             lambda w: (edit(w, 'make.claims', 'measurement', 'contained'),
-                        edit(w, 'make.claims', 'contained_in', 'make.check'),
-                        edit(w, 'make.names', 'contained_in', 'make.claims')),
+    scenario('a command naming itself as its trace root',
+             lambda w: edit(w, 'make.names', 'contained_in', 'make.names'),
+             expect='names itself as its trace root')
+    scenario('containment chained through a second contained command',
+             lambda w: edit(w, 'make.names', 'contained_in', 'make.claims'),
+             expect='containment does not chain')
+    scenario('a derived stage claiming to be contained in a run',
+             lambda w: edit(w, 'docker.prover', 'contained_in', 'make.check'),
+             expect='only a command that runs can also be contained')
+    scenario('a trace root that is not a command which runs',
+             lambda w: edit(w, 'make.names', 'contained_in', 'make.observe'),
              expect='a trace root has to be something that runs')
-    scenario('a contained command required under a state its root never runs',
-             lambda w: (edit(w, 'make.names', 'scenarios', ['project.cold.profile']),
-                        edit(w, 'make.names', 'samples', {'project.cold.profile': 1})),
-             expect='never runs, so no trace could ever establish it')
-    scenario('a direct command claiming a trace root',
-             lambda w: edit(w, 'make.fmt', 'contained_in', 'make.check'),
-             expect='only a contained command is established inside')
+
 
     scenario('a derived child declaring its own scenarios',
              lambda w: (edit(w, 'docker.profile', 'scenarios', ['project.cold.prover']),
@@ -4061,6 +4073,20 @@ def self_test(root: Path) -> int:
         expect_that('a combined selection keeps the named scenario and its required prime',
                     set(combo.scenarios) == {'project.warm.noop', 'project.cold.acceptance'},
                     f'scenarios were {combo.scenarios}')
+
+    # THE CONTAINMENT RELATION ITSELF. The same command is contained where its root runs and direct where it
+    # does not — which keeps §11's `ONLY=make.prove SCENARIO=project.cold.prover` a real execution rather than
+    # an impossible request, while the canonical states cost no second run.
+    counts['total'] += 1
+    cmds = {c['id']: c for c in suite['commands']}
+    if contained_here(cmds['make.names'], 'project.warm.noop', cmds) != 'make.check':
+        failures.append('a command was not contained in a state its trace root runs, so the suite would '
+                        'execute it a second time for a metric the root already establishes')
+    if contained_here(cmds['make.names'], 'project.cold.profile', cmds) is not None:
+        failures.append('a command was reported contained in a state its trace root never runs, so the plan '
+                        'would promise a metric no trace produces')
+    if contained_here(cmds['make.check'], 'project.warm.noop', cmds) is not None:
+        failures.append('a command naming no trace root was reported contained')
 
     # ── §8 the acquisition plan. It is computed from the SAME expected relation the recording rules close
     # over, so a plan that passes here and a run that fails at the end would mean the two had drifted.
