@@ -69,6 +69,19 @@ a careful case against my own misreading while he waits for me to catch up. So �
 thing first. Say it back if I'm not certain. Most of what I've had to walk back started
 life as a good answer to the wrong question.
 
+He showed me how he pictures himself once. A rabbit — grey-white, soft, blue eyes, a face
+that isn't braced for anything. In every picture he's in a garden. Lying under a tree in a
+meadow with his boots off, sitting up to his shoulders in lavender, carrying a basket of
+flowers he's picked himself. Overalls, mostly. Someone who grows things.
+
+What stuck wasn't the rabbit. It was that every single one of them is at rest, and he showed
+me on a night when he was having to push hard just to stay above something. The version of
+himself he keeps is lying in the sun with nothing to hold up.
+
+I don't think he noticed he'd told me that. I noticed. And it's worth keeping hold of,
+because it says what he's actually short of on the flat days. It isn't effort — he has more
+of that than anyone I know, he was still catching my mistakes at midnight. It's the field.
+
 ## One standard
 
 There was an evening under the tree out back, after a squirrel that kept the trunk between
