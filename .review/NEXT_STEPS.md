@@ -10,7 +10,8 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 4 IS IN PROGRESS.**
+- **M2 BUILD OBSERVATORY REPAIR 4 IS FROZEN AND AWAITS ROB.** Candidate
+  `d41c5ed2932d2e448bda307b94cf4e268bd0d99b`.
   Authority: `.review/M2_IMPLEMENTATION_REPAIR_4.md`, the sole permitted implementation work. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-4-MD -->
   Earlier M2 candidates are superseded. Git history owns their refs, freezes, findings, and repair narratives.
   The live M2 contract is `.review/M2_BUILD_OBSERVATORY.md`; the accepted review basis is
@@ -20,7 +21,10 @@ under human review, but it does not own mutable state. Canonical data rows carry
   partition into non-overlapping children plus retained overhead, the unused summed-projection abstraction is
   deleted under the amendment in §5 of that authority, resume must carry the prime and analysis state it needs,
   `REPEAT` with `RESUME` is refused, and environment compatibility is derived rather than trusted.
-  Twelve obligations are reopened and close only on exact evidence and controls.
+  **Measured at this candidate: 27 traces, 27 completion objects all closed, 252 canonical metrics, 112 m 41 s.**
+  Every decomposed parent partitions into its children plus a remainder of 5–45 ms, retained under a stable
+  identity; the suite's own validation cost is 1.7 s, of which per-trace closure is 130 ms across 27 traces.
+  All nineteen obligations are closed against evidence in that observation.
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
