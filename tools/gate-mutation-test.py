@@ -569,7 +569,7 @@ MUTANTS = (
      ('overlapping children was accepted',)),
 
     (OBS, 'partition members lie inside the parent',
-     "    if span > parent_ns:",
+     "    if span > parent_ns + slack:",
      "    if False:",
      ('a child interval outside its parent was accepted',
       'children spanning more than the parent elapsed was accepted')),

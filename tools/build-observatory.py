@@ -3019,16 +3019,27 @@ def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> 
                 'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
                             for e in members]}
 
+    # §4 — "within only the declared clock-resolution accounting". The checkpoints are timestamped from
+    # `/proc/uptime` at 10 ms; the parent's elapsed time is read by the runner in nanoseconds. Quantisation
+    # alone therefore lets the span exceed the parent by up to ONE tick, and a real `precommit.full` trace
+    # did: 420,540,000,000 ns of checkpoints inside a parent of 420,536,956,618 ns, an overshoot of 3.04 ms.
+    # The allowance is exactly the instrument's declared resolution and it is RETAINED, so a reader sees what
+    # was permitted instead of a bound quietly widened until the data fit.
+    slack = HOOK_CLOCK['resolution_ns']
     span = (max(e['end_ns'] for e in members) - min(e['start_ns'] for e in members)) if members else 0
-    if span > parent_ns:
+    if span > parent_ns + slack:
         raise ObservatoryError(
-            f'{command_id}: its checkpoints span {span} ns inside a parent that elapsed {parent_ns} ns, so '
-            f'at least one interval lies outside the process that is supposed to contain it')
+            f'{command_id}: its checkpoints span {span} ns inside a parent that elapsed {parent_ns} ns, '
+            f'beyond the {slack} ns resolution of {HOOK_CLOCK["source"]}, so at least one interval lies '
+            f'outside the process that is supposed to contain it')
     # No separate "covered exceeds the parent" rule: members are proved pairwise non-overlapping above, so
     # their durations sum to at most their span, and the span is proved to fit the parent. A third check
     # could never fire, and a rule that cannot speak reads as protection nobody has.
+    # The remainder stays EXACT, quantisation and all: covered plus overhead is the parent by construction,
+    # and a slightly negative remainder is the honest reading of durations rounded to 10 ms against a parent
+    # that was not. The resolution travels with it so the rule that judges it needs no outside knowledge.
     return {'parent_ns': parent_ns, 'covered_ns': covered, 'overhead_ns': parent_ns - covered,
-            'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
+            'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}', 'clock_resolution_ns': slack,
             'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
                         for e in members]}
 
@@ -3148,9 +3159,14 @@ def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
             problems.append(f'{label}: the retained covered time {part.get("covered_ns")} is not the sum of '
                             f'the retained member intervals ({recomputed})')
         if part.get('parent_ns') is not None:
-            if part.get('overhead_ns') is None or part['overhead_ns'] < 0:
-                problems.append(f'{label}: the uncovered remainder is {part.get("overhead_ns")!r}, so the '
-                                f'parent does not partition into its children plus explicit overhead')
+            # A remainder may be slightly negative from quantisation alone — the children are timestamped at
+            # the hook clock's resolution and the parent is not — but only by less than one tick. Beyond
+            # that, time is attributed to children that the parent never spent.
+            tick = part.get('clock_resolution_ns') or 0
+            if part.get('overhead_ns') is None or part['overhead_ns'] < -tick:
+                problems.append(f'{label}: the uncovered remainder is {part.get("overhead_ns")!r}, beyond '
+                                f'the {tick} ns clock resolution, so the parent does not partition into its '
+                                f'children plus explicit overhead')
             elif part['covered_ns'] + part['overhead_ns'] != part['parent_ns']:
                 problems.append(f'{label}: {part["covered_ns"]} covered plus {part["overhead_ns"]} '
                                 f'unattributed is not the parent\'s {part["parent_ns"]} ns')
@@ -6545,10 +6561,13 @@ def self_test(root: Path) -> int:
     for label, args, want in (
             ('overlapping children',
              ('make.check', 1000, anchors(('a', 0, 400), ('b', 300, 700))), 'overlap'),
+            # Overshoot by MORE than one hook tick: a smaller one is quantisation, which §4 accounts for.
             ('a child interval outside its parent',
-             ('make.check', 100, anchors(('a', 0, 400))), 'lies outside'),
+             ('make.check', 100, anchors(('a', 0, 100 + HOOK_CLOCK['resolution_ns'] * 2))), 'lies outside'),
             ('children spanning more than the parent elapsed',
-             ('make.check', 500, anchors(('a', 0, 300), ('b', 300, 600))), 'lies outside')):
+             ('make.check', 500, anchors(('a', 0, 300),
+                                         ('b', 300, 500 + HOOK_CLOCK['resolution_ns'] * 2))),
+             'lies outside')):
         try:
             partition_of(*args)
             failures.append(f'{label} was accepted, so the parent does not partition')
@@ -6576,6 +6595,24 @@ def self_test(root: Path) -> int:
         found = trace_problems({**base_trace, 'partition': part})
         if not any(want in p for p in found):
             failures.append(f'{label} was accepted by the partition rules: {found}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4's "within only the declared clock-resolution accounting", at the boundary. A real `precommit.full`
+    # trace overshot its parent by 3.04 ms because the checkpoints are timestamped at 10 ms and the parent is
+    # not. One tick is allowed and stated; one nanosecond more is a child outside its parent.
+    tick = HOOK_CLOCK['resolution_ns']
+    inside = partition_of('precommit.full', 1000, anchors(('a', 0, 1000 + tick)))
+    if inside['overhead_ns'] != -tick:
+        failures.append(f'a remainder inside one clock tick must be retained exactly, not clamped: {inside}')
+    if trace_problems({**complete_observation()['traces'][0], 'partition': inside}):
+        failures.append(f'a partition overshooting by exactly one tick must be accepted: {inside}')
+    try:
+        partition_of('precommit.full', 1000, anchors(('a', 0, 1000 + tick + 1)))
+        failures.append('a partition overshooting the parent by more than one clock tick was accepted')
+    except ObservatoryError as exc:
+        if 'lies outside' not in str(exc):
+            failures.append(f'an over-tick overshoot was refused for the wrong reason: {exc}')
 
     counts['total'] += 1
     # THE REVIEWER'S OWN NUMBERS, from the retained warm `make.check` trace. They observed the near-equality
