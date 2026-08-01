@@ -3033,6 +3033,22 @@ def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> 
                         for e in members]}
 
 
+def chain_after_resume(command_id: str, chain: list[str], resume_done: set, progress=None) -> list[str]:
+    """§13 — the states still to run after reusing what a resumed bundle already holds.
+
+    ONE rule, both runners. It lived inside the shell chain loop and the analysis runner never consulted it,
+    so a resumed analysis chain carried its completed traces and ran them again — a real smoke resume produced
+    24 samples where 12 were carried. That is duplicate acquisition, which only R05 would have caught, at the
+    end of the suite."""
+    if not resume_done:
+        return list(chain)
+    keep = [s for s in chain if (command_id, s) not in resume_done]
+    if len(keep) != len(chain) and progress:
+        progress(f'fido: observe — {command_id}: {len(chain) - len(keep)} trace(s) reused from the resumed '
+                 f'bundle, {len(keep)} still to run')
+    return keep
+
+
 def primes_from_traces(traces: list[dict], scenarios: dict) -> dict:
     """§6 D1 — the prime relation a set of resumed traces re-establishes.
 
@@ -4145,13 +4161,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
         # §13 — a trace this bundle already completed is not rerun. The filter is per SCENARIO rather than
         # per command, so an interrupted chain resumes at the scenario it stopped in instead of from the top;
-        # only complete, individually validated fragments reach `resume_done` at all.
-        if resume_done:
-            keep = [s for s in chain if (cid, s) not in resume_done]
-            if len(keep) != len(chain):
-                progress(f'fido: observe — {cid}: {len(chain) - len(keep)} trace(s) reused from the resumed '
-                         f'bundle, {len(keep)} still to run')
-            chain = keep
+        # only complete, individually validated fragments reach `resume_done` at all. The rule is shared with
+        # the analysis runner, which is where it was missing.
+        chain = chain_after_resume(cid, chain, resume_done, progress)
         if not chain:
             # Every declared state was elided, so all of them are accounted for — inside a containing trace,
             # or by the resumed bundle that already holds them. Nothing runs here and nothing is missing.
@@ -4338,8 +4350,15 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             continue
         # Chain order, same as the shell runner: a cold sample fills the cache before a warm one reuses it.
         # Iterating the selection's order ran the warm sample first whenever the selection listed it first.
-        for scenario_id in [s for s in scenario_order(suite, sel.scenarios)
-                            if s in command['scenarios']]:
+        #
+        # §13 — and the SAME resume filter as the shell runner. It was applied only there, so a resumed
+        # analysis chain carried its completed traces AND ran them again: a real smoke resume produced 24
+        # samples where 12 were carried, which is duplicate acquisition that only R05 would have caught, at
+        # the end of the suite. Two runners, one rule.
+        analysis_chain = chain_after_resume(
+            cid, [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']],
+            resume_done, progress)
+        for scenario_id in analysis_chain:
             scenario = scenarios[scenario_id]
             role = sample_role(sel, cid, scenario_id)
             provenance, skip = sample_provenance(command, scenario, primes)
@@ -6478,6 +6497,19 @@ def self_test(root: Path) -> int:
         if not want_resumable and not rerun:
             failures.append(f'resuming an analysis trace against {label} must rerun it rather than inherit '
                             f'a null or unrelated artifact')
+
+    counts['total'] += 1
+    # D — BOTH runners honour resume. The filter lived only in the shell chain loop, so a resumed ANALYSIS
+    # chain carried its completed traces and ran them again: a real smoke resume produced 24 samples where 12
+    # were carried. That is duplicate acquisition, and only R05 would have caught it, at the end of the suite.
+    both = {'shell': chain_after_resume('analysis.rocq-modules',
+                                        ['project.cold.module-graph', 'project.warm.noop'],
+                                        {('analysis.rocq-modules', 'project.cold.module-graph')}),
+            'empty': chain_after_resume('x', ['a', 'b'], set())}
+    if both['shell'] != ['project.warm.noop']:
+        failures.append(f'a resumed trace must not run again: {both["shell"]}')
+    if both['empty'] != ['a', 'b']:
+        failures.append(f'with nothing resumed the whole chain runs: {both["empty"]}')
 
     counts['total'] += 1
     # D4 — per-trace cost keyed by the exact trace. Two repetitions of one command and scenario are two
