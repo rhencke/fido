@@ -308,19 +308,18 @@ A **contained metric** is a direct elapsed interval observed INSIDE one trace, r
 sample and checkpoint IDs that establish it. `make.prove` measured inside a `make.check` trace is a contained
 metric; it is not a second execution of `make.prove`.
 
-## 3B.4 Serial projection
+## 3B.4 Acquisition kinds
 
-A **serial projection** is the sum of exact non-overlapping intervals from ONE serial trace, chosen through
-the registry's containment graph. It models command cost under the declared serial execution and is never
-relabelled as normal parallel wall time. If serial execution cannot be PROVED for a trace, contained
-intervals may still be retained, but summing a projection from possibly-overlapping work is forbidden.
+No metric is a SUM of other metrics. Every retained duration is one measured interval, and a cost no exact
+direct or contained interval can provide is not reported at all. A future checkpoint may introduce a summed
+projection only when a current use case needs such a cost, and only with its own validation rules and
+controls; a defined capability with no consumer, no produced value and no controls is speculative residue.
 
 Every metric states exactly one acquisition kind:
 
 ```text
-direct_wall_elapsed
+wall_elapsed
 contained_wall_elapsed
-serial_projection
 aggregate_step_work
 untimed_artifact
 ```
@@ -354,14 +353,12 @@ missing or unmatched checkpoint makes that trace incomplete.
 ## 3B.7 Minimal canonical trace cover
 
 The registry declares trace roots, contained commands, contained stages, checkpoint IDs, scenario and edit
-applicability, projection definitions, and standalone-only commands. The planner computes the minimal exact
-trace set covering every required metric relation, and each relation is direct-root, contained,
-serial-projection, or catalog-only-with-reason. A relation is not both direct and projected in one canonical
-observation unless the registry marks one as an explicit validation spot-check.
+applicability, and standalone-only commands. The planner computes the minimal exact trace set covering every
+required metric relation, and each relation is direct-root, contained, or catalog-only-with-reason.
 
 Recording FAILS on redundant acquisition: the same relation executed directly twice; a direct execution
 retained when an exact containing trace already owns it; two traces claiming one checkpoint interval; a
-projection with no owning trace; a command retained with no required metric and no catalog reason.
+command retained with no required metric and no catalog reason.
 
 One `make.check` trace per required working-tree state, and one `precommit.full` trace per required staged
 state, yield their contained policy, proof, e2e, materialization, comparison and Docker metrics. A standalone
@@ -381,7 +378,7 @@ long-term repeated record.
 ## 3B.9 Validate before and during expensive work
 
 The canonical suite is never the first exercise of a structural rule. Before any measured trace the suite
-validates the registry and the complete trace/projection coverage relation, runs its deterministic and
+validates the registry and the complete trace coverage relation, runs its deterministic and
 mutation controls, constructs a production-shaped synthetic observation THROUGH THE REAL PRODUCER FUNCTIONS,
 validates and renders it, and prints the plan. After each real trace it writes the fragment, validates every
 direct and contained sample in it together with its checkpoints, parents, primes, cache cuts and source
@@ -400,7 +397,7 @@ assembled observation as one exact candidate result.
 ## 3B.11 The suite reports its own cost
 
 The observation retains suite start and completion, suite wall time, preflight wall time, per-trace wall
-time, validation wall time, and the direct-trace, contained-metric and projection counts. This is
+time, validation wall time, and the direct-trace and contained-metric counts. This is
 meta-evidence, not a recursively measured command, and comparison reports suite-cost change between
 compatible observations — so another multi-hour regression in the facility cannot hide behind `make.observe`
 being catalog-only.

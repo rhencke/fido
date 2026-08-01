@@ -17,8 +17,8 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Repair 4 closes M2's own acquisition, validation, resume and comparison contracts: a completed sample is not
   a completed trace, runtime checkpoint evidence must fail closed by itself, every decomposed parent must
-  partition into non-overlapping children plus retained overhead, `serial_projection` is deleted as unused
-  residue under the amendment in §5 of that authority, resume must carry the prime and analysis state it needs,
+  partition into non-overlapping children plus retained overhead, the unused summed-projection abstraction is
+  deleted under the amendment in §5 of that authority, resume must carry the prime and analysis state it needs,
   `REPEAT` with `RESUME` is refused, and environment compatibility is derived rather than trusted.
   Twelve obligations are reopened and close only on exact evidence and controls.
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in

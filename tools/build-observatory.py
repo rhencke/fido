@@ -3225,7 +3225,7 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
             was, now = b_cost.get(field), c_cost.get(field)
             suite_cost[field] = {'baseline': was, 'candidate': now,
                                  'delta_ns': (now - was) if was is not None and now is not None else None}
-        for field in ('direct_trace_count', 'contained_metric_count', 'projection_count'):
+        for field in ('direct_trace_count', 'contained_metric_count'):
             suite_cost[field] = {'baseline': b_cost.get(field), 'candidate': c_cost.get(field)}
     else:
         suite_cost['reason'] = ('one side retains no suite cost, so its own elapsed time is not a number this '
@@ -3803,7 +3803,6 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                           for s in direct if s.get('wall_ns') is not None},
         'direct_trace_count': len(direct),
         'contained_metric_count': sum(1 for s in samples if s.get('derived_parent_id')),
-        'projection_count': 0,
     }
 
     observation = {
@@ -4718,7 +4717,7 @@ def self_test(root: Path) -> int:
                                'suite_completed': '2026-01-01T00:01:00+00:00',
                                'suite_wall_ns': 60_000_000_000, 'preflight_wall_ns': 1_000_000_000,
                                'trace_wall_ns': {}, 'direct_trace_count': 0,
-                               'contained_metric_count': 0, 'projection_count': 0},
+                               'contained_metric_count': 0},
                 # Derived from the samples this fixture actually holds, so it cannot drift into naming a
                 # command the observation never measured.
                 'selection': {'partial': False,
