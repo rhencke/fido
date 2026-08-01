@@ -3506,6 +3506,17 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         if runner_for(command) != 'shell':
             continue
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
+        # §8 — a relation an exact containing trace already measures is NOT executed here. The plan says so,
+        # the expected relation says so, and the runner has to say the same or the two disagree: PLAN
+        # scheduled ONE `make.prove` trace while the runner ran six, re-running precisely the work the trace
+        # cover exists to remove and heading for a duplicate-acquisition refusal at the end of the suite. The
+        # rule is `contained_here`, the same one the relation, the planner and the child derivation read.
+        contained_away = [s for s in chain if contained_here(command, s, commands, sel.partial)]
+        if contained_away:
+            chain = [s for s in chain if s not in contained_away]
+            progress(f'fido: observe — {cid}: {len(contained_away)} state(s) measured inside '
+                     f'{command["contained_in"]}, not run again here')
+
         # §13 — a trace this bundle already completed is not rerun. The filter is per SCENARIO rather than
         # per command, so an interrupted chain resumes at the scenario it stopped in instead of from the top;
         # only complete, individually validated fragments reach `resume_done` at all.
@@ -5244,6 +5255,32 @@ def self_test(root: Path) -> int:
     verdict('overlapping sample ranges refuse a verdict', timed(100, 200, 300), timed(150, 250, 350),
             'overlapping-range')
     verdict('a single sample reports a delta without a noise claim', timed(100), timed(900), 'regressed')
+
+    # §8 — THE PLAN AND THE RUNNER MUST AGREE. They diverged in a live canonical run: PLAN scheduled one
+    # `make.prove` trace and the runner ran six, because the runner walked every scenario a command declares
+    # without asking whether a containing trace already measures it. The plan was right; the runner was a
+    # second authority. This states the relation both must satisfy — for every command and every canonical
+    # state, a trace is scheduled exactly when the state is NOT contained.
+    counts['total'] += 1
+    scenarios_by_id = {s["id"]: s for s in suite["scenarios"]}
+    canon_sel = select(suite)
+    canon_plan = acquisition_plan(suite, canon_sel, graph=docker_stage_graph(root))
+    planned_pairs = {(t['command_id'], t['scenario_id']) for t in canon_plan['traces']}
+    cmds_by_id = {c['id']: c for c in suite['commands']}
+    would_run = set()
+    for c in suite['commands']:
+        if c['measurement'] != 'direct':
+            continue
+        for sid in c['scenarios']:
+            if not scenarios_by_id.get(sid, {}).get('canonical'):
+                continue
+            if contained_here(c, sid, cmds_by_id, canon_sel.partial) is None:
+                would_run.add((c['id'], sid))
+    if would_run != planned_pairs:
+        only_run = sorted(would_run - planned_pairs)[:3]
+        only_plan = sorted(planned_pairs - would_run)[:3]
+        failures.append(f'the runner and the plan disagree about what executes: runner-only {only_run}, '
+                        f'plan-only {only_plan}; one of them is a second authority')
 
     # §10 — REPEAT multiplies only what was SELECTED. Repeating support work spends minutes nobody asked for
     # on a number nobody requested, and repeating the whole suite is the fixed multiplicity this repair
