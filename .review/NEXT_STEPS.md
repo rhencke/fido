@@ -10,19 +10,25 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 3 IS IN PROGRESS.**
+- **M2 BUILD OBSERVATORY REPAIR 3 IS FROZEN AND AWAITS ROB.** Candidate
+  `483791f73b52c134ded3414a8a744deb1151f86b`.
   Authority: `.review/M2_IMPLEMENTATION_REPAIR_3.md`, which carries Rob's accepted scope amendment <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-3-MD -->
-  `M2-SCOPE-AMENDMENT-TRACE-ACQUISITION`. Three candidates are now blocked and are history:
+  `M2-SCOPE-AMENDMENT-TRACE-ACQUISITION`. Three candidates are blocked and are history:
   `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43`, `e534b0ae5cc47da510e46583e47f74566589d538` and
   `641ac9034b280ddfd0930a12635e60322a2d4686`.
   The third was blocked because the facility it delivers is unusable, not because a measurement was false:
-  the canonical suite cost 4 h 07 m, and a fixed triplicate policy crossed with five edit shapes over four
-  overlapping commands repeated execution closures the suite had already observed. M2 now optimizes its OWN
-  acquisition — a minimal set of real traces, with contained commands and stages projected from stable
-  monotonic checkpoints and structured BuildKit events. It implements no project build optimization.
-  `.review/BUILD_OBSERVATION.json` still holds the Repair 2 observation. It remains valid historical
-  evidence under its own schema and is incompatible with trace acquisition, so it is not this candidate's
-  evidence and the freeze replaces it.
+  the canonical suite cost 4 h 07 m 29 s over 133 direct executions, because a fixed triplicate policy
+  crossed with five edit shapes over four overlapping commands repeated execution closures the suite had
+  already observed. M2 now optimizes its OWN acquisition — a minimal cover of real traces, with contained
+  commands and stages projected from stable monotonic checkpoints and structured BuildKit events. It
+  implements no project build optimization.
+  **Measured at this candidate: 27 direct executions and 1 h 37 m 17 s, establishing the same 252 canonical
+  metrics** — 79.7% fewer executions and 60.7% less wall time, with 225 metrics derived inside the traces
+  that were already paying for them. `.review/BUILD_OBSERVATION.json` now holds that observation; the Repair
+  2 observation remains valid historical evidence under its own schema, is incompatible with trace
+  acquisition, and is superseded as this candidate's evidence.
+  All nineteen obligations are closed against evidence in that observation. `R07` and `R09` are delivered and
+  closed; `R01`–`R06`, `R08`, `R10`–`R12` remain assigned to M3 and visible under D-28.
 - **The superseded Repair 1 state, for reference.** The candidate was
   `e534b0ae5cc47da510e46583e47f74566589d538`.
   Its contract, still the live M2 contract, is `.review/M2_BUILD_OBSERVATORY.md`.
