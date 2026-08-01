@@ -1364,12 +1364,12 @@ def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
                 # duration lies somewhere in [0, one tick) — and that is what gets retained, so a summary
                 # can say "below resolution" instead of inventing a percentage against nothing.
                 events.append({'id': anchor, 'wall_ns': None, 'source': 'hook-anchor',
-                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns,
+                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns, 'depth': len(stack),
                                'lower_ns': 0, 'upper_ns': HOOK_CLOCK['resolution_ns'],
                                'below_resolution': True})
             else:
                 events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
-                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns})
+                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns, 'depth': len(stack)})
     if stack:
         raise ObservatoryError(
             f'checkpoint(s) {sorted(a for a, _ in stack)} began and never ended; the stages they name are '
@@ -2763,7 +2763,7 @@ def observed_relation(samples: list[dict]) -> dict:
 # object that recomputed it would be a second authority against the thing it exists to check.
 TRACE_MEMBERS = ('trace_id', 'command_id', 'scenario_id', 'edit_id', 'sample_index', 'root_sample_id',
                  'expected_metrics', 'observed_metrics', 'child_sample_ids', 'prime_sample_id',
-                 'analysis_artifacts', 'state')
+                 'analysis_artifacts', 'partition', 'state')
 
 TRACE_COMPLETE = 'complete'
 
@@ -2791,8 +2791,60 @@ def trace_id_of(command_id: str, scenario_id: str, edit_id: str | None, index: i
     return '|'.join((command_id, scenario_id, edit_id or '-', str(index)))
 
 
+OVERHEAD_SUFFIX = '.unattributed'
+
+
+def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> dict:
+    """§4 — the parent's elapsed time as top-level children plus ONE retained remainder.
+
+    Which intervals partition the parent is DERIVED, not declared twice. A hook trace writes a root anchor
+    whose id is the command itself and nests its stages inside it, so the partition is the stages at depth 1.
+    A Make trace writes flat siblings and no enclosing anchor, so the partition is everything at depth 0.
+    Taking the top level blindly would have made `precommit.full` its own partition and reported the whole
+    trace as one child covering everything.
+
+    TWO CLOCKS. The anchors are written by `/bin/sh` from `/proc/uptime`; the parent's elapsed time is read
+    by the runner. Both are monotonic and both measure the same seconds, but their epochs are unrelated, so
+    an absolute `start >= parent_start` comparison would be comparing coordinates in different frames. What
+    IS comparable is duration: the anchors' own span cannot exceed the parent's elapsed time, and the covered
+    sum cannot either. That is the honest form of "inside the parent" across two clocks, and it still refuses
+    a child that ran longer than the process containing it.
+
+    BuildKit aggregate step work is deliberately absent: parallel steps overlap, so it is not elapsed time
+    and summing it into a wall partition would be one quantity wearing another's name."""
+    walls = [e for e in events if e.get('source') == 'hook-anchor' and e.get('depth') is not None]
+    base = 1 if any(e['id'] == command_id and e['depth'] == 0 for e in walls) else 0
+    members = sorted((e for e in walls if e['depth'] == base), key=lambda e: e['start_ns'])
+
+    for earlier, later in zip(members, members[1:]):
+        if later['start_ns'] < earlier['end_ns']:
+            raise ObservatoryError(
+                f'{command_id}: checkpoints {earlier["id"]!r} and {later["id"]!r} overlap, so the parent '
+                f'does not partition into them and the same nanosecond is attributed twice')
+
+    covered = sum(e['end_ns'] - e['start_ns'] for e in members)
+    if parent_ns is None:
+        return {'parent_ns': None, 'covered_ns': covered, 'overhead_ns': None,
+                'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
+                'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
+                            for e in members]}
+
+    span = (max(e['end_ns'] for e in members) - min(e['start_ns'] for e in members)) if members else 0
+    if span > parent_ns:
+        raise ObservatoryError(
+            f'{command_id}: its checkpoints span {span} ns inside a parent that elapsed {parent_ns} ns, so '
+            f'at least one interval lies outside the process that is supposed to contain it')
+    # No separate "covered exceeds the parent" rule: members are proved pairwise non-overlapping above, so
+    # their durations sum to at most their span, and the span is proved to fit the parent. A third check
+    # could never fire, and a rule that cannot speak reads as protection nobody has.
+    return {'parent_ns': parent_ns, 'covered_ns': covered, 'overhead_ns': parent_ns - covered,
+            'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
+            'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
+                        for e in members]}
+
+
 def trace_object(root: dict, children: list[dict], expected: list[str],
-                 prime_sample_id: str | None, artifacts: dict) -> dict:
+                 prime_sample_id: str | None, artifacts: dict, partition: dict | None = None) -> dict:
     """One completed root execution and everything derived inside it."""
     return {
         'trace_id': trace_id_of(root['command_id'], root['scenario_id'],
@@ -2805,6 +2857,11 @@ def trace_object(root: dict, children: list[dict], expected: list[str],
         'child_sample_ids': [s.get('sample_id') for s in children],
         'prime_sample_id': prime_sample_id,
         'analysis_artifacts': dict(artifacts),
+        # §4 — validation evidence, and one place. The reviewer's near-equality on the warm `make.check`
+        # trace (362,263,112,436 ns parent against 362,220,000,000 ns of anchors) was useful and unproved;
+        # the 43,112,436 ns difference was retained nowhere, so nothing could tell an honest remainder from
+        # a lost child.
+        'partition': dict(partition) if partition is not None else None,
         'state': TRACE_COMPLETE,
     }
 
@@ -2833,6 +2890,29 @@ def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
                         f'{len(obs) - 1} child metric(s); one of the two is not the truth')
     if len(set(obj['child_sample_ids'])) != len(obj['child_sample_ids']):
         problems.append(f'{label}: a child sample identity is retained twice')
+
+    # §4 — the partition CLOSES: covered children plus the retained remainder equal the parent exactly.
+    # Exactly, not approximately: both sides come from the same integers, so a tolerance here would be a
+    # place for a lost child to hide.
+    part = obj.get('partition')
+    if part:
+        ids = [m['id'] for m in part.get('members') or []]
+        if len(set(ids)) != len(ids):
+            problems.append(f'{label}: a checkpoint appears twice in the partition, so a nested interval is '
+                            f'counted at two levels')
+        recomputed = sum(m['end_ns'] - m['start_ns'] for m in part.get('members') or [])
+        if recomputed != part.get('covered_ns'):
+            problems.append(f'{label}: the retained covered time {part.get("covered_ns")} is not the sum of '
+                            f'the retained member intervals ({recomputed})')
+        if part.get('parent_ns') is not None:
+            if part.get('overhead_ns') is None or part['overhead_ns'] < 0:
+                problems.append(f'{label}: the uncovered remainder is {part.get("overhead_ns")!r}, so the '
+                                f'parent does not partition into its children plus explicit overhead')
+            elif part['covered_ns'] + part['overhead_ns'] != part['parent_ns']:
+                problems.append(f'{label}: {part["covered_ns"]} covered plus {part["overhead_ns"]} '
+                                f'unattributed is not the parent\'s {part["parent_ns"]} ns')
+            if not part.get('overhead_id'):
+                problems.append(f'{label}: the uncovered remainder is retained under no stable identity')
 
     if expectations is not None:
         key = (obj['command_id'], obj['scenario_id'])
@@ -3756,7 +3836,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
             checkpoint(samples, incomplete, traces)
 
     def close_trace(root_sample: dict, children: list[dict], prime_sample_id: str | None,
-                    artifacts: dict) -> None:
+                    artifacts: dict, events: list[dict] | None = None) -> None:
         """§2 — the trace states what it owed and what it produced, and the two must agree HERE.
 
         Not at recording. A lost checkpoint, a lost Docker stage or a lost contained command that surfaces at
@@ -3765,7 +3845,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         checks."""
         obj = trace_object(root_sample, children,
                            expectations.get((root_sample['command_id'], root_sample['scenario_id']), []),
-                           prime_sample_id, artifacts)
+                           prime_sample_id, artifacts,
+                           partition_of(root_sample['command_id'], root_sample.get('wall_ns'),
+                                        events or []))
         bad = trace_problems(obj, expectations)
         if bad:
             raise ObservatoryError(
@@ -3967,7 +4049,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
                         primes[(cid, 'prime')] = {'id': s['sample_id'], 'root': root_stage}
                     # Every child and artifact is emitted; only now can the trace say it closed.
-                    close_trace(s, kids, provenance.get('prime_sample_id'), {})
+                    close_trace(s, kids, provenance.get('prime_sample_id'), {}, s['derived_stage_events'])
                 except ObservatoryError as exc:
                     incomplete.append(label)
                     if edit:
@@ -4040,7 +4122,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         artifacts['history_analysis'] = artifact_digest(history)
                     elif graph is not None:
                         artifacts['module_graph'] = artifact_digest(graph)
-                    close_trace(s, kids, provenance.get('prime_sample_id'), artifacts)
+                    close_trace(s, kids, provenance.get('prime_sample_id'), artifacts, events)
                 except ObservatoryError as exc:
                     incomplete.append(f'{cid}/{scenario_id}')
                     progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
@@ -5938,6 +6020,72 @@ def self_test(root: Path) -> int:
         if not (b2 / 'observation.json').is_file():
             failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
                             'failure is the fragment itself')
+
+    # ── §4 the parent partitions into non-overlapping children plus ONE retained remainder.
+    def anchors(*spans, depth=0):
+        return [{'id': i, 'start_ns': a, 'end_ns': b, 'source': 'hook-anchor', 'depth': depth,
+                 'wall_ns': b - a, 'clock': HOOK_CLOCK} for i, a, b in spans]
+
+    counts['total'] += 1
+    # MAKE grammar: flat siblings, no enclosing anchor, so every depth-0 interval partitions the parent.
+    flat = partition_of('make.check', 1000, anchors(('make.names', 0, 300), ('make.prove', 300, 700)))
+    if (flat['covered_ns'], flat['overhead_ns'], flat['overhead_id']) != (700, 300, 'make.check.unattributed'):
+        failures.append(f'a flat Make partition must cover its children and retain the rest: {flat}')
+
+    counts['total'] += 1
+    # HOOK grammar: the root anchor IS the command, so the partition is its children — not the root itself.
+    # Taking the top level blindly made `precommit.full` its own single child covering everything.
+    nested = partition_of('precommit.full', 1000,
+                          anchors(('precommit.full', 0, 900))
+                          + anchors(('precommit.builder', 10, 200), ('precommit.naming', 200, 800), depth=1))
+    if [m['id'] for m in nested['members']] != ['precommit.builder', 'precommit.naming']:
+        failures.append(f'a nested hook partition must be the stages, not the root anchor: {nested}')
+    if (nested['covered_ns'], nested['overhead_ns']) != (790, 210):
+        failures.append(f'a nested hook partition must retain the uncovered remainder: {nested}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    for label, args, want in (
+            ('overlapping children',
+             ('make.check', 1000, anchors(('a', 0, 400), ('b', 300, 700))), 'overlap'),
+            ('a child interval outside its parent',
+             ('make.check', 100, anchors(('a', 0, 400))), 'lies outside'),
+            ('children spanning more than the parent elapsed',
+             ('make.check', 500, anchors(('a', 0, 300), ('b', 300, 600))), 'lies outside')):
+        try:
+            partition_of(*args)
+            failures.append(f'{label} was accepted, so the parent does not partition')
+        except ObservatoryError as exc:
+            if want not in str(exc):
+                failures.append(f'{label} was refused for the wrong reason: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    base_trace = complete_observation()['traces'][0]
+    for label, part, want in (
+            ('a remainder that does not close the parent',
+             {'parent_ns': 1000, 'covered_ns': 700, 'overhead_ns': 100,
+              'overhead_id': 'x.unattributed', 'members': [{'id': 'a', 'start_ns': 0, 'end_ns': 700}]},
+             'is not the parent'),
+            ('a nested interval counted at two levels',
+             {'parent_ns': 1000, 'covered_ns': 600, 'overhead_ns': 400, 'overhead_id': 'x.unattributed',
+              'members': [{'id': 'a', 'start_ns': 0, 'end_ns': 300},
+                          {'id': 'a', 'start_ns': 300, 'end_ns': 600}]},
+             'appears twice in the partition'),
+            ('a remainder retained under no identity',
+             {'parent_ns': 1000, 'covered_ns': 700, 'overhead_ns': 300, 'overhead_id': '',
+              'members': [{'id': 'a', 'start_ns': 0, 'end_ns': 700}]},
+             'retained under no stable identity')):
+        found = trace_problems({**base_trace, 'partition': part})
+        if not any(want in p for p in found):
+            failures.append(f'{label} was accepted by the partition rules: {found}')
+
+    counts['total'] += 1
+    # THE REVIEWER'S OWN NUMBERS, from the retained warm `make.check` trace. They observed the near-equality
+    # and said plainly that no rule proved it and the difference was retained nowhere. It is retained now.
+    real = partition_of('make.check', 362_263_112_436, anchors(('make.check-body', 0, 362_220_000_000)))
+    if real['overhead_ns'] != 43_112_436:
+        failures.append(f'the reviewer\'s retained warm make.check remainder must be exact: {real}')
 
     # §2 — THE REVIEWER'S OWN REPRODUCTION, on the fragment path where they ran it. They took the cumulative
     # prefix through a real completed `make.check/project.warm.noop`, removed `make.prove`, `docker.prover`

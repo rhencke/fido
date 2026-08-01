@@ -491,6 +491,37 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'partition members do not overlap',
+     "        if later['start_ns'] < earlier['end_ns']:",
+     "        if False:",
+     ('overlapping children was accepted',)),
+
+    (OBS, 'partition members lie inside the parent',
+     "    if span > parent_ns:",
+     "    if False:",
+     ('a child interval outside its parent was accepted',
+      'children spanning more than the parent elapsed was accepted')),
+
+    (OBS, 'the partition is the level below a root anchor that names the command',
+     "    base = 1 if any(e['id'] == command_id and e['depth'] == 0 for e in walls) else 0",
+     "    base = 0",
+     ('a nested hook partition must be the stages, not the root anchor',)),
+
+    (OBS, 'covered plus overhead equals the parent',
+     "            elif part['covered_ns'] + part['overhead_ns'] != part['parent_ns']:",
+     "            elif False:",
+     ('a remainder that does not close the parent was accepted',)),
+
+    (OBS, 'a checkpoint is counted at one level only',
+     "        if len(set(ids)) != len(ids):",
+     "        if False:",
+     ('a nested interval counted at two levels was accepted',)),
+
+    (OBS, 'the uncovered remainder carries a stable identity',
+     "            if not part.get('overhead_id'):",
+     "            if False:",
+     ('a remainder retained under no identity was accepted',)),
+
     (OBS, 'a checkpoint may not begin while already open',
      "            if already:",
      "            if False:",
