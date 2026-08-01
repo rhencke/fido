@@ -119,3 +119,30 @@ writes a raw log per direct sample, which removes one masking layer permanently.
 observation through the real producer functions, then point those six controls at samples that are direct in
 the state they perturb. Containing `prove` and `e2e` removes sixteen redundant traces, so this is worth doing
 properly rather than by patching six pick predicates until the colour changes.
+
+## Serial projections are defined and unused in this candidate
+
+Repair 3 §5.4 names five metric kinds. Four are implemented and carry real data: `direct_wall_elapsed`,
+`contained_wall_elapsed`, `aggregate_step_work` and `untimed_artifact`. The fifth, `serial_projection`, is
+defined in contract §3B.4 and produced nowhere — `projection_count` is 0 in every observation.
+
+That is not an oversight I want to paper over, and it is also not obviously a defect. A projection is a MODEL:
+the sum of non-overlapping intervals from one serial trace, standing in for a command's cost. Containment
+gives the same commands a MEASURED interval instead, taken from the run that actually contained them. Where a
+real interval exists, summing an estimate beside it would add a second number for one fact, and §3B.4's own
+rule — never relabel a projection as normal wall time — exists precisely because the two are easy to confuse.
+The trace cover this candidate uses needs no projection: every required metric is direct, contained, a
+BuildKit aggregate, or cataloged with a reason.
+
+The cost of leaving it defined-but-unused is that §16's projection controls cannot be written honestly. "A
+projection summing overlapping intervals", "a projection from a non-serial trace" and "a projection spanning
+two traces" have no code to exercise, and a control for a thing that does not exist would be theatre. The
+plan-level half IS covered: a metric acquired inside a run that names no owner, and one whose owner the plan
+never runs in that state, are both refused before anything runs.
+
+**Owner:** reviewer. **Blocks M2:** unclear — that is the question. **Default if unanswered:** state plainly
+in the contract that `serial_projection` is defined for the model and unused in this candidate, with
+`projection_count: 0` as the machine-readable form of that claim, and leave §16's projection controls
+unwritten rather than fake them. If a reviewer wants projections real, the honest use is a command whose cost
+is NOT recoverable as a single contained interval — an ad hoc `ONLY=` selection, or a future stage that spans
+several checkpoints — and that is a piece of work with its own controls, not a line in this one.

@@ -1359,7 +1359,7 @@ def parse_buildkit_progress(text: str) -> list[dict]:
 
 
 def derive_child_samples(parent: dict, events: list[dict], known: set[str],
-                         role_of=None) -> list[dict]:
+                         role_of=None, contained: set | None = None) -> list[dict]:
     """One sample per derived child, from its parent's own events, keyed BY that parent.
 
     Merging one stage observed under four parents into a single median answers a question nobody asked, so
@@ -1391,8 +1391,14 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str],
                     # a real elapsed interval; an artifact derived from another command's build contributes
                     # no duration at all. Naming which one it is here is what stops the summary from
                     # printing the first under the second's name, or the third as an exact zero.
+                    # A CONTAINED public command's interval is `contained_wall_elapsed`, never plain elapsed
+                    # time: acquisition kind is part of metric identity, and that is what keeps it out of
+                    # the same median as the direct execution of the same command in a state where its root
+                    # does not run. The expected relation says the same thing from the registry side; these
+                    # two must agree or the coverage relation fails at the end of the suite.
                     'measurement_kind': (KIND_AGGREGATE if buildkit
                                          else KIND_UNTIMED if event.get('untimed')
+                                         else KIND_CONTAINED if event['id'] in (contained or set())
                                          else event.get('kind') or KIND_WALL),
                     'lower_ns': event.get('lower_ns'), 'upper_ns': event.get('upper_ns'),
                     'below_resolution': bool(event.get('below_resolution')),
@@ -3350,9 +3356,13 @@ def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None =
     command_tmp = anchor_log.parent / f'{anchor_log.stem}.tmp'
     command_tmp.mkdir(parents=True, exist_ok=True)
     env['TMPDIR'] = str(command_tmp)
-    if command['kind'] == 'precommit-full':
-        env['FIDO_OBSERVE'] = str(anchor_log)
+    # Both kinds emit the SAME anchor grammar now, so both need the log named. Setting this for the hook
+    # alone left every Make checkpoint inert during measurement: the anchors were correct, the parser was
+    # correct, the registry relation was correct, and no contained metric would ever have arrived — a
+    # coverage failure at the END of the suite, which is precisely the four-hour shape this repair exists to
+    # stop. Found by asking what the smoke trace would prove rather than by running it.
     if command['kind'] in ('make-target', 'precommit-full'):
+        env['FIDO_OBSERVE'] = str(anchor_log)
         env['BUILDKIT_PROGRESS'] = 'plain'
     return env
 
@@ -3420,6 +3430,22 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     scenarios = {s['id']: s for s in suite['scenarios']}
     edits = {e['id']: e for e in suite.get('edits', [])}
     derived_ids = {c['id'] for c in suite['commands'] if c['measurement'] == 'derived'}
+
+    def contained_ids_for(parent_id: str, scenario_id: str) -> set:
+        """Only the CONTAINED public commands, whose intervals carry the contained kind."""
+        return {c['id'] for c in suite['commands']
+                if contained_here(c, scenario_id, commands) == parent_id}
+
+    def child_ids_for(parent_id: str, scenario_id: str) -> set:
+        """Which events this parent's run may turn into samples, in THIS state.
+
+        Derived stages and hook anchors always qualify. A CONTAINED command qualifies only where its trace
+        root is this parent and this state — which is the same `contained_here` rule the expected relation
+        and the planner read, so the runner cannot produce a child the relation does not require, or omit
+        one it does. The smoke trace found this: every contained interval was in the anchor log and none
+        reached the observation, because the runner accepted `derived` commands alone."""
+        return derived_ids | {c['id'] for c in suite['commands']
+                              if contained_here(c, scenario_id, commands) == parent_id}
 
     # The canonical order, and every step of it is load-bearing.  Capturing the environment BEFORE the
     # builder existed described a builder the suite then replaced: on first use the observation named one
@@ -3618,7 +3644,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         check_edit_effect(s, edit, command, context_inputs)
                     emit(s)
                     for child in derive_child_samples(
-                            s, s['derived_stage_events'], derived_ids,
+                            s, s['derived_stage_events'], child_ids_for(cid, scenario_id),
+                            contained=contained_ids_for(cid, scenario_id),
                             role_of=lambda kid: sample_role(sel, kid, scenario_id)):
                         emit(child)
                     if edit:
@@ -3684,7 +3711,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         primes[(cid, 'prime')] = {'id': s['sample_id'],
                                                   'root': tuple(scenario['cache_cut']['invalidated_roots'])}
                     for child in derive_child_samples(
-                            s, events, derived_ids,
+                            s, events, child_ids_for(cid, scenario_id),
+                            contained=contained_ids_for(cid, scenario_id),
                             role_of=lambda kid: sample_role(sel, kid, scenario_id)):
                         emit(child)
                 except ObservatoryError as exc:
@@ -5955,6 +5983,11 @@ def self_test(root: Path) -> int:
     make_cmd = next(c for c in suite['commands'] if c['kind'] == 'make-target')
     if instrumentation_env(make_cmd, Path('/tmp/x')).get('BUILDKIT_PROGRESS') != 'plain':
         failures.append('a make target must be measured with structured BuildKit progress')
+    # A Make target's checkpoints are inert unless the log is named, exactly as the hook's are. Without this
+    # every contained metric goes missing and the coverage relation fails at the END of the suite.
+    if not instrumentation_env(make_cmd, Path('/tmp/x.anchors')).get('FIDO_OBSERVE'):
+        failures.append('a make target is measured with its checkpoints switched off, so every metric '
+                        'contained in it would be absent from the observation')
 
     # EVERY kind, not just the hook. A recipe that bind-mounts a `mktemp -d` path needs that path to exist
     # on the HOST; scoping the guarantee to the one command whose failure I had already debugged is what let
