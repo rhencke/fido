@@ -120,6 +120,27 @@ observation through the real producer functions, then point those six controls a
 the state they perturb. Containing `prove` and `e2e` removes sixteen redundant traces, so this is worth doing
 properly rather than by patching six pick predicates until the colour changes.
 
+### Resolution at `483791f` — the default was taken
+
+Nobody answered, so the stated default is what landed, and this records it rather than closing the question on
+the reviewer's behalf. Containment is a RELATION over command, state and root, not a property of a command.
+`make.prove` and `make.e2e` keep their direct rows and are contained under the canonical states, so §11's
+`ONLY=make.prove SCENARIO=project.cold.prover` still runs a real execution — verified against the recorded
+run, where `make.prove` elided seven states and executed `project.cold.prover` alone. `record_check` writes a
+raw log per direct sample and `complete_observation` is generated from `expected_relation`, which is what
+removed the masking layer the addendum describes.
+
+If the reviewer would still rather §11's example named the compound `project.cold.acceptance` cut, that
+remains a smaller change and is still open to them. Two facts learned since are worth having beside the
+answer, because both were defects the relation form let through and the per-command form could not have:
+
+- SCHEDULING and DERIVATION are different projections of the one rule. A control pinning the plan against the
+  runner passed while the derivation was wrong, and R05 refused a 97-minute run over 44 metrics the registry
+  never declared. Both projections are now pinned before anything builds.
+- A command is contained only in a state it DECLARES. The gates measured warm-only were being minted under
+  all eight `make.check` states, because the rule asked whether the root ran there and never whether the
+  command was measured there.
+
 ## Serial projections are defined and unused in this candidate
 
 Repair 3 §5.4 names five metric kinds. Four are implemented and carry real data: `direct_wall_elapsed`,
