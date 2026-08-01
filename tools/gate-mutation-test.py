@@ -491,6 +491,12 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'containment requires the command to declare the state',
+     "    if sid not in cmd.get('scenarios', ()):",
+     "    if False:",
+     ('a command was reported contained in a state it does not declare',
+      'the contained children a trace derives are not the ones the registry declares')),
+
     (OBS, 'measured and unmeasurable are exclusive answers',
      "    both = sorted(measured & accounted)",
      "    both = []",

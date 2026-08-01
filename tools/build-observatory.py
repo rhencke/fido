@@ -2489,12 +2489,20 @@ def contained_here(cmd: dict, sid: str, commands: dict, partial: bool = False) -
     """The trace root that establishes this command in THIS state, or None if it must run itself.
 
     One rule, read by the expected relation, the planner and the runner alike. A command is contained in a
-    state exactly when it names a root AND that root is itself required in the same state: then one run
-    produces both, and scheduling the command again would acquire one relation twice. In any other state the
-    root is not running, so the command has to — which is what keeps an ad hoc `ONLY=make.prove
-    SCENARIO=project.cold.prover` a direct execution rather than an impossible request."""
+    state exactly when it is MEASURED in that state, it names a root, AND that root is itself required in the
+    same state: then one run produces both, and scheduling the command again would acquire one relation
+    twice. In any other state the root is not running, so the command has to — which is what keeps an ad hoc
+    `ONLY=make.prove SCENARIO=project.cold.prover` a direct execution rather than an impossible request."""
     root_id = (cmd.get('contained_in') or '').strip()
     if not root_id:
+        return None
+    # The command must DECLARE this state. Three of this rule's four readers iterate a command's own
+    # scenarios and so could never ask otherwise; the child derivation asks for every command under one
+    # parent state, and without this the six warm-only gates were derived under all eight `make.check`
+    # states. `make.claims` is measured warm and only warm: the claims gate does run inside a cold
+    # acceptance trace, but the registry declares no metric there, and minting one is exactly the
+    # measured-but-never-declared half of the coverage relation. R05 refused the run over 44 of them.
+    if sid not in cmd.get('scenarios', ()):
         return None
     # §11 — an AD HOC run takes the smallest valid execution. Containment exists to stop the CANONICAL suite
     # paying twice for one relation; asked for one command by name, running its whole acceptance trace to
@@ -4494,9 +4502,18 @@ def self_test(root: Path) -> int:
     if contained_here(cmds['make.names'], 'project.warm.noop', cmds) != 'make.check':
         failures.append('a command was not contained in a state its trace root runs, so the suite would '
                         'execute it a second time for a metric the root already establishes')
-    if contained_here(cmds['make.names'], 'project.cold.profile', cmds) is not None:
+    # A state `make.prove` DECLARES and `make.check` does not, so only the root rule can decide it. Asking
+    # this of `make.names` in a state it never declares let the command-declares-the-state rule answer first,
+    # and the control then passed whatever the root rule did — a control that cannot fail for its own reason.
+    if contained_here(cmds['make.prove'], 'project.cold.prover', cmds) is not None:
         failures.append('a command was reported contained in a state its trace root never runs, so the plan '
                         'would promise a metric no trace produces')
+    # And the other half: a state the COMMAND does not declare is not contained either, whatever its root
+    # does. `make.names` is measured warm and only warm; the naming gate does run inside a cold acceptance
+    # trace, but the registry declares no metric there and minting one is a metric nobody declared.
+    if contained_here(cmds['make.names'], 'project.cold.acceptance', cmds) is not None:
+        failures.append('a command was reported contained in a state it does not declare, so a trace would '
+                        'mint a metric the registry never asked for')
     if contained_here(cmds['make.check'], 'project.warm.noop', cmds) is not None:
         failures.append('a command naming no trace root was reported contained')
 
@@ -5302,6 +5319,33 @@ def self_test(root: Path) -> int:
         only_plan = sorted(planned_pairs - would_run)[:3]
         failures.append(f'the runner and the plan disagree about what executes: runner-only {only_run}, '
                         f'plan-only {only_plan}; one of them is a second authority')
+
+    # §8 — and the CHILDREN a trace derives must be exactly the contained metrics the registry declares under
+    # that parent and state. The control above pins SCHEDULING; this pins DERIVATION, and they are different
+    # projections of one rule — which is why the first one passed while the second was wrong. Three of
+    # `contained_here`'s readers iterate a command's own scenarios and could never ask about a state it does
+    # not declare; the derivation asks about every command under one parent state, so the six warm-only
+    # gates were minted under all eight `make.check` states. R05 refused the run over 44 undeclared metrics,
+    # 97 minutes in. Asking the question here costs nothing and answers it before anything builds.
+    counts['total'] += 1
+    declared_kids: dict[tuple, set] = {}
+    for spec in expected_relation(suite, graph=docker_stage_graph(root)).values():
+        if spec['measurement_kind'] == KIND_CONTAINED:
+            declared_kids.setdefault((spec['derived_parent_id'], spec['scenario_id']), set()).add(
+                spec['command_id'])
+    derived_kids: dict[tuple, set] = {}
+    for t in canon_plan['traces']:
+        kids = {c['id'] for c in suite['commands']
+                if contained_here(c, t['scenario_id'], cmds_by_id, canon_sel.partial) == t['command_id']}
+        if kids:
+            derived_kids[(t['command_id'], t['scenario_id'])] = kids
+    if derived_kids != declared_kids:
+        extra = sorted({(p, s, k) for (p, s), ks in derived_kids.items()
+                        for k in ks - declared_kids.get((p, s), set())})[:3]
+        missing = sorted({(p, s, k) for (p, s), ks in declared_kids.items()
+                          for k in ks - derived_kids.get((p, s), set())})[:3]
+        failures.append(f'the contained children a trace derives are not the ones the registry declares: '
+                        f'derived-only {extra}, declared-only {missing}')
 
     # §10 — REPEAT multiplies only what was SELECTED. Repeating support work spends minutes nobody asked for
     # on a number nobody requested, and repeating the whole suite is the fixed multiplicity this repair
