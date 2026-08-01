@@ -979,8 +979,13 @@ def select(suite: dict, only: str | None = None, scenario: str | None = None,
     closure, frontier = set(chosen), list(chosen)
     while frontier:
         cid = frontier.pop()
-        for dep in commands[cid]['dependencies']:
-            if dep not in closure:
+        # A trace root is pulled in by CONTAINMENT, not by a second declaration. Naming it in `dependencies`
+        # as well would state one fact twice, and the copy that drifts is the one nobody reads: selecting a
+        # contained command would then plan metrics whose owner never runs, which the plan refuses — as it
+        # did for `ONLY=make.prove` until this followed `contained_in` here.
+        roots = [] if bool(only or scenario) else [(commands[cid].get("contained_in") or "").strip()]
+        for dep in list(commands[cid]["dependencies"]) + roots:
+            if dep and dep not in closure:
                 closure.add(dep)
                 frontier.append(dep)
 
@@ -2470,7 +2475,7 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             f'matches')
 
 
-def contained_here(cmd: dict, sid: str, commands: dict) -> str | None:
+def contained_here(cmd: dict, sid: str, commands: dict, partial: bool = False) -> str | None:
     """The trace root that establishes this command in THIS state, or None if it must run itself.
 
     One rule, read by the expected relation, the planner and the runner alike. A command is contained in a
@@ -2481,13 +2486,22 @@ def contained_here(cmd: dict, sid: str, commands: dict) -> str | None:
     root_id = (cmd.get('contained_in') or '').strip()
     if not root_id:
         return None
+    # §11 — an AD HOC run takes the smallest valid execution. Containment exists to stop the CANONICAL suite
+    # paying twice for one relation; asked for one command by name, running its whole acceptance trace to
+    # recover an interval is the opposite of cheap. `ONLY=make.prove` planned NINE `make.check` traces before
+    # this, and `ONLY=docker.go-e2e` dragged in `make.check` to reach a stage its own producer builds. A
+    # public Make target can always run itself, and the metric it yields then is a direct one — a different
+    # kind, so it can never be confused with the contained interval the canonical suite records.
+    if partial and cmd.get('kind') == 'make-target':
+        return None
     root = commands.get(root_id)
     if root is None or sid not in root.get('scenarios', ()):
         return None
     return root_id
 
 
-def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | None = None) -> dict:
+def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | None = None,
+                      partial: bool = False) -> dict:
     """The exact set of metrics a complete run must produce, derived from the validated registry.
 
     R05 used to check that each classified command appeared at least ONCE. A command measured in one scenario
@@ -2551,7 +2565,7 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
                     # that builds it is itself contained in this state, that process is the trace root, not
                     # the contained command — which never starts a buildx invocation of its own here. Leaving
                     # the parent unresolved names a sample that state never produced.
-                    owner = contained_here(commands[parent], sid, commands) or parent
+                    owner = contained_here(commands[parent], sid, commands, partial) or parent
                     spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
                             'derived_parent_id': owner, 'selected_or_support': 'selected',
                             'resource_scope': scope, 'measurement_kind': kind, 'samples': count}
@@ -2566,7 +2580,7 @@ def expected_relation(suite: dict, canonical_only: bool = True, graph: dict | No
             # interval inside that run rather than an elapsed time of its own. The CPU and memory belong to
             # the root, and the kind differs — so this can never be pooled with the direct execution of the
             # same command in a state where the root does not run.
-            owner = contained_here(c, sid, commands)
+            owner = contained_here(c, sid, commands, partial)
             if owner:
                 scope, kind = SCOPE_UNAVAILABLE, KIND_CONTAINED
             spec = {'command_id': c['id'], 'scenario_id': sid, 'edit_id': edit,
@@ -2599,7 +2613,7 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
     registry requires and how each is acquired, so a planner that recomputed that from the rows would be a
     second authority — and the failure mode of a second authority here is a plan that promises coverage the
     recording rules then refuse, discovered hours later instead of before anything runs."""
-    required = expected_relation(suite, canonical_only=True, graph=graph)
+    required = expected_relation(suite, canonical_only=True, graph=graph, partial=sel.partial)
     commands = {c['id']: c for c in suite['commands']}
     chosen = set(sel.selected) | set(sel.support)
     want = set(sel.scenarios)
@@ -3433,8 +3447,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
 
     def contained_ids_for(parent_id: str, scenario_id: str) -> set:
         """Only the CONTAINED public commands, whose intervals carry the contained kind."""
-        return {c['id'] for c in suite['commands']
-                if contained_here(c, scenario_id, commands) == parent_id}
+        return {c["id"] for c in suite["commands"]
+                if contained_here(c, scenario_id, commands, sel.partial) == parent_id}
 
     def child_ids_for(parent_id: str, scenario_id: str) -> set:
         """Which events this parent's run may turn into samples, in THIS state.
@@ -3444,8 +3458,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         and the planner read, so the runner cannot produce a child the relation does not require, or omit
         one it does. The smoke trace found this: every contained interval was in the anchor log and none
         reached the observation, because the runner accepted `derived` commands alone."""
-        return derived_ids | {c['id'] for c in suite['commands']
-                              if contained_here(c, scenario_id, commands) == parent_id}
+        return derived_ids | {c["id"] for c in suite["commands"]
+                              if contained_here(c, scenario_id, commands, sel.partial) == parent_id}
 
     # The canonical order, and every step of it is load-bearing.  Capturing the environment BEFORE the
     # builder existed described a builder the suite then replaced: on first use the observation named one

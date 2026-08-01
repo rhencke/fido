@@ -656,9 +656,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "claims"
@@ -689,9 +687,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "diet"
@@ -808,9 +804,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "fcb"
@@ -903,9 +897,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "hostpython"
@@ -967,9 +959,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "names"
@@ -1000,9 +990,7 @@
     {
       "build_targets": [],
       "contained_in": "make.check",
-      "dependencies": [
-        "make.check"
-      ],
+      "dependencies": [],
       "execution": [
         "make",
         "observatory"

@@ -107,10 +107,17 @@ MUTANTS = (
      ('a registry pre-commit stage with no anchor pair',)),
 
     (OBS, 'the selection dependency closure',
-     "        for dep in commands[cid]['dependencies']:",
-     "        for dep in []:",
+     '        for dep in list(commands[cid]["dependencies"]) + roots:',
+     '        for dep in []:',
      ('a derived child is measured through the live parent',
       'a docker stage names its live parent build')),
+
+    # §11 — an ad hoc request takes the smallest valid execution. Pulling the trace root in for a partial
+    # selection is what made `ONLY=make.prove` plan nine `make.check` traces.
+    (OBS, 'the trace root pulled in only for a canonical run',
+     '        roots = [] if bool(only or scenario) else [(commands[cid].get("contained_in") or "").strip()]',
+     '        roots = [(commands[cid].get("contained_in") or "").strip()]',
+     ('a docker stage names its live parent build',)),
 
     (OBS, 'the canonical scenario default',
      "                      else {sid for sid, s in scenarios.items() if s.get('canonical')})",
