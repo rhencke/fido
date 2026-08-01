@@ -1770,6 +1770,69 @@ def suite_cost_problems(obs: dict) -> list[str]:
     return problems
 
 
+ARTIFACT_MEMBERS = ('module_graph', 'history_analysis')
+
+
+def artifact_problems(obs: dict) -> list[str]:
+    """§7 E4 — an analysis artifact is BOUND to the trace that established it, and its views are recomputed.
+
+    The schema required `module_graph` and `history_analysis` to be present and permitted them to be null or
+    unrelated while their analysis samples sat beside them claiming the work had happened. Presence is not
+    evidence: the binding is what makes the artifact answerable for the samples that produced it.
+
+    The mapping from command to member is NOT restated here. Each trace's completion object already names the
+    members its run established, so the rule reads that instead of a second table which would drift."""
+    problems: list[str] = []
+    samples = obs.get('measurements') or []
+    traces = obs.get('traces') or []
+
+    # An analysis command runs in SEVERAL cache states — `analysis.rocq-modules` in both
+    # `project.cold.module-graph` and `project.warm.noop` — and each run establishes a graph whose per-module
+    # wall times differ, so their digests differ too while the observation retains ONE member. The producer's
+    # rule is that the last such trace's artifact is the retained one, and the record states that rather than
+    # pretending a single establishing trace or quietly accepting any of them.
+    owner_of: dict[str, list[str]] = {}
+    last_digest: dict[str, str] = {}
+    for t in traces:
+        for member, want in (t.get('analysis_artifacts') or {}).items():
+            owner_of.setdefault(member, []).append(t.get('trace_id'))
+            last_digest[member] = want
+
+    for member, owners in owner_of.items():
+        have = obs.get(member)
+        if have is None:
+            problems.append(f'trace(s) {sorted(owners)} established {member}, and the observation retains '
+                            f'none — the samples claim work whose product is absent')
+        elif artifact_digest(have) != last_digest[member]:
+            problems.append(f'the retained {member} does not hash to what its establishing trace '
+                            f'{owners[-1]} recorded, so it is not the artifact that trace produced')
+
+    for member in ARTIFACT_MEMBERS:
+        if obs.get(member) is not None and member not in owner_of:
+            problems.append(f'the observation retains a {member} that no trace established, so nothing binds '
+                            f'it to a run')
+
+    # An analysis command that produced a sample must have produced its artifact with it.
+    for s in samples:
+        if s.get('derived_parent_id') or not s['command_id'].startswith('analysis.'):
+            continue
+        mine = [t for t in traces if t.get('root_sample_id') == s.get('sample_id')]
+        if mine and not (mine[0].get('analysis_artifacts') or {}):
+            problems.append(f'{s["command_id"]} produced a sample whose trace establishes no artifact, so '
+                            f'the analysis is recorded as having run and left nothing behind')
+
+    # THE DERIVED VIEWS EQUAL RECOMPUTATION from those exact artifacts. A view is a claim about an artifact;
+    # if it does not follow from the artifact retained beside it, one of the two is not what it says it is.
+    derived = obs.get('derived') or {}
+    graph, history = obs.get('module_graph'), obs.get('history_analysis')
+    if graph and 'rebuild_impact' in derived and derived['rebuild_impact'] != rebuild_impact(graph):
+        problems.append('the retained rebuild impact is not what its own module graph produces')
+    if history and 'weighted_rebuild_cost' in derived \
+            and derived['weighted_rebuild_cost'] != weighted_rebuild_cost(history, graph):
+        problems.append('the retained weighted rebuild cost is not what its own artifacts produce')
+    return problems
+
+
 def retained_trace_problems(partial: dict) -> list[str]:
     """Every retained trace object, checked AGAINST THE SAMPLES the same record holds.
 
@@ -2625,6 +2688,13 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{len(bad_traces)} retained trace defect(s): {bad_traces[0]}'
             + (f' (and {len(bad_traces) - 1} more)' if len(bad_traces) > 1 else ''))
+
+    # §7 E4 — analysis artifacts are bound to the traces that established them and their views recomputed.
+    bad_artifacts = artifact_problems(obs)
+    if bad_artifacts:
+        raise ObservatoryError(
+            f'{len(bad_artifacts)} analysis-artifact defect(s): {bad_artifacts[0]}'
+            + (f' (and {len(bad_artifacts) - 1} more)' if len(bad_artifacts) > 1 else ''))
 
     # §7 E2 — the suite's own cost, held to the standard of everything it reports. AFTER the trace rules: a
     # lost child also makes the contained count disagree, and the count is the symptom, not the defect.
@@ -5227,6 +5297,26 @@ def self_test(root: Path) -> int:
         s['sample_id'] = over.get('sample_id') or sample_id_for('run-fixture', s)
         return s
 
+    # §7 E4 — the fixture's analysis samples come WITH the artifacts they establish, because that is what the
+    # producer emits. A fixture holding an analysis sample and a null artifact describes the defect, not the
+    # system, and every observation built on it would be exercising a shape no run can produce.
+    FIXTURE_DEP = ('A.vo A.glob A.v.beautified: A.v /opt/rocq/rocqworker\n'
+                   'B.vo B.glob B.v.beautified: B.v A.vo\n')
+    FIXTURE_WALL = {'A': 1_000, 'B': 2_000}
+    FIXTURE_HISTORY = {'views': {'excluding_campaign': {'edit_count_by_file': {'A.v': 3}}}}
+
+    def fixture_artifacts(samples: list[dict]) -> dict:
+        """Which artifacts a set of samples establishes, keyed by the member each analysis command owns."""
+        out = {}
+        for s in samples:
+            if s.get('derived_parent_id'):
+                continue
+            if s['command_id'] == 'analysis.rocq-modules':
+                out['module_graph'] = parse_module_graph(FIXTURE_DEP, FIXTURE_WALL)
+            elif s['command_id'] == 'analysis.history':
+                out['history_analysis'] = FIXTURE_HISTORY
+        return out
+
     def fixture_environment(**over) -> dict:
         """An environment whose fingerprint is what its own fields produce.
 
@@ -5268,8 +5358,9 @@ def self_test(root: Path) -> int:
             kids = [k for k in samples
                     if k.get('derived_parent_id') == rootsample['command_id']
                     and k.get('scenario_id') == rootsample['scenario_id']]
+            mine = {m: artifact_digest(a) for m, a in fixture_artifacts([rootsample]).items()}
             out.append(trace_object(rootsample, kids,
-                                    [metric_identity(s) for s in [rootsample] + kids], None, {}))
+                                    [metric_identity(s) for s in [rootsample] + kids], None, mine))
         return out
 
     def observation(samples=None, **over) -> dict:
@@ -5289,7 +5380,7 @@ def self_test(root: Path) -> int:
                 # this fixture holds. Hand-writing them would let the fixture describe a completion shape the
                 # producer never emits, which is exactly how the run identity hid for a whole repair.
                 'traces': traces_for(samples),
-                'module_graph': None, 'history_analysis': None,
+                **{m: fixture_artifacts(samples).get(m) for m in ARTIFACT_MEMBERS},
                 # §14 meta-evidence. The fixture carries it because the DECLARED shape carries it — the
                 # shape control refuses a fixture that invents or omits a member, which is what caught this
                 # the moment `suite_cost` joined the member list.
@@ -6223,6 +6314,43 @@ def self_test(root: Path) -> int:
             failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
                             'failure is the fragment itself')
 
+    # ── §7 E4 analysis artifacts are bound and their views recomputed.
+    observed('an analysis sample whose artifact is null',
+             lambda: validate_observation(complete_observation(module_graph=None), digest),
+             expect='the observation retains none')
+    observed('an artifact that hashes to no establishing trace',
+             lambda: validate_observation(
+                 complete_observation(module_graph=parse_module_graph(FIXTURE_DEP, {'A': 9, 'B': 9})),
+                 digest),
+             expect='does not hash to what its establishing trace')
+    observed('an artifact no trace established',
+             lambda: validate_observation(
+                 complete_observation(traces=[{**t, 'analysis_artifacts': {}}
+                                              for t in complete_observation()['traces']]), digest),
+             expect='that no trace established')
+
+    def tampered_view(which):
+        obs = complete_observation()
+        obs['derived'] = {**obs['derived'], which: {'tampered': True}}
+        return obs
+
+    observed('a tampered derived rebuild view',
+             lambda: validate_observation(tampered_view('rebuild_impact'), digest),
+             expect='not what its own module graph produces')
+    observed('a tampered derived history view',
+             lambda: validate_observation(tampered_view('weighted_rebuild_cost'), digest),
+             expect='not what its own artifacts produce')
+
+    counts['total'] += 1
+    # MUST ACCEPT — a resumed observation carrying the exact artifacts its traces established. This is the
+    # shape §6 D2 now produces, validated by the rules §7 E4 adds, so the two halves are proved to agree.
+    resumed = complete_observation()
+    try:
+        validate_observation(resumed, digest)
+    except ObservatoryError as exc:
+        failures.append(f'an observation carrying the exact artifacts its traces established was refused: '
+                        f'{exc}')
+
     # ── §7 the observation's self-evidence is evidence, not assertion.
     observed('an observation whose fingerprint is not what its own fields produce',
              lambda: validate_observation(
@@ -6481,9 +6609,18 @@ def self_test(root: Path) -> int:
              lambda: validate_observation(
                  trace_with(lambda obj, obs: obj.update(state='in-progress')), digest),
              expect='retained before it closed')
+    def missing_one_trace():
+        """A complete observation minus one completion object that establishes no ARTIFACT.
+
+        Removing an analysis trace would unbind its artifact and report that rule instead, so this control
+        would pass on a message about something else."""
+        obs = complete_observation()
+        victim = next(t for t in obs['traces'] if not t['analysis_artifacts'])
+        obs['traces'] = [t for t in obs['traces'] if t is not victim]
+        return obs
+
     observed('a completed direct root with no trace-completion object',
-             lambda: validate_observation(
-                 complete_observation(**{'traces': complete_observation()['traces'][1:]}), digest),
+             lambda: validate_observation(missing_one_trace(), digest),
              expect='no trace-completion object')
     counts['total'] += 1
     counts['must_fail'] += 1

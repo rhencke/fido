@@ -491,6 +491,32 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'an analysis artifact is bound to the trace that established it',
+     "    bad_artifacts = artifact_problems(obs)",
+     "    bad_artifacts = []",
+     ('an analysis sample whose artifact is null',
+      'a tampered derived rebuild view')),
+
+    (OBS, 'the retained artifact hashes to what its trace recorded',
+     "        elif artifact_digest(have) != last_digest[member]:",
+     "        elif False:",
+     ('an artifact that hashes to no establishing trace',)),
+
+    (OBS, 'a retained artifact is bound to some trace',
+     "        if obs.get(member) is not None and member not in owner_of:",
+     "        if False:",
+     ('an artifact no trace established',)),
+
+    (OBS, 'the derived rebuild view equals recomputation',
+     "    if graph and 'rebuild_impact' in derived and derived['rebuild_impact'] != rebuild_impact(graph):",
+     "    if False:",
+     ('a tampered derived rebuild view',)),
+
+    (OBS, 'the derived history view equals recomputation',
+     "    if history and 'weighted_rebuild_cost' in derived \\",
+     "    if False and history and 'weighted_rebuild_cost' in derived \\",
+     ('a tampered derived history view',)),
+
     (OBS, 'the host-class fingerprint is re-derived, not trusted',
      "    if env_block.get('host_class_fingerprint') != host_class_fingerprint(env_block):",
      "    if False:",
