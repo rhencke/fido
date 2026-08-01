@@ -15,7 +15,7 @@ M2 measures and reports. It does not optimize or restructure. Only Rob accepts M
 
 # 1A. Accepted scope amendment — no project Python on the host
 
-Rob amended M2's scope in `.review/M2_IMPLEMENTATION_REPAIR_2.md` (PART I). This is a deliberate human scope
+Rob amended M2's scope in `.review/M2_IMPLEMENTATION_REPAIR_2.md` (PART I). <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD --> This is a deliberate human scope
 amendment, not discovery-driven scope creep, and it is part of M2 rather than deferred follow-up work.
 
 > Project Python must never execute on the host system. Every project-authored Python tool, gate, writer,
@@ -51,7 +51,7 @@ both, so the proposed commit contains the container authority that judges it.
 
 `M2-SCOPE-AMENDMENT-TRACE-ACQUISITION`
 
-Rob amended M2's scope again in `.review/M2_IMPLEMENTATION_REPAIR_3.md`. This is a deliberate human scope
+Rob amended M2's scope again in `.review/M2_IMPLEMENTATION_REPAIR_3.md`. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-3-MD --> This is a deliberate human scope
 amendment, not discovery-driven scope creep.
 
 > The canonical suite acquires a minimal set of real execution traces. Stable monotonic checkpoints and
@@ -153,7 +153,7 @@ not the same as the numbers being true.
 
 ## 3A.1 The cache cut — what cold means
 
-Governed by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`.
+Governed by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`. <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
 
 A canonical cold measurement is cold from one declared PROJECT-DEPENDENT INVALIDATION ROOT downward. It is not
 cold from the Docker daemon, the builder, the base images, the pinned toolchain or the OS packages. The

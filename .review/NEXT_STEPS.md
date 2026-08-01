@@ -10,39 +10,19 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 3 IS FROZEN AND AWAITS ROB.** Candidate
-  `483791f73b52c134ded3414a8a744deb1151f86b`.
-  Authority: `.review/M2_IMPLEMENTATION_REPAIR_3.md`, which carries Rob's accepted scope amendment <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-3-MD -->
-  `M2-SCOPE-AMENDMENT-TRACE-ACQUISITION`. Three candidates are blocked and are history:
-  `8325ddb9ee2dcb1087dbe22d754b9a7d4c5a3b43`, `e534b0ae5cc47da510e46583e47f74566589d538` and
-  `641ac9034b280ddfd0930a12635e60322a2d4686`.
-  The third was blocked because the facility it delivers is unusable, not because a measurement was false:
-  the canonical suite cost 4 h 07 m 29 s over 133 direct executions, because a fixed triplicate policy
-  crossed with five edit shapes over four overlapping commands repeated execution closures the suite had
-  already observed. M2 now optimizes its OWN acquisition — a minimal cover of real traces, with contained
-  commands and stages projected from stable monotonic checkpoints and structured BuildKit events. It
-  implements no project build optimization.
-  **Measured at this candidate: 27 direct executions and 1 h 37 m 17 s, establishing the same 252 canonical
-  metrics** — 79.7% fewer executions and 60.7% less wall time, with 225 metrics derived inside the traces
-  that were already paying for them. `.review/BUILD_OBSERVATION.json` now holds that observation; the Repair
-  2 observation remains valid historical evidence under its own schema, is incompatible with trace
-  acquisition, and is superseded as this candidate's evidence.
-  All nineteen obligations are closed against evidence in that observation. `R07` and `R09` are delivered and
-  closed; `R01`–`R06`, `R08`, `R10`–`R12` remain assigned to M3 and visible under D-28.
-- **The superseded Repair 1 state, for reference.** The candidate was
-  `e534b0ae5cc47da510e46583e47f74566589d538`.
-  Its contract, still the live M2 contract, is `.review/M2_BUILD_OBSERVATORY.md`.
-  The blocking review it answered is `.review/M2_IMPLEMENTATION_REPAIR_1.md`, <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-1-MD -->
-  amended by `.review/M2_REPAIR_1_CACHE_CUT_AMENDMENT.md`, which governs what cold means, <!-- FIDO-FCB-REF:REVIEW-M2-REPAIR-1-CACHE-CUT-AMENDMENT-MD -->
-  and it is superseded by `.review/M2_IMPLEMENTATION_REPAIR_2.md`, which blocks that candidate. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-2-MD -->
-  Obligations: `.review/M2_OBLIGATION_MATRIX.tsv`, `M2-01` through `M2-19`; Repair 2 reopened sixteen.
-  Its observation measured 719 samples over 19 commands and is now rejected as acceptance evidence.
-  Accepted review basis: `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
+- **M2 BUILD OBSERVATORY REPAIR 4 IS IN PROGRESS.**
+  Authority: `.review/M2_IMPLEMENTATION_REPAIR_4.md`, the sole permitted implementation work. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-4-MD -->
+  Earlier M2 candidates are superseded. Git history owns their refs, freezes, findings, and repair narratives.
+  The live M2 contract is `.review/M2_BUILD_OBSERVATORY.md`; the accepted review basis is
+  `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
+  Repair 4 closes M2's own acquisition, validation, resume and comparison contracts: a completed sample is not
+  a completed trace, runtime checkpoint evidence must fail closed by itself, every decomposed parent must
+  partition into non-overlapping children plus retained overhead, `serial_projection` is deleted as unused
+  residue under the amendment in §5 of that authority, resume must carry the prime and analysis state it needs,
+  `REPEAT` with `RESUME` is refused, and environment compatibility is derived rather than trusted.
+  Twelve obligations are reopened and close only on exact evidence and controls.
   M2 measures and reports. It does not optimize or restructure; every finding is assigned in
   `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
-- **The first M2 candidate is BLOCKED.** Git history owns its ref, its freeze and this review's findings.
-  Its observation was exploratory: several scenario, cache and coverage labels did not describe the work
-  that ran, so its timing conclusions close nothing.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M2 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.
