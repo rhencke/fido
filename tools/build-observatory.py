@@ -2951,9 +2951,26 @@ def artifact_digest(artifact) -> str:
     return _sha256(json.dumps(artifact, sort_keys=True, separators=(',', ':')).encode('utf-8'))
 
 
-def trace_expectations(plan: dict) -> dict[tuple, list[str]]:
-    """Expected metric identities per trace, taken from the plan rather than derived a second time."""
-    return {(t['command_id'], t['scenario_id']): sorted(t['establishes']) for t in plan['traces']}
+def trace_expectations(suite: dict, graph: dict | None, partial: bool, role_of) -> dict[tuple, list[str]]:
+    """What each trace is required to establish: the registry's metrics, carrying this run's roles.
+
+    TWO authorities, composed rather than one guessed. `expected_relation` says WHICH metrics a trace
+    establishes; the selection says which ROLE each carries, and role is part of metric identity. Taking the
+    planner's per-trace `establishes` instead looked equivalent and was not, for two reasons that only appear
+    in an ad hoc run: the plan filters metrics by what was SELECTED, while a trace that runs produces all of
+    its children regardless; and the registry states every role as `selected`, while `ONLY=make.check
+    SCENARIO=project.warm.noop` legitimately makes the cold support trace's children `support` too.
+
+    A real smoke run failed on exactly that — nine metrics observed that the filtered plan required zero
+    times, every one of them a role difference or an unselected child the trace produced anyway."""
+    required = expected_relation(suite, canonical_only=True, graph=graph, partial=partial)
+    out: dict[tuple, list[str]] = {}
+    for spec in required.values():
+        owner = spec.get('derived_parent_id') or spec['command_id']
+        keyed = metric_identity({**spec,
+                                 'selected_or_support': role_of(spec['command_id'], spec['scenario_id'])})
+        out.setdefault((owner, spec['scenario_id']), []).append(keyed)
+    return {k: sorted(v) for k, v in out.items()}
 
 
 def trace_id_of(command_id: str, scenario_id: str, edit_id: str | None, index: int) -> str:
@@ -4065,7 +4082,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     history = (resume_artifacts or {}).get('history_analysis', history)
 
     traces: list[dict] = list(resume_traces or [])
-    expectations = trace_expectations(acquisition_plan(suite, sel, graph=stage_graph))
+    expectations = trace_expectations(suite, stage_graph, sel.partial,
+                                      lambda cid, sid: sample_role(sel, cid, sid))
 
     def emit(sample: dict):
         # Stamped HERE, in the one place every sample passes through, rather than in each of the three
@@ -5991,6 +6009,22 @@ def self_test(root: Path) -> int:
         only_plan = sorted(planned_pairs - would_run)[:3]
         failures.append(f'the runner and the plan disagree about what executes: runner-only {only_run}, '
                         f'plan-only {only_plan}; one of them is a second authority')
+
+    # §2 — A TRACE'S EXPECTATION CARRIES THIS RUN'S ROLES. A real smoke run refused nine metrics it had just
+    # produced, because the expectation came from the planner's per-trace list: that list is filtered by what
+    # was SELECTED, while a trace which runs produces all of its children regardless, and the registry states
+    # every role as `selected` while an ad hoc run legitimately marks an unselected support child `support`.
+    # Role is part of metric identity, so the two disagreed on identity alone.
+    counts['total'] += 1
+    part_sel = select(suite, only='make.check', scenario='project.warm.noop')
+    part_exp = trace_expectations(suite, docker_stage_graph(root), part_sel.partial,
+                                  lambda cid, sid: sample_role(part_sel, cid, sid))
+    produced = [m for pair, ms in part_exp.items() if pair[0] == 'make.check' for m in ms]
+    if not produced:
+        failures.append('an ad hoc make.check selection expects no metrics at all')
+    elif not any(m.split('|')[4] == 'support' for m in produced):
+        failures.append('an ad hoc selection must carry the roles it actually assigns; every expected metric '
+                        'claims `selected`, which is the registry speaking rather than the run')
 
     # §8 — and the CHILDREN a trace derives must be exactly the contained metrics the registry declares under
     # that parent and state. The control above pins SCHEDULING; this pins DERIVATION, and they are different
