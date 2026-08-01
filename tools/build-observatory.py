@@ -2442,6 +2442,16 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
             f'{orphans} are recorded as selected but produced no sample and are not listed among the '
             f'commands this selection could not measure')
 
+    # The two answers are exclusive, and one bundle may not give both. A contained command is measured INSIDE
+    # its parent and reaches the observation through child derivation, so filing it under the commands this
+    # selection could not measure claims its samples do not exist while they sit in the same file — and hides
+    # a genuinely unmeasured command in a list a reader has learned to discount.
+    both = sorted(measured & accounted)
+    if both:
+        raise ObservatoryError(
+            f'{both} produced sample(s) and are ALSO listed among the commands this selection could not '
+            f'measure; a command is measured or it is not, and this observation says both')
+
     # The same rule ACROSS commands. Distinct bytes per sample stopped a command being its own cache hit;
     # four commands whose sample 0 wrote identical bytes to Float.v still produced one tree, so whichever
     # ran first paid the rebuild and the rest recorded ~1.7s under an incremental label — against 117.5s
@@ -3505,7 +3515,19 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         command = commands[cid]
         if runner_for(command) != 'shell':
             continue
+        # WHETHER this selection holds any state of this command is decided HERE, on the declared chain,
+        # before anything is elided from it. An elision means the state is measured somewhere else, which is
+        # the opposite of unmeasured, and the two answers were about to be filed under one name: a fully
+        # contained command emits samples through child derivation, so it would have been reported as
+        # measured AND as impossible to measure, in the same bundle.
         chain = [s for s in scenario_order(suite, sel.scenarios) if s in command['scenarios']]
+        if not chain:
+            # Selected, and this selection holds no state of it. Silence here would leave the command listed
+            # as selected with no sample beside it and no reason, which reads as a measurement that went missing.
+            unmeasured.append(cid)
+            progress(f'fido: observe — {cid} has no scenario in this selection ('
+                     f'{", ".join(command["scenarios"])}), so it contributes no sample')
+            continue
         # §8 — a relation an exact containing trace already measures is NOT executed here. The plan says so,
         # the expected relation says so, and the runner has to say the same or the two disagree: PLAN
         # scheduled ONE `make.prove` trace while the runner ran six, re-running precisely the work the trace
@@ -3527,11 +3549,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                          f'bundle, {len(keep)} still to run')
             chain = keep
         if not chain:
-            # Selected, and measured in nothing. Silence here would leave the command listed as selected with
-            # no sample beside it and no reason, which reads as a measurement that went missing.
-            unmeasured.append(cid)
-            progress(f'fido: observe — {cid} has no scenario in this selection ('
-                     f'{", ".join(command["scenarios"])}), so it contributes no sample')
+            # Every declared state was elided, so all of them are accounted for — inside a containing trace,
+            # or by the resumed bundle that already holds them. Nothing runs here and nothing is missing.
+            progress(f'fido: observe — {cid}: nothing left to run; every selected state is measured '
+                     f'{"inside " + command["contained_in"] if contained_away else "in the resumed bundle"}')
             continue
         progress(f'fido: observe — chain {cid}: {", ".join(chain)}')
 
@@ -6147,6 +6168,17 @@ def self_test(root: Path) -> int:
         failures.append('a selected command with no sample and no reason was accepted')
     except ObservatoryError:
         pass
+
+    # The other side of the same field. A CONTAINED command is measured inside its parent and reaches the
+    # observation through child derivation, so listing it among the commands this selection could not measure
+    # claims its own samples do not exist while they sit in the same file. The runner was one elided chain
+    # away from writing exactly that, because it decided `unmeasured` AFTER containment emptied the chain.
+    observed('a command listed as both measured and impossible to measure',
+             lambda: validate_observation(observation(selection={
+                 'partial': False, 'commands_selected': ['make.fmt'], 'commands_support': [],
+                 'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
+                 'commands_with_no_scenario_here': ['make.fmt'], 'commands_never_measured': []}), digest),
+             expect='says both')
 
     # A command that runs several buildx invocations concatenates their logs, and step numbers restart at
     # #1 each time. Resolving a step number against the whole file attributed one build's ordinal to another

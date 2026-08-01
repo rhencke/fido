@@ -491,6 +491,11 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'measured and unmeasurable are exclusive answers',
+     "    both = sorted(measured & accounted)",
+     "    both = []",
+     ('a command listed as both measured and impossible to measure',)),
+
     (OBS, 'step numbers resolved inside their own invocation',
      "        if _BK_INVOCATION.match(line.strip()) and current:",
      "        if False:",
