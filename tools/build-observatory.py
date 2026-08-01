@@ -1658,7 +1658,57 @@ def fragment_problems(partial: dict) -> list[str]:
     It reuses the same per-sample rules and the same identity relations the final validator uses rather than
     a cheaper local copy, because a fragment check that passes what the final check rejects is worse than no
     fragment check at all — it would say the expensive part was safe to continue."""
-    return sample_rule_problems(partial.get('measurements', [])) + identity_problems(partial)
+    return (sample_rule_problems(partial.get('measurements', []))
+            + identity_problems(partial)
+            + retained_trace_problems(partial))
+
+
+def retained_trace_problems(partial: dict) -> list[str]:
+    """Every retained trace object, checked AGAINST THE SAMPLES the same record holds.
+
+    Checking a completion object only against itself is what made the reviewer's reproduction possible: they
+    deleted `make.prove`, `docker.prover` and `make.fcb` in turn from a completed `make.check` fragment and
+    every mutilated fragment still passed. An object's own lists stay self-consistent when a sample vanishes
+    from beside it, so the binding to the record is the rule that matters."""
+    traces = partial.get('traces') or []
+    samples = partial.get('measurements') or []
+    by_id = {s.get('sample_id'): s for s in samples if s.get('sample_id')}
+    present = observed_relation(samples)
+    problems: list[str] = []
+    owner_of: dict[str, str] = {}
+    for obj in traces:
+        if any(m not in obj for m in TRACE_MEMBERS):
+            problems += trace_problems(obj)
+            continue
+        label = obj['trace_id']
+        # ORDER MATTERS. Each defect must report the reason that IS its defect: an omitted child otherwise
+        # surfaces as a metric-count mismatch, and a misfiled child as a child-count mismatch, so a control
+        # asserting the real reason would pass on a message about something else.
+        for sid in [obj['root_sample_id'], *obj['child_sample_ids']]:
+            if sid is None:
+                continue
+            if sid not in by_id:
+                problems.append(f'{label}: names sample {sid}, which this record does not contain')
+                continue
+            if sid in owner_of and owner_of[sid] != label:
+                problems.append(f'sample {sid} is claimed by two traces, {owner_of[sid]} and {label}')
+            owner_of[sid] = label
+        for sid in obj['child_sample_ids']:
+            child = by_id.get(sid)
+            if child is None:
+                continue
+            if (child.get('derived_parent_id') != obj['command_id']
+                    or child.get('scenario_id') != obj['scenario_id']):
+                problems.append(f'{label}: child {sid} was derived inside '
+                                f'{child.get("derived_parent_id")}/{child.get("scenario_id")}, so it is '
+                                f'retained under a trace that did not produce it')
+        problems += trace_problems(obj)
+        for metric in sorted(set(obj['observed_metrics'])):
+            claimed = obj['observed_metrics'].count(metric)
+            if present.get(metric, 0) < claimed:
+                problems.append(f'{label}: claims metric {metric} {claimed} time(s), and the retained '
+                                f'samples hold {present.get(metric, 0)}')
+    return problems
 
 
 def wanted_samples(command: dict, scenario_id: str, role: str, repeat: int = 1) -> int:
@@ -1735,8 +1785,8 @@ def checkpointer(bundle: Path, header: dict):
     The first candidate wrote it only when the suite returned, so a suite that was KILLED left raw logs and
     nothing to inspect. The safety half held — a cancelled run can never record — but the evidence half only
     worked on the failure path."""
-    def write(samples: list[dict], incomplete: list[str]):
-        partial = {**header, 'measurements': samples,
+    def write(samples: list[dict], incomplete: list[str], traces: list[dict] | None = None):
+        partial = {**header, 'measurements': samples, 'traces': list(traces or []),
                    'derived': {'summaries': summarise(samples), 'status': 'incomplete',
                                'incomplete': list(incomplete)}}
         write_json(bundle / 'observation.json', partial)
@@ -2265,8 +2315,8 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 # fixture supplied it by hand — three places disagreeing about one fact, with the fixture making the
 # disagreement invisible. The producer now asserts it emits exactly this set and the fixture must match it.
 OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',
-                       'commands', 'definitions', 'measurements', 'module_graph', 'history_analysis',
-                       'derived', 'selection', 'suite_cost')
+                       'commands', 'definitions', 'measurements', 'traces', 'module_graph',
+                       'history_analysis', 'derived', 'selection', 'suite_cost')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
                  'sample_id', 'parent_sample_id',
@@ -2425,6 +2475,16 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
                 f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
                 f'source, so a cached no-op is recorded under an incremental label')
 
+    # §2 — the SAME trace rules a fragment is held to, and BEFORE the downstream symptoms. A recorded
+    # observation checked more loosely than the partial bundles that preceded it would let the final write
+    # launder what every intermediate check caught. It speaks first because a lost child also makes its
+    # command look unmeasured, and the reader is owed the defect rather than its consequence.
+    bad_traces = retained_trace_problems(obs)
+    if bad_traces:
+        raise ObservatoryError(
+            f'{len(bad_traces)} retained trace defect(s): {bad_traces[0]}'
+            + (f' (and {len(bad_traces) - 1} more)' if len(bad_traces) > 1 else ''))
+
     # A command named as selected and measured in nothing must say which it was. Otherwise the reader sees
     # it listed beside the results and reads its absence as a measurement that went missing.
     sel_block = obs.get('selection') or {}
@@ -2441,6 +2501,25 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{orphans} are recorded as selected but produced no sample and are not listed among the '
             f'commands this selection could not measure')
+
+    # §2 — every DIRECT sample must be covered by exactly one closed trace object. The runner refuses a trace
+    # that does not close, so reaching here with an uncovered root means the object was lost or never built —
+    # and the whole point is that completion is never inferred from a root sample that merely succeeded.
+    covered: dict[str, str] = {}
+    for obj in obs.get('traces') or []:
+        rid = obj.get('root_sample_id')
+        if rid:
+            if rid in covered:
+                raise ObservatoryError(
+                    f'sample {rid} is the root of two trace objects, {covered[rid]} and '
+                    f'{obj.get("trace_id")}; one execution closed twice')
+            covered[rid] = obj.get('trace_id')
+    roots = [s for s in samples if not s.get('derived_parent_id')]
+    uncovered = sorted(s['sample_id'] for s in roots if s.get('sample_id') not in covered)
+    if uncovered:
+        raise ObservatoryError(
+            f'{len(uncovered)} direct sample(s) have no trace-completion object, so the record cannot say '
+            f'the work they started ever finished: {uncovered[:3]}')
 
     # The two answers are exclusive, and one bundle may not give both. A contained command is measured INSIDE
     # its parent and reaches the observation through child derivation, so filing it under the commands this
@@ -2622,6 +2701,103 @@ def observed_relation(samples: list[dict]) -> dict:
         key = metric_identity(s)
         out[key] = out.get(key, 0) + 1
     return out
+
+
+# §2 — A COMPLETED SAMPLE IS NOT A COMPLETED TRACE.
+#
+# Per-sample validation checked that each sample was well formed and that no two shared an identity. It could
+# not notice a sample that never arrived. A reviewer removed `make.prove`, `docker.prover` and `make.fcb` in
+# turn from a real completed `make.check` fragment, and every mutilated fragment still passed: a lost
+# checkpoint, a lost stage or a lost contained command consumed the remaining suite and failed only at R05,
+# after the last trace. That is the multi-hour failure this repair exists to remove.
+#
+# So a trace states, when it ends, the exact relation it was required to establish and the exact relation it
+# did establish, and the two must be equal in both directions with exact counts. The expected side is READ
+# FROM THE PLAN — `establishes` is already the planner's own per-trace metric list — because a completion
+# object that recomputed it would be a second authority against the thing it exists to check.
+TRACE_MEMBERS = ('trace_id', 'command_id', 'scenario_id', 'edit_id', 'sample_index', 'root_sample_id',
+                 'expected_metrics', 'observed_metrics', 'child_sample_ids', 'prime_sample_id',
+                 'analysis_artifacts', 'state')
+
+TRACE_COMPLETE = 'complete'
+
+
+def artifact_digest(artifact) -> str:
+    """One digest over an analysis artifact's exact retained bytes.
+
+    §7 E4 — the observation may hold a `module_graph` or a `history_analysis` unrelated to the samples beside
+    it. Binding the artifact to the trace that established it needs one value both sides can compare, and it
+    must be taken from the canonical serialisation the observation itself stores rather than from a live
+    object, or the two would agree only while nothing round-tripped."""
+    return _sha256(json.dumps(artifact, sort_keys=True, separators=(',', ':')).encode('utf-8'))
+
+
+def trace_expectations(plan: dict) -> dict[tuple, list[str]]:
+    """Expected metric identities per trace, taken from the plan rather than derived a second time."""
+    return {(t['command_id'], t['scenario_id']): sorted(t['establishes']) for t in plan['traces']}
+
+
+def trace_id_of(command_id: str, scenario_id: str, edit_id: str | None, index: int) -> str:
+    """One trace is one root EXECUTION, so the repetition index is part of its identity.
+
+    Keying on command and scenario alone would let a second repetition overwrite the first, which is the same
+    defect §6 finds in per-trace suite cost."""
+    return '|'.join((command_id, scenario_id, edit_id or '-', str(index)))
+
+
+def trace_object(root: dict, children: list[dict], expected: list[str],
+                 prime_sample_id: str | None, artifacts: dict) -> dict:
+    """One completed root execution and everything derived inside it."""
+    return {
+        'trace_id': trace_id_of(root['command_id'], root['scenario_id'],
+                                root.get('edit_id'), root['sample_index']),
+        'command_id': root['command_id'], 'scenario_id': root['scenario_id'],
+        'edit_id': root.get('edit_id'), 'sample_index': root['sample_index'],
+        'root_sample_id': root.get('sample_id'),
+        'expected_metrics': sorted(expected),
+        'observed_metrics': sorted(metric_identity(s) for s in [root] + children),
+        'child_sample_ids': [s.get('sample_id') for s in children],
+        'prime_sample_id': prime_sample_id,
+        'analysis_artifacts': dict(artifacts),
+        'state': TRACE_COMPLETE,
+    }
+
+
+def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
+    """Everything that makes a retained trace object something other than a closed trace."""
+    absent = [m for m in TRACE_MEMBERS if m not in obj]
+    if absent:
+        return [f'trace object missing member(s) {absent}; completion cannot be inferred from what is there']
+    problems = []
+    label = obj.get('trace_id')
+    if obj['state'] != TRACE_COMPLETE:
+        problems.append(f'{label}: state is {obj["state"]!r}, so this trace was retained before it closed')
+    if not obj['root_sample_id']:
+        problems.append(f'{label}: no direct root sample identity, so nothing binds this object to a run')
+
+    exp, obs = list(obj['expected_metrics']), list(obj['observed_metrics'])
+    # BOTH directions with exact counts. A subset check accepts a lost child, and a superset check accepts a
+    # duplicate — the two defects this object exists to catch.
+    for metric in sorted(set(exp) | set(obs)):
+        want, got = exp.count(metric), obs.count(metric)
+        if want != got:
+            problems.append(f'{label}: metric {metric} was required {want} time(s) and observed {got}')
+    if len(obj['child_sample_ids']) != len(obs) - 1 and obj['root_sample_id']:
+        problems.append(f'{label}: {len(obj["child_sample_ids"])} child sample identity(ies) beside '
+                        f'{len(obs) - 1} child metric(s); one of the two is not the truth')
+    if len(set(obj['child_sample_ids'])) != len(obj['child_sample_ids']):
+        problems.append(f'{label}: a child sample identity is retained twice')
+
+    if expectations is not None:
+        key = (obj['command_id'], obj['scenario_id'])
+        want = expectations.get(key)
+        if want is None:
+            problems.append(f'{label}: the current plan schedules no such trace, so this object was closed '
+                            f'against an expectation the registry no longer states')
+        elif sorted(want) != sorted(exp):
+            problems.append(f'{label}: the retained expectation differs from the current plan '
+                            f'({len(exp)} metric(s) retained, {len(want)} planned)')
+    return problems
 
 
 def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -> dict:
@@ -3445,6 +3621,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     progress=_flushed, checkpoint=None,
                     resume_done: set | None = None,
                     resume_samples: list | None = None,
+                    resume_traces: list | None = None,
                     repeat: int = 1) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
@@ -3511,13 +3688,36 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     graph, history = None, None
     primes: dict[tuple, dict] = {}          # (command_id, root) -> the exact prime sample identity
 
+    traces: list[dict] = list(resume_traces or [])
+    expectations = trace_expectations(acquisition_plan(suite, sel, graph=stage_graph))
+
     def emit(sample: dict):
         # Stamped HERE, in the one place every sample passes through, rather than in each of the three
         # constructors — a fourth constructor would otherwise be one more chance to forget.
         sample['sample_id'] = sample_id_for(run_id, sample)
         samples.append(sample)
         if checkpoint:
-            checkpoint(samples, incomplete)
+            checkpoint(samples, incomplete, traces)
+
+    def close_trace(root_sample: dict, children: list[dict], prime_sample_id: str | None,
+                    artifacts: dict) -> None:
+        """§2 — the trace states what it owed and what it produced, and the two must agree HERE.
+
+        Not at recording. A lost checkpoint, a lost Docker stage or a lost contained command that surfaces at
+        the final rule has already spent every remaining trace, which is the multi-hour failure this replaces.
+        The expected side is the planner's own `establishes` list, so this cannot drift from the plan it
+        checks."""
+        obj = trace_object(root_sample, children,
+                           expectations.get((root_sample['command_id'], root_sample['scenario_id']), []),
+                           prime_sample_id, artifacts)
+        bad = trace_problems(obj, expectations)
+        if bad:
+            raise ObservatoryError(
+                f'trace {obj["trace_id"]} did not close: {bad[0]}'
+                + (f' (and {len(bad) - 1} more)' if len(bad) > 1 else ''))
+        traces.append(obj)
+        if checkpoint:
+            checkpoint(samples, incomplete, traces)
 
     for cid in sel.order:
         command = commands[cid]
@@ -3697,15 +3897,18 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if edit:
                         check_edit_effect(s, edit, command, context_inputs)
                     emit(s)
-                    for child in derive_child_samples(
-                            s, s['derived_stage_events'], child_ids_for(cid, scenario_id),
-                            contained=contained_ids_for(cid, scenario_id),
-                            role_of=lambda kid: sample_role(sel, kid, scenario_id)):
+                    kids = list(derive_child_samples(
+                        s, s['derived_stage_events'], child_ids_for(cid, scenario_id),
+                        contained=contained_ids_for(cid, scenario_id),
+                        role_of=lambda kid: sample_role(sel, kid, scenario_id)))
+                    for child in kids:
                         emit(child)
                     if edit:
                         restore_and_verify(target, edit, original, before, [edit['path']], index)
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
                         primes[(cid, 'prime')] = {'id': s['sample_id'], 'root': root_stage}
+                    # Every child and artifact is emitted; only now can the trace say it closed.
+                    close_trace(s, kids, provenance.get('prime_sample_id'), {})
                 except ObservatoryError as exc:
                     incomplete.append(label)
                     if edit:
@@ -3764,11 +3967,21 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
                         primes[(cid, 'prime')] = {'id': s['sample_id'],
                                                   'root': tuple(scenario['cache_cut']['invalidated_roots'])}
-                    for child in derive_child_samples(
-                            s, events, child_ids_for(cid, scenario_id),
-                            contained=contained_ids_for(cid, scenario_id),
-                            role_of=lambda kid: sample_role(sel, kid, scenario_id)):
+                    kids = list(derive_child_samples(
+                        s, events, child_ids_for(cid, scenario_id),
+                        contained=contained_ids_for(cid, scenario_id),
+                        role_of=lambda kid: sample_role(sel, kid, scenario_id)))
+                    for child in kids:
                         emit(child)
+                    # §6 D2 — the ARTIFACT this trace established, named by the trace that established it.
+                    # Resume carried sample rows only, so a reused analysis trace left `module_graph` and
+                    # `history_analysis` null while its samples claimed the analysis had happened.
+                    artifacts = {}
+                    if command['kind'] == 'history-analysis' and history is not None:
+                        artifacts['history_analysis'] = artifact_digest(history)
+                    elif graph is not None:
+                        artifacts['module_graph'] = artifact_digest(graph)
+                    close_trace(s, kids, provenance.get('prime_sample_id'), artifacts)
                 except ObservatoryError as exc:
                     incomplete.append(f'{cid}/{scenario_id}')
                     progress(f'fido: observe — {cid} [{scenario_id}] did not complete: {exc}')
@@ -3810,7 +4023,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'subject': subj, 'environment': env,
         'cache_model': {s: scenarios[s]['cache_cut'] for s in sel.scenarios if s in scenarios},
         'commands': command_fingerprints(suite), 'definitions': definition_fingerprints(suite),
-        'measurements': samples, 'module_graph': graph, 'history_analysis': history, 'derived': derived,
+        'measurements': samples, 'traces': traces,
+        'module_graph': graph, 'history_analysis': history, 'derived': derived,
         # What was asked for, and what the tool added on its own to make the answer mean anything. A reader
         # who sees a cold build in a warm-only run is owed the reason in the bundle, not in the terminal
         # scrollback that outlived it.
@@ -4698,6 +4912,24 @@ def self_test(root: Path) -> int:
         s['sample_id'] = over.get('sample_id') or sample_id_for('run-fixture', s)
         return s
 
+    def traces_for(samples: list[dict]) -> list[dict]:
+        """One closed trace per direct sample, through the REAL constructor.
+
+        Any fixture that rewrites `measurements` after construction must rebuild these too. A control that
+        replaced every sample's resource scope left the traces claiming the identities the samples used to
+        have — which the new rules correctly refused, and which is the fixture lying rather than the rule
+        being wrong."""
+        out = []
+        for rootsample in samples:
+            if rootsample.get('derived_parent_id'):
+                continue
+            kids = [k for k in samples
+                    if k.get('derived_parent_id') == rootsample['command_id']
+                    and k.get('scenario_id') == rootsample['scenario_id']]
+            out.append(trace_object(rootsample, kids,
+                                    [metric_identity(s) for s in [rootsample] + kids], None, {}))
+        return out
+
     def observation(samples=None, **over) -> dict:
         samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
                                                        for i, n in enumerate((900_000, 1_000_000, 1_100_000))]
@@ -4709,6 +4941,10 @@ def self_test(root: Path) -> int:
                 'definitions': {'commands': {'make.fmt': 'f0' * 32}, 'scenarios': {}, 'edits': {},
                                 'stable_through': 'rocq-base'},
                 'measurements': samples,
+                # §2 — one closed trace per DIRECT sample, built by the real constructor from the samples
+                # this fixture holds. Hand-writing them would let the fixture describe a completion shape the
+                # producer never emits, which is exactly how the run identity hid for a whole repair.
+                'traces': traces_for(samples),
                 'module_graph': None, 'history_analysis': None,
                 # §14 meta-evidence. The fixture carries it because the DECLARED shape carries it — the
                 # shape control refuses a fixture that invents or omits a member, which is what caught this
@@ -5454,6 +5690,7 @@ def self_test(root: Path) -> int:
     scoped = timed(100, 110, 120)
     scoped['measurements'] = [dict(s, resource_scope=SCOPE_BUILDKIT) for s in scoped['measurements']]
     scoped['derived'] = {'summaries': summarise(scoped['measurements'])}
+    scoped['traces'] = traces_for(scoped['measurements'])
     rows = cmp_guard(timed(100, 110, 120), scoped)['metrics']
     verdicts = {r['classification'] for r in rows}
     if verdicts - {'added', 'removed'}:
@@ -5642,6 +5879,139 @@ def self_test(root: Path) -> int:
         if not (b2 / 'observation.json').is_file():
             failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
                             'failure is the fragment itself')
+
+    # §2 — THE REVIEWER'S OWN REPRODUCTION, on the fragment path where they ran it. They took the cumulative
+    # prefix through a real completed `make.check/project.warm.noop`, removed `make.prove`, `docker.prover`
+    # and `make.fcb` in turn, and every mutilated fragment still passed with no finding. The fragment check
+    # now carries the trace rules, so a lost child stops the suite where it happens instead of at R05 after
+    # the last trace.
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    with _tempfile.TemporaryDirectory() as d:
+        b3 = Path(d) / 'bundle'
+        (b3 / 'raw').mkdir(parents=True)
+        keeper = checkpointer(b3, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'})
+        whole = complete_observation()
+        kept = [s for s in whole['measurements']
+                if s.get('derived_parent_id') in (None, 'make.check')]
+        closed = [t for t in whole['traces'] if t['command_id'] == 'make.check']
+        exercised = 0
+        for victim in ('make.prove', 'docker.prover', 'make.fcb'):
+            mutilated = [s for s in kept if s['command_id'] != victim]
+            if len(mutilated) == len(kept):
+                continue                    # that child is not in this fixture; the next one still proves it
+            exercised += 1
+            try:
+                keeper(mutilated, [], closed)
+                failures.append(f'a completed trace fragment missing its {victim} child was accepted, which '
+                                f'is the exact false green this repair exists to remove')
+            except ObservatoryError as exc:
+                if 'trace fragment is invalid' not in str(exc):
+                    failures.append(f'a fragment missing {victim} was refused for the wrong reason: {exc}')
+        # A control that skipped every case would report the same green as one that proved all three.
+        if exercised != 3:
+            failures.append(f'the reviewer reproduction exercised {exercised} of 3 named children; the '
+                            f'production-shaped observation no longer contains the others')
+
+    # ── §2 trace completion. A COMPLETED SAMPLE IS NOT A COMPLETED TRACE.
+    #
+    # Every must-fail below was reproduced by the reviewer against a real completed `make.check` fragment and
+    # passed, because per-sample rules cannot see a sample that never arrived.
+    def drop_sample(pick):
+        """A completed observation minus one retained sample, with its trace objects left intact."""
+        obs = complete_observation()
+        victim = pick(obs['measurements'])
+        obs['measurements'] = [s for s in obs['measurements'] if s is not victim]
+        return obs
+
+    observed('a contained child omitted from a completed trace',
+             lambda: validate_observation(
+                 drop_sample(lambda ss: pick({'measurements': ss}, 'contained child',
+                                             lambda s: s.get('measurement_kind') == KIND_CONTAINED)), digest),
+             expect='which this record does not contain')
+    observed('a derived Docker child omitted from a completed trace',
+             lambda: validate_observation(
+                 drop_sample(lambda ss: pick({'measurements': ss}, 'docker child',
+                                             lambda s: s['command_id'].startswith('docker.'))), digest),
+             expect='which this record does not contain')
+
+    def trace_with(mutate):
+        """A completed observation whose FIRST trace object has been mutated in place."""
+        obs = complete_observation()
+        obs['traces'] = [dict(obs['traces'][0])] + obs['traces'][1:]
+        mutate(obs['traces'][0], obs)
+        return obs
+
+    def add_child(obj, obs):
+        extra = sample(command_id='docker.prover', scenario_id=obj['scenario_id'],
+                       derived_parent_id=obj['command_id'], measurement_kind=KIND_AGGREGATE,
+                       resource_scope=SCOPE_BUILDKIT, aggregate_step_ns=5, wall_ns=None)
+        extra['sample_id'] = 'extra-child'
+        obs['measurements'] = obs['measurements'] + [extra]
+        obj['observed_metrics'] = sorted(obj['observed_metrics'] + [metric_identity(extra)])
+        obj['child_sample_ids'] = obj['child_sample_ids'] + ['extra-child']
+
+    observed('an extra child inserted into a completed trace',
+             lambda: validate_observation(trace_with(add_child), digest),
+             expect='was required 0 time(s) and observed 1')
+
+    def steal_child(obj, obs):
+        """One child moved under a trace that did not produce it, sample and all."""
+        other = next((t for t in obs['traces'][1:] if t['child_sample_ids']), None)
+        if other is None:
+            raise ObservatoryError('the fixture retains no second trace with a child to move')
+        obj['child_sample_ids'] = obj['child_sample_ids'] + [other['child_sample_ids'][0]]
+
+    observed('a child retained under a trace that did not produce it',
+             lambda: validate_observation(trace_with(steal_child), digest),
+             expect='retained under a trace that did not produce it')
+
+    observed('one expected metric produced twice in a trace',
+             lambda: validate_observation(
+                 trace_with(lambda obj, obs: obj.update(
+                     observed_metrics=sorted(obj['observed_metrics'] + [obj['observed_metrics'][0]]))), digest),
+             expect='was required 1 time(s) and observed 2')
+    observed('a trace retained before its children were derived',
+             lambda: validate_observation(
+                 trace_with(lambda obj, obs: obj.update(state='in-progress')), digest),
+             expect='retained before it closed')
+    observed('a completed direct root with no trace-completion object',
+             lambda: validate_observation(
+                 complete_observation(**{'traces': complete_observation()['traces'][1:]}), digest),
+             expect='no trace-completion object')
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    stale = complete_observation()['traces'][0]
+    against_plan = trace_problems(stale, {(stale['command_id'], stale['scenario_id']): ['a', 'b']})
+    if not any('differs from the current plan' in p for p in against_plan):
+        failures.append('a trace object closed against an expectation the current plan does not state was '
+                        f'accepted: {against_plan}')
+    unplanned = trace_problems(stale, {('nobody', 'nowhere'): []})
+    if not any('schedules no such trace' in p for p in unplanned):
+        failures.append(f'a trace the current plan does not schedule at all was accepted: {unplanned}')
+
+    # Must-accept: the exact shapes a real suite produces. `complete_observation` is generated FROM the
+    # expected relation, so `make.check/project.warm.noop` appears here with the exact child relation the
+    # registry declares for it — the reviewer's own must-accept case, without depending on a recorded file.
+    observed('a complete observation whose every direct sample closes its trace',
+             lambda: validate_observation(complete_observation(), digest))
+
+    counts['total'] += 1
+    shapes = {'direct-only': 0, 'direct-plus-contained': 0, 'direct-plus-docker': 0}
+    for obj in complete_observation()['traces']:
+        kids = [m.split('|')[0] for m in obj['observed_metrics']
+                if m != metric_identity({'command_id': obj['command_id'], 'scenario_id': obj['scenario_id'],
+                                         'edit_id': obj['edit_id'], 'selected_or_support': 'selected',
+                                         'resource_scope': SCOPE_HOST, 'measurement_kind': KIND_WALL})]
+        if not kids:
+            shapes['direct-only'] += 1
+        if any(k.startswith('docker.') for k in kids):
+            shapes['direct-plus-docker'] += 1
+        if any(not k.startswith('docker.') for k in kids):
+            shapes['direct-plus-contained'] += 1
+    if not all(shapes.values()):
+        failures.append(f'the accepted trace shapes are not all exercised by the production-shaped '
+                        f'observation: {shapes}')
 
     # ── §7 comparison: validated before it concludes, and one selector model
     def without(member):

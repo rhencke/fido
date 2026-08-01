@@ -491,6 +491,46 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'a trace names samples the record actually holds',
+     "                problems.append(f'{label}: names sample {sid}, which this record does not contain')",
+     "                pass",
+     # NOT the fragment reproduction: that is caught by this rule OR by the metric-count rule, so it does
+     # not depend on this one alone and listing it here would make the entry pass for the wrong reason.
+     ('a contained child omitted from a completed trace',
+      'a derived Docker child omitted from a completed trace')),
+
+    (OBS, 'a child is retained only under the trace that produced it',
+     "                problems.append(f'{label}: child {sid} was derived inside '",
+     "                _unused = (",
+     ('a child retained under a trace that did not produce it',)),
+
+    (OBS, 'a trace establishes exactly the metrics it owed',
+     "        if want != got:",
+     "        if False:",
+     ('an extra child inserted into a completed trace',
+      'one expected metric produced twice in a trace')),
+
+    (OBS, 'a trace is retained only once it has closed',
+     "    if obj['state'] != TRACE_COMPLETE:",
+     "    if False:",
+     ('a trace retained before its children were derived',)),
+
+    (OBS, 'every direct sample closes exactly one trace',
+     "    if uncovered:",
+     "    if False:",
+     ('a completed direct root with no trace-completion object',)),
+
+    (OBS, 'a retained expectation equals the current plan',
+     "        elif sorted(want) != sorted(exp):",
+     "        elif False:",
+     ('a trace object closed against an expectation the current plan does not state',)),
+
+    (OBS, 'the trace rules reach the recorded observation',
+     "    bad_traces = retained_trace_problems(obs)",
+     "    bad_traces = []",
+     ('a contained child omitted from a completed trace',
+      'a child retained under a trace that did not produce it')),
+
     (OBS, 'containment requires the command to declare the state',
      "    if sid not in cmd.get('scenarios', ()):",
      "    if False:",
