@@ -491,6 +491,34 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'a checkpoint may not begin while already open',
+     "            if already:",
+     "            if False:",
+     ('a second begin for an already-open checkpoint',)),
+
+    (OBS, 'one checkpoint completes at most one pair per trace',
+     "            if anchor in closed:",
+     "            if False:",
+     ('a second completed pair for one checkpoint',)),
+
+    # Two rules, two mutants. Neutralising them together made `stack.pop()` raise IndexError instead, so the
+    # self-test died before any named control could report — a crash is not a control failing.
+    (OBS, 'an end with nothing open is refused',
+     "            if top is None:",
+     "            if False:",
+     ('an end with no begin',
+      'a second end for a checkpoint already closed')),
+
+    (OBS, 'an end closes the innermost open checkpoint',
+     "            if top != anchor:",
+     "            if False:",
+     ('an end that does not close the innermost open checkpoint',)),
+
+    (OBS, 'a checkpoint the registry never declared is refused',
+     "        if known is not None and anchor not in known:",
+     "        if False:",
+     ('a checkpoint the registry never declared',)),
+
     (OBS, 'a trace names samples the record actually holds',
      "                problems.append(f'{label}: names sample {sid}, which this record does not contain')",
      "                pass",

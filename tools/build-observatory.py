@@ -1284,12 +1284,31 @@ BUILDKIT_DONE = re.compile(r'^#(\d+) (DONE ([0-9.]+)s|CACHED)\s*$')
 HOOK_CLOCK = {'source': '/proc/uptime', 'kind': 'CLOCK_MONOTONIC', 'resolution_ns': 10_000_000}
 
 
-def parse_anchor_log(text: str) -> list[dict]:
-    """Hook stage durations from the anchor log the instrumented hook writes.
+def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
+    """§3 — the RUNTIME checkpoint state machine, which fails closed by itself.
 
-    The clock is monotonic, so an end before its begin cannot happen; if it does, the sample is void rather
-    than reported as a negative duration."""
-    open_at: dict[str, int] = {}
+    Static source pairing proves the Makefile and the hook are written correctly. It says nothing about what
+    a run actually wrote, and contained timing is derived from that log rather than from the source. Three
+    malformed logs were accepted silently: an `end` with no `begin` produced no event at all, a second
+    `begin` overwrote the first so the pair reported its LAST fragment as the whole interval, and a second
+    `end` was ignored.
+
+    ONE stack serves both grammars, because both obey stack discipline for different reasons rather than by
+    coincidence, and neither is forced into the other's model:
+
+      MAKE — flat SIBLINGS. `check: pytools hostpython names fcb claims diet observatory prove e2e builder`
+      runs each prerequisite to completion before the next begins, and `make.check-body` brackets only the
+      recipe. There is deliberately no enclosing `make.check` anchor: prerequisites run before the recipe, so
+      one there would begin after most of the work. At most one checkpoint is ever open.
+
+      PRE-COMMIT — one root, `precommit.full`, with sibling stages nested inside it. Two open at a time, and
+      the root closes last.
+
+    So an end must close the INNERMOST open checkpoint. That rejects interleaving without assuming Make
+    nests, and it is the same rule the hook needs. Exact start and end are retained, not only the duration:
+    §4's partition cannot be proved from durations alone."""
+    stack: list[tuple[str, int]] = []
+    closed: dict[str, int] = {}
     events = []
     for line in text.split('\n'):
         stripped = line.strip()
@@ -1304,10 +1323,37 @@ def parse_anchor_log(text: str) -> list[dict]:
                     f'so this sample lost a stage rather than measuring one')
             continue
         kind, anchor, ns = m.group(1), m.group(2), int(m.group(3))
+        if known is not None and anchor not in known:
+            raise ObservatoryError(
+                f'checkpoint {anchor!r} is not one this trace declares, so the log describes work the '
+                f'registry cannot name; a checkpoint nobody declared is not evidence')
         if kind == 'begin':
-            open_at[anchor] = ns
-        elif anchor in open_at:
-            wall = ns - open_at.pop(anchor)
+            already = [a for a, _ in stack if a == anchor]
+            if already:
+                raise ObservatoryError(
+                    f'checkpoint {anchor!r} began while already open; the second begin silently replaced the '
+                    f'first and the pair reported the LAST fragment as the whole interval')
+            if anchor in closed:
+                raise ObservatoryError(
+                    f'checkpoint {anchor!r} completed a second pair in one trace; canonical multiplicity is '
+                    f'one, so two intervals under one identity are two answers to one question')
+            stack.append((anchor, ns))
+        else:
+            # TWO rules, stated once each rather than as one compound condition. An end with nothing open is
+            # a different defect from an end that closes the wrong checkpoint, and a reader of either failure
+            # is owed the one that happened.
+            top = stack[-1][0] if stack else None
+            if top is None:
+                raise ObservatoryError(
+                    f'checkpoint {anchor!r} ended while nothing was the open checkpoint; an unmatched end '
+                    f'was previously ignored and its interval attributed to nobody')
+            if top != anchor:
+                raise ObservatoryError(
+                    f'checkpoint {anchor!r} ended while {top!r} was the open checkpoint, so these intervals '
+                    f'interleave rather than nest and neither can be attributed')
+            _, started = stack.pop()
+            closed[anchor] = ns
+            wall = ns - started
             if wall < 0:
                 raise ObservatoryError(
                     f'hook anchor {anchor!r} ended before it began on a monotonic clock; every stage '
@@ -1318,16 +1364,16 @@ def parse_anchor_log(text: str) -> list[dict]:
                 # duration lies somewhere in [0, one tick) — and that is what gets retained, so a summary
                 # can say "below resolution" instead of inventing a percentage against nothing.
                 events.append({'id': anchor, 'wall_ns': None, 'source': 'hook-anchor',
-                               'clock': HOOK_CLOCK,
+                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns,
                                'lower_ns': 0, 'upper_ns': HOOK_CLOCK['resolution_ns'],
                                'below_resolution': True})
             else:
                 events.append({'id': anchor, 'wall_ns': wall, 'source': 'hook-anchor',
-                               'clock': HOOK_CLOCK})
-    if open_at:
+                               'clock': HOOK_CLOCK, 'start_ns': started, 'end_ns': ns})
+    if stack:
         raise ObservatoryError(
-            f'hook anchor(s) {sorted(open_at)} began and never ended; the stages they name are missing from '
-            f'this sample and their absence would read as coverage')
+            f'checkpoint(s) {sorted(a for a, _ in stack)} began and never ended; the stages they name are '
+            f'missing from this sample and their absence would read as coverage')
     return events
 
 
@@ -3575,11 +3621,21 @@ def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None =
     return env
 
 
-def collect_events(command: dict, anchor_log: Path, raw_log: Path) -> list[dict]:
+def declared_anchor_ids(suite: dict) -> set:
+    """Every checkpoint identity the registry declares, from the registry itself.
+
+    §3 refuses an unknown checkpoint, and the set it is refused against has to be the one the rest of the
+    tool already reads. A second hand-kept list here would be the usual failure: the log and the registry
+    would disagree the moment either changed, and the parser would be enforcing a stale vocabulary."""
+    return {c['id'] for c in suite['commands']}
+
+
+def collect_events(command: dict, anchor_log: Path, raw_log: Path,
+                   known_anchors: set | None = None) -> list[dict]:
     """Every derived event this sample produced, from whichever instrumentation applies to it."""
     events = []
     if anchor_log.is_file():
-        events.extend(parse_anchor_log(read_text(anchor_log, 'hook anchor log')))
+        events.extend(parse_anchor_log(read_text(anchor_log, 'hook anchor log'), known_anchors))
     if raw_log.is_file():
         events.extend(parse_buildkit_progress(raw_log.read_text(encoding='utf-8', errors='replace')))
     return events
@@ -3892,7 +3948,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     s['derived_stage_events'] = collect_events(
                         command, anchor_log,
                         raw_dir / (raw_log_name(cid, scenario_id, index,
-                                                edit['id'] if edit else None) + '.log'))
+                                                edit['id'] if edit else None) + '.log'),
+                        # §3 — an UNKNOWN checkpoint is refused. The set is the registry's, so a log naming
+                        # work no row declares cannot quietly become a metric.
+                        known_anchors=declared_anchor_ids(suite))
                     check_cut_observed(s, scenario, suite, stage_graph)
                     if edit:
                         check_edit_effect(s, edit, command, context_inputs)
@@ -6515,6 +6574,52 @@ def self_test(root: Path) -> int:
     observed('a hook anchor whose clock went backwards',
              lambda: parse_anchor_log('begin a 2000\nend a 1000\n'),
              expect='ended before it began')
+
+    # §3 — THE THREE MALFORMED LOGS THE OLD PARSER ACCEPTED SILENTLY. Each was reproduced by the reviewer
+    # against the live parser: the first produced no event at all, the second reported a 50 ns interval for
+    # work that took 100, and the third was discarded. Runtime checkpoint output is the evidence contained
+    # timing is derived FROM, so static source pairing cannot stand in for any of them.
+    observed('an end with no begin',
+             lambda: parse_anchor_log('end make.prove 200\n'),
+             expect='ended while nothing was the open checkpoint')
+    observed('a second begin for an already-open checkpoint',
+             lambda: parse_anchor_log('begin make.prove 100\nbegin make.prove 150\nend make.prove 200\n'),
+             expect='began while already open')
+    observed('a second end for a checkpoint already closed',
+             lambda: parse_anchor_log('begin make.prove 100\nend make.prove 200\nend make.prove 250\n'),
+             expect='ended while nothing was the open checkpoint')
+    observed('a second completed pair for one checkpoint',
+             lambda: parse_anchor_log('begin make.prove 100\nend make.prove 200\n'
+                                      'begin make.prove 300\nend make.prove 400\n'),
+             expect='completed a second pair in one trace')
+    observed('an end that does not close the innermost open checkpoint',
+             lambda: parse_anchor_log('begin a 100\nbegin b 150\nend a 200\nend b 250\n'),
+             expect="ended while 'b' was the open checkpoint")
+    observed('a checkpoint the registry never declared',
+             lambda: parse_anchor_log('begin make.invented 100\nend make.invented 200\n',
+                                      known=declared_anchor_ids(suite)),
+             expect='is not one this trace declares')
+
+    counts['total'] += 1
+    # Exact start and end, not only the duration. §4's partition cannot be proved from durations alone, and
+    # a parser that retained only the difference made the containment question unanswerable.
+    bounds = parse_anchor_log('begin a 1000\nbegin b 1100\nend b 1400\nend a 2000\n')
+    if [(e['id'], e.get('start_ns'), e.get('end_ns')) for e in bounds] != [('b', 1100, 1400),
+                                                                          ('a', 1000, 2000)]:
+        failures.append(f'a checkpoint must retain its exact start and end, not only its duration: {bounds}')
+
+    counts['total'] += 1
+    # Both real grammars parse. MAKE is flat siblings with no enclosing root; the HOOK is one root with
+    # sibling stages inside it. One stack serves both, and neither is forced into the other's shape.
+    make_log = ('begin make.names 100\nend make.names 200\n'
+                'begin make.prove 200\nend make.prove 500\n'
+                'begin make.check-body 500\nend make.check-body 900\n')
+    hook_log = ('begin precommit.full 100\nbegin precommit.builder 110\nend precommit.builder 150\n'
+                'begin precommit.naming 150\nend precommit.naming 400\nend precommit.full 500\n')
+    for label, log, want in (('make siblings', make_log, 3), ('hook nesting', hook_log, 3)):
+        got = parse_anchor_log(log)
+        if len(got) != want:
+            failures.append(f'{label}: expected {want} checkpoint interval(s), got {len(got)}')
 
     counts['total'] += 1
     stages = parse_buildkit_progress('#5 [prover 5/5] RUN x\n#5 DONE 2.5s\n'
