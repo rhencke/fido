@@ -3921,13 +3921,16 @@ def instrumentation_env(command: dict, anchor_log: Path, scenario: dict | None =
     return env
 
 
-def declared_anchor_ids(suite: dict) -> set:
-    """Every checkpoint identity the registry declares, from the registry itself.
+def declared_anchor_ids(suite: dict, root: Path) -> set:
+    """Every checkpoint identity the SOURCES declare, taken from those sources.
 
     §3 refuses an unknown checkpoint, and the set it is refused against has to be the one the rest of the
-    tool already reads. A second hand-kept list here would be the usual failure: the log and the registry
-    would disagree the moment either changed, and the parser would be enforcing a stale vocabulary."""
-    return {c['id'] for c in suite['commands']}
+    tool already reads. My first version used the command ids alone and refused a real run over
+    `make.check-body` — which the coverage gate has always known about, because `<command>-body` is the
+    declared form for a compound recipe's own unowned segment that §4 requires to be named rather than folded
+    into its parent. A narrower vocabulary here is not caution; it rejects work the registry does declare."""
+    return ({c['id'] for c in suite['commands']}
+            | set(make_anchor_pairs(root)) | set(hook_anchor_pairs(root)))
 
 
 def collect_events(command: dict, anchor_log: Path, raw_log: Path,
@@ -4268,9 +4271,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         command, anchor_log,
                         raw_dir / (raw_log_name(cid, scenario_id, index,
                                                 edit['id'] if edit else None) + '.log'),
-                        # §3 — an UNKNOWN checkpoint is refused. The set is the registry's, so a log naming
-                        # work no row declares cannot quietly become a metric.
-                        known_anchors=declared_anchor_ids(suite))
+                        # §3 — an UNKNOWN checkpoint is refused, against the vocabulary the registry, the
+                        # Makefile and the hook actually declare, so a log naming work none of them declares
+                        # cannot quietly become a metric.
+                        known_anchors=declared_anchor_ids(suite, root))
                     check_cut_observed(s, scenario, suite, stage_graph)
                     if edit:
                         check_edit_effect(s, edit, command, context_inputs)
@@ -7184,8 +7188,20 @@ def self_test(root: Path) -> int:
              expect="ended while 'b' was the open checkpoint")
     observed('a checkpoint the registry never declared',
              lambda: parse_anchor_log('begin make.invented 100\nend make.invented 200\n',
-                                      known=declared_anchor_ids(suite)),
+                                      known=declared_anchor_ids(suite, root)),
              expect='is not one this trace declares')
+    # MUST ACCEPT — and this refused a real `make.check` run. The declared vocabulary is the registry's
+    # commands AND the checkpoints the Makefile and hook emit: `<command>-body` is the declared form for a
+    # compound recipe's own unowned segment, which §4 requires to be named rather than folded into its
+    # parent. Building the set from command ids alone rejected work the registry does declare.
+    counts['total'] += 1
+    live_vocab = declared_anchor_ids(suite, root)
+    unspeakable = sorted((set(make_anchor_pairs(root)) | set(hook_anchor_pairs(root))) - live_vocab)
+    if unspeakable:
+        failures.append(f'the sources emit checkpoint(s) the declared vocabulary refuses: {unspeakable}')
+    observed('a compound recipe body checkpoint',
+             lambda: parse_anchor_log('begin make.check-body 100\nend make.check-body 200\n',
+                                      known=live_vocab))
 
     counts['total'] += 1
     # Exact start and end, not only the duration. §4's partition cannot be proved from durations alone, and
