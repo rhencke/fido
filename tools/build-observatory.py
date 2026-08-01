@@ -899,14 +899,23 @@ def check_environment_complete(env: dict) -> None:
             f'record an environment it could not identify')
 
 
+def host_class_fingerprint(env: dict) -> str:
+    """The host-class identity, DERIVED from the retained fields every time it is needed.
+
+    §7 E3 — it was computed once at capture and thereafter trusted. The reviewer changed
+    `concurrency.buildkit_max_parallelism` from 1 to 2, left the stored hash alone, and the observation still
+    validated: comparison then read the two runs as the same host class and printed ordinary timing verdicts
+    across a doubling of build parallelism. A fingerprint nobody recomputes is a claim, not a check."""
+    stable = {k: env.get(k) for k in FINGERPRINT_FIELDS}
+    stable['base_image_digests'] = env.get('base_image_digests')
+    stable['toolchain_versions'] = env.get('toolchain_versions')
+    return _sha256(json.dumps(stable, sort_keys=True, ensure_ascii=False).encode('utf-8'))
+
+
 def environment(root: Path, builder: str = None) -> dict:
     env = {**_host(root, builder), **_pinned(root)}
     env['builder'] = builder or OBSERVATORY_BUILDER
-    stable = {k: env[k] for k in FINGERPRINT_FIELDS}
-    stable['base_image_digests'] = env['base_image_digests']
-    stable['toolchain_versions'] = env['toolchain_versions']
-    env['host_class_fingerprint'] = _sha256(
-        json.dumps(stable, sort_keys=True, ensure_ascii=False).encode('utf-8'))
+    env['host_class_fingerprint'] = host_class_fingerprint(env)
     return env
 
 
@@ -1709,6 +1718,58 @@ def fragment_problems(partial: dict) -> list[str]:
             + retained_trace_problems(partial))
 
 
+SUITE_COST_MEMBERS = ('suite_started', 'suite_completed', 'suite_wall_ns', 'preflight_wall_ns',
+                      'validation_wall_ns', 'validation_components', 'trace_wall_ns',
+                      'direct_trace_count', 'contained_metric_count')
+
+
+def suite_cost_problems(obs: dict) -> list[str]:
+    """§7 E2 — ONE suite-cost validator, for recording, loading, resume and comparison alike.
+
+    The block was retained and never checked, so its counts were free to disagree with the samples beside
+    them and its per-trace entries free to name traces the run never had. Meta-evidence that nothing verifies
+    is the same shape as the coverage-on-paper this repair keeps refusing everywhere else."""
+    cost = obs.get('suite_cost')
+    if not isinstance(cost, dict):
+        return ['the observation retains no suite cost, so the facility reports every cost but its own']
+    absent = [m for m in SUITE_COST_MEMBERS if m not in cost]
+    if absent:
+        return [f'suite cost is missing member(s) {absent}']
+
+    problems = []
+    samples = obs.get('measurements') or []
+    direct = [s for s in samples if not s.get('derived_parent_id')]
+    contained = [s for s in samples if s.get('derived_parent_id')]
+    if cost['direct_trace_count'] != len(direct):
+        problems.append(f'suite cost claims {cost["direct_trace_count"]} direct trace(s) beside '
+                        f'{len(direct)} retained direct sample(s)')
+    if cost['contained_metric_count'] != len(contained):
+        problems.append(f'suite cost claims {cost["contained_metric_count"]} contained metric(s) beside '
+                        f'{len(contained)} retained derived sample(s)')
+    for field in ('suite_wall_ns', 'preflight_wall_ns', 'validation_wall_ns'):
+        value = cost[field]
+        if not isinstance(value, int) or value < 0:
+            problems.append(f'suite cost {field} is {value!r}, which is not a duration')
+    if isinstance(cost.get('validation_components'), dict):
+        parts = sum(v for v in cost['validation_components'].values() if isinstance(v, int))
+        if isinstance(cost['validation_wall_ns'], int) and parts != cost['validation_wall_ns']:
+            problems.append(f'suite cost validation components sum to {parts}, not the retained '
+                            f'{cost["validation_wall_ns"]}')
+    if cost['suite_started'] >= cost['suite_completed']:
+        problems.append(f'suite cost starts at {cost["suite_started"]} and completes at '
+                        f'{cost["suite_completed"]}, so its own timestamps do not order')
+
+    # Every per-trace entry names an EXACT trace of this run, and every timed direct sample has one.
+    named = set(cost.get('trace_wall_ns') or {})
+    real = {trace_id_of(s['command_id'], s['scenario_id'], s.get('edit_id'), s['sample_index'])
+            for s in direct if s.get('wall_ns') is not None}
+    for orphan in sorted(named - real):
+        problems.append(f'suite cost retains a cost for {orphan}, which is not a trace this run performed')
+    for missed in sorted(real - named):
+        problems.append(f'suite cost retains no cost for {missed}, which this run did perform')
+    return problems
+
+
 def retained_trace_problems(partial: dict) -> list[str]:
     """Every retained trace object, checked AGAINST THE SAMPLES the same record holds.
 
@@ -1825,7 +1886,32 @@ def resumable_traces(prior: dict) -> tuple[set, list[str]]:
     return done, notes
 
 
-def checkpointer(bundle: Path, header: dict):
+class ValidationClock:
+    """§7 E1 — what the facility spends CHECKING itself, on the suite's own monotonic source.
+
+    Repair 3 required this and the implementation never produced it, so the one cost the observation could
+    not report was the cost of the thing doing the reporting. It accumulates per component — the deterministic
+    preflight, the per-trace fragment checks, the final recording rules — because a single total cannot say
+    whether validating got expensive or merely happened more often.
+
+    Only the validating call is inside the interval. A measured command's own time is never counted here: the
+    whole point is to separate what the suite spends proving from what it spends measuring."""
+
+    def __init__(self):
+        self.components: dict[str, int] = {}
+
+    def measure(self, component: str, fn, *args, **kwargs):
+        started = _monotonic_ns()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            self.components[component] = self.components.get(component, 0) + (_monotonic_ns() - started)
+
+    def total_ns(self) -> int:
+        return sum(self.components.values())
+
+
+def checkpointer(bundle: Path, header: dict, clock: 'ValidationClock | None' = None):
     """Write the local observation after every completed sample, and CHECK it before the next one starts.
 
     The first candidate wrote it only when the suite returned, so a suite that was KILLED left raw logs and
@@ -1838,7 +1924,8 @@ def checkpointer(bundle: Path, header: dict):
         write_json(bundle / 'observation.json', partial)
         # §12 — stop IMMEDIATELY. Continuing past a defective fragment spends the rest of the suite proving
         # nothing, and the bundle is already written, so the evidence for the failure survives the stop.
-        problems = fragment_problems(partial)
+        problems = (clock.measure('per_trace', fragment_problems, partial) if clock
+                    else fragment_problems(partial))
         if problems:
             raise ObservatoryError(
                 f'trace fragment is invalid after {len(samples)} sample(s), so the rest of the suite would '
@@ -2521,6 +2608,14 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
                 f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
                 f'source, so a cached no-op is recorded under an incremental label')
 
+    # §7 E3 — the fingerprint is RE-DERIVED from the fields beside it, never trusted. Changing a host field
+    # while leaving the hash alone made two different host classes compare as one.
+    env_block = obs.get('environment') or {}
+    if env_block.get('host_class_fingerprint') != host_class_fingerprint(env_block):
+        raise ObservatoryError(
+            'the retained host-class fingerprint is not the one its own environment fields produce, so the '
+            'observation describes a host it did not run on')
+
     # §2 — the SAME trace rules a fragment is held to, and BEFORE the downstream symptoms. A recorded
     # observation checked more loosely than the partial bundles that preceded it would let the final write
     # launder what every intermediate check caught. It speaks first because a lost child also makes its
@@ -2530,6 +2625,14 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{len(bad_traces)} retained trace defect(s): {bad_traces[0]}'
             + (f' (and {len(bad_traces) - 1} more)' if len(bad_traces) > 1 else ''))
+
+    # §7 E2 — the suite's own cost, held to the standard of everything it reports. AFTER the trace rules: a
+    # lost child also makes the contained count disagree, and the count is the symptom, not the defect.
+    bad_cost = suite_cost_problems(obs)
+    if bad_cost:
+        raise ObservatoryError(
+            f'{len(bad_cost)} suite-cost defect(s): {bad_cost[0]}'
+            + (f' (and {len(bad_cost) - 1} more)' if len(bad_cost) > 1 else ''))
 
     # A command named as selected and measured in nothing must say which it was. Otherwise the reader sees
     # it listed beside the results and reads its absence as a measurement that went missing.
@@ -3470,8 +3573,12 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     boundary_moved = (b_def.get('stable_through') != c_def.get('stable_through')
                       and b_def.get('stable_through') is not None
                       and c_def.get('stable_through') is not None)
-    b_conc = (base['environment'].get('concurrency') or {}).get('make_jobs')
-    c_conc = (cand['environment'].get('concurrency') or {}).get('make_jobs')
+    # §7 E3 — ALL effective timing concurrency, not only Make's. Reading `make_jobs` alone reported ordinary
+    # percentage deltas across a doubling of BuildKit parallelism, which changes what a build costs at least
+    # as much as Make's job count does.
+    CONCURRENCY_FIELDS = ('make_jobs', 'buildkit_max_parallelism')
+    b_conc = {k: (base['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
+    c_conc = {k: (cand['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
     concurrency_changed = b_conc != c_conc
     definitions['changed_scenarios'] = sorted(changed_scenarios)
     definitions['changed_edits'] = sorted(changed_edits)
@@ -3504,8 +3611,14 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
             metrics.append({**row, 'classification': 'removed', 'reason': 'absent from the candidate'})
             continue
         if not same_host:
+            # NAME THE CAUSE. Effective concurrency is part of the host-class fingerprint, so a changed
+            # builder configuration also changes the hash — and reporting only "different fingerprints"
+            # tells a reader that something about the machine differs while withholding the one thing that
+            # actually explains the timings.
             metrics.append({**row, 'classification': 'incomparable',
-                            'reason': 'the two runs have different host-class fingerprints'})
+                            'reason': (f'effective concurrency changed ({b_conc} -> {c_conc})'
+                                       if concurrency_changed
+                                       else 'the two runs have different host-class fingerprints')})
             continue
         # No scope guard here, and deliberately none: resource scope is a FIELD OF THE KEY, so two sides of
         # one key cannot disagree about it. The guard that used to sit here compared a two-part
@@ -3796,6 +3909,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     resume_samples: list | None = None,
                     resume_traces: list | None = None,
                     resume_artifacts: dict | None = None,
+                    clock: 'ValidationClock | None' = None,
                     repeat: int = 1) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
@@ -4206,6 +4320,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'suite_completed': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'suite_wall_ns': _monotonic_ns() - suite_t0,
         'preflight_wall_ns': preflight_ns,
+        # §7 E1 — the facility's own checking cost, kept apart from what it measured.
+        'validation_wall_ns': (clock.total_ns() if clock else 0),
+        'validation_components': dict(clock.components) if clock else {},
         # §6 D4 — keyed by the EXACT trace, repetition index and all. `command|scenario` let ad hoc repeated
         # traces overwrite each other, so a five-repetition investigation retained one cost and the suite's
         # own accounting silently disagreed with the run that produced it.
@@ -5110,6 +5227,33 @@ def self_test(root: Path) -> int:
         s['sample_id'] = over.get('sample_id') or sample_id_for('run-fixture', s)
         return s
 
+    def fixture_environment(**over) -> dict:
+        """An environment whose fingerprint is what its own fields produce.
+
+        Modelling a DIFFERENT host class means changing a field — a different CPU, a different job count —
+        and letting the hash follow. Changing only the hash models nothing that can happen."""
+        env = {**{k: 'x' for k in REQUIRED_ENVIRONMENT},
+               'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1},
+               'base_image_digests': {}, 'toolchain_versions': {}}
+        env.update(over)
+        env['host_class_fingerprint'] = host_class_fingerprint(env)
+        return env
+
+    def fixture_suite_cost(samples: list[dict], **over) -> dict:
+        """Suite cost derived from the samples it accompanies, exactly as the producer derives it."""
+        direct = [s for s in samples if not s.get('derived_parent_id')]
+        cost = {'suite_started': '2026-01-01T00:00:00+00:00',
+                'suite_completed': '2026-01-01T00:01:00+00:00',
+                'suite_wall_ns': 60_000_000_000, 'preflight_wall_ns': 1_000_000_000,
+                'validation_wall_ns': 3, 'validation_components': {'preflight_controls': 2, 'per_trace': 1},
+                'trace_wall_ns': {trace_id_of(s['command_id'], s['scenario_id'],
+                                              s.get('edit_id'), s['sample_index']): s['wall_ns']
+                                  for s in direct if s.get('wall_ns') is not None},
+                'direct_trace_count': len(direct),
+                'contained_metric_count': len(samples) - len(direct)}
+        cost.update(over)
+        return cost
+
     def traces_for(samples: list[dict]) -> list[dict]:
         """One closed trace per direct sample, through the REAL constructor.
 
@@ -5134,7 +5278,9 @@ def self_test(root: Path) -> int:
         base = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture',
                 'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
                             'dirty': False, 'source_view': 'committed-tree'},
-                'environment': {**{k: 'x' for k in REQUIRED_ENVIRONMENT}, 'host_class_fingerprint': 'd' * 64},
+                # §7 E3 — the fixture's fingerprint is DERIVED from its own fields, like the producer's. A
+                # hand-written hash described a host the fields did not, which is the defect itself.
+                'environment': fixture_environment(),
                 'cache_model': {}, 'commands': {'make.fmt': 'f0' * 32},
                 'definitions': {'commands': {'make.fmt': 'f0' * 32}, 'scenarios': {}, 'edits': {},
                                 'stable_through': 'rocq-base'},
@@ -5147,11 +5293,9 @@ def self_test(root: Path) -> int:
                 # §14 meta-evidence. The fixture carries it because the DECLARED shape carries it — the
                 # shape control refuses a fixture that invents or omits a member, which is what caught this
                 # the moment `suite_cost` joined the member list.
-                'suite_cost': {'suite_started': '2026-01-01T00:00:00+00:00',
-                               'suite_completed': '2026-01-01T00:01:00+00:00',
-                               'suite_wall_ns': 60_000_000_000, 'preflight_wall_ns': 1_000_000_000,
-                               'trace_wall_ns': {}, 'direct_trace_count': 0,
-                               'contained_metric_count': 0},
+                # §7 E2 — DERIVED from the samples this fixture holds, like the producer's. A hand-kept
+                # count was free to disagree with the measurements beside it, which is the defect.
+                'suite_cost': fixture_suite_cost(samples),
                 # Derived from the samples this fixture actually holds, so it cannot drift into naming a
                 # command the observation never measured.
                 'selection': {'partial': False,
@@ -5876,8 +6020,9 @@ def self_test(root: Path) -> int:
         failures.append(f'a one-sample side must say so: noise_basis was {single.get("noise_basis")!r}')
 
     counts['total'] += 1
-    other_host = observation()
-    other_host['environment'] = {**other_host['environment'], 'host_class_fingerprint': 'e' * 64}
+    # A DIFFERENT HOST is a different field, and the hash follows. Changing only the hash modelled a machine
+    # that cannot exist, and once the fingerprint is re-derived that fixture is simply invalid.
+    other_host = observation(environment=fixture_environment(cpu_model='some other processor'))
     row = cmp_guard(observation(), other_host)['metrics'][0]
     if row['classification'] != 'incomparable' or 'delta_percent' in row:
         failures.append('an incomparable host class must not be reported as an ordinary percentage delta')
@@ -6077,6 +6222,60 @@ def self_test(root: Path) -> int:
         if not (b2 / 'observation.json').is_file():
             failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
                             'failure is the fragment itself')
+
+    # ── §7 the observation's self-evidence is evidence, not assertion.
+    observed('an observation whose fingerprint is not what its own fields produce',
+             lambda: validate_observation(
+                 observation(environment={**fixture_environment(),
+                                          'concurrency': {'make_jobs': 1,
+                                                          'buildkit_max_parallelism': 2}}), digest),
+             expect='not the one its own environment fields produce')
+
+    def perturbed_cost(**over):
+        """A complete observation whose suite cost has been perturbed in one exact way."""
+        obs = complete_observation()
+        obs['suite_cost'] = {**obs['suite_cost'], **over}
+        return obs
+
+    for label, over, want in (
+            ('missing validation cost', {'validation_wall_ns': None}, 'not a duration'),
+            ('a negative validation cost', {'validation_wall_ns': -1}, 'not a duration'),
+            ('components that do not sum to the total', {'validation_components': {'x': 99}},
+             'components sum to'),
+            ('a false direct count', {'direct_trace_count': 999}, 'direct trace(s) beside'),
+            ('a false contained count', {'contained_metric_count': 999}, 'contained metric(s) beside'),
+            ('timestamps that do not order', {'suite_completed': '2025-01-01T00:00:00+00:00'},
+             'do not order'),
+            ('a cost naming no trace', {'trace_wall_ns': {'nobody|nowhere|-|0': 5}},
+             'not a trace this run performed')):
+        observed(f'suite cost with {label}',
+                 lambda over=over: validate_observation(perturbed_cost(**over), digest),
+                 expect=want)
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # A trace the run performed with no cost retained is the other direction of the same rule.
+    thin = complete_observation()
+    first = next(iter(thin['suite_cost']['trace_wall_ns']))
+    thin['suite_cost'] = {**thin['suite_cost'],
+                          'trace_wall_ns': {k: v for k, v in thin['suite_cost']['trace_wall_ns'].items()
+                                            if k != first}}
+    try:
+        validate_observation(thin, digest)
+        failures.append('a performed trace with no retained cost was accepted')
+    except ObservatoryError as exc:
+        if 'retains no cost for' not in str(exc):
+            failures.append(f'a performed trace with no retained cost was refused wrongly: {exc}')
+
+    counts['total'] += 1
+    # E1 — the clock times VALIDATING and nothing else, per component.
+    clk = ValidationClock()
+    clk.measure('preflight_controls', lambda: None)
+    clk.measure('per_trace', lambda: None)
+    clk.measure('per_trace', lambda: None)
+    if set(clk.components) != {'preflight_controls', 'per_trace'} or clk.total_ns() != sum(
+            clk.components.values()):
+        failures.append(f'the validation clock must accumulate per component and total them: {clk.components}')
 
     # ── §6 resume carries the CAUSAL state, not only the sample rows.
     counts['total'] += 1
@@ -6363,12 +6562,15 @@ def self_test(root: Path) -> int:
         failures.append(f'a changed scenario meaning must be incomparable: {row}')
 
     counts['total'] += 1
-    slow = observation()
-    slow['environment'] = {**slow['environment'],
-                           'concurrency': {'make_jobs': 4, 'make_jobs_source': '-j4'}}
-    row = cmp_guard(slow, observation())['metrics'][0]
-    if row['classification'] != 'incomparable' or 'concurrency' not in row['reason']:
-        failures.append(f'a changed effective concurrency must be incomparable: {row}')
+    # BOTH halves of effective concurrency. Reading `make_jobs` alone let the reviewer double BuildKit
+    # parallelism and still receive ordinary percentage deltas.
+    for label, conc in (('Make jobs', {'make_jobs': 4, 'buildkit_max_parallelism': 1}),
+                        ('BuildKit parallelism', {'make_jobs': 1, 'buildkit_max_parallelism': 2})):
+        counts['total'] += 1
+        slow = observation(environment=fixture_environment(concurrency=conc))
+        row = cmp_guard(slow, observation())['metrics'][0]
+        if row['classification'] != 'incomparable' or 'concurrency' not in row['reason']:
+            failures.append(f'a changed {label} must make the comparison incomparable: {row}')
 
     observed('an observation path that does not exist',
              lambda: load_observation(root, '/nonexistent/observation.json'),
@@ -7289,12 +7491,14 @@ def main(argv: list[str] | None = None) -> int:
             # that observation is validated by the complete validator and rendered, and the plan is checked
             # for redundant or unownable acquisition. Repair 2 lost four hours twice to defects that every
             # one of these steps would have caught before the first trace.
-            if self_test(root) != 0:
+            # §7 E1 — the facility's own checking cost is timed from here, on the suite's monotonic source.
+            clock = ValidationClock()
+            if clock.measure('preflight_controls', self_test, root) != 0:
                 raise ObservatoryError(
                     'the deterministic controls do not pass, so nothing measured here could be trusted; '
                     'the suite refuses to spend hours proving that')
             preflight_plan = acquisition_plan(suite, sel, graph=docker_stage_graph(root))
-            preflight_problems = plan_problems(preflight_plan)
+            preflight_problems = clock.measure('preflight_plan', plan_problems, preflight_plan)
             if preflight_problems:
                 raise ObservatoryError(
                     f'{len(preflight_problems)} acquisition defect(s) in the plan; nothing was run: '
@@ -7399,7 +7603,7 @@ def main(argv: list[str] | None = None) -> int:
                       'subject': subj, 'run_id': run_id}
             obs, incomplete, edits_restored = run_observation(
                 root, suite, sel, bundle / 'raw', run_id,
-                checkpoint=checkpointer(bundle, header),
+                checkpoint=checkpointer(bundle, header, clock), clock=clock,
                 resume_done=resume_done, resume_samples=resume_samples,
                 resume_traces=resume_traces, resume_artifacts=resume_artifacts,
                 repeat=repeat)

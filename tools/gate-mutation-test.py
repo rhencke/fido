@@ -191,8 +191,8 @@ MUTANTS = (
 
     # §12 — the stop that keeps a broken record from costing the rest of the suite.
     (OBS, 'a defective trace fragment stopping the run',
-     "        problems = fragment_problems(partial)\n        if problems:",
-     "        problems = fragment_problems(partial)\n        if False:",
+     "                    else fragment_problems(partial))\n        if problems:",
+     "                    else fragment_problems(partial))\n        if False:",
      ('did not stop the suite',)),
 
     # §6 — the serial claim read back from the builder rather than taken on trust.
@@ -490,6 +490,42 @@ MUTANTS = (
      "    if orphans:",
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
+
+    (OBS, 'the host-class fingerprint is re-derived, not trusted',
+     "    if env_block.get('host_class_fingerprint') != host_class_fingerprint(env_block):",
+     "    if False:",
+     ('an observation whose fingerprint is not what its own fields produce',)),
+
+    (OBS, 'all effective timing concurrency decides comparability',
+     "    CONCURRENCY_FIELDS = ('make_jobs', 'buildkit_max_parallelism')",
+     "    CONCURRENCY_FIELDS = ('make_jobs',)",
+     ('a changed BuildKit parallelism must make the comparison incomparable',)),
+
+    (OBS, 'the suite cost is validated like everything it reports',
+     "    bad_cost = suite_cost_problems(obs)",
+     "    bad_cost = []",
+     ('suite cost with a false direct count',
+      'suite cost with a cost naming no trace')),
+
+    (OBS, 'suite-cost counts equal the retained samples',
+     "    if cost['direct_trace_count'] != len(direct):",
+     "    if False:",
+     ('suite cost with a false direct count',)),
+
+    (OBS, 'every retained per-trace cost names a real trace',
+     "    for orphan in sorted(named - real):",
+     "    for orphan in []:",
+     ('suite cost with a cost naming no trace',)),
+
+    (OBS, 'every performed trace retains its cost',
+     "    for missed in sorted(real - named):",
+     "    for missed in []:",
+     ('a performed trace with no retained cost was accepted',)),
+
+    (OBS, 'validation components sum to the retained total',
+     "        if isinstance(cost['validation_wall_ns'], int) and parts != cost['validation_wall_ns']:",
+     "        if False:",
+     ('suite cost with components that do not sum to the total',)),
 
     (OBS, 'a resumed cold trace restores its prime',
      "        if not sid.startswith('project.cold.') or not t.get('root_sample_id'):",
