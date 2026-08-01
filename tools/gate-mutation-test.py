@@ -491,6 +491,16 @@ MUTANTS = (
      "    if False:",
      ('a selected command with no sample and no reason was accepted',)),
 
+    (OBS, 'a resumed cold trace restores its prime',
+     "        if not sid.startswith('project.cold.') or not t.get('root_sample_id'):",
+     "        if True:",
+     ('a resumed cold trace must restore the prime',)),
+
+    (OBS, 'a resumed analysis trace carries its exact artifact',
+     "            if have is None or artifact_digest(have) != want:",
+     "            if False:",
+     ('must rerun it rather than inherit',)),
+
     (OBS, 'partition members do not overlap',
      "        if later['start_ns'] < earlier['end_ns']:",
      "        if False:",

@@ -2843,6 +2843,43 @@ def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> 
                         for e in members]}
 
 
+def primes_from_traces(traces: list[dict], scenarios: dict) -> dict:
+    """§6 D1 — the prime relation a set of resumed traces re-establishes.
+
+    A cold trace is what fills the cache the cached, warm and incremental traces after it reuse. Resume
+    carried sample rows and started `primes` empty, so a reused cold trace left every later trace in its
+    chain unprimed and skipped. The identity is the retained one: a reconstructed equal peer is a different
+    sample claiming the same role, which is what `sample_provenance` exists to distinguish."""
+    out: dict[tuple, dict] = {}
+    for t in traces or []:
+        sid = t.get('scenario_id') or ''
+        if not sid.startswith('project.cold.') or not t.get('root_sample_id'):
+            continue
+        cut = (scenarios.get(sid) or {}).get('cache_cut') or {}
+        out[(t['command_id'], 'prime')] = {'id': t['root_sample_id'],
+                                           'root': tuple(cut.get('invalidated_roots') or ())}
+    return out
+
+
+def resumable_artifacts(traces: list[dict], prior: dict) -> tuple[dict, list[str]]:
+    """§6 D2 — the exact artifacts a set of resumed analysis traces established, and who cannot be resumed.
+
+    Resume carried sample rows only, so a reused `analysis.rocq-modules` or `analysis.history` trace left
+    `module_graph` and `history_analysis` null in an observation whose samples claimed the analysis had run.
+    The artifact must be the one the prior bundle still holds AND must hash to what the completion object
+    recorded; anything else and that trace reruns rather than inheriting a gap."""
+    artifacts: dict = {}
+    rerun: list[str] = []
+    for t in list(traces):
+        for member, want in (t.get('analysis_artifacts') or {}).items():
+            have = prior.get(member)
+            if have is None or artifact_digest(have) != want:
+                rerun.append(f'{t["command_id"]}/{t["scenario_id"]}')
+                break
+            artifacts[member] = have
+    return artifacts, rerun
+
+
 def trace_object(root: dict, children: list[dict], expected: list[str],
                  prime_sample_id: str | None, artifacts: dict, partition: dict | None = None) -> dict:
     """One completed root execution and everything derived inside it."""
@@ -3758,6 +3795,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     resume_done: set | None = None,
                     resume_samples: list | None = None,
                     resume_traces: list | None = None,
+                    resume_artifacts: dict | None = None,
                     repeat: int = 1) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
@@ -3823,6 +3861,21 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     edits_ok = True
     graph, history = None, None
     primes: dict[tuple, dict] = {}          # (command_id, root) -> the exact prime sample identity
+
+    # §6 D1/D2 — a resumed trace restores the CAUSAL state it established, or it is not resumed at all.
+    #
+    # `primes` started empty on every resumed run. A cold trace reused from the prior bundle is removed from
+    # the chain, so the prime it would have offered was never recorded, and `sample_provenance` then found no
+    # prime for the cached, warm and incremental traces that depend on it — each skipped as unprimed. The
+    # only resume demonstrated so far used a warm-only command, which is precisely the shape that cannot
+    # exhibit the defect. The prime is taken from the retained completion object rather than reconstructed:
+    # a reconstructed equal peer is a different sample claiming the same role.
+    primes.update(primes_from_traces(resume_traces or [], scenarios))
+    # The artifact itself, not a stub naming it. The prior bundle holds the exact object its analysis trace
+    # established; the caller has already required its digest to equal the one that trace retained, so what
+    # is restored here is the evidence rather than a reference to it.
+    graph = (resume_artifacts or {}).get('module_graph', graph)
+    history = (resume_artifacts or {}).get('history_analysis', history)
 
     traces: list[dict] = list(resume_traces or [])
     expectations = trace_expectations(acquisition_plan(suite, sel, graph=stage_graph))
@@ -4153,7 +4206,11 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         'suite_completed': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'suite_wall_ns': _monotonic_ns() - suite_t0,
         'preflight_wall_ns': preflight_ns,
-        'trace_wall_ns': {f'{s["command_id"]}|{s["scenario_id"]}': s.get('wall_ns')
+        # §6 D4 — keyed by the EXACT trace, repetition index and all. `command|scenario` let ad hoc repeated
+        # traces overwrite each other, so a five-repetition investigation retained one cost and the suite's
+        # own accounting silently disagreed with the run that produced it.
+        'trace_wall_ns': {trace_id_of(s['command_id'], s['scenario_id'],
+                                      s.get('edit_id'), s['sample_index']): s.get('wall_ns')
                           for s in direct if s.get('wall_ns') is not None},
         'direct_trace_count': len(direct),
         'contained_metric_count': sum(1 for s in samples if s.get('derived_parent_id')),
@@ -6021,6 +6078,49 @@ def self_test(root: Path) -> int:
             failures.append('a fragment that stopped the suite must still be on disk; the evidence for the '
                             'failure is the fragment itself')
 
+    # ── §6 resume carries the CAUSAL state, not only the sample rows.
+    counts['total'] += 1
+    # D1 — a resumed COLD trace must supply the prime its later traces depend on. The only resume shown
+    # before used a warm-only command, which is exactly the shape that cannot exhibit this: with no cold
+    # trace in the chain there is no prime to lose.
+    cold_trace = trace_object(sample(command_id='make.prove', scenario_id='project.cold.prover',
+                                     sample_index=0),
+                              [], [metric_identity(sample(command_id='make.prove',
+                                                          scenario_id='project.cold.prover'))],
+                              None, {}, None)
+    restored = primes_from_traces([cold_trace], {s['id']: s for s in suite['scenarios']})
+    if ('make.prove', 'prime') not in restored:
+        failures.append('a resumed cold trace must restore the prime its later traces depend on, or every '
+                        'cached, warm and incremental trace after it is skipped as unprimed')
+    elif restored[('make.prove', 'prime')]['id'] != cold_trace['root_sample_id']:
+        failures.append('a restored prime must be the EXACT retained sample identity, not a reconstructed '
+                        'peer claiming the same role')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # D2 — an analysis trace is resumable only against the exact artifact it established, proved by digest.
+    real_graph = {'adjacency': {'A.v': []}, 'wall_ns': {'A.v': 5}}
+    ana_trace = trace_object(sample(command_id='analysis.rocq-modules', scenario_id='project.warm.noop'),
+                             [], [], None, {'module_graph': artifact_digest(real_graph)}, None)
+    for label, bundle_holds, want_resumable in (
+            ('the exact artifact', real_graph, True),
+            ('an unrelated artifact', {'adjacency': {'B.v': []}, 'wall_ns': {'B.v': 5}}, False),
+            ('no artifact at all', None, False)):
+        got, rerun = resumable_artifacts([ana_trace], {'module_graph': bundle_holds})
+        if want_resumable and (rerun or got.get('module_graph') != bundle_holds):
+            failures.append(f'resuming an analysis trace against {label} must carry that exact artifact: '
+                            f'{got}, rerun={rerun}')
+        if not want_resumable and not rerun:
+            failures.append(f'resuming an analysis trace against {label} must rerun it rather than inherit '
+                            f'a null or unrelated artifact')
+
+    counts['total'] += 1
+    # D4 — per-trace cost keyed by the exact trace. Two repetitions of one command and scenario are two
+    # costs; keying on command and scenario alone retained one and lost the other.
+    reps = {trace_id_of('make.prove', 'project.warm.noop', None, i): 100 + i for i in range(3)}
+    if len(reps) != 3:
+        failures.append(f'repeated traces must each retain their own cost: {reps}')
+
     # ── §4 the parent partitions into non-overlapping children plus ONE retained remainder.
     def anchors(*spans, depth=0):
         return [{'id': i, 'start_ns': a, 'end_ns': b, 'source': 'hook-anchor', 'depth': depth,
@@ -7206,6 +7306,14 @@ def main(argv: list[str] | None = None) -> int:
             # before any measurement: a run that would be rejected at the end is a run nobody should start.
             repeat = max(1, int(args.repeat or 1))
             if repeat > 1:
+                # §6 D3 — REPEAT and RESUME have no exact joint meaning, so they are refused together rather
+                # than given one. Resume identity is the trace, not the trace-and-its-repetition-count, so a
+                # bundle holding one repetition would satisfy a request for five and the run would report a
+                # multiplicity nobody performed. Keeping the design simple is the reviewer's own direction.
+                if args.resume:
+                    raise ObservatoryError(
+                        'REPEAT and RESUME are exclusive: a resumed trace is reused whole, so a bundle with '
+                        'fewer repetitions would silently satisfy a request for more')
                 if args.record:
                     raise ObservatoryError(
                         'REPEAT and RECORD are exclusive: canonical acquisition is one real trace per '
@@ -7220,7 +7328,7 @@ def main(argv: list[str] | None = None) -> int:
             # §13 — RESUME is decided BEFORE anything runs, and refuses with every reason at once. A bundle
             # that cannot be carried is a rerun the operator should learn about now, not after the first
             # trace has already been paid for.
-            resume_done, resume_samples = set(), []
+            resume_done, resume_samples, resume_traces, resume_artifacts = set(), [], [], {}
             if args.resume:
                 prior_path = Path(args.resume).resolve()
                 if prior_path.is_dir():
@@ -7242,8 +7350,43 @@ def main(argv: list[str] | None = None) -> int:
                                   if (s.get('derived_parent_id') or s['command_id'], s['scenario_id']) in keep
                                   or (s['command_id'], s['scenario_id']) in keep]
                 resume_done = keep
+                # §6 D1/D2 — the CAUSAL state, not only the sample rows. A resumed cold trace is the prime a
+                # later cached, warm or incremental trace depends on, and a resumed analysis trace owns the
+                # artifact its samples claim. Carrying rows alone left `primes` empty, so every later trace
+                # in the chain was skipped as unprimed, and left `module_graph`/`history_analysis` null in an
+                # observation whose samples said the analysis had run. Only traces whose completion object
+                # validates are carried, so the state comes from evidence rather than from assumption.
+                resume_traces = [t for t in (prior.get('traces') or [])
+                                 if (t.get('command_id'), t.get('scenario_id')) in keep
+                                 and not trace_problems(t)]
+                # An analysis trace is resumable only if the prior bundle still holds the EXACT artifact its
+                # completion object names, proved by digest. Anything else and the trace reruns: a resumed
+                # analysis sample beside a null or unrelated artifact is the defect, not the remedy.
+                resume_artifacts, artifact_gap = resumable_artifacts(resume_traces, prior)
+                resume_traces = [t for t in resume_traces
+                                 if f'{t["command_id"]}/{t["scenario_id"]}' not in set(artifact_gap)]
+                if artifact_gap:
+                    print(f'fido: build-observatory — resume: {len(artifact_gap)} analysis trace(s) will '
+                          f'RERUN because the bundle no longer holds the exact artifact they established: '
+                          f'{", ".join(sorted(set(artifact_gap))[:3])}')
+                carried = {t['trace_id'] for t in resume_traces}
+                lost = sorted(f'{c}/{s}' for c, s in keep
+                              if not any(t['command_id'] == c and t['scenario_id'] == s
+                                         for t in resume_traces))
+                if lost:
+                    # A trace whose completion object does not validate is NOT resumable, whatever its
+                    # samples look like. Reporting it is the difference between rerunning it and silently
+                    # inheriting a gap.
+                    print(f'fido: build-observatory — resume: {len(lost)} trace(s) will RERUN because their '
+                          f'completion objects do not validate: {", ".join(lost[:3])}')
+                    keep -= {(c, s) for c, s in keep if f'{c}/{s}' in set(lost)}
+                    resume_done = keep
+                    resume_samples = [s for s in resume_samples
+                                      if (s.get('derived_parent_id') or s['command_id'],
+                                          s['scenario_id']) in keep
+                                      or (s['command_id'], s['scenario_id']) in keep]
                 print(f'fido: build-observatory — resuming {len(keep)} completed trace(s) from {prior_path}, '
-                      f'carrying {len(resume_samples)} sample(s)')
+                      f'carrying {len(resume_samples)} sample(s) and {len(carried)} completion object(s)')
 
             started = datetime.datetime.now(datetime.timezone.utc).isoformat()
             subj = subject(root)
@@ -7257,7 +7400,9 @@ def main(argv: list[str] | None = None) -> int:
             obs, incomplete, edits_restored = run_observation(
                 root, suite, sel, bundle / 'raw', run_id,
                 checkpoint=checkpointer(bundle, header),
-                resume_done=resume_done, resume_samples=resume_samples, repeat=repeat)
+                resume_done=resume_done, resume_samples=resume_samples,
+                resume_traces=resume_traces, resume_artifacts=resume_artifacts,
+                repeat=repeat)
             if incomplete:
                 obs['derived']['status'] = 'incomplete'
                 obs['derived']['incomplete'] = incomplete
