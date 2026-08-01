@@ -6400,6 +6400,26 @@ def main(argv: list[str] | None = None) -> int:
                         f'{len(problems)} acquisition defect(s) in the plan; nothing was run')
                 return 0
 
+            # §12 — THE PREFLIGHT. The canonical suite must never be the first place a structural rule is
+            # exercised. Everything here is deterministic and costs seconds: the registry is already
+            # validated by `load_suite`, the coverage relation is exercised against a production-shaped
+            # synthetic observation built from the SAME expected relation the recording rules close over,
+            # that observation is validated by the complete validator and rendered, and the plan is checked
+            # for redundant or unownable acquisition. Repair 2 lost four hours twice to defects that every
+            # one of these steps would have caught before the first trace.
+            if self_test(root) != 0:
+                raise ObservatoryError(
+                    'the deterministic controls do not pass, so nothing measured here could be trusted; '
+                    'the suite refuses to spend hours proving that')
+            preflight_plan = acquisition_plan(suite, sel, graph=docker_stage_graph(root))
+            preflight_problems = plan_problems(preflight_plan)
+            if preflight_problems:
+                raise ObservatoryError(
+                    f'{len(preflight_problems)} acquisition defect(s) in the plan; nothing was run: '
+                    + '; '.join(preflight_problems[:3]))
+            print(f'fido: build-observatory — preflight OK; plan is {preflight_plan["trace_count"]} trace(s) '
+                  f'establishing {preflight_plan["required_metrics"]} required metric(s)')
+
             # §10 — REPEAT is AD HOC variance and can never touch a canonical result. Both refusals happen
             # before any measurement: a run that would be rejected at the end is a run nobody should start.
             repeat = max(1, int(args.repeat or 1))
