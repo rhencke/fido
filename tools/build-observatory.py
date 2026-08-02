@@ -2162,14 +2162,18 @@ def resume_incompatibilities(prior: dict, subj: dict, suite: dict, env: dict, pl
     "the tree differs" and "the suite you are running is not the suite that produced this" send a reader to
     different places."""
     reasons = []
-    before = prior.get('subject') or {}
+    # §2.7 — from the retained BASIS, with the pre-basis top level as the fallback a partial fragment still
+    # writes. Reading only the old top level made every field `None` once the basis owned them, so a bundle
+    # this run produced itself reported eight incompatibilities with itself.
+    basis = prior.get('basis') or {}
+    before = basis.get('subject') or prior.get('subject') or {}
     for field, human in (('commit', 'committed subject'), ('inventory_digest', 'measured source'),
                          ('source_view', 'source view'), ('dirty', 'working-tree cleanliness')):
         if before.get(field) != subj.get(field):
             reasons.append(f'{human} differs: {before.get(field)!r} then, {subj.get(field)!r} now')
-    if prior.get('suite_digest') != suite_digest_of(suite):
+    if (basis.get('suite_digest') or prior.get('suite_digest')) != suite_digest_of(suite):
         reasons.append('the suite registry differs, so the plan that produced those traces is not this plan')
-    prior_env = prior.get('environment') or {}
+    prior_env = basis.get('environment') or prior.get('environment') or {}
     if prior_env.get('host_class_fingerprint') != env.get('host_class_fingerprint'):
         reasons.append('the host class differs, so timings from that bundle describe another machine')
     prior_conc = (prior_env.get('concurrency') or {})
@@ -7047,22 +7051,33 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     now_env = {'host_class_fingerprint': 'd' * 64,
                'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}}
 
-    def prior_bundle(**over):
+    def prior_bundle(_where='basis', **over):
         # `run_id` is here because the identity relations require it. Without it `resumable_traces` bailed
         # out on validation before reaching the completeness filter, and the control below passed whether or
         # not that filter existed — a control made inert by an absent fixture field, which is the fifth time
         # this checkpoint that exact shape has cost something.
-        base = {'run_id': FIXTURE_RUN_ID, 'subject': dict(now_subj),
-                'suite_digest': suite_digest_of(live_suite),
-                'environment': {'host_class_fingerprint': 'd' * 64,
-                                'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}},
-                'measurements': []}
+        #
+        # §2.7 — provenance lives in the BASIS in a completed bundle and at the TOP LEVEL in a mid-run
+        # fragment, whose header predates it. Both are real shapes a resume can be handed, so `_where` says
+        # which one this fixture is, and both are controlled. Testing only the top level is what let the
+        # resume path go on reading it after the basis owned it, and a bundle the run had just written
+        # reported eight incompatibilities with itself.
+        provenance = {'subject': dict(now_subj),
+                      'suite_digest': suite_digest_of(live_suite),
+                      'environment': {'host_class_fingerprint': 'd' * 64,
+                                      'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}}}
+        provenance.update({k: over.pop(k) for k in list(over)
+                           if k in ('subject', 'suite_digest', 'environment')})
+        base = {'run_id': FIXTURE_RUN_ID, 'measurements': []}
+        base.update({'basis': provenance} if _where == 'basis' else provenance)
         base.update(over)
         return base
 
-    if resume_incompatibilities(prior_bundle(), now_subj, live_suite, now_env, live_plan):
-        failures.append('an identical bundle was refused for resume, so an interrupted suite could never be '
-                        'continued at all')
+    for shape in ('basis', 'top-level'):
+        if resume_incompatibilities(prior_bundle(shape), now_subj, live_suite, now_env, live_plan):
+            failures.append(f'an identical {shape} bundle was refused for resume, so an interrupted suite '
+                            f'could never be continued at all')
+    counts['total'] += 1
     for label, over, want in (
             ('a different commit', {'subject': {**now_subj, 'commit': 'b' * 40}}, 'committed subject differs'),
             ('a different measured source',

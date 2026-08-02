@@ -169,7 +169,7 @@ MUTANTS = (
      ('resume accepted a different commit',)),
 
     (OBS, 'resume refusing a changed suite registry',
-     "    if prior.get('suite_digest') != suite_digest_of(suite):",
+     "    if (basis.get('suite_digest') or prior.get('suite_digest')) != suite_digest_of(suite):",
      "    if False:",
      ('resume accepted a different suite',)),
 
@@ -1045,6 +1045,23 @@ MUTANTS = (
      "    contained = [row for row in contained if (row['owner'], row['scenario_id']) in traces]",
      "    contained = list(contained)",
      ('a named selection kept',)),
+
+    # §2.7 — resume reads provenance from the retained basis, with the mid-run fragment's top level as the
+    # fallback. Each read is its own rule because each was its own way to report a bundle as foreign.
+    (OBS, 'resume reads the subject from the retained basis',
+     "    before = basis.get('subject') or prior.get('subject') or {}",
+     "    before = prior.get('subject') or {}",
+     ('an identical basis bundle was refused for resume',)),
+
+    (OBS, 'resume reads the suite digest from the retained basis',
+     "    if (basis.get('suite_digest') or prior.get('suite_digest')) != suite_digest_of(suite):",
+     "    if prior.get('suite_digest') != suite_digest_of(suite):",
+     ('an identical basis bundle was refused for resume',)),
+
+    (OBS, 'resume reads the environment from the retained basis',
+     "    prior_env = basis.get('environment') or prior.get('environment') or {}",
+     "    prior_env = prior.get('environment') or {}",
+     ('an identical basis bundle was refused for resume',)),
 
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
