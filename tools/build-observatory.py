@@ -4658,13 +4658,16 @@ def render_comparison(cmp: dict) -> str:
     for m in cmp['metrics']:
         b, c = m['baseline'], m['candidate']
         pct = f'{m["delta_percent"]:+.1f}%' if m.get('delta_percent') is not None else ''
-        lines.append(f'{m["key"]:<46} {ms(b["median_ns"]) if b else "—":>12} '
-                     f'{ms(c["median_ns"]) if c else "—":>12} '
+        # A BELOW-RESOLUTION summary is a bound and carries no median by rule, so the renderer must ask
+        # for one rather than index it. This crashed the moment a comparison first had a valid baseline to
+        # render against — every earlier run took the unavailable path and never reached these columns.
+        lines.append(f'{m["key"]:<46} {ms((b or {}).get("median_ns")) if b else "—":>12} '
+                     f'{ms((c or {}).get("median_ns")) if c else "—":>12} '
                      f'{ms(m.get("delta_ns")):>12} {pct:>8}  {m["classification"]}')
         if b and c:
-            lines.append(f'{"":<46} [{ms(b["min_ns"])}–{ms(b["max_ns"])}] '
-                         f'[{ms(c["min_ns"])}–{ms(c["max_ns"])}]  '
-                         f'n={b["samples"]}/{c["samples"]}  {m["reason"]}')
+            lines.append(f'{"":<46} [{ms(b.get("min_ns"))}–{ms(b.get("max_ns"))}] '
+                         f'[{ms(c.get("min_ns"))}–{ms(c.get("max_ns"))}]  '
+                         f'n={b.get("samples")}/{c.get("samples")}  {m["reason"]}')
         else:
             lines.append(f'{"":<46} {m["reason"]}')
     lines += ['', '  '.join(f'{k}={v}' for k, v in cmp['counts'].items() if v)]
@@ -6605,6 +6608,26 @@ def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls
                                                       'status': 'incomplete'}))
         except ObservatoryError as exc:
             failures.append(f'{label} was rejected: {exc}')
+    counts['total'] += 1
+    # The comparison TEXT must survive a below-resolution summary on either side. It indexed `median_ns`
+    # directly and crashed the first time a run had a valid baseline to render against — every earlier run
+    # took the unavailable path, so the columns were never reached and the defect shipped unseen.
+    bound_row = {'key': 'k|s|-|-|selected|host-wrapper|wall_elapsed',
+                 'baseline': {'below_resolution': True, 'samples': 1,
+                              'lower_ns': 0, 'upper_ns': HOOK_CLOCK['resolution_ns']},
+                 'candidate': {'median_ns': 5, 'min_ns': 5, 'max_ns': 5, 'samples': 1},
+                 'classification': 'incomparable', 'reason': 'a bound is not a point',
+                 'delta_ns': None, 'delta_percent': None}
+    try:
+        render_comparison({'schema': SCHEMA, 'status': 'complete', 'same_host_class': True,
+                           'baseline_subject': {'commit': 'a' * 40, 'dirty': False},
+                           'candidate_subject': {'commit': 'b' * 40, 'dirty': False},
+                           'suite_definitions': {'added': [], 'removed': [], 'changed': []},
+                           'metrics': [bound_row], 'counts': {'incomparable': 1}})
+    except Exception as exc:
+        failures.append(f'the comparison view cannot render a below-resolution summary: '
+                        f'{type(exc).__name__}: {exc}')
+
     rows = summarise([interval])
     if not rows or not all(r.get('below_resolution') and 'median_ns' not in r for r in rows.values()):
         failures.append('a below-resolution stage was summarised with a median it cannot have')
