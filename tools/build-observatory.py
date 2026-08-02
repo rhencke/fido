@@ -1577,8 +1577,14 @@ def derive_child_samples(parent: dict, events: list[dict], known: set[str],
 
 def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
                     provenance: dict, events: list[dict], source_digest: str | None = None,
-                    index: int = 0) -> dict:
-    """A sample for work the observatory performs itself rather than shelling out for."""
+                    index: int = 0, stages: dict | None = None) -> dict:
+    """A sample for work the observatory performs itself rather than shelling out for.
+
+    An analysis command that DRIVES A BUILD observes its stages exactly as a shell command does. Hardcoding
+    an empty map made `analysis.rocq-modules` claim `project.cold.module-graph` on no evidence at all — the
+    vacuous cold this repository already refuses everywhere else, surviving here because the one runner that
+    could see the evidence threw it away."""
+    seen = dict(stages or {})
     import datetime
     return {'command_id': command_id, 'scenario_id': scenario['id'], 'sample_index': index,
             'edit_id': None, 'derived_parent_id': None, 'selected_or_support': role,
@@ -1589,8 +1595,9 @@ def analysis_sample(command_id: str, scenario: dict, role: str, wall_ns: int,
             'exit_code': 0, 'expected_exit': 0, 'status': 'ok',
             'host_load': {'before': host_load(), 'after': host_load()},
             'expected_failure_reason': None, 'cache_before': provenance,
-            'cache_after': dict(provenance, observed=True), 'cache_cut': dict(scenario['cache_cut']),
-            'cache_observation': {'stages': {}}, 'source_digest': source_digest,
+            'cache_after': observe_cache_after(provenance, seen),
+            'cache_cut': dict(scenario['cache_cut']),
+            'cache_observation': {'stages': seen}, 'source_digest': source_digest,
             'raw_log_sha256': None, 'derived_stage_events': events}
 
 
@@ -5228,8 +5235,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                                                      progress, scenario)
                         events = graph.pop('stage_events', []) + [
                             {'id': 'analysis.dune-graph', 'wall_ns': None, 'untimed': True, 'source': 'same-build'}]
+                        seen_stages = graph.pop('stage_states', {})
                     s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
-                                        subj['content_digest'], index)
+                                        subj['content_digest'], index,
+                                        stages=(seen_stages if command['kind'] != 'history-analysis' else {}))
                     emit(s)
                     # An analysis command that builds has a prime to offer, exactly like a shell command.
                     if scenario_id.startswith('project.cold.') and s['status'] == 'ok':
@@ -5365,6 +5374,8 @@ def measure_module_graph(root: Path, out_dir: Path, progress=print, scenario: di
     progress(f'fido: observe — analysis.rocq-modules: {len(wall)} module(s) measured')
     graph = parse_module_graph(read_text(depend_file, 'module adjacency'), wall)
     graph['stage_events'] = parse_buildkit_progress(build_log)
+    # The same authority a shell command uses, over this build's own progress.
+    graph['stage_states'] = observe_stages(build_log)
     return graph
 
 
@@ -8760,6 +8771,34 @@ def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls
         scen = [s for s in suite['scenarios'] if s.get('edit') == e['id']]
         if not scen:
             failures.append(f'edit {e["id"]} belongs to no scenario, so its effect is never observed')
+
+    counts['total'] += 1
+    # §8.1 — an analysis command that DRIVES A BUILD must carry the stages that build observed, or its cold
+    # claim rests on absent evidence. The rule refusing that already existed; nothing checked that the one
+    # runner able to see the evidence actually handed it over, and it did not.
+    cold_scenario = next(s for s in suite['scenarios'] if s['id'] == 'project.cold.module-graph')
+    built = analysis_sample('analysis.rocq-modules', cold_scenario, 'selected', 1_000_000,
+                            {'authorities': {a: 'empty' for a in PROJECT_CACHES}, 'primed_by_run': None},
+                            [], 'e0' * 32, 0, stages={'module-graph': 'rebuilt', 'rocq-base': 'hit'})
+    if built['cache_observation']['stages'].get('module-graph') != 'rebuilt':
+        failures.append('an analysis sample dropped the stage evidence its own build produced, so its cold '
+                        'claim would rest on absent evidence')
+    try:
+        check_cut_observed(built, cold_scenario, suite)
+    except ObservatoryError as exc:
+        failures.append(f'an analysis sample carrying real stage evidence was refused: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    blind = analysis_sample('analysis.rocq-modules', cold_scenario, 'selected', 1_000_000,
+                            {'authorities': {a: 'empty' for a in PROJECT_CACHES}, 'primed_by_run': None},
+                            [], 'e0' * 32, 0, stages={})
+    try:
+        check_cut_observed(blind, cold_scenario, suite)
+        failures.append('an analysis sample claiming cold with no stage evidence at all was accepted')
+    except ObservatoryError as exc:
+        if 'rests on absent evidence' not in str(exc):
+            failures.append(f'a blind analysis cold claim was refused for the wrong reason: {exc}')
 
     observed('a cold sample whose invalidation root stayed cached',
              lambda: check_cut_observed(cut_sample({'prover': 'hit', 'rocq-base': 'hit'}), cold_scn, suite),

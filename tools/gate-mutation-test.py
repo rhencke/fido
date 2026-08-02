@@ -1091,6 +1091,11 @@ MUTANTS = (
      "            if False:",
      ('a contained child whose wall time is not its own checkpoint interval',)),
 
+    (OBS, 'an analysis sample records the stages its own build observed',
+     "    seen = dict(stages or {})",
+     "    seen = {}",
+     ('an analysis sample dropped the stage evidence its own build produced',)),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",
