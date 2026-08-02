@@ -280,7 +280,7 @@ MUTANTS = (
      ('a sample in an auto-added prime scenario must be stamped support',)),
 
     (OBS, 'comparison using the COMPLETE observation validator, not a weaker local one',
-     "            validate_observation(obs, obs.get('suite_digest', ''))",
+     "            validate_observation(obs)",
      "            pass",
      ('a comparison against an observation with a sample member removed',
       'a comparison against an observation with no run identity')),
@@ -395,8 +395,8 @@ MUTANTS = (
     # `run_id` from it restores the exact split that let identity_problems demand a field the producer never
     # emitted while a hand-built fixture supplied it.
     (OBS, 'the run identity named in the one member list',
-     "OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',",
-     "OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'subject', 'environment', 'cache_model',",
+     "OBSERVATION_MEMBERS = ('schema', 'run_id', 'basis', 'cache_model',",
+     "OBSERVATION_MEMBERS = ('schema', 'basis', 'cache_model',",
      ('fixture is not the declared shape',)),
 
     (OBS, 'the prime relation asked only of samples that actually ran',
@@ -518,7 +518,7 @@ MUTANTS = (
      ('a tampered derived history view',)),
 
     (OBS, 'the host-class fingerprint is re-derived, not trusted',
-     "    if env_block.get('host_class_fingerprint') != host_class_fingerprint(env_block):",
+     "    if basis['environment'].get('host_class_fingerprint') != host_class_fingerprint(basis['environment']):",
      "    if False:",
      ('an observation whose fingerprint is not what its own fields produce',)),
 
@@ -594,6 +594,32 @@ MUTANTS = (
      "            if False:",
      ('a remainder retained under no identity was accepted',)),
 
+    (OBS, 'the Make grammar forbids nesting',
+     "        deep = [e['id'] for e in events if e.get('depth', 0) != 0]",
+     "        deep = []",
+     ('a nested Make checkpoint',)),
+
+    (OBS, 'the pre-commit grammar requires exactly one root',
+     "        if len(roots) != 1 or (root_id is not None and roots[0]['id'] != root_id):",
+     "        if False:",
+     ('a pre-commit log with no root',)),
+
+    (OBS, 'the pre-commit grammar forbids a stage inside a stage',
+     "        deep = [e['id'] for e in events if e.get('depth', 0) > 1]",
+     "        deep = []",
+     ('a pre-commit stage nested inside another stage',)),
+
+    (OBS, 'an atomic trace produces no checkpoint evidence',
+     "    if grammar == GRAMMAR_ATOMIC and events:",
+     "    if False:",
+     ('an atomic trace that produced checkpoint evidence',)),
+
+    (OBS, 'the checkpoint log is a monotonic sequence',
+     "        if ns < last_ns:",
+     "        if False:",
+     ('checkpoints whose timestamps move backwards',
+      'a hook anchor whose clock went backwards')),
+
     (OBS, 'a checkpoint may not begin while already open',
      "            if already:",
      "            if False:",
@@ -646,9 +672,14 @@ MUTANTS = (
      "    if False:",
      ('a trace retained before its children were derived',)),
 
-    (OBS, 'every direct sample closes exactly one trace',
-     "    if uncovered:",
-     "    if False:",
+    (OBS, 'the whole-suite relation closes against the retained plan',
+     "            if planned_count != held:",
+     "            if False:",
+     ('an observation holding a metric the plan did not require',)),
+
+    (OBS, 'every planned trace is realised as often as the plan states',
+     "            if got != entry['samples']:",
+     "            if False:",
      ('a completed direct root with no trace-completion object',)),
 
     (OBS, 'a retained expectation equals the current plan',
@@ -823,10 +854,6 @@ MUTANTS = (
      "        pass  # neutered: the anchors stay inert",
      ('the hook must be measured with its anchors switched on',)),
 
-    (OBS, 'the anchor clock-step refusal',
-     "            if wall < 0:",
-     "            if False:",
-     ('a hook anchor whose clock went backwards',)),
 
     (OBS, 'derived children come only from registered commands',
      "        if event['id'] not in known:",
@@ -846,7 +873,7 @@ MUTANTS = (
     (OBS, 'resource scope inside the metric identity',
      "    return '|'.join((sample['command_id'], sample['scenario_id'],",
      "    return '|'.join((sample['command_id'], sample['scenario_id'], '-', '-', '-'))  # neutered\n    return '|'.join((sample['command_id'], sample['scenario_id'],",
-     ('a changed resource scope must not produce a delta',)),
+     ('resource scope must be part of metric identity',)),
 
     (OBS, 'a cold claim needs evidence for it, not absent evidence against it',
      "    for root in roots if cold else []:\n        if stages.get(root) is None:",

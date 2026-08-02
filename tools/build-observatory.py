@@ -263,8 +263,19 @@ def load_suite(root: Path) -> dict:
         if not isinstance(suite.get(member), list):
             raise ObservatoryError(f'{SUITE_REL}: member {member!r} is missing or not a list')
 
-    stage_names = docker_stages(root)
-    stage_graph = docker_stage_graph(root)
+    return validate_suite(suite, docker_stages(root), docker_stage_graph(root), root)
+
+
+def validate_suite(suite: dict, stage_names, stage_graph: dict, root: Path | None = None) -> dict:
+    """The registry's own rules, over a suite dict from ANY source.
+
+    §2.7 — an observation retains the exact registry snapshot it was planned from, and that snapshot must be
+    parsed by the SAME loader a live run uses or the retained basis is trusted rather than checked. The
+    Dockerfile-derived facts are parameters because a historical observation must be judged against the stage
+    graph IT used, not against today's."""
+    for member in ('commands', 'scenarios'):
+        if not isinstance(suite.get(member), list):
+            raise ObservatoryError(f'{SUITE_REL}: member {member!r} is missing or not a list')
 
     by_scenario = {s['id']: s for s in suite['scenarios']}
 
@@ -482,7 +493,10 @@ def load_suite(root: Path) -> dict:
             raise ObservatoryError(
                 f'{SUITE_REL}: edit {e["id"]} declares path {e.get("path")!r}; an edit shape must name '
                 f'exactly one file to change')
-        if not (root / e['path']).is_file():
+        # LIVE ONLY. That an edit shape names a real file is a fact about this working tree, not about the
+        # registry's shape, and a historical snapshot may name a path that has since been renamed or deleted.
+        # Checking it against today's tree would make old observations fail for having been correct then.
+        if root is not None and not (root / e['path']).is_file():
             raise ObservatoryError(f'{SUITE_REL}: edit {e["id"]} names {e["path"]!r}, which is not a file')
     for s in suite['scenarios']:
         # One incremental scenario, one edit shape: the edit IS the metric identity, so it cannot be a set
@@ -1041,6 +1055,12 @@ SCOPE_BUILDKIT = 'buildkit-stage'
 SCOPE_UNAVAILABLE = 'unavailable'
 
 
+# §2.7 — the runner's own clock, named in the basis beside the hook's. Two clocks measure this system and
+# §4's partition arithmetic depends on knowing which resolution belongs to which instrument; a resolution
+# supplied by the thing being judged is not a measurement.
+RUNNER_CLOCK = {'source': 'time.monotonic_ns', 'kind': 'CLOCK_MONOTONIC', 'resolution_ns': 1}
+
+
 def _monotonic_ns() -> int:
     import time
     return time.monotonic_ns()
@@ -1298,7 +1318,8 @@ BUILDKIT_DONE = re.compile(r'^#(\d+) (DONE ([0-9.]+)s|CACHED)\s*$')
 HOOK_CLOCK = {'source': '/proc/uptime', 'kind': 'CLOCK_MONOTONIC', 'resolution_ns': 10_000_000}
 
 
-def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
+def parse_anchor_log(text: str, known: set | None = None, grammar: str | None = None,
+                     root_id: str | None = None) -> list[dict]:
     """§3 — the RUNTIME checkpoint state machine, which fails closed by itself.
 
     Static source pairing proves the Makefile and the hook are written correctly. It says nothing about what
@@ -1322,6 +1343,7 @@ def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
     nests, and it is the same rule the hook needs. Exact start and end are retained, not only the duration:
     §4's partition cannot be proved from durations alone."""
     stack: list[tuple[str, int]] = []
+    last_ns = -1
     closed: dict[str, int] = {}
     events = []
     for line in text.split('\n'):
@@ -1337,6 +1359,14 @@ def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
                     f'so this sample lost a stage rather than measuring one')
             continue
         kind, anchor, ns = m.group(1), m.group(2), int(m.group(3))
+        # §3.5 — the log is a SEQUENCE on one monotonic clock, so its timestamps never move backwards. A
+        # later pair whose stamps precede an earlier one was accepted: each pair was checked against itself
+        # and nothing checked the order between them, so two intervals could overlap while both looked sane.
+        if ns < last_ns:
+            raise ObservatoryError(
+                f'checkpoint {anchor!r} carries timestamp {ns} after {last_ns} on a monotonic clock; the log '
+                f'is out of order, so no interval in it can be placed against another')
+        last_ns = ns
         if known is not None and anchor not in known:
             raise ObservatoryError(
                 f'checkpoint {anchor!r} is not one this trace declares, so the log describes work the '
@@ -1367,11 +1397,10 @@ def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
                     f'interleave rather than nest and neither can be attributed')
             _, started = stack.pop()
             closed[anchor] = ns
+            # No separate "ended before it began" rule: the sequence is proved non-decreasing above, so an
+            # end can never precede its own begin. A third check could not fire, and Repair 4 already taught
+            # that a rule which cannot speak reads as protection nobody has.
             wall = ns - started
-            if wall < 0:
-                raise ObservatoryError(
-                    f'hook anchor {anchor!r} ended before it began on a monotonic clock; every stage '
-                    f'duration in this sample is void')
             if wall == 0:
                 # The hook clock resolves to 10 ms, so a stage faster than one tick reads as exactly zero.
                 # Zero is a measured claim and a false one: the stage ran. What is known is a BOUND — the
@@ -1388,7 +1417,46 @@ def parse_anchor_log(text: str, known: set | None = None) -> list[dict]:
         raise ObservatoryError(
             f'checkpoint(s) {sorted(a for a, _ in stack)} began and never ended; the stages they name are '
             f'missing from this sample and their absence would read as coverage')
+    if grammar is not None:
+        enforce_grammar(events, grammar, root_id)
     return events
+
+
+def enforce_grammar(events: list[dict], grammar: str, root_id: str | None) -> None:
+    """§3.4 — the exact grammar this trace's plan entry declares, enforced rather than inferred.
+
+    Stack balance establishes neither grammar. A nested Make checkpoint balances; so does a hook stage at
+    depth two, and so does a trace with no root at all. Each of those was accepted, and each means something
+    different is wrong. The plan says which grammar applies, so the parser is told rather than left to guess
+    from the shape of what it was handed — which is guessing from the evidence being checked."""
+    if grammar == GRAMMAR_MAKE:
+        # Flat siblings, no enclosing root, at most one open at a time. Depth IS the whole rule here.
+        deep = [e['id'] for e in events if e.get('depth', 0) != 0]
+        if deep:
+            raise ObservatoryError(
+                f'Make checkpoints must be flat siblings and {sorted(set(deep))} are nested; Make runs each '
+                f'prerequisite to completion before the next begins, so nesting means these intervals do not '
+                f'mean what a Make trace says they mean')
+        return
+
+    if grammar == GRAMMAR_PRECOMMIT:
+        roots = [e for e in events if e.get('depth', 0) == 0]
+        if len(roots) != 1 or (root_id is not None and roots[0]['id'] != root_id):
+            raise ObservatoryError(
+                f'a pre-commit trace must have exactly one depth-zero root'
+                + (f' named {root_id!r}' if root_id else '')
+                + f', and this log has {[e["id"] for e in roots]}')
+        deep = [e['id'] for e in events if e.get('depth', 0) > 1]
+        if deep:
+            raise ObservatoryError(
+                f'pre-commit stages are siblings one level inside the root and {sorted(set(deep))} are '
+                f'nested deeper, so a stage is counted inside another stage')
+        return
+
+    if grammar == GRAMMAR_ATOMIC and events:
+        raise ObservatoryError(
+            f'this trace is declared atomic and its log carries {len(events)} checkpoint interval(s); an '
+            f'uninstrumented trace must not produce evidence it has no grammar to interpret')
 
 
 def parse_buildkit_progress(text: str) -> list[dict]:
@@ -2515,8 +2583,8 @@ def restore_and_verify(copy_root: Path, edit: dict, original: bytes, before_dige
 # named nowhere else, so the producer never emitted it, the member check never missed it, and the self-test
 # fixture supplied it by hand — three places disagreeing about one fact, with the fixture making the
 # disagreement invisible. The producer now asserts it emits exactly this set and the fixture must match it.
-OBSERVATION_MEMBERS = ('schema', 'suite_digest', 'run_id', 'subject', 'environment', 'cache_model',
-                       'commands', 'definitions', 'measurements', 'traces', 'module_graph',
+OBSERVATION_MEMBERS = ('schema', 'run_id', 'basis', 'cache_model',
+                       'measurements', 'traces', 'module_graph',
                        'history_analysis', 'derived', 'selection', 'suite_cost')
 SAMPLE_FIELDS = ('command_id', 'scenario_id', 'sample_index', 'edit_id', 'derived_parent_id',
                  'selected_or_support', 'start_utc', 'user_cpu_ns', 'system_cpu_ns',
@@ -2634,20 +2702,33 @@ def identity_problems(obs: dict) -> list[str]:
     return problems
 
 
-def validate_observation(obs: dict, suite_digest: str) -> str:
-    """Shape, digest and — the part that matters — every summary recomputed from its own samples.
+def validate_observation(obs: dict) -> str:
+    """§7 — THE ONE ROOT VALIDATOR. Every path that asks whether an observation is valid asks this.
 
-    A stored median is a claim about data that is right there. Trusting it would let a tampered or stale
-    summary survive every other check in this file, so it is recomputed rather than read."""
+    It takes no caller-supplied digest. `compare` used to pass `obs['suite_digest']` as the thing to compare
+    `obs['suite_digest']` against, so the observation supplied both sides of its own equality and sixty-four
+    zeroes validated. Identity comes from the retained basis or it is not identity.
+
+    The rules this subsumes were not missing before — `check_relation_closed`, `check_environment_complete`
+    and `check_cut_observed` all existed and all rejected the reviewer's mutations. They were reachable only
+    from the recording path, so loading and comparison used a weaker definition of valid than recording did.
+    That is the defect: not an absent rule, but a caller allowed to choose which rules apply.
+
+    A stored median stays recomputed rather than read, for the same reason everything else here is."""
     missing = [m for m in OBSERVATION_MEMBERS if m not in obs]
     if missing:
         raise ObservatoryError(f'the observation is missing member(s) {missing}')
     if obs['schema'] != SCHEMA:
         raise ObservatoryError(f'the observation schema is {obs["schema"]!r}, expected {SCHEMA!r}')
-    if obs['suite_digest'] != suite_digest:
+
+    # §2.7 — the BASIS first: everything downstream is judged against it, so an unchecked basis would make
+    # every later rule a comparison between the observation and itself.
+    bad_basis = basis_problems(obs.get('basis') or {})
+    if bad_basis:
         raise ObservatoryError(
-            f'the observation was taken against suite digest {obs["suite_digest"][:12]}… but the registry '
-            f'now digests to {suite_digest[:12]}…; the two describe different suites')
+            f'{len(bad_basis)} basis defect(s): {bad_basis[0]}'
+            + (f' (and {len(bad_basis) - 1} more)' if len(bad_basis) > 1 else ''))
+    basis = obs['basis']
 
     samples = obs['measurements']
     if not samples:
@@ -2676,13 +2757,10 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
                 f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
                 f'source, so a cached no-op is recorded under an incremental label')
 
-    # §7 E3 — the fingerprint is RE-DERIVED from the fields beside it, never trusted. Changing a host field
-    # while leaving the hash alone made two different host classes compare as one.
-    env_block = obs.get('environment') or {}
-    if env_block.get('host_class_fingerprint') != host_class_fingerprint(env_block):
-        raise ObservatoryError(
-            'the retained host-class fingerprint is not the one its own environment fields produce, so the '
-            'observation describes a host it did not run on')
+    # The fingerprint rule lives in `basis_problems` and ONLY there. It was stated twice — once here and
+    # once in the basis — and the mutation harness found it by neutering one copy and watching the other
+    # keep the self-test green. Two statements of one rule is the defect this repair exists to remove, so
+    # finding one inside the repair itself is worth more than the copy was.
 
     # §2 — the SAME trace rules a fragment is held to, and BEFORE the downstream symptoms. A recorded
     # observation checked more loosely than the partial bundles that preceded it would let the final write
@@ -2693,6 +2771,73 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
         raise ObservatoryError(
             f'{len(bad_traces)} retained trace defect(s): {bad_traces[0]}'
             + (f' (and {len(bad_traces) - 1} more)' if len(bad_traces) > 1 else ''))
+
+    # §2.2 — WHOLE-SUITE CLOSURE, from the retained plan. The reviewer removed a complete trace and sample,
+    # listed the command as unmeasured, recomputed the summaries, and the validator accepted it: a selected
+    # command could be reclassified after the fact to hide a lost trace. The plan is retained now, so the
+    # question "did this run produce what it was required to produce" has an answer that does not come from
+    # the run's own account of itself.
+    plan = basis['plan']
+    # §6.2 — an INCOMPLETE run is a declared state, not a weaker definition of valid chosen by a caller. It
+    # must still retain enough to diagnose and resume it, so every other rule below applies to it; what it
+    # cannot be asked is whether it produced the whole relation, because it says plainly that it did not.
+    complete_run = (obs.get('derived') or {}).get('status') != 'incomplete'
+    planned = {t['trace_id']: t for t in plan['traces']}
+    realised: dict[str, int] = {}
+    for t in (obs.get('traces') or []):
+        pid = t.get('plan_trace_id')
+        if pid not in planned:
+            raise ObservatoryError(
+                f'the observation closes trace {t.get("trace_id")}, which answers to plan trace {pid!r} that '
+                f'the retained plan does not schedule')
+        realised[pid] = realised.get(pid, 0) + 1
+    if complete_run:
+        for pid, entry in sorted(planned.items()):
+            got = realised.get(pid, 0)
+            if got != entry['samples']:
+                raise ObservatoryError(
+                    f'the retained plan schedules trace {pid} {entry["samples"]} time(s) and the observation '
+                    f'closes it {got}; a declared trace cannot be explained away by reclassifying its command')
+
+    if complete_run:
+        required: dict[str, int] = {}
+        for t in plan['traces']:
+            for metric in t['establishes']:
+                required[metric] = required.get(metric, 0) + t['samples']
+        produced = observed_relation(samples)
+        for metric in sorted(set(required) | set(produced)):
+            planned_count, held = required.get(metric, 0), produced.get(metric, 0)
+            if planned_count != held:
+                raise ObservatoryError(
+                    f'the retained plan requires metric {metric} {planned_count} time(s) and the '
+                    f'observation holds '
+                    f'{held}; the run did not establish the relation it was planned to')
+
+    # §2.6 — CACHE-CUT semantics, revalidated on every load rather than only during acquisition. The reviewer
+    # flipped a cold invalidation root from rebuilt to hit, recomputed the block from the falsified evidence,
+    # and the validator accepted a cold claim whose declared root stayed cached.
+    scenarios_by_id = {s['id']: s for s in basis['suite']['scenarios']}
+    for s in samples:
+        if s.get('derived_parent_id'):
+            continue
+        scen = scenarios_by_id.get(s['scenario_id'])
+        if scen is not None and s.get('cache_observation'):
+            check_cut_observed(s, scen, basis['suite'], basis['stage_graph'])
+
+    # §2.7 — SOURCE IDENTITY coheres with the subject. An unedited direct sample measures the subject's own
+    # content; an edited one must not. A derived child measures whatever its parent did.
+    subject_digest = basis['subject'].get('content_digest')
+    for s in samples:
+        if s.get('derived_parent_id') or s.get('source_digest') is None:
+            continue
+        if not s.get('edit_id') and s['source_digest'] != subject_digest:
+            raise ObservatoryError(
+                f'{s["command_id"]}/{s["scenario_id"]} applied no edit and measured source '
+                f'{s["source_digest"][:12]}…, which is not the subject\'s {str(subject_digest)[:12]}…')
+        if s.get('edit_id') and s['source_digest'] == subject_digest:
+            raise ObservatoryError(
+                f'{s["command_id"]}/{s["scenario_id"]} claims edit {s["edit_id"]} and measured the '
+                f'subject\'s own source, so the edit changed nothing it was supposed to change')
 
     # §7 E4 — analysis artifacts are bound to the traces that established them and their views recomputed.
     bad_artifacts = artifact_problems(obs)
@@ -2738,12 +2883,12 @@ def validate_observation(obs: dict, suite_digest: str) -> str:
                     f'sample {rid} is the root of two trace objects, {covered[rid]} and '
                     f'{obj.get("trace_id")}; one execution closed twice')
             covered[rid] = obj.get('trace_id')
-    roots = [s for s in samples if not s.get('derived_parent_id')]
-    uncovered = sorted(s['sample_id'] for s in roots if s.get('sample_id') not in covered)
-    if uncovered:
-        raise ObservatoryError(
-            f'{len(uncovered)} direct sample(s) have no trace-completion object, so the record cannot say '
-            f'the work they started ever finished: {uncovered[:3]}')
+    # No separate "this direct sample has no completion" rule. Under whole-suite closure it cannot fire: a
+    # complete run's completions are counted against the plan's multiplicity, a sample with no completion
+    # makes that count short, a duplicate root is refused above, and a completion naming a sample the record
+    # lacks is refused by `retained_trace_problems`. The fourth dead rule this campaign has produced by
+    # adding a stronger one over it — and the mutation harness is what proves each one dead, by neutering it
+    # and watching nothing change.
 
     # The two answers are exclusive, and one bundle may not give both. A contained command is measured INSIDE
     # its parent and reaches the observation through child derivation, so filing it under the commands this
@@ -2939,7 +3084,7 @@ def observed_relation(samples: list[dict]) -> dict:
 # did establish, and the two must be equal in both directions with exact counts. The expected side is READ
 # FROM THE PLAN — `establishes` is already the planner's own per-trace metric list — because a completion
 # object that recomputed it would be a second authority against the thing it exists to check.
-TRACE_MEMBERS = ('trace_id', 'command_id', 'scenario_id', 'edit_id', 'sample_index', 'root_sample_id',
+TRACE_MEMBERS = ('trace_id', 'plan_trace_id', 'command_id', 'scenario_id', 'edit_id', 'sample_index', 'root_sample_id',
                  'expected_metrics', 'observed_metrics', 'child_sample_ids', 'prime_sample_id',
                  'analysis_artifacts', 'partition', 'state')
 
@@ -2954,6 +3099,105 @@ def artifact_digest(artifact) -> str:
     must be taken from the canonical serialisation the observation itself stores rather than from a live
     object, or the two would agree only while nothing round-tripped."""
     return _sha256(json.dumps(artifact, sort_keys=True, separators=(',', ':')).encode('utf-8'))
+
+
+BASIS_MEMBERS = ('suite', 'suite_digest', 'stage_graph', 'request', 'selection', 'plan',
+                 'subject', 'environment', 'clocks')
+
+
+def capture_basis(suite: dict, sel: 'Selection', plan: dict, subj: dict, env: dict,
+                  stage_graph: dict) -> dict:
+    """§2.7 — the exact causal basis this run was produced from, retained so the run can be re-derived.
+
+    The captured registry is HISTORICAL PROVENANCE, never a second live authority:
+    `.review/BUILD_OBSERVATORY_SUITE.json` remains the only thing that plans a new run. What the snapshot
+    buys is that an observation from another ref can be judged against the registry it actually used, instead
+    of against today's, and that nobody can change the retained digest without the snapshot following.
+
+    The clocks are here because §4's partition arithmetic depends on an instrument resolution, and a
+    resolution supplied by the partition being judged is not a measurement of anything."""
+    return {'suite': suite,
+            'suite_digest': suite_digest_of(suite),
+            # Sorted lists, not sets: the basis is retained as JSON and must round-trip through the file
+            # exactly, or a reloaded observation would be judged against a graph the run never used.
+            'stage_graph': {k: sorted(v) for k, v in stage_graph.items()},
+            'request': dict(plan['request']),
+            'selection': {'partial': sel.partial, 'selected': list(sel.selected),
+                          'support': list(sel.support), 'scenarios': list(sel.scenarios),
+                          'scenario_support': list(sel.scenario_support)},
+            'plan': plan,
+            'subject': subj,
+            'environment': env,
+            'clocks': {'hook': HOOK_CLOCK, 'runner': RUNNER_CLOCK}}
+
+
+def basis_problems(basis: dict) -> list[str]:
+    """Everything the basis claims, RE-DERIVED rather than read.
+
+    Each rule here answers one of the reviewer's reproductions: an arbitrary suite digest validated against
+    itself because the caller supplied both sides; a selection could be edited after the fact to explain a
+    trace that went missing; a plan nobody re-derived could promise whatever the observation happened to
+    contain."""
+    absent = [m for m in BASIS_MEMBERS if m not in basis]
+    if absent:
+        return [f'the observation basis is missing member(s) {absent}, so it cannot be re-derived']
+
+    problems: list[str] = []
+    suite = basis['suite']
+    graph = basis['stage_graph']
+    # `groups` is DERIVED by the loader from the command entries and refused as an input, so the captured
+    # suite — which is the loaded form the run actually used — cannot be handed straight back to its own
+    # validator. Re-derive it instead of accepting it: the snapshot is proved to be a suite the loader would
+    # produce, rather than merely one it once produced.
+    raw = {k: v for k, v in suite.items() if k != 'groups'}
+    try:
+        reloaded = validate_suite(json.loads(json.dumps(raw)), set(graph), graph)
+    except ObservatoryError as exc:
+        return [f'the retained suite snapshot is not a valid registry: {exc}']
+    if reloaded != suite:
+        return ['the retained suite snapshot is not what the loader derives from its own entries, so its '
+                'group membership or shape was written rather than derived']
+
+    if suite_digest_of(suite) != basis['suite_digest']:
+        problems.append('the retained suite digest is not the digest of the retained suite snapshot, so one '
+                        'of the two describes a registry this run did not use')
+
+    req = basis['request']
+    try:
+        rederived = select(suite, only=req.get('only'), scenario=req.get('scenario'),
+                           record=bool(req.get('record')))
+    except ObservatoryError as exc:
+        return problems + [f'the retained request does not resolve against the retained suite: {exc}']
+    want = {'partial': rederived.partial, 'selected': list(rederived.selected),
+            'support': list(rederived.support), 'scenarios': list(rederived.scenarios),
+            'scenario_support': list(rederived.scenario_support)}
+    if want != basis['selection']:
+        problems.append('the retained selection is not what the retained request produces against the '
+                        'retained suite, so a run could be re-described after it happened')
+
+    # REPEAT is part of the request and therefore part of what the plan must be re-derived from; leaving it
+    # out re-derived a canonical-multiplicity plan and then blamed the retained one for disagreeing.
+    replanned = acquisition_plan(suite, rederived, graph=basis['stage_graph'],
+                                 repeat=max(1, int(req.get('repeat') or 1)))
+    if replanned != basis['plan']:
+        problems.append('the retained plan is not the plan that suite, stage graph and selection produce, '
+                        'so the expected relation was not the one this run was held to')
+
+    try:
+        check_environment_complete(basis['environment'])
+    except ObservatoryError as exc:
+        problems.append(f'the retained environment is incomplete: {exc}')
+    if basis['environment'].get('host_class_fingerprint') != host_class_fingerprint(basis['environment']):
+        problems.append('the retained host-class fingerprint is not the one its own environment fields '
+                        'produce, so the observation describes a host it did not run on')
+
+    subj = basis['subject']
+    for field, width in (('commit', 40), ('tree', 40), ('inventory_digest', 64), ('content_digest', 64)):
+        value = subj.get(field)
+        if not isinstance(value, str) or len(value) != width or any(c not in '0123456789abcdef'
+                                                                    for c in value):
+            problems.append(f'subject {field} is {value!r}, which is not a {width}-character hex identity')
+    return problems
 
 
 def plan_expectations(plan: dict) -> dict[tuple, list[str]]:
@@ -3097,6 +3341,11 @@ def trace_object(root: dict, children: list[dict], expected: list[str],
     return {
         'trace_id': trace_id_of(root['command_id'], root['scenario_id'],
                                 root.get('edit_id'), root['sample_index']),
+        # §2.7 — the exact PLAN entry this execution realises. One plan trace has one completion canonically
+        # and N under an ad hoc REPEAT, so the completion cannot be its own key into the plan; it names the
+        # entry it answers to, and the closure rule counts realisations against the multiplicity the plan
+        # states rather than assuming one.
+        'plan_trace_id': trace_id_of(root['command_id'], root['scenario_id'], root.get('edit_id'), 0),
         'command_id': root['command_id'], 'scenario_id': root['scenario_id'],
         'edit_id': root.get('edit_id'), 'sample_index': root['sample_index'],
         'root_sample_id': root.get('sample_id'),
@@ -3179,7 +3428,7 @@ def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
     return problems
 
 
-def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -> dict:
+def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None, repeat: int = 1) -> dict:
     """What a run WOULD execute, and which required metric each execution establishes.
 
     Derived from `expected_relation`, never restated beside it. The relation already knows every metric the
@@ -3209,7 +3458,11 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
             row = traces.setdefault((cid, sid), {
                 'trace_id': trace_id_of(cid, sid, spec['edit_id'], 0),
                 'command_id': cid, 'scenario_id': sid, 'edit_id': spec['edit_id'],
-                'samples': spec['samples'], 'role': sample_role(sel, cid, sid),
+                # §2.7 — EXACT sample multiplicity belongs to the plan. Canonically it is one; an ad hoc
+                # REPEAT is part of the request, so the plan it produces says so and the closure rule can
+                # ask for exactly that many rather than assuming the canonical count.
+                'samples': wanted_samples(cmd, sid, sample_role(sel, cid, sid), repeat),
+                'role': sample_role(sel, cid, sid),
                 # §3.5 — each trace states the checkpoint grammar its evidence must obey, so the parser is
                 # told what to enforce instead of inferring it from the shape of what it was handed.
                 'grammar': checkpoint_grammar(cmd), 'establishes': []})
@@ -3230,7 +3483,7 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
     return {'traces': ordered,
             'contained': contained,
             'cataloged': sorted(cataloged, key=lambda r: r['command_id']),
-            'request': dict(sel.request),
+            'request': dict(sel.request, repeat=repeat),
             'selection': {'partial': sel.partial, 'selected': list(sel.selected),
                           'support': list(sel.support), 'scenarios': list(sel.scenarios)},
             'required_metrics': len(required),
@@ -3351,7 +3604,7 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
         bad('R03', 'the working tree or index was dirty before the run')
     ok('R03')
 
-    if obs['subject']['dirty'] or obs['subject']['source_view'] != 'committed-tree':
+    if obs['basis']['subject']['dirty'] or obs['basis']['subject']['source_view'] != 'committed-tree':
         bad('R04', 'the subject is not one exact committed ref')
     ok('R04')
 
@@ -3397,10 +3650,10 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
         bad('R09', 'at least one incremental edit did not restore byte-exactly')
     ok('R09')
 
-    validate_observation(obs, suite_digest)
+    validate_observation(obs)
     ok('R10')
 
-    check_environment_complete(obs['environment'])
+    check_environment_complete(obs['basis']['environment'])
     ok('R11')
 
     if not (bundle / 'observation.json').is_file():
@@ -3665,7 +3918,7 @@ def _comparable(obs: dict, side: str) -> None:
         raise ObservatoryError(
             f'the {side} observation is an incomplete run — it was checkpointed mid-suite and its samples do '
             f'not cover what it claims to; finish or discard the run before comparing')
-    for member in ('environment', 'derived', 'measurements'):
+    for member in ('basis', 'derived', 'measurements'):
         if not isinstance(obs.get(member), (dict, list)):
             raise ObservatoryError(f'the {side} observation has no usable {member!r} member')
 
@@ -3684,7 +3937,7 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     # weaker one. A selector may be applied after this, never instead of it.
     for side, obs in (('baseline', base), ('candidate', cand)):
         try:
-            validate_observation(obs, obs.get('suite_digest', ''))
+            validate_observation(obs)
         except ObservatoryError as exc:
             raise ObservatoryError(f'the {side} observation does not validate, so no verdict can rest on '
                                    f'it: {exc}') from None
@@ -3694,15 +3947,12 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     # §7.5 asks for one exact scope per metric. That is now STRUCTURAL rather than checked: resource scope
     # is part of the metric identity, so two scopes are two metrics and cannot meet in one row. A check
     # here would be unreachable, and an unreachable guard reads as protection it does not give.
-    same_host = (base['environment'].get('host_class_fingerprint')
-                 == cand['environment'].get('host_class_fingerprint'))
+    same_host = (base['basis']['environment'].get('host_class_fingerprint')
+                 == cand['basis']['environment'].get('host_class_fingerprint'))
     b_sum, c_sum = base['derived'].get('summaries', {}), cand['derived'].get('summaries', {})
-    b_cmds = base.get('commands', {}) or {}
-    c_cmds = cand.get('commands', {}) or {}
-    if isinstance(b_cmds, list):
-        b_cmds = {cid: None for cid in b_cmds}
-    if isinstance(c_cmds, list):
-        c_cmds = {cid: None for cid in c_cmds}
+    # DERIVED from each side's retained suite, for the same reason the definitions are.
+    b_cmds = command_fingerprints(base['basis']['suite'])
+    c_cmds = command_fingerprints(cand['basis']['suite'])
 
     definitions = {
         'added': sorted(set(c_cmds) - set(b_cmds)),
@@ -3712,7 +3962,11 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     }
     # §7.3 — a metric is a question. If the scenario, the edit or the boundary changed, the two sides asked
     # different questions and their difference is not an improvement or a regression.
-    b_def, c_def = base.get('definitions') or {}, cand.get('definitions') or {}
+    # DERIVED from each side's own retained suite, not stored beside it. The fingerprints answer "did the
+    # definition change", and the definition is in the basis; storing a second copy meant an observation
+    # could disagree with the registry it retained.
+    b_def = definition_fingerprints(base['basis']['suite'])
+    c_def = definition_fingerprints(cand['basis']['suite'])
     changed_scenarios = {k for k in set(b_def.get('scenarios', {})) & set(c_def.get('scenarios', {}))
                          if b_def['scenarios'][k] != c_def['scenarios'][k]}
     changed_edits = {k for k in set(b_def.get('edits', {})) & set(c_def.get('edits', {}))
@@ -3724,8 +3978,8 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     # percentage deltas across a doubling of BuildKit parallelism, which changes what a build costs at least
     # as much as Make's job count does.
     CONCURRENCY_FIELDS = ('make_jobs', 'buildkit_max_parallelism')
-    b_conc = {k: (base['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
-    c_conc = {k: (cand['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
+    b_conc = {k: (base['basis']['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
+    c_conc = {k: (cand['basis']['environment'].get('concurrency') or {}).get(k) for k in CONCURRENCY_FIELDS}
     concurrency_changed = b_conc != c_conc
     definitions['changed_scenarios'] = sorted(changed_scenarios)
     definitions['changed_edits'] = sorted(changed_edits)
@@ -3830,7 +4084,7 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
         suite_cost['reason'] = ('one side retains no suite cost, so its own elapsed time is not a number this '
                                 'comparison can rest a verdict on')
     return {'schema': SCHEMA, 'same_host_class': same_host,
-            'baseline_subject': base['subject'], 'candidate_subject': cand['subject'],
+            'baseline_subject': base['basis']['subject'], 'candidate_subject': cand['basis']['subject'],
             'suite_definitions': definitions, 'metrics': metrics, 'counts': counts,
             'suite_cost': suite_cost}
 
@@ -4019,11 +4273,12 @@ def declared_anchor_ids(suite: dict, root: Path) -> set:
 
 
 def collect_events(command: dict, anchor_log: Path, raw_log: Path,
-                   known_anchors: set | None = None) -> list[dict]:
+                   known_anchors: set | None = None, grammar: str | None = None) -> list[dict]:
     """Every derived event this sample produced, from whichever instrumentation applies to it."""
     events = []
     if anchor_log.is_file():
-        events.extend(parse_anchor_log(read_text(anchor_log, 'hook anchor log'), known_anchors))
+        events.extend(parse_anchor_log(read_text(anchor_log, 'hook anchor log'), known_anchors,
+                                       grammar=grammar, root_id=command['id']))
     if raw_log.is_file():
         events.extend(parse_buildkit_progress(raw_log.read_text(encoding='utf-8', errors='replace')))
     return events
@@ -4356,7 +4611,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         # §3 — an UNKNOWN checkpoint is refused, against the vocabulary the registry, the
                         # Makefile and the hook actually declare, so a log naming work none of them declares
                         # cannot quietly become a metric.
-                        known_anchors=declared_anchor_ids(suite, root))
+                        known_anchors=declared_anchor_ids(suite, root),
+                        grammar=checkpoint_grammar(command))
                     check_cut_observed(s, scenario, suite, stage_graph)
                     if edit:
                         check_edit_effect(s, edit, command, context_inputs)
@@ -4497,10 +4753,13 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     }
 
     observation = {
-        'schema': SCHEMA, 'suite_digest': suite_digest_of(suite), 'run_id': run_id,
-        'subject': subj, 'environment': env,
+        'schema': SCHEMA, 'run_id': run_id,
+        # §2.7 — THE BASIS. Everything an observation needs in order to be judged against something other
+        # than itself. Validation used to read the samples that existed and never ask whether they were the
+        # samples the suite and the request imply, so a lost trace could be reclassified as unmeasured, a
+        # suite digest could validate against itself, and a subject could be replaced wholesale.
+        'basis': capture_basis(suite, sel, plan, subj, env, stage_graph),
         'cache_model': {s: scenarios[s]['cache_cut'] for s in sel.scenarios if s in scenarios},
-        'commands': command_fingerprints(suite), 'definitions': definition_fingerprints(suite),
         'measurements': samples, 'traces': traces,
         'module_graph': graph, 'history_analysis': history, 'derived': derived,
         # What was asked for, and what the tool added on its own to make the answer mean anything. A reader
@@ -5410,6 +5669,59 @@ def self_test(root: Path) -> int:
                 out['history_analysis'] = FIXTURE_HISTORY
         return out
 
+    def enriched(raw: dict) -> dict:
+        """A modified suite put back through the loader, so its derived members follow its entries.
+
+        rhencke sudo users docker is derived; copying an enriched suite and editing its commands leaves a stale membership
+        that the basis rule correctly refuses. The fixture must produce a suite the loader would produce."""
+        g = docker_stage_graph(root)
+        return validate_suite({k: v for k, v in raw.items() if k != 'groups'}, set(g), g)
+
+    def _fixture_request(samples):
+        """The request these samples ARE, when they are one command in one state — else None.
+
+        A fixture of one command in one unedited state is a valid small run and is judged as one. Anything
+        wider is a partial record of a bigger plan, which is what `incomplete` means."""
+        direct = [s for s in samples if not s.get('derived_parent_id')]
+        cmds = {s['command_id'] for s in direct}
+        scns = {s['scenario_id'] for s in direct}
+        if len(cmds) == 1 and len(scns) == 1 and not any(s.get('edit_id') for s in direct):
+            return next(iter(cmds)), next(iter(scns))
+        return None
+
+    def _fixture_is_simple(samples) -> bool:
+        return _fixture_request(samples) is not None
+
+    def _fixture_repeat(samples) -> int:
+        """How many times the most-repeated direct identity appears."""
+        counts_by: dict[tuple, int] = {}
+        for s in samples:
+            if s.get('derived_parent_id'):
+                continue
+            key = (s['command_id'], s['scenario_id'], s.get('edit_id'))
+            counts_by[key] = counts_by.get(key, 0) + 1
+        return max(counts_by.values(), default=1)
+
+    def fixture_basis(only=None, scenario=None, repeat=1, **over) -> dict:
+        """A basis CAPTURED through the real function, from the real suite and a real selection.
+
+        Overriding a member is how a control models a TAMPERED basis: the capture stays honest and the
+        control states exactly which fact it falsified. The default is a valid PARTIAL request — §8.1's
+        must-accept list names exactly that — so the small fixture is a real run of a small selection rather
+        than a large run missing most of itself."""
+        # Plan from the suite this basis WILL carry, not from the live one. Overriding the suite afterwards
+        # left a plan derived from a different registry — which the re-derivation rule then refused, and was
+        # right to: that is a basis describing a run nobody could have performed.
+        use = over.pop('suite', suite)
+        fsel = select(use, only=only, scenario=scenario)
+        basis = capture_basis(
+            use, fsel, acquisition_plan(use, fsel, graph=docker_stage_graph(root), repeat=repeat),
+            {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
+             'content_digest': 'e0' * 32, 'dirty': False, 'source_view': 'committed-tree'},
+            fixture_environment(), docker_stage_graph(root))
+        basis.update(over)
+        return basis
+
     def fixture_environment(**over) -> dict:
         """An environment whose fingerprint is what its own fields produce.
 
@@ -5459,15 +5771,33 @@ def self_test(root: Path) -> int:
     def observation(samples=None, **over) -> dict:
         samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
                                                        for i, n in enumerate((900_000, 1_000_000, 1_100_000))]
-        base = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture',
-                'subject': {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
-                            'dirty': False, 'source_view': 'committed-tree'},
-                # §7 E3 — the fixture's fingerprint is DERIVED from its own fields, like the producer's. A
-                # hand-written hash described a host the fields did not, which is the defect itself.
-                'environment': fixture_environment(),
-                'cache_model': {}, 'commands': {'make.fmt': 'f0' * 32},
-                'definitions': {'commands': {'make.fmt': 'f0' * 32}, 'scenarios': {}, 'edits': {},
-                                'stable_through': 'rocq-base'},
+        # A caller who supplies a basis has SAID which run this is; the fragment heuristic below is only for
+        # fixtures that did not. `complete_observation` supplies the full canonical basis and is complete.
+        given_basis = 'basis' in over
+        base = {'schema': SCHEMA, 'run_id': 'run-fixture',
+                # §2.7 — the fixture's basis is CAPTURED through the real function from the real suite, so a
+                # control exercises a basis the producer could actually emit. A hand-written one would be the
+                # fixture describing a shape nobody produces, which this repair has already paid for twice.
+                # It also subsumes what used to be four hand-kept members: the suite digest, the subject, the
+                # environment and the selection each had their own fixture value, free to disagree with one
+                # another and with the suite they claimed to describe.
+                # A real PARTIAL request for exactly what this fixture holds: one command, one scenario, and
+                # the repetition count its own samples show. The plan then requires precisely these samples,
+                # so the fixture is a valid small run rather than a large one missing most of itself.
+                # A fixture whose samples are all one command in one state is a valid PARTIAL run and is
+                # judged as one. A fixture holding samples of other commands is a partial record of a bigger
+                # plan — which is exactly what `incomplete` means — so it says so rather than pretending the
+                # request it names produced them.
+                'basis': over.pop('basis', None) or fixture_basis(
+                    only=(_fixture_request(samples) or (None, None))[0],
+                    scenario=(_fixture_request(samples) or (None, None))[1],
+                    # Repetitions of ONE identity, not the count of direct samples. Two samples of two
+                    # different commands is not a repeat-of-two; reading it as one made the plan demand
+                    # every trace twice.
+                    repeat=_fixture_repeat(samples),
+                    **{k: over.pop(k) for k in ('subject', 'environment', 'suite_digest',
+                                                'request', 'plan', 'suite') if k in over}),
+                'cache_model': {},
                 'measurements': samples,
                 # §2 — one closed trace per DIRECT sample, built by the real constructor from the samples
                 # this fixture holds. Hand-writing them would let the fixture describe a completion shape the
@@ -5490,7 +5820,13 @@ def self_test(root: Path) -> int:
                               'commands_with_no_scenario_here': [],
                               'commands_never_measured': []},
                 'derived': {'summaries': summarise(samples)}}
-        return {**base, **over}
+        merged = {**base, **over}
+        # A caller-supplied `derived` used to replace the base wholesale and take the incomplete marker with
+        # it, so a fixture that is a fragment quietly claimed to be a whole run and then failed closure.
+        if (not given_basis and not _fixture_is_simple(samples)
+                and 'status' not in (merged.get('derived') or {})):
+            merged['derived'] = {**(merged.get('derived') or {}), 'status': 'incomplete'}
+        return merged
 
     def observed(label: str, fn, expect: str | None = None):
         counts['total'] += 1
@@ -5507,32 +5843,32 @@ def self_test(root: Path) -> int:
             failures.append(f'{label}: expected failure containing {expect!r}, but it succeeded')
 
     observed('a complete observation validates',
-             lambda: validate_observation(observation(), digest))
+             lambda: validate_observation(observation()))
     observed('an observation with a suite digest mismatch',
-             lambda: validate_observation(observation(), 'f' * 64),
-             expect='describe different suites')
+             lambda: validate_observation(observation(suite_digest='f' * 64)),
+             expect='not the digest of the retained suite snapshot')
     observed('an observation missing a required member',
-             lambda: validate_observation({k: v for k, v in observation().items() if k != 'module_graph'},
-                                          digest),
+             lambda: validate_observation({k: v for k, v in observation().items()
+                                           if k != 'module_graph'}),
              expect='missing member')
     observed('an observation retaining no samples',
-             lambda: validate_observation(observation(samples=[], derived={'summaries': {}}), digest),
+             lambda: validate_observation(observation(samples=[], derived={'summaries': {}})),
              expect='retains no samples')
     observed('a sample missing a required field',
              lambda: validate_observation(
                  observation(samples=[{k: v for k, v in sample().items() if k != 'max_rss_bytes'}],
-                             derived={'summaries': summarise([sample()])}), digest),
+                             derived={'summaries': summarise([sample()])})),
              expect='missing field')
     observed('a negative duration',
              lambda: validate_observation(
                  observation(samples=[sample(wall_ns=-1)],
-                             derived={'summaries': summarise([sample(wall_ns=-1)])}), digest),
+                             derived={'summaries': summarise([sample(wall_ns=-1)])})),
              expect='negative wall_ns')
 
     # ── §10 zero is a measured claim, and it is false whenever work happened
     def only(s):
         return lambda: validate_observation(
-            observation(samples=[s], derived={'summaries': summarise([s])}), digest)
+            observation(samples=[s], derived={"summaries": summarise([s])}))
 
     observed('an authority map that disagrees with the stage evidence beside it',
              only(sample(cache_observation={'stages': {'prover': 'rebuilt'}},
@@ -5560,7 +5896,11 @@ def self_test(root: Path) -> int:
                       lower_ns=0, upper_ns=HOOK_CLOCK['resolution_ns'], below_resolution=True)
     for label, s in (('an untimed artifact', accepted), ('a below-resolution interval', interval)):
         try:
-            validate_observation(observation(samples=[s], derived={'summaries': summarise([s])}), digest)
+            # A per-sample shape control: the metric kinds it exercises are not what a `make.fmt` trace
+            # establishes, so it states that it is a fragment rather than claiming to be that whole run.
+            validate_observation(observation(samples=[s], traces=[],
+                                             derived={'summaries': summarise([s]),
+                                                      'status': 'incomplete'}))
         except ObservatoryError as exc:
             failures.append(f'{label} was rejected: {exc}')
     rows = summarise([interval])
@@ -5597,11 +5937,11 @@ def self_test(root: Path) -> int:
     observed('an unknown resource scope',
              lambda: validate_observation(
                  observation(samples=[sample(resource_scope='guessed')],
-                             derived={'summaries': summarise([sample(resource_scope='guessed')])}), digest),
+                             derived={'summaries': summarise([sample(resource_scope='guessed')])})),
              expect='not a known scope')
     observed('a tampered stored summary',
              lambda: validate_observation(observation(derived={'summaries': {'make.fmt|project.warm.noop': {
-                 'samples': 3, 'median_ns': 1, 'min_ns': 1, 'max_ns': 1}}}), digest),
+                 'samples': 3, 'median_ns': 1, 'min_ns': 1, 'max_ns': 1}}})),
              expect='do not equal recomputation')
 
     def complete_observation(**over):
@@ -5644,6 +5984,13 @@ def self_test(root: Path) -> int:
             for s in every:
                 if s.get('derived_parent_id'):
                     s['parent_sample_id'] = by_parent.get((s['derived_parent_id'], s['scenario_id']))
+        # The FULL canonical basis, because this fixture holds the full canonical relation. Inheriting the
+        # small partial basis made the plan disagree with the samples it was supposed to have planned.
+        # Basis-level overrides are threaded INTO the capture rather than left beside it: a control that
+        # perturbs the subject must perturb the basis's subject, or its perturbation reaches nothing.
+        over.setdefault('basis', fixture_basis(**{k: over.pop(k) for k in
+                                                  ('subject', 'environment', 'suite_digest', 'request',
+                                                   'plan', 'suite') if k in over}))
         over.setdefault('derived', {'summaries': summarise(every)})
         return observation(samples=every, **over)
 
@@ -6229,17 +6576,22 @@ def self_test(root: Path) -> int:
     counts['total'] += 1
     # Resource scope is part of the metric identity now, so a changed scope is not the same metric at all.
     # That is stronger than `incomparable`: the two never meet in one row to be given a verdict.
-    scoped = timed(100, 110, 120)
-    scoped['measurements'] = [dict(s, resource_scope=SCOPE_BUILDKIT) for s in scoped['measurements']]
-    scoped['derived'] = {'summaries': summarise(scoped['measurements'])}
-    scoped['traces'] = traces_for(scoped['measurements'])
-    rows = cmp_guard(timed(100, 110, 120), scoped)['metrics']
-    verdicts = {r['classification'] for r in rows}
-    if verdicts - {'added', 'removed'}:
-        failures.append(f'a changed resource scope must not produce a delta: {verdicts}')
+    # Tested at the IDENTITY, which is where the claim lives. No two valid runs of one suite can differ only
+    # in a metric's resource scope — the registry derives scope from how a command executes — so building two
+    # observations that do was asking the comparator about a pair of runs that cannot exist. What IS true and
+    # checkable is that scope is part of the key, so the two never meet in one row to be given a verdict.
+    host_key = metric_identity(sample())
+    buildkit_key = metric_identity(sample(resource_scope=SCOPE_BUILDKIT))
+    if host_key == buildkit_key:
+        failures.append('resource scope must be part of metric identity, or a host measurement and a '
+                        'BuildKit measurement of one command would meet in a single delta row')
 
     counts['total'] += 1
-    changed_def = observation(commands={'make.fmt': 'aa' * 32})
+    # A changed COMMAND definition, modelled where the definition lives: the retained suite. The fingerprints
+    # are derived from it now, so editing a stored copy would describe a state the producer cannot emit.
+    cmd_suite = json.loads(json.dumps(suite))
+    next(c for c in cmd_suite['commands'] if c['id'] == 'make.fmt')['purpose'] += ' (restated)'
+    changed_def = observation(suite=enriched(cmd_suite), suite_digest=suite_digest_of(enriched(cmd_suite)))
     if cmp_guard(observation(), changed_def)['metrics'][0]['classification'] != 'incomparable':
         failures.append('a changed command definition must be incomparable')
 
@@ -6248,17 +6600,29 @@ def self_test(root: Path) -> int:
     # to compare against a zero-sample observation, and a run that measured nothing is not a valid
     # observation to draw any verdict from, so the fixture was asking the comparator a question it should
     # refuse rather than answer.
+    # TWO VALID PARTIAL RUNS of different commands — which is how a metric legitimately appears on one side
+    # and not the other. Perturbing one observation's samples without moving its request made it a run that
+    # never happened, and the comparator is right to refuse to draw a verdict from one of those.
     other = observation(samples=[sample(command_id='make.diet', sample_index=i, wall_ns=n)
-                                 for i, n in enumerate((900_000, 1_000_000, 1_100_000))])
+                                 for i, n in enumerate((900_000, 1_000_000, 1_100_000))],
+                        basis=fixture_basis(only='make.diet', scenario='project.warm.noop', repeat=3))
     added = cmp_guard(other, observation())
     removed = cmp_guard(observation(), other)
     if added['counts']['added'] != 1 or removed['counts']['removed'] != 1:
         failures.append(f'added/removed metrics were not reported: {added["counts"]}, {removed["counts"]}')
 
     counts['total'] += 1
-    defs = cmp_guard(observation(commands={'make.fmt': 'f0' * 32, 'make.gone': 'a1' * 32}),
-                   observation(commands={'make.fmt': 'f0' * 32, 'make.new': 'b2' * 32}))['suite_definitions']
-    if defs['added'] != ['make.new'] or defs['removed'] != ['make.gone']:
+    # A suite that GAINED and LOST a command, modelled in the retained suites themselves. The fingerprints
+    # are derived from them, so a comparison between two real registries is what the rule is about.
+    gone_suite = json.loads(json.dumps(suite))
+    gone = next(c for c in gone_suite['commands'] if c['id'] == 'make.fcb-write')
+    gone_suite['commands'] = [c for c in gone_suite['commands'] if c['id'] != 'make.fcb-write']
+    new_suite = json.loads(json.dumps(gone_suite))
+    new_suite['commands'].append({**gone, 'id': 'make.newly-added'})
+    defs = cmp_guard(observation(suite=enriched(gone_suite), suite_digest=suite_digest_of(enriched(gone_suite))),
+                     observation(suite=enriched(new_suite),
+                                 suite_digest=suite_digest_of(enriched(new_suite))))['suite_definitions']
+    if defs['added'] != ['make.newly-added'] or defs['removed'] != []:
         failures.append(f'a suite change must narrow an old observation, not void it: {defs}')
 
     counts['total'] += 1
@@ -6424,17 +6788,16 @@ def self_test(root: Path) -> int:
 
     # ── §7 E4 analysis artifacts are bound and their views recomputed.
     observed('an analysis sample whose artifact is null',
-             lambda: validate_observation(complete_observation(module_graph=None), digest),
+             lambda: validate_observation(complete_observation(module_graph=None)),
              expect='the observation retains none')
     observed('an artifact that hashes to no establishing trace',
              lambda: validate_observation(
-                 complete_observation(module_graph=parse_module_graph(FIXTURE_DEP, {'A': 9, 'B': 9})),
-                 digest),
+                 complete_observation(module_graph=parse_module_graph(FIXTURE_DEP, {'A': 9, 'B': 9}))),
              expect='does not hash to what its establishing trace')
     observed('an artifact no trace established',
              lambda: validate_observation(
                  complete_observation(traces=[{**t, 'analysis_artifacts': {}}
-                                              for t in complete_observation()['traces']]), digest),
+                                              for t in complete_observation()['traces']])),
              expect='that no trace established')
 
     def tampered_view(which):
@@ -6443,10 +6806,10 @@ def self_test(root: Path) -> int:
         return obs
 
     observed('a tampered derived rebuild view',
-             lambda: validate_observation(tampered_view('rebuild_impact'), digest),
+             lambda: validate_observation(tampered_view('rebuild_impact')),
              expect='not what its own module graph produces')
     observed('a tampered derived history view',
-             lambda: validate_observation(tampered_view('weighted_rebuild_cost'), digest),
+             lambda: validate_observation(tampered_view('weighted_rebuild_cost')),
              expect='not what its own artifacts produce')
 
     counts['total'] += 1
@@ -6454,7 +6817,7 @@ def self_test(root: Path) -> int:
     # shape §6 D2 now produces, validated by the rules §7 E4 adds, so the two halves are proved to agree.
     resumed = complete_observation()
     try:
-        validate_observation(resumed, digest)
+        validate_observation(resumed)
     except ObservatoryError as exc:
         failures.append(f'an observation carrying the exact artifacts its traces established was refused: '
                         f'{exc}')
@@ -6464,7 +6827,7 @@ def self_test(root: Path) -> int:
              lambda: validate_observation(
                  observation(environment={**fixture_environment(),
                                           'concurrency': {'make_jobs': 1,
-                                                          'buildkit_max_parallelism': 2}}), digest),
+                                                          'buildkit_max_parallelism': 2}})),
              expect='not the one its own environment fields produce')
 
     def perturbed_cost(**over):
@@ -6485,7 +6848,7 @@ def self_test(root: Path) -> int:
             ('a cost naming no trace', {'trace_wall_ns': {'nobody|nowhere|-|0': 5}},
              'not a trace this run performed')):
         observed(f'suite cost with {label}',
-                 lambda over=over: validate_observation(perturbed_cost(**over), digest),
+                 lambda over=over: validate_observation(perturbed_cost(**over)),
                  expect=want)
 
     counts['total'] += 1
@@ -6497,7 +6860,7 @@ def self_test(root: Path) -> int:
                           'trace_wall_ns': {k: v for k, v in thin['suite_cost']['trace_wall_ns'].items()
                                             if k != first}}
     try:
-        validate_observation(thin, digest)
+        validate_observation(thin)
         failures.append('a performed trace with no retained cost was accepted')
     except ObservatoryError as exc:
         if 'retains no cost for' not in str(exc):
@@ -6703,12 +7066,12 @@ def self_test(root: Path) -> int:
     observed('a contained child omitted from a completed trace',
              lambda: validate_observation(
                  drop_sample(lambda ss: pick({'measurements': ss}, 'contained child',
-                                             lambda s: s.get('measurement_kind') == KIND_CONTAINED)), digest),
+                                             lambda s: s.get('measurement_kind') == KIND_CONTAINED))),
              expect='which this record does not contain')
     observed('a derived Docker child omitted from a completed trace',
              lambda: validate_observation(
                  drop_sample(lambda ss: pick({'measurements': ss}, 'docker child',
-                                             lambda s: s['command_id'].startswith('docker.'))), digest),
+                                             lambda s: s['command_id'].startswith('docker.')))),
              expect='which this record does not contain')
 
     def trace_with(mutate):
@@ -6728,7 +7091,7 @@ def self_test(root: Path) -> int:
         obj['child_sample_ids'] = obj['child_sample_ids'] + ['extra-child']
 
     observed('an extra child inserted into a completed trace',
-             lambda: validate_observation(trace_with(add_child), digest),
+             lambda: validate_observation(trace_with(add_child)),
              expect='was required 0 time(s) and observed 1')
 
     def steal_child(obj, obs):
@@ -6739,17 +7102,17 @@ def self_test(root: Path) -> int:
         obj['child_sample_ids'] = obj['child_sample_ids'] + [other['child_sample_ids'][0]]
 
     observed('a child retained under a trace that did not produce it',
-             lambda: validate_observation(trace_with(steal_child), digest),
+             lambda: validate_observation(trace_with(steal_child)),
              expect='retained under a trace that did not produce it')
 
     observed('one expected metric produced twice in a trace',
              lambda: validate_observation(
                  trace_with(lambda obj, obs: obj.update(
-                     observed_metrics=sorted(obj['observed_metrics'] + [obj['observed_metrics'][0]]))), digest),
+                     observed_metrics=sorted(obj['observed_metrics'] + [obj['observed_metrics'][0]])))),
              expect='was required 1 time(s) and observed 2')
     observed('a trace retained before its children were derived',
              lambda: validate_observation(
-                 trace_with(lambda obj, obs: obj.update(state='in-progress')), digest),
+                 trace_with(lambda obj, obs: obj.update(state='in-progress'))),
              expect='retained before it closed')
     def missing_one_trace():
         """A complete observation minus one completion object that establishes no ARTIFACT.
@@ -6762,8 +7125,28 @@ def self_test(root: Path) -> int:
         return obs
 
     observed('a completed direct root with no trace-completion object',
-             lambda: validate_observation(missing_one_trace(), digest),
-             expect='no trace-completion object')
+             lambda: validate_observation(missing_one_trace()),
+             expect='closes it 0')
+
+    def extra_metric():
+        """A complete observation holding one metric MORE than the plan requires, trace counts intact.
+
+        This trips the metric relation specifically. Removing a trace trips the multiplicity rule first, so
+        a control built that way proves the multiplicity rule and says nothing about this one."""
+        obs = complete_observation()
+        twin = dict(obs['measurements'][0], sample_id='extra-sample')
+        obs['measurements'] = obs['measurements'] + [twin]
+        obs['derived'] = {**obs['derived'], 'summaries': summarise(obs['measurements'])}
+        obs['suite_cost'] = {**obs['suite_cost'],
+                             'direct_trace_count': len([s for s in obs['measurements']
+                                                        if not s.get('derived_parent_id')]),
+                             'contained_metric_count': len([s for s in obs['measurements']
+                                                            if s.get('derived_parent_id')])}
+        return obs
+
+    observed('an observation holding a metric the plan did not require',
+             lambda: validate_observation(extra_metric()),
+             expect='the run did not establish the relation it was planned to')
     counts['total'] += 1
     counts['must_fail'] += 1
     stale = complete_observation()['traces'][0]
@@ -6779,7 +7162,7 @@ def self_test(root: Path) -> int:
     # expected relation, so `make.check/project.warm.noop` appears here with the exact child relation the
     # registry declares for it — the reviewer's own must-accept case, without depending on a recorded file.
     observed('a complete observation whose every direct sample closes its trace',
-             lambda: validate_observation(complete_observation(), digest))
+             lambda: validate_observation(complete_observation()))
 
     counts['total'] += 1
     shapes = {'direct-only': 0, 'direct-plus-contained': 0, 'direct-plus-docker': 0}
@@ -6833,10 +7216,14 @@ def self_test(root: Path) -> int:
             failures.append(f'comparison rejected an unknown selector for the wrong reason: {exc}')
 
     counts['total'] += 1
-    base_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'aa' * 32}}
-    cand_defs = {**observation()['definitions'], 'scenarios': {'project.warm.noop': 'bb' * 32}}
-    changed_scn = observation(definitions=base_defs)
-    row = cmp_guard(changed_scn, observation(definitions=cand_defs))['metrics'][0]
+    # A changed SCENARIO MEANING is now modelled by changing the retained suite, because that is where the
+    # meaning lives. The definition fingerprints are derived from it rather than stored beside it, so a
+    # control that edited a stored copy would be describing a disagreement the producer cannot emit.
+    other_suite = json.loads(json.dumps(suite))
+    other_scn = next(s for s in other_suite['scenarios'] if s['id'] == 'project.warm.noop')
+    other_scn['description'] = f'{other_scn.get("description", "")} (a different question)'
+    row = cmp_guard(observation(), observation(suite=enriched(other_suite),
+                                               suite_digest=suite_digest_of(enriched(other_suite))))['metrics'][0]
     if row['classification'] != 'incomparable' or 'meaning of' not in row['reason']:
         failures.append(f'a changed scenario meaning must be incomparable: {row}')
 
@@ -7168,8 +7555,8 @@ def self_test(root: Path) -> int:
     # ── the observation SHAPE a real run assembles: direct samples, analysis samples and derived
     #    children together. Assembly failing at the end of a multi-hour suite is the expensive way to learn.
     counts['total'] += 1
-    direct = sample(command_id='make.prove', scenario_id='project.cached.fresh')
-    ana = analysis_sample('analysis.rocq-modules', scen_of(suite, 'project.cached.fresh'),
+    direct = sample(command_id='make.check', scenario_id='project.warm.noop')
+    ana = analysis_sample('analysis.rocq-modules', scen_of(suite, 'project.warm.noop'),
                           'selected', 5_000, {}, [])
     kids = derive_child_samples(direct, [{'id': 'docker.prover', 'aggregate_step_ns': 900,
                                           'source': 'buildkit-progress'}], {'docker.prover'})
@@ -7184,7 +7571,7 @@ def self_test(root: Path) -> int:
         _kid['parent_sample_id'] = _parent['sample_id']
     shaped = observation(samples=mixed, derived={'summaries': summarise(mixed)})
     try:
-        validate_observation(shaped, digest)
+        validate_observation(shaped)
     except ObservatoryError as exc:
         failures.append(f'the observation shape a real run assembles must validate: {exc}')
 
@@ -7302,7 +7689,7 @@ def self_test(root: Path) -> int:
 
     observed('a hook anchor whose clock went backwards',
              lambda: parse_anchor_log('begin a 2000\nend a 1000\n'),
-             expect='ended before it began')
+             expect='the log is out of order')
 
     # §3 — THE THREE MALFORMED LOGS THE OLD PARSER ACCEPTED SILENTLY. Each was reproduced by the reviewer
     # against the live parser: the first produced no event at all, the second reported a 50 ns interval for
@@ -7340,6 +7727,45 @@ def self_test(root: Path) -> int:
     observed('a compound recipe body checkpoint',
              lambda: parse_anchor_log('begin make.check-body 100\nend make.check-body 200\n',
                                       known=live_vocab))
+
+    # §3.4 — THE GRAMMARS, enforced from the plan rather than inferred. Stack balance establishes neither:
+    # a nested Make checkpoint balances, so does a hook stage at depth two, and so does a log with no root.
+    # Each was accepted and each means something different is wrong.
+    observed('a nested Make checkpoint',
+             lambda: parse_anchor_log('begin make.names 100\nbegin make.diet 150\nend make.diet 200\n'
+                                      'end make.names 250\n', grammar=GRAMMAR_MAKE),
+             expect='must be flat siblings')
+    observed('a pre-commit stage nested inside another stage',
+             lambda: parse_anchor_log('begin precommit.full 100\nbegin precommit.naming 110\n'
+                                      'begin precommit.claims 120\nend precommit.claims 130\n'
+                                      'end precommit.naming 140\nend precommit.full 150\n',
+                                      grammar=GRAMMAR_PRECOMMIT, root_id='precommit.full'),
+             expect='nested deeper')
+    observed('a pre-commit log with no root',
+             lambda: parse_anchor_log('begin precommit.naming 100\nend precommit.naming 200\n',
+                                      grammar=GRAMMAR_PRECOMMIT, root_id='precommit.full'),
+             expect='exactly one depth-zero root')
+    observed('a pre-commit log with a repeated root',
+             lambda: parse_anchor_log('begin precommit.full 100\nend precommit.full 150\n'
+                                      'begin precommit.full 160\nend precommit.full 200\n',
+                                      grammar=GRAMMAR_PRECOMMIT, root_id='precommit.full'),
+             expect='completed a second pair')
+    observed('checkpoints whose timestamps move backwards',
+             lambda: parse_anchor_log('begin a 100\nend a 200\nbegin b 150\nend b 300\n'),
+             expect='the log is out of order')
+    observed('an atomic trace that produced checkpoint evidence',
+             lambda: parse_anchor_log('begin a 100\nend a 200\n', grammar=GRAMMAR_ATOMIC),
+             expect='declared atomic')
+
+    counts['total'] += 1
+    # MUST ACCEPT — the two real shapes, each under its own declared grammar.
+    flat_ok = parse_anchor_log('begin make.names 100\nend make.names 200\n'
+                               'begin make.diet 200\nend make.diet 300\n', grammar=GRAMMAR_MAKE)
+    nested_ok = parse_anchor_log('begin precommit.full 100\nbegin precommit.naming 110\n'
+                                 'end precommit.naming 190\nend precommit.full 200\n',
+                                 grammar=GRAMMAR_PRECOMMIT, root_id='precommit.full')
+    if len(flat_ok) != 2 or len(nested_ok) != 2:
+        failures.append(f'the two real grammars must parse: {len(flat_ok)} flat, {len(nested_ok)} nested')
 
     counts['total'] += 1
     # Exact start and end, not only the duration. §4's partition cannot be proved from durations alone, and
@@ -7414,7 +7840,7 @@ def self_test(root: Path) -> int:
         validate_observation(observation(selection={
             'partial': False, 'commands_selected': ['make.fmt', 'make.observe'], 'commands_support': [],
             'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
-            'commands_with_no_scenario_here': [], 'commands_never_measured': ['make.observe']}), digest)
+            'commands_with_no_scenario_here': [], 'commands_never_measured': ['make.observe']}))
     except ObservatoryError as exc:
         failures.append(f'a catalog-only command listed as never measured was refused: {exc}')
 
@@ -7423,7 +7849,7 @@ def self_test(root: Path) -> int:
         validate_observation(observation(selection={
             'partial': True, 'commands_selected': ['make.fmt', 'make.builder'], 'commands_support': [],
             'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
-            'commands_with_no_scenario_here': [], 'commands_never_measured': []}), digest)
+            'commands_with_no_scenario_here': [], 'commands_never_measured': []}))
         failures.append('a selected command with no sample and no reason was accepted')
     except ObservatoryError:
         pass
@@ -7436,7 +7862,7 @@ def self_test(root: Path) -> int:
              lambda: validate_observation(observation(selection={
                  'partial': False, 'commands_selected': ['make.fmt'], 'commands_support': [],
                  'scenarios': ['project.warm.noop'], 'scenarios_added_as_support': [],
-                 'commands_with_no_scenario_here': ['make.fmt'], 'commands_never_measured': []}), digest),
+                 'commands_with_no_scenario_here': ['make.fmt'], 'commands_never_measured': []})),
              expect='says both')
 
     # A command that runs several buildx invocations concatenates their logs, and step numbers restart at
@@ -7623,15 +8049,19 @@ def self_test(root: Path) -> int:
     observed('a summary pooling samples taken against different sources',
              lambda: validate_observation(
                  observation(samples=[sample(sample_index=0, source_digest='1a' * 32),
-                                      sample(sample_index=1, source_digest='2b' * 32)]), digest),
+                                      sample(sample_index=1, source_digest='2b' * 32)])),
              expect='the tree moved during the run')
     observed('two commands whose incremental samples share one source',
              lambda: validate_observation(
                  observation(samples=[
-                     sample(command_id='make.prove', sample_index=0, edit_id='edit.leaf.emit',
+                     sample(command_id='make.emit', sample_index=0, edit_id='edit.leaf.emit',
                             scenario_id='project.incremental.leaf.emit', source_digest='aa' * 32),
                      sample(command_id='make.check', sample_index=0, edit_id='edit.leaf.emit',
-                            scenario_id='project.incremental.leaf.emit', source_digest='aa' * 32)]), digest),
+                            scenario_id='project.incremental.leaf.emit', source_digest='aa' * 32)],
+                     # Only `make.check` runs the incremental states canonically, so two commands sharing one
+                     # incremental source cannot arise from a complete run. The rule still guards it; the
+                     # fixture states plainly that it is a fragment rather than claiming to be a whole run.
+                     traces=[], derived={'summaries': {}, 'status': 'incomplete'})),
              expect='satisfies another')
 
     observed('an incremental scenario whose samples repeat one source',
@@ -7639,16 +8069,16 @@ def self_test(root: Path) -> int:
                  observation(samples=[sample(sample_index=0, edit_id='edit.leaf.emit',
                                              scenario_id='project.incremental.leaf.emit'),
                                       sample(sample_index=1, edit_id='edit.leaf.emit',
-                                             scenario_id='project.incremental.leaf.emit')]), digest),
+                                             scenario_id='project.incremental.leaf.emit')])),
              expect='a cached no-op is recorded under an incremental label')
 
     observed('comparing against a run that never finished',
              lambda: compare({**observation(), 'derived': {'summaries': {}, 'status': 'incomplete'}},
                              observation()),
              expect='incomplete run')
-    observed('comparing against an observation with no environment',
-             lambda: compare({k: v for k, v in observation().items() if k != 'environment'}, observation()),
-             expect="no usable 'environment'")
+    observed('comparing against an observation with no basis',
+             lambda: compare({k: v for k, v in observation().items() if k != 'basis'}, observation()),
+             expect="no usable 'basis'")
 
     # Recording the condition is only worth something if the reading is real where the kernel offers one.
     counts['total'] += 1
