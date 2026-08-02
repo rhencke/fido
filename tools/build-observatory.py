@@ -2907,6 +2907,24 @@ def identity_problems(obs: dict) -> list[str]:
     # cited as one, and every relation above is keyed on it.
     if not obs.get('run_id'):
         problems.append('the observation retains no run identity, so no sample in it can be named exactly')
+
+    # §2.4 — the run identity is DERIVED from the subject, so it binds two subject fields that nothing else
+    # in a retained observation touches. Replacing `subject.commit` with forty zeroes, or the inventory
+    # digest with arbitrary bytes, left every other field coherent and validated; the run id those fields
+    # produced is still sitting there, and it no longer matches. A separate guard rather than an `else`:
+    # neutering the rule above must leave this reachable code safe rather than raising on an absent key.
+    subj = ((obs.get('basis') or {}).get('subject') or obs.get('subject') or {})
+    parts = str(obs.get('run_id') or '').split('-')
+    if obs.get('run_id') and subj and len(parts) != 4:
+        problems.append(f'the run identity {obs["run_id"]!r} does not have the shape the subject and the '
+                        f'start instant produce, so it names no subject at all')
+    elif obs.get('run_id') and subj:
+        if parts[1] != str(subj.get('commit'))[:7]:
+            problems.append(f'the run identity {obs["run_id"]} names commit {parts[1]} and the retained '
+                            f'subject is {str(subj.get("commit"))[:7]}')
+        if parts[2] != str(subj.get('inventory_digest'))[:8]:
+            problems.append(f'the run identity {obs["run_id"]} names inventory {parts[2]} and the '
+                            f'retained subject is {str(subj.get("inventory_digest"))[:8]}')
     ids = [s.get('sample_id') for s in obs['measurements']]
     if any(not i for i in ids):
         problems.append('a retained sample carries no sample identity')
@@ -6024,7 +6042,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         s = {**base, **over}
         # Stamped exactly as the runner stamps it, so a fixture cannot satisfy an identity rule the live
         # path would fail.
-        s['sample_id'] = over.get('sample_id') or sample_id_for('run-fixture', s)
+        s['sample_id'] = over.get('sample_id') or sample_id_for(FIXTURE_RUN_ID, s)
         return s
 
     # §7 E4 — the fixture's analysis samples come WITH the artifacts they establish, because that is what the
@@ -6160,6 +6178,11 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                                     partition_of(rootsample['command_id'], rootsample.get('wall_ns'), [])))
         return out
 
+    # §2.4 — the fixture's run identity is DERIVED from the fixture subject, through the real function, so
+    # the rule binding the two is exercised rather than skipped. A hand-written 'run-fixture' had no derived
+    # shape at all, and the four subject mutations sailed past it.
+    FIXTURE_RUN_ID = f'20260101T000000p0000-{"a" * 7}-{"c" * 8}-abcdef'
+
     def observation(samples=None, **over) -> dict:
         samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
                                                        for i, n in enumerate((900_000, 1_000_000, 1_100_000))]
@@ -6171,7 +6194,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         # own `traces` used to leave the cost naming traces the observation no longer held — the fixture
         # lying about itself, which is what the note on `traces_for` already warns about.
         carried_traces = over['traces'] if 'traces' in over else traces_for(samples)
-        base = {'schema': SCHEMA, 'run_id': 'run-fixture',
+        base = {'schema': SCHEMA, 'run_id': FIXTURE_RUN_ID,
                 # §2.7 — the fixture's basis is CAPTURED through the real function from the real suite, so a
                 # control exercises a basis the producer could actually emit. A hand-written one would be the
                 # fixture describing a shape nobody produces, which this repair has already paid for twice.
@@ -6348,6 +6371,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         would drift from the rule it exists to get past, which is how the earlier one let R13 and R14 pass
         by never being reached."""
         every = over.pop('samples', None)
+        cut_by_scenario = {s['id']: s.get('cache_cut') for s in suite['scenarios']}
         if every is None:
             every = []
             for spec in expected_relation(suite, graph=docker_stage_graph(root)).values():
@@ -6363,11 +6387,24 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                     value = {KIND_AGGREGATE: {'aggregate_step_ns': 1_000_000, 'wall_ns': None},
                              KIND_UNTIMED: {'aggregate_step_ns': None, 'wall_ns': None},
                              }.get(spec['measurement_kind'], {})
+                    # §8.1 — the cut this sample's SCENARIO declares, with stage evidence that satisfies it.
+                    # The generic fixture cut declared no invalidation root and carried an empty stage map,
+                    # so every cache-cut rule passed it vacuously: a synthetic observation shaped unlike
+                    # production cannot exercise the rules production has to survive.
+                    cut = dict(cut_by_scenario.get(spec['scenario_id']) or {})
+                    stages = {r: 'rebuilt' for r in (cut.get('invalidated_roots') or [])}
+                    if cut.get('stable_through'):
+                        stages[cut['stable_through']] = 'hit'
+                    before = {'authorities': {}, 'primed_by_run': 'run-a'}
                     every.append(sample(command_id=spec['command_id'], scenario_id=spec['scenario_id'],
                                         edit_id=spec['edit_id'], derived_parent_id=spec['derived_parent_id'],
                                         selected_or_support=spec['selected_or_support'],
                                         resource_scope=spec['resource_scope'],
                                         measurement_kind=spec['measurement_kind'],
+                                        cache_cut=cut or None,
+                                        cache_observation={'stages': stages},
+                                        cache_before=before,
+                                        cache_after=observe_cache_after(before, stages),
                                         sample_index=i, source_digest=digest_i, **value))
             # Parents before children, then each child bound to the EXACT parent sample it came from. The
             # relation is generated from a sorted key set, which does not put a producer before the stage it
@@ -6894,7 +6931,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         # out on validation before reaching the completeness filter, and the control below passed whether or
         # not that filter existed — a control made inert by an absent fixture field, which is the fifth time
         # this checkpoint that exact shape has cost something.
-        base = {'run_id': 'run-fixture', 'subject': dict(now_subj),
+        base = {'run_id': FIXTURE_RUN_ID, 'subject': dict(now_subj),
                 'suite_digest': suite_digest_of(live_suite),
                 'environment': {'host_class_fingerprint': 'd' * 64,
                                 'concurrency': {'make_jobs': 1, 'buildkit_max_parallelism': 1}},
@@ -7153,7 +7190,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         (b / 'raw').mkdir(parents=True)
         # The header is the one the RUNNER builds. It used to omit `run_id`, which the identity relations
         # require, so this fixture described a partial observation the tool never writes.
-        head = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'}
+        head = {'schema': SCHEMA, 'suite_digest': digest, 'run_id': FIXTURE_RUN_ID}
         write = checkpointer(b, head)
         if not (b / 'observation.json').is_file():
             failures.append('a bundle must be inspectable from creation, not only after the first sample')
@@ -7171,7 +7208,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     with _tempfile.TemporaryDirectory() as d:
         b2 = Path(d) / 'bundle'
         (b2 / 'raw').mkdir(parents=True)
-        stopper = checkpointer(b2, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'})
+        stopper = checkpointer(b2, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': FIXTURE_RUN_ID})
         try:
             stopper([sample(wall_ns=-1)], [])
             failures.append('a fragment with a negative duration did not stop the suite, so every later '
@@ -7226,6 +7263,66 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                                           'concurrency': {'make_jobs': 1,
                                                           'buildkit_max_parallelism': 2}})),
              expect='not the one its own environment fields produce')
+
+    # §8.1 — THE BASIS MUTATIONS, each falsifying ONE retained fact and leaving the rest coherent. Every
+    # one of them validated before the basis was re-derived rather than read.
+    def tampered_basis(**over):
+        """A complete observation whose retained basis has been changed AFTER capture.
+
+        Overriding through `fixture_basis` re-captures and stays honest, which models nothing: what a
+        reviewer does is edit the retained file."""
+        obs = complete_observation()
+        obs['basis'] = {**obs['basis'], **over}
+        return obs
+
+    def edited_suite():
+        """The retained suite snapshot, changed, with its retained digest left behind."""
+        snap = json.loads(json.dumps(complete_observation()['basis']['suite']))
+        snap['commands'][0]['owner'] = 'somebody-else'
+        return snap
+
+    observed('a retained suite snapshot changed without its digest following',
+             lambda: validate_observation(tampered_basis(suite=edited_suite())),
+             expect='not the digest of the retained suite snapshot')
+
+    def malformed_snapshot():
+        """A snapshot that does not validate, carrying a digest the tamperer computed over it."""
+        snap = json.loads(json.dumps(complete_observation()['basis']['suite']))
+        snap['commands'][0].pop('measurement')
+        return snap
+
+    observed('a malformed retained suite snapshot with a self-authored digest',
+             lambda: validate_observation(tampered_basis(
+                 suite=malformed_snapshot(), suite_digest=suite_digest_of(malformed_snapshot()))),
+             expect='the retained suite snapshot is not a valid registry')
+
+    for field, value, want in (
+            ('commit', '0' * 40, 'names commit'),
+            ('inventory_digest', 'd' * 64, 'names inventory'),
+            ('content_digest', 'f0' * 32, 'which is not the subject')):
+        observed(f'a retained subject whose {field} was replaced',
+                 lambda field=field, value=value: validate_observation(tampered_basis(
+                     subject={**complete_observation()['basis']['subject'], field: value})),
+                 expect=want)
+
+    def cut_falsified():
+        """§8.1 — a cold sample whose declared invalidation root is reported as a cache hit.
+
+        The reviewer flipped the stage state, recomputed `cache_after` from the falsified evidence and kept
+        every identity and summary coherent. `check_cut_observed` refused it and the complete validator never
+        called `check_cut_observed`, so the observation validated anyway."""
+        obs = complete_observation()
+        victim = next(s for s in obs['measurements']
+                      if s['scenario_id'] == 'project.cold.prover' and not s.get('derived_parent_id'))
+        stages = {k: 'hit' for k in (victim.get('cache_observation') or {}).get('stages', {})}
+        victim['cache_observation'] = {**victim['cache_observation'], 'stages': stages}
+        victim['cache_after'] = observe_cache_after(victim['cache_before'], stages)
+        obs['derived'] = {**obs['derived'], 'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a cold invalidation root reported as a cache hit',
+             lambda: validate_observation(cut_falsified()),
+             expect='not rebuilt; a cold sample whose root stayed cached is not a cold sample')
 
     def dropped_component(name):
         """The reviewer's own mutation: delete a component and adjust the total to match what is left."""
@@ -7750,7 +7847,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     with _tempfile.TemporaryDirectory() as d:
         b3 = Path(d) / 'bundle'
         (b3 / 'raw').mkdir(parents=True)
-        keeper = checkpointer(b3, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': 'run-fixture'})
+        keeper = checkpointer(b3, {'schema': SCHEMA, 'suite_digest': digest, 'run_id': FIXTURE_RUN_ID})
         whole = complete_observation()
         kept = [s for s in whole['measurements']
                 if s.get('derived_parent_id') in (None, 'make.check')]
@@ -8287,7 +8384,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     # Stamped exactly as `emit` stamps them, and in emission order, because that is the shape a real run
     # assembles: the constructors leave `sample_id` unset and one place fills it in.
     for _s in mixed:
-        _s['sample_id'] = sample_id_for('run-fixture', _s)
+        _s['sample_id'] = sample_id_for(FIXTURE_RUN_ID, _s)
     for _kid, _parent in ((kids[0], direct), (kids[1], ana)):
         _kid['parent_sample_id'] = _parent['sample_id']
     shaped = observation(samples=mixed, derived={'summaries': summarise(mixed)})

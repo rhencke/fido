@@ -994,6 +994,22 @@ MUTANTS = (
      "            if False:",
      ('a completed bundle with an unavailable comparison with no reason was accepted',)),
 
+    (OBS, 'the run identity names the subject commit it was derived from',
+     "        if parts[1] != str(subj.get('commit'))[:7]:",
+     "        if False:",
+     ('a retained subject whose commit was replaced',)),
+
+    (OBS, 'the run identity names the subject inventory it was derived from',
+     "        if parts[2] != str(subj.get('inventory_digest'))[:8]:",
+     "        if False:",
+     ('a retained subject whose inventory_digest was replaced',)),
+
+    (OBS, 'the retained suite snapshot is what its digest says',
+     "    if suite_digest_of(suite) != basis['suite_digest']:",
+     "    if False:",
+     ('a retained suite snapshot changed without its digest following',
+      'an observation with a suite digest mismatch')),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",
