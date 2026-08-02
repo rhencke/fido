@@ -343,8 +343,8 @@ MUTANTS = (
      ('is not retained as an absence in the view',)),
 
     (OBS, 'the declared source view deciding a sample digest',
-     "    return source_view(root, {'staged-index-export': 'staged-index',",
-     "    return source_view(root, {'staged-index-export': 'working-tree',",
+     "                 'staged-index': 'staged-index', 'staged-index-export': 'staged-index',",
+     "                 'staged-index': 'staged-index', 'staged-index-export': 'working-tree',",
      ('a staged-index-export command was identified by something other than the staged index',)),
 
     (OBS, 'an incremental edit exhibiting the effect it was chosen for',
@@ -1062,6 +1062,22 @@ MUTANTS = (
      "    prior_env = basis.get('environment') or prior.get('environment') or {}",
      "    prior_env = prior.get('environment') or {}",
      ('an identical basis bundle was refused for resume',)),
+
+    # §2.7 — source identity is judged against the view the command DECLARES.
+    (OBS, 'the declared view choosing which subject digest a sample answers to',
+     "        subject_digest = views.get(DECLARED_VIEW.get(declared))",
+     "        subject_digest = views.get('working-tree')",
+     ('a staged-index command whose sample measured the working tree',)),
+
+    (OBS, 'one subject digest per declared source view',
+     "    if not isinstance(views, dict) or sorted(views) != sorted(SOURCE_VIEW_KINDS):",
+     "    if False:",
+     ('a retained subject carrying no per-view digests at all',)),
+
+    (OBS, 'content_digest recomputed from the working-tree view',
+     "        elif subj.get('content_digest') != views['working-tree']:",
+     "        elif False:",
+     ('a retained subject whose content_digest was replaced',)),
 
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",

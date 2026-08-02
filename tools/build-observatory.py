@@ -755,17 +755,22 @@ def content_digest(root: Path) -> str:
     return source_view(root, 'working-tree')['id']
 
 
+# ONE mapping from a command's DECLARED source view to the view whose bytes it actually reads. The producer
+# and the validator both read it, so a sample's digest and the digest it is judged against cannot come from
+# two tables that drift.
+DECLARED_VIEW = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',
+                 'staged-index': 'staged-index', 'staged-index-export': 'staged-index',
+                 'disposable-copy': 'working-tree', 'environment-only': None}
+
+
 def declared_source_digest(root: Path, command: dict) -> str | None:
     """The identity of the view this command DECLARES it reads, not always the working tree.
 
     A pre-commit sample measures an exported staged index; describing it with a working-tree digest named a
     tree the command never saw.
     """
-    kind = command['source_view']
-    if kind == 'environment-only':
-        return None
-    return source_view(root, {'staged-index-export': 'staged-index',
-                              'disposable-copy': 'working-tree'}.get(kind, kind))['id']
+    kind = DECLARED_VIEW[command['source_view']]
+    return None if kind is None else source_view(root, kind)['id']
 
 
 def subject(root: Path) -> dict:
@@ -773,8 +778,12 @@ def subject(root: Path) -> dict:
     dirty = bool(_git(root, 'status', '--porcelain=v2', '-z').strip('\0').strip())
     head = _git(root, 'rev-parse', 'HEAD').strip()
     tree = _git(root, 'rev-parse', 'HEAD^{tree}').strip()
+    # §2.7 — a digest for EVERY view a command may declare, not only the working tree. A pre-commit sample
+    # reads an exported staged index; with only the working-tree digest retained, an unedited sample of it
+    # could not be checked against the subject at all — or, worse, was checked against a tree it never saw.
+    views = {kind: source_view(root, kind)['id'] for kind in SOURCE_VIEW_KINDS}
     out = {'commit': head, 'tree': tree, 'inventory_digest': inventory_digest(root),
-           'content_digest': content_digest(root),
+           'content_digest': views['working-tree'], 'view_digests': views,
            'dirty': dirty, 'source_view': 'working-tree' if dirty else 'committed-tree'}
     if dirty:
         out['head_commit'] = head
@@ -3086,14 +3095,22 @@ def validate_observation(obs: dict) -> str:
 
     # §2.7 — SOURCE IDENTITY coheres with the subject. An unedited direct sample measures the subject's own
     # content; an edited one must not. A derived child measures whatever its parent did.
-    subject_digest = basis['subject'].get('content_digest')
+    # Against the view the command DECLARES, not always the working tree: a pre-commit sample reads an
+    # exported staged index, and judging it by the working-tree digest called a real run a forgery.
+    views = basis['subject'].get('view_digests') or {}
+    by_id = {c['id']: c for c in basis['suite']['commands']}
     for s in samples:
         if s.get('derived_parent_id') or s.get('source_digest') is None:
+            continue
+        declared = by_id.get(s['command_id'], {}).get('source_view')
+        subject_digest = views.get(DECLARED_VIEW.get(declared))
+        if subject_digest is None:
             continue
         if not s.get('edit_id') and s['source_digest'] != subject_digest:
             raise ObservatoryError(
                 f'{s["command_id"]}/{s["scenario_id"]} applied no edit and measured source '
-                f'{s["source_digest"][:12]}…, which is not the subject\'s {str(subject_digest)[:12]}…')
+                f'{s["source_digest"][:12]}…, which is not the subject\'s {declared} view '
+                f'{str(subject_digest)[:12]}…')
         if s.get('edit_id') and s['source_digest'] == subject_digest:
             raise ObservatoryError(
                 f'{s["command_id"]}/{s["scenario_id"]} claims edit {s["edit_id"]} and measured the '
@@ -3463,6 +3480,23 @@ def basis_problems(basis: dict) -> list[str]:
         if not isinstance(value, str) or len(value) != width or any(c not in '0123456789abcdef'
                                                                     for c in value):
             problems.append(f'subject {field} is {value!r}, which is not a {width}-character hex identity')
+    # §2.7 — one digest per view a command may declare. `content_digest` is the working-tree entry and is
+    # kept as a RECOMPUTED summary of it, not as a second place the same fact could be written differently.
+    views = subj.get('view_digests')
+    if not isinstance(views, dict) or sorted(views) != sorted(SOURCE_VIEW_KINDS):
+        problems.append(f'subject view_digests are {sorted(views) if isinstance(views, dict) else views!r}, '
+                        f'not one digest per declared source view {sorted(SOURCE_VIEW_KINDS)}')
+    if isinstance(views, dict):
+        # Guarded on its own rather than chained off the shape rule: neutering that rule must leave this
+        # reachable code safe instead of iterating None.
+        bad = sorted(k for k, v in views.items()
+                     if not isinstance(v, str) or len(v) != 64
+                     or any(c not in '0123456789abcdef' for c in v))
+        if bad:
+            problems.append(f'subject view digest(s) {bad} are not 64-character hex identities')
+        elif subj.get('content_digest') != views['working-tree']:
+            problems.append(f'subject content_digest is {str(subj.get("content_digest"))[:12]} and its own '
+                            f'working-tree view is {views["working-tree"][:12]}')
     return problems
 
 
@@ -6137,6 +6171,11 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     # ── observation validation and the fourteen recording rules, over a synthetic observation
     digest = suite_digest_of(suite)
 
+    # DISTINCT per view, because they are distinct in production: a pre-commit sample reads an exported
+    # staged index and a Make target reads the working tree. One shared value made every command's source
+    # identity interchangeable, which is precisely the confusion that called a real pre-commit run a forgery.
+    FIXTURE_VIEWS = {'working-tree': 'e0' * 32, 'committed-tree': 'e1' * 32, 'staged-index': 'e2' * 32}
+
     def sample(**over) -> dict:
         base = {'command_id': 'make.fmt', 'scenario_id': 'project.warm.noop', 'sample_index': 0,
                 'edit_id': None, 'derived_parent_id': None,
@@ -6225,7 +6264,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         basis = capture_basis(
             use, fsel, acquisition_plan(use, fsel, graph=docker_stage_graph(root), repeat=repeat),
             {'commit': 'a' * 40, 'tree': 'b' * 40, 'inventory_digest': 'c' * 64,
-             'content_digest': 'e0' * 32, 'dirty': False, 'source_view': 'committed-tree'},
+             'content_digest': 'e0' * 32, 'dirty': False, 'source_view': 'committed-tree',
+             'view_digests': FIXTURE_VIEWS},
             fixture_environment(), docker_stage_graph(root))
         basis.update(over)
         return basis
@@ -6497,14 +6537,17 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         by never being reached."""
         every = over.pop('samples', None)
         cut_by_scenario = {s['id']: s.get('cache_cut') for s in suite['scenarios']}
+        command_by_id = {c['id']: c for c in suite['commands']}
         if every is None:
             every = []
             for spec in expected_relation(suite, graph=docker_stage_graph(root)).values():
                 for i in range(spec['samples']):
                     # An incremental sample edits distinct bytes, so its disposable copy hashes differently.
                     # The fixture has to model that or it would not reach the rule which requires it.
+                    # The view THIS command declares, not one shared digest for everything.
+                    declared = DECLARED_VIEW[command_by_id[spec['command_id']]['source_view']]
                     digest_i = (_sha256(f'{spec["command_id"]}|{spec["scenario_id"]}|{i}'.encode('utf-8'))
-                                if spec['edit_id'] else 'e0' * 32)
+                                if spec['edit_id'] else FIXTURE_VIEWS.get(declared))
                     # Scope and kind come from the SPEC, not from the generic fixture default. Stamping
                     # every fixture sample `host-wrapper`/`wall_elapsed` modelled a world where an analysis
                     # command and a BuildKit stage report the same thing a shell command does, and the
@@ -7435,11 +7478,17 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     for field, value, want in (
             ('commit', '0' * 40, 'names commit'),
             ('inventory_digest', 'd' * 64, 'names inventory'),
-            ('content_digest', 'f0' * 32, 'which is not the subject')):
+            ('content_digest', 'f0' * 32, 'its own working-tree view is')):
         observed(f'a retained subject whose {field} was replaced',
                  lambda field=field, value=value: validate_observation(tampered_basis(
                      subject={**complete_observation()['basis']['subject'], field: value})),
                  expect=want)
+
+    observed('a retained subject carrying no per-view digests at all',
+             lambda: validate_observation(tampered_basis(
+                 subject={k: v for k, v in complete_observation()['basis']['subject'].items()
+                          if k != 'view_digests'})),
+             expect='not one digest per declared source view')
 
     # ── §2.7 THE PERMANENT CANONICAL-OBSERVATION GATE. `make observatory` and the staged hook stage checked
     # the command registry and stopped, so a tampered canonical observation committed cleanly.
@@ -7459,7 +7508,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     repo = tiny_repo()
     repo_head = _git(repo, 'rev-parse', 'HEAD').strip()
     repo_subject = {'commit': repo_head, 'tree': _git(repo, 'rev-parse', 'HEAD^{tree}').strip(),
-                    'inventory_digest': 'c' * 64, 'content_digest': 'e0' * 32,
+                    'inventory_digest': 'c' * 64, 'content_digest': FIXTURE_VIEWS['working-tree'],
+                    'view_digests': FIXTURE_VIEWS,
                     'dirty': False, 'source_view': 'committed-tree'}
     REPO_RUN_ID = f'20260101T000000p0000-{repo_head[:7]}-{"c" * 8}-abcdef'
 
@@ -7556,6 +7606,25 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     if subject_git_problems(repo, repo_subject):
         failures.append(f'a repository\'s own HEAD was refused as a subject: '
                         f'{subject_git_problems(repo, repo_subject)[0]}')
+
+    # §2.7 — the view a command DECLARES decides which subject digest it answers to. A pre-commit sample
+    # reads an exported staged index; judged by the working-tree digest, a real run was called a forgery,
+    # and a working-tree digest accepted for it would be a sample naming a tree it never saw.
+    def wrong_view():
+        obs = complete_observation()
+        victim = next(s for s in obs['measurements']
+                      if not s.get('derived_parent_id') and not s.get('edit_id')
+                      and s['command_id'].startswith('precommit.'))
+        victim['source_digest'] = FIXTURE_VIEWS['working-tree']
+        victim['sample_id'] = sample_id_for(obs['run_id'], victim)
+        obs['traces'] = traces_for(obs['measurements'])
+        obs['suite_cost'] = fixture_suite_cost(obs['traces'])
+        obs['derived'] = {**obs['derived'], 'summaries': summarise(obs['measurements'])}
+        return obs
+
+    observed('a staged-index command whose sample measured the working tree',
+             lambda: validate_observation(wrong_view()),
+             expect='which is not the subject\'s staged-index-export view')
 
     def cut_falsified():
         """§8.1 — a cold sample whose declared invalidation root is reported as a cache hit.
