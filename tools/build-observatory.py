@@ -5244,8 +5244,12 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                         events = graph.pop('stage_events', []) + [
                             {'id': 'analysis.dune-graph', 'wall_ns': None, 'untimed': True, 'source': 'same-build'}]
                         seen_stages = graph.pop('stage_states', {})
+                    # The view this command DECLARES, through the one authority the shell path already
+                    # uses. Handing every analysis sample the subject's working-tree digest described a tree
+                    # `analysis.history` never reads — it declares `committed-tree` — so a correct sample
+                    # was refused for measuring the right thing.
                     s = analysis_sample(cid, scenario, role, _monotonic_ns() - t0, provenance, events,
-                                        subj['content_digest'], index,
+                                        declared_source_digest(root, command), index,
                                         stages=(seen_stages if command['kind'] != 'history-analysis' else {}))
                     emit(s)
                     # An analysis command that builds has a prime to offer, exactly like a shell command.
@@ -7766,6 +7770,29 @@ def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls
     except ObservatoryError as exc:
         failures.append(f'a disposable-copy sample was required to match a subject view it cannot have: '
                         f'{exc}')
+
+    counts['total'] += 1
+    # THE INVARIANT BEHIND BOTH OF THE ABOVE, checked without running anything. Where a subject view is
+    # demanded of a sample, it must be the SAME view the producer digests — otherwise a correct command is
+    # refused for measuring exactly what it declares. Two canonical runs, thirty-four minutes each, were
+    # spent discovering two instances of this one sentence.
+    for declared_view, wanted_view in SUBJECT_VIEW.items():
+        if wanted_view is not None and wanted_view != DECLARED_VIEW[declared_view]:
+            failures.append(f'a {declared_view!r} sample is judged against the subject\'s {wanted_view!r} '
+                            f'view while its producer digests {DECLARED_VIEW[declared_view]!r}; one of the '
+                            f'two tables is wrong and a correct sample would be called a forgery')
+    if sorted(SUBJECT_VIEW) != sorted(DECLARED_VIEW) or sorted(SUBJECT_VIEW) != sorted(SOURCE_VIEWS):
+        failures.append(f'the two view tables and the declared vocabulary disagree: '
+                        f'{sorted(SUBJECT_VIEW)} vs {sorted(DECLARED_VIEW)} vs {sorted(SOURCE_VIEWS)}')
+
+    counts['total'] += 1
+    # And every DIRECT command's declared view must be one both tables know, so a registry entry cannot
+    # reach the producer through a view nothing judges.
+    unknown = sorted({c['source_view'] for c in suite['commands']
+                      if c['measurement'] == 'direct'} - set(SUBJECT_VIEW))
+    if unknown:
+        failures.append(f'direct command(s) declare source view(s) {unknown} that the view tables do not '
+                        f'know, so their samples would be judged against nothing')
 
     observed('a staged-index command whose sample measured the working tree',
              lambda: validate_observation(wrong_view()),
