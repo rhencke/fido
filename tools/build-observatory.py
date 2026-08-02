@@ -3767,7 +3767,14 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None, r
         # that work `support`. Repair 4 discovered this as a mismatch between two derivations and repaired it
         # in a third place. There is one derivation now.
         key = metric_identity({**spec, 'selected_or_support': sample_role(sel, cid, sid)})
-        if cid not in chosen or sid not in want:
+        if sid not in want:
+            continue
+        # SELECTION decides which traces RUN; CONTAINMENT decides what a running trace establishes. The
+        # request filter belongs on the first and not the second: `ONLY=make.check` skipped every metric
+        # `make check` unavoidably produces on its way, so the plan required none of them, the run produced
+        # seven, and the trace refused to close after paying for a cold acceptance build. A canonical run
+        # chooses everything, which is why this only ever surfaced under a named selection.
+        if cid not in chosen and not owner:
             continue
         if cmd['measurement'] == 'direct' and not owner:
             row = traces.setdefault((cid, sid), {
@@ -3787,7 +3794,14 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None, r
             # target by the root whose run reaches it in THIS state. Either way it costs no execution here.
             contained.append({'command_id': cid, 'scenario_id': sid, 'owner': owner, 'metric': key})
 
+    # A contained metric belongs to THIS plan when the trace that would produce it is in it. One whose owner
+    # this request does not run is simply out of scope, exactly as an unselected command is; a contained
+    # metric no command can ever own is a registry defect and belongs to the coverage relation, which is
+    # where `plan_problems` still refuses it.
+    contained = [row for row in contained if (row['owner'], row['scenario_id']) in traces]
     for row in contained:
+        # Guarded rather than indexed: neutering the filter above must leave this reachable code safe, or
+        # the mutation crashes the self-test instead of failing its own control.
         anchor = (row['owner'], row['scenario_id'])
         if anchor in traces:
             traces[anchor]['establishes'].append(row['metric'])
@@ -5951,6 +5965,22 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                                                   for m in t['establishes']}):
         failures.append(f'the plan announces {canonical_plan["required_metrics"]} required metric(s) and its '
                         f'own traces establish a different set')
+    # A named selection still establishes everything its traces unavoidably produce. `ONLY=make.check`
+    # planned two traces requiring one metric each, the run produced seven contained metrics per trace, and
+    # the trace refused to close — after paying for a cold acceptance build to find out.
+    counts['total'] += 1
+    named = acquisition_plan(suite, select(suite, only='make.check', scenario='project.warm.noop'),
+                             graph=docker_stage_graph(root))
+    thin = [t for t in named['traces'] if len(t['establishes']) < 2]
+    if thin:
+        failures.append(f'a named selection planned {len(thin)} trace(s) establishing only their own metric, '
+                        f'e.g. {thin[0]["trace_id"]}; a running trace establishes what it contains')
+    unowned = [r for r in named['contained'] if (r['owner'], r['scenario_id'])
+               not in {(x['command_id'], x['scenario_id']) for x in named['traces']}]
+    if unowned:
+        failures.append(f'a named selection kept {len(unowned)} contained metric(s) whose owner it never '
+                        f'runs, e.g. {unowned[0]}')
+
     small = acquisition_plan(suite, select(suite, only='analysis.history', scenario='project.warm.noop'),
                              graph=docker_stage_graph(root))
     if small['required_metrics'] != len({m for t in small['traces'] for m in t['establishes']}):

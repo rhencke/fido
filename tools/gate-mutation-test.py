@@ -1036,6 +1036,16 @@ MUTANTS = (
      "    if False:",
      ('a subject naming a commit this repository does not have was accepted against Git',)),
 
+    (OBS, 'a running trace establishes what it contains, selected or not',
+     "        if cid not in chosen and not owner:",
+     "        if cid not in chosen:",
+     ('a named selection planned',)),
+
+    (OBS, 'contained metrics kept only where their owner runs',
+     "    contained = [row for row in contained if (row['owner'], row['scenario_id']) in traces]",
+     "    contained = list(contained)",
+     ('a named selection kept',)),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",
