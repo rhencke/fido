@@ -1079,6 +1079,11 @@ MUTANTS = (
      "        elif False:",
      ('a retained subject whose content_digest was replaced',)),
 
+    (OBS, 'per-trace validation attributed only to traces the observation closed',
+     "        return {k: v for k, v in self.per_trace.items() if k in closed}",
+     "        return dict(self.per_trace)",
+     ('a validation cost for a trace the observation never closed was attributed to it',)),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",

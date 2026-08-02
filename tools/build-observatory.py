@@ -1999,7 +1999,7 @@ def close_suite_cost(obs: dict, clock: 'ValidationClock') -> dict:
                                   'suite_completed_utc': project_utc(cost['suite_started_utc'], wall),
                                   'validation_wall_ns': clock.total_ns(),
                                   'validation_components': clock.report(),
-                                  'trace_validation_ns': dict(clock.per_trace)}}
+                                  'trace_validation_ns': clock.per_trace_for(obs['traces'])}}
 
 
 def verify_closed(obs: dict) -> str:
@@ -2280,6 +2280,15 @@ class ValidationClock:
 
     def total_ns(self) -> int:
         return sum(self.components.values())
+
+    def per_trace_for(self, traces) -> dict:
+        """Per-trace validation cost, for the traces an observation actually CLOSED.
+
+        A trace validated and then discarded — a resumed one whose artifact had gone, say — cost real time,
+        and that time stays inside the `per_trace` component. What it does not get is an entry under an
+        identity the observation does not hold."""
+        closed = {t['trace_id'] for t in traces}
+        return {k: v for k, v in self.per_trace.items() if k in closed}
 
     def report(self) -> dict:
         """The retained block: EVERY declared component, each in exactly one explicit state."""
@@ -5240,7 +5249,7 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
         # §7 E1 — the facility's own checking cost, kept apart from what it measured.
         'validation_wall_ns': (clock.total_ns() if clock else 0),
         'validation_components': clock.report() if clock else ValidationClock().report(),
-        'trace_validation_ns': dict(clock.per_trace) if clock else {},
+        'trace_validation_ns': clock.per_trace_for(traces) if clock else {},
     }
 
     observation = {
@@ -7870,6 +7879,23 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         if 'no verdict can rest on it' not in str(exc):
             failures.append(f'an invalid comparison side was refused for the wrong reason: {exc}')
 
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # A cost attributed to a trace the observation did not close belongs to no closed identity, and the map
+    # is keyed by closed identities. This is the producer's half of that rule, not the validator's.
+    stray_clock = ValidationClock()
+    stray_clock.measure_trace('nobody|nowhere|-|0', lambda: None)
+    if stray_clock.per_trace_for(complete_observation()['traces']):
+        failures.append('a validation cost for a trace the observation never closed was attributed to it')
+
+    counts['total'] += 1
+    kept_clock = ValidationClock()
+    for closed in complete_observation()['traces']:
+        kept_clock.measure_trace(closed['trace_id'], lambda: None)
+    if len(kept_clock.per_trace_for(complete_observation()['traces'])) != len(
+            complete_observation()['traces']):
+        failures.append('a trace this observation did close lost its validation cost')
+
     # ── §4.5 THE TWO-PHASE CLOSEOUT. Repair 4 built the suite-cost block before final validation and the
     # recording checks had run, so the two components its own contract required were never timed and the
     # block was free to describe a lifecycle that had not happened.
@@ -9422,9 +9448,12 @@ def main(argv: list[str] | None = None) -> int:
                 # in the chain was skipped as unprimed, and left `module_graph`/`history_analysis` null in an
                 # observation whose samples said the analysis had run. Only traces whose completion object
                 # validates are carried, so the state comes from evidence rather than from assumption.
+                # §4.4 — a resumed trace is VALIDATED by this run, so its validation cost belongs to this
+                # run's per-trace accounting. Without that, a resumed observation closed traces the suite
+                # cost had no entry for, and the binding both ways refused the whole thing.
                 resume_traces = [t for t in (prior.get('traces') or [])
                                  if (t.get('command_id'), t.get('scenario_id')) in keep
-                                 and not trace_problems(t)]
+                                 and not clock.measure_trace(t['trace_id'], trace_problems, t)]
                 # An analysis trace is resumable only if the prior bundle still holds the EXACT artifact its
                 # completion object names, proved by digest. Anything else and the trace reruns: a resumed
                 # analysis sample beside a null or unrelated artifact is the defect, not the remedy.
