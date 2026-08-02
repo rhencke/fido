@@ -90,6 +90,39 @@ The realized model is defined in section 3B.
 
 ---
 
+# 1C. Accepted scope amendment — one cold and one hot measurement per phase
+
+`M2-SCOPE-AMENDMENT-NO-DUPLICATE-MEASUREMENT`
+
+Rob amended M2's scope a third time, in conversation on this checkpoint, and authorized it explicitly. This
+is a deliberate human scope amendment, not discovery-driven scope creep.
+
+> The timing suite must measure each phase exactly once cold and exactly once hot. Anything else is a
+> duplicate measurement, including a duplicated sub-phase. The suite must not run much longer than a full
+> cold build, and must complete inside one hour.
+
+**The measured ground.** The Repair 5 traces priced the duplication exactly: `make.fcb` was 17.1 minutes and
+83–95% of every `make.check` trace, and the canonical suite ran that one gate four times — 68 of the 78
+minutes spent in harness-bearing traces. The suite cost roughly five hours against a real cold build of
+about twenty minutes.
+
+**What changed.** `project.cached.fresh` and the five `project.incremental.<edit>` scenarios are withdrawn
+with their edits, so every command declares at most one cold and one hot scenario. The canonical relation
+falls from 252 required metrics to 153. Separately, and without weakening any claim, the mutation harness
+stopped re-deriving unchanging facts, stopped running all 395 controls per mutant to answer a question about
+one, and now uses every core: 17.1 minutes to 2.5.
+
+**What this does NOT authorize.** M2 still optimizes only its own acquisition facility. No project build
+optimization, no proof, policy, Docker or acceptance graph change, no merged gate, reordered stage, changed
+cache key or changed Make dependency.
+
+**Contract statements this supersedes.** Repair 5 §9 step 14 fixes the canonical plan at 27 traces and 252
+metrics; that step's own escape — "unless the exact registry itself justifies a different count" — is the
+route taken here, and the registry now justifies 153. Sections 3A.2 and 3A.6 are amended in place. The
+reviewer authored none of this and should read it as Rob's amendment, not as an implementation decision.
+
+---
+
 # 2. Purpose
 
 Build one permanent, reproducible timing facility for Fido.
@@ -172,11 +205,19 @@ never required by `RECORD=1`.
 
 ```text
 project.cold.<root>          fresh session; exactly the named root invalidated; ancestors stay hits
-project.cached.fresh         fresh session against that command's own completed prime
 project.warm.noop            same source and cache, run again with nothing changed
-project.incremental.<edit>   from the exact prime, one deterministic edit shape
 environment.bootstrap        builder creation, pulls, toolchain acquisition — diagnostic only
 ```
+
+**Every measured phase is measured exactly once cold and exactly once hot.** A phase measured twice inside
+one cache family is a duplicate measurement, and a suite that duplicates measurements cannot justify its own
+cost: the whole facility must not run much longer than the cold build it is measuring. Where cold has no
+meaning for a phase — an analysis or gate command that drives no build — that phase carries one measurement,
+not an invented second one.
+
+`project.cached.fresh` and the `project.incremental.<edit>` family are withdrawn under that rule (Rob,
+scope directive, this checkpoint). The rules governing an incremental scenario remain in force and remain
+controlled, so a future registry may declare one; the canonical registry declares none.
 
 Isolation is by INVALIDATION, not by namespace: a root forced to rebuild cannot be satisfied by anything an
 earlier measured command cached. Commands share immutable infrastructure and never share a project result in a
@@ -229,6 +270,10 @@ Repeating identical edit bytes in a fresh worktree against one builder cache pro
 cache hits. Each sample therefore applies a DISTINCT deterministic inert edit, owned by the registry with its
 own fingerprint, and the runner verifies the intended rebuild actually ran rather than accepting a cached
 no-op under an incremental label. Comparison requires the same edit fingerprint.
+
+This governs any incremental scenario a registry declares. The canonical registry declares none under §3A.2,
+so the rule is dormant rather than dead: its controls construct their own incremental scenario instead of
+borrowing one from the registry, which is what keeps them from passing by checking nothing.
 
 ## 3A.7 Provenance is exact
 

@@ -10,7 +10,9 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY REPAIR 5 IS IN PROGRESS.**
+- **M2 BUILD OBSERVATORY IS FROZEN AWAITING ROB'S REVIEW.** Candidate
+  `1003734e67e2f07f5a10ec931e5c5729981d4652`, whose canonical observation measures that exact ref: 19
+  traces, 153 samples, 34.4 minutes, closed lifecycle, all five validation components measured.
   Authority: `.review/M2_IMPLEMENTATION_REPAIR_5.md`, the sole permitted implementation work. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-5-MD -->
   Earlier M2 candidates are superseded. Git history owns their refs, freezes, findings, and repair narratives.
   The live M2 contract is `.review/M2_BUILD_OBSERVATORY.md`; the accepted review basis is
@@ -27,6 +29,14 @@ under human review, but it does not own mutable state. Canonical data rows carry
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M2 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.
+- **Scope decision (Rob, this checkpoint, authorized explicitly):**
+  `M2-SCOPE-AMENDMENT-NO-DUPLICATE-MEASUREMENT` — the timing suite measures each phase exactly once cold and
+  exactly once hot, duplicated sub-phases included, and must finish inside one hour. `project.cached.fresh`
+  and the five `project.incremental.<edit>` scenarios are withdrawn with their edits; the canonical relation
+  falls from 252 required metrics to 153. Recorded as M2 contract §1C, which also names what it supersedes:
+  Repair 5 §9 step 14's fixed 27 traces / 252 metrics, taken through that step's own registry escape, and
+  contract §3A.2 and §3A.6, amended in place. **The reviewer authored none of it.** Rob authored and
+  accepted it; Fido applied it as Committer.
 - **Scope decision (reviewer, standing):** **do NOT delete `Index.Program`.**
 - **M3, M4, C5 Step 0 and C5 remain FORBIDDEN until Rob accepts M2.** Installing a plan is not
   permission to run it, and a green intermediate gate is not acceptance.
