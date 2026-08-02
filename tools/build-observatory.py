@@ -138,12 +138,24 @@ def docker_stages(root: Path) -> set[str]:
     return names
 
 
+# One parse per DISTINCT Dockerfile, keyed by the exact bytes that produced it. The graph is a pure
+# function of those bytes, and the self-test asked for it seven hundred times in a single run — a second and
+# a a third of every gate spent re-deriving one unchanged answer. Keying on content rather than on the path
+# is what makes it a memo rather than a guess: different bytes are a different key, so a tree that changes
+# under us can never be served a stale graph.
+_STAGE_GRAPHS: dict[tuple, dict] = {}
+
+
 def docker_stage_graph(root: Path) -> dict:
     """Each named stage's direct stage predecessors, from `FROM <stage>` and `COPY --from=<stage>`.
 
     A predecessor counts only if it is a DECLARED stage: `FROM scratch` and `FROM <external image>` name no
     stage, and counting them invented a `scratch` stage in every command's build set."""
     text = read_text(root / DOCKERFILE_REL, 'Dockerfile')
+    key = (str(Path(root).resolve()), _sha256(text.encode('utf-8')))
+    if key in _STAGE_GRAPHS:
+        # A COPY, because callers own what they are handed and one of them sorts the sets in place.
+        return {k: set(v) for k, v in _STAGE_GRAPHS[key].items()}
     names = docker_stages(root)
     stage, pred = None, {n: set() for n in names}
     for line in text.split('\n'):
@@ -158,6 +170,7 @@ def docker_stage_graph(root: Path) -> dict:
             continue
         if stage:
             pred[stage] |= {f for f in re.findall(r'--from=(\S+)', s) if f in names}
+    _STAGE_GRAPHS[key] = {k: set(v) for k, v in pred.items()}
     return pred
 
 
@@ -250,9 +263,20 @@ def hook_anchor_pairs(root: Path) -> list[str]:
 
 
 # ───────────────────────────────────────────────────────────────────── registry
+# One parse and one validation per DISTINCT registry, keyed by its exact bytes, for the same reason the
+# stage graph is: it is a pure function of them, and a gate that asks sixty-four times per run pays for
+# sixty-three answers it already had.
+_SUITES: dict[tuple, dict] = {}
+
+
 def load_suite(root: Path) -> dict:
     """Parse and shape-check the registry. Every closed vocabulary is checked here, once."""
     raw = read_text(root / SUITE_REL, 'suite registry')
+    key = (str(Path(root).resolve()), _sha256(raw.encode('utf-8')))
+    if key in _SUITES:
+        # A DEEP copy: callers edit the registry they are handed to model a changed one, and a shared
+        # dictionary would let one control's fixture rewrite another control's input.
+        return json.loads(json.dumps(_SUITES[key]))
     try:
         suite = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -263,7 +287,9 @@ def load_suite(root: Path) -> dict:
         if not isinstance(suite.get(member), list):
             raise ObservatoryError(f'{SUITE_REL}: member {member!r} is missing or not a list')
 
-    return validate_suite(suite, docker_stages(root), docker_stage_graph(root), root)
+    validated = validate_suite(suite, docker_stages(root), docker_stage_graph(root), root)
+    _SUITES[key] = json.loads(json.dumps(validated))
+    return validated
 
 
 def validate_suite(suite: dict, stage_names, stage_graph: dict, root: Path | None = None) -> dict:
@@ -3050,6 +3076,23 @@ def validate_observation(obs: dict) -> str:
             f'{len(bad_traces)} retained trace defect(s): {bad_traces[0]}'
             + (f' (and {len(bad_traces) - 1} more)' if len(bad_traces) > 1 else ''))
 
+    # §3.5 — a contained child's elapsed time IS the checkpoint interval bearing its name. Both are read
+    # from the same anchor log, so a disagreement means one of the two was derived somewhere else, and the
+    # partition is recomputed rather than trusted for exactly that reason.
+    held = {s['sample_id']: s for s in samples}
+    for closed in (obs.get('traces') or []):
+        spans = {m['id']: m['end_ns'] - m['start_ns']
+                 for m in ((closed.get('partition') or {}).get('members') or [])}
+        for kid in (closed.get('child_sample_ids') or []):
+            child = held.get(kid)
+            if child is None or child.get('wall_ns') is None:
+                continue
+            span = spans.get(child['command_id'])
+            if span is not None and child['wall_ns'] != span:
+                raise ObservatoryError(
+                    f'{closed["trace_id"]}: contained {child["command_id"]} records {child["wall_ns"]}ns '
+                    f'and the checkpoint interval bearing its name is {span}ns')
+
     # §2.2 — WHOLE-SUITE CLOSURE, from the retained plan. The reviewer removed a complete trace and sample,
     # listed the command as unmeasured, recomputed the summaries, and the validator accepted it: a selected
     # command could be reclassified after the fact to hide a lost trace. The plan is retained now, so the
@@ -5395,8 +5438,8 @@ ONLY and SCENARIO take comma-separated stable IDs. ONLY also accepts a group:
 Examples
   make observe ONLY=make.prove SCENARIO=project.cold.prover
   make observe ONLY=make.check SCENARIO=project.warm.noop
-  make observe ONLY=precommit.prover SCENARIO=project.cached.fresh
-  make observe ONLY=acceptance SCENARIO=project.incremental.foundation.float
+  make observe ONLY=precommit.prover SCENARIO=project.cold.prover
+  make observe ONLY=acceptance SCENARIO=project.warm.noop
 
 Cold means PROJECT-cold, from one declared invalidation root downward. The builder, the base images and the
 pinned toolchain are already present and stay cache hits; exactly the named root and its dependents rebuild.
@@ -5448,7 +5491,7 @@ def resolve(root: Path) -> list[Path]:
 
 
 # ─────────────────────────────────────────────────────── adversarial controls
-def self_test(root: Path) -> int:
+def self_test(root: Path, only_controls: tuple = ()) -> int:
     """Deterministic fixtures needing neither Docker nor Rocq. A skipped control is never a passed one.
 
     Reporting is owned HERE rather than at the end of the body. An exception escaping a fixture used to
@@ -5458,9 +5501,11 @@ def self_test(root: Path) -> int:
     failures: list[str] = []
     counts = {'total': 0, 'must_fail': 0}
     try:
-        _self_test_body(root, failures, counts)
+        _self_test_body(root, failures, counts, only_controls)
     except Exception as exc:
-        failures.append(f'the self-test could not run to completion: {type(exc).__name__}: {exc}')
+        import traceback
+        failures.append(f'the self-test could not run to completion: {type(exc).__name__}: {exc}\n'
+                        + ''.join(traceback.format_exc()))
     total, must_fail = counts['total'], counts['must_fail']
     if failures:
         for f in failures:
@@ -5472,12 +5517,28 @@ def self_test(root: Path) -> int:
     return 0
 
 
-def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
-    """Every control. It reports by appending, never by printing or returning."""
+def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls: tuple = ()) -> None:
+    """Every control. It reports by appending, never by printing or returning.
+
+    `only_controls` narrows the run to the controls whose labels contain one of the given strings. The mutation
+    harness asks a mutant one question — do MY named controls fail — and paid for all three hundred and
+    ninety-five to hear the answer, once per rule, two hundred and forty times over. The whole set still
+    runs unfiltered on every `make observatory`, which is what proves the suite green; a filtered run is
+    only ever used to interrogate one deliberately broken rule."""
     import shutil
     import tempfile
 
+    def _wanted(label: str, expect: str | None = None) -> bool:
+        """A mutant names its controls by label OR by the reason they pin. Matching only the label
+        silently skipped the control the mutant was there to exercise, and the run then reported the rule
+        unprotected — a filter that answers the wrong question is worse than no filter."""
+        if not only_controls:
+            return True
+        return any(o in label or (expect is not None and o in expect) for o in only_controls)
+
     def scenario(label: str, mutate, expect: str | None = None):
+        if not _wanted(label, expect):
+            return
         counts['total'] += 1
         counts['must_fail'] += (expect is not None)
         with tempfile.TemporaryDirectory() as d:
@@ -5602,26 +5663,45 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                  {k: v for k, v in s.items() if k != 'canonical'} for s in suite_of(w)['scenarios']]}),
              expect="missing field(s) ['canonical']")
 
+    def with_incremental(w, scen=None, edit=None, stub=True):
+        """A registry carrying ONE well-formed incremental scenario, attached to a real command.
+
+        The rules governing incremental scenarios are exercised whether or not the canonical registry
+        happens to declare any. Mutating whatever incrementals the registry contained made these controls
+        evaporate the moment it contained none — they passed by testing nothing, which is the exact shape
+        of inert control this checkpoint has paid for repeatedly."""
+        base = suite_of(w)
+        e = {'id': 'edit.probe', 'kind': 'append-comment-line', 'path': 'Emit.v',
+             'purpose': 'p', 'rationale': 'r', 'text': '(* observatory: inert edit probe {n} *)\n'}
+        e.update(edit or {})
+        s = {'id': 'project.incremental.probe', 'canonical': False, 'purpose': 'p',
+             'session_state': 'same', 'edit': 'edit.probe', 'prime_steps': [],
+             'cache_state': {a: 'reused' for a in CACHE_AUTHORITIES},
+             'cache_cut': {'stable_through': 'rocq-base', 'invalidated_roots': ['source'],
+                           'registry_pulls_included': False, 'builder_bootstrap_included': False}}
+        s.update(scen or {})
+        # The stub pass runs over the registry as COPIED, before this mutation, so an edit added here has
+        # no file behind it unless this makes one.
+        if stub and e.get('path'):
+            at = w / e['path']
+            at.parent.mkdir(parents=True, exist_ok=True)
+            if not at.exists():
+                at.write_text('placeholder\n', encoding='utf-8')
+        cmds = [{**c, 'scenarios': list(c['scenarios']) + [s['id']],
+                 'samples': {**c['samples'], s['id']: 1}} if c['id'] == 'make.fmt' else c
+                for c in base['commands']]
+        return {**base, 'commands': cmds, 'scenarios': base['scenarios'] + [s],
+                'edits': list(base.get('edits', [])) + [e]}
+
     scenario('an incremental scenario with no edit',
-             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
-                 {k: v for k, v in s.items() if k != 'edit'}
-                 if s['id'].startswith('project.incremental.') else s
-                 for s in suite_of(w)['scenarios']]}),
+             lambda w: write_suite(w, with_incremental(w, scen={'edit': None})),
              expect='would measure a no-op and record it as a rebuild')
     scenario('an incremental scenario whose edit changes nothing',
-             lambda w: write_suite(w, {**suite_of(w),
-                 'edits': suite_of(w)['edits'] + [{'id': 'edit.nothing', 'kind': 'append-comment-line',
-                                                   'path': None, 'purpose': 'p', 'rationale': 'r',
-                                                   'text': ''}],
-                 'scenarios': [{**s, 'edit': 'edit.nothing'}
-                               if s['id'].startswith('project.incremental.') else s
-                               for s in suite_of(w)['scenarios']]}),
+             lambda w: write_suite(w, with_incremental(w, edit={'path': None})),
              expect='an edit shape must name exactly one file to change')
 
     scenario('an incremental scenario naming an unregistered edit',
-             lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
-                 {**s, 'edit': 'edit.no.such'} if s['id'].startswith('project.incremental.') else s
-                 for s in suite_of(w)['scenarios']]}),
+             lambda w: write_suite(w, with_incremental(w, scen={'edit': 'edit.no.such'})),
              expect='not a registered edit shape')
     scenario('a non-incremental scenario carrying an edit',
              lambda w: write_suite(w, {**suite_of(w), 'scenarios': [
@@ -5641,8 +5721,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                  for s in suite_of(w)['scenarios']]}),
              expect='is not the root its own name declares')
     scenario('an edit naming a file that is not there',
-             lambda w: write_suite(w, {**suite_of(w), 'edits': [
-                 {**e, 'path': 'NoSuchModule.v'} for e in suite_of(w)['edits']]}),
+             lambda w: write_suite(w, with_incremental(w, edit={'path': 'NoSuchModule.v'}, stub=False)),
              expect='which is not a file')
 
     scenario('a duplicate command id',
@@ -6065,7 +6144,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     selection('RECORD with SCENARIO', expect='RECORD=1 rejects ONLY', scenario='project.cached.fresh', record=True)
     selection('a selection with no command in the named scenario',
               expect='no selected command runs in scenario',
-              only='make.fmt', scenario='project.incremental.foundation.float')
+              only='make.fmt', scenario='project.cold.prover')
 
     counts['total'] += 1
     near = None
@@ -6080,6 +6159,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     import tempfile as _tempfile
 
     def guarded(label: str, fn, expect: str | None = None):
+        if not _wanted(label, expect):
+            return
         counts['total'] += 1
         counts['must_fail'] += (expect is not None)
         with _tempfile.TemporaryDirectory() as d:
@@ -6113,12 +6194,14 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     counts['total'] += 1
     long_probe = edit_probe('20260730T031242123456p0000-6ffb586-5ea202d6-bcb7a8',
                             'make.check', 'project.incremental.foundation.float')
-    for e in suite['edits']:
-        if not e['path'].endswith('.v'):
-            continue
-        rendered = e['text'].format(n=f'{long_probe}-0').rstrip('\n')
+    # The shape a `.v` edit uses, stated here rather than read from the registry. Looping over
+    # `suite['edits']` made this control evaporate the moment the registry declared none — it passed by
+    # checking nothing, which is exactly the inert control this file keeps paying for.
+    for shape in ('(* observatory: inert edit probe {n} *)\n',) + tuple(
+            e['text'] for e in suite.get('edits', []) if e.get('path', '').endswith('.v')):
+        rendered = shape.format(n=f'{long_probe}-0').rstrip('\n')
         if len(rendered) > 120 or '\n' in rendered:
-            failures.append(f'the edit written into {e["path"]} is {len(rendered)} characters, past the '
+            failures.append(f'the edit written into a .v file is {len(rendered)} characters, past the '
                             f'120-character source law it must satisfy: {rendered!r}')
 
     # Same edit shape, same sample index, two different RUNS: the bytes must differ, or the second run reads
@@ -6228,7 +6311,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     def enriched(raw: dict) -> dict:
         """A modified suite put back through the loader, so its derived members follow its entries.
 
-        rhencke sudo users docker is derived; copying an enriched suite and editing its commands leaves a stale membership
+        `groups` is derived; copying an enriched suite and editing its commands leaves a stale membership
         that the basis rule correctly refuses. The fixture must produce a suite the loader would produce."""
         g = docker_stage_graph(root)
         return validate_suite({k: v for k, v in raw.items() if k != 'groups'}, set(g), g)
@@ -6423,6 +6506,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         return merged
 
     def observed(label: str, fn, expect: str | None = None):
+        if not _wanted(label, expect):
+            return
         counts['total'] += 1
         counts['must_fail'] += (expect is not None)
         try:
@@ -6677,20 +6762,23 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
              lambda: record_check(obs=with_reuse('make.prove|project.cold.prover|-|-|selected|nowhere|wall_elapsed')),
              expect='recording rule R08')
     def not_cold_prime():
-        """A prime that is a real retained sample of the right command, and simply is not COLD.
+        """Two retained samples of one command, the earlier one WARM and the later reusing its cache.
 
-        It used to name a metric CLASS string, which now fails at "this observation does not retain that
-        sample" — so the cold rule was never reached and its mutant reported the rule unprotected.
-        `project.cached.fresh` sorts before `project.warm.noop`, so it also precedes the sample it primes.
+        `project.cached.fresh` used to supply a non-cold prime that also preceded its consumer. With exactly
+        one cold and one hot state per command there is no second non-cold state to borrow, so the pair is
+        built here and the owning subrelation is asked directly. The composed path through the recording
+        rules is exercised by the R08 controls above.
         """
-        obs = with_reuse(None)
-        warm = prove_sample(obs, 'project.warm.noop')
-        warm['cache_before']['prime_sample_id'] = prove_sample(obs, 'project.cached.fresh')['sample_id']
-        obs['derived'] = {'summaries': summarise(obs['measurements'])}
-        return obs
+        first = sample(command_id=ROOT_CMD, scenario_id='project.warm.noop', sample_index=0)
+        second = sample(command_id=ROOT_CMD, scenario_id='project.warm.noop', sample_index=1,
+                        cache_before={'authorities': {a: 'reused' for a in PROJECT_CACHES},
+                                      'prime_sample_id': first['sample_id']})
+        return identity_problems({'run_id': FIXTURE_RUN_ID, 'measurements': [first, second]})
 
-    observed('a prime that is not a cold sample',
-             lambda: record_check(obs=not_cold_prime()), expect='is not a cold sample')
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    if not any('is not a cold sample' in one for one in not_cold_prime()):
+        failures.append('a prime that is not a cold sample was accepted')
     # ── §14 the exact relation closes over role, scope and kind, not only over command and scenario
     def relabelled(command_id: str, scenario_id: str, **fields):
         """One retained sample given a different role, scope or kind than the registry requires.
@@ -7552,6 +7640,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         failures.append(f'a well-formed canonical observation was refused by the permanent gate: {exc}')
 
     def gated(label, obs, want):
+        if not _wanted(label, want):
+            return
         counts['total'] += 1
         counts['must_fail'] += 1
         try:
@@ -8893,6 +8983,35 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
              lambda: parse_anchor_log('begin make.check-body 100\nend make.check-body 200\n',
                                       known=live_vocab))
 
+    # §8.2 — a contained child's wall time and its own checkpoint interval come from one log and must
+    # agree. A fragment, because this control is about that one binding and not about coverage.
+    def hooked_fragment(child_wall):
+        # `precommit.full` reads an exported staged index, so its unedited sample carries THAT view's
+        # digest — the rule this fixture would otherwise trip on its way to the one being tested.
+        parent = sample(command_id='precommit.full', scenario_id='project.warm.noop', wall_ns=1_000_000,
+                        source_digest=FIXTURE_VIEWS['staged-index'])
+        child = sample(command_id='precommit.naming', scenario_id='project.warm.noop',
+                       derived_parent_id='precommit.full', parent_sample_id=parent['sample_id'],
+                       source_digest=FIXTURE_VIEWS['staged-index'], wall_ns=child_wall)
+        # The trace is handed exactly the metrics it establishes, so the closure rule is satisfied and the
+        # one binding this control is about is the rule that gets to speak.
+        closed = trace_object(parent, [child],
+                              [metric_identity(parent), metric_identity(child)], None, {},
+                              partition_of('precommit.full', 1_000_000,
+                                           anchors(('precommit.naming', 0, 300_000))))
+        return observation(samples=[parent, child], traces=[closed],
+                           derived={'summaries': summarise([parent, child]), 'status': 'incomplete'})
+
+    observed('a contained child whose wall time is not its own checkpoint interval',
+             lambda: validate_observation(hooked_fragment(300_001)),
+             expect='the checkpoint interval bearing its name is')
+
+    counts['total'] += 1
+    try:
+        validate_observation(hooked_fragment(300_000))
+    except ObservatoryError as exc:
+        failures.append(f'a contained child agreeing with its own checkpoint interval was refused: {exc}')
+
     # §3.4 — THE GRAMMARS, enforced from the plan rather than inferred. Stack balance establishes neither:
     # a nested Make checkpoint balances, so does a hook stage at depth two, and so does a log with no root.
     # Each was accepted and each means something different is wrong.
@@ -8982,9 +9101,8 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
 
     # ── scenario ordering and unusable comparison inputs
     counts['total'] += 1
-    order = scenario_order(suite, ['project.warm.noop', 'project.cold.prover', 'project.cached.fresh'])
-    if order.index('project.cold.prover') > order.index('project.cached.fresh') or \
-            order.index('project.cached.fresh') > order.index('project.warm.noop'):
+    order = scenario_order(suite, ['project.warm.noop', 'project.cold.prover'])
+    if order.index('project.cold.prover') > order.index('project.warm.noop'):
         failures.append(f'scenarios must run in prime order, got {order}')
 
     counts['total'] += 1
@@ -9286,6 +9404,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='Fido Build Observatory')
     p.add_argument('--root', default=str(ROOT))
     p.add_argument('--self-test', action='store_true', help='the deterministic coverage controls')
+    p.add_argument('--control', action='append',
+                   help='run only controls whose label contains this (repeatable; mutation harness)')
     p.add_argument('--check', action='store_true',
                    help='the permanent command-surface coverage validator (no timing)')
     p.add_argument('--paths', action='store_true', help='verify that every declared observatory path resolves')
@@ -9309,7 +9429,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.self_test:
-            return self_test(root)
+            return self_test(root, tuple(args.control or ()))
         if args.paths:
             paths = resolve(root)
             print(f'fido: build-observatory paths OK — {len(paths)} declared path(s) resolve under {root} ✓')

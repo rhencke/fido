@@ -16,6 +16,8 @@ this fail loudly instead of silently testing nothing.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import os
 import re
 import shutil
 import subprocess
@@ -1084,6 +1086,11 @@ MUTANTS = (
      "        return dict(self.per_trace)",
      ('a validation cost for a trace the observation never closed was attributed to it',)),
 
+    (OBS, "a contained child's wall time is its own checkpoint interval",
+     "            if span is not None and child['wall_ns'] != span:",
+     "            if False:",
+     ('a contained child whose wall time is not its own checkpoint interval',)),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",
@@ -1503,7 +1510,8 @@ def mutant_mode(label: str) -> str:
     return '--m1-self-test' if label in M1_ONLY_MUTANTS else '--self-test'
 
 
-def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-test'):
+def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-test',
+               controls: tuple = ()):
     src = (root / tool).read_text(encoding='utf-8')
     n = src.count(old)
     if n != 1:
@@ -1517,8 +1525,13 @@ def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-te
                         ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob', '__pycache__',
                                                       '.build-observatory', '.claude'))
         (work / tool).write_text(src.replace(old, new, 1), encoding='utf-8')
-        proc = subprocess.run([sys.executable, str(work / tool), '--root', str(work), mode],
-                              capture_output=True, text=True, cwd=work)
+        # A mutant asks ONE question — do my named controls fail — and answering it does not require the
+        # other three hundred and ninety-odd. The unfiltered suite still runs on every `make observatory`,
+        # which is what proves it green; this run exists only to interrogate one deliberately broken rule.
+        argv = [sys.executable, str(work / tool), '--root', str(work), mode]
+        for name in controls:
+            argv += ['--control', name]
+        proc = subprocess.run(argv, capture_output=True, text=True, cwd=work)
         return proc, None
 
 
@@ -1533,8 +1546,17 @@ def main() -> int:
     wanted = '--m1-self-test' if args.m1 else '--self-test'
     selected = [m for m in MUTANTS if mutant_mode(m[1]) == wanted]
     failures = []
-    for tool, label, old, new, expected in selected:
-        proc, err = run_mutant(root, tool, old, new, wanted)
+    # Every mutant is an independent subprocess against its own private copy of the tree, so running them
+    # one at a time left three of four cores idle for seventeen minutes. Nothing about the evidence changes:
+    # each mutant still deletes exactly one rule and runs the whole self-test against it. Results are
+    # collected in the declared order, so the report reads identically however the work was scheduled.
+    workers = max(1, min(len(selected), (os.cpu_count() or 1)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        ran = list(pool.map(
+            lambda m: run_mutant(root, m[0], m[2], m[3], wanted,
+                                 tuple(m[4]) if m[0] == OBS and wanted == '--self-test' else ()),
+            selected))
+    for (tool, label, old, new, expected), (proc, err) in zip(selected, ran):
         if err is not None or proc is None:
             failures.append(f'{tool}: {label}: {err}')
             continue
