@@ -345,7 +345,9 @@ MUTANTS = (
      ('is not retained as an absence in the view',)),
 
     (OBS, 'the declared source view deciding a sample digest',
+     "DECLARED_VIEW = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',\n"
      "                 'staged-index': 'staged-index', 'staged-index-export': 'staged-index',",
+     "DECLARED_VIEW = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',\n"
      "                 'staged-index': 'staged-index', 'staged-index-export': 'working-tree',",
      ('a staged-index-export command was identified by something other than the staged index',)),
 
@@ -1067,7 +1069,7 @@ MUTANTS = (
 
     # §2.7 — source identity is judged against the view the command DECLARES.
     (OBS, 'the declared view choosing which subject digest a sample answers to',
-     "        subject_digest = views.get(DECLARED_VIEW.get(declared))",
+     "        subject_digest = views.get(SUBJECT_VIEW.get(declared))",
      "        subject_digest = views.get('working-tree')",
      ('a staged-index command whose sample measured the working tree',)),
 

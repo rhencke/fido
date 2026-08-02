@@ -782,11 +782,19 @@ def content_digest(root: Path) -> str:
 
 
 # ONE mapping from a command's DECLARED source view to the view whose bytes it actually reads. The producer
-# and the validator both read it, so a sample's digest and the digest it is judged against cannot come from
-# two tables that drift.
+# reads it to digest what ran.
 DECLARED_VIEW = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',
                  'staged-index': 'staged-index', 'staged-index-export': 'staged-index',
                  'disposable-copy': 'working-tree', 'environment-only': None}
+
+# Which SUBJECT view an unedited sample must equal — a different question, and for two declared views the
+# answer is "none". A `disposable-copy` command runs inside a throwaway worktree built from the selected
+# view: what it reads is that copy, whose digest cannot equal any view of the subject, because the copy is
+# not the subject. An `environment-only` command reads no repository source at all. Demanding either match
+# the subject called `make.install-hooks` a forgery for measuring exactly the tree it was given.
+SUBJECT_VIEW = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',
+                'staged-index': 'staged-index', 'staged-index-export': 'staged-index',
+                'disposable-copy': None, 'environment-only': None}
 
 
 def declared_source_digest(root: Path, command: dict) -> str | None:
@@ -3162,7 +3170,7 @@ def validate_observation(obs: dict) -> str:
         if s.get('derived_parent_id') or s.get('source_digest') is None:
             continue
         declared = by_id.get(s['command_id'], {}).get('source_view')
-        subject_digest = views.get(DECLARED_VIEW.get(declared))
+        subject_digest = views.get(SUBJECT_VIEW.get(declared))
         if subject_digest is None:
             continue
         if not s.get('edit_id') and s['source_digest'] != subject_digest:
@@ -6649,8 +6657,14 @@ def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls
                 for i in range(spec['samples']):
                     # An incremental sample edits distinct bytes, so its disposable copy hashes differently.
                     # The fixture has to model that or it would not reach the rule which requires it.
-                    # The view THIS command declares, not one shared digest for everything.
-                    declared = DECLARED_VIEW[command_by_id[spec['command_id']]['source_view']]
+                    # The view THIS command declares, not one shared digest for everything. Spelled out
+                    # HERE rather than read from `DECLARED_VIEW`: a fixture that takes its expectations from
+                    # the table under test moves with it, so mutating the table corrupted the fixture
+                    # instead of tripping the control that watches the table.
+                    declared = {'working-tree': 'working-tree', 'committed-tree': 'committed-tree',
+                                'staged-index': 'staged-index', 'staged-index-export': 'staged-index',
+                                'disposable-copy': 'working-tree', 'environment-only': None,
+                                }[command_by_id[spec['command_id']]['source_view']]
                     digest_i = (_sha256(f'{spec["command_id"]}|{spec["scenario_id"]}|{i}'.encode('utf-8'))
                                 if spec['edit_id'] else FIXTURE_VIEWS.get(declared))
                     # Scope and kind come from the SPEC, not from the generic fixture default. Stamping
@@ -7731,6 +7745,27 @@ def _self_test_body(root: Path, failures: list[str], counts: dict, only_controls
         obs['suite_cost'] = fixture_suite_cost(obs['traces'])
         obs['derived'] = {**obs['derived'], 'summaries': summarise(obs['measurements'])}
         return obs
+
+    counts['total'] += 1
+    # A `disposable-copy` command measures a throwaway worktree, whose digest matches no view of the
+    # subject and must not be asked to. This is the accept side of SUBJECT_VIEW: without it the rule called
+    # `make.install-hooks` a forgery for measuring exactly the tree it was handed.
+    def copied_elsewhere():
+        obs = complete_observation()
+        victim = next(s for s in obs['measurements']
+                      if s['command_id'] == 'make.install-hooks' and not s.get('derived_parent_id'))
+        victim['source_digest'] = 'ab' * 32
+        victim['sample_id'] = sample_id_for(obs['run_id'], victim)
+        obs['traces'] = traces_for(obs['measurements'])
+        obs['suite_cost'] = fixture_suite_cost(obs['traces'])
+        obs['derived'] = {**obs['derived'], 'summaries': summarise(obs['measurements'])}
+        return obs
+
+    try:
+        validate_observation(copied_elsewhere())
+    except ObservatoryError as exc:
+        failures.append(f'a disposable-copy sample was required to match a subject view it cannot have: '
+                        f'{exc}')
 
     observed('a staged-index command whose sample measured the working tree',
              lambda: validate_observation(wrong_view()),
