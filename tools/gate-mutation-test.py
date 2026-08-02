@@ -530,28 +530,8 @@ MUTANTS = (
     (OBS, 'the suite cost is validated like everything it reports',
      "    bad_cost = suite_cost_problems(obs)",
      "    bad_cost = []",
-     ('suite cost with a false direct count',
-      'suite cost with a cost naming no trace')),
-
-    (OBS, 'suite-cost counts equal the retained samples',
-     "    if cost['direct_trace_count'] != len(direct):",
-     "    if False:",
-     ('suite cost with a false direct count',)),
-
-    (OBS, 'every retained per-trace cost names a real trace',
-     "    for orphan in sorted(named - real):",
-     "    for orphan in []:",
-     ('suite cost with a cost naming no trace',)),
-
-    (OBS, 'every performed trace retains its cost',
-     "    for missed in sorted(real - named):",
-     "    for missed in []:",
-     ('a performed trace with no retained cost was accepted',)),
-
-    (OBS, 'validation components sum to the retained total',
-     "        if isinstance(cost['validation_wall_ns'], int) and parts != cost['validation_wall_ns']:",
-     "        if False:",
-     ('suite cost with components that do not sum to the total',)),
+     ('suite cost with a suite wall time of one nanosecond',
+      'suite cost with a validation cost for a trace it never closed')),
 
     (OBS, 'a resumed cold trace restores its prime',
      "        if not sid.startswith('project.cold.') or not t.get('root_sample_id'):",
@@ -593,6 +573,22 @@ MUTANTS = (
      "            if not part.get('overhead_id'):",
      "            if False:",
      ('a remainder retained under no identity was accepted',)),
+
+    (OBS, 'a completed trace retains a partition object at all',
+     "    if not isinstance(part, dict):",
+     "    if False:",
+     ('a completed trace with a null partition was accepted',)),
+
+    (OBS, 'the partition kind is one of the two declared ones',
+     "    if isinstance(part, dict) and part.get('kind') not in (PARTITION_DECOMPOSED, PARTITION_ATOMIC):",
+     "    if False:",
+     ('a partition declaring a kind outside the two declared ones was accepted',)),
+
+    (OBS, 'the partition equals recomputation from its own checkpoint sequence',
+     "                if rebuilt.get(field) != part.get(field):",
+     "                if False:",
+     ('a renamed partition member was accepted',
+      'a real member dropped into overhead was accepted')),
 
     (OBS, 'the Make grammar forbids nesting',
      "        deep = [e['id'] for e in events if e.get('depth', 0) != 0]",
@@ -770,7 +766,7 @@ MUTANTS = (
      ('two runs differing only in the selector recorded different concurrency',)),
 
     (OBS, 'one summary, one program',
-     "        if group[0].get('edit_id') is None:",
+     "        if not edits_here and len(set(digests)) != 1:",
      "        if False:",
      ('a summary pooling samples taken against different sources',)),
 
@@ -795,13 +791,15 @@ MUTANTS = (
      ('two commands wrote identical incremental bytes for the same sample index',)),
 
     (OBS, 'distinct sources across incremental samples',
-     "        elif len(set(digests)) != len(digests):",
-     "        elif False:",
+     "        if edits_here and len(set(digests)) != len(digests):",
+     "        if False:",
      ('an incremental scenario whose samples repeat one source',)),
 
     (OBS, 'the incomplete-run guard on comparison',
-     "    if (obs.get('derived') or {}).get('status') == 'incomplete':",
-     "    if False:",
+     "    if (obs.get('derived') or {}).get('status') == 'incomplete':\n"
+     "        raise ObservatoryError(",
+     "    if False:\n"
+     "        raise ObservatoryError(",
      ('comparing against a run that never finished',)),
 
     (OBS, 'the usable-input guard on comparison',
@@ -900,20 +898,101 @@ MUTANTS = (
      "        if False:",
      ('an expected-failure fixture with no declared reason',)),
 
-    (OBS, 'two-directional coverage closure',
-     "    missing = sorted(set(expected) - set(observed))",
-     "    missing = []",
-     ('a canonical pair absent from the observation',)),
+    # The three closure rules moved INTO the root validator when `check_relation_closed` turned out to be a
+    # second copy nothing called. Their mutants move with them, or the harness would be proving a function
+    # that no longer runs.
+    (OBS, 'the whole-suite metric relation closes both ways',
+     "            if planned_count != held:",
+     "            if False:",
+     ('a canonical pair absent from the observation',
+      'one relation acquired twice')),
 
-    (OBS, 'the undeclared-metric direction',
-     "    extra = sorted(set(observed) - set(expected))",
-     "    extra = []",
+    (OBS, 'every closed trace answers to a scheduled one',
+     "        if pid not in planned:",
+     "        if False:",
      ('an undeclared pair present in the observation',)),
 
-    (OBS, 'the required sample count',
-     "    wrong = sorted(k for k in set(expected) & set(observed)",
-     "    wrong = [] or sorted(k for k in set() & set(observed)",
-     ('one relation acquired twice',)),
+    (OBS, 'a scheduled trace is closed as many times as it was scheduled',
+     "            if got != entry['samples']:",
+     "            if False:",
+     ('a completed direct root with no trace-completion object',)),
+
+    # §4 — the suite's own cost. Every rule here replaced one the reviewer walked straight through, so each
+    # is proved load-bearing by the control that names the exact mutation it accepted.
+    (OBS, 'elapsed time follows from the monotonic pair',
+     "        elif cost['suite_wall_ns'] != done_ns - started_ns:",
+     "        elif False:",
+     ('suite cost with a suite wall time of one nanosecond',)),
+
+    (OBS, 'the fixed validation-component vocabulary',
+     "    if not isinstance(comps, dict) or sorted(comps) != sorted(VALIDATION_COMPONENTS):",
+     "    if False:",
+     ('suite cost with a deleted preflight component',
+      'suite cost with no final-validation component',
+      'suite cost with no recording-checks component')),
+
+    (OBS, 'the completion instant recomputed from the start and the elapsed time',
+     "            if cost['suite_completed_utc'] != want:",
+     "            if False:",
+     ('suite cost with a completion instant moved off its own elapsed time',)),
+
+    (OBS, 'the recomputed validation total',
+     "    if cost['validation_wall_ns'] != measured_ns:",
+     "    if False:",
+     ('suite cost with a validation total that is not the sum of its components',)),
+
+    (OBS, 'validation and priming fit inside the suite that contains them',
+     "        if measured_ns + prime_ns > cost['suite_wall_ns']:",
+     "        if False:",
+     ('suite cost with more validation than the suite lasted',)),
+
+    (OBS, 'a suite that completes after it starts',
+     "        if done_ns <= started_ns:",
+     "        if False:",
+     ('suite cost with a completion before its own start',)),
+
+    (OBS, 'per-trace validation names only traces this observation closed',
+     "        for orphan in sorted(set(per_trace) - closed_traces):",
+     "        for orphan in []:",
+     ('suite cost with a validation cost for a trace it never closed',)),
+
+    (OBS, 'every closed trace was validated',
+     "        for missed in sorted(closed_traces - set(per_trace)):",
+     "        for missed in []:",
+     ('suite cost with a closed trace with no validation cost',)),
+
+    (OBS, 'per-trace validation fits inside its own component',
+     "            if sum(per_trace.values()) > whole:",
+     "            if False:",
+     ('suite cost with more per-trace validation than the component containing it',)),
+
+    (OBS, 'publication is pinned to the bytes the close verifier accepted',
+     "    if _sha256(data) != verified:",
+     "    if False:",
+     ('an observation mutated after the close verifier was published',)),
+
+    # §6 — the bundle output. Each rule replaced a shape the implementation could ship while the contract
+    # said otherwise.
+    (OBS, 'both comparison files present in a completed bundle',
+     "        if not (bundle / name).is_file():",
+     "        if False:",
+     ('a completed bundle with no comparison.json was accepted',
+      'a completed bundle with no comparison.txt was accepted')),
+
+    (OBS, 'the raw per-sample logs survive the run',
+     "    if not (bundle / 'raw').is_dir():",
+     "    if False:",
+     ('a completed bundle with no raw log directory was accepted',)),
+
+    (OBS, 'a comparison declares one of the two states it may be in',
+     "            if status not in ('complete', 'unavailable'):",
+     "            if False:",
+     ('a completed bundle with a comparison in no declared state was accepted',)),
+
+    (OBS, 'an unavailable comparison carries its reason',
+     "            if status == 'unavailable' and not (result.get('reason') or '').strip():",
+     "            if False:",
+     ('a completed bundle with an unavailable comparison with no reason was accepted',)),
 
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
@@ -1378,8 +1457,12 @@ def main() -> int:
         failed = set(re.findall(r'FAIL  (?:gate (?:flags|accepts): )?(.+)', proc.stdout))
         missing = [c for c in expected if not any(c in f for f in failed)]
         if missing:
+            # Name what DID fire. Without it the operator knows only that the wrong thing broke, and has to
+            # reproduce the mutation by hand to find out what — which is the slow half of every repair that
+            # refactors a rule this harness watches.
             failures.append(f'{tool}: {label}: the self-test failed, but not through the control(s) that '
-                            f'depend on this rule: {", ".join(missing)}')
+                            f'depend on this rule: {", ".join(missing)}; what did fail: '
+                            f'{", ".join(sorted(failed)[:4]) or "(no control label in the output)"}')
         else:
             print(f'  detected  {label}  ({tool}) — {len(expected)} named control(s) fired')
 

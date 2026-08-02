@@ -400,11 +400,24 @@ assembled observation as one exact candidate result.
 
 ## 3B.11 The suite reports its own cost
 
-The observation retains suite start and completion, suite wall time, preflight wall time, per-trace wall
-time, validation wall time, and the direct-trace and contained-metric counts. This is
-meta-evidence, not a recursively measured command, and comparison reports suite-cost change between
-compatible observations — so another multi-hour regression in the facility cannot hide behind `make.observe`
-being catalog-only.
+The observation retains one monotonic suite lifecycle — a start reading, a completion reading, and the wall
+time that is exactly their difference — plus the start instant in UTC and a completion instant projected from
+it along that same elapsed time. Monotonic values own elapsed time; the UTC values are descriptive.
+
+Beside the lifecycle it retains the toolchain-prime cost, the validation components under a fixed vocabulary
+(`preflight_controls`, `preflight_plan`, `per_trace`, `final_validation`, `recording_checks`), the recomputed
+validation total, and per-trace validation cost keyed by the exact trace. A component that did not run
+carries an explicit state and a reason; a zero-duration measurement would claim it ran and cost nothing.
+
+The block closes in two phases. Acquisition leaves it open; the final validator and the recording checks are
+timed over the provisional observation; their durations and the completion reading are then stamped in; and
+one pure, untimed, non-mutating close verifier runs over the closed observation. Publication is pinned to the
+exact bytes that verifier accepted, so no later writer may alter the observation.
+
+Facts with an exact owner elsewhere — a trace's wall time, the direct-trace count, the contained-metric
+count — are not restated here. This is meta-evidence, not a recursively measured command, and comparison
+reports suite-cost change between compatible observations, so another multi-hour regression in the facility
+cannot hide behind `make.observe` being catalog-only.
 
 ---
 
@@ -927,11 +940,25 @@ Raw logs remain local and ignored.
 
 The observation records each raw log’s SHA-256. The tracked canonical file must not require the raw log to exist.
 
+Every completed bundle carries both comparison files. When no verdict is available the result is written
+explicitly, with its exact reason:
+
+```json
+{ "status": "unavailable", "reason": "baseline observation uses an incompatible schema" }
+```
+
+The plain-text view states the same reason. A missing file never carries that meaning: it is
+indistinguishable from a run interrupted before it got there. No metric verdict is issued from an observation
+that does not validate.
+
 An interrupted or failed suite remains in the local run directory with:
 
 ```text
 status: incomplete
 ```
+
+An incomplete bundle stops before the comparison phase by design and owes only what a diagnosis and a resume
+need: its observation and its raw logs.
 
 It cannot be recorded.
 

@@ -1791,56 +1791,236 @@ def fragment_problems(partial: dict) -> list[str]:
             + retained_trace_problems(partial))
 
 
-SUITE_COST_MEMBERS = ('suite_started', 'suite_completed', 'suite_wall_ns', 'preflight_wall_ns',
-                      'validation_wall_ns', 'validation_components', 'trace_wall_ns',
-                      'direct_trace_count', 'contained_metric_count')
+# §4.4 — the FIXED validation-component vocabulary. It is part of the retained suite schema, so a run that
+# skipped one says so in the component's own state instead of shipping a shorter dictionary.
+VALIDATION_COMPONENTS = ('preflight_controls', 'preflight_plan', 'per_trace',
+                         'final_validation', 'recording_checks')
+
+COMPONENT_MEASURED, COMPONENT_PENDING, COMPONENT_NOT_APPLICABLE = 'measured', 'pending', 'not-applicable'
+
+SUITE_COST_MEMBERS = ('state', 'suite_started_utc', 'suite_completed_utc',
+                      'suite_started_monotonic_ns', 'suite_completed_monotonic_ns', 'suite_wall_ns',
+                      'toolchain_prime_ns', 'validation_wall_ns', 'validation_components',
+                      'trace_validation_ns')
+
+COST_OPEN, COST_CLOSED = 'open', 'closed'
+
+
+def project_utc(started_utc: str, delta_ns: int) -> str:
+    """§4.4 — the completion instant, PROJECTED from the start instant along the monotonic clock.
+
+    A second wall-clock reading at close is a different instrument's answer, free to disagree with the
+    elapsed time beside it whenever the host's clock is stepped mid-run; papering over that with a tolerance
+    would put a magic number inside a validity rule. Monotonic values own elapsed time, so the descriptive
+    value is derived from them by one function and recomputes exactly."""
+    import datetime
+    started = datetime.datetime.fromisoformat(started_utc)
+    return (started + datetime.timedelta(microseconds=delta_ns // 1000)).isoformat()
 
 
 def suite_cost_problems(obs: dict) -> list[str]:
-    """§7 E2 — ONE suite-cost validator, for recording, loading, resume and comparison alike.
+    """§4 — ONE suite-cost validator, for recording, loading, resume and comparison alike.
 
-    The block was retained and never checked, so its counts were free to disagree with the samples beside
-    them and its per-trace entries free to name traces the run never had. Meta-evidence that nothing verifies
-    is the same shape as the coverage-on-paper this repair keeps refusing everywhere else."""
+    Repair 4's block was retained and checked only for internal arithmetic, so `suite_wall_ns = 1`, a deleted
+    preflight component and a completion timestamp one second after the start were all accepted. Elapsed time
+    is owned by one monotonic pair and follows from subtraction; the component vocabulary is fixed, so a
+    deleted component is a missing member rather than a smaller sum; and the counts and per-trace wall times
+    that duplicated the samples beside them are gone, because a fact with an exact owner does not get a
+    second one in the meta-evidence block."""
     cost = obs.get('suite_cost')
     if not isinstance(cost, dict):
         return ['the observation retains no suite cost, so the facility reports every cost but its own']
     absent = [m for m in SUITE_COST_MEMBERS if m not in cost]
     if absent:
         return [f'suite cost is missing member(s) {absent}']
+    undeclared = sorted(set(cost) - set(SUITE_COST_MEMBERS))
+    if undeclared:
+        return [f'suite cost retains member(s) {undeclared} its schema does not declare']
+    state = cost['state']
+    if state not in (COST_OPEN, COST_CLOSED):
+        return [f'suite cost state is {state!r}, which is neither {COST_OPEN!r} nor {COST_CLOSED!r}']
 
     problems = []
-    samples = obs.get('measurements') or []
-    direct = [s for s in samples if not s.get('derived_parent_id')]
-    contained = [s for s in samples if s.get('derived_parent_id')]
-    if cost['direct_trace_count'] != len(direct):
-        problems.append(f'suite cost claims {cost["direct_trace_count"]} direct trace(s) beside '
-                        f'{len(direct)} retained direct sample(s)')
-    if cost['contained_metric_count'] != len(contained):
-        problems.append(f'suite cost claims {cost["contained_metric_count"]} contained metric(s) beside '
-                        f'{len(contained)} retained derived sample(s)')
-    for field in ('suite_wall_ns', 'preflight_wall_ns', 'validation_wall_ns'):
-        value = cost[field]
-        if not isinstance(value, int) or value < 0:
-            problems.append(f'suite cost {field} is {value!r}, which is not a duration')
-    if isinstance(cost.get('validation_components'), dict):
-        parts = sum(v for v in cost['validation_components'].values() if isinstance(v, int))
-        if isinstance(cost['validation_wall_ns'], int) and parts != cost['validation_wall_ns']:
-            problems.append(f'suite cost validation components sum to {parts}, not the retained '
-                            f'{cost["validation_wall_ns"]}')
-    if cost['suite_started'] >= cost['suite_completed']:
-        problems.append(f'suite cost starts at {cost["suite_started"]} and completes at '
-                        f'{cost["suite_completed"]}, so its own timestamps do not order')
+    closed = state == COST_CLOSED
+    # §4.4 — the FIXED vocabulary. A component the run did not perform is a declared state with a reason,
+    # never an absence and never a zero, so deleting one cannot make the total smaller and still validate.
+    comps = cost['validation_components']
+    if not isinstance(comps, dict) or sorted(comps) != sorted(VALIDATION_COMPONENTS):
+        problems.append(f'suite cost validation components are {sorted(comps) if isinstance(comps, dict) else comps!r}, '
+                        f'not the declared vocabulary {sorted(VALIDATION_COMPONENTS)}')
+        comps = {}
+    measured_ns = 0
+    for name in sorted(comps):
+        c = comps[name]
+        if not isinstance(c, dict) or sorted(c) != ['reason', 'state', 'wall_ns']:
+            problems.append(f'suite cost component {name} is {c!r}, not a state/wall_ns/reason object')
+            continue
+        if c['state'] == COMPONENT_MEASURED:
+            if not isinstance(c['wall_ns'], int) or isinstance(c['wall_ns'], bool) or c['wall_ns'] < 0:
+                problems.append(f'suite cost component {name} is measured with wall_ns {c["wall_ns"]!r}, '
+                                f'which is not a duration')
+            else:
+                measured_ns += c['wall_ns']
+            if c['reason'] is not None:
+                problems.append(f'suite cost component {name} is measured and also carries the reason '
+                                f'{c["reason"]!r}, which only a component that did not run has')
+        elif c['state'] == COMPONENT_NOT_APPLICABLE:
+            if c['wall_ns'] is not None:
+                problems.append(f'suite cost component {name} did not run and retains wall_ns '
+                                f'{c["wall_ns"]!r}')
+            if not isinstance(c['reason'], str) or not c['reason'].strip():
+                problems.append(f'suite cost component {name} did not run and gives no reason, which is the '
+                                f'silent zero the explicit state exists to replace')
+        elif c['state'] == COMPONENT_PENDING:
+            if closed:
+                problems.append(f'suite cost is closed and component {name} is still pending, so the close '
+                                f'happened before the work it was supposed to measure')
+            if c['wall_ns'] is not None or c['reason'] is not None:
+                problems.append(f'suite cost component {name} is pending and already retains a value')
+        else:
+            problems.append(f'suite cost component {name} is in state {c["state"]!r}, which is none of '
+                            f'{[COMPONENT_MEASURED, COMPONENT_PENDING, COMPONENT_NOT_APPLICABLE]}')
 
-    # Every per-trace entry names an EXACT trace of this run, and every timed direct sample has one.
-    named = set(cost.get('trace_wall_ns') or {})
-    real = {trace_id_of(s['command_id'], s['scenario_id'], s.get('edit_id'), s['sample_index'])
-            for s in direct if s.get('wall_ns') is not None}
-    for orphan in sorted(named - real):
-        problems.append(f'suite cost retains a cost for {orphan}, which is not a trace this run performed')
-    for missed in sorted(real - named):
-        problems.append(f'suite cost retains no cost for {missed}, which this run did perform')
+    # §4.4 — per-trace validation is bound to the EXACT traces this observation closed, both ways: a cost
+    # for a trace that never happened is as wrong as a closed trace nobody validated.
+    per_trace = cost['trace_validation_ns']
+    if not isinstance(per_trace, dict):
+        problems.append(f'suite cost trace_validation_ns is {per_trace!r}, not a per-trace cost map')
+    else:
+        closed_traces = {t.get('trace_id') for t in (obs.get('traces') or [])}
+        for orphan in sorted(set(per_trace) - closed_traces):
+            problems.append(f'suite cost retains a validation cost for {orphan}, which is not a trace this '
+                            f'observation closed')
+        for missed in sorted(closed_traces - set(per_trace)):
+            problems.append(f'suite cost retains no validation cost for {missed}, which this observation '
+                            f'did close')
+        bad = sorted(k for k, v in per_trace.items()
+                     if not isinstance(v, int) or isinstance(v, bool) or v < 0)
+        if bad:
+            problems.append(f'suite cost trace validation cost(s) {bad} are not durations')
+        else:
+            # The component that CONTAINS them. A per-trace map summing past its own component would be
+            # attributing time the suite never spent checking traces.
+            whole = (comps.get('per_trace') or {}).get('wall_ns')
+            if not isinstance(whole, int) or isinstance(whole, bool):
+                whole = 0
+            if sum(per_trace.values()) > whole:
+                problems.append(f'suite cost attributes {sum(per_trace.values())} to individual traces out '
+                                f'of a per-trace component of {whole}')
+
+    # §4.4 — the summary view is RECOMPUTED, never read. It was the field the reviewer adjusted to match
+    # whatever set of components survived deletion.
+    if cost['validation_wall_ns'] != measured_ns:
+        problems.append(f'suite cost validation_wall_ns is {cost["validation_wall_ns"]!r} and its measured '
+                        f'components sum to {measured_ns}')
+
+    prime_ns = cost['toolchain_prime_ns']
+    if not isinstance(prime_ns, int) or isinstance(prime_ns, bool) or prime_ns < 0:
+        problems.append(f'suite cost toolchain_prime_ns is {prime_ns!r}, which is not a duration')
+        prime_ns = 0
+
+    started_ns = cost['suite_started_monotonic_ns']
+    if not isinstance(started_ns, int) or isinstance(started_ns, bool) or started_ns < 0:
+        problems.append(f'suite cost suite_started_monotonic_ns is {started_ns!r}, which is not a monotonic '
+                        f'reading')
+    if not isinstance(cost['suite_started_utc'], str) or not iso_instant(cost['suite_started_utc']):
+        problems.append(f'suite cost suite_started_utc is {cost["suite_started_utc"]!r}, which is not an '
+                        f'instant with a timezone')
+
+    if not closed:
+        for field in ('suite_completed_monotonic_ns', 'suite_wall_ns', 'suite_completed_utc'):
+            if cost[field] is not None:
+                problems.append(f'suite cost is open and already retains {field} {cost[field]!r}; an open '
+                                f'cost is one the suite has not finished, not one it has finished quietly')
+        return problems
+
+    done_ns = cost['suite_completed_monotonic_ns']
+    if not isinstance(done_ns, int) or isinstance(done_ns, bool) or done_ns < 0:
+        problems.append(f'suite cost suite_completed_monotonic_ns is {done_ns!r}, which is not a monotonic '
+                        f'reading')
+    elif isinstance(started_ns, int) and not isinstance(started_ns, bool):
+        # §4.4 — elapsed time FOLLOWS from the pair. `suite_wall_ns = 1` beside a two-hour run validated
+        # because the field was only asked to be a nonnegative number.
+        if done_ns <= started_ns:
+            problems.append(f'suite cost completes at monotonic {done_ns} having started at {started_ns}, '
+                            f'so the suite took no time at all')
+        elif cost['suite_wall_ns'] != done_ns - started_ns:
+            problems.append(f'suite cost suite_wall_ns is {cost["suite_wall_ns"]!r} and its own monotonic '
+                            f'pair spans {done_ns - started_ns}')
+
+    if isinstance(cost['suite_wall_ns'], int) and not isinstance(cost['suite_wall_ns'], bool):
+        # Everything the suite spends on itself happens INSIDE the suite. Timing a component outside the
+        # window it claims to sit in is the defect that moved the suite clock's start into the caller.
+        if measured_ns + prime_ns > cost['suite_wall_ns']:
+            problems.append(f'suite cost spends {measured_ns} validating and {prime_ns} priming the '
+                            f'toolchain inside a suite that lasted {cost["suite_wall_ns"]}')
+        if isinstance(cost['suite_started_utc'], str) and iso_instant(cost['suite_started_utc']):
+            want = project_utc(cost['suite_started_utc'], cost['suite_wall_ns'])
+            if cost['suite_completed_utc'] != want:
+                problems.append(f'suite cost suite_completed_utc is {cost["suite_completed_utc"]!r} and its '
+                                f'own start plus its own elapsed time is {want!r}')
     return problems
+
+
+def iso_instant(text: str):
+    """The instant `text` denotes, or None. A naive timestamp is not an instant and never passes."""
+    import datetime
+    try:
+        value = datetime.datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return value if value.tzinfo is not None else None
+
+
+def close_suite_cost(obs: dict, clock: 'ValidationClock') -> dict:
+    """§4.5 phase two — stamp the finished lifecycle onto a provisional observation.
+
+    The start instant and the start reading are the ones already retained, so closing cannot invent a second
+    origin, and elapsed time is the subtraction rather than a number chosen beside it."""
+    cost = obs['suite_cost']
+    if cost['state'] != COST_OPEN:
+        raise ObservatoryError(f'the suite cost is already {cost["state"]!r} and cannot be closed twice; a '
+                               f'second close would restamp a lifecycle that has already been verified')
+    done = _monotonic_ns()
+    wall = done - cost['suite_started_monotonic_ns']
+    return {**obs, 'suite_cost': {**cost,
+                                  'state': COST_CLOSED,
+                                  'suite_completed_monotonic_ns': done,
+                                  'suite_wall_ns': wall,
+                                  'suite_completed_utc': project_utc(cost['suite_started_utc'], wall),
+                                  'validation_wall_ns': clock.total_ns(),
+                                  'validation_components': clock.report(),
+                                  'trace_validation_ns': dict(clock.per_trace)}}
+
+
+def verify_closed(obs: dict) -> str:
+    """§4.5 phase three — the FINAL close verifier: pure, untimed, non-mutating, outside the measured suite.
+
+    It exists to end the regress. Everything before it is measured; it verifies the measurement and may not
+    change it, by explicit contract. It returns the digest of the bytes it verified AFTER verifying them, and
+    publication writes exactly those bytes and checks that digest again — so any later change, including one
+    this function made, publishes something the digest does not cover and is refused. One enforced rule, not
+    a second unexercisable one beside it."""
+    validate_observation(obs)
+    if obs['suite_cost']['state'] != COST_CLOSED:
+        raise ObservatoryError('the close verifier was handed an observation whose suite cost is still open, '
+                               'so the lifecycle it is supposed to seal has not finished')
+    return _sha256(canonical_bytes(obs))
+
+
+def publish_json(path: Path, obs: dict, verified: str) -> bytes:
+    """Write EXACTLY the bytes the close verifier saw, or refuse.
+
+    No later writer may alter the observation after the close verifier. This is where that is enforced,
+    rather than asserted in a comment nothing executes."""
+    data = canonical_bytes(obs)
+    if _sha256(data) != verified:
+        raise ObservatoryError(f'{path} would publish an observation that changed after the close verifier '
+                               f'accepted it; the verified bytes digest {verified} and these digest '
+                               f'{_sha256(data)}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return data
 
 
 ARTIFACT_MEMBERS = ('module_graph', 'history_analysis')
@@ -1916,12 +2096,15 @@ def retained_trace_problems(partial: dict) -> list[str]:
     traces = partial.get('traces') or []
     samples = partial.get('measurements') or []
     by_id = {s.get('sample_id'): s for s in samples if s.get('sample_id')}
+    # §3.5 — the clock authority is the BASIS's, never the partition's own claim about its instrument.
+    tick = (((partial.get('basis') or {}).get('clocks') or {}).get('hook')
+            or HOOK_CLOCK).get('resolution_ns', HOOK_CLOCK['resolution_ns'])
     present = observed_relation(samples)
     problems: list[str] = []
     owner_of: dict[str, str] = {}
     for obj in traces:
         if any(m not in obj for m in TRACE_MEMBERS):
-            problems += trace_problems(obj)
+            problems += trace_problems(obj, clock_resolution_ns=tick)
             continue
         label = obj['trace_id']
         # ORDER MATTERS. Each defect must report the reason that IS its defect: an omitted child otherwise
@@ -1945,7 +2128,7 @@ def retained_trace_problems(partial: dict) -> list[str]:
                 problems.append(f'{label}: child {sid} was derived inside '
                                 f'{child.get("derived_parent_id")}/{child.get("scenario_id")}, so it is '
                                 f'retained under a trace that did not produce it')
-        problems += trace_problems(obj)
+        problems += trace_problems(obj, clock_resolution_ns=tick)
         for metric in sorted(set(obj['observed_metrics'])):
             claimed = obj['observed_metrics'].count(metric)
             if present.get(metric, 0) < claimed:
@@ -2035,16 +2218,68 @@ class ValidationClock:
 
     def __init__(self):
         self.components: dict[str, int] = {}
+        self.skipped: dict[str, str] = {}
+        # §4.4 — per-trace validation cost, attributed to the EXACT trace whose closure it checked. A single
+        # `per_trace` total cannot say which trace got expensive to validate, and a trace that closed without
+        # being validated at all would be invisible in it.
+        self.per_trace: dict[str, int] = {}
+
+    def measure_trace(self, trace_id: str, fn, *args, **kwargs):
+        """A `per_trace` measurement, counted in the component AND against the trace it validated."""
+        started = _monotonic_ns()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            spent = _monotonic_ns() - started
+            self.components['per_trace'] = self.components.get('per_trace', 0) + spent
+            self.per_trace[trace_id] = self.per_trace.get(trace_id, 0) + spent
+            self.skipped.pop('per_trace', None)
 
     def measure(self, component: str, fn, *args, **kwargs):
+        self._declared(component)
         started = _monotonic_ns()
         try:
             return fn(*args, **kwargs)
         finally:
             self.components[component] = self.components.get(component, 0) + (_monotonic_ns() - started)
+            self.skipped.pop(component, None)
+
+    def not_applicable(self, component: str, reason: str) -> None:
+        """§4.4 — a component that did not run says SO, with its reason.
+
+        A zero-duration measurement would read as validation that ran and cost nothing, which is the one
+        thing it is not."""
+        self._declared(component)
+        if component in self.components:
+            raise ObservatoryError(f'validation component {component!r} was measured and cannot also be '
+                                   f'declared not applicable')
+        if not reason.strip():
+            raise ObservatoryError(f'validation component {component!r} is declared not applicable with no '
+                                   f'reason, which is the silent zero this state exists to replace')
+        self.skipped[component] = reason
+
+    @staticmethod
+    def _declared(component: str) -> None:
+        if component not in VALIDATION_COMPONENTS:
+            raise ObservatoryError(f'{component!r} is not one of the declared validation components '
+                                   f'{list(VALIDATION_COMPONENTS)}; the vocabulary is fixed by the retained '
+                                   f'suite schema, so a new one is a schema change and not a keyword')
 
     def total_ns(self) -> int:
         return sum(self.components.values())
+
+    def report(self) -> dict:
+        """The retained block: EVERY declared component, each in exactly one explicit state."""
+        out = {}
+        for name in VALIDATION_COMPONENTS:
+            if name in self.components:
+                out[name] = {'state': COMPONENT_MEASURED, 'wall_ns': self.components[name], 'reason': None}
+            elif name in self.skipped:
+                out[name] = {'state': COMPONENT_NOT_APPLICABLE, 'wall_ns': None,
+                             'reason': self.skipped[name]}
+            else:
+                out[name] = {'state': COMPONENT_PENDING, 'wall_ns': None, 'reason': None}
+        return out
 
 
 def checkpointer(bundle: Path, header: dict, clock: 'ValidationClock | None' = None):
@@ -2746,13 +2981,16 @@ def validate_observation(obs: dict) -> str:
             by_identity.setdefault(metric_identity(s), []).append(s)
     for key, group in sorted(by_identity.items()):
         digests = [g['source_digest'] for g in group]
-        if group[0].get('edit_id') is None:
-            if len(set(digests)) != 1:
-                raise ObservatoryError(
-                    f'{key}: {len(set(digests))} different source digests are pooled into one summary, but '
-                    f'this scenario applies no edit; the tree moved during the run and the samples measure '
-                    f'different programs')
-        elif len(set(digests)) != len(digests):
+        # Two independent rules, one per direction, rather than a chain. Chained, neutering the
+        # no-edit direction silently moved every unedited group into the incremental direction, so the
+        # mutation fired a rule about something else and the harness could not name what depended on it.
+        edits_here = group[0].get('edit_id') is not None
+        if not edits_here and len(set(digests)) != 1:
+            raise ObservatoryError(
+                f'{key}: {len(set(digests))} different source digests are pooled into one summary, but '
+                f'this scenario applies no edit; the tree moved during the run and the samples measure '
+                f'different programs')
+        if edits_here and len(set(digests)) != len(digests):
             raise ObservatoryError(
                 f'{key}: {len(digests) - len(set(digests))} sample(s) repeat an earlier sample\'s exact '
                 f'source, so a cached no-op is recorded under an incremental label')
@@ -3182,6 +3420,12 @@ def basis_problems(basis: dict) -> list[str]:
     if replanned != basis['plan']:
         problems.append('the retained plan is not the plan that suite, stage graph and selection produce, '
                         'so the expected relation was not the one this run was held to')
+    # §7 — the root validator SUBSUMES plan validation. Proving the retained plan is the one that suite and
+    # selection produce says nothing about whether that plan is sound: two traces claiming one metric, or a
+    # metric no trace can produce, would be re-derived faithfully and validated happily, and would surface
+    # only at the preflight of some future run.
+    for defect in plan_problems(basis['plan']):
+        problems.append(f'the retained plan has an acquisition defect: {defect}')
 
     try:
         check_environment_complete(basis['environment'])
@@ -3221,6 +3465,11 @@ def trace_id_of(command_id: str, scenario_id: str, edit_id: str | None, index: i
 
 OVERHEAD_SUFFIX = '.unattributed'
 
+# §3.5 — a partition is TAGGED. `null` had to mean both "this trace is not decomposed" and "this trace's
+# evidence is missing", so a lost partition was indistinguishable from a design choice and both were accepted.
+PARTITION_DECOMPOSED = 'decomposed'
+PARTITION_ATOMIC = 'atomic'
+
 
 def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> dict:
     """§4 — the parent's elapsed time as top-level children plus ONE retained remainder.
@@ -3251,11 +3500,20 @@ def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> 
                 f'does not partition into them and the same nanosecond is attributed twice')
 
     covered = sum(e['end_ns'] - e['start_ns'] for e in members)
+    # §3.5 — an UNINSTRUMENTED trace states that it is atomic. `null` was made to mean both "this trace has
+    # no decomposition" and "this trace's evidence is missing", so a lost partition read as a design choice.
+    # Every completed trace has exactly one partition object and it says which of the two it is.
+    if not walls:
+        return {'kind': PARTITION_ATOMIC, 'parent_ns': parent_ns, 'covered_ns': 0,
+                'overhead_ns': parent_ns, 'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
+                'members': [], 'checkpoints': []}
     if parent_ns is None:
-        return {'parent_ns': None, 'covered_ns': covered, 'overhead_ns': None,
+        return {'kind': PARTITION_DECOMPOSED, 'parent_ns': None, 'covered_ns': covered, 'overhead_ns': None,
                 'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
                 'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
-                            for e in members]}
+                            for e in members],
+                'checkpoints': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns'],
+                                 'depth': e['depth']} for e in walls]}
 
     # §4 — "within only the declared clock-resolution accounting". The checkpoints are timestamped from
     # `/proc/uptime` at 10 ms; the parent's elapsed time is read by the runner in nanoseconds. Quantisation
@@ -3275,11 +3533,22 @@ def partition_of(command_id: str, parent_ns: int | None, events: list[dict]) -> 
     # could never fire, and a rule that cannot speak reads as protection nobody has.
     # The remainder stays EXACT, quantisation and all: covered plus overhead is the parent by construction,
     # and a slightly negative remainder is the honest reading of durations rounded to 10 ms against a parent
-    # that was not. The resolution travels with it so the rule that judges it needs no outside knowledge.
-    return {'parent_ns': parent_ns, 'covered_ns': covered, 'overhead_ns': parent_ns - covered,
-            'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}', 'clock_resolution_ns': slack,
+    # that was not.
+    #
+    # §3.5 — the RESOLUTION IS NOT HERE. Repair 4 retained it inside the partition so the judging rule needed
+    # no outside knowledge, which is precisely backwards: it let the object being judged declare the tolerance
+    # it would be judged by, and a partition claiming a twenty-second clock was accepted. The allowance comes
+    # from the basis's retained clock authority, and this object only reports what it measured.
+    return {'kind': PARTITION_DECOMPOSED, 'parent_ns': parent_ns,
+            'covered_ns': covered, 'overhead_ns': parent_ns - covered,
+            'overhead_id': f'{command_id}{OVERHEAD_SUFFIX}',
             'members': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns']}
-                        for e in members]}
+                        for e in members],
+            # §3.5 — the exact parsed sequence, retained so the partition can be RECOMPUTED after the local
+            # raw logs are gone. A partition checked only against its own members can write a coherent story
+            # unrelated to what the run actually recorded.
+            'checkpoints': [{'id': e['id'], 'start_ns': e['start_ns'], 'end_ns': e['end_ns'],
+                             'depth': e['depth']} for e in walls]}
 
 
 def chain_after_resume(command_id: str, chain: list[str], resume_done: set, progress=None) -> list[str]:
@@ -3363,7 +3632,8 @@ def trace_object(root: dict, children: list[dict], expected: list[str],
     }
 
 
-def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
+def trace_problems(obj: dict, expectations: dict | None = None,
+                   clock_resolution_ns: int = HOOK_CLOCK['resolution_ns']) -> list[str]:
     """Everything that makes a retained trace object something other than a closed trace."""
     absent = [m for m in TRACE_MEMBERS if m not in obj]
     if absent:
@@ -3388,10 +3658,34 @@ def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
     if len(set(obj['child_sample_ids'])) != len(obj['child_sample_ids']):
         problems.append(f'{label}: a child sample identity is retained twice')
 
-    # §4 — the partition CLOSES: covered children plus the retained remainder equal the parent exactly.
-    # Exactly, not approximately: both sides come from the same integers, so a tolerance here would be a
-    # place for a lost child to hide.
+    # §3.5 — RECOMPUTE, DO NOT TRUST. The retained partition must equal what its own retained checkpoint
+    # sequence produces. Checking covered against the partition's own members proves only that it can add up
+    # its own numbers, which is why renaming a member, deleting one into overhead, overlapping two and
+    # inflating the declared clock were all accepted: every one of them kept the object self-consistent.
     part = obj.get('partition')
+    if not isinstance(part, dict):
+        problems.append(f'{label}: no partition object; a completed trace states either that it decomposes '
+                        f'or that it is atomic, and null was made to mean both that and evidence missing')
+    # A separate guard rather than an `elif` chain: neutering the rule above must leave the reachable code
+    # below safe instead of dereferencing None, or the mutation crashes the self-test rather than failing
+    # its own control — and a crash is not a control failing. It is also written as its own condition rather
+    # than a second copy of the one above, so each rule has an anchor the harness can name alone.
+    if isinstance(part, dict) and part.get('kind') not in (PARTITION_DECOMPOSED, PARTITION_ATOMIC):
+        problems.append(f'{label}: partition kind is {part.get("kind")!r}, which is neither '
+                        f'{PARTITION_DECOMPOSED!r} nor {PARTITION_ATOMIC!r}')
+    elif isinstance(part, dict) and part.get('checkpoints') is not None:
+        replay = [{**e, 'source': 'hook-anchor', 'wall_ns': e['end_ns'] - e['start_ns'],
+                   'clock': HOOK_CLOCK} for e in part['checkpoints']]
+        try:
+            rebuilt = partition_of(obj['command_id'], part.get('parent_ns'), replay)
+        except ObservatoryError as exc:
+            problems.append(f'{label}: the retained checkpoint sequence does not form a partition: {exc}')
+        else:
+            for field in ('kind', 'covered_ns', 'overhead_ns', 'overhead_id', 'members'):
+                if rebuilt.get(field) != part.get(field):
+                    problems.append(f'{label}: retained partition {field} is {part.get(field)!r} and its own '
+                                    f'checkpoint sequence produces {rebuilt.get(field)!r}')
+
     if part:
         ids = [m['id'] for m in part.get('members') or []]
         if len(set(ids)) != len(ids):
@@ -3405,7 +3699,10 @@ def trace_problems(obj: dict, expectations: dict | None = None) -> list[str]:
             # A remainder may be slightly negative from quantisation alone — the children are timestamped at
             # the hook clock's resolution and the parent is not — but only by less than one tick. Beyond
             # that, time is attributed to children that the parent never spent.
-            tick = part.get('clock_resolution_ns') or 0
+            # §3.5 — the allowance is the INSTRUMENT's declared resolution, taken from the clock authority
+            # the caller passes in. Reading it from the partition let the object being judged widen its own
+            # tolerance, and a partition declaring a twenty-second clock was accepted.
+            tick = clock_resolution_ns
             if part.get('overhead_ns') is None or part['overhead_ns'] < -tick:
                 problems.append(f'{label}: the uncovered remainder is {part.get("overhead_ns")!r}, beyond '
                                 f'the {tick} ns clock resolution, so the parent does not partition into its '
@@ -3555,28 +3852,6 @@ def render_plan(plan: dict, sel: 'Selection', problems: list[str]) -> str:
     return '\n'.join(out)
 
 
-def check_relation_closed(suite: dict, samples: list[dict], canonical_only: bool = True,
-                          graph: dict | None = None) -> str:
-    """Exact equality in both directions: nothing missing, nothing extra, every count right."""
-    expected = expected_relation(suite, canonical_only, graph)
-    observed = observed_relation(samples)
-    missing = sorted(set(expected) - set(observed))
-    extra = sorted(set(observed) - set(expected))
-    wrong = sorted(k for k in set(expected) & set(observed)
-                   if observed[k] != expected[k]['samples'])
-    problems = []
-    if missing:
-        problems.append(f'{len(missing)} declared metric(s) produced no sample: {missing[:4]}')
-    if extra:
-        problems.append(f'{len(extra)} metric(s) the registry never declared: {extra[:4]}')
-    if wrong:
-        problems.append(f'{len(wrong)} metric(s) have the wrong sample count, e.g. '
-                        f'{wrong[0]} got {observed[wrong[0]]} of {expected[wrong[0]]["samples"]}')
-    if problems:
-        raise ObservatoryError('; '.join(problems))
-    return f'{len(expected)} declared metric(s), each with exactly its required sample count'
-
-
 def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest: str, obs: dict,
                           bundle: Path, clean_before: bool, edits_restored: bool,
                           incomplete: list[str]) -> list[str]:
@@ -3610,10 +3885,10 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
 
     if incomplete:
         bad('R05', f'{len(incomplete)} command-scenario pair(s) did not complete: {incomplete[:4]}')
-    try:
-        check_relation_closed(suite, obs['measurements'], graph=graph)
-    except ObservatoryError as exc:
-        bad('R05', f'{exc}; a registry that declares more than the observation measures is coverage on paper')
+    # §7 — the whole-suite relation is closed by the ROOT validator, from the retained plan, and R10 below
+    # invokes it. Calling `check_relation_closed` again here would be a second authority for one fact,
+    # deriving it from the live registry while the root derives it from the plan the run was held to — and
+    # the two can disagree. This is the same duplication the mutation harness found in the fingerprint rule.
     ok('R05')
 
     wrong = [f'{s["command_id"]}/{s["scenario_id"]}' for s in obs['measurements'] if s['status'] != 'ok']
@@ -3653,7 +3928,8 @@ def check_record_eligible(root: Path, sel: Selection, suite: dict, suite_digest:
     validate_observation(obs)
     ok('R10')
 
-    check_environment_complete(obs['basis']['environment'])
+    # §7 — environment completeness is a BASIS rule and R10's root validator enforces it. Restating it here
+    # is the same duplication, one rule stated twice.
     ok('R11')
 
     if not (bundle / 'observation.json').is_file():
@@ -3885,7 +4161,21 @@ def command_fingerprints(suite: dict) -> dict:
 
 
 def load_observation(root: Path, where: str) -> tuple[dict, str]:
-    """An observation from a local path or a Git ref. Unreadable input is an error, never an empty result."""
+    """An observation from a local path or a Git ref, VALIDATED by the one root validator before it is used.
+
+    §2.7 — no caller chooses a weaker definition of valid. Loading used to hand back whatever parsed, so a
+    comparison baseline and a Git-ref observation were held to the JSON grammar and nothing else while the
+    recording path applied the whole rulebook."""
+    obs, name = _read_observation(root, where)
+    try:
+        validate_observation(obs)
+    except ObservatoryError as exc:
+        raise ObservatoryError(f'{name}: {exc}')
+    return obs, name
+
+
+def _read_observation(root: Path, where: str) -> tuple[dict, str]:
+    """The bytes and where they came from. Unreadable input is an error, never an empty result."""
     p = Path(where)
     if p.is_file():
         try:
@@ -3893,7 +4183,7 @@ def load_observation(root: Path, where: str) -> tuple[dict, str]:
         except json.JSONDecodeError as exc:
             raise ObservatoryError(f'{where}: not a valid observation ({exc})')
     if p.is_dir():
-        return load_observation(root, str(p / 'observation.json'))
+        return _read_observation(root, str(p / 'observation.json'))
     raw = _git(root, 'show', f'{where}:{OBSERVATION_REL}', check=False)
     if not raw.strip():
         raise ObservatoryError(
@@ -3903,6 +4193,52 @@ def load_observation(root: Path, where: str) -> tuple[dict, str]:
         return json.loads(raw), f'{where}:{OBSERVATION_REL}'
     except json.JSONDecodeError as exc:
         raise ObservatoryError(f'{where}:{OBSERVATION_REL}: not a valid observation ({exc})')
+
+
+COMPARISON_FILES = ('comparison.json', 'comparison.txt')
+
+
+def bundle_problems(bundle: Path) -> list[str]:
+    """§6 — the bundle shape the contract declares, checked against the bundle's own account of itself.
+
+    The comparison files were written only when a verdict existed, so a bundle could lack the shape §9 states
+    and the ABSENCE of a file had to carry the meaning "no comparison was possible" — a reason nobody can
+    read, and indistinguishable from a run that was interrupted before it got there."""
+    problems: list[str] = []
+    obs_path = bundle / 'observation.json'
+    if not obs_path.is_file():
+        return [f'{bundle}: no observation.json, so the run wrote no local bundle at all']
+    try:
+        obs = json.loads(obs_path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as exc:
+        return [f'{obs_path}: not readable as an observation ({exc})']
+    if not (bundle / 'raw').is_dir():
+        problems.append(f'{bundle}: no raw/ directory, so no per-sample log survived the run')
+    # §6.2 — an INCOMPLETE run stops before the comparison phase by design. What it owes is enough state to
+    # diagnose and resume it, and it says which state it is in rather than leaving a reader to infer it.
+    if (obs.get('derived') or {}).get('status') == 'incomplete':
+        return problems
+    for name in COMPARISON_FILES:
+        if not (bundle / name).is_file():
+            problems.append(f'{bundle}: no {name}; every completed bundle carries both comparison files')
+    verdict = bundle / 'comparison.json'
+    if verdict.is_file():
+        try:
+            result = json.loads(verdict.read_text(encoding='utf-8'))
+        except json.JSONDecodeError as exc:
+            problems.append(f'{verdict}: not readable as a comparison ({exc})')
+        else:
+            status = result.get('status')
+            # Two independent rules rather than a chain: a declared state and, for the unavailable one, its
+            # reason. Chained, neutering the first would silence the second and the harness could not name
+            # which of them a control depends on.
+            if status not in ('complete', 'unavailable'):
+                problems.append(f'{verdict}: status is {status!r}, which is neither a complete comparison '
+                                f'nor an explicit unavailable one')
+            if status == 'unavailable' and not (result.get('reason') or '').strip():
+                problems.append(f'{verdict}: reports no comparison and gives no reason, which is the silent '
+                                f'absence this file exists to replace')
+    return problems
 
 
 def _comparable(obs: dict, side: str) -> None:
@@ -4074,12 +4410,17 @@ def compare(base: dict, cand: dict, only: str | None = None, suite: dict | None 
     b_cost, c_cost = base.get('suite_cost') or {}, cand.get('suite_cost') or {}
     suite_cost: dict = {'comparable': bool(b_cost) and bool(c_cost)}
     if suite_cost['comparable']:
-        for field in ('suite_wall_ns', 'preflight_wall_ns'):
+        for field in ('suite_wall_ns', 'toolchain_prime_ns', 'validation_wall_ns'):
             was, now = b_cost.get(field), c_cost.get(field)
             suite_cost[field] = {'baseline': was, 'candidate': now,
                                  'delta_ns': (now - was) if was is not None and now is not None else None}
-        for field in ('direct_trace_count', 'contained_metric_count'):
-            suite_cost[field] = {'baseline': b_cost.get(field), 'candidate': c_cost.get(field)}
+        # §4.4 — RECOMPUTED from the measurements each side retains, because the counts that used to be
+        # stored beside the costs were a second authority for a fact the samples already own.
+        for field, count in (('direct_traces', lambda o: sum(1 for s in o['measurements']
+                                                             if not s.get('derived_parent_id'))),
+                             ('contained_metrics', lambda o: sum(1 for s in o['measurements']
+                                                                 if s.get('derived_parent_id')))):
+            suite_cost[field] = {'baseline': count(base), 'candidate': count(cand)}
     else:
         suite_cost['reason'] = ('one side retains no suite cost, so its own elapsed time is not a number this '
                                 'comparison can rest a verdict on')
@@ -4130,14 +4471,16 @@ def render_comparison(cmp: dict) -> str:
     # invite it to be read as one.
     sc = cmp.get('suite_cost') or {}
     if sc.get('comparable'):
-        wall, pre = sc.get('suite_wall_ns', {}), sc.get('preflight_wall_ns', {})
+        wall, pre = sc.get('suite_wall_ns', {}), sc.get('toolchain_prime_ns', {})
+        val = sc.get('validation_wall_ns', {})
         lines += ['', f'SUITE COST   wall {ms(wall.get("baseline"))} -> {ms(wall.get("candidate"))} '
-                      f'({ms(wall.get("delta_ns"))})   preflight {ms(pre.get("baseline"))} -> '
-                      f'{ms(pre.get("candidate"))}',
-                  f'             traces {sc.get("direct_trace_count", {}).get("baseline")} -> '
-                  f'{sc.get("direct_trace_count", {}).get("candidate")}   contained '
-                  f'{sc.get("contained_metric_count", {}).get("baseline")} -> '
-                  f'{sc.get("contained_metric_count", {}).get("candidate")}']
+                      f'({ms(wall.get("delta_ns"))})   toolchain {ms(pre.get("baseline"))} -> '
+                      f'{ms(pre.get("candidate"))}   validation {ms(val.get("baseline"))} -> '
+                      f'{ms(val.get("candidate"))}',
+                  f'             traces {sc.get("direct_traces", {}).get("baseline")} -> '
+                  f'{sc.get("direct_traces", {}).get("candidate")}   contained '
+                  f'{sc.get("contained_metrics", {}).get("baseline")} -> '
+                  f'{sc.get("contained_metrics", {}).get("candidate")}']
     elif sc:
         lines += ['', f'SUITE COST   not compared: {sc.get("reason", "")}']
     return '\n'.join(lines)
@@ -4323,7 +4666,9 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                     resume_traces: list | None = None,
                     resume_artifacts: dict | None = None,
                     clock: 'ValidationClock | None' = None,
-                    repeat: int = 1) -> tuple[dict, list[str], bool]:
+                    repeat: int = 1,
+                    suite_t0: int | None = None,
+                    suite_started_utc: str | None = None) -> tuple[dict, list[str], bool]:
     """Execute the selection as PER-ROOT MEASUREMENT CHAINS and return the observation.
 
     The first candidate primed once per scenario and then ran every command in that shared state, so a
@@ -4362,14 +4707,20 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     # builder and the samples ran against another.  Priming stable infrastructure before the environment is
     # read means the recorded identities are the ones the samples actually used, and that the toolchain
     # download is outside every measured interval rather than inside the first cold sample.
-    # §14 — the suite's own clock starts here, on the SAME monotonic source every measured interval uses, so
-    # its cost and the costs it reports are the same kind of number.
-    suite_t0 = _monotonic_ns()
-    suite_started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    # §4.4 — the suite's own clock is the caller's, on the SAME monotonic source every measured interval
+    # uses. It starts before the deterministic preflight rather than here, because a validation component
+    # timed outside the window that is supposed to contain it can exceed the whole suite's elapsed time and
+    # still validate. A caller that supplies neither is a lone fragment measuring only itself.
+    suite_t0 = _monotonic_ns() if suite_t0 is None else suite_t0
+    suite_started_utc = (datetime.datetime.now(datetime.timezone.utc).isoformat()
+                         if suite_started_utc is None else suite_started_utc)
     subj = subject(root)
+    prime_t0 = _monotonic_ns()
     ensure_observatory_builder()
     preflight = toolchain_prime(root, progress)
-    preflight_ns = _monotonic_ns() - suite_t0
+    # Its OWN interval, not the prefix from the suite's start: as a prefix it would silently include the
+    # preflight controls and count their nanoseconds twice.
+    toolchain_prime_ns = _monotonic_ns() - prime_t0
     env = environment(root)
     env['preflight'] = preflight
     # The Dockerfile's own stage graph, so a cold sample can be asked what ELSE rebuilt and not merely
@@ -4429,7 +4780,10 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
                            prime_sample_id, artifacts,
                            partition_of(root_sample['command_id'], root_sample.get('wall_ns'),
                                         events or []))
-        bad = trace_problems(obj, expectations)
+        # §4.4 — timed against THIS trace. `per_trace` as a lone total could not say which closure got
+        # expensive, and a trace that closed with no validation at all left no hole in it.
+        bad = (clock.measure_trace(obj['trace_id'], trace_problems, obj, expectations) if clock
+               else trace_problems(obj, expectations))
         if bad:
             raise ObservatoryError(
                 f'trace {obj["trace_id"]} did not close: {bad[0]}'
@@ -4731,25 +5085,27 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     # DISCLOSURE and never a threshold: the range is reported, and no rule rejects a sample for it.
     derived['host_load'] = observed_load(samples)
 
-    # Per-trace wall time is the elapsed time of each ROOT execution — the direct samples. A contained metric
-    # is inside one of those, so adding it here would count the same nanoseconds twice.
-    direct = [s for s in samples if not s.get('derived_parent_id')]
+    # §4.5 — the suite cost leaves acquisition OPEN. Final validation and the recording checks have not run
+    # yet; they run over the observation this function returns, and closing the block before they happened
+    # is exactly how Repair 4 shipped a facility that never timed the work its own contract required.
+    #
+    # The per-trace wall times, the direct-trace count and the contained-metric count that used to live here
+    # are gone. Each duplicated a fact with an exact owner beside it — a root sample's `wall_ns`, the
+    # retained plan, the retained measurements — and a duplicate is a second authority free to disagree.
     suite_cost = {
-        'suite_started': suite_started,
-        'suite_completed': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        'suite_wall_ns': _monotonic_ns() - suite_t0,
-        'preflight_wall_ns': preflight_ns,
+        'state': COST_OPEN,
+        'suite_started_utc': suite_started_utc,
+        'suite_completed_utc': None,
+        'suite_started_monotonic_ns': suite_t0,
+        'suite_completed_monotonic_ns': None,
+        'suite_wall_ns': None,
+        # Neither validation nor measurement: what the suite spends making the toolchain present, kept out
+        # of the first cold sample so that sample measures a build and not a download.
+        'toolchain_prime_ns': toolchain_prime_ns,
         # §7 E1 — the facility's own checking cost, kept apart from what it measured.
         'validation_wall_ns': (clock.total_ns() if clock else 0),
-        'validation_components': dict(clock.components) if clock else {},
-        # §6 D4 — keyed by the EXACT trace, repetition index and all. `command|scenario` let ad hoc repeated
-        # traces overwrite each other, so a five-repetition investigation retained one cost and the suite's
-        # own accounting silently disagreed with the run that produced it.
-        'trace_wall_ns': {trace_id_of(s['command_id'], s['scenario_id'],
-                                      s.get('edit_id'), s['sample_index']): s.get('wall_ns')
-                          for s in direct if s.get('wall_ns') is not None},
-        'direct_trace_count': len(direct),
-        'contained_metric_count': sum(1 for s in samples if s.get('derived_parent_id')),
+        'validation_components': clock.report() if clock else ValidationClock().report(),
+        'trace_validation_ns': dict(clock.per_trace) if clock else {},
     }
 
     observation = {
@@ -4949,11 +5305,33 @@ def resolve(root: Path) -> list[Path]:
 
 # ─────────────────────────────────────────────────────── adversarial controls
 def self_test(root: Path) -> int:
-    """Deterministic fixtures needing neither Docker nor Rocq. A skipped control is never a passed one."""
+    """Deterministic fixtures needing neither Docker nor Rocq. A skipped control is never a passed one.
+
+    Reporting is owned HERE rather than at the end of the body. An exception escaping a fixture used to
+    discard every control result already collected, so the operator saw one traceback where a named control
+    had already failed — and the mutation harness, which reads those names, could not tell that the rule it
+    had just neutered was load-bearing. An abort is now one more failure beside the ones already found."""
+    failures: list[str] = []
+    counts = {'total': 0, 'must_fail': 0}
+    try:
+        _self_test_body(root, failures, counts)
+    except Exception as exc:
+        failures.append(f'the self-test could not run to completion: {type(exc).__name__}: {exc}')
+    total, must_fail = counts['total'], counts['must_fail']
+    if failures:
+        for f in failures:
+            print(f'  FAIL  {f}')
+        print(f'fido: BUILD-OBSERVATORY SELF-TEST FAILED — {len(failures)} of {total} controls wrong')
+        return 1
+    print(f'fido: build-observatory self-test OK — {total} controls '
+          f'({must_fail} must-fail with the reason pinned, {total - must_fail} must-accept) ✓')
+    return 0
+
+
+def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
+    """Every control. It reports by appending, never by printing or returning."""
     import shutil
     import tempfile
-    failures = []
-    counts = {'total': 0, 'must_fail': 0}
 
     def scenario(label: str, mutate, expect: str | None = None):
         counts['total'] += 1
@@ -5734,18 +6112,28 @@ def self_test(root: Path) -> int:
         env['host_class_fingerprint'] = host_class_fingerprint(env)
         return env
 
-    def fixture_suite_cost(samples: list[dict], **over) -> dict:
-        """Suite cost derived from the samples it accompanies, exactly as the producer derives it."""
-        direct = [s for s in samples if not s.get('derived_parent_id')]
-        cost = {'suite_started': '2026-01-01T00:00:00+00:00',
-                'suite_completed': '2026-01-01T00:01:00+00:00',
-                'suite_wall_ns': 60_000_000_000, 'preflight_wall_ns': 1_000_000_000,
-                'validation_wall_ns': 3, 'validation_components': {'preflight_controls': 2, 'per_trace': 1},
-                'trace_wall_ns': {trace_id_of(s['command_id'], s['scenario_id'],
-                                              s.get('edit_id'), s['sample_index']): s['wall_ns']
-                                  for s in direct if s.get('wall_ns') is not None},
-                'direct_trace_count': len(direct),
-                'contained_metric_count': len(samples) - len(direct)}
+    def fixture_suite_cost(traces=(), **over) -> dict:
+        """A CLOSED suite cost, built through the real clock and the real projection.
+
+        Its components come from `ValidationClock.report` and its completion instant from `project_utc`, so
+        a control exercises the block the producer actually emits. Hand-writing it would let the fixture
+        describe a shape nobody produces, which is the defect this repair has already paid for twice."""
+        clk = ValidationClock()
+        clk.per_trace.update({t['trace_id']: 1 for t in traces})
+        clk.components.update({'preflight_controls': 2, 'preflight_plan': 1,
+                               'per_trace': max(4, len(traces)),
+                               'final_validation': 3, 'recording_checks': 5})
+        wall, started, origin = 60_000_000_000, '2026-01-01T00:00:00+00:00', 1_000_000
+        cost = {'state': COST_CLOSED,
+                'suite_started_utc': started,
+                'suite_completed_utc': project_utc(started, wall),
+                'suite_started_monotonic_ns': origin,
+                'suite_completed_monotonic_ns': origin + wall,
+                'suite_wall_ns': wall,
+                'toolchain_prime_ns': 1_000_000_000,
+                'validation_wall_ns': clk.total_ns(),
+                'validation_components': clk.report(),
+                'trace_validation_ns': dict(clk.per_trace)}
         cost.update(over)
         return cost
 
@@ -5764,8 +6152,12 @@ def self_test(root: Path) -> int:
                     if k.get('derived_parent_id') == rootsample['command_id']
                     and k.get('scenario_id') == rootsample['scenario_id']]
             mine = {m: artifact_digest(a) for m, a in fixture_artifacts([rootsample]).items()}
+            # §3.5 — an ATOMIC partition through the real constructor. These fixture samples carry no
+            # checkpoint evidence, and that is a fact about them to be stated rather than a null to be read
+            # two ways.
             out.append(trace_object(rootsample, kids,
-                                    [metric_identity(s) for s in [rootsample] + kids], None, mine))
+                                    [metric_identity(s) for s in [rootsample] + kids], None, mine,
+                                    partition_of(rootsample['command_id'], rootsample.get('wall_ns'), [])))
         return out
 
     def observation(samples=None, **over) -> dict:
@@ -5774,6 +6166,11 @@ def self_test(root: Path) -> int:
         # A caller who supplies a basis has SAID which run this is; the fragment heuristic below is only for
         # fixtures that did not. `complete_observation` supplies the full canonical basis and is complete.
         given_basis = 'basis' in over
+        # The traces this fixture will CARRY, decided once: an override wins, and the suite cost's per-trace
+        # validation is derived from the same list rather than from the samples. A control that supplies its
+        # own `traces` used to leave the cost naming traces the observation no longer held — the fixture
+        # lying about itself, which is what the note on `traces_for` already warns about.
+        carried_traces = over['traces'] if 'traces' in over else traces_for(samples)
         base = {'schema': SCHEMA, 'run_id': 'run-fixture',
                 # §2.7 — the fixture's basis is CAPTURED through the real function from the real suite, so a
                 # control exercises a basis the producer could actually emit. A hand-written one would be the
@@ -5802,14 +6199,14 @@ def self_test(root: Path) -> int:
                 # §2 — one closed trace per DIRECT sample, built by the real constructor from the samples
                 # this fixture holds. Hand-writing them would let the fixture describe a completion shape the
                 # producer never emits, which is exactly how the run identity hid for a whole repair.
-                'traces': traces_for(samples),
+                'traces': carried_traces,
                 **{m: fixture_artifacts(samples).get(m) for m in ARTIFACT_MEMBERS},
                 # §14 meta-evidence. The fixture carries it because the DECLARED shape carries it — the
                 # shape control refuses a fixture that invents or omits a member, which is what caught this
                 # the moment `suite_cost` joined the member list.
                 # §7 E2 — DERIVED from the samples this fixture holds, like the producer's. A hand-kept
                 # count was free to disagree with the measurements beside it, which is the defect.
-                'suite_cost': fixture_suite_cost(samples),
+                'suite_cost': fixture_suite_cost(carried_traces),
                 # Derived from the samples this fixture actually holds, so it cannot drift into naming a
                 # command the observation never measured.
                 'selection': {'partial': False,
@@ -6098,9 +6495,9 @@ def self_test(root: Path) -> int:
         return obs
 
     observed('a selected sample relabelled support',
-             lambda: record_check(obs=relabelled('make.diet', 'project.warm.noop',
+             lambda: validate_observation(relabelled('make.diet', 'project.warm.noop',
                                                  selected_or_support='support')),
-             expect='coverage on paper')
+             expect='and the retained samples hold 0')
     def with_support_extra():
         """A support-role sample beside the selected ones for a pair the registry declares.
 
@@ -6115,15 +6512,15 @@ def self_test(root: Path) -> int:
         return obs
 
     observed('a support sample beside the selected ones for a declared pair',
-             lambda: record_check(obs=with_support_extra()), expect='coverage on paper')
+             lambda: validate_observation(with_support_extra()), expect='did not establish the relation it was planned to')
     observed('a direct sample claiming BuildKit stage scope',
-             lambda: record_check(obs=relabelled('make.diet', 'project.warm.noop',
+             lambda: validate_observation(relabelled('make.diet', 'project.warm.noop',
                                                  resource_scope=SCOPE_BUILDKIT)),
-             expect='coverage on paper')
+             expect='and the retained samples hold 0')
     observed('aggregate step work presented as elapsed wall time',
-             lambda: record_check(obs=relabelled('docker.prover', 'project.cold.prover',
+             lambda: validate_observation(relabelled('docker.prover', 'project.cold.prover',
                                                  measurement_kind=KIND_WALL)),
-             expect='coverage on paper')
+             expect='and the retained samples hold 0')
 
     # A parallel stage does MORE aggregate work than the elapsed time it took. Pooling the two, or printing
     # one under the other's name, states something arithmetically impossible; the kind is in the key, so the
@@ -6256,18 +6653,18 @@ def self_test(root: Path) -> int:
                  'dirty': True, 'source_view': 'working-tree'})),
              expect='recording rule R04')
     observed('a classified command that produced no sample',
-             lambda: record_check(obs=observation()),
-             expect='coverage on paper')
+             lambda: validate_observation(observation(derived={'summaries': {}})),
+             expect='do not equal recomputation')
     observed('a canonical pair absent from the observation',
              lambda: record_check(obs=complete_observation(
                  samples=[s for s in complete_observation()['measurements']
                           if s['command_id'] != 'make.diet'])),
-             expect='produced no sample')
+             expect='did not establish the relation it was planned to')
     observed('an undeclared pair present in the observation',
              lambda: record_check(obs=complete_observation(
                  samples=complete_observation()['measurements']
                  + [sample(command_id='make.diet', scenario_id='project.cold.prover')])),
-             expect='the registry never declared')
+             expect='the retained plan does not schedule')
     # Under canonical multiplicity of one, a metric cannot be short a repetition — dropping its only sample
     # removes the metric, which the coverage relation reports as declared-but-unmeasured. The count defect
     # that remains reachable is the OPPOSITE one, and it is the acquisition defect this repair exists to
@@ -6282,7 +6679,7 @@ def self_test(root: Path) -> int:
 
     observed('one relation acquired twice',
              lambda: record_check(obs=duplicated_relation()),
-             expect='wrong sample count')
+             expect='did not establish the relation it was planned to')
     observed('an incomplete suite with RECORD',
              lambda: record_check(incomplete=['make.prove/project.cold.prover']),
              expect='recording rule R05')
@@ -6830,41 +7227,95 @@ def self_test(root: Path) -> int:
                                                           'buildkit_max_parallelism': 2}})),
              expect='not the one its own environment fields produce')
 
-    def perturbed_cost(**over):
-        """A complete observation whose suite cost has been perturbed in one exact way."""
+    def dropped_component(name):
+        """The reviewer's own mutation: delete a component and adjust the total to match what is left."""
+        obs = complete_observation()
+        comps = {k: v for k, v in obs['suite_cost']['validation_components'].items() if k != name}
+        obs['suite_cost'] = {**obs['suite_cost'], 'validation_components': comps,
+                             'validation_wall_ns': sum(c['wall_ns'] for c in comps.values())}
+        return obs
+
+    def moved_close(**over):
+        """A closed cost whose completion has been moved without its monotonic pair following."""
         obs = complete_observation()
         obs['suite_cost'] = {**obs['suite_cost'], **over}
         return obs
 
-    for label, over, want in (
-            ('missing validation cost', {'validation_wall_ns': None}, 'not a duration'),
-            ('a negative validation cost', {'validation_wall_ns': -1}, 'not a duration'),
-            ('components that do not sum to the total', {'validation_components': {'x': 99}},
-             'components sum to'),
-            ('a false direct count', {'direct_trace_count': 999}, 'direct trace(s) beside'),
-            ('a false contained count', {'contained_metric_count': 999}, 'contained metric(s) beside'),
-            ('timestamps that do not order', {'suite_completed': '2025-01-01T00:00:00+00:00'},
-             'do not order'),
-            ('a cost naming no trace', {'trace_wall_ns': {'nobody|nowhere|-|0': 5}},
-             'not a trace this run performed')):
-        observed(f'suite cost with {label}',
-                 lambda over=over: validate_observation(perturbed_cost(**over)),
-                 expect=want)
+    started = complete_observation()['suite_cost']['suite_started_utc']
+    for label, thunk, want in (
+            # §4.2 — the four mutations Repair 4 accepted, each refused by a different rule now.
+            ('a suite wall time of one nanosecond', lambda: moved_close(suite_wall_ns=1),
+             'monotonic pair spans'),
+            ('a deleted preflight component', lambda: dropped_component('preflight_controls'),
+             'not the declared vocabulary'),
+            ('only the per-trace component retained',
+             lambda: moved_close(validation_components={
+                 'per_trace': complete_observation()['suite_cost']['validation_components']['per_trace']},
+                 validation_wall_ns=complete_observation()['suite_cost'][
+                     'validation_components']['per_trace']['wall_ns']),
+             'not the declared vocabulary'),
+            ('a completion instant moved off its own elapsed time',
+             lambda: moved_close(suite_completed_utc=project_utc(started, 1_000_000_000)),
+             'own start plus its own elapsed time is'),
+            # The rest of the block, each fact checked where it is owned.
+            ('a validation total that is not the sum of its components',
+             lambda: moved_close(validation_wall_ns=99), 'components sum to'),
+            ('a negative toolchain prime', lambda: moved_close(toolchain_prime_ns=-1), 'not a duration'),
+            ('a completion before its own start',
+             lambda: moved_close(suite_completed_monotonic_ns=0), 'took no time at all'),
+            ('more validation than the suite lasted',
+             lambda: moved_close(suite_wall_ns=1_000, suite_completed_monotonic_ns=(
+                 complete_observation()['suite_cost']['suite_started_monotonic_ns'] + 1_000),
+                 suite_completed_utc=project_utc(started, 1_000)),
+             'inside a suite that lasted'),
+            ('a naive start instant', lambda: moved_close(suite_started_utc='2026-01-01T00:00:00'),
+             'not an instant with a timezone'),
+            ('an undeclared suite-cost member',
+             lambda: moved_close(preflight_wall_ns=5), 'its schema does not declare'),
+            ('a state that is neither open nor closed', lambda: moved_close(state='half'),
+             'which is neither'),
+            ('a component measured and excused at once',
+             lambda: moved_close(validation_components={
+                 **complete_observation()['suite_cost']['validation_components'],
+                 'per_trace': {'state': COMPONENT_MEASURED, 'wall_ns': 4, 'reason': 'busy'}}),
+             'only a component that did not run has'),
+            ('a component excused with no reason',
+             lambda: moved_close(validation_components={
+                 **complete_observation()['suite_cost']['validation_components'],
+                 'per_trace': {'state': COMPONENT_NOT_APPLICABLE, 'wall_ns': None, 'reason': '  '}},
+                 validation_wall_ns=11),
+             'gives no reason'),
+            ('a closed cost with a component still pending',
+             lambda: moved_close(validation_components={
+                 **complete_observation()['suite_cost']['validation_components'],
+                 'recording_checks': {'state': COMPONENT_PENDING, 'wall_ns': None, 'reason': None}},
+                 validation_wall_ns=10),
+             'still pending'),
+            ('a closed cost that never opened',
+             lambda: moved_close(state=COST_OPEN), 'already retains'),
+            ('no per-trace validation component', lambda: dropped_component('per_trace'),
+             'not the declared vocabulary'),
+            ('no final-validation component', lambda: dropped_component('final_validation'),
+             'not the declared vocabulary'),
+            ('no recording-checks component', lambda: dropped_component('recording_checks'),
+             'not the declared vocabulary'),
+            ('a validation cost for a trace it never closed',
+             lambda: moved_close(trace_validation_ns={
+                 **complete_observation()['suite_cost']['trace_validation_ns'],
+                 'nobody|nowhere|-|0': 1}),
+             'not a trace this observation closed'),
+            ('a closed trace with no validation cost',
+             lambda: moved_close(trace_validation_ns={
+                 k: v for k, v in list(
+                     complete_observation()['suite_cost']['trace_validation_ns'].items())[1:]}),
+             'retains no validation cost for'),
+            ('more per-trace validation than the component containing it',
+             lambda: moved_close(trace_validation_ns={
+                 k: 1_000_000_000
+                 for k in complete_observation()['suite_cost']['trace_validation_ns']}),
+             'out of a per-trace component of')):
+        observed(f'suite cost with {label}', lambda thunk=thunk: validate_observation(thunk()), expect=want)
 
-    counts['total'] += 1
-    counts['must_fail'] += 1
-    # A trace the run performed with no cost retained is the other direction of the same rule.
-    thin = complete_observation()
-    first = next(iter(thin['suite_cost']['trace_wall_ns']))
-    thin['suite_cost'] = {**thin['suite_cost'],
-                          'trace_wall_ns': {k: v for k, v in thin['suite_cost']['trace_wall_ns'].items()
-                                            if k != first}}
-    try:
-        validate_observation(thin)
-        failures.append('a performed trace with no retained cost was accepted')
-    except ObservatoryError as exc:
-        if 'retains no cost for' not in str(exc):
-            failures.append(f'a performed trace with no retained cost was refused wrongly: {exc}')
 
     counts['total'] += 1
     # E1 — the clock times VALIDATING and nothing else, per component.
@@ -6875,6 +7326,190 @@ def self_test(root: Path) -> int:
     if set(clk.components) != {'preflight_controls', 'per_trace'} or clk.total_ns() != sum(
             clk.components.values()):
         failures.append(f'the validation clock must accumulate per component and total them: {clk.components}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4.4 — the vocabulary is FIXED. A component invented at a call site would be a schema change made by
+    # spelling, and the deleted-component mutation would have a second way back in.
+    try:
+        ValidationClock().measure('whatever_this_is', lambda: None)
+        failures.append('a validation component outside the declared vocabulary was timed')
+    except ObservatoryError as exc:
+        if 'the vocabulary is fixed' not in str(exc):
+            failures.append(f'an undeclared validation component was refused for the wrong reason: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    try:
+        ValidationClock().not_applicable('per_trace', '   ')
+        failures.append('a component declared not applicable with no reason was accepted')
+    except ObservatoryError as exc:
+        if 'silent zero' not in str(exc):
+            failures.append(f'a reasonless not-applicable was refused for the wrong reason: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4.5 — a component cannot be measured AND excused. The two states mean different things and one run
+    # gets to say exactly one of them about each component.
+    try:
+        both = ValidationClock()
+        both.measure('per_trace', lambda: None)
+        both.not_applicable('per_trace', 'changed my mind')
+        failures.append('a measured component was also declared not applicable')
+    except ObservatoryError as exc:
+        if 'cannot also be declared not applicable' not in str(exc):
+            failures.append(f'a measured-and-excused component was refused for the wrong reason: {exc}')
+
+    def reopened():
+        """A complete observation put back into the state acquisition hands to the two-phase closeout."""
+        obs = complete_observation()
+        obs['suite_cost'] = {**obs['suite_cost'], 'state': COST_OPEN,
+                             'suite_completed_monotonic_ns': None, 'suite_wall_ns': None,
+                             'suite_completed_utc': None}
+        return obs
+
+    def clock_for(obs, **states):
+        """A clock that measured every component and every trace of `obs`, except where told otherwise."""
+        clk = ValidationClock()
+        for name in VALIDATION_COMPONENTS:
+            if name in states:
+                clk.not_applicable(name, states[name])
+            else:
+                clk.measure(name, lambda: None)
+        for closed in obs['traces']:
+            clk.measure_trace(closed['trace_id'], lambda: None)
+        return clk
+
+    counts['total'] += 1
+    # §8.3 MUST ACCEPT — an ad hoc run that did not ask to record says so, with a reason, rather than
+    # reporting a recording check that ran and cost nothing.
+    adhoc = close_suite_cost(reopened(), clock_for(
+        reopened(), recording_checks='this run did not ask to record, so no recording rule was exercised'))
+    if suite_cost_problems(adhoc):
+        failures.append(f'a non-recording run whose recording checks are explicitly not applicable was '
+                        f'refused: {suite_cost_problems(adhoc)[0]}')
+
+    # ── §6/§8.4 THE BUNDLE OUTPUT. The comparison files were written only when a verdict existed, so a
+    # completed bundle could lack the shape the contract states and the absence of a file had to mean
+    # "no comparison was possible" — which is a reason nobody can read.
+    def bundle_with(*, comparison=..., text=True, raw=True, obs=None):
+        """A bundle on disk, missing exactly what the control names and nothing else."""
+        d = _tempfile.mkdtemp()
+        b = Path(d) / 'bundle'
+        b.mkdir(parents=True)
+        write_json(b / 'observation.json', complete_observation() if obs is None else obs)
+        if raw:
+            (b / 'raw').mkdir()
+        if comparison is not ...:
+            write_json(b / 'comparison.json', comparison)
+            if text:
+                (b / 'comparison.txt').write_text('a rendered view\n', encoding='utf-8')
+        return b
+
+    complete_cmp = {'schema': SCHEMA, 'status': 'complete', 'metrics': [], 'counts': {}}
+    for label, kwargs, want in (
+            ('no comparison.json', {}, 'no comparison.json'),
+            ('no comparison.txt', {'comparison': complete_cmp, 'text': False}, 'no comparison.txt'),
+            ('an unavailable comparison with no reason',
+             {'comparison': {'schema': SCHEMA, 'status': 'unavailable', 'reason': '  '}},
+             'gives no reason'),
+            ('a comparison in no declared state',
+             {'comparison': {'schema': SCHEMA, 'status': 'maybe'}}, 'which is neither'),
+            ('no raw log directory', {'comparison': complete_cmp, 'raw': False}, 'no raw/ directory')):
+        counts['total'] += 1
+        counts['must_fail'] += 1
+        found = bundle_problems(bundle_with(**kwargs))
+        if not any(want in one for one in found):
+            failures.append(f'a completed bundle with {label} was accepted: {found}')
+
+    counts['total'] += 1
+    if bundle_problems(bundle_with(comparison=complete_cmp)):
+        failures.append(f'a completed bundle carrying both comparison files was refused: '
+                        f'{bundle_problems(bundle_with(comparison=complete_cmp))[0]}')
+
+    counts['total'] += 1
+    explicit = {'schema': SCHEMA, 'status': 'unavailable',
+                'reason': 'baseline observation uses an incompatible schema'}
+    if bundle_problems(bundle_with(comparison=explicit)):
+        failures.append('a bundle whose comparison is explicitly unavailable with a reason was refused')
+
+    counts['total'] += 1
+    # §6.2 — an INCOMPLETE bundle stops before the comparison phase and still retains what a resume needs.
+    unfinished = complete_observation()
+    unfinished['derived'] = {**unfinished['derived'], 'status': 'incomplete',
+                             'incomplete': ['make.prove/project.cold.prover']}
+    if bundle_problems(bundle_with(obs=unfinished)):
+        failures.append(f'an incomplete resumable bundle was refused for want of a comparison it never '
+                        f'reached: {bundle_problems(bundle_with(obs=unfinished))[0]}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §6.2 — DO NOT ISSUE METRIC VERDICTS FROM AN INVALID OBSERVATION.
+    try:
+        compare(complete_observation(), complete_observation(suite_digest='f' * 64))
+        failures.append('a timing verdict was issued from an invalid candidate observation')
+    except ObservatoryError as exc:
+        if 'no verdict can rest on it' not in str(exc):
+            failures.append(f'an invalid comparison side was refused for the wrong reason: {exc}')
+
+    # ── §4.5 THE TWO-PHASE CLOSEOUT. Repair 4 built the suite-cost block before final validation and the
+    # recording checks had run, so the two components its own contract required were never timed and the
+    # block was free to describe a lifecycle that had not happened.
+    counts['total'] += 1
+    open_obs = reopened()
+    try:
+        validate_observation(open_obs)
+    except ObservatoryError as exc:
+        failures.append(f'a provisional observation with an OPEN suite cost was refused, so the final '
+                        f'validator has nothing valid to run over before the close: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4.5 — the close verifier refuses an observation that never closed.
+    try:
+        verify_closed(open_obs)
+        failures.append('the close verifier accepted an observation whose suite cost is still open')
+    except ObservatoryError as exc:
+        if 'still open' not in str(exc):
+            failures.append(f'an unclosed observation was refused by the close verifier wrongly: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4.5 — no later writer may alter the observation after the close verifier. This is the control that
+    # proves the refusal exists rather than the comment claiming it.
+    with _tempfile.TemporaryDirectory() as d:
+        closed = complete_observation()
+        digest = verify_closed(closed)
+        mutated = {**closed, 'run_id': f'{closed["run_id"]}-after-the-fact'}
+        try:
+            publish_json(Path(d) / 'observation.json', mutated, digest)
+            failures.append('an observation mutated after the close verifier was published')
+        except ObservatoryError as exc:
+            if 'changed after the close verifier' not in str(exc):
+                failures.append(f'a post-close mutation was refused for the wrong reason: {exc}')
+        counts['total'] += 1
+        try:
+            publish_json(Path(d) / 'observation.json', closed, digest)
+        except ObservatoryError as exc:
+            failures.append(f'the exact bytes the close verifier accepted were refused at publication: {exc}')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §4.5 — closing twice would restamp a lifecycle that has already been verified.
+    try:
+        close_suite_cost(complete_observation(), ValidationClock())
+        failures.append('a suite cost that was already closed was closed again')
+    except ObservatoryError as exc:
+        if 'cannot be closed twice' not in str(exc):
+            failures.append(f'a second close was refused for the wrong reason: {exc}')
+
+    counts['total'] += 1
+    # §4.5 — and the close a real run performs produces a block the validator accepts, so the producer and
+    # the rules are proved to agree rather than assumed to.
+    really_closed = close_suite_cost(open_obs, clock_for(open_obs))
+    if suite_cost_problems(really_closed):
+        failures.append(f'the real close produced a suite cost its own validator refuses: '
+                        f'{suite_cost_problems(really_closed)[0]}')
 
     # ── §6 resume carries the CAUSAL state, not only the sample rows.
     counts['total'] += 1
@@ -7000,17 +7635,103 @@ def self_test(root: Path) -> int:
     # trace overshot its parent by 3.04 ms because the checkpoints are timestamped at 10 ms and the parent is
     # not. One tick is allowed and stated; one nanosecond more is a child outside its parent.
     tick = HOOK_CLOCK['resolution_ns']
-    inside = partition_of('precommit.full', 1000, anchors(('a', 0, 1000 + tick)))
+    host_trace = complete_observation()['traces'][0]
+    # The partition is built for the SAME command as the trace it is spliced into: the recomputation rule
+    # rebuilds `overhead_id` from the trace's command, so a partition borrowed from another command is an
+    # inconsistency the rule correctly refuses — and refusing it is not what this control is testing.
+    inside = partition_of(host_trace['command_id'], 1000, anchors(('a', 0, 1000 + tick)))
     if inside['overhead_ns'] != -tick:
         failures.append(f'a remainder inside one clock tick must be retained exactly, not clamped: {inside}')
-    if trace_problems({**complete_observation()['traces'][0], 'partition': inside}):
-        failures.append(f'a partition overshooting by exactly one tick must be accepted: {inside}')
+    if trace_problems({**host_trace, 'partition': inside}):
+        failures.append(f'a partition overshooting by exactly one tick must be accepted: '
+                        f'{trace_problems({**host_trace, "partition": inside})}')
     try:
         partition_of('precommit.full', 1000, anchors(('a', 0, 1000 + tick + 1)))
         failures.append('a partition overshooting the parent by more than one clock tick was accepted')
     except ObservatoryError as exc:
         if 'lies outside' not in str(exc):
             failures.append(f'an over-tick overshoot was refused for the wrong reason: {exc}')
+
+    # §3.3 — THE REVIEWER'S REPRODUCTIONS. Every one of these kept the partition internally coherent, which
+    # is exactly why checking it against its own members accepted them all. Each is now refused because the
+    # partition must equal recomputation from the checkpoint sequence the run actually recorded.
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    real_trace = complete_observation()['traces'][0]
+    # §8.2 — a NULL partition. `TRACE_MEMBERS` required the key and `trace_problems` validated it only under
+    # `if part:`, so a completed `make.check` and a completed `precommit.full` could both carry null and be
+    # accepted. A key whose value may be null is not a retained partition.
+    if not any('no partition object' in p
+               for p in trace_problems({**real_trace, 'partition': None})):
+        failures.append('a completed trace with a null partition was accepted, so a lost decomposition is '
+                        'indistinguishable from a trace that never had one')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # The tag has to be one of the two declared values, or it would have replaced a null that meant two
+    # things with a string that means anything.
+    if not any('which is neither' in p
+               for p in trace_problems({**real_trace,
+                                        'partition': {**real_trace['partition'], 'kind': 'partial'}})):
+        failures.append('a partition declaring a kind outside the two declared ones was accepted')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    honest = partition_of(real_trace['command_id'], 1_000_000,
+                          anchors(('one', 0, 300_000), ('two', 300_000, 700_000)))
+
+    def spliced(mutate):
+        part = json.loads(json.dumps(honest))
+        mutate(part)
+        return trace_problems({**real_trace, 'partition': part})
+
+    def rename_member(p):
+        p['members'][0]['id'] = 'totally.not.a.real.child'
+
+    def drop_into_overhead(p):
+        gone = p['members'].pop(0)
+        p['covered_ns'] -= gone['end_ns'] - gone['start_ns']
+        p['overhead_ns'] += gone['end_ns'] - gone['start_ns']
+
+    def overlap(p):
+        p['members'][1]['start_ns'] = 100_000
+        p['covered_ns'] = sum(m['end_ns'] - m['start_ns'] for m in p['members'])
+        p['overhead_ns'] = p['parent_ns'] - p['covered_ns']
+
+    def negative(p):
+        p['members'][0]['end_ns'] = -1
+        p['covered_ns'] = sum(m['end_ns'] - m['start_ns'] for m in p['members'])
+        p['overhead_ns'] = p['parent_ns'] - p['covered_ns']
+
+    for label, mutate in (('a renamed partition member', rename_member),
+                          ('a real member dropped into overhead', drop_into_overhead),
+                          ('two members made to overlap', overlap),
+                          ('a member given a negative duration', negative)):
+        if not spliced(mutate):
+            failures.append(f'{label} was accepted; the partition must equal recomputation from the '
+                            f'checkpoint sequence, not merely add up its own numbers')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # §3.5 — the clock allowance is the INSTRUMENT's, never a value the partition supplies about itself. A
+    # partition that declared a twenty-second clock and added ten seconds to a member was accepted.
+    inflated = json.loads(json.dumps(honest))
+    inflated['clock_resolution_ns'] = 20_000_000_000
+    inflated['members'][0]['end_ns'] += 10_000_000_000
+    inflated['covered_ns'] = sum(m['end_ns'] - m['start_ns'] for m in inflated['members'])
+    inflated['overhead_ns'] = inflated['parent_ns'] - inflated['covered_ns']
+    if not trace_problems({**real_trace, 'partition': inflated}):
+        failures.append('a partition declaring its own inflated clock resolution was accepted, so the object '
+                        'being judged chose the tolerance it would be judged by')
+
+    counts['total'] += 1
+    # MUST ACCEPT — the two tagged shapes, each built by the real constructor.
+    atomic = partition_of(real_trace['command_id'], 5_000, [])
+    if atomic['kind'] != PARTITION_ATOMIC or atomic['overhead_ns'] != 5_000:
+        failures.append(f'an uninstrumented trace must state that it is atomic: {atomic}')
+    if trace_problems({**real_trace, 'partition': atomic}) or trace_problems({**real_trace,
+                                                                             'partition': honest}):
+        failures.append('the two tagged partition shapes must both be accepted')
 
     counts['total'] += 1
     # THE REVIEWER'S OWN NUMBERS, from the retained warm `make.check` trace. They observed the near-equality
@@ -8115,15 +8836,6 @@ def self_test(root: Path) -> int:
     if missing_in_list:
         failures.append(f'the listing omits {len(missing_in_list)} command(s), first {missing_in_list[:3]}')
 
-    total, must_fail = counts['total'], counts['must_fail']
-    if failures:
-        for f in failures:
-            print(f'  FAIL  {f}')
-        print(f'fido: BUILD-OBSERVATORY SELF-TEST FAILED — {len(failures)} of {total} controls wrong')
-        return 1
-    print(f'fido: build-observatory self-test OK — {total} controls '
-          f'({must_fail} must-fail with the reason pinned, {total - must_fail} must-accept) ✓')
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -8212,7 +8924,13 @@ def main(argv: list[str] | None = None) -> int:
             # that observation is validated by the complete validator and rendered, and the plan is checked
             # for redundant or unownable acquisition. Repair 2 lost four hours twice to defects that every
             # one of these steps would have caught before the first trace.
-            # §7 E1 — the facility's own checking cost is timed from here, on the suite's monotonic source.
+            # §4.4 — THE SUITE LIFECYCLE OPENS HERE, one monotonic reading and one wall-clock instant, on
+            # the same monotonic source every measured interval uses. It opens before the preflight rather
+            # than inside acquisition, because a validation component timed outside the window meant to
+            # contain it could exceed the whole suite's elapsed time and still validate.
+            # §7 E1 — the facility's own checking cost is timed from here.
+            suite_t0 = _monotonic_ns()
+            suite_started_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
             clock = ValidationClock()
             if clock.measure('preflight_controls', self_test, root) != 0:
                 raise ObservatoryError(
@@ -8327,11 +9045,62 @@ def main(argv: list[str] | None = None) -> int:
                 checkpoint=checkpointer(bundle, header, clock), clock=clock,
                 resume_done=resume_done, resume_samples=resume_samples,
                 resume_traces=resume_traces, resume_artifacts=resume_artifacts,
-                repeat=repeat)
+                repeat=repeat, suite_t0=suite_t0, suite_started_utc=suite_started_utc)
+            # §4.5 phase one — the PROVISIONAL observation. Its suite cost is open: the two components that
+            # remain are the final validator and the recording checks, and both of them run over this object.
+            # Building the cost block before they happened is exactly how Repair 4 shipped a facility whose
+            # contract required timing work it had already finished accounting for.
             if incomplete:
                 obs['derived']['status'] = 'incomplete'
                 obs['derived']['incomplete'] = incomplete
             write_json(bundle / 'observation.json', obs)
+
+            if incomplete:
+                # A run that did not finish acquiring still finished RUNNING, and its own cost is the
+                # evidence that matters most when hours went somewhere. It closes with both remaining
+                # components declared inapplicable — with reasons — rather than measured as zero, and it is
+                # never handed to the close verifier, because nothing here is published.
+                clock.not_applicable('final_validation',
+                                     'acquisition did not complete, so there was never a whole observation '
+                                     'for the final validator to run over')
+                clock.not_applicable('recording_checks',
+                                     'acquisition did not complete, so no recording rule was exercised')
+                write_json(bundle / 'observation.json', close_suite_cost(obs, clock))
+                bad_bundle = bundle_problems(bundle)
+                if bad_bundle:
+                    raise ObservatoryError(f'the incomplete bundle cannot be diagnosed or resumed: '
+                                           f'{bad_bundle[0]}')
+                print(f'fido: BUILD-OBSERVATORY INCOMPLETE — {len(incomplete)} pair(s) did not complete: '
+                      f'{", ".join(incomplete[:6])}; the bundle is kept and cannot be recorded',
+                      file=sys.stderr)
+                return 1
+
+            # §4.5 phase two — the FINAL semantic validator over the provisional observation, TIMED.
+            clock.measure('final_validation', validate_observation, obs)
+
+            # §4.5 phase three — the recording-eligibility checks, TIMED, publishing nothing. A refusal is
+            # HELD rather than raised here: the bundle still gets the comparison files §6 requires of every
+            # completed bundle, so the operator reads both why recording refused and what the run measured.
+            record_refusal, rules = None, []
+            if args.record:
+                try:
+                    rules = clock.measure('recording_checks', check_record_eligible, root, sel, suite,
+                                          suite_digest_of(suite), obs, bundle, clean_before,
+                                          edits_restored, incomplete)
+                except ObservatoryError as exc:
+                    record_refusal = exc
+            else:
+                clock.not_applicable('recording_checks',
+                                     'this run did not ask to record, so no recording rule was exercised')
+
+            # §4.5 phases four and five — CLOSE the lifecycle, then verify it ONCE, purely and outside the
+            # measured suite. The verifier may verify the measurement; it may not change it, and every
+            # writer below is pinned to the exact bytes it accepted.
+            obs = close_suite_cost(obs, clock)
+            verified = verify_closed(obs)
+
+            # §4.5 phase six — PUBLICATION.
+            publish_json(bundle / 'observation.json', obs, verified)
 
             # §6 — EVERY completed bundle carries both comparison files. Writing them only when a verdict
             # existed meant the bundle did not have the shape §9 states, and the absence of a file had to
@@ -8351,16 +9120,18 @@ def main(argv: list[str] | None = None) -> int:
             write_json(bundle / 'comparison.json', result)
             (bundle / 'comparison.txt').write_text(render_comparison(result) + '\n', encoding='utf-8')
 
-            if incomplete:
-                print(f'fido: BUILD-OBSERVATORY INCOMPLETE — {len(incomplete)} pair(s) did not complete: '
-                      f'{", ".join(incomplete[:6])}; the bundle is kept and cannot be recorded',
-                      file=sys.stderr)
-                return 1
+            # §6 — the bundle has the shape the contract declares, checked before anything is recorded.
+            bad_bundle = bundle_problems(bundle)
+            if bad_bundle:
+                raise ObservatoryError(
+                    f'{len(bad_bundle)} bundle defect(s): {bad_bundle[0]}'
+                    + (f' (and {len(bad_bundle) - 1} more)' if len(bad_bundle) > 1 else ''))
+
+            if record_refusal is not None:
+                raise record_refusal
 
             if args.record:
-                rules = check_record_eligible(root, sel, suite, suite_digest_of(suite), obs, bundle,
-                                              clean_before, edits_restored, incomplete)
-                write_json(root / OBSERVATION_REL, obs)
+                publish_json(root / OBSERVATION_REL, obs, verified)
                 print(f'fido: build-observatory recorded — {OBSERVATION_REL} replaced after all '
                       f'{len(rules)} recording rules passed; nothing was staged or committed ✓')
             else:
