@@ -9537,11 +9537,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.check:
             print(f'fido: build-observatory coverage OK — {check_coverage(root, load_suite(root))} ✓')
-            # §2.7 — the PERMANENT canonical-observation gate is wired in the NEXT commit, together with
-            # the canonical observation it validates. It cannot come first: `make observatory` runs inside
-            # `make check`, `make check` is a measured command, and the run that produces the first
-            # observation in this schema has to be able to execute it. The rules themselves are here and
-            # exercised by their own controls.
+            # §2.7 — the PERMANENT canonical-observation gate. The registry classifying every target says
+            # nothing about the observation beside it, and a tampered canonical file used to commit cleanly
+            # for exactly that reason. It lands together with the observation it validates: `make
+            # observatory` runs inside `make check`, `make check` is measured, so the run that produced the
+            # first observation in this schema had to be able to execute the gate's absence.
+            print(f'fido: build-observatory canonical observation OK — '
+                  f'{validate_canonical_observation(root)} ✓')
             return 0
         if args.usage:
             print(render_usage(load_suite(root)))
