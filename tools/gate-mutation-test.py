@@ -1010,6 +1010,32 @@ MUTANTS = (
      ('a retained suite snapshot changed without its digest following',
       'an observation with a suite digest mismatch')),
 
+    # §2.7 — the permanent canonical-observation gate.
+    (OBS, 'the canonical observation must be closed before it is published',
+     "    if cost['state'] != COST_CLOSED:",
+     "    if False:",
+     ('a canonical observation whose suite cost never closed',)),
+
+    (OBS, 'the canonical observation is one whose recording rules ran',
+     "    if recording['state'] != COMPONENT_MEASURED:",
+     "    if False:",
+     ('a canonical observation whose recording checks never ran',)),
+
+    (OBS, 'the canonical subject is a committed one',
+     "    if subj.get('dirty'):",
+     "    if False:",
+     ('a canonical observation measured on a dirty tree',)),
+
+    (OBS, 'the subject tree checked against the commit it names',
+     "    if tree != subj.get('tree'):",
+     "    if False:",
+     ("a canonical observation whose subject tree is not its own commit's",)),
+
+    (OBS, 'the subject commit checked against the repository',
+     "    if _git(root, 'cat-file', '-t', commit, check=False).strip() != 'commit':",
+     "    if False:",
+     ('a subject naming a commit this repository does not have was accepted against Git',)),
+
     (OBS, 'run identity collision resistance',
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}-{secrets.token_hex(3)}'",
      "    return f'{stamp}-{subject_info[\"commit\"][:7]}-{digest[:8]}'",

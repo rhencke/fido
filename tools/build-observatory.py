@@ -3801,7 +3801,11 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None, r
             'request': dict(sel.request, repeat=repeat),
             'selection': {'partial': sel.partial, 'selected': list(sel.selected),
                           'support': list(sel.support), 'scenarios': list(sel.scenarios)},
-            'required_metrics': len(required),
+            # What THIS plan requires, from the traces it actually schedules. It used to be the size of the
+            # candidate relation the planner filtered — for a canonical run those coincide, and for a
+            # one-command request the plan announced 308 required metrics beside a single trace. A count
+            # nobody can act on is a second authority disagreeing with the plan it sits inside.
+            'required_metrics': len({m for t in ordered for m in t['establishes']}),
             'trace_count': len(ordered),
             'direct_executions': sum(t['samples'] for t in ordered)}
 
@@ -4257,6 +4261,67 @@ def bundle_problems(bundle: Path) -> list[str]:
                 problems.append(f'{verdict}: reports no comparison and gives no reason, which is the silent '
                                 f'absence this file exists to replace')
     return problems
+
+
+def subject_git_problems(root: Path, subj: dict) -> list[str]:
+    """§2.7 — the retained subject, checked against the Git object it names.
+
+    Offline the run identity binds the commit and the inventory digest, and an unedited sample's source
+    digest binds the content digest. The TREE has no offline witness at all — this is it, and it is why the
+    check belongs where a repository is certainly present rather than in the schema rules."""
+    commit = str(subj.get('commit') or '')
+    if not re.fullmatch(r'[0-9a-f]{40}', commit):
+        return [f'the retained subject commit {commit!r} is not a commit id']
+    if _git(root, 'cat-file', '-t', commit, check=False).strip() != 'commit':
+        return [f'the retained subject names commit {commit[:12]}, which this repository does not have, so '
+                f'nothing here can say what was measured']
+    tree = _git(root, 'rev-parse', f'{commit}^{{tree}}', check=False).strip()
+    if tree != subj.get('tree'):
+        return [f'the retained subject tree {str(subj.get("tree"))[:12]} is not the tree of commit '
+                f'{commit[:12]}, which is {tree[:12]}']
+    return []
+
+
+def validate_canonical_observation(root: Path) -> str:
+    """§2.7 — the TRACKED canonical observation, semantically validated, permanently.
+
+    `make observatory` and the staged pre-commit stage checked the command registry and stopped there, so a
+    tampered canonical observation committed cleanly for as long as the registry still classified every
+    target. Both paths read it from `root` — the working tree for one, the exported staged snapshot for the
+    other — so a staged change is judged from the staged bytes.
+
+    Everything a schema rule can say is said by the root validator. What is added here is what only the
+    published artifact must be: closed, recorded rather than merely produced, taken from a committed subject,
+    and naming a Git object this repository actually has."""
+    obs, where = load_observation(root, str(root / OBSERVATION_REL))
+    cost = obs['suite_cost']
+    if cost['state'] != COST_CLOSED:
+        raise ObservatoryError(f'{where}: the canonical observation retains an open suite cost, so it was '
+                               f'published before its own lifecycle closed')
+    recording = cost['validation_components']['recording_checks']
+    if recording['state'] != COMPONENT_MEASURED:
+        raise ObservatoryError(f'{where}: the canonical observation reports its recording checks as '
+                               f'{recording["state"]!r}; the published observation is the one whose '
+                               f'recording rules ran, not one that declined to run them')
+    subj = obs['basis']['subject']
+    if subj.get('dirty'):
+        raise ObservatoryError(f'{where}: the canonical subject is dirty, so what it measured is not any '
+                               f'committed state of this repository')
+    # The Git half runs where a repository is present. The staged pre-commit snapshot is a `checkout-index`
+    # export with no `.git`, so it cannot have one — and rather than passing silently there, the summary line
+    # SAYS which half ran. A skipped check that announces itself is a disclosure; a skipped check that prints
+    # the same words either way is the fail-open this repair keeps deleting.
+    if _git(root, 'rev-parse', '--git-dir', check=False).strip():
+        for problem in subject_git_problems(root, subj):
+            raise ObservatoryError(f'{where}: {problem}')
+        witness = f'subject {subj["commit"][:12]} verified against Git'
+    else:
+        witness = f'subject {subj["commit"][:12]} NOT verified — no Git repository at {root}'
+    # The summary reads the closed lifetime the rule above has already required. It is written so that
+    # neutering that rule leaves this arithmetic safe: a crash is not a control failing.
+    seconds = (cost['suite_wall_ns'] or 0) // 1_000_000_000
+    return (f'{where} — {len(obs["measurements"])} sample(s) in {len(obs["traces"])} trace(s), '
+            f'{seconds}s of suite, {witness}')
 
 
 def _comparable(obs: dict, side: str) -> None:
@@ -5880,6 +5945,19 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         failures.append(f'{len(barren)} scheduled trace(s) establish no metric, e.g. {barren[0]}')
 
     counts['total'] += 1
+    # The plan's own count, not the size of the candidate relation it filtered. A one-command request
+    # announced 308 required metrics beside a single trace establishing one.
+    if canonical_plan['required_metrics'] != len({m for t in canonical_plan['traces']
+                                                  for m in t['establishes']}):
+        failures.append(f'the plan announces {canonical_plan["required_metrics"]} required metric(s) and its '
+                        f'own traces establish a different set')
+    small = acquisition_plan(suite, select(suite, only='analysis.history', scenario='project.warm.noop'),
+                             graph=docker_stage_graph(root))
+    if small['required_metrics'] != len({m for t in small['traces'] for m in t['establishes']}):
+        failures.append(f'a one-command plan announces {small["required_metrics"]} required metric(s) beside '
+                        f'{small["trace_count"]} trace(s)')
+
+    counts['total'] += 1
     orphan = {'traces': [], 'contained': [{'command_id': 'make.prove', 'scenario_id': 'project.warm.noop',
                                            'owner': 'make.check', 'metric': 'm'}],
               'cataloged': [], 'required_metrics': 1, 'trace_count': 0, 'direct_executions': 0}
@@ -6042,7 +6120,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         s = {**base, **over}
         # Stamped exactly as the runner stamps it, so a fixture cannot satisfy an identity rule the live
         # path would fail.
-        s['sample_id'] = over.get('sample_id') or sample_id_for(FIXTURE_RUN_ID, s)
+        s['sample_id'] = over.get('sample_id') or sample_id_for(fixture_run['id'], s)
         return s
 
     # §7 E4 — the fixture's analysis samples come WITH the artifacts they establish, because that is what the
@@ -6182,6 +6260,19 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
     # the rule binding the two is exercised rather than skipped. A hand-written 'run-fixture' had no derived
     # shape at all, and the four subject mutations sailed past it.
     FIXTURE_RUN_ID = f'20260101T000000p0000-{"a" * 7}-{"c" * 8}-abcdef'
+    # One holder rather than a constant, because a control that needs a DIFFERENT run identity — the
+    # canonical gate needs one derived from this repository's real HEAD — must have every sample and every
+    # parent reference built under it. Re-stamping afterwards left `parent_sample_id` naming the ids the
+    # samples used to have, which is the fixture lying rather than the rule failing.
+    fixture_run = {'id': FIXTURE_RUN_ID}
+
+    def under_run_id(rid, build):
+        previous = fixture_run['id']
+        fixture_run['id'] = rid
+        try:
+            return build()
+        finally:
+            fixture_run['id'] = previous
 
     def observation(samples=None, **over) -> dict:
         samples = samples if samples is not None else [sample(sample_index=i, wall_ns=n)
@@ -6194,7 +6285,7 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
         # own `traces` used to leave the cost naming traces the observation no longer held — the fixture
         # lying about itself, which is what the note on `traces_for` already warns about.
         carried_traces = over['traces'] if 'traces' in over else traces_for(samples)
-        base = {'schema': SCHEMA, 'run_id': FIXTURE_RUN_ID,
+        base = {'schema': SCHEMA, 'run_id': fixture_run['id'],
                 # §2.7 — the fixture's basis is CAPTURED through the real function from the real suite, so a
                 # control exercises a basis the producer could actually emit. A hand-written one would be the
                 # fixture describing a shape nobody produces, which this repair has already paid for twice.
@@ -7304,6 +7395,122 @@ def _self_test_body(root: Path, failures: list[str], counts: dict) -> None:
                  lambda field=field, value=value: validate_observation(tampered_basis(
                      subject={**complete_observation()['basis']['subject'], field: value})),
                  expect=want)
+
+    # ── §2.7 THE PERMANENT CANONICAL-OBSERVATION GATE. `make observatory` and the staged hook stage checked
+    # the command registry and stopped, so a tampered canonical observation committed cleanly.
+    def tiny_repo():
+        """A repository of one commit, so the Git half of the rule has a real object to check against.
+
+        Not this repository: the mutation harness runs the self-test in a COPY of the tree with no `.git` at
+        all, so a control reaching for the real HEAD was not a control — it was an assumption about where the
+        tool happened to be started, and it took every mutant down with it."""
+        here = Path(_tempfile.mkdtemp())
+        _git(here, 'init', '-q', '-b', 'main')
+        _git(here, 'config', 'user.email', 'fido@example.invalid')
+        _git(here, 'config', 'user.name', 'Fido')
+        _git(here, 'commit', '-q', '--allow-empty', '-m', 'one')
+        return here
+
+    repo = tiny_repo()
+    repo_head = _git(repo, 'rev-parse', 'HEAD').strip()
+    repo_subject = {'commit': repo_head, 'tree': _git(repo, 'rev-parse', 'HEAD^{tree}').strip(),
+                    'inventory_digest': 'c' * 64, 'content_digest': 'e0' * 32,
+                    'dirty': False, 'source_view': 'committed-tree'}
+    REPO_RUN_ID = f'20260101T000000p0000-{repo_head[:7]}-{"c" * 8}-abcdef'
+
+    def canonical_obs():
+        """A canonical observation over that repository's own commit, its recording checks measured.
+
+        Built ONCE per control and then perturbed: calling it twice inside one control mixed two clocks and
+        made the fixture inconsistent for a reason the control was not testing."""
+        obs = under_run_id(REPO_RUN_ID,
+                           lambda: complete_observation(subject=repo_subject, run_id=REPO_RUN_ID))
+        clk = ValidationClock()
+        for closed in obs['traces']:
+            clk.measure_trace(closed['trace_id'], lambda: None)
+        for name in VALIDATION_COMPONENTS:
+            clk.measure(name, lambda: None)
+        obs['suite_cost'] = {**obs['suite_cost'],
+                             'validation_components': clk.report(),
+                             'validation_wall_ns': clk.total_ns(),
+                             'trace_validation_ns': dict(clk.per_trace)}
+        return obs
+
+    def canonical_at(obs):
+        """That repository, carrying this canonical observation."""
+        write_json(repo / OBSERVATION_REL, obs)
+        return repo
+
+    counts['total'] += 1
+    try:
+        validate_canonical_observation(canonical_at(canonical_obs()))
+    except ObservatoryError as exc:
+        failures.append(f'a well-formed canonical observation was refused by the permanent gate: {exc}')
+
+    def gated(label, obs, want):
+        counts['total'] += 1
+        counts['must_fail'] += 1
+        try:
+            validate_canonical_observation(canonical_at(obs))
+            failures.append(f'{label} was accepted by the permanent canonical-observation gate')
+        except ObservatoryError as exc:
+            if want not in str(exc):
+                failures.append(f'{label} was refused for the WRONG reason — wanted {want!r}, got: {exc}')
+
+    def recost(**over):
+        obs = canonical_obs()
+        obs['suite_cost'] = {**obs['suite_cost'], **over}
+        return obs
+
+    gated('a canonical observation whose suite cost never closed',
+          recost(state=COST_OPEN, suite_completed_monotonic_ns=None, suite_wall_ns=None,
+                 suite_completed_utc=None),
+          'retains an open suite cost')
+
+    def unrecorded():
+        obs = canonical_obs()
+        comps = obs['suite_cost']['validation_components']
+        spent = comps['recording_checks']['wall_ns']
+        obs['suite_cost'] = {
+            **obs['suite_cost'],
+            'validation_components': {**comps,
+                                      'recording_checks': {'state': COMPONENT_NOT_APPLICABLE,
+                                                           'wall_ns': None, 'reason': 'skipped'}},
+            'validation_wall_ns': obs['suite_cost']['validation_wall_ns'] - spent}
+        return obs
+
+    gated('a canonical observation whose recording checks never ran', unrecorded(),
+          'reports its recording checks as')
+
+    def resubject(**over):
+        obs = canonical_obs()
+        obs['basis'] = {**obs['basis'], 'subject': {**repo_subject, **over}}
+        return obs
+
+    gated('a canonical observation measured on a dirty tree', resubject(dirty=True), 'subject is dirty')
+    gated('a canonical observation whose subject tree is not its own commit\'s',
+          resubject(tree='1' * 40), 'is not the tree of commit')
+    gated('a canonical observation the root validator refuses',
+          {**canonical_obs(), 'schema': 'not-the-schema'}, 'schema')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    # A commit no repository has cannot be trusted to say what was measured, and the run identity derived
+    # from it is not the defect being named here — so the subject is asked directly.
+    if not any('does not have' in one
+               for one in subject_git_problems(repo, {**repo_subject, 'commit': '0' * 40})):
+        failures.append('a subject naming a commit this repository does not have was accepted against Git')
+
+    counts['total'] += 1
+    counts['must_fail'] += 1
+    if not any('is not a commit id' in one
+               for one in subject_git_problems(repo, {**repo_subject, 'commit': 'HEAD'})):
+        failures.append('a subject whose commit is not a commit id at all was accepted against Git')
+
+    counts['total'] += 1
+    if subject_git_problems(repo, repo_subject):
+        failures.append(f'a repository\'s own HEAD was refused as a subject: '
+                        f'{subject_git_problems(repo, repo_subject)[0]}')
 
     def cut_falsified():
         """§8.1 — a cold sample whose declared invalidation root is reported as a cache hit.
@@ -8969,6 +9176,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.check:
             print(f'fido: build-observatory coverage OK — {check_coverage(root, load_suite(root))} ✓')
+            # §2.7 — the PERMANENT canonical-observation gate is wired in the NEXT commit, together with
+            # the canonical observation it validates. It cannot come first: `make observatory` runs inside
+            # `make check`, `make check` is a measured command, and the run that produces the first
+            # observation in this schema has to be able to execute it. The rules themselves are here and
+            # exercised by their own controls.
             return 0
         if args.usage:
             print(render_usage(load_suite(root)))
