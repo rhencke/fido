@@ -369,11 +369,15 @@ Edit shapes are not removed to save time.
 
 ## 3B.8 Canonical multiplicity is one
 
-The fixed triplicate policy is deleted. Canonical recording stores one real trace per trace/scenario/edit
-identity. A one-sample comparison reports the point delta and states that no noise conclusion is available;
-it does not invent a confidence judgement. Ad hoc repetition is available through the same target as
-`REPEAT=<n>`, is valid only for partial runs, and can never accompany `RECORD=1`. Git history supplies the
-long-term repeated record.
+Canonical acquisition retains one real trace per exact trace/scenario/edit identity. A one-sample comparison
+reports the point delta and states that no noise conclusion is available; it does not invent a confidence
+judgement. Ad hoc repetition is available through the same target as `REPEAT=<n>`, requires a named partial
+selection, and can accompany neither `RECORD=1` nor `RESUME=`. Git history supplies the repeated long-term
+record.
+
+This is the only multiplicity rule in this contract. §11 previously carried a second, fixed-triplicate
+policy; two rules cannot govern one suite, and the one that survives is the one the implementation and the
+recorded observation obey.
 
 ## 3B.9 Validate before and during expensive work
 
@@ -970,13 +974,12 @@ Required principles:
 9. A command excluded from the canonical timing run must have a current reason.
 10. A partial selector run never claims full-suite coverage.
 
-Use a fixed canonical sample policy:
+One multiplicity rule governs, stated here and nowhere else:
 
 ```text
-cold scenarios:          one sample
-warm/no-op scenarios:    three samples
-incremental scenarios:   three samples per edit shape
-light direct commands:   three samples
+Canonical acquisition retains one real trace per exact trace/scenario/edit identity.
+Ad hoc REPEAT requires a named partial selection and cannot accompany RECORD or RESUME.
+Git history supplies the repeated long-term record.
 ```
 
 Store every sample.

@@ -928,10 +928,14 @@ class Selection:
     set would let a selective run quietly present itself as broader than it was."""
 
     def __init__(self, selected: list[str], support: list[str], scenarios: list[str], partial: bool,
-                 scenario_support: list[str] | None = None):
+                 scenario_support: list[str] | None = None, request: dict | None = None):
         self.selected, self.support = selected, support
         self.scenarios, self.partial = scenarios, partial
         self.scenario_support = scenario_support or []
+        # §2.7 — the REQUEST this selection came from, retained so a validator can re-derive the selection
+        # rather than accept it. A selection asserted beside its results can be edited after the fact to
+        # explain away a trace that went missing, which is the reproduction in §2.2.
+        self.request = request or {'only': None, 'scenario': None, 'record': False}
 
     @property
     def order(self) -> list[str]:
@@ -1023,7 +1027,8 @@ def select(suite: dict, only: str | None = None, scenario: str | None = None,
 
     partial = bool(only or scenario)
     return Selection(selected, support, sorted(want_scenarios), partial,
-                     scenario_support=sorted(added) if needs_prime else [])
+                     scenario_support=sorted(added) if needs_prime else [],
+                     request={'only': only, 'scenario': scenario, 'record': bool(record)})
 
 
 # ──────────────────────────────────────────────────────────────── measurement
@@ -2951,26 +2956,15 @@ def artifact_digest(artifact) -> str:
     return _sha256(json.dumps(artifact, sort_keys=True, separators=(',', ':')).encode('utf-8'))
 
 
-def trace_expectations(suite: dict, graph: dict | None, partial: bool, role_of) -> dict[tuple, list[str]]:
-    """What each trace is required to establish: the registry's metrics, carrying this run's roles.
+def plan_expectations(plan: dict) -> dict[tuple, list[str]]:
+    """What each trace must establish, PROJECTED from the one retained plan.
 
-    TWO authorities, composed rather than one guessed. `expected_relation` says WHICH metrics a trace
-    establishes; the selection says which ROLE each carries, and role is part of metric identity. Taking the
-    planner's per-trace `establishes` instead looked equivalent and was not, for two reasons that only appear
-    in an ad hoc run: the plan filters metrics by what was SELECTED, while a trace that runs produces all of
-    its children regardless; and the registry states every role as `selected`, while `ONLY=make.check
-    SCENARIO=project.warm.noop` legitimately makes the cold support trace's children `support` too.
-
-    A real smoke run failed on exactly that — nine metrics observed that the filtered plan required zero
-    times, every one of them a role difference or an unselected child the trace produced anyway."""
-    required = expected_relation(suite, canonical_only=True, graph=graph, partial=partial)
-    out: dict[tuple, list[str]] = {}
-    for spec in required.values():
-        owner = spec.get('derived_parent_id') or spec['command_id']
-        keyed = metric_identity({**spec,
-                                 'selected_or_support': role_of(spec['command_id'], spec['scenario_id'])})
-        out.setdefault((owner, spec['scenario_id']), []).append(keyed)
-    return {k: sorted(v) for k, v in out.items()}
+    §2.7 — this used to derive the relation a second time, beside the planner. Repair 4 spent a real run
+    discovering that the two disagreed: the plan filters by what was selected while a trace produces all its
+    children regardless, and the registry states every role as `selected` while a named request legitimately
+    makes some work `support`. The plan now carries roles and every metric a trace establishes, so this is a
+    LOOKUP. A projection cannot drift from its source; a parallel builder eventually always does."""
+    return {(t['command_id'], t['scenario_id']): list(t['establishes']) for t in plan['traces']}
 
 
 def trace_id_of(command_id: str, scenario_id: str, edit_id: str | None, index: int) -> str:
@@ -3199,16 +3193,26 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
 
     traces: dict[tuple, dict] = {}
     contained: list[dict] = []
-    for key, spec in sorted(required.items()):
+    for spec in sorted(required.values(), key=lambda s: metric_identity(s)):
         cid, sid = spec['command_id'], spec['scenario_id']
-        if cid not in chosen or sid not in want:
-            continue
         cmd = commands[cid]
         owner = spec.get('derived_parent_id') or ''
+        # §2.7 — the ROLE belongs to the plan, because the plan is built from a request and a selection and
+        # role is part of metric identity. `expected_relation` states every role as `selected`, which is the
+        # registry speaking about a canonical run; a request that names a subset legitimately makes some of
+        # that work `support`. Repair 4 discovered this as a mismatch between two derivations and repaired it
+        # in a third place. There is one derivation now.
+        key = metric_identity({**spec, 'selected_or_support': sample_role(sel, cid, sid)})
+        if cid not in chosen or sid not in want:
+            continue
         if cmd['measurement'] == 'direct' and not owner:
-            row = traces.setdefault((cid, sid), {'command_id': cid, 'scenario_id': sid,
-                                                 'edit_id': spec['edit_id'], 'samples': spec['samples'],
-                                                 'establishes': []})
+            row = traces.setdefault((cid, sid), {
+                'trace_id': trace_id_of(cid, sid, spec['edit_id'], 0),
+                'command_id': cid, 'scenario_id': sid, 'edit_id': spec['edit_id'],
+                'samples': spec['samples'], 'role': sample_role(sel, cid, sid),
+                # §3.5 — each trace states the checkpoint grammar its evidence must obey, so the parser is
+                # told what to enforce instead of inferring it from the shape of what it was handed.
+                'grammar': checkpoint_grammar(cmd), 'establishes': []})
             row['establishes'].append(key)
         else:
             # Established INSIDE someone else's run: a derived stage or anchor by its parent, a contained
@@ -3222,12 +3226,36 @@ def acquisition_plan(suite: dict, sel: 'Selection', graph: dict | None = None) -
 
     cataloged = [{'command_id': c['id'], 'reason': c.get('catalog_only_reason', '')}
                  for c in suite['commands'] if c['measurement'] == 'catalog-only']
-    return {'traces': [traces[k] for k in sorted(traces)],
+    ordered = [dict(traces[k], establishes=sorted(traces[k]['establishes'])) for k in sorted(traces)]
+    return {'traces': ordered,
             'contained': contained,
             'cataloged': sorted(cataloged, key=lambda r: r['command_id']),
+            'request': dict(sel.request),
+            'selection': {'partial': sel.partial, 'selected': list(sel.selected),
+                          'support': list(sel.support), 'scenarios': list(sel.scenarios)},
             'required_metrics': len(required),
-            'trace_count': len(traces),
-            'direct_executions': sum(t['samples'] for t in traces.values())}
+            'trace_count': len(ordered),
+            'direct_executions': sum(t['samples'] for t in ordered)}
+
+
+GRAMMAR_MAKE = 'make-siblings'
+GRAMMAR_PRECOMMIT = 'precommit-root'
+GRAMMAR_ATOMIC = 'atomic'
+
+
+def checkpoint_grammar(command: dict) -> str:
+    """§3.4 — which checkpoint grammar this command's evidence must obey.
+
+    The two are genuinely different execution models and the contract states both. Make runs prerequisites to
+    completion before its recipe, so its checkpoints are flat siblings with no enclosing root. The hook wraps
+    everything in one `precommit.full` and nests its stages exactly one level inside. A generic stack accepts
+    each grammar's violations as the other's legal shape, which is how a nested Make checkpoint and a
+    depth-two hook stage both passed."""
+    if command['id'].startswith('precommit.'):
+        return GRAMMAR_PRECOMMIT
+    if command.get('kind') == 'make-target':
+        return GRAMMAR_MAKE
+    return GRAMMAR_ATOMIC
 
 
 def plan_problems(plan: dict) -> list[str]:
@@ -3811,6 +3839,14 @@ def render_comparison(cmp: dict) -> str:
     def ms(ns):
         return f'{ns / 1e6:,.1f}ms' if ns is not None else '—'
 
+    # §6 — an UNAVAILABLE comparison is a result with a reason, not an absent file. The plain view says the
+    # same thing the JSON does, because a reader who has only the text must not have to infer it.
+    if cmp.get('status') == 'unavailable':
+        return '\n'.join([f'comparison unavailable against {cmp.get("baseline", "?")}',
+                          f'reason: {cmp.get("reason", "unstated")}',
+                          '',
+                          'No metric verdict is issued from an observation that does not validate.'])
+
     lines = [f'baseline  {cmp["baseline_subject"]["commit"][:12]}  '
              f'{"dirty" if cmp["baseline_subject"]["dirty"] else "clean"}',
              f'candidate {cmp["candidate_subject"]["commit"][:12]}  '
@@ -4114,8 +4150,8 @@ def run_observation(root: Path, suite: dict, sel: Selection, raw_dir: Path, run_
     history = (resume_artifacts or {}).get('history_analysis', history)
 
     traces: list[dict] = list(resume_traces or [])
-    expectations = trace_expectations(suite, stage_graph, sel.partial,
-                                      lambda cid, sid: sample_role(sel, cid, sid))
+    plan = acquisition_plan(suite, sel, graph=stage_graph)
+    expectations = plan_expectations(plan)
 
     def emit(sample: dict):
         # Stamped HERE, in the one place every sample passes through, rather than in each of the three
@@ -6052,8 +6088,7 @@ def self_test(root: Path) -> int:
     # Role is part of metric identity, so the two disagreed on identity alone.
     counts['total'] += 1
     part_sel = select(suite, only='make.check', scenario='project.warm.noop')
-    part_exp = trace_expectations(suite, docker_stage_graph(root), part_sel.partial,
-                                  lambda cid, sid: sample_role(part_sel, cid, sid))
+    part_exp = plan_expectations(acquisition_plan(suite, part_sel, graph=docker_stage_graph(root)))
     produced = [m for pair, ms in part_exp.items() if pair[0] == 'make.check' for m in ms]
     if not produced:
         failures.append('an ad hoc make.check selection expects no metrics at all')
@@ -7868,15 +7903,23 @@ def main(argv: list[str] | None = None) -> int:
                 obs['derived']['incomplete'] = incomplete
             write_json(bundle / 'observation.json', obs)
 
+            # §6 — EVERY completed bundle carries both comparison files. Writing them only when a verdict
+            # existed meant the bundle did not have the shape §9 states, and the absence of a file had to
+            # carry the meaning "no comparison was possible" — which is a reason nobody can read, and is
+            # indistinguishable from a bundle that was interrupted before it got here.
             base_where = args.base or OBSERVATION_REL
             try:
                 base_obs, base_from = load_observation(root, base_where)
                 result = compare(base_obs, obs, only=args.only, suite=suite)
-                write_json(bundle / 'comparison.json', result)
-                (bundle / 'comparison.txt').write_text(render_comparison(result) + '\n', encoding='utf-8')
-                print(render_comparison(result))
             except ObservatoryError as exc:
+                result = {'schema': SCHEMA, 'status': 'unavailable', 'reason': str(exc),
+                          'baseline': base_where, 'metrics': [], 'counts': {}}
                 print(f'fido: build-observatory — no comparison: {exc}')
+            else:
+                result = {**result, 'status': 'complete'}
+                print(render_comparison(result))
+            write_json(bundle / 'comparison.json', result)
+            (bundle / 'comparison.txt').write_text(render_comparison(result) + '\n', encoding='utf-8')
 
             if incomplete:
                 print(f'fido: BUILD-OBSERVATORY INCOMPLETE — {len(incomplete)} pair(s) did not complete: '
