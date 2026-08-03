@@ -320,11 +320,11 @@ def check_closure(root: Path, findings: list[str]) -> None:
 
 
 # Binaries the pinned image supplies, and where each comes from. `docker` is deliberately absent from the
-# gate image: the deterministic self-test must not be able to reach a daemon, so only the observatory runner
+# gate image: the deterministic self-test must not be able to reach a daemon, so no gate image carries
 # carries a client.
 IMAGE_BINARIES = {'git': 'apt in python-tools', 'tar': 'the base image',
                   'editorconfig': 'apt in python-tools', 'sh': 'the base image',
-                  'docker': 'copied into observatory-runner only'}
+                  'docker': 'not in any gate image'}
 
 
 def invoked_binaries(root: Path, rel: str) -> set[str]:
@@ -352,7 +352,7 @@ def check_binaries(root: Path, findings: list[str]) -> None:
 
     `make fmt` shipped broken because `fmt-check.py` shells out to `editorconfig` and the image did not
     carry it. Nothing noticed: fmt reports rather than gates, so it is not in `make check`, and the failure
-    only surfaced when the observatory measured the target. A tool's external commands are part of its
+    only surfaced when a real run of the target reached it. A tool's external commands are part of its
     dependency set exactly as its imports are, and they are checked here for the same reason.
     """
     for rel in tracked(root, '.py'):
@@ -481,7 +481,7 @@ def self_test(root: Path) -> int:
 
     # ── the exemption mechanism cannot be widened to a usage document
     total += 1
-    if DOC_EXEMPT_RE.match('README.md') or DOC_EXEMPT_RE.match('.review/M2_BUILD_OBSERVATORY.md'):
+    if DOC_EXEMPT_RE.match('README.md') or DOC_EXEMPT_RE.match('.review/M2_PERFORMANCE_SNAPSHOT.md'):
         failures.append('the documentation exemption admits a usage document, so a host-Python instruction '
                         'could be hidden behind it')
 

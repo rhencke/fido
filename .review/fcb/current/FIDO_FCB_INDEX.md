@@ -12,7 +12,7 @@
 > **Canonical live location:** `.review/fcb/current`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
 > **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
-> C4, M0 and M1 are ACCEPTED; M2 Build Observatory is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
+> C4, M0 and M1 are ACCEPTED; M2 Performance Snapshot is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 This is the live Git-hosted FCB. The stable entry point is `.review/fcb/current/INDEX.md`. Superseded states
 live in Git history, never beside the live set.
@@ -27,7 +27,7 @@ contract, its obligation matrix and its evidence.
 **M1 acceptance:** M1 is **ACCEPTED** at `6524b437bd7a7d6b2616563b8789e28a00c7af13`, under Rob's
 disposition `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence; its
 permanent source-comment law is rehomed to `.review/M_SERIES_PLAN.md` and `tools/source-diet.py`.  
-**Active work:** M2 Build Observatory, in `.review/M2_BUILD_OBSERVATORY.md`, which
+**Active work:** M2 Performance Snapshot, in `.review/M2_PERFORMANCE_SNAPSHOT.md`, which
 `.review/NEXT_STEPS.md` names as its authority. `NEXT_STEPS` owns candidate state; this Index names the
 boundary, not the candidate.  
 Governance owns `D-01` through `D-29`; amendments `A001` through `A008` are accepted.  
@@ -91,7 +91,7 @@ D-24 gate checks that agreement rather than trusting either side alone.
 | Deciding… | Consult | Use specifically |
 |---|---|---|
 | What to build next | `FIDO_FCB_ROADMAP.md` | Lowest eligible checkpoint and exact row list. |
-| What is being worked on right now | `.review/M2_BUILD_OBSERVATORY.md` + Governance D-27 | The M2 contract, obligations `M2-01` through `M2-19`, and what M2 may not touch. |
+| What is being worked on right now | `.review/M2_PERFORMANCE_SNAPSHOT.md` + Governance D-27 | The M2 contract, obligations `M2-01` through `M2-09`, and what M2 may not touch. |
 | What runs between M2 and C5 | `.review/M_SERIES_PLAN.md` + Governance D-27 + Roadmap | The M2–M4 sequence and each candidate's mechanical contract. M3 and M4 forbidden until M2 is accepted. |
 | Whether a finding blocks the active checkpoint | Governance D-28 | Only a defect in the accepted contract or an explicit acceptance dependency blocks. Everything else gets a mandatory follow-up owner. |
 | Whether a construct is in scope | `FIDO_FCB_CLOSURE_LEDGER.csv` / `.md` | Row disposition and inclusion price. `OUT` is priced, not forgotten. |

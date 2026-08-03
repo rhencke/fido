@@ -8,11 +8,8 @@
 /go.mod
 **/*.go
 
-# Build Observatory run bundles and assistant residue.  These are OUTPUT of measuring this repository, and
-# a measurement whose own output joins the context it measures changes what it reports: later samples would
-# see more raw logs than earlier ones, so one exact source subject could time differently depending on how
-# much old local residue happened to be lying around.
-.build-observatory/
+# Assistant residue.  It is OUTPUT of working on this repository, and a build context that grows with it
+# would make one exact source subject build differently depending on how much happened to be lying around.
 .claude/
 
 # Local build output + transient control/crash residue (never a build input)
@@ -36,3 +33,5 @@ vendor/
 .DS_Store
 *.swp
 *.swo
+# The diagnostic timing record: it changes on every `make perf` and is an input to nothing.
+.review/PERFORMANCE.tsv

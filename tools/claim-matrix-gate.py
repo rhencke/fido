@@ -56,8 +56,7 @@ DECL_KINDS = ('Definition', 'Lemma', 'Theorem', 'Corollary', 'Record', 'Inductiv
 # namespaces: it is what the directive says must be answered, and a matrix missing one is not a matrix with a
 # gap — it is a matrix that has quietly dropped an accepted requirement.
 REQUIRED_OBLIGATIONS = (
-    'M2-01', 'M2-02', 'M2-03', 'M2-04', 'M2-05', 'M2-06', 'M2-07', 'M2-08', 'M2-09', 'M2-10',
-    'M2-11', 'M2-12', 'M2-13', 'M2-14', 'M2-15', 'M2-16', 'M2-17', 'M2-18', 'M2-19',
+    'M2-01', 'M2-02', 'M2-03', 'M2-04', 'M2-05', 'M2-06', 'M2-07', 'M2-08', 'M2-09',
 )
 
 # A row whose `gate` cell names this runs an EXECUTABLE check instead of merely pointing at evidence: no
@@ -114,11 +113,15 @@ def load_rows(root: Path):
                     f'{TSV_REL}:{n}: {row["obligation_id"]}: {k!r} is {row[k]!r} — an accepted obligation '
                     f'needs a real artifact, or an explicit "{UNSUPPORTED}<reason>"')
             pending = row[k].strip().startswith(PENDING)
-            if row['status'] == 'open' and not pending:
+            # An UNSUPPORTED BOUNDARY is not evidence that has yet to arrive — it is a decided property of
+            # the obligation, true the moment the row is written. Forcing it to masquerade as `pending`
+            # while open would mean promising evidence the obligation says it will never have.
+            declared_absent = row[k].strip().startswith(UNSUPPORTED.rstrip())
+            if row['status'] == 'open' and not pending and not declared_absent:
                 raise MatrixError(
                     f'{TSV_REL}:{n}: {row["obligation_id"]} is open, so {k!r} must be '
-                    f'"{PENDING}<what will establish it>" — an open obligation may not cite evidence it '
-                    f'does not have')
+                    f'"{PENDING}<what will establish it>" or an explicit "{UNSUPPORTED}<reason>" — an open '
+                    f'obligation may not cite evidence it does not have')
             if row['status'] == 'closed' and pending:
                 raise MatrixError(
                     f'{TSV_REL}:{n}: {row["obligation_id"]} is closed but {k!r} is still '

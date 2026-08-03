@@ -7,14 +7,14 @@
 #   sync:    only after that validation marker may `make regenerate` publish the same validated bytes.
 
 # ── Python tooling runtime ────────────────────────────────────────────────────
-# Project Python never runs on the host; every gate, writer, profiler and observatory operation runs here.
+# Project Python never runs on the host; every gate, writer and profiler runs here.
 # The project's Python imports the standard library alone, so no Python package is installed at any point:
 # `tools/python-requirements.lock` states that closure and `tools/host-python-gate.py` proves it still holds.
 # Git is here because the gates read Git's own index and ignore rules rather than reimplementing them, and
 # `editorconfig` because the whitespace check delegates property resolution to the EditorConfig reference
 # implementation rather than guessing at it.  Both are OS utilities the tools shell out to, not Python
 # dependencies, and `tools/host-python-gate.py` proves this image carries every binary they invoke — that
-# rule exists because `make fmt` shipped broken without it, and only the observatory measuring the target
+# rule exists because `make fmt` shipped broken without it, and only a real run of the target
 # found out.  The apt pins are exact, so a withdrawn version fails this build loudly instead of drifting.
 # Project sources are MOUNTED read-only from the exact source view under measurement, never COPYed in, so a
 # stale green verdict from an incomplete COPY set is unrepresentable here rather than merely checked for.
@@ -25,24 +25,6 @@ RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked 
     apt-get update \
     && apt-get install -y --no-install-recommends git=1:2.39.5-0+deb12u3 editorconfig=0.12.6-0.1 \
     && rm -rf /var/lib/apt/lists/*
-
-# The Docker client and Buildx by digest, so the observatory runner's client provenance is pinned like the
-# Rocq and Go toolchains are.
-FROM docker:27-cli@sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c AS docker-cli
-
-# ── Observatory runner ────────────────────────────────────────────────────────
-# `make observe` runs here and drives the host daemon through the mounted socket.  This is the ONLY Python
-# image carrying a Docker client: the gate-and-self-test image above has none, so the deterministic
-# self-test cannot reach Docker even if its code tried to.  The apt pin is exact, so a withdrawn version
-# fails this build loudly instead of drifting silently to another one.
-FROM python-tools AS observatory-runner
-RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked \
-    apt-get update \
-    && apt-get install -y --no-install-recommends make=4.3-4.1 \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-buildx \
-                       /usr/local/libexec/docker/cli-plugins/docker-buildx
 
 # ── Stage 1: Rocq/OCaml toolchain ─────────────────────────────────────────────
 FROM ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df AS rocq-builder
@@ -324,62 +306,6 @@ SH
 FROM scratch AS profile-log
 COPY --from=profile /workspace/profile/ /
 
-# ── Stage 3c: module-graph — the M2 Build Observatory's per-module evidence.  Dune builds the theory ONCE
-#    into the shared cache; then the TOOLCHAIN'S OWN dependency tool emits the adjacency, and every module in
-#    the pinned build authority's module set is recompiled alone with `rocq c -time` against those already
-#    built dependencies.  Inferring the graph from `Require Import` lines would be a second authority that
-#    can disagree with the build, which is exactly the thing this repository does not allow.  A DIAGNOSTIC
-#    stage: it verifies nothing and gates nothing.
-FROM rocq-base AS module-graph
-ARG TARGETARCH
-RUN mkdir -p /workspace/graph
-COPY --chown=opam:opam dune-project dune ./
-COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam gate/ gate/
-COPY --chown=opam:opam plugin/ plugin/
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
-set -eu
-fail() { echo "fido: module-graph FAILED — $*"; exit 1; }
-if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
-export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
-
-# the module set is the pinned build authority's own `(modules ...)` stanza, not a glob and not a prose list
-modules=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune | head -1)
-[ -n "$modules" ] || fail "dune declares no (modules ...) stanza, so the certified module set is undiscoverable"
-echo "fido: module-graph — $(echo $modules | wc -w) certified module(s) from dune"
-
-# the toolchain's own dependency tool; this rocq may spell it either way, and guessing is not an option
-# `rocq dep --help` prints usage and exits NONZERO — it reads --help as a missing filename — so probing with
-# it reports "absent" for a subcommand that is right there.  The driver's own subcommand list is the authority.
-if rocq --help 2>&1 | grep -qE '^[[:space:]]+dep[[:space:]]'; then dep="rocq dep"
-elif command -v rocqdep >/dev/null 2>&1; then dep="rocqdep"
-elif command -v coqdep >/dev/null 2>&1; then dep="coqdep"
-else
-  echo "fido: module-graph — rocq subcommands:"; rocq --help 2>&1 | sed -n '/Supported subcommands/,$p'
-  fail "no toolchain dependency tool (tried 'rocq dep', 'rocqdep', 'coqdep')"
-fi
-echo "fido: module-graph — adjacency from '$dep'"
-files=""
-for m in $modules; do [ -f "$m.v" ] || fail "dune names $m but $m.v is absent"; files="$files $m.v"; done
-# shellcheck disable=SC2086
-$dep -Q _build/default Fido $files > /workspace/graph/depend.mk 2> /workspace/graph/depend.err \
-  || { cat /workspace/graph/depend.err; fail "$dep failed"; }
-
-# per-module cost: each module recompiled ALONE against dependencies dune already built
-for m in $modules; do
-  start=$(date +%s%N)
-  if ! rocq c -Q _build/default Fido -time "$m.v" > "/workspace/graph/time.$m.log" 2>&1; then
-    tail -20 "/workspace/graph/time.$m.log"; fail "rocq c -time $m.v FAILED"
-  fi
-  end=$(date +%s%N)
-  echo "$m $((end - start))" >> /workspace/graph/module-wall-ns.txt
-  echo "fido: module-graph — $m $(( (end - start) / 1000000 )) ms"
-done
-SH
-
-# the export surface: adjacency, per-module wall time and the raw per-sentence logs.
-FROM scratch AS module-graph-log
-COPY --from=module-graph /workspace/graph/ /
 
 # ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (shared cache id with prover).
 #    Then, in EXPLICIT always-run steps (never .vo side effects): `Fido Materialize` writes each witness's

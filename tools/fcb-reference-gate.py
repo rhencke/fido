@@ -56,7 +56,7 @@ CORPUS_ROLES = ('authority', 'reference')
 
 # Residue that cannot be part of a committed snapshot, so its absence from the inventory is not a subset
 # choice about namespaces — it is a statement about what Git tracks.
-RESIDUE_DIRS = {'.git', '_build', '__pycache__', '.fido', '.build-observatory'}
+RESIDUE_DIRS = {'.git', '_build', '__pycache__', '.fido'}
 RESIDUE_SUFFIXES = ('.vo', '.vok', '.vos', '.vio', '.glob', '.pyc', '.aux', '.fido-tmp-v1')
 
 # Characters that may appear in a repository path token. Used for BOUNDARY tests, never to decide membership.
@@ -647,9 +647,9 @@ def self_test(root: Path) -> int:
              expect='MALFORMED operational reference')
     scenario('an authority naming an ignored residue namespace',
              lambda w: append_to(w, active_repair(w),
-                                 'Local run bundles live under `.build-observatory/runs` and are ignored.'))
+                                 'Build residue lives under `.review/__pycache__/x.pyc` and is ignored.'))
     scenario('a namespace that merely resembles residue is still an operational reference',
-             lambda w: append_to(w, active_repair(w), 'See `.build-observatory-notes/x.md` for the notes.'),
+             lambda w: append_to(w, active_repair(w), 'See `._build-notes/x.md` for the notes.'),
              expect='UNDECLARED operational reference')
 
     # ── §5.6-5.7 : owner containment

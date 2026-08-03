@@ -1441,7 +1441,7 @@ def self_test() -> int:
     LATER_V = '(* a later module states one current fact *)\nDefinition later : nat := 1.\n'
     scenario('every temporary M1 evidence file absent', moved_on)
     scenario('a later checkpoint report beside the source',
-             lambda d: moved_on(d, {'.review/M2_BUILD_OBSERVATORY.md': '# M2\n\nmeasured evidence.\n'}))
+             lambda d: moved_on(d, {'.review/M2_PERFORMANCE_SNAPSHOT.md': '# M2\n\nmeasured evidence.\n'}))
     scenario('a new .v module with a compliant comment', lambda d: moved_on(d, {'Later.v': LATER_V}))
     scenario('a new declaration added to an existing .v file',
              lambda d: fixture(d, CLEAN_V + '(* a later fact that earns its place *)\n'

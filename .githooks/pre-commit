@@ -8,41 +8,10 @@
 # it (a future PR CI runs the same staged/generated comparison server-side); do not remove that honest limit.
 set -e
 
-# ── Build Observatory anchors (M2).  INERT unless FIDO_OBSERVE names a log file: with the variable absent
-# every anchor is a no-op shell function, so command order, bytes, output, exit status and side effects are
-# exactly what they were.  A measurement that alters what it measures is not a measurement.
-# The clock is CLOCK_MONOTONIC, read from /proc/uptime: a wall clock can step under NTP and produce a
-# negative interval, and a duration that can go backwards is not a duration.  Its resolution is 10 ms, which
-# the observation records rather than implies.
-if [ -n "${FIDO_OBSERVE:-}" ]; then
-  # The centiseconds field is two digits, so 08 and 09 have a leading zero and the shell reads them as
-  # OCTAL: an arithmetic error, an empty timestamp, and an anchor silently dropped 2% of the time. Stripping
-  # the zero is the POSIX fix; `10#` is a bashism and this hook is /bin/sh.
-  fido_now() {
-    IFS='. ' read -r _s _c _rest < /proc/uptime
-    _c=${_c#0}
-    echo $(( _s * 1000000000 + ${_c:-0} * 10000000 ))
-  }
-  fido_observe() { printf '%s %s %s\n' "$1" "$2" "$(fido_now)" >>"$FIDO_OBSERVE"; }
-else
-  fido_observe() { :; }
-fi
-fido_observe begin precommit.full
 
 command -v docker >/dev/null 2>&1 || { echo "fido: pre-commit needs docker for the pinned staged-index verification"; exit 1; }
-fido_observe begin precommit.builder
-# The builder is a NAME, not behaviour: unset, this is exactly the builder every commit has always
-# used.  The Build Observatory sets it so a measured hook run fills an isolated cache instead of the
-# developer's, which is the difference between using their cache and altering it.
-: "${FIDO_BUILDER:=fido-builder}"
-# Inert cache cut: unset, this expands to nothing and the hook builds exactly as it always has.  The
-# observatory sets it to invalidate one declared stage for a project-cold measurement.
-# FIDO_NOCACHE carries the SET of declared invalidation roots, space-separated: a compound cut forces more
-# than one root, and one name could only describe half of it.
-FIDO_NC=""
-for _root in ${FIDO_NOCACHE:-}; do FIDO_NC="$FIDO_NC --no-cache-filter $_root"; done
+FIDO_BUILDER=fido-builder
 docker buildx inspect "$FIDO_BUILDER" >/dev/null 2>&1 || docker buildx create --name "$FIDO_BUILDER" --driver docker-container --bootstrap >/dev/null
-fido_observe end precommit.builder
 
 # (1) export the Git INDEX exactly once into a temp dir; this exported tree is the proposed commit and needs
 #     no .git to inspect source contents.  --ignore-skip-worktree-bits is MANDATORY: `--all` alone silently
@@ -50,9 +19,7 @@ fido_observe end precommit.builder
 #     skip-worktree (its working-tree copy removed) would stay in the proposed commit yet escape every gate.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 ctx="$tmp/context"
-fido_observe begin precommit.export-index
 git checkout-index --ignore-skip-worktree-bits --all --prefix="$ctx/"
-fido_observe end precommit.export-index
 
 # (1a) build the pinned Python image FROM THE STAGED CONTEXT and run every Python gate inside it.  Project
 #      Python never runs on the host.  The tag is content-addressed over the STAGED Dockerfile and STAGED
@@ -60,12 +27,10 @@ fido_observe end precommit.export-index
 #      proposed commit therefore contains the container authority that judges it, and a prebuilt
 #      working-tree image can never stand in for it.  The staged tools themselves are MOUNTED from "$ctx",
 #      so what runs is the staged copy of each gate, exactly as when they ran on the host.
-fido_observe begin precommit.pytools
 pytag="fido-python-tools:$(cat "$ctx/Dockerfile" "$ctx/tools/python-requirements.lock" | sha256sum | cut -c1-16)"
 docker image inspect "$pytag" >/dev/null 2>&1 || \
   docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target python-tools \
     --load -t "$pytag" "$ctx" >/dev/null
-fido_observe end precommit.pytools
 fido_py() {
   docker run --rm -u "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
     -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
@@ -74,115 +39,66 @@ fido_py() {
 
 # (2) run the STAGED COPIES of the lightweight repository-policy gates on the exported staged tree (never the
 #     working-tree copies), so a staged edit to a gate script is the version evaluated.
-fido_observe begin precommit.ocaml-origin
 sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx"
-fido_observe end precommit.ocaml-origin
-fido_observe begin precommit.generated-output
 sh "$ctx/tools/generated-output-gate.sh" "$ctx"
-fido_observe end precommit.generated-output
 # the index-authoritative Git-mode gate reads the PROPOSED COMMIT's index (`git ls-files -s`) from the repo,
 # so it catches a mode-120000/100755 generated entry that a `core.symlinks=false` export would hide from the
 # exported-object checks above.  Run the STAGED copy, but from the repo cwd so `git` reads the repo index.
-fido_observe begin precommit.generated-mode
 sh "$ctx/tools/generated-mode-gate.sh"
-fido_observe end precommit.generated-mode
 # the A005 scoped-name gate on the EXPORTED STAGED TREE, in snapshot mode (no .git present).  A gate
 # enforced only on the ordinary working tree is not protection for the proposed commit, and snapshot
 # mode fails closed on an absent or incomplete export rather than scanning nothing and passing.
-fido_observe begin precommit.naming
 fido_py tools/naming-gate.py --root /repo --snapshot
-fido_observe end precommit.naming
 # the D-07 human-acts gate on the same exported staged tree: the open-act list in the proposed commit must be
 # exactly the generated view of its own canonical rows, with every ownership anchor resolving in that snapshot.
 # Its adversarial controls run first on the STAGED copy of the gate, so a staged edit that neuters the checker
 # is caught by the checker itself rather than reporting a green it can no longer earn.
-fido_observe begin precommit.human-acts.self-test
 fido_py tools/human-review-index.py --root /repo --self-test
-fido_observe end precommit.human-acts.self-test
-fido_observe begin precommit.human-acts.check
 fido_py tools/human-review-index.py --root /repo --check
-fido_observe end precommit.human-acts.check
 # the D-24 operational-reference gate on the same exported staged tree: every repository path the proposed
 # commit's FCB directs work to must resolve IN that snapshot, and an off-tree reference must be typed as one.
-fido_observe begin precommit.references.self-test
 fido_py tools/fcb-reference-gate.py --root /repo --self-test
-fido_observe end precommit.references.self-test
-fido_observe begin precommit.references.check
 fido_py tools/fcb-reference-gate.py --root /repo
-fido_observe end precommit.references.check
 # and the spec-closure ledger view must be the generated projection of its own canonical CSV.
-fido_observe begin precommit.closure-ledger
 fido_py tools/closure-ledger-view.py --root /repo --check
-fido_observe end precommit.closure-ledger
 # every root helper in the document gates must be LOAD-BEARING: delete its effect in a copy of the staged
 # tree and that gate's own named controls must fail.  A control that survives the deletion of the rule it
 # protects is decoration, and both D-24 blockers reached a freeze exactly that way.
-fido_observe begin precommit.mutation
 fido_py tools/gate-mutation-test.py --root /repo
-fido_observe end precommit.mutation
 # the claim-to-theorem matrix: every load-bearing completion claim in the proposed commit must
 # name a surface, fixture and gate that EXIST in that snapshot, and no root fixture may name a prohibited
 # builder.  Freeze prose is the one thing no other gate reads.
-fido_observe begin precommit.claims.self-test
 fido_py tools/claim-matrix-gate.py --root /repo --self-test
-fido_observe end precommit.claims.self-test
-fido_observe begin precommit.claims.check
 fido_py tools/claim-matrix-gate.py --root /repo
-fido_observe end precommit.claims.check
 # the PERMANENT source-comment policy on the exported staged tree, in snapshot mode: every .v comment in
 # the proposed commit obeys the one-line current-fact law and every longer one has its exact ledger row
 # both ways.  Its controls run first, on the STAGED copy.  No checkpoint baseline, disposition, deletion
 # ledger or code-identity relation runs here: those belong to one checkpoint's review, not to every commit
 # this repository will ever make.
-fido_observe begin precommit.source-diet.self-test
 fido_py tools/source-diet.py --root /repo --snapshot --self-test
-fido_observe end precommit.source-diet.self-test
-fido_observe begin precommit.source-diet.check
 fido_py tools/source-diet.py --root /repo --snapshot --check
-fido_observe end precommit.source-diet.check
-fido_observe begin precommit.source-diet.wiring
 fido_py tools/source-diet.py --root /repo --wiring
-fido_observe end precommit.source-diet.wiring
-# the PERMANENT command-surface coverage validator on the same exported staged tree: every public Make
-# target, paired anchor and Docker stage in the proposed commit has exactly one registry entry, both
-# directions.  It reads three files and runs no timing suite — the measurement modes are one checkpoint's
-# evidence and never run on an ordinary commit.  Its controls run first, on the STAGED copy.
-fido_observe begin precommit.observatory
-fido_py tools/build-observatory.py --root /repo --self-test
-fido_py tools/build-observatory.py --root /repo --check
-fido_observe end precommit.observatory
 # the PERMANENT no-host-Python boundary on the same exported staged tree: the proposed commit's own
 # Makefile, hook, shell scripts, usage documents, file modes, image pins and import closure must all keep
 # project Python off the host.  A boundary enforced only on the working tree is not protection for the
 # commit that would erase it.  Its controls run first, on the STAGED copy.
-fido_observe begin precommit.hostpython
 fido_py tools/host-python-gate.py --root /repo --self-test
 fido_py tools/host-python-gate.py --root /repo
-fido_observe end precommit.hostpython
 
 # (3) full cached verification on EVERY ordinary commit: the complete proof gate + the whole-tree Go e2e,
 #     built from the exported staged context (Buildx caching is the optimization).
 echo "fido: pre-commit — verifying the STAGED tree (complete proof gate, whole-tree go build, staged==pristine generated bytes)..."
 ( cd "$ctx"
-fido_observe begin precommit.prover
-  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 $FIDO_NC --target prover .
-fido_observe end precommit.prover
-fido_observe begin precommit.go-e2e
-  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 $FIDO_NC --target go-e2e . )
-fido_observe end precommit.go-e2e
+  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target prover .
+  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target go-e2e . )
 
 # (4) materialize the PRISTINE generated-module (derived by Buildx from the STAGED inputs only — .dockerignore
 #     excludes the committed generated bytes) and byte-compare it against the STAGED generated go.mod +
 #     recursive .go, via the STAGED comparison script over the exported tree (path set + bytes, both
 #     directions; the Fido header + no-nested-go.mod policy is the generated-output gate's job, and the exact
 #     Git index mode 100644 is the generated-mode gate's job, both run above).
-fido_observe begin precommit.generated-artifact
-docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 $FIDO_NC --target generated-artifact \
+docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target generated-artifact \
   --output "type=local,dest=$tmp/pristine" "$ctx"
-fido_observe end precommit.generated-artifact
-fido_observe begin precommit.generated-compare
 sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine"
-fido_observe end precommit.generated-compare
 
-fido_observe end precommit.full
 echo "fido: pre-commit OK — the entire verification (staged gates + proof gate + whole-tree go build + staged==pristine generated bytes) ran against the exported Git index (bypass with --no-verify — a documented prototype-stage escape)."

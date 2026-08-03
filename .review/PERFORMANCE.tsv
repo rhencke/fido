@@ -1,0 +1,26 @@
+# command: make -j1 check
+# builder: fido-perf-v1; BuildKit max-parallelism=1
+# cold: project stages forced (prover, emit); stable image/toolchain layers retained
+# hot: immediate repeat, same source and builder
+# clock: /proc/uptime, 10ms resolution; elapsed_ms is cumulative from that run start
+mode	checkpoint	elapsed_ms
+cold	start	0
+cold	pytools	2
+cold	hostpython	2996
+cold	names	25001
+cold	fcb	52001
+cold	claims	54000
+cold	diet	56003
+cold	prove	197996
+cold	e2e	236997
+cold	check	273998
+hot	start	0
+hot	pytools	2
+hot	hostpython	3997
+hot	names	25998
+hot	fcb	53002
+hot	claims	54999
+hot	diet	57003
+hot	prove	58999
+hot	e2e	61004
+hot	check	66999

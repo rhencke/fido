@@ -10,22 +10,20 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 BUILD OBSERVATORY IS FROZEN AWAITING ROB'S REVIEW.** Candidate
-  `1003734e67e2f07f5a10ec931e5c5729981d4652`, whose canonical observation measures that exact ref: 19
-  traces, 153 samples, 34.4 minutes, closed lifecycle, all five validation components measured.
-  Authority: `.review/M2_IMPLEMENTATION_REPAIR_5.md`, the sole permitted implementation work. <!-- FIDO-FCB-REF:REVIEW-M2-IMPLEMENTATION-REPAIR-5-MD -->
-  Earlier M2 candidates are superseded. Git history owns their refs, freezes, findings, and repair narratives.
-  The live M2 contract is `.review/M2_BUILD_OBSERVATORY.md`; the accepted review basis is
+- **THE M2 BUILD OBSERVATORY CANDIDATE IS WITHDRAWN BY HUMAN DISPOSITION.** Rob withdrew
+  `1003734e67e2f07f5a10ec931e5c5729981d4652`. It is not accepted and receives no Repair 6. The rejection is
+  of the product architecture, not of one more defect: a tiny diagnostic timing aid had become a large
+  self-verifying measurement platform. Git history owns the entire experiment.
+- **THE GREAT MEASUREMENT CULLING IS THE SOLE PERMITTED M2 WORK.**
+  Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
+  Rob's disposition ordering the culling is `.review/M2_GREAT_MEASUREMENT_CULLING.md`; <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
+  it names the deleted framework, so Git history is where those paths resolve. The accepted review basis is
   `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
-  Repair 5 closes the remaining authority and self-validation defects inside the trace-cover framework, which
-  is kept: one exact captured basis makes each observation self-validating; one retained `AcquisitionPlan`
-  owns the expected relation and trace acquisition; one root validator owns observation validity and every
-  path invokes it; checkpoint evidence obeys the exact grammar its trace declares; every trace carries one
-  explicit atomic or decomposed partition recomputed from retained events; suite self-cost follows from one
-  monotonic lifecycle closed in two phases; and every completed bundle carries both comparison files.
-  Fourteen obligations are reopened and close only on exact evidence and controls.
-  M2 measures and reports. It does not optimize or restructure; every finding is assigned in
-  `.review/M2_RECOMMENDATIONS.tsv` to M3, M4 or retain.
+  M2 now delivers exactly one `make perf` target, one small POSIX shell script, one tracked
+  `.review/PERFORMANCE.tsv`, and a handful of inert completion markers in the existing `make check` path.
+  `git diff` is the comparison tool. Timing is diagnostic evidence: not certified correctness, not a
+  semantic authority, not a benchmark framework, and not an acceptance gate. No deleted abstraction may
+  return under a new name.
 - **C4 and M0 are accepted.** Their permanent guarantees are owned by the FCB Architecture Charter and
   Governance; M2 must preserve them unchanged. Rob's dispositions are `C4-ACCEPT-39ea7e3` and
   `M0-ACCEPT-86a63db`.

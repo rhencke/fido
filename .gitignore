@@ -39,9 +39,6 @@ __pycache__/
 .coq-native/
 _build/
 
-# Local Build Observatory run bundles and raw logs; Git history is the observation database.
-.build-observatory/
-
 # Assistant tool residue.  The repository owns this exclusion deliberately: the working-tree inventory
 # `make check` archives must be determined by the repository alone, and it was previously excluded only by
 # a developer's personal global ignore file — so two clones of one commit could archive different trees.

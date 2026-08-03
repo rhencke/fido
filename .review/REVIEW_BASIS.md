@@ -1,7 +1,7 @@
 # M2 Accepted Review Basis
 
-checkpoint: M2 — Build Observatory
-contract: .review/M2_BUILD_OBSERVATORY.md
+checkpoint: M2 — Performance Snapshot
+contract: .review/M2_PERFORMANCE_SNAPSHOT.md
 obligations: .review/M2_OBLIGATION_MATRIX.tsv
 human_authorization: M1-ACCEPT-6524b43
 
@@ -74,7 +74,7 @@ pools unlike samples, and a coverage claim wider than what ran.
 ## Scope
 
 M2 does not restructure tools, split modules, change the build graph, or alter language meaning. Those findings
-keep their M3 and M4 owners and are recorded in `.review/M2_RECOMMENDATIONS.tsv`. The exact M4 plan remains
+keep their M3 and M4 owners and are recorded in `.review/M_SERIES_PLAN.md`. The exact M4 plan remains
 forbidden until M3 finishes and Rob accepts that plan.
 
 Only Rob accepts M2.

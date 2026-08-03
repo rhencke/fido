@@ -504,7 +504,7 @@ preserves the governance duty without using it to extend C4.
 | Human owner | Rob |
 | Date | `2026-07-26` |
 | New information | The repository carries superseded design prose Git already preserves, full builds approach two to three minutes, and no measured account of module cost, dependency fan-out, edit frequency, cache behaviour or duplicated gate work exists. The permanent C5 `Machine` base must not be frozen on top of that debt. |
-| Settled sequence | C4 acceptance closeout → M1 Source Diet → M2 Build Observatory → M3 Tool and Build Architecture Audit → Rob approves the exact M4 plan → M4 Mechanical Refactor → checkpoint-definition Step 0 → C5 |
+| Settled sequence | C4 acceptance closeout → M1 Source Diet → M2 Performance Snapshot → M3 Tool and Build Architecture Audit → Rob approves the exact M4 plan → M4 Mechanical Refactor → checkpoint-definition Step 0 → C5 |
 | Governance decision added | `D-27` |
 | Changed documents | Governance; Index; Roadmap; Checkpoint Authoring Guide; Model Operations; Fixed Points; Human Review Index; every accepted-amendment banner; the new M-series plan under `.review/` |
 | Reopened fixed point | None; M1–M4 must preserve every fixed point |

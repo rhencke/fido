@@ -4,7 +4,7 @@
 > Governance `D-27`. Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log.
 > **Sequencing:** M0 and M1 are accepted; M2 through M4 follow, then checkpoint-definition Step 0 for C5.
-> **C4, M0 and M1 are ACCEPTED.** M2 Build Observatory is the sole active work; M3 and M4 implementation are
+> **C4, M0 and M1 are ACCEPTED.** M2 Performance Snapshot is the sole active work; M3 and M4 implementation are
 > FORBIDDEN. Installing a plan does not authorize implementing it.
 
 The current repository carries source prose, proof text and build tooling that has accumulated without one
@@ -22,7 +22,7 @@ not be frozen on top of it.
 C4 acceptance closeout
 → M0 Governance Closeout (accepted)
 → M1 Source Diet (accepted)
-→ M2 Build Observatory
+→ M2 Performance Snapshot
 → M3 Tool and Build Architecture Audit
 → Rob approves the exact M4 plan
 → M4 Mechanical Refactor
@@ -33,7 +33,7 @@ C4 acceptance closeout
 Each M candidate is a separate reviewed candidate. M0 and M1 are accepted, and Git history owns each of
 their contracts, obligation matrices and evidence. M1's permanent result — the source-comment law — survives
 its checkpoint and is stated normatively below, because a law with no live owner is a law nothing enforces.
-**M2 Build Observatory is active**, and its full contract is `.review/M2_BUILD_OBSERVATORY.md`. <!-- FIDO-FCB-REF:REVIEW-M2-BUILD-OBSERVATORY-MD -->
+**M2 Performance Snapshot is active**, and its full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`.
 M4 begins only after M2 and M3 evidence exists and Rob accepts the exact refactor plan produced by M3 — the
 tracked human act is `M4-PLAN-APPROVAL`.
 <!-- FIDO-HUMAN-ACT:M4-PLAN-APPROVAL -->
@@ -119,66 +119,47 @@ The permanent path runs from `Makefile` under the `diet` target, on which `check
 `.githooks/pre-commit` against the exported staged index. A checkpoint's exit evidence never runs there — a <!-- FIDO-FCB-REF:GITHOOKS-PRE-COMMIT -->
 permanent gate enforcing one checkpoint's baseline would reject every later file and declaration forever.
 
-## M2 — Build Observatory
+## M2 — Performance Snapshot
 
-**Active.** The full contract is `.review/M2_BUILD_OBSERVATORY.md`; its nineteen obligations are tracked in
-`.review/M2_OBLIGATION_MATRIX.tsv`. The permanent facility is one registry, one runner and one tracked <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
-observation: `.review/BUILD_OBSERVATORY_SUITE.json` classifies every command and scenario, <!-- FIDO-FCB-REF:REVIEW-BUILD-OBSERVATORY-SUITE-JSON -->
-`tools/build-observatory.py` runs, validates, records and compares, and <!-- FIDO-FCB-REF:TOOLS-BUILD-OBSERVATORY-PY -->
-`.review/BUILD_OBSERVATION.json` is the one canonical observation, made historical by Git rather than by a <!-- FIDO-FCB-REF:REVIEW-BUILD-OBSERVATION-JSON -->
-growing ledger. Findings land in `.review/M2_RECOMMENDATIONS.tsv`, assigned to M3, M4 or retain. <!-- FIDO-FCB-REF:REVIEW-M2-RECOMMENDATIONS-TSV -->
+**Active.** The full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`; its nine obligations are tracked in <!-- FIDO-FCB-REF:REVIEW-M2-PERFORMANCE-SNAPSHOT-MD -->
+`.review/M2_OBLIGATION_MATRIX.tsv`. <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
 
-Every run — ad hoc or canonical — is written first to a local bundle under `.build-observatory/runs`,
-Git ignores: raw logs stay local, the tracked observation records only their digests, and an interrupted suite
-stays there marked incomplete rather than becoming a result.
+The Build Observatory that previously occupied this slot was **withdrawn by human disposition**. The
+rejection was of the product architecture, not of one more defect: a tiny diagnostic timing aid had become a
+large self-verifying measurement platform. Git history owns that experiment in full and no part of it
+survives in the live tree.
 
-M2 measures. It does not restructure the project. Under Rob's Repair 3 amendment
-`M2-SCOPE-AMENDMENT-TRACE-ACQUISITION` it does restructure its OWN acquisition: the canonical suite takes a
-minimal set of real traces and projects contained commands and stages from stable monotonic checkpoints and
-structured BuildKit events, rather than re-running a relation an exact containing trace already measures.
+What M2 delivers now is deliberately small. `make perf` runs the exact `make -j1 check` path once
+project-cold and once hot on a dedicated serial builder, records cumulative elapsed milliseconds at nine
+real target completions, and replaces one tracked `.review/PERFORMANCE.tsv`. `git diff` is the comparison
+tool. Timing is diagnostic evidence — not certified correctness, not a semantic authority, not a benchmark
+framework and not an acceptance gate; no gate consults it and nothing depends on it.
 
-Run in the pinned environment and record:
+Cold means **project-stage cold, not empty-cache cold**: the builder, base images and pinned toolchain
+layers exist before the interval, and the run forces the project roots `make check` depends on. The tracked
+file says so in its own header rather than leaving a reader to assume otherwise.
 
-- cold full-build wall and CPU time;
-- warm no-change time;
-- common incremental times after touching each root module;
-- per-module Rocq compile time;
-- the Dune dependency graph;
-- the critical path;
-- the downstream rebuild set for each module;
-- Docker stage timing and cache hit/miss state;
-- extraction, plugin, Go, e2e and every policy-gate time;
-- peak memory where practical;
-- repeated work across Make targets, Buildx stages and the pre-commit hook.
-
-Analyse Git history over the accepted implementation range:
-
-- edit frequency by file;
-- files changed together;
-- common edit shapes;
-- weighted rebuild cost — edit frequency multiplied by downstream build cost;
-- large serial units;
-- false dependencies and broad imports;
-- proof families that can check independently without splitting semantic ownership.
-
-Distinguish, always by name:
-
-```text
-partial edit feedback
-full acceptance
-cold build
-warm build
-no-op build
-```
-
-Under one minute for the common edit loop is a goal, not permission to omit evidence.
-
-M2 produces evidence and recommendations about the PROJECT only. It implements no project build optimization:
-every cost reported by `R01`, `R02` and `R03` stays M3's. The one thing it may optimize is the acquisition
-facility it delivers, because a canonical run costing four hours makes the facility itself unusable for
-tracking performance over time — which is the ground D-28 names for blocking on an otherwise wider finding.
+M2 measures. It does not restructure the project, and it no longer restructures its own acquisition either —
+there is no acquisition left to restructure.
 
 ## M3 — Tool and Build Architecture Audit
+
+### Carried over from the withdrawn observatory
+
+Five findings survive the culling because each has a real later owner. They carry no timing numbers:
+`.review/PERFORMANCE.tsv` owns the current ones, and a number copied into prose is stale the next time
+anyone runs the target.
+
+1. Determine why ordinary source edits invalidate more downstream work than the proof dependency structure
+   appears to require.
+2. Audit policy-gate cost and repeated execution in `make check` and the pre-commit path.
+3. Audit the mutation harness's repository copying and execution architecture. The parallel-execution
+   improvement already landed and is kept; judge it again on its own merits.
+4. Measure and account for the deliberate cost of the no-host-Python boundary before changing its pinned
+   image.
+5. General Make, hook, Buildx and cache architecture remains M3/M4 work.
+
+### The audit itself
 
 Inventory every Python tool, shell tool, Make target, pre-commit action, Docker stage, Dune alias, Rocq gate,
 extraction step, generated-output check and staged-snapshot check.
@@ -204,13 +185,6 @@ it into M2 and it is settled: project Python runs only in the pinned image, the 
 Git, Docker and Buildx, and `tools/host-python-gate.py` holds that line permanently. <!-- FIDO-FCB-REF:TOOLS-HOST-PYTHON-GATE-PY -->
 Its runtime and dependency authority are `Dockerfile` and `tools/python-requirements.lock`. <!-- FIDO-FCB-REF:DOCKERFILE --> <!-- FIDO-FCB-REF:TOOLS-PYTHON-REQUIREMENTS-LOCK -->
 Every other host/container architecture question above remains M3's.
-
-**The observatory's own acquisition architecture is no longer deferred here either.** Rob's M2 Repair 3
-amendment moved `R07` — measure once and derive contained cost from the graph — and the canonical-multiplicity
-and suite-self-cost parts of `R09` into M2. What stays M3: the project costs those rows discuss, the variance
-budget per metric, the build-graph remedies in `R01`, `R02` and `R03`, and the reflexivity remedy in `R10`
-apart from the per-trace validation and exact same-subject resume M2 needs to stop paying four hours to find a
-defect in its own producer.
 
 M3 must produce the exact proposed M4 graph and refactor plan. It does not implement the plan.
 
