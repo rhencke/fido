@@ -7,10 +7,12 @@ human_authorization: M1-ACCEPT-6524b43
 
 ## Accepted claim
 
-M2 builds one permanent, reproducible timing facility: a single registry classifying every public Make target,
-pre-commit stage, Docker stage and analysis command; one `make observe` entry point that runs, lists, explains,
-selects, compares and records; one canonical observation carrying exact source, environment, cache, sample,
-module-graph and history identity; and one recommendations ledger assigning every finding to M3, M4 or retain.
+M2 delivers one small diagnostic timing aid: `make perf`, which runs the exact `make -j1 check` path once
+project-cold and once hot on a dedicated serial builder, records cumulative elapsed milliseconds at nine real
+target completions, and replaces one tracked `.review/PERFORMANCE.tsv`. `git diff` is the comparison.
+
+Timing is diagnostic evidence. It is not certified correctness, not a semantic authority, not a benchmark
+framework and not an acceptance gate: no gate consults it and nothing depends on it.
 
 M2 measures and reports. It does not optimize, restructure, split proof modules, reshape the build graph, or
 implement any recommendation it produces.

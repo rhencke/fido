@@ -14,7 +14,9 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `1003734e67e2f07f5a10ec931e5c5729981d4652`. It is not accepted and receives no Repair 6. The rejection is
   of the product architecture, not of one more defect: a tiny diagnostic timing aid had become a large
   self-verifying measurement platform. Git history owns the entire experiment.
-- **THE GREAT MEASUREMENT CULLING IS THE SOLE PERMITTED M2 WORK.**
+- **M2 PERFORMANCE SNAPSHOT IS FROZEN AWAITING ROB'S REVIEW.** Candidate `b1c6991943dd90128d68d5790fbf16297b469987`.
+  The first real run: cold `make check` 274s, hot 67s, the whole `make perf` 342s.
+- **THE GREAT MEASUREMENT CULLING IS COMPLETE.**
   Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
   Rob's disposition ordering the culling is `.review/M2_GREAT_MEASUREMENT_CULLING.md`; <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
   it names the deleted framework, so Git history is where those paths resolve. The accepted review basis is
