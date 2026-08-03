@@ -14,8 +14,8 @@ under human review, but it does not own mutable state. Canonical data rows carry
   which repairs the blocked `b1c6991943dd90128d68d5790fbf16297b469987`. The corrected pair: cold
   `make check` 268.5s, hot 62.2s, on builder `fido-perf-v1`.
   Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
-  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_1.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-1-MD -->
-  implementation work; it quotes the deleted framework, so Git history is where those paths resolve.
+  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_2.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-2-MD -->
+  implementation work. Its predecessor `.review/M2_CULLING_REPAIR_1.md` is superseded. <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-1-MD -->
   The accepted review basis is
   `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Rob's disposition ordering the culling is `.review/M2_GREAT_MEASUREMENT_CULLING.md`. <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
@@ -31,7 +31,7 @@ under human review, but it does not own mutable state. Canonical data rows carry
 - **M3, M4, C5 Step 0 and C5 remain FORBIDDEN until Rob accepts M2.** Installing a plan is not
   permission to run it, and a green intermediate gate is not acceptance.
 - **Obligation tracking.** `.review/M2_OBLIGATION_MATRIX.tsv` holds one row per M2 obligation, `M2-01`
-  through `M2-19`. `tools/claim-matrix-gate.py` follows the active checkpoint: its subject moves with the
+  through `M2-09`. `tools/claim-matrix-gate.py` follows the active checkpoint: its subject moves with the
   matrix, and its behaviour does not.
 - **Scope rule (D-28).** Review the whole system. Block the active checkpoint only for a defect in its accepted
   contract or an explicit acceptance dependency. Assign every other finding to the earliest mandatory

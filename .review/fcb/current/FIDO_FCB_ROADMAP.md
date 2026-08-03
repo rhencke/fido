@@ -3,22 +3,20 @@
 > **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
-> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
-> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  
+> **Current state lives with its owner.** `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` owns the
+> accepted amendments and governance decisions; `.review/NEXT_STEPS.md` owns the active checkpoint and
+> candidate. This document copies neither.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4, M0 and M1 are ACCEPTED; M2 Performance Snapshot is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 The selection rule is strict: choose the lowest-numbered checkpoint whose dependencies are accepted. Do not move a feature earlier because it is interesting. Every row below has one **primary closure checkpoint**: the checkpoint that must make its current admitted meaning, proof surface, fixtures, and production integration complete. Umbrella rows may gain later cases only through the same owner and contract; they are not reassigned. Cross-cutting contracts still apply where cited by the ledger.
 
 ## Current boundary
 
-**C4 and M0 are ACCEPTED.** Amendments A001 through A009 are accepted. A001–A006 change no checkpoint assignment or dependency. A007 inserts the mechanical M-series between C4 acceptance closeout and C5 checkpoint-definition Step 0; A008 inserts M0 before M1; A009 installs the complexity-fit rule as `D-30`. None reassigns a closure row, latitude row or acceptance gate.
+Amendments affect this roadmap only where they change checkpoint ORDER or dependency: `A007` inserts the mechanical M-series between C4 acceptance closeout and C5 checkpoint-definition Step 0, and `A008` inserts M0 before M1. No amendment reassigns a closure row, latitude row or acceptance gate. Which amendments are accepted is Governance's to state.
 
 This roadmap owns checkpoint ORDER and stable dependencies. It does not own the current candidate, its status, or the active work — `.review/NEXT_STEPS.md` owns those, and restating them here would create a second authority that drifts.
 

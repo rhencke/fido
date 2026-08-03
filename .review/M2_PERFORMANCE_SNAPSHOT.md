@@ -60,8 +60,10 @@ existing Buildx `--no-cache-filter` mechanism. The tracked file states this hone
 **Hot** is the same `make -j1 check` immediately afterwards, same builder, same source tree, no project
 invalidation. No file changes between the two.
 
-**Publication.** Results are written to a temporary file outside the repository. `.review/PERFORMANCE.tsv` is
-replaced atomically only after both invocations succeed; a failed run leaves it untouched.
+**Publication.** Results are written to a temporary file beside `.review/PERFORMANCE.tsv`, its final mode is
+set before publication, and it is renamed over the destination only after both runs succeed. A failed run
+leaves the tracked record untouched. The temporary shares the destination's directory because a rename is
+atomic only within one filesystem; a temporary elsewhere would degrade to copy-and-remove.
 
 ---
 

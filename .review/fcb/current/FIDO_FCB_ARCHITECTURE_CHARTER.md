@@ -3,15 +3,13 @@
 > **Derived reference, not implementation authority.** The code and its gated theorems are the sole implementation authority.  
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its
 > history is the commit log. No version suffixes, no checksum manifest.  
-> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
-> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  
+> **Current state lives with its owner.** `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` owns the
+> accepted amendments and governance decisions; `.review/NEXT_STEPS.md` owns the active checkpoint and
+> candidate. This document copies neither.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
 > Regenerate, verify, and commit affected FCB files in Git after each accepted checkpoint or amendment.  
-> C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
 This charter carries forward the terminal spec-closure architecture body and all contracts `SC-00` through `SC-22`. It retains the authorized closure of `LAT-X004` with option (ii), the rounding-invariant-domain policy, and incorporates accepted Amendment A001: opaque static capabilities and failure results retain the exact whole compiler object that established their result.

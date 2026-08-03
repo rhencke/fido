@@ -4,15 +4,12 @@
 > implementation authority.  
 > **Living document.** Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log. No version suffixes, no checksum manifest.  
-> **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`;
-> `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
-> `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
-> `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
-> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`, `FCB-A009-COMPLEXITY-FIT`.  
+> **Current state lives with its owner.** `FIDO_FCB_GOVERNANCE.md` owns the accepted amendments and
+> governance decisions; `.review/NEXT_STEPS.md` owns the active checkpoint and candidate. This Index names
+> the live file set and where to look, never their current values.  
 > **Canonical live location:** `.review/fcb/current`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
 > **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
-> C4, M0 and M1 are ACCEPTED; M2 Performance Snapshot is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 This is the live Git-hosted FCB. The stable entry point is `.review/fcb/current/INDEX.md`. Superseded states
 live in Git history, never beside the live set.
@@ -27,10 +24,8 @@ contract, its obligation matrix and its evidence.
 **M1 acceptance:** M1 is **ACCEPTED** at `6524b437bd7a7d6b2616563b8789e28a00c7af13`, under Rob's
 disposition `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence; its
 permanent source-comment law is rehomed to `.review/M_SERIES_PLAN.md` and `tools/source-diet.py`.  
-**Active work:** M2 Performance Snapshot, in `.review/M2_PERFORMANCE_SNAPSHOT.md`, which
-`.review/NEXT_STEPS.md` names as its authority. `NEXT_STEPS` owns candidate state; this Index names the
-boundary, not the candidate.  
-Governance owns `D-01` through `D-30`; amendments `A001` through `A009` are accepted.  
+**Active work:** named by `.review/NEXT_STEPS.md`, which owns the active checkpoint, its contract and its
+candidate. This Index names where to look, not what is currently there.  
 **Next permitted sequence:** `M2 → M3 → Rob approves the exact M4 plan → M4 →
 checkpoint-definition Step 0 → C5`.  
 **M3, M4 and C5 status:** forbidden until Rob accepts M2.  
