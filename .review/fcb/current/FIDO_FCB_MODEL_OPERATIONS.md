@@ -63,8 +63,8 @@ report the documentation-access defect. Do not answer from a stale project-libra
 
 ### 3.1 Post-C4 sequence (D-29 / A008, then D-27 / A007)
 
-C4 is accepted. The eligible work is, in order: **M0 Governance Closeout**, then M1 Source Diet, M2 Build
-Observatory, M3 Tool and Build Architecture Audit, Rob's approval of the exact M4 plan, then M4 Mechanical
+C4 is accepted. The eligible work is, in order: **M0 Governance Closeout**, then M1 Source Diet, M2
+Performance Snapshot, M3 Tool and Build Architecture Audit, Rob's approval of the exact M4 plan, then M4 Mechanical
 Refactor. Each is a separate reviewed candidate; C5 is not eligible until M4 is accepted. The full contracts
 are the M0 closeout and the M-series plan under `.review/`; the Roadmap owns only the sequence.
 

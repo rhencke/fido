@@ -14,6 +14,15 @@
 > C4 and M0 are ACCEPTED; M1 Source Diet is the sole active work and C5 is not authorized; `.review/NEXT_STEPS.md` remains the live checkpoint authority.
 
 
+## 0. Complexity fit
+
+Governance `D-30`: **make each component as exact and rigorous as its real job requires, but no more
+complicated than that job justifies.**
+
+State the component's real job before proposing machinery, and propose only machinery that serves it. A new
+framework, registry, schema, validator hierarchy, compatibility layer or governance surface the accepted
+contract does not already require needs Rob's approval before implementation.
+
 ## 1. Selection
 
 Select the lowest-numbered Roadmap checkpoint whose dependencies are accepted. A checkpoint may consume only the exact Closure, Latitude, and Acceptance-Gate rows listed by the Roadmap. A missing lower foundation blocks all higher work.

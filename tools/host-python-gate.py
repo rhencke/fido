@@ -40,10 +40,6 @@ DOCKERFILE = 'Dockerfile'
 HOOK = '.githooks/pre-commit'
 LOCK = 'tools/python-requirements.lock'
 
-# A received review directive quotes the commands it is superseding; quoting one is not instructing current
-# usage.  The exemption is closed to that exact family so it can never be widened to a usage document.
-DOC_EXEMPT_RE = re.compile(r'^\.review/M2_IMPLEMENTATION_REPAIR_\d+\.md$')
-
 # The shell operators that start a NEW command, so a `docker run` earlier in the line does not launder an
 # interpreter invoked after a `&&`.
 SEGMENT_RE = re.compile(r'&&|\|\||;|\|')
@@ -233,9 +229,12 @@ def tracked(root: Path, suffix: str) -> list[str]:
 def check_docs(root: Path, findings: list[str]) -> None:
     launchers = launcher_variables(read(root, MAKEFILE))
     for rel in tracked(root, '.md'):
-        if DOC_EXEMPT_RE.match(rel):
-            continue
         for raw in (root / rel).read_text(encoding='utf-8').splitlines():
+            # A fenced-code DELIMITER names a language for highlighting; it is not an invocation. Stripping
+            # its backticks turned ```python into the bare token `python`, so no document could quote a
+            # Python block without being read as instructing one on the host.
+            if raw.strip().startswith('```'):
+                continue
             line = raw.strip().lstrip('$').strip().strip('`')
             if not line or line.startswith(('#', '>', '-', '*', '|')):
                 continue
@@ -454,6 +453,13 @@ def self_test(root: Path) -> int:
               'documents')
     must_accept('prose naming a tool file without instructing an interpreter',
                 append('README.md', '\n    tools/source-diet.py   the source-comment law\n'))
+    # A fenced Python block is a QUOTATION. Reading its language tag as a command made the boundary
+    # unstatable in its own prose: a review directive could not quote the code it was ordering deleted.
+    must_accept('a document quoting a fenced Python block',
+                append('README.md', '\n```python\nDOC = re.compile(r"x")\n```\n'))
+    must_flag('a host interpreter inside a fenced block is still an instruction',
+              append('README.md', '\n```sh\npython3 tools/source-diet.py --check\n```\n'),
+              'documents')
     must_flag('an executable project .py',
               lambda w: (w / 'tools' / 'naming-gate.py').chmod(0o755), 'is executable')
     must_flag('an unpinned Python base image',
@@ -478,12 +484,6 @@ def self_test(root: Path) -> int:
                            _write(w / 'tools' / 'ok.py', 'import requests\n')))
     must_accept('a non-executable .py tool',
                 lambda w: (w / 'tools' / 'naming-gate.py').chmod(0o644))
-
-    # ── the exemption mechanism cannot be widened to a usage document
-    total += 1
-    if DOC_EXEMPT_RE.match('README.md') or DOC_EXEMPT_RE.match('.review/M2_PERFORMANCE_SNAPSHOT.md'):
-        failures.append('the documentation exemption admits a usage document, so a host-Python instruction '
-                        'could be hidden behind it')
 
     # ── the repository as it stands must pass
     total += 1

@@ -1,8 +1,8 @@
 # M2 — Performance Snapshot
 
 > **Live checkpoint contract.** Installed by Rob's human disposition
-> `.review/M2_GREAT_MEASUREMENT_CULLING.md`, which withdrew the Build Observatory candidate <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
-> `1003734e67e2f07f5a10ec931e5c5729981d4652` and replaced the product outright.
+> `.review/M2_GREAT_MEASUREMENT_CULLING.md`. <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
+> The withdrawn experiment survives only in Git history.
 > **Obligations:** `.review/M2_OBLIGATION_MATRIX.tsv`. **Review basis:** `.review/REVIEW_BASIS.md`.
 
 Only Rob accepts M2.
@@ -108,14 +108,13 @@ existing correctness gates test the path being timed; a diagnostic timer does no
 system built around it. Matrix cells state that boundary explicitly rather than inventing a control.
 
 Do not recreate any deleted abstraction under a new name: no registry, configuration language, resume,
-partial selector, statistical analysis, self-test framework, local bundle hierarchy, comparison schema or
-observation object.
+partial selector, statistical analysis, self-test framework, bundle hierarchy, schema or comparison
+implementation.
 
 ---
 
 # 8. Exit condition
 
-M2 is complete when the live Build Observatory framework is gone from the working tree and survives only in
-Git history; `make perf` runs the exact serial `make check` path project-cold and then hot; the tracked TSV
+M2 is complete when `make perf` runs the exact serial `make check` path project-cold and then hot; the tracked TSV
 holds that result and changes only after both runs succeed; every correctness, proof, artifact and runtime
 check remains green; and one exact replacement candidate is frozen for Rob's review.

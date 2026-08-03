@@ -49,6 +49,11 @@ MUTANTS = (
      "        if False:",
      ('a recipe using the container launcher',)),
 
+    (HOSTPY, 'a fenced-code delimiter is not a command',
+     "            if raw.strip().startswith('```'):\n                continue",
+     "            if False:\n                continue",
+     ('a document quoting a fenced Python block',)),
+
     (HOSTPY, 'the executable-mode rule',
      "        if os.access(root / rel, os.X_OK):",
      "        if False:",
@@ -79,41 +84,6 @@ MUTANTS = (
      "            if os.path.lexists(os.path.join(os.fsencode(root), name))]",
      "    return tracked_and_untracked(root)",
      ('a tracked file deleted on disk is not resurrected from the index',)),
-    # §11 — an ad hoc request takes the smallest valid execution. Pulling the trace root in for a partial
-    # selection is what made `ONLY=make.prove` plan nine `make.check` traces.
-    # §7/§16 — the Make checkpoint relation, which did not exist until Make started emitting anchors.
-    # §10 — ad hoc variance that cannot leak into a canonical result or onto work nobody selected.
-    # §13 — resume's whole value is the refusal. Reusing a sample from another candidate would be
-    # indistinguishable from measuring this one, and cheaper.
-    # §14 — the only regression report the suite can give about itself.
-    # §12 — the stop that keeps a broken record from costing the rest of the suite.
-    # §6 — the serial claim read back from the builder rather than taken on trust.
-    # THE RELATION. Making containment unconditional would take a command's number from a trace that never
-    # ran in that state; making it never hold would run it again for a metric the root already establishes.
-    # Simulating a FOLLOWED link rather than deleting the branch: removing it makes a symlink match neither
-    # arm and raise, which fails the run without reaching the control that names this rule.
-    # The member list is the ONE authority the producer asserts against and the validator reads. Dropping
-    # `run_id` from it restores the exact split that let identity_problems demand a field the producer never
-    # emitted while a hand-built fixture supplied it.
-    # Scoped back to the hook alone — the shape the second instance hid behind for three runs.
-    # The defect this repair closed, reintroduced exactly: a bound keyed as its own kind, so a stage that ran
-    # faster than one clock tick became a metric the registry could not have declared.
-    # Two rules, two mutants. Neutralising them together made `stack.pop()` raise IndexError instead, so the
-    # self-test died before any named control could report — a crash is not a control failing.
-
-    # The three closure rules moved INTO the root validator when `check_relation_closed` turned out to be a
-    # second copy nothing called. Their mutants move with them, or the harness would be proving a function
-    # that no longer runs.
-    # §4 — the suite's own cost. Every rule here replaced one the reviewer walked straight through, so each
-    # is proved load-bearing by the control that names the exact mutation it accepted.
-    # §6 — the bundle output. Each rule replaced a shape the implementation could ship while the contract
-    # said otherwise.
-    # §2.7 — the permanent canonical-observation gate.
-    # §2.7 — resume reads provenance from the retained basis, with the mid-run fragment's top level as the
-    # fallback. Each read is its own rule because each was its own way to report a bundle as foreign.
-    # §2.7 — source identity is judged against the view the command DECLARES.
-    # Comparison no longer keeps its own copy of this rule; it reaches it through the one complete
-    # validator, so the anchor is the validator's.
     (FCB, 'repository inventory derivation',
      "    if not files:\n        raise ReferenceError_(",
      "    files = {'CLAUDE.md'}  # neutered: a fixed list, not the exact snapshot\n"

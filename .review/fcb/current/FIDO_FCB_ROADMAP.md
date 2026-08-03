@@ -18,7 +18,7 @@ The selection rule is strict: choose the lowest-numbered checkpoint whose depend
 
 ## Current boundary
 
-**C4 and M0 are ACCEPTED.** Amendments A001 through A008 are accepted. A001–A006 change no checkpoint assignment or dependency. A007 inserts the mechanical M-series between C4 acceptance closeout and C5 checkpoint-definition Step 0; A008 inserts M0 before M1. Neither reassigns a closure row, latitude row or acceptance gate.
+**C4 and M0 are ACCEPTED.** Amendments A001 through A009 are accepted. A001–A006 change no checkpoint assignment or dependency. A007 inserts the mechanical M-series between C4 acceptance closeout and C5 checkpoint-definition Step 0; A008 inserts M0 before M1; A009 installs the complexity-fit rule as `D-30`. None reassigns a closure row, latitude row or acceptance gate.
 
 This roadmap owns checkpoint ORDER and stable dependencies. It does not own the current candidate, its status, or the active work — `.review/NEXT_STEPS.md` owns those, and restating them here would create a second authority that drifts.
 

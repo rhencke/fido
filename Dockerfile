@@ -805,7 +805,11 @@ COPY --from=generated-module /generated/ /
 #    using the RENDERED go.mod and runs the witness vs reviewed goldens.  `go build ./...` is the blocking
 #    acceptance alarm; `go vet` is DIAGNOSTIC ONLY.  A failure here is a hard red — Admissible/rendering/transport
 #    is wrong, never a known issue.
-FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS go-e2e
+# The pinned Go toolchain, named once so it can be made locally available before a timed interval without
+# repeating the digest. `go-e2e` derives from it; nothing else about the stage changes.
+FROM golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f AS go-base
+
+FROM go-base AS go-e2e
 WORKDIR /e2e
 COPY --from=generated-module /generated/ ./tree/
 COPY --from=emit /workspace/generated-multi/ ./multi/

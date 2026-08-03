@@ -6,7 +6,7 @@
 > **Accepted amendments:** `FCB-A001-INTRINSIC-STATIC-CAPABILITY-PROVENANCE`; `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
 > `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
-> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  
+> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`, `FCB-A009-COMPLEXITY-FIT`.  
 > **Canonical live location:** `.review/fcb/current/` in the exact Git ref used for the task.  
 > **Stable bootstrap:** `.review/fcb/current/INDEX.md`  
 > Project libraries contain only a bootstrap shim. They do not contain or own the FCB corpus.  
@@ -351,6 +351,19 @@ cannot retroactively redefine completion.
 **Rationale:** Whole-system review prevents local blindness. Strict scope prevents an accepted semantic
 checkpoint from becoming the unbounded owner of every useful improvement found nearby.
 
+### D-30 — Complexity must fit the component's real job.
+
+**Standing law:** Make each component as exact and rigorous as its real job requires, but no more complicated
+than that job justifies.
+
+A design states the component's real job before proposing machinery. Implementation keeps only machinery which
+directly serves that job. Review reports `Complexity fit: PASS` or `Complexity fit: BLOCKED — <plain reason>`.
+A new framework, registry, schema, validator hierarchy, compatibility layer or governance surface not already
+required by the accepted contract needs Rob's approval before implementation.
+
+No automated gate is created for this judgment. It is a review duty, and a gate around it would be the first
+thing the rule forbids.
+
 ### D-29 — M0 closes governance after C4 without reopening C4.
 
 **Standing law:** After C4 acceptance and before M1, Fido completes one separately reviewed M0 Governance
@@ -515,6 +528,27 @@ preserves the governance duty without using it to extend C4.
 | Target/toolchain policy changed | None |
 | OCaml trust boundary changed | None |
 | Human act added | `M4-PLAN-APPROVAL` (`DEFERRED`) |
+
+### FCB-A009-COMPLEXITY-FIT
+
+| Field | Disposition |
+|---|---|
+| Amendment | `FCB-A009-COMPLEXITY-FIT` |
+| Status | **ACCEPTED** — Rob recorded `FCB-A009-complexity-fit` |
+| Author | Primary ChatGPT Fido review thread |
+| Human owner | Rob |
+| Date | `2026-08-03` |
+| New information | A withdrawn checkpoint reached roughly fifty thousand lines and a self-verifying measurement platform to answer a question a sixty-line shell script answers. Every individual addition was defensible and no rule asked whether the machinery still fit the job. |
+| Settled rule | Make each component as exact and rigorous as its real job requires, but no more complicated than that job justifies. |
+| Governance decisions added | `D-30` |
+| Reopened fixed point | None |
+| Contracts affected | Design, implementation and review process only; no semantic contract changes |
+| Checkpoints affected | None reopened |
+| Closure / latitude / standing acceptance-gate rows changed | None |
+| Target/toolchain policy changed | None |
+| Proof theorem or generated-byte guarantee changed | None |
+| OCaml trust boundary changed | None |
+| Human act added | None |
 
 ### FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT
 

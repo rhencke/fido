@@ -32,13 +32,13 @@ PYWRITE  = docker run $(PYARGS) -v "$(CURDIR)":/repo    $(PYTAG) python3
 # supplies; a reader subtracts adjacent rows.  CLOCK_MONOTONIC from /proc/uptime, because a wall clock can
 # step under NTP and a duration that can go backwards is not a duration.  The centiseconds field is two
 # digits, so 08 and 09 read as OCTAL and silently drop a marker — stripping the leading zero is the POSIX
-# fix, and `10#` would be a bashism.
+# fix, and `10#` would be a bashism.  The fraction is HUNDREDTHS, so a hundredth is ten milliseconds.
 #
 # The Makefile never parses, validates, compares or retains timing data.
 define fido_mark
 @if [ -n "$$FIDO_PERF_LOG" ]; then IFS='. ' read -r _s _c _r < /proc/uptime; _c=$${_c#0}; \
   printf '%s\t%s\t%s\n' "$$FIDO_PERF_MODE" '$(1)' \
-    $$(( _s * 1000 + $${_c:-0} / 10 - $${FIDO_PERF_T0:-0} )) >> "$$FIDO_PERF_LOG"; fi
+    $$(( _s * 1000 + $${_c:-0} * 10 - $${FIDO_PERF_T0:-0} )) >> "$$FIDO_PERF_LOG"; fi
 endef
 
 # Build the pinned tooling images if this exact tag is not already present.  Never a rebuild of an existing
@@ -62,11 +62,8 @@ pytools: builder
 # `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
 # tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
-# `check` is the canonical performance subject: its own wall time is the whole process, which `make perf`
-# invocation rather than from inside it — its prerequisites have already run by the time this recipe starts,
-# so an anchor here would begin after most of the work.  What this recipe body IS, is the working-tree
-# archive and generated compare, and §7 requires that unowned segment to carry its own stable ID so the
-# parent partitions into children plus explicit overhead instead of hiding the difference.
+# `make perf` times the complete `make -j1 check` invocation externally.
+# The `check` marker records only completion of this recipe body.
 check: pytools hostpython names fcb claims diet prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  $(PYRUN) tools/worktree-list.py --self-test && \
@@ -226,14 +223,9 @@ fcb-write: pytools
 	  done; \
 	  rm -rf "$$out"; echo "fido: fcb-write OK — published $$n validated view(s) ✓"
 
-# Just the Rocq File/Error lines.  On failure Buildx echoes the entire recipe back as its error trailer,
-# hundreds of lines, which buries the two that say what broke.  It reports; it does not verify.
-# A DIAGNOSTIC WRAPPER, not a second measurement: this runs `prover-log` — which is itself `prove` with plain
-# progress against the same Docker target — and greps its output, swallowing failure on purpose.  With
-# observation on, the inner Make emits its own `make.prover-log` interval into the same log, so this trace
-# CONTAINS that one.  Both are cataloged rather than measured, because a canonical run that took either as a
-# root would pay a second full theory build for a number it already has, and two traces would claim one
-# checkpoint interval — which §8 requires recording to refuse.
+# A diagnostic wrapper which reports the File/Error lines from `prover-log`; it deliberately swallows the
+# build failure so the useful diagnostics remain visible.  On failure Buildx echoes the entire recipe back as
+# its error trailer, hundreds of lines, which buries the two that say what broke.
 prove-errors:
 	@$(MAKE) --no-print-directory prover-log > /tmp/fido-prover.log 2>&1 || true
 	@grep -E '(^|[0-9.# ]+)(File "|Error:)' /tmp/fido-prover.log | sed 's/^[0-9.# ]*//' | sort -u | head -40 \

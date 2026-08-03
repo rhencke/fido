@@ -122,6 +122,28 @@ repetition.
 At the end of an initial review, Codex must state that it completed the entire requested surface. If it did not,
 the review is incomplete and cannot be used as the checkpoint gate.
 
+## Complexity fit
+
+Governance `D-30`: **make each component as exact and rigorous as its real job requires, but no more
+complicated than that job justifies.**
+
+A Contract Review asks whether the proposed machinery is justified by the real job. An Implementation Review
+asks whether the retained machinery supports the product or mainly supports itself.
+
+Every review reports exactly one line:
+
+```text
+Complexity fit: PASS
+```
+
+or:
+
+```text
+Complexity fit: BLOCKED — <plain reason>
+```
+
+There is no gate for this. It is a judgment, and a gate around it would be the first thing the rule forbids.
+
 ## Contract Review
 
 ### Timing

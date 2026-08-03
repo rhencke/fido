@@ -8,7 +8,7 @@
 > `FCB-A002-GIT-CANONICAL-FCB-STORAGE`; `FCB-A003-LIVING-DOCUMENTATION`;
 > `FCB-A004-GIT-RESOLVABLE-LIVING-CORPUS`; `FCB-A005-SCOPED-NAME-OWNERSHIP`;
 > `FCB-A006-INTRINSIC-EMIT-IMAGE-MINT`; `FCB-A007-POST-C4-MECHANICAL-SERIES`;
-> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`.  
+> `FCB-A008-STRICT-CHECKPOINT-SCOPE-AND-M0-CLOSEOUT`, `FCB-A009-COMPLEXITY-FIT`.  
 > **Canonical live location:** `.review/fcb/current`, in the exact Git ref used for the task. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT -->
 > **Stable bootstrap:** the `INDEX.md` beside this file, listed with its role in the live file set below.  
 > Project libraries contain a bootstrap shim only. They do not contain or own this corpus.  
@@ -30,7 +30,7 @@ permanent source-comment law is rehomed to `.review/M_SERIES_PLAN.md` and `tools
 **Active work:** M2 Performance Snapshot, in `.review/M2_PERFORMANCE_SNAPSHOT.md`, which
 `.review/NEXT_STEPS.md` names as its authority. `NEXT_STEPS` owns candidate state; this Index names the
 boundary, not the candidate.  
-Governance owns `D-01` through `D-29`; amendments `A001` through `A008` are accepted.  
+Governance owns `D-01` through `D-30`; amendments `A001` through `A009` are accepted.  
 **Next permitted sequence:** `M2 → M3 → Rob approves the exact M4 plan → M4 →
 checkpoint-definition Step 0 → C5`.  
 **M3, M4 and C5 status:** forbidden until Rob accepts M2.  
@@ -70,7 +70,7 @@ D-24 gate checks that agreement rather than trusting either side alone.
 |---|---|---|
 | `.review/fcb/current/INDEX.md` | authority | Stable Git bootstrap; names this Index and the live checkpoint authority. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-INDEX-MD --> |
 | `.review/fcb/current/FIDO_FCB_INDEX.md` | authority | This file: live file set with roles, current boundary, and consultation map. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-INDEX-MD --> |
-| `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` | authority | Authority rules, settled decisions D-01–D-29, amendment register, ADR register, amendment law. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-GOVERNANCE-MD --> |
+| `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` | authority | Authority rules, settled decisions D-01–D-30, amendment register, ADR register, amendment law. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-GOVERNANCE-MD --> |
 | `.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md` | authority | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-ARCHITECTURE-CHARTER-MD --> |
 | `.review/fcb/current/FIDO_FCB_FIXED_POINTS.md` | authority | The 24 parent fixed points and their protected components. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-FIXED-POINTS-MD --> |
 | `.review/fcb/current/FIDO_FCB_HUMAN_ACTS.tsv` | authority | Canonical rows for the open human acts; the sole authority for that set (D-07). <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-HUMAN-ACTS-TSV --> |

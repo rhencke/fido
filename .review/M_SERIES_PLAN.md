@@ -124,12 +124,7 @@ permanent gate enforcing one checkpoint's baseline would reject every later file
 **Active.** The full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`; its nine obligations are tracked in <!-- FIDO-FCB-REF:REVIEW-M2-PERFORMANCE-SNAPSHOT-MD -->
 `.review/M2_OBLIGATION_MATRIX.tsv`. <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
 
-The Build Observatory that previously occupied this slot was **withdrawn by human disposition**. The
-rejection was of the product architecture, not of one more defect: a tiny diagnostic timing aid had become a
-large self-verifying measurement platform. Git history owns that experiment in full and no part of it
-survives in the live tree.
-
-What M2 delivers now is deliberately small. `make perf` runs the exact `make -j1 check` path once
+`make perf` runs the exact `make -j1 check` path once
 project-cold and once hot on a dedicated serial builder, records cumulative elapsed milliseconds at nine
 real target completions, and replaces one tracked `.review/PERFORMANCE.tsv`. `git diff` is the comparison
 tool. Timing is diagnostic evidence — not certified correctness, not a semantic authority, not a benchmark
@@ -144,17 +139,18 @@ there is no acquisition left to restructure.
 
 ## M3 — Tool and Build Architecture Audit
 
-### Carried over from the withdrawn observatory
+### Deferred M3 findings
 
-Five findings survive the culling because each has a real later owner. They carry no timing numbers:
-`.review/PERFORMANCE.tsv` owns the current ones, and a number copied into prose is stale the next time
-anyone runs the target.
+These carry no timing numbers: `.review/PERFORMANCE.tsv` owns the current ones, and a number copied into
+prose is stale the next time anyone runs the target.
 
 1. Determine why ordinary source edits invalidate more downstream work than the proof dependency structure
    appears to require.
 2. Audit policy-gate cost and repeated execution in `make check` and the pre-commit path.
-3. Audit the mutation harness's repository copying and execution architecture. The parallel-execution
-   improvement already landed and is kept; judge it again on its own merits.
+3. Audit the mutation harness's repository copying and execution architecture, and its cost: it is the
+   largest single item in a hot `make check`.
+6. Audit every retained tool under `D-30`. Current presence proves only that M2 does not delete it; M3 must
+   decide whether its exact size and architecture are justified by its real job.
 4. Measure and account for the deliberate cost of the no-host-Python boundary before changing its pinned
    image.
 5. General Make, hook, Buildx and cache architecture remains M3/M4 work.
