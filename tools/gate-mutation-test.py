@@ -25,6 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+CLAIMS = 'tools/claim-matrix-gate.py'
 FCB = 'tools/fcb-reference-gate.py'
 ACTS = 'tools/human-review-index.py'
 NAMES = 'tools/naming-gate.py'
@@ -84,6 +85,11 @@ MUTANTS = (
      "            if os.path.lexists(os.path.join(os.fsencode(root), name))]",
      "    return tracked_and_untracked(root)",
      ('a tracked file deleted on disk is not resurrected from the index',)),
+    (CLAIMS, 'the do-not-freeze-early rule, scoped to Implementation Review',
+     "        if 'state: requested' in asked and 'review: Implementation Review' in asked:",
+     "        if False:",
+     ('review requested while an obligation is still open',)),
+
     (FCB, 'repository inventory derivation',
      "    if not files:\n        raise ReferenceError_(",
      "    files = {'CLAUDE.md'}  # neutered: a fixed list, not the exact snapshot\n"

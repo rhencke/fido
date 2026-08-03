@@ -41,7 +41,7 @@ import re
 import sys
 from pathlib import Path
 
-TSV_REL = '.review/M2_OBLIGATION_MATRIX.tsv'
+TSV_REL = '.review/M3_OBLIGATION_MATRIX.tsv'
 REVIEW_REQUEST_REL = '.review/REVIEW_REQUEST.md'
 PENDING = 'pending: '
 UNSUPPORTED = 'unsupported-boundary: '
@@ -56,7 +56,8 @@ DECL_KINDS = ('Definition', 'Lemma', 'Theorem', 'Corollary', 'Record', 'Inductiv
 # namespaces: it is what the directive says must be answered, and a matrix missing one is not a matrix with a
 # gap — it is a matrix that has quietly dropped an accepted requirement.
 REQUIRED_OBLIGATIONS = (
-    'M2-01', 'M2-02', 'M2-03', 'M2-04', 'M2-05', 'M2-06', 'M2-07', 'M2-08', 'M2-09',
+    'M3-01', 'M3-02', 'M3-03', 'M3-04', 'M3-05', 'M3-06',
+    'M3-07', 'M3-08', 'M3-09', 'M3-10', 'M3-11', 'M3-12',
 )
 
 # A row whose `gate` cell names this runs an EXECUTABLE check instead of merely pointing at evidence: no
@@ -262,7 +263,11 @@ def run(root: Path) -> str:
     # rule not to freeze when the first findings turn green — prose alone has not held that line before.
     if still_open:
         rr = root / REVIEW_REQUEST_REL
-        if rr.is_file() and 'state: requested' in read_text(rr, 'review request'):
+        # An IMPLEMENTATION Review only. A Contract Review is requested before any work exists, so every
+        # obligation is open by definition then; refusing it would make a contract unreviewable and the
+        # rule would be asserting the opposite of what it means.
+        asked = read_text(rr, 'review request') if rr.is_file() else ''
+        if 'state: requested' in asked and 'review: Implementation Review' in asked:
             raise MatrixError(
                 f'{REVIEW_REQUEST_REL} requests review, but {len(still_open)} obligation(s) are still open: '
                 + ', '.join(still_open))
@@ -451,11 +456,13 @@ def drop_required_row(work: Path):
 
 
 def request_review(work: Path):
-    """Ask for review while an obligation is open — the executable form of "do not freeze early"."""
+    """Ask for IMPLEMENTATION review while an obligation is open — the executable "do not freeze early"."""
     _reopen_first_row(work, pending=True)
     p = work / REVIEW_REQUEST_REL
-    p.write_text(p.read_text(encoding='utf-8').replace('state: closed', 'state: requested', 1),
-                 encoding='utf-8')
+    t = p.read_text(encoding='utf-8')
+    t = t.replace('state: closed', 'state: requested', 1)
+    t = re.sub(r'(?m)^review: .*$', 'review: Implementation Review', t, count=1)
+    p.write_text(t, encoding='utf-8')
 
 
 def rename_named_surface(work: Path):

@@ -191,6 +191,22 @@ manifest to verify — Git content-addresses the bytes. FCB files from different
 work, and a real risk that different conversations consult different bytes. Git already provides common access,
 history, review, and exact identity.
 
+## 3A. Checkpoint disposition register
+
+Rob's accepted checkpoints and the exact ref each disposition names. This is the one place an acceptance is
+recorded; `.review/NEXT_STEPS.md` owns which checkpoint is under way, and Git history owns each accepted
+checkpoint's contract, obligation matrix, repairs and evidence.
+
+| Checkpoint | Disposition | Accepted ref |
+|---|---|---|
+| C4 | `C4-ACCEPT-39ea7e3` | `39ea7e3b012ec798c6a756c971c10bb363557ef8` |
+| M0 Governance Closeout | `M0-ACCEPT-86a63db` | recorded with the disposition |
+| M1 Source Diet | `M1-ACCEPT-6524b43` | `6524b437bd7a7d6b2616563b8789e28a00c7af13` |
+| M2 Performance Snapshot | `M2-ACCEPT-9814db7` | `9814db77ead0cfcfd8ff268303ba2afedef71197` |
+
+M2's permanent result — `make perf`, `tools/perf.sh`, `.review/PERFORMANCE.tsv` and the inert completion
+markers — outlives its checkpoint and is owned by `.review/M_SERIES_PLAN.md`.
+
 ## 4. ADR register
 
 | ADR | Current status | Standing result | Reopen trigger |

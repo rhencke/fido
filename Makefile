@@ -180,7 +180,7 @@ diet: pytools
 # replaces `.review/PERFORMANCE.tsv`.  `git diff` is the comparison.
 #
 # It is diagnostic evidence, not certified correctness: no gate consults it, nothing depends on it, and it
-# is a prerequisite of nothing.  See `.review/M2_PERFORMANCE_SNAPSHOT.md`.
+# is a prerequisite of nothing.  See the M2 section of `.review/M_SERIES_PLAN.md`.
 perf:
 	@sh tools/perf.sh
 

@@ -122,8 +122,12 @@ permanent gate enforcing one checkpoint's baseline would reject every later file
 
 ## M2 — Performance Snapshot
 
-The full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`; its nine obligations are tracked in <!-- FIDO-FCB-REF:REVIEW-M2-PERFORMANCE-SNAPSHOT-MD -->
-`.review/M2_OBLIGATION_MATRIX.tsv`. <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
+Git history owns M2's contract, obligation matrix, repairs and the human culling narrative. What survives its
+checkpoint is stated here, because a result with no live owner is a result nothing protects.
+
+**The permanent rule.** `make perf` is diagnostic evidence. It is a prerequisite of nothing, no gate reads
+`.review/PERFORMANCE.tsv`, `git diff` is the comparison, and it must not regrow into a benchmark framework.
+The implementation is `tools/perf.sh` and the record is `.review/PERFORMANCE.tsv`. <!-- FIDO-FCB-REF:TOOLS-PERF-SH --> <!-- FIDO-FCB-REF:REVIEW-PERFORMANCE-TSV -->
 
 `make perf` runs the exact `make -j1 check` path once
 project-cold and once hot on a dedicated serial builder, records cumulative elapsed milliseconds at nine
@@ -139,6 +143,8 @@ M2 measures. It does not restructure the project, and it no longer restructures 
 there is no acquisition left to restructure.
 
 ## M3 — Tool and Build Architecture Audit
+
+The full contract is `.review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md`. <!-- FIDO-FCB-REF:REVIEW-M3-TOOL-AND-BUILD-ARCHITECTURE-AUDIT-MD -->
 
 ### Deferred M3 findings
 
