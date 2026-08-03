@@ -10,9 +10,9 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 PERFORMANCE SNAPSHOT IS FROZEN AWAITING ROB'S REVIEW.** Candidate `be0b569e598250449b9f131aeb8cbeaa3907860c`,
-  which repairs the blocked `3441e75aabde2f2b0932751643b56f9590b5a58b`. The tracked pair is unchanged from
-  that candidate: cold `make check` 268.5s, hot 62.2s, on builder `fido-perf-v1`.
+- **M2 PERFORMANCE SNAPSHOT IS FROZEN AWAITING ROB'S REVIEW.** Candidate `d44a69dd5f538cf9888303f579e766d889348018`,
+  which repairs the blocked `be0b569e598250449b9f131aeb8cbeaa3907860c`. The recorded pair: cold
+  `make check` 270.0s, hot 63.7s, on a `fido-perf-v1` this run created.
   Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
   The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_3.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-3-MD -->
   implementation work; superseded repair directives live in Git history.
