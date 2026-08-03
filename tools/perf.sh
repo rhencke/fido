@@ -17,13 +17,20 @@ OUT=.review/PERFORMANCE.tsv
 # ── Outside the measured interval: the builder and the stable toolchain layers ────────────────────────────
 # A serial builder, because a timing that depends on how many stages happened to run in parallel is not a
 # timing anyone can compare across runs.
-if ! docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
-    cfg=$(mktemp -d)
-    printf '[worker.oci]\n  max-parallelism = 1\n' > "$cfg/buildkitd.toml"
-    docker buildx create --name "$BUILDER" --driver docker-container --buildkitd-config "$cfg/buildkitd.toml" \
-        >/dev/null
-    rm -rf "$cfg"
+#
+# ALWAYS recreated, never adopted. Creating it only when absent meant a pre-existing `fido-perf-v1` — with
+# default parallelism, or any configuration at all — was accepted unread while the tracked header went on
+# claiming `max-parallelism=1`. The builder is dedicated to this one diagnostic, so owning it outright is
+# both the simplest rule and the only one that makes the published header a fact the script established.
+cfg=$(mktemp -d)
+trap 'rm -rf "$cfg"' EXIT INT TERM
+printf '[worker.oci]\n  max-parallelism = 1\n' > "$cfg/buildkitd.toml"
+if docker buildx inspect "$BUILDER" >/dev/null 2>&1; then
+    echo "fido: perf — removing the existing $BUILDER; its configuration is not one this script established"
+    docker buildx rm "$BUILDER" >/dev/null
 fi
+docker buildx create --name "$BUILDER" --driver docker-container --buildkitd-config "$cfg/buildkitd.toml" \
+    >/dev/null
 docker buildx inspect --bootstrap "$BUILDER" >/dev/null
 
 # Every stable toolchain authority, built ON THE MEASURED BUILDER, so no registry pull and no toolchain
@@ -37,7 +44,7 @@ done
 
 log=$(mktemp)
 tmp=
-trap 'rm -f "$log" ${tmp:+"$tmp"}' EXIT INT TERM
+trap 'rm -rf "$cfg"; rm -f "$log" ${tmp:+"$tmp"}' EXIT INT TERM
 
 # /proc/uptime's fraction is HUNDREDTHS of a second, so a hundredth is ten milliseconds.  The leading zero is
 # stripped because 08 and 09 are octal to the shell.

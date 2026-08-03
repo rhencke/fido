@@ -3,9 +3,9 @@
 > **Live authority.** Installed by accepted amendment `FCB-A007-POST-C4-MECHANICAL-SERIES` and governed by
 > Governance `D-27`. Its identity is its Git blob at the exact ref resolved for the task; its history is the
 > commit log.
-> **Sequencing:** M0 and M1 are accepted; M2 through M4 follow, then checkpoint-definition Step 0 for C5.
-> **C4, M0 and M1 are ACCEPTED.** M2 Performance Snapshot is the sole active work; M3 and M4 implementation are
-> FORBIDDEN. Installing a plan does not authorize implementing it.
+> **Sequencing:** M0, M1, M2, M3, M4, then checkpoint-definition Step 0 for C5. Each candidate is separately
+> reviewed and begins only when its dependencies are accepted. Which are accepted and which is under way is
+> owned by `.review/NEXT_STEPS.md`. Installing a plan does not authorize implementing it.
 
 The current repository carries source prose, proof text and build tooling that has accumulated without one
 owned build architecture. Much of the prose records superseded design history that Git already preserves. Full
@@ -30,10 +30,11 @@ C4 acceptance closeout
 → C5 Machine base
 ```
 
-Each M candidate is a separate reviewed candidate. M0 and M1 are accepted, and Git history owns each of
-their contracts, obligation matrices and evidence. M1's permanent result — the source-comment law — survives
-its checkpoint and is stated normatively below, because a law with no live owner is a law nothing enforces.
-**M2 Performance Snapshot is active**, and its full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`.
+Each M candidate is a separate reviewed candidate, and Git history owns the contract, obligation matrix and
+evidence of each accepted one. M1's permanent result — the source-comment law — survives its checkpoint and
+is stated normatively below, because a law with no live owner is a law nothing enforces; its provenance is
+Rob's disposition `M1-ACCEPT-6524b43`. Which candidate is under way, and its contract, is owned by
+`.review/NEXT_STEPS.md`.
 M4 begins only after M2 and M3 evidence exists and Rob accepts the exact refactor plan produced by M3 — the
 tracked human act is `M4-PLAN-APPROVAL`.
 <!-- FIDO-HUMAN-ACT:M4-PLAN-APPROVAL -->

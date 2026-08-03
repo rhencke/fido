@@ -61,13 +61,15 @@ report the documentation-access defect. Do not answer from a stale project-libra
 
 ### 3.1 Post-C4 sequence (D-29 / A008, then D-27 / A007)
 
-C4 is accepted. The eligible work is, in order: **M0 Governance Closeout**, then M1 Source Diet, M2
+After C4 acceptance, the eligible work is, in order: **M0 Governance Closeout**, then M1 Source Diet, M2
 Performance Snapshot, M3 Tool and Build Architecture Audit, Rob's approval of the exact M4 plan, then M4 Mechanical
-Refactor. Each is a separate reviewed candidate; C5 is not eligible until M4 is accepted. The full contracts
-are the M0 closeout and the M-series plan under `.review/`; the Roadmap owns only the sequence.
+Refactor. Each is a separate reviewed candidate, and each becomes eligible only when its predecessor is
+accepted; C5 is not eligible until M4 is accepted. The full contracts are the M0 closeout and the M-series
+plan under `.review/`; the Roadmap owns only the sequence, and `.review/NEXT_STEPS.md` owns which candidate
+is under way.
 
-**M1 through M4 implementation is forbidden until Rob accepts M0.** Installing a plan or an amendment does not
-authorize implementing it, and a green intermediate gate is not acceptance.
+**A checkpoint's implementation is forbidden until Rob accepts its predecessor.** Installing a plan or an
+amendment does not authorize implementing it, and a green intermediate gate is not acceptance.
 
 ### 3.2 Scope classification (D-28)
 

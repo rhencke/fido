@@ -14,21 +14,11 @@
 This is the live Git-hosted FCB. The stable entry point is `.review/fcb/current/INDEX.md`. Superseded states
 live in Git history, never beside the live set.
 
-## Current project boundary
+## Stable boundary
 
-**C4 acceptance:** C4 is **ACCEPTED**, under Rob's disposition `C4-ACCEPT-39ea7e3`. The exact accepted ref is
-recorded once, in the A008 amendment register row; it is history, not current work. The blocked candidates and
-their repair narratives live in Git history.  
-**M0 acceptance:** M0 is **ACCEPTED**, under Rob's disposition `M0-ACCEPT-86a63db`. Git history owns its
-contract, its obligation matrix and its evidence.  
-**M1 acceptance:** M1 is **ACCEPTED** at `6524b437bd7a7d6b2616563b8789e28a00c7af13`, under Rob's
-disposition `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence; its
-permanent source-comment law is rehomed to `.review/M_SERIES_PLAN.md` and `tools/source-diet.py`.  
-**Active work:** named by `.review/NEXT_STEPS.md`, which owns the active checkpoint, its contract and its
-candidate. This Index names where to look, not what is currently there.  
-**Next permitted sequence:** `M2 → M3 → Rob approves the exact M4 plan → M4 →
-checkpoint-definition Step 0 → C5`.  
-**M3, M4 and C5 status:** forbidden until Rob accepts M2.  
+**Active work, its contract and its candidate:** `.review/NEXT_STEPS.md`, which owns them. Follow the
+contract it names. This Index says where to look, never what is currently there; accepted dispositions are
+Governance's and Git history's.  
 **M-series authority:** `.review/M_SERIES_PLAN.md` <!-- FIDO-FCB-REF:REVIEW-M-SERIES-PLAN-MD -->  
 **Scope rule (D-28):** review the whole system; block the active checkpoint only for a defect in its accepted
 contract or an explicit acceptance dependency. Every other finding is assigned to the earliest mandatory
@@ -64,7 +54,7 @@ D-24 gate checks that agreement rather than trusting either side alone.
 | Path | Role | Purpose |
 |---|---|---|
 | `.review/fcb/current/INDEX.md` | authority | Stable Git bootstrap; names this Index and the live checkpoint authority. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-INDEX-MD --> |
-| `.review/fcb/current/FIDO_FCB_INDEX.md` | authority | This file: live file set with roles, current boundary, and consultation map. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-INDEX-MD --> |
+| `.review/fcb/current/FIDO_FCB_INDEX.md` | authority | This file: live file set with roles, and the consultation map. It owns no current value. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-INDEX-MD --> |
 | `.review/fcb/current/FIDO_FCB_GOVERNANCE.md` | authority | Authority rules, settled decisions D-01–D-30, amendment register, ADR register, amendment law. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-GOVERNANCE-MD --> |
 | `.review/fcb/current/FIDO_FCB_ARCHITECTURE_CHARTER.md` | authority | Permanent architecture, intrinsic static-capability provenance, proof-contract catalog SC-00–SC-22. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-ARCHITECTURE-CHARTER-MD --> |
 | `.review/fcb/current/FIDO_FCB_FIXED_POINTS.md` | authority | The 24 parent fixed points and their protected components. <!-- FIDO-FCB-REF:REVIEW-FCB-CURRENT-FIDO-FCB-FIXED-POINTS-MD --> |
@@ -86,7 +76,7 @@ D-24 gate checks that agreement rather than trusting either side alone.
 | Deciding… | Consult | Use specifically |
 |---|---|---|
 | What to build next | `FIDO_FCB_ROADMAP.md` | Lowest eligible checkpoint and exact row list. |
-| What is being worked on right now | `.review/M2_PERFORMANCE_SNAPSHOT.md` + Governance D-27 | The M2 contract, obligations `M2-01` through `M2-09`, and what M2 may not touch. |
+| What is being worked on right now | `.review/NEXT_STEPS.md`, then the contract it names | The active checkpoint, its contract, its obligations and what it may not touch. |
 | What runs between M2 and C5 | `.review/M_SERIES_PLAN.md` + Governance D-27 + Roadmap | The M2–M4 sequence and each candidate's mechanical contract. M3 and M4 forbidden until M2 is accepted. |
 | Whether a finding blocks the active checkpoint | Governance D-28 | Only a defect in the accepted contract or an explicit acceptance dependency blocks. Everything else gets a mandatory follow-up owner. |
 | Whether a construct is in scope | `FIDO_FCB_CLOSURE_LEDGER.csv` / `.md` | Row disposition and inclusion price. `OUT` is priced, not forgotten. |

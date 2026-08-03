@@ -14,8 +14,8 @@ under human review, but it does not own mutable state. Canonical data rows carry
   which repairs the blocked `3441e75aabde2f2b0932751643b56f9590b5a58b`. The tracked pair is unchanged from
   that candidate: cold `make check` 268.5s, hot 62.2s, on builder `fido-perf-v1`.
   Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
-  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_2.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-2-MD -->
-  implementation work. Its predecessor `.review/M2_CULLING_REPAIR_1.md` is superseded. <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-1-MD -->
+  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_3.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-3-MD -->
+  implementation work; superseded repair directives live in Git history.
   The accepted review basis is `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Rob's disposition ordering the culling is `.review/M2_GREAT_MEASUREMENT_CULLING.md`. <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
   The Build Observatory was withdrawn by Rob and survives only in Git history.
@@ -36,8 +36,7 @@ under human review, but it does not own mutable state. Canonical data rows carry
   contract or an explicit acceptance dependency. Assign every other finding to the earliest mandatory
   follow-up — M2 for build evidence, M3 for tool and build architecture, M4 for approved restructuring — and
   keep it visible in Git. Discovery does not determine scope.
-- **Governing accepted amendments.** `A001` through `A009` are **ACCEPTED**; Governance owns `D-01` through
-  `D-30`.
+- **Governing amendments and decisions.** Owned by `.review/fcb/current/FIDO_FCB_GOVERNANCE.md`.
 - **Documentation basis:** the live Fido Conformance Basis is `.review/fcb/current` (Git-canonical per **A002**,
   living-document form per **A003**; identity is `git rev-parse HEAD:.review/fcb/current`).
 - **Scope decisions:** **ADR-0001 / SR-001 ACCEPTED FOR CURRENT BASIS** (Rob, 2026-07-25) — Go 1.23 on
