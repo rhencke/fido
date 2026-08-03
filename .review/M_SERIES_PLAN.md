@@ -20,8 +20,8 @@ not be frozen on top of it.
 
 ```text
 C4 acceptance closeout
-→ M0 Governance Closeout (accepted)
-→ M1 Source Diet (accepted)
+→ M0 Governance Closeout
+→ M1 Source Diet
 → M2 Performance Snapshot
 → M3 Tool and Build Architecture Audit
 → Rob approves the exact M4 plan
@@ -122,7 +122,7 @@ permanent gate enforcing one checkpoint's baseline would reject every later file
 
 ## M2 — Performance Snapshot
 
-**Active.** The full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`; its nine obligations are tracked in <!-- FIDO-FCB-REF:REVIEW-M2-PERFORMANCE-SNAPSHOT-MD -->
+The full contract is `.review/M2_PERFORMANCE_SNAPSHOT.md`; its nine obligations are tracked in <!-- FIDO-FCB-REF:REVIEW-M2-PERFORMANCE-SNAPSHOT-MD -->
 `.review/M2_OBLIGATION_MATRIX.tsv`. <!-- FIDO-FCB-REF:REVIEW-M2-OBLIGATION-MATRIX-TSV -->
 
 `make perf` runs the exact `make -j1 check` path once
@@ -187,8 +187,8 @@ M3 must produce the exact proposed M4 graph and refactor plan. It does not imple
 
 ### Deferred M3 findings
 
-Assigned by the M1 implementation review under Governance `D-28`. None blocks M1, and none may be implemented
-before Rob accepts M1.
+These findings were assigned to M3 by the M1 implementation review under Governance `D-28`, and remain
+mandatory M3 work.
 
 1. `tools/naming-gate.py` carries an inert exclusion for a deleted C4 repair and does not validate that its
    exclusions resolve.

@@ -10,11 +10,11 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `M1-ACCEPT-6524b43`. Git history owns its contract, its obligation matrix and its evidence. Its permanent
   result — the source-comment law and the gate enforcing it — is owned by `.review/M_SERIES_PLAN.md` and
   `tools/source-diet.py`, and outlives the checkpoint that produced it.
-- **M2 PERFORMANCE SNAPSHOT IS FROZEN AWAITING ROB'S REVIEW.** Candidate `d44a69dd5f538cf9888303f579e766d889348018`,
-  which repairs the blocked `be0b569e598250449b9f131aeb8cbeaa3907860c`. The recorded pair: cold
-  `make check` 270.0s, hot 63.7s, on a `fido-perf-v1` this run created.
+- **M2 PERFORMANCE SNAPSHOT REPAIR 4 IS IN PROGRESS.** Candidate
+  `d44a69dd5f538cf9888303f579e766d889348018` is BLOCKED: the M-series plan still carried the active-checkpoint
+  cursor in three places while the review request claimed it did not.
   Authority: `.review/M2_PERFORMANCE_SNAPSHOT.md`, which states the replacement product in full.
-  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_3.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-3-MD -->
+  The blocking review ordering this repair is `.review/M2_CULLING_REPAIR_4.md`, the sole permitted <!-- FIDO-FCB-REF:REVIEW-M2-CULLING-REPAIR-4-MD -->
   implementation work; superseded repair directives live in Git history.
   The accepted review basis is `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
   Rob's disposition ordering the culling is `.review/M2_GREAT_MEASUREMENT_CULLING.md`. <!-- FIDO-FCB-REF:REVIEW-M2-GREAT-MEASUREMENT-CULLING-MD -->
