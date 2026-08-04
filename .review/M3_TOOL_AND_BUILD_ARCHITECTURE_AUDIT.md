@@ -1,6 +1,7 @@
 # M3 — Tool and Build Architecture Audit
 
-> **Live checkpoint contract.** Installed by Rob's M2 acceptance closeout directive. Its obligations are
+> **Live checkpoint contract.** Installed by Rob's M2 acceptance closeout directive and revised under the
+> blocking Contract Review recorded in `.review/M3_CONTRACT_REVIEW_REPAIR_1.md`. Its obligations are <!-- FIDO-FCB-REF:REVIEW-M3-CONTRACT-REVIEW-REPAIR-1-MD -->
 > `.review/M3_OBLIGATION_MATRIX.tsv`; the audit it produces is `.review/M3_AUDIT.md` and the plan it produces <!-- FIDO-FCB-REF:REVIEW-M3-OBLIGATION-MATRIX-TSV --> <!-- FIDO-FCB-REF:REVIEW-M3-AUDIT-MD -->
 > is `.review/M4_MECHANICAL_REFACTOR_PLAN.md`. <!-- FIDO-FCB-REF:REVIEW-M4-MECHANICAL-REFACTOR-PLAN-MD -->
 
@@ -26,7 +27,10 @@ and an audit is a better place to repeat the mistake than most.
 # 2. Baseline and target
 
 The exact baseline is the accepted M2 candidate `9814db77ead0cfcfd8ff268303ba2afedef71197`, whose
-`.review/PERFORMANCE.tsv` owns the full-path cold and hot timing.
+`.review/PERFORMANCE.tsv` owns the cold and hot timing of **one** configuration: `make -j1 check` on a
+dedicated single-parallelism builder. That is the reproducible serial diagnostic baseline. It is not, by
+itself, the wall time a developer experiences under ordinary settings — §5 names the distinct
+configurations and forbids pooling them.
 
 The goal is not a release gate and makes no correctness claim:
 
@@ -38,22 +42,45 @@ The goal is not a release gate and makes no correctness claim:
 - no second build graph.
 
 Under one minute for the ordinary edit loop is a goal — not permission to omit work, and not permission to
-call a partial result complete.
+call a partial result complete. A goal is never evidence: no target or projection may be recorded as an
+observed measurement, and reaching one is not an M3 completion claim.
 
 ---
 
 # 3. Scope
 
-M3 audits the whole current execution architecture: every project Python tool, every shell tool, every public
-Make target and dependency, every pre-commit stage, every Docker/Buildx stage, COPY edge, cache mount and
-target, every Dune alias, module dependency and plugin build, every Rocq proof and assumption gate, the
-extraction and plugin build paths, the Go build, e2e, generation and publication paths, the working-tree and
-staged-snapshot inventories, the generated-output and mode checks, and every repeated source-enumeration and
-repository-copy operation.
+M3 audits the current execution architecture. The **audit unit is finite and closed**, because an audit
+whose unit is "every surface" can be satisfied only by an enormous quasi-registry — the exact failure
+`D-30` exists to prevent.
 
-For each surface the audit records tersely: stable ID, real job, owner/contract, source view, inputs and
-outputs, environment, dependencies and cache inputs, failure behaviour, negative controls, where it runs,
-overlap with another surface, and complexity-fit disposition.
+An audit unit is:
+
+1. each tracked executable tool file;
+2. each public Make target;
+3. each named pre-commit stage;
+4. each Docker/Buildx stage, persistent cache and source-view boundary that affects execution or invalidation;
+5. each Dune alias, module dependency edge or proof-build unit that affects fan-out or the critical path;
+6. each distinct proof, assumption, extraction, e2e, generated-byte or publication gate;
+7. an internal helper **only** when it owns a distinct policy fact, source enumeration, cache key, production
+   edge or dominant measured cost.
+
+**Do not inventory every function, theorem or proof body.** Exact sibling surfaces may share one row only when
+that row lists every path or ID and they truly have one job, one owner, one source view and one disposition.
+
+Each row records only what supports its decision:
+
+```text
+stable ID
+exact surface(s)
+real job and owner
+source view / environment
+measured cost, fan-out, cache or overlap evidence when relevant
+disposition
+M4 step ID, or a plain retain/no-change reason
+```
+
+The allowed dispositions are exactly `KEEP`, `SIMPLIFY`, `MERGE`, `DELETE` and `MOVE`. "Investigated" is not a
+disposition.
 
 That is **one temporary audit table** in `.review/M3_AUDIT.md` — not a live registry and not a new source of
 execution authority. The Makefile, hook, Dockerfile, Dune files and tools remain the authorities for what
@@ -78,7 +105,8 @@ M3-NO-HOST-PYTHON-COST     the deliberate startup and image cost of the accepted
 M3-SOURCE-ENUMERATION      every independent repository/source enumeration and its one right owner
 M3-BUILDX-CACHE            stage boundaries, COPY sets, cache mounts and keys, target overlap, false invalidation
 M3-DUNE-FANOUT             the real Dune/Rocq graph, critical path and downstream rebuild set
-M3-EDIT-WEIGHT             frequently edited files and co-change groups, so fan-out is ranked by actual use
+M3-EDIT-WEIGHT             frequently edited files and co-change groups, over the separated ranges §5
+                           requires, so fan-out is ranked by actual use
 ```
 
 ## Deferred correctness and tool findings
@@ -93,8 +121,14 @@ M3-CLAIM-SUBJECT           remove the need for a manually retargeted active-chec
 M3-FRAGILE-PROSE           mutable counts, line-number identity, list-position identity, prose duplicating views
 M3-SOURCE-DIET-REPLAY      dormant M1 replay modes in `tools/source-diet.py`
 M3-CLAIM-MUTATION          whether the claim-matrix gate needs mutation coverage; if so, the exact M4 step
-M3-HOST-CONTAINER-OTHER    every host/container question the no-host-Python boundary does not settle
+M3-HOST-CONTAINER-OTHER    the host entry points and container boundaries that exist today and that the
+                           no-host-Python boundary does not settle
 ```
+
+`M3-HOST-CONTAINER-OTHER` covers what is in the tree now. It is not authority to search for speculative future
+questions.
+
+Every mandatory finding ends in one or more exact M4 step IDs, or in an evidence-backed `KEEP / no M4 change`.
 
 The whole-theory assumption audit remains the authority for zero assumptions. The readable-surface findings
 do not replace it.
@@ -106,17 +140,48 @@ do not replace it.
 The smallest honest method for each question.
 
 **Permitted:** reading the Makefile, hook, Dockerfile, Dune files, tools and logs; `.review/PERFORMANCE.tsv`
-as the accepted full-path baseline; POSIX `time`, Buildx plain progress, `make profile`, Dune/Rocq dependency
-output and ordinary Git commands for narrow one-off measurements; temporary untracked shell snippets and
-logs; running a named current target directly when its isolated cost is needed.
+as the accepted serial diagnostic baseline; POSIX `time`, Buildx plain progress, `make profile`, Dune/Rocq
+dependency output and ordinary Git commands for narrow one-off measurements; temporary untracked shell
+snippets and logs; running a named current target directly when its isolated cost is needed.
 
 **Forbidden:** a new permanent timing or audit tool; a new registry, JSON schema, bundle hierarchy, resume
 feature, custom comparator or statistics framework; copying current timing values into normative prose;
 treating one timing as a semantic or acceptance guarantee; reconstructing the build graph from a weaker
 source when the real toolchain can report it.
 
-Raw logs are local and disposable. The audit retains only the facts a finding needs, and names the command
-that produced them.
+## Four distinct configurations
+
+These answer different questions and are never pooled or compared as one metric:
+
+```text
+serial diagnostic baseline        make perf / .review/PERFORMANCE.tsv
+ordinary working-tree acceptance  normal make check
+staged acceptance                 the real pre-commit hook
+partial feedback                  each named public partial target the M4 plan proposes to retain
+```
+
+M3 measures only the additional configurations a finding or plan step actually needs, each under its own real
+settings. The execution graph and the M4 plan always say which result is partial feedback and which is full
+acceptance.
+
+## Every measured fact is reproducible
+
+Each one names:
+
+```text
+exact Git ref or range
+exact command
+source view
+cache / cold / hot condition where relevant
+observed result
+```
+
+Edit-frequency evidence additionally names every exact Git range used, keeps semantic/proof development and
+M-series mechanical/tool work in **separate** ranges, never pools them into one unexplained frequency, and
+states why each range is relevant to the M4 decision it supports.
+
+Raw logs are local and disposable. The audit retains enough of each result for Implementation Review to judge
+the conclusion without trusting an unstated terminal session.
 
 ---
 
@@ -135,9 +200,10 @@ source view; cached work; always-run controls; partial feedback; full acceptance
 
 # 7. Tool disposition
 
-For every retained tool and meaningful helper: what real job does it perform; which current requirement needs
-that job; is another component already the stronger owner; is its size and architecture justified by the job;
-what is the smallest safe disposition.
+For every tracked executable tool file, and for every internal helper that qualifies as an audit unit under
+§3.7: what real job does it perform; which current requirement needs that job; is another component already
+the stronger owner; is its size and architecture justified by the job; what is the smallest safe disposition,
+from the five §3 allows.
 
 A current gate invocation does not, by itself, justify a tool's theorem surface or architecture.
 
@@ -151,14 +217,21 @@ and no simpler design preserves it.
 `.review/M4_MECHANICAL_REFACTOR_PLAN.md` is implementation-ready and ordered by dependency. Every step
 states: stable step ID, root cause addressed, exact files and live paths changed, current authority removed
 or retained, new execution graph, cache-key and source-view consequences, proof/gate/artifact invariants
-preserved, before measurement, after measurement, failure and rollback boundary, and deletions made legal.
+preserved, the exact current baseline M3 measured, the exact post-change measurement procedure M4 will run,
+the failure and Git rollback boundary, and deletions made legal.
+
+**M3 records baselines. M4 produces after values.** M3 implements no refactor, so M3 cannot observe the result
+of one, and no step may carry an "after measurement" M3 did not and could not take. For every proposed
+optimization M3 records the exact current baseline; the plan names the exact post-change command, source view,
+cache condition and acceptance criterion; M4 runs them, produces the actual after value, and compares it with
+that baseline. A projected or desired number never masquerades as an observed one.
 
 The plan includes the exact desired Make/hook/Buildx/Dune graph; which targets remain public; which are
 partial and how they say so; which repeated executions are removed and why that does not weaken source-view
 coverage; which tools are deleted, merged, simplified or retained; any proposed proof-module split justified
 by measured fan-out and edit frequency; complete cache keys; one full acceptance join; the exact `make perf`
-before/after comparison; and the complete proof, staged-hook, generated-byte and runtime gates after every
-implementation wave.
+comparison M4 runs against the M3 baseline; and the complete proof, staged-hook, generated-byte and runtime
+gates after every implementation wave.
 
 **No placeholder step** such as "optimize tooling" or "clean up Docker" is accepted. M3 executes no M4 step.
 
@@ -166,9 +239,18 @@ implementation wave.
 
 # 9. Scope and frozen invariants
 
-M3 may change only: the M3 contract and matrix, the audit report, the proposed M4 plan, current review-state
+**Once Contract Review passes, this contract and the accepted review basis are FROZEN.** A binding contract
+that its own implementation may rewrite is not a gate.
+
+M3 may then change only: the obligation matrix, the audit report, the proposed M4 plan, current review-state
 documents, and the FCB/human-act references those require. Temporary untracked diagnostics are permitted and
 are not committed.
+
+The matrix records evidence and status. It never redefines a claim.
+
+If implementation evidence shows this contract is incomplete, inconsistent, or would force the wrong result,
+M3 **stops**, names the exact conflict, and requests a contract amendment and another Contract Review. Editing
+the accepted contract to resolve a conflict during the audit is forbidden.
 
 M3 may not change: Makefile recipes or dependencies, pre-commit behaviour, Dockerfile stages or cache keys,
 Dune files, project tools, Rocq code or proof structure, OCaml transport, generated Go, fixtures or goldens,
@@ -183,9 +265,11 @@ enforcement.
 
 # 10. Review boundary
 
-Two intentional review points only: a Contract Review after this contract is installed, and an
-Implementation Review after the complete audit and exact M4 plan are frozen. No repeated review stops during
-the audit.
+Two intentional review points: a Contract Review after this contract is installed, and an Implementation
+Review after the complete audit and exact M4 plan are frozen. No repeated review stops during the audit.
+
+The §9 stop rule is not a third routine review. It fires only when the frozen contract is found defective, and
+it is a stop — not a licence to keep working under a contract M3 has rewritten for itself.
 
 M3 acceptance does not approve M4. `M4-PLAN-APPROVAL` remains a separate act: M4 starts only after M3 passes
 Implementation Review, Rob accepts M3, and Rob explicitly approves the exact plan.
@@ -195,7 +279,10 @@ Implementation Review, Rob accepts M3, and Rob explicitly approves the exact pla
 # 11. Exit
 
 M3 is ready for Implementation Review only when all twelve obligations are closed; every mandatory stable
-finding ID is dispositioned; the current execution graph is complete; dominant costs and invalidation roots
-are explained; every retained tool has a complexity-fit disposition; the M4 plan is exact and
-implementation-ready; no production path changed; all current acceptance gates remain green; and one exact
-M3 candidate is followed by one documentation-only freeze with no commit after it.
+finding ID ends in exact M4 step IDs or an evidence-backed `KEEP / no M4 change`; the current execution graph
+is complete and says which results are partial feedback and which are full acceptance; dominant costs and
+invalidation roots are explained, each fact naming its ref, command, source view and cache condition; every
+audit unit has a complexity-fit disposition; the M4 plan is exact and implementation-ready, carrying M3's
+baselines and M4's post-change measurement procedures; no production path changed; all current acceptance
+gates remain green; and one exact M3 candidate is followed by one documentation-only freeze with no commit
+after it.
