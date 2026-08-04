@@ -4,15 +4,19 @@ state: requested
 review: Implementation Review
 confirmation: no
 confirmation_used: no
-human_override: (none required; the GREEN Contract Review authorized the audit, and Amendment M3-A1 the one tool repair)
+human_override: Rob ratified amendments M3-A1 and M3-A2 by approving .review/M3_FORENSIC_AUDIT_REPAIR_2.md
 result: (pending)
 candidate: (the M3 candidate named by `.review/NEXT_STEPS.md`; the freeze commit that follows it adds no work)
 
 contract: .review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md
 contract_activation_sha: 0b7fd86825936c37f31ef83879574d526d548122
 amendment: .review/M3_CONTRACT_AMENDMENT_1.md
+amendment: .review/M3_CONTRACT_AMENDMENT_2.md
 review_basis: .review/REVIEW_BASIS.md
-prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_1.md
+prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_2.md
+candidate_sha: (this repair candidate; the freeze that follows pins it)
+blocked_candidate: 5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92
+blocked_freeze: a7383653580e093c9ed4106938bf5be82ecf6d9b
 
 `.review/NEXT_STEPS.md` owns mutable checkpoint and candidate state. This file pins what is under review; it
 does not own mutable state.
@@ -21,47 +25,48 @@ does not own mutable state.
 `.review/M4_MECHANICAL_REFACTOR_PLAN.md`, and all twelve obligations are closed with distinct evidence. M4
 remains forbidden until Rob accepts M3 and separately approves the plan.
 
-## What the forensic repair changed
+## What Repair 2 changed
 
-The blocking review was right on every count, and two of its findings changed conclusions rather than wording.
+The review found four things, and two of them were me confusing a mechanical fact for a semantic one.
 
-**The measurements had no immutable subject.** Configuration B now names
-`a0482140384de3d8c193263c3bf5281e53ccdd8b` — the commit that landed the `M3-A1` repair — and every figure was
-retaken there. The naming-gate cardinalities I had were wrong: **160 core retired names, not 170** (13/73/5/69,
-read from the module rather than counted by eye), and the profile is 9 371 786 `re.escape` and 10 207 628
-`re.search` calls under a command that is now written out in full instead of elided to a placeholder.
+**`M4-14` would have deleted exported theorem guarantees.** I classified 48 `Compilable.v` theorems as dead
+because no name referenced them and the module declares no `Hint`. That proves they are not *current internal
+proof dependencies* — nothing more. A top-level theorem can be its own externally visible guarantee, or a
+standalone regression fixture whose **statement is the product**; such a theorem has no caller by design. The
+list visibly contained reordering, determinism, rejected-program-report and fact-table fixtures whose own
+comments say so. And `make prove` staying green would not have caught the loss, because the lost guarantees
+would have been the deleted statements. The step is gone; group E is now `KEEP, no M4 change`, and any future
+deletion needs a separately reviewed public-surface contract.
 
-**The dependency graph was mine, not the toolchain's.** It now comes from `rocq dep` in a temporary
-diagnostic image. It agrees with the import declarations edge for edge — but the authority is the toolchain,
-and the result changed the disposition's *reason*: `Compilable.v` is 55% of the theory and its downstream
-rebuild set is **3 modules**, one of the smallest in the graph, because it sits low in the dependents order.
-So a split reduces almost nothing. I had written that a split was "outside M4's mechanical remit", which
-`D-27` contradicts; the honest reason is that the measured fan-out does not justify it.
+**`M4-06` would have deleted the set its own retained check reads.** `check_permanent_wiring` — the permanent
+M-series law, run by `make diet` and by the hook on every commit — iterates `M1_ONLY_MODES` to prove no
+permanent path invokes a checkpoint-only mode. I proposed deleting that tuple while keeping the check. It now
+retains `M1_ONLY_MODES` as the explicit unsupported-boundary set of retired spellings, and deletes only the
+argparse options, the implementations reachable through them, the dead path constants and the dormant
+mutants.
 
-**Co-change was missing, and it is the most decision-relevant evidence in the audit.** Over the
-current-module-set range (`20c5ad5c…` to `39ea7e3b…`), `Compilable.v` and `gate/Assumptions.v` change
-together in **12 of 25 commits**, and 16 of 25 touch the assumptions gate. The 77 s readable gate is therefore squarely on the path semantic work
-walks — which is why `Q-M3-01` is worth answering and why `M4-11` stays unauthorized rather than quietly
-dropped.
+**`M3-CLAIM-SUBJECT` was recorded as satisfied and was not.** The contract asks to remove the *need* for a
+hand-retargeted constant; deleting a stale docstring copy leaves the constant exactly as hand-retargeted.
+Amendment `M3-A2` replaces the wording with what actually closes it — one subject object owning both the
+matrix path and the required obligation-ID set — and `M4-07` builds it. Dynamic discovery is explicitly not
+authorized: it would still not know the required IDs, and reading them from review prose would create a
+second current-state authority.
 
-**The `Compilable.v` surfaces got a finite classification instead of a shrug.** 623 declarations:
-200 in the readable gate, 3 referenced by another module, 1 by a witness source, 371 internal proof
-dependencies, and **48 with no consumer anywhere**. That last group is actionable because `Compilable.v` declares no `Hint`, so
-a lemma there cannot be applied without being named — the method's error is in the safe direction. Those 48
-are named individually in `M4-14`.
+**`M3-A1`'s authority record was false, and that one was the same class of error I had just been blocked
+for.** It said the reviewer authorized the amendment. A reviewer specifies; Rob alone accepts. Rob has now
+ratified `M3-A1` and `M3-A2`, and both name him. No model is recorded as amending the contract.
 
-## The plan is smaller
+Two more steps left the plan under `D-30`. `M4-03`'s restoration manifest recorded size, `mtime_ns` and
+directories — which do not establish file type, mode, symlink identity or symlink target, while the controls
+mutate all of those — so it would not have proved the property it claimed; and `M4-02` removes the multiplier
+that made those copies dominant anyway. `M4-13` would have put a cache inside an adversarial proof gate
+without an exact topology, next to controls that deliberately vary the prelude to prove the helper rejects
+false evidence. `M4-09` is narrowed to the claim-matrix root facts the mandatory finding actually names;
+`closure-ledger-view.py`'s missing controls are recorded and left alone rather than becoming a new gate
+surface mid-optimization.
 
-Four steps deleted under `D-30` — batching container starts, one enumeration owner, narrowing the `PYTAG`
-key, and host-shell portability — each now a `KEEP` with the measured evidence that retires it. The
-enumeration one is worth naming: the five Python gates differ in **selection**, not only traversal (102, 113
-and 111 files at the same ref), so a shared owner is a redesign this evidence does not support.
-`M4-07` is narrowed to deleting two stale strings; the generic tool-prose checker is gone.
-
-Nine steps remain, each with one exact design. **No step contains an "or", a fallback, or a decision deferred
-to M4** — `M4-02` and `M4-03` now name their designs in full, including which paths a control may mutate, how
-they are restored, and the control that proves the next scenario sees a pristine tree. Per-step verification
-no longer re-runs the five targets `make check` already runs.
+Six steps remain. The plan identifies every subject by stable name rather than line number, and per-step
+verification is `make check` plus `make fmt`, not the five targets `make check` already runs.
 
 ## Scope
 

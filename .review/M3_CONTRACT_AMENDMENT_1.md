@@ -2,8 +2,14 @@
 
 status: ACCEPTED
 amends: .review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md, activation 0b7fd86825936c37f31ef83879574d526d548122
-ordered by: .review/M3_FORENSIC_AUDIT_REPAIR_1.md §2
-authorized by: the reviewer, in that finding record; Rob alone accepts M3
+specified by: .review/M3_FORENSIC_AUDIT_REPAIR_1.md §2
+green contract review: .review/M3_FORENSIC_AUDIT_REPAIR_2.md §2.1
+authorized by: **Rob**, approving `.review/M3_FORENSIC_AUDIT_REPAIR_2.md`
+
+**Authority correction.** This document previously recorded the reviewer as having authorized the amendment.
+That was false and it was mine: a reviewer specifies an amendment, and Rob alone accepts one. The technical
+content below and the tool bytes it describes are unchanged — `.review/M3_FORENSIC_AUDIT_REPAIR_2.md` §2.1
+gave them GREEN Contract Review — and only the authority line changed.
 
 ## The conflict
 

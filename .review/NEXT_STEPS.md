@@ -17,20 +17,22 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `.review/M3_CONTRACT_REVIEW_REPAIR_1.md` and were repaired as one batch.
   **The contract and the accepted basis are FROZEN.** M3 may not edit either. A contract defect found during
   the audit is a stop and an amendment request, never an edit.
-  **M3 FORENSIC AUDIT REPAIR 1 IS COMPLETE AND OFFERED FOR IMPLEMENTATION REVIEW.** The blocking review
-  ordering it is `.review/M3_FORENSIC_AUDIT_REPAIR_1.md`, the sole active M3 repair authority. <!-- FIDO-FCB-REF:REVIEW-M3-FORENSIC-AUDIT-REPAIR-1-MD -->
-  Amendment `M3-A1` is accepted and recorded in `.review/M3_CONTRACT_AMENDMENT_1.md`: it supersedes contract <!-- FIDO-FCB-REF:REVIEW-M3-CONTRACT-AMENDMENT-1-MD -->
-  §9 and obligation `M3-11` **only** for the claim-matrix self-test precondition repair, and authorizes no
-  other project-tool change in M3. `Q-M3-02` is thereby resolved.
-  The audit is `.review/M3_AUDIT.md` and the plan is `.review/M4_MECHANICAL_REFACTOR_PLAN.md`; all twelve
-  obligations are closed with distinct evidence. Every configuration-B measurement names the immutable
-  subject ref `a0482140384de3d8c193263c3bf5281e53ccdd8b`.
-  **M3 candidate: `5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92`.** This commit is the documentation-only
-  freeze that offers it for Implementation Review; it adds no work, and no commit follows it.
-  **M3 implemented no M4 step**, and no production, proof, Make, hook, Docker, Dune, generated or runtime
-  path moved.
-  **M3 implemented nothing** — no M4 step ran, and no production, proof, build, tool, generated or runtime
-  path moved.
+  **M3 IMPLEMENTATION REPAIR 2 IS THE SOLE PERMITTED WORK.** The blocking review ordering it is
+  `.review/M3_FORENSIC_AUDIT_REPAIR_2.md`, the sole active M3 repair authority. <!-- FIDO-FCB-REF:REVIEW-M3-FORENSIC-AUDIT-REPAIR-2-MD -->
+  The superseded `.review/M3_FORENSIC_AUDIT_REPAIR_1.md` stays as the prior finding record. <!-- FIDO-FCB-REF:REVIEW-M3-FORENSIC-AUDIT-REPAIR-1-MD -->
+  **Two contract amendments, both authorized by Rob**, each given GREEN Contract Review in that same record:
+  `M3-A1` in `.review/M3_CONTRACT_AMENDMENT_1.md` supersedes contract §9 and obligation `M3-11` **only** for <!-- FIDO-FCB-REF:REVIEW-M3-CONTRACT-AMENDMENT-1-MD -->
+  the claim-matrix self-test precondition repair; `M3-A2` in `.review/M3_CONTRACT_AMENDMENT_2.md` replaces <!-- FIDO-FCB-REF:REVIEW-M3-CONTRACT-AMENDMENT-2-MD -->
+  the wording of `M3-CLAIM-SUBJECT` with the one-subject-object requirement. Neither authorizes any other
+  project-tool change in M3. `Q-M3-02` is thereby resolved.
+  The audit is `.review/M3_AUDIT.md` and the plan is `.review/M4_MECHANICAL_REFACTOR_PLAN.md`, now six exact
+  steps; all twelve obligations are closed with distinct evidence. Every configuration-B measurement names
+  the immutable subject ref `a0482140384de3d8c193263c3bf5281e53ccdd8b`.
+  **M3 implemented no M4 step. Its sole project-tool change is the `M3-A1` claim-matrix self-test
+  precondition repair; no production, proof, Make, hook, Docker, Dune, generated or runtime path moved.**
+  The blocked candidate was `5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92` and its documentation-only freeze
+  `a7383653580e093c9ed4106938bf5be82ecf6d9b`; the repair candidate and its freeze replace both, and
+  `.review/REVIEW_REQUEST.md` pins the exact pair under review.
   The accepted review basis is `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
 - **Accepted checkpoints and their dispositions** are owned by
   `.review/fcb/current/FIDO_FCB_GOVERNANCE.md`. Git history owns each accepted checkpoint's contract,

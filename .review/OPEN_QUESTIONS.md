@@ -4,7 +4,7 @@
 
 owner: Rob · blocks: no longer · outcome: **option 1** — one exact repair, authorized
 
-The reviewer accepted the narrow repair and installed it as Amendment `M3-A1`
+The reviewer specified the narrow repair and **Rob authorized it** as Amendment `M3-A1`
 (`.review/M3_CONTRACT_AMENDMENT_1.md`): M3 may change `tools/claim-matrix-gate.py` and the claim-matrix
 entries in `tools/gate-mutation-test.py`, **only** for this defect. `ensure_closed_row` now takes a
 `require_declaration` flag mirroring the `require_builder` that was already there, both it and
@@ -20,9 +20,9 @@ FAIL  a named implementation surface was renamed: could not construct the scenar
       (no closed row with a locatable declaration to rename)
 ```
 
-`tools/claim-matrix-gate.py:468 rename_named_surface` needs a closed row whose first `implementation` entry
-is a `.v` declaration or a Python `def`/`class`. Its precondition helper `ensure_closed_row` (`:413`) only
-guarantees that *some* closed row exists, and returns early without appending `SYNTHETIC_CLOSED` — the row
+`rename_named_surface` in `tools/claim-matrix-gate.py` needs a closed row whose first `implementation` entry
+is a `.v` declaration or a Python `def`/`class`. Its precondition helper `ensure_closed_row` only
+guaranteed that *some* closed row exists, and returns early without appending `SYNTHETIC_CLOSED` — the row
 written for precisely this case, whose docstring says "a documentation checkpoint legitimately has neither".
 The helper covers the *builder* scenario with a `require_builder` flag; the *rename* scenario has no
 equivalent.
@@ -36,9 +36,10 @@ because one row happened to name a Python `def` in the working-tree inventory to
 cell was reordered during M2 Repair so the locatable entry came first. M3 is the first checkpoint where no
 honest entry exists at all. I am not fabricating a third workaround.
 
-**What I did instead:** the audit and the M4 plan are complete and committed. The twelve rows are left `open`
-with cells that say where the evidence is and why the row is not closed. No Implementation Review is
-requested, because requesting one with open obligations is exactly what the do-not-freeze-early rule forbids.
+**What I did instead, at the time:** committed the audit and plan, left the twelve rows `open` with cells
+saying where the evidence was and why the row was not closed, and requested no Implementation Review —
+asking for one with open obligations is exactly what the do-not-freeze-early rule forbids. The rows are
+closed now, under the amendment.
 
 **Options:**
 

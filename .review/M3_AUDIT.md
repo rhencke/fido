@@ -3,8 +3,9 @@
 status: complete
 
 Contract: `.review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md`, activation
-`0b7fd86825936c37f31ef83879574d526d548122`, as amended by `.review/M3_CONTRACT_AMENDMENT_1.md` (`M3-A1`).
-Accepted basis: `.review/REVIEW_BASIS.md`. Repair authority: `.review/M3_FORENSIC_AUDIT_REPAIR_1.md`.
+`0b7fd86825936c37f31ef83879574d526d548122`, as amended by `.review/M3_CONTRACT_AMENDMENT_1.md` (`M3-A1`) and
+`.review/M3_CONTRACT_AMENDMENT_2.md` (`M3-A2`), both authorized by Rob.
+Accepted basis: `.review/REVIEW_BASIS.md`. Repair authority: `.review/M3_FORENSIC_AUDIT_REPAIR_2.md`.
 
 This is one temporary table, not a registry. The Makefile, hook, Dockerfile, Dune files and tools remain the
 authorities for what executes. M3's only project-tool change is the one `M3-A1` authorizes.
@@ -246,7 +247,7 @@ subject ref, reading `/proc/uptime` per output line:
 
 `gate-mutation-test` is **79% of `fcb`**.
 
-Disposition: **SIMPLIFY** → `M4-02`, `M4-03`. Root cause under `M3-MUTATION-ARCHITECTURE`.
+Disposition: **SIMPLIFY** → `M4-02`. Root cause under `M3-MUTATION-ARCHITECTURE`.
 
 ## M3-MUTATION-ARCHITECTURE — copying, isolation, control selection, parallelism, cost
 
@@ -283,7 +284,18 @@ worktree-list         1 mutant
 detects a defect — but the harness re-runs the *whole* self-test when `main` only ever asserts that the
 mutant's own `expected` controls fired.
 
-Disposition: **SIMPLIFY** → `M4-02`, `M4-03`.
+Disposition: **SIMPLIFY** → `M4-02` alone.
+
+An earlier draft also proposed replacing the per-control tree copy with a manifest-and-restore scheme
+(`M4-03`). It is **withdrawn**, for two reasons. Its manifest recorded size, `mtime_ns` and directories, which
+do not establish file type, mode, symlink identity or symlink target — and these controls mutate regular
+files, deleted paths, directories, symlinked files and symlinked directories. So it would not have proved the
+property it claimed. And `M4-02` removes the multiplier that makes the copies dominant in the first place:
+each mutant runs only its own named controls. Measure after `M4-02`; do not build a restoration framework in
+advance of knowing whether anything still needs one.
+
+The existing per-control isolation — one copy, discarded — is simple and correct, and is **KEEP, no M4
+change**.
 
 ## M3-SOURCE-DIET-REPLAY — dormant M1 replay modes
 
@@ -311,9 +323,18 @@ own docstring still names the previous checkpoint's matrix, which was deleted at
 it: D-24 scans *authority documents* and a tool is not one; the naming gate scans retired *names*, not
 retired *paths*.
 
-Disposition: **SIMPLIFY** → `M4-07`, narrowed to deleting the stale string. `TSV_REL` stays the one current
-subject authority: deriving it from review state would couple the gate to a document it should not read, and
-the drift that actually happened was prose, not the constant.
+**Deleting the stale string does not satisfy this finding, and recording it as satisfied was wrong.** The
+contract asks to remove the *need* for a hand-retargeted constant; deleting the docstring copy leaves the
+constant exactly as hand-retargeted as before. Dynamic discovery does not satisfy it either — finding one
+matching matrix file still does not know the required obligation IDs, and reading them out of review prose
+would create a second current-state authority.
+
+Amendment `M3-A2` (`.review/M3_CONTRACT_AMENDMENT_2.md`) replaces the finding's wording with what actually
+closes it: **one explicit subject object owning both the matrix path and the complete required obligation-ID
+set**, read by the gate, its messages and its controls, with no second copy anywhere.
+
+Disposition: **SIMPLIFY** → `M4-07`, which builds that one object and deletes the stale docstring path with
+it.
 
 ## M3-NAMING-EXCLUSION — the inert exclusion
 
@@ -418,7 +439,14 @@ That defect is repaired under Amendment `M3-A1` (`.review/M3_CONTRACT_AMENDMENT_
 four new controls, and one mutation entry. `closure-ledger-view.py` still has no mutant at all and it
 publishes a generated FCB view.
 
-Disposition: **the precondition repair is done under `M3-A1`; the remaining coverage** → `M4-09`.
+Disposition: **the precondition repair is done under `M3-A1`; the remaining claim-matrix coverage** →
+`M4-09`, scoped to that gate's root facts alone.
+
+**`closure-ledger-view.py` is KEEP, no M4 change.** Its zero controls are a real observation and it is
+recorded here, but the mandatory finding asks about the *claim-matrix* gate. Giving the ledger view a new
+self-test interface and a mutation family would add a gate surface during an optimization checkpoint, to
+close a defect nobody recorded. Its canonical CSV and its exact `--check` relation are unchanged. A later
+exact requirement can reconsider it.
 
 ## M3-SOURCE-ENUMERATION — every independent enumeration and its one right owner
 
@@ -463,7 +491,7 @@ tree by one image.
 Disposition: **KEEP, no M4 change.** Batching the gates into one container start would have to preserve
 separate public targets, exact staged copies, gate-specific failure messages, the completion markers `make
 perf` measures, and the two source views — a restructuring of both the Makefile and the hook to recover a
-floor that shrinks anyway once `M4-01`, `M4-02` and `M4-03` land. Re-measure after M4 and reconsider then;
+floor that shrinks anyway once `M4-01` and `M4-02` land. Re-measure after M4 and reconsider then;
 this is recorded evidence, not a deferred promise.
 
 ## M3-INVALIDATION — why ordinary edits rebuild more than the proof graph requires
@@ -521,7 +549,7 @@ What is genuinely repeated over one source view:
 3. `make check` runs `prove` then `e2e`; `e2e`'s `emit` stage repeats `dune build @install @all`. Already
    cheap — the shared `_build` cache makes it a re-check, not a recompile.
 
-Disposition: **SIMPLIFY** (2) → `M4-02`, `M4-03`. **KEEP** (1) and (3): the self-tests are the adversarial
+Disposition: **SIMPLIFY** (2) → `M4-02`. **KEEP** (1) and (3): the self-tests are the adversarial
 half of the evidence and must stay always-run in both views, and (3) costs nothing.
 
 ## M3-DUNE-FANOUT — the real Dune/Rocq graph, critical path and rebuild set
@@ -666,10 +694,23 @@ Group C is the honest answer to "required guarantee, proof dependency, or dead":
 load-bearing, just not readable surfaces — and the whole-theory `Fido Audit Assumptions` covers all 623
 regardless.
 
-Group E is 48 declarations with no consumer anywhere and no readable surface. Under the project's own law —
-ruthless correctness or ruthless deletion — they are dead weight.
+**Group E is NOT dead, and reading it that way was an error.** The search establishes exactly one thing:
+those 48 are not *current internal proof dependencies*. It does not establish that they have no purpose. A
+top-level theorem can be its own externally visible guarantee, or a standalone proof-level regression fixture
+whose **statement is the product** — such a theorem has no caller by design. The list visibly contains
+several: the reordering and determinism fixtures, the rejected-program report fixtures, and the exact
+fact-table guarantees. Their own source comments describe them that way.
 
-Disposition: groups A, B, C, D **KEEP, no M4 change**. Group E → **DELETE**, `M4-14`, which names all 48.
+And `make prove` staying green after a deletion would not have caught it. The lost guarantees would be the
+deleted statements themselves; there would be nothing left to fail.
+
+No 48-theorem proof-body audit is performed here — that is the per-theorem inventory §3 forbids. The finite
+conclusion is the one this evidence supports and no more: **mechanical consumer-freeness does not authorize
+deleting an exported theorem.**
+
+Disposition: **A, B, C and D KEEP, no M4 change. E KEEP, no M4 change** — consumer-free exported theorem
+surfaces, retained. Any future deletion needs a separately reviewed public-surface contract naming the exact
+guarantees or fixtures being retired.
 
 ## M3-TOOL-COMPLEXITY — every retained tool under D-30
 
@@ -688,7 +729,7 @@ DELETE     0   at file granularity
 policy fact and is invoked by a live target or hook line. What is over-built is *inside* five of them:
 `source-diet.py`'s dead M1 replay path, the mutation harness's re-run of whole self-tests, the naming gate's
 per-line pattern construction, the reference gate's per-control tree copy, and the claim gate's two stale
-strings. Those are `M4-01`, `M4-02`, `M4-03`, `M4-06`, `M4-07`, `M4-09`.
+strings. Those are `M4-01`, `M4-02`, `M4-06`, `M4-07` and `M4-09`.
 
 Two observations a current gate invocation does **not** by itself justify:
 
@@ -752,7 +793,12 @@ Safe.certify         AE AF AG                                ( 3 calls)
 
 Measured 1.10 s per sealed call (F at 99.09 s → AG at 126.7 s), so ≈0.55 s per `rocq c`, each loading the
 whole theory. Stage 1 is a property of `(prelude, sentinel)` alone — the probe is not in the compiled file.
-Hoisting it is 4 loads instead of 25, ≈21 × 0.55 ≈ **11.6 s**, with no control weakened.
+Hoisting it would be 4 loads instead of 25, ≈21 × 0.55 ≈ **11.6 s**. **No M4 step does it.** The saving is
+secondary to the still-open 77 s readable-assumption decision above, and a cache inside an adversarial
+proof gate needs an exact shell topology and exact key ownership this plan does not have — while the two
+`meta_reject` controls deliberately vary `SEALED_PRELUDE` precisely to prove the helper rejects false
+evidence. The current two-stage helper is simple and correct. **KEEP, no M4 change**; a later cold-path
+contract may reconsider it with that topology named.
 
 **3. A cache mount is not a Docker layer, and the accepted baseline's "cold" reflects that.**
 `dune build` took 16.4 s in *both* runs with the `_build` cache warm throughout. `--no-cache-filter prover`
@@ -778,11 +824,11 @@ Eighteen files.
 | T-01 | `tools/naming-gate.py` | A005 scoped-name policy; the only verifier prose gets | working tree or export | **SIMPLIFY** | `M4-01` — 9 371 786 `re.escape` calls; 23.4 s, the largest single hot cost |
 | T-02 | `tools/gate-mutation-test.py` | proves each gate's root helpers load-bearing | copies of the tree | **SIMPLIFY** | `M4-02`, `M4-06` — 26.2 s, 79% of `fcb`; 25 of 68 entries never run |
 | T-03 | `tools/source-diet.py` | the permanent `.v` comment law + exception relation | working tree or export | **SIMPLIFY** | `M4-06` — 2 294 lines, of which the M1 replay path is dead and names six deleted ledgers |
-| T-04 | `tools/fcb-reference-gate.py` | D-24: the complete authority↔manifest reference relation | working tree or export | **SIMPLIFY** | `M4-03` — 64 controls each copying the tree, 704 copies per `make fcb` |
+| T-04 | `tools/fcb-reference-gate.py` | D-24: the complete authority↔manifest reference relation | working tree or export | **KEEP** | its 64 controls each copy the tree, 704 copies per `make fcb` — but `M4-02` removes the multiplier that makes that dominant. Re-measure after it |
 | T-05 | `tools/host-python-gate.py` | the permanent no-host-Python boundary | working tree or export | **KEEP** | a permanent accepted invariant; 2.9 s is proportionate to it |
-| T-06 | `tools/claim-matrix-gate.py` | every completion claim names a surface that exists | working tree or export | **SIMPLIFY** | `M4-07` stale docstring path; `M4-09` coverage. The precondition defect is already repaired under `M3-A1` |
-| T-07 | `tools/human-review-index.py` | D-07 human-act data + its generated view | working tree or export | **KEEP** | 1.9 s; one canonical source, one generated view, controls load-bearing. `M4-03` touches only its per-control copy |
-| T-08 | `tools/closure-ledger-view.py` | the generated closure-ledger view of its canonical CSV | working tree or export | **KEEP** | 0.6 s; **but** `M4-09` adds the mutation coverage it entirely lacks |
+| T-06 | `tools/claim-matrix-gate.py` | every completion claim names a surface that exists | working tree or export | **SIMPLIFY** | `M4-07` one subject object (`M3-A2`); `M4-09` root-fact coverage. The precondition defect is already repaired under `M3-A1` |
+| T-07 | `tools/human-review-index.py` | D-07 human-act data + its generated view | working tree or export | **KEEP** | 1.9 s; one canonical source, one generated view, controls load-bearing |
+| T-08 | `tools/closure-ledger-view.py` | the generated closure-ledger view of its canonical CSV | working tree or export | **KEEP** | 0.6 s; it has no controls at all, which is recorded — but adding a self-test interface is not this checkpoint's job |
 | T-09 | `tools/worktree-list.py` | the declared inventory owner for the `make check` export | working tree | **KEEP** | `M3-SOURCE-ENUMERATION`: the five Python enumerations differ in *selection*, not only traversal, so one owner is a redesign this evidence does not justify |
 | T-10 | `tools/fmt-check.py` | `.editorconfig` whitespace report (reports, never gates) | working tree | **KEEP** | 1.24 s, off the `check` path, delegates property resolution to the reference implementation |
 | T-11 | `tools/rocq-profile.py` | ranks a `rocq c -time` log; diagnostic only | a profile log | **KEEP** | 100 lines, no gate depends on it, and it produced `M3-DUNE-FANOUT`'s cost evidence |
@@ -801,7 +847,7 @@ Twenty-one targets (`.PHONY` plus `.DEFAULT_GOAL`). **No Makefile change is prop
 | target | job | partial or full | disposition | reason |
 |---|---|---|---|---|
 | `check` | **full working-tree acceptance** | full | **KEEP** | the one full join |
-| `prove` | the complete proof gate | partial | **KEEP** | `M4-13` changes its internals, not the target |
+| `prove` | the complete proof gate | partial | **KEEP** | no M4 step touches it |
 | `emit` | materialize witnesses + exercise the sink | partial | **KEEP** | |
 | `e2e` | emit + pinned `go build ./...` + goldens | partial | **KEEP** | |
 | `regenerate` | validate-before-publish republication | full (publication) | **KEEP** | |
@@ -835,13 +881,13 @@ distinction holds today and no M4 step touches it.
 
 ## 4.4 Unit class 4 — Docker/Buildx stages, caches, source-view boundaries
 
-**No Dockerfile stage or cache key changes**; `M4-13` edits only the `prover` stage's heredoc body.
+**No Dockerfile stage, heredoc, COPY set or cache key changes.**
 
 | unit | disposition | reason |
 |---|---|---|
 | `python-tools` | **KEEP** | 5 Dockerfile lines; the tag is over-keyed and retained (`M3-INVALIDATION`) |
 | `rocq-builder` → `rocq-base` | **KEEP** | digest-pinned; builder/runtime split is right |
-| `prover` | **KEEP** | `M4-13` changes its heredoc, not the stage |
+| `prover` | **KEEP** | unchanged by M4 |
 | `profile` / `profile-log` | **KEEP** | diagnostic; export surface is the raw log only |
 | `emit` | **KEEP** | |
 | `generated-module` → `generated-artifact` | **KEEP** | content-addressed pristine layer; the byte-compare rests on it |
@@ -869,7 +915,7 @@ distinction holds today and no M4 step touches it.
 | readable `Print Assumptions` (`gate/Assumptions.v`, 540 lines / 535 distinct) | **SIMPLIFY** | `M4-08` duplicates and the four missing twins. Its 77 s cost is `M4-11`, unauthorized |
 | whole-theory `Fido Audit Assumptions` | **KEEP** | 1.7 s for a strictly stronger guarantee |
 | assumption self-tests A–E | **KEEP** | 2.2 s; each proves the audit is not fail-open |
-| sealed-capability self-tests F–AG + meta + mint AB–AD + positive | **SIMPLIFY** | `M4-13` — hoist the 21 recomputed stage-1 loads |
+| sealed-capability self-tests F–AG + meta + mint AB–AD + positive | **KEEP** | the 21 recomputed stage-1 loads are recorded in §3.1; the two-stage helper is simple and correct, and a cache in an adversarial gate needs an exact topology this plan does not have |
 | emit-time provenance rejection (6 forged-image classes) | **KEEP** | rejects before any effect; transiently generated, never tracked |
 | the internal sink exercise (`sink_test`) | **KEEP** | dirty/adversarial trees; the only control on the publication sink |
 | `go build ./...` e2e + goldens + differentials | **KEEP** | 45 s cold, the last-mile integration alarm |
@@ -886,9 +932,9 @@ dominant measured cost. Five do:
 |---|---|---|---|
 | `naming-gate.py:check_prose` | dominant measured cost — 25.4 s of 37.6 s profiled | **SIMPLIFY** | `M4-01` |
 | `gate-mutation-test.py:run_mutant` | owns per-mutant tree copy and control selection | **SIMPLIFY** | `M4-02` |
-| `fcb-reference-gate.py:scenario` | owns the per-control tree copy — 704 of 845 | **SIMPLIFY** | `M4-03` |
+| `fcb-reference-gate.py:scenario` | owns the per-control tree copy — 704 of 845 | **KEEP** | measured; `M4-02` removes the multiplier first |
 | `claim-matrix-gate.py:ensure_closed_row` | owns the self-test precondition that blocked M3 | **SIMPLIFY** | repaired under `M3-A1` |
-| `Dockerfile:sealed()` | owns a production proof-gate edge, recomputes its precondition 21× | **SIMPLIFY** | `M4-13` |
+| `Dockerfile:sealed()` | owns a production proof-gate edge, recomputes its precondition 21× | **KEEP** | §3.1; no M4 change in this plan |
 
 `Makefile:PYTAG` owns a cache key and was inventoried, but its disposition is **KEEP** (`M3-INVALIDATION`).
 
