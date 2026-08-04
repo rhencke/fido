@@ -13,11 +13,11 @@ contract_activation_sha: 0b7fd86825936c37f31ef83879574d526d548122
 amendment: .review/M3_CONTRACT_AMENDMENT_1.md
 amendment: .review/M3_CONTRACT_AMENDMENT_2.md
 review_basis: .review/REVIEW_BASIS.md
-prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_2.md
-candidate_sha: c0560426d9c0d50a45f7c015b6493983dff03878
-freeze_sha: this commit — the documentation-only freeze that follows the candidate above
-blocked_candidate: 5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92
-blocked_freeze: a7383653580e093c9ed4106938bf5be82ecf6d9b
+prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_3.md
+candidate_sha: (this repair candidate; the freeze that follows pins its exact SHA)
+freeze_sha: (the documentation-only freeze that follows the candidate; it names itself there)
+blocked_candidate: c0560426d9c0d50a45f7c015b6493983dff03878
+blocked_freeze: c73e1f1aaea9fce0327cdb909034181a56ddc7e1
 
 `.review/NEXT_STEPS.md` owns mutable checkpoint and candidate state. This file pins what is under review; it
 does not own mutable state.
@@ -26,48 +26,40 @@ does not own mutable state.
 `.review/M4_MECHANICAL_REFACTOR_PLAN.md`, and all twelve obligations are closed with distinct evidence. M4
 remains forbidden until Rob accepts M3 and separately approves the plan.
 
-## What Repair 2 changed
+## What Repair 3 changed
 
-The review found four things, and two of them were me confusing a mechanical fact for a semantic one.
+A small review-state and plan repair. Four things, and none of them needed a measurement rerun.
 
-**`M4-14` would have deleted exported theorem guarantees.** I classified 48 `Compilable.v` theorems as dead
-because no name referenced them and the module declares no `Hint`. That proves they are not *current internal
-proof dependencies* — nothing more. A top-level theorem can be its own externally visible guarantee, or a
-standalone regression fixture whose **statement is the product**; such a theorem has no caller by design. The
-list visibly contained reordering, determinism, rejected-program-report and fact-table fixtures whose own
-comments say so. And `make prove` staying green would not have caught the loss, because the lost guarantees
-would have been the deleted statements. The step is gone; group E is now `KEEP, no M4 change`, and any future
-deletion needs a separately reviewed public-surface contract.
+**`M4-07` still deferred a design choice, in a plan that claims none does.** It said "a frozen tuple, named
+tuple or frozen dataclass". That is exactly the kind of "decide during M4" the plan's own opening sentence
+forbids, and I wrote both. It is now one shape — a standard-library `NamedTuple` with `matrix` and
+`required` — and no alternative survives.
 
-**`M4-06` would have deleted the set its own retained check reads.** `check_permanent_wiring` — the permanent
-M-series law, run by `make diet` and by the hook on every commit — iterates `M1_ONLY_MODES` to prove no
-permanent path invokes a checkpoint-only mode. I proposed deleting that tuple while keeping the check. It now
-retains `M1_ONLY_MODES` as the explicit unsupported-boundary set of retired spellings, and deletes only the
-argparse options, the implementations reachable through them, the dead path constants and the dormant
-mutants.
+**`M4-07` was ordered too late.** It must be the **first** M4 step, because its staged snapshot has to carry
+M4's own obligation matrix and the new subject object, so the real pre-commit hook judges the matrix M4 is
+actually working against. Any other M4 source commit landing first would be judged by a gate still pointing
+at the accepted M3 matrix. Wave 1 is now `M4-07`, `M4-06`, `M4-08`, and the document's sections are in that
+order too.
 
-**`M3-CLAIM-SUBJECT` was recorded as satisfied and was not.** The contract asks to remove the *need* for a
-hand-retargeted constant; deleting a stale docstring copy leaves the constant exactly as hand-retargeted.
-Amendment `M3-A2` replaces the wording with what actually closes it — one subject object owning both the
-matrix path and the required obligation-ID set — and `M4-07` builds it. Dynamic discovery is explicitly not
-authorized: it would still not know the required IDs, and reading them from review prose would create a
-second current-state authority.
+**`M4-09` asked an authority to detect its own missing data.** I had written that an ID absent from
+`SUBJECT.required` must be detected. Once `SUBJECT` is the sole production authority, production code cannot
+know its authority omitted an ID without a second authority to compare against — which is the shape this
+project exists to refuse. The enforceable relation is the other direction: every ID present in
+`subject.required` appears exactly once in the matrix loaded for that subject. The control uses an
+independent synthetic subject with two fixed IDs and a matrix missing one, and never derives its expectation
+from production `SUBJECT`. Test independence does not become a second production authority.
 
-**`M3-A1`'s authority record was false, and that one was the same class of error I had just been blocked
-for.** It said the reviewer authorized the amendment. A reviewer specifies; Rob alone accepts. Rob has now
-ratified `M3-A1` and `M3-A2`, and both name him. No model is recorded as amending the contract.
+**The fresh pre-M4 baseline Rob accepted was missing from the plan.** `make perf` now runs exactly twice
+across M4: once in a clean worktree at the accepted M3 candidate before Wave 1 begins, and once after
+Wave 2. `git diff` between the two records is the full-path comparison. The forensic profiles are not rerun.
 
-Two more steps left the plan under `D-30`. `M4-03`'s restoration manifest recorded size, `mtime_ns` and
-directories — which do not establish file type, mode, symlink identity or symlink target, while the controls
-mutate all of those — so it would not have proved the property it claimed; and `M4-02` removes the multiplier
-that made those copies dominant anyway. `M4-13` would have put a cache inside an adversarial proof gate
-without an exact topology, next to controls that deliberately vary the prelude to prove the helper rejects
-false evidence. `M4-09` is narrowed to the claim-matrix root facts the mandatory finding actually names;
-`closure-ledger-view.py`'s missing controls are recorded and left alone rather than becoming a new gate
-surface mid-optimization.
+Also corrected: the review state said M3 "implements nothing", which stopped being true when `M3-A1` changed
+two tool files — it now says M3 does not implement the refactor, and names the exception. The sentence
+calling `M4-14` a proposed deletion is gone, since `M4-14` is not in the plan.
 
-Six steps remain. The plan identifies every subject by stable name rather than line number, and per-step
-verification is `make check` plus `make fmt`, not the five targets `make check` already runs.
+**Rob approved `M3-A1` and `M3-A2` in plain language on 2026-08-04**, and both amendments record him. The
+previous round recorded his authority before he had stated it that way; asking cost one exchange and is the
+only thing that makes the record true.
 
 ## Scope
 
@@ -76,9 +68,8 @@ no production, proof, Make, hook, Docker, Dune, generated or runtime path moved
 ```
 
 The one project-tool change is the one Amendment `M3-A1` authorizes: the claim-matrix self-test precondition,
-in `tools/claim-matrix-gate.py` and its mutation entry. `M4-14` is a *proposed* deletion in `Compilable.v`;
-M3 did not execute it, and every `.v`, OCaml, generated Go, fixture, golden, Makefile, Dockerfile, Dune file,
-hook, perf script and TSV byte is unchanged from the contract activation.
+in `tools/claim-matrix-gate.py` and its mutation entry. Every `.v`, OCaml, generated Go, fixture, golden,
+Makefile, Dockerfile, Dune file, hook, perf script and TSV byte is unchanged from the contract activation.
 
 No permanent audit, timing, inventory, graph or comparison tool was created, no registry or schema added, and
 no raw log committed. `.review/M3_AUDIT.md` is one temporary table.

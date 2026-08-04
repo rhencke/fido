@@ -21,14 +21,30 @@ answer to `Q-M3-01`.
 
 ## 0. How every step is measured and verified
 
+**Precondition — one fresh pre-M4 baseline, before any M4 step.** Rob accepted this and it is not optional:
+
 ```text
-BASELINE (already recorded; do not re-derive):  .review/M3_AUDIT.md §1.1, §1.2, §3.1
-AFTER, configuration A (serial diagnostic):     make perf     -> rewrites .review/PERFORMANCE.tsv
-AFTER, configuration B (one target, host idle, builder fido-builder, default concurrency):
-                                                make <target> -> wall time, at the step's own commit
+1. after Rob accepts M3 and approves this exact plan, and BEFORE any M4 step, take a clean worktree at the
+   exact accepted M3 implementation candidate
+2. run `make perf` once
+3. install the resulting .review/PERFORMANCE.tsv UNCHANGED as the pre-M4 baseline, recording that exact
+   source SHA in the M4 activation state
+4. do NOT rerun the forensic profiles — §1.1/§1.2/§3.1 of the audit stand as recorded
+5. run `make perf` once more after Wave 2
+6. `git diff` between those two TSV states is the full-path performance comparison
 ```
 
-`make perf` runs **once, after Wave 2**. Configuration A and configuration B numbers are never pooled.
+Two ordinary diagnostic runs. Not a benchmark framework, and no third run.
+
+```text
+BASELINE, forensic (already recorded; do not re-derive):  .review/M3_AUDIT.md §1.1, §1.2, §3.1
+BASELINE, pre-M4 full path:                     make perf at the accepted candidate, per the precondition
+AFTER, configuration A (serial diagnostic):      make perf once after Wave 2 -> .review/PERFORMANCE.tsv
+AFTER, configuration B (one target, host idle, builder fido-builder, default concurrency):
+                                                 make <target> -> wall time, at the step's own commit
+```
+
+Configuration A and configuration B numbers are never pooled.
 
 **Verification per step, and no more than this:**
 
@@ -57,6 +73,55 @@ step never invalidates an earlier one.
 ## Wave 1 — deletions and corrections
 
 No performance claim. These remove dead surface and close two mandatory findings.
+
+### M4-07 — one claim-matrix subject object
+
+**Root cause** (`M3-CLAIM-SUBJECT`, as replaced by `M3-A2`): the active matrix path and the required
+obligation-ID set are two hand-retargeted constants, and a third copy of the path had already drifted into
+the module docstring naming a matrix deleted at M2 closeout.
+
+**Exact design.** One standard-library `NamedTuple` owns both facts. No alternative:
+
+```python
+from typing import NamedTuple
+
+class ClaimMatrixSubject(NamedTuple):
+    matrix: str
+    required: tuple[str, ...]
+
+SUBJECT = ClaimMatrixSubject(
+    matrix=".review/M4_OBLIGATION_MATRIX.tsv",
+    required=(...the exact M4 obligation IDs...),
+)
+```
+
+A thin domain wrapper over a mature standard type, which the collection law allows. **One object, not two
+authorities.**
+
+```text
+consume SUBJECT   load_rows, the diagnostics and error messages, the required-row closure, every control,
+                  and the module's own current-subject prose
+delete            the separate matrix-path and required-ID constants
+delete            the matrix path from the module docstring; no second copy anywhere
+also delete       the third EXCLUDED_FILES entry in tools/naming-gate.py, which names a C4 review document
+                  that is not in the tree, so it excludes nothing and would cover the next file to take
+                  that name
+```
+
+**Not authorized:** dynamic discovery, a new file, a registry, a schema, or a review-state parser. A
+checkpoint transition retargets exactly one object.
+
+**This step is FIRST.** Its staged snapshot must already contain the M4 obligation matrix and the new subject
+object, so the real pre-commit hook judges M4's own matrix. No other M4 source commit may land while the gate
+still points at the accepted M3 matrix.
+
+**Invariants preserved:** the matrix relation checks exactly what it checks today; the A005 policy is
+unchanged; the deleted exclusion excluded nothing, so no file changes classification.
+
+**Baseline:** two hand-retargeted constants plus one dangling docstring path; one dangling naming exclusion.
+**Acceptance:** exactly one occurrence of the matrix path in the module; `make claims` green with the same
+reported obligation counts; `make names` reports the same file count and the same empty violation set; a
+control proving a required ID absent from `SUBJECT.required` is still detected.
 
 ### M4-06 — delete the dead M1 replay implementations, keep the boundary that names them
 
@@ -110,45 +175,6 @@ make diet output byte-identical, including the wiring line's permanent-path coun
 every remaining mutant reported load-bearing by name
 no M1_ path constant remains that does not resolve
 ```
-
-### M4-07 — one claim-matrix subject object
-
-**Root cause** (`M3-CLAIM-SUBJECT`, as replaced by `M3-A2`): the active matrix path and the required
-obligation-ID set are two hand-retargeted constants, and a third copy of the path had already drifted into
-the module docstring naming a matrix deleted at M2 closeout.
-
-**Exact design.** One object owns both facts:
-
-```python
-SUBJECT = ClaimMatrixSubject(
-    matrix=".review/M4_OBLIGATION_MATRIX.tsv",
-    required=("M4-01", ...),
-)
-```
-
-A frozen tuple, named tuple or frozen dataclass from the standard library — a thin domain wrapper, which the
-collection law allows. **One object, not two authorities.**
-
-```text
-consume SUBJECT   load_rows, the diagnostics and error messages, the required-row closure, every control,
-                  and the module's own current-subject prose
-delete            the separate matrix-path and required-ID constants
-delete            the matrix path from the module docstring; no second copy anywhere
-also delete       the third EXCLUDED_FILES entry in tools/naming-gate.py, which names a C4 review document
-                  that is not in the tree, so it excludes nothing and would cover the next file to take
-                  that name
-```
-
-**Not authorized:** dynamic discovery, a new file, a registry, a schema, or a review-state parser. A
-checkpoint transition retargets exactly one object.
-
-**Invariants preserved:** the matrix relation checks exactly what it checks today; the A005 policy is
-unchanged; the deleted exclusion excluded nothing, so no file changes classification.
-
-**Baseline:** two hand-retargeted constants plus one dangling docstring path; one dangling naming exclusion.
-**Acceptance:** exactly one occurrence of the matrix path in the module; `make claims` green with the same
-reported obligation counts; `make names` reports the same file count and the same empty violation set; a
-control proving a required ID absent from `SUBJECT.required` is still detected.
 
 ### M4-08 — repair the readable assumption surface
 
@@ -268,7 +294,7 @@ two new controls: an unknown label fails closed, and an empty selection fails cl
 If the `make fcb` target is missed, **report the measured result**. That is not permission to reintroduce a
 restoration subsystem without another review.
 
-`make perf` runs once at the end of this wave.
+`make perf` runs once at the end of this wave — the second and last of the two runs §0 allows.
 
 ---
 
@@ -284,9 +310,14 @@ proved load-bearing, which reached a freeze.
 
 ```text
 tools/claim-matrix-gate.py
-  the subject object      the active matrix and its complete required-ID set are one authority; a required
-                          ID absent from SUBJECT.required must be detected
-                          control: 'a required obligation row is missing'
+  the subject object      every ID present in `subject.required` appears exactly once in the matrix
+                          loaded for that subject.  NOT "an ID missing from SUBJECT.required is detected":
+                          once SUBJECT is the sole production authority, production code cannot know its
+                          own authority omitted an ID without a second authority to compare against.
+                          control: 'a required obligation row is missing', built on an INDEPENDENT synthetic
+                          subject with two fixed synthetic IDs and a matrix missing one of them.  The
+                          fixture's expectation is written into the fixture, never derived from production
+                          SUBJECT — test independence must not become a second production authority.
   declaration_patterns    a surface is DECLARED, never merely mentioned; a bare mention in a comment must
                           not satisfy an implementation cell
                           control: 'a named implementation surface never existed'
@@ -309,6 +340,9 @@ canonical CSV and its exact `--check` relation are unchanged. This also removes 
 contradiction, which promised a new gate would run first in `make fcb` while listing no Makefile change.
 
 **Files changed:** `tools/claim-matrix-gate.py`, `tools/gate-mutation-test.py`.
+
+The subject mutant removes or bypasses the comparison between the loaded row IDs and the supplied
+subject's required IDs; the named missing-row control must then fail.
 
 **Baseline:** 2 claim-gate mutants over 18 root helpers.
 **Acceptance:** each named root fact has one mutant, each proved load-bearing by name; the two new controls
@@ -386,9 +420,12 @@ acceptance, and no exported theorem is deleted.
 ## 7. Step order
 
 ```text
-Wave 1   M4-06  M4-07  M4-08      deletions and corrections; no performance claim
+Wave 1   M4-07  M4-06  M4-08      M4-07 FIRST: the gate must judge M4's own matrix before any other
+                                   M4 source commit lands.  Then deletions and corrections; no performance
+                                   claim in this wave.
 Wave 2   M4-01  M4-02             hot path
 Wave 3   M4-09                    claim-matrix root coverage
 ```
 
-`make perf` runs once at the end of Wave 2. The §0 verification runs after **every** step.
+`make perf` runs exactly twice across M4: once at the accepted candidate before Wave 1 begins, and once at
+the end of Wave 2. The §0 verification runs after **every** step.

@@ -4,7 +4,9 @@ status: ACCEPTED
 amends: .review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md, activation 0b7fd86825936c37f31ef83879574d526d548122
 specified by: .review/M3_FORENSIC_AUDIT_REPAIR_1.md §2
 green contract review: .review/M3_FORENSIC_AUDIT_REPAIR_2.md §2.1
-authorized by: **Rob**, approving `.review/M3_FORENSIC_AUDIT_REPAIR_2.md`
+authorized by: **Rob**, 2026-08-04 — approving M3-A1 and M3-A2 as stated in M3 Implementation
+Repair 2. Recorded because he said so, not inferred from an upload, from "ready", or from any
+other act.
 
 **Authority correction.** This document previously recorded the reviewer as having authorized the amendment.
 That was false and it was mine: a reviewer specifies an amendment, and Rob alone accepts one. The technical
