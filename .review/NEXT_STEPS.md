@@ -24,8 +24,9 @@ under human review, but it does not own mutable state. Canonical data rows carry
   other project-tool change in M3. `Q-M3-02` is thereby resolved.
   The audit is `.review/M3_AUDIT.md` and the plan is `.review/M4_MECHANICAL_REFACTOR_PLAN.md`; all twelve
   obligations are closed with distinct evidence. Every configuration-B measurement names the immutable
-  subject ref `a0482140384de3d8c193263c3bf5281e53ccdd8b`. The candidate is the commit carrying them,
-  followed by one documentation-only freeze that adds no work.
+  subject ref `a0482140384de3d8c193263c3bf5281e53ccdd8b`.
+  **M3 candidate: `5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92`.** This commit is the documentation-only
+  freeze that offers it for Implementation Review; it adds no work, and no commit follows it.
   **M3 implemented no M4 step**, and no production, proof, Make, hook, Docker, Dune, generated or runtime
   path moved.
   **M3 implemented nothing** — no M4 step ran, and no production, proof, build, tool, generated or runtime
