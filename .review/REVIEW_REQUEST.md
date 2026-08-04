@@ -14,7 +14,8 @@ amendment: .review/M3_CONTRACT_AMENDMENT_1.md
 amendment: .review/M3_CONTRACT_AMENDMENT_2.md
 review_basis: .review/REVIEW_BASIS.md
 prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_2.md
-candidate_sha: (this repair candidate; the freeze that follows pins it)
+candidate_sha: c0560426d9c0d50a45f7c015b6493983dff03878
+freeze_sha: this commit — the documentation-only freeze that follows the candidate above
 blocked_candidate: 5af6bc10a811e72fed48a9a1ce09c01c8f1a9e92
 blocked_freeze: a7383653580e093c9ed4106938bf5be82ecf6d9b
 
