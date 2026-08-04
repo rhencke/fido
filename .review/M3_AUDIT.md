@@ -3,32 +3,37 @@
 status: complete
 
 Contract: `.review/M3_TOOL_AND_BUILD_ARCHITECTURE_AUDIT.md`, activation
-`0b7fd86825936c37f31ef83879574d526d548122`. Accepted basis: `.review/REVIEW_BASIS.md`.
+`0b7fd86825936c37f31ef83879574d526d548122`, as amended by `.review/M3_CONTRACT_AMENDMENT_1.md` (`M3-A1`).
+Accepted basis: `.review/REVIEW_BASIS.md`. Repair authority: `.review/M3_FORENSIC_AUDIT_REPAIR_1.md`.
 
 This is one temporary table, not a registry. The Makefile, hook, Dockerfile, Dune files and tools remain the
-authorities for what executes. M3 changes none of them.
+authorities for what executes. M3's only project-tool change is the one `M3-A1` authorizes.
 
 ---
 
 # 1. Measured configurations
 
-Four configurations, never pooled. Every measured fact below names the one that produced it.
+Four configurations, never pooled. Every measured fact names the one that produced it.
 
 ```text
 A  serial diagnostic       make -j1 check, builder fido-perf-v1, BuildKit max-parallelism=1
-                           source: .review/PERFORMANCE.tsv at 9814db7 (the accepted M2 record)
-B  ordinary working tree   make <target>, builder fido-builder, default make parallelism, this host
+                           subject 9814db77ead0cfcfd8ff268303ba2afedef71197 (the accepted M2 record)
+B  ordinary working tree   subject a0482140384de3d8c193263c3bf5281e53ccdd8b
+                           builder fido-builder, default Make concurrency, host idle unless stated
 C  staged acceptance       .githooks/pre-commit over the exported Git index
 D  partial feedback        one named public target run alone (a subset of B)
 ```
 
-A and B answer different questions and their numbers are not interchangeable. A B measurement taken while a
-background build held CPU is marked **(contended)** and is an upper bound only.
+**Every configuration-B figure below was taken at `a0482140384de3d8c193263c3bf5281e53ccdd8b`** — the commit
+that landed the `M3-A1` claim-matrix repair — so the tools, build files and tree under measurement are one
+immutable snapshot rather than a tree that was still being edited.
+
+A and B answer different questions. Their numbers are not interchangeable and are never pooled.
 
 ## 1.1 Configuration A — the accepted serial baseline
 
-Adjacent-row deltas of `.review/PERFORMANCE.tsv` (the record stores cumulative completions; a reader
-subtracts adjacent rows).
+Adjacent-row deltas of `.review/PERFORMANCE.tsv` at `9814db77ead0cfcfd8ff268303ba2afedef71197` (the record
+stores cumulative completions; a reader subtracts adjacent rows).
 
 | phase | cold ms | hot ms |
 |---|---:|---:|
@@ -49,8 +54,26 @@ subtracts adjacent rows).
 
 Cold inverts the ranking: `prove` 134.0 s (50%) and `e2e` 45.2 s (17%) dominate; `names`+`fcb` are 19%.
 
-Two different problems, then. Cold is a Rocq/Docker problem; hot is a Python problem; and hot is the
-ordinary edit loop.
+Two different problems. Cold is a Rocq/Docker problem; hot is a Python problem; hot is the ordinary loop.
+
+## 1.2 Configuration B — at the subject ref, host idle
+
+```text
+ref        a0482140384de3d8c193263c3bf5281e53ccdd8b
+builder    fido-builder            Make concurrency  default
+cache      warm (image tag hit, Buildx stages cached)
+host       idle
+```
+
+| command | observed |
+|---|---:|
+| `make names` | 23 440 ms |
+| `make fcb` | 33 330 ms |
+| `make claims` | 2 580 ms |
+| `make fmt` | 1 240 ms |
+
+`make fcb` is larger here than in configuration A because this ref carries 43 mutants and two more tracked
+documents, not because the configurations are comparable. They are not, and are not compared.
 
 ---
 
@@ -139,32 +162,48 @@ rather than a second compile.
 contaminated by the committed bytes. That exclusion is what makes the byte-compare mean anything.
 
 **Always-run controls** (never cached, by design): every gate's `--self-test`, the `prover` stage's
-assumption audit and self-tests A–E/F–AA, and the emit-stage provenance rejections. These are the
+assumption audit and self-tests A–E/F–AG, and the emit-stage provenance rejections. These are the
 adversarial half of the evidence and M4 must keep them always-run.
 
 ---
 
 # 3. Findings
 
-Twenty mandatory stable IDs, each ending in exact M4 step IDs or an evidence-backed
-`KEEP / no M4 change`.
+Twenty mandatory stable IDs, each ending in exact M4 step IDs or an evidence-backed `KEEP / no M4 change`.
 
 ## M3-PERF-NAMES — `names` on the accepted hot path
 
-**22.3 s (A, hot) / 22.49 s (B, host idle).** One container, one process, 100 files.
+**22 310 ms (A, hot) / 23 440 ms (B, subject ref, host idle).** One container, one process.
 
-Root cause, from a one-off cProfile run inside the pinned image — the same container entry the Makefile
-uses, with the gate loaded under the profiler. Nothing tracked, nothing added to any recipe:
+Root cause, from a cProfile run at the subject ref inside the pinned image. The exact command, reproducible
+as written:
 
 ```text
-docker run --rm -u $(id -u):$(id -g) -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp -w /repo -v "$PWD":/repo:ro "$PYTAG" python3 -c '<cProfile wrapper around runpy.run_path("tools/naming-gate.py")>'
+docker run --rm -u $(id -u):$(id -g) -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo -w /repo -v "$PWD":/repo:ro "$PYTAG" python3 -c "
+import cProfile, pstats, sys, runpy, contextlib
+sys.argv = ['tools/naming-gate.py']
+def go():
+    with contextlib.suppress(SystemExit):
+        runpy.run_path('tools/naming-gate.py', run_name='__main__')
+pr = cProfile.Profile(); pr.enable(); go(); pr.disable()
+st = pstats.Stats(pr)
+want = {'escape': 're.escape', 'search': 're.search', 'check_prose': 'check_prose', 'check_code': 'check_code'}
+for f, v in st.stats.items():
+    if f[2] in want and ('re/__init__' in f[0] or 'naming-gate' in f[0]):
+        print(f'{want[f[2]]:12s} calls={v[0]:>10d}  tottime={v[2]:.3f}  cumtime={v[3]:.3f}')
+print(f'profiled total {st.total_tt:.3f} s')
+"
 ```
 
+with `PYTAG` as the Makefile computes it. Observed at `a0482140384de3d8c193263c3bf5281e53ccdd8b`:
+
 ```text
-72 482 119 function calls in 35.938 s (profiled; 22.5 s unprofiled)
-  check_prose            166 calls   23.942 s cumulative
-  re.search          9 790 568 calls  17.756 s
-  re.escape          9 003 383 calls  12.194 s   (8.911 s of it in str.translate)
+files examined                 102
+check_prose      calls=       168   tottime= 3.039   cumtime=25.398
+check_code       calls=       131   tottime= 1.403   cumtime=12.080
+re.escape        calls=   9371786   tottime= 2.841   cumtime=12.960
+re.search        calls=  10207628   tottime= 3.333   cumtime=18.485
+profiled total   37.630 s            (unprofiled wall: 23 440 ms)
 ```
 
 `tools/naming-gate.py:336` (and `:290`, `:342`) build a **new pattern string per line per retired name**:
@@ -173,27 +212,39 @@ docker run --rm -u $(id -u):$(id -g) -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp -
 if re.search(r"(?<![\w.'/-])" + re.escape(old) + r"(?![\w'])", line):
 ```
 
-The tables hold 170 retired names (`OLD_MODULES` 18 + `OLD_NAMES` 78 + `OLD_FILES` 5 +
-`DELETED_SURFACES` 69) plus 20 `RETIRED_COMPOUNDS`. 170 names × ~53 000 scanned lines = the 9.0 M calls.
-Every one of those patterns is a **constant**. `re`'s internal cache holds 512 entries and is thrashed, so
-each call re-escapes and re-looks-up.
+Table cardinalities, read from the module itself rather than counted by eye:
+
+```text
+OLD_MODULES        13     OLD_QUALIFIED       5   (substring test, no regex)
+OLD_NAMES          73     RETIRED_COMPOUNDS  20   (searched, not escaped)
+OLD_FILES           5
+DELETED_SURFACES   69
+core retired names 160    all distinct
+```
+
+160 constant patterns, rebuilt for every candidate line in both `check_prose` and `check_code`. `re`'s
+internal cache holds 512 entries and is thrashed, so each call re-escapes and re-looks-up. No line count is
+claimed here: the measured facts are the call counts, and deriving a line total from them would mix the
+159-escape prose path with the 160-escape code path.
 
 Disposition: **SIMPLIFY** → `M4-01`.
 
 ## M3-PERF-FCB — `fcb`, including the mutation harness
 
-**28.6 s (A, hot).** Per-line timestamps of `make fcb` (B, host idle) attribute it:
+**28 580 ms (A, hot) / 33 330 ms (B, subject ref, host idle).** Per-line timestamps of `make fcb` at the
+subject ref, reading `/proc/uptime` per output line:
 
 | sub-invocation | ms |
 |---|---:|
-| human-review-index `--self-test` | (start) |
-| human-review-index `--check` | 580 |
-| fcb-reference-gate `--self-test` | 3 680 |
-| fcb-reference-gate (check) | 1 590 |
-| closure-ledger-view `--check` | 2 080 |
-| **gate-mutation-test** | **22 400** |
+| human-review-index `--self-test` | 1 210 |
+| human-review-index `--check` | 650 |
+| fcb-reference-gate `--self-test` | 3 710 |
+| fcb-reference-gate (check) | 750 |
+| closure-ledger-view `--check` | 560 |
+| **gate-mutation-test** | **26 220** |
+| target teardown | 230 |
 
-`gate-mutation-test` is **78% of `fcb`** and **35% of the entire hot `make check`**.
+`gate-mutation-test` is **79% of `fcb`**.
 
 Disposition: **SIMPLIFY** → `M4-02`, `M4-03`. Root cause under `M3-MUTATION-ARCHITECTURE`.
 
@@ -201,39 +252,36 @@ Disposition: **SIMPLIFY** → `M4-02`, `M4-03`. Root cause under `M3-MUTATION-AR
 
 The harness nests two control layers, and the product is the cost.
 
-`tools/gate-mutation-test.py:434 run_mutant` — per mutant: a full `shutil.copytree` of the tree, then a
+`tools/gate-mutation-test.py:run_mutant` — per mutant: a full `shutil.copytree` of the tree, then a
 subprocess running that gate's **entire** `--self-test`. `main` runs them on
-`ThreadPoolExecutor(max_workers=min(len(selected), os.cpu_count()))` — 4 here.
+`ThreadPoolExecutor(max_workers=min(len(selected), os.cpu_count()))` — 4 on this host.
 
-**Three** of the gates then copy the tree *again*, per control — the others build small fixtures instead, and
-the difference is where M4 should aim:
+**Three** gates then copy the tree again per control; the other three build small fixtures. The difference is
+where M4 aims:
 
 ```text
-copies the whole tree per control   fcb-reference-gate.py:584 scenario   human-review-index.py   claim-matrix-gate.py
+copies the whole tree per control   fcb-reference-gate.py:scenario   human-review-index.py   claim-matrix-gate.py
 builds a small temp fixture         source-diet.py   host-python-gate.py   naming-gate.py
 ```
 
-Selected mutants by tool (measured by importing the module in the pinned image):
+Measured at the subject ref by importing the harness in the pinned image and multiplying by each gate's own
+control count:
 
 ```text
-source-diet          16      × 53 controls  =  848
-fcb-reference-gate   11      × 64 controls  =  704
-host-python-gate      9      × 25 controls  =  225
-naming-gate           2      × 72 controls  =  144
-human-review-index    2      × 24 controls  =   48
-claim-matrix-gate     1      × 21 controls  =   21
-worktree-list         1
-                     42 mutants           ≈ 1 990 nested control executions per `make fcb`
+source-diet          16 mutants x 53 controls =  848
+fcb-reference-gate   11 mutants x 64 controls =  704     <- copies
+host-python-gate      9 mutants x 25 controls =  225
+naming-gate           2 mutants x 72 controls =  144
+claim-matrix-gate     2 mutants x 25 controls =   50     <- copies
+human-review-index    2 mutants x 24 controls =   48     <- copies
+worktree-list         1 mutant
+                     43 mutants, 2 019 nested control executions per `make fcb`
+                     of which 802 copy the whole tree, plus 43 mutant-level = 845 full tree copies
 ```
 
-Of those, the ones that copy the whole tree are the 704 from `fcb-reference-gate`, the 48 from
-`human-review-index` and the 21 from `claim-matrix-gate` — **≈773 full tree copies**, plus the 42 the harness
-itself makes, so **≈815**. The other ~1 217 executions build small fixtures and are comparatively cheap.
-The copy cost is therefore concentrated almost entirely in one gate, which is where `M4-03` aims.
-
-**The nesting is not redundant evidence** — a mutant proves the rule is load-bearing, a control proves the
-gate detects a defect — but the harness re-runs the *whole* self-test when it only ever asserts that the
-mutant's own `expected` controls fired (`main`: `missing = [c for c in expected if …]`).
+**The nesting is not redundant evidence** — a mutant proves a rule load-bearing, a control proves the gate
+detects a defect — but the harness re-runs the *whole* self-test when `main` only ever asserts that the
+mutant's own `expected` controls fired.
 
 Disposition: **SIMPLIFY** → `M4-02`, `M4-03`.
 
@@ -241,57 +289,41 @@ Disposition: **SIMPLIFY** → `M4-02`, `M4-03`.
 
 Not merely dormant — **broken, and guarded by mutants that never run.**
 
-1. `tools/source-diet.py:1165 M1_ONLY_MODES` names seven CLI modes: `--against-baseline`,
+1. `tools/source-diet.py:M1_ONLY_MODES` names seven CLI modes: `--against-baseline`,
    `--disposition-exact`, `--code-identical`, `--verify-m1-evidence`, `--write-metrics-table`,
    `--write-disposition`, `--m1-self-test`. **No Makefile recipe and no hook line invokes any of them**
    (`git grep -n 'source-diet' -- Makefile .githooks`).
-2. Those modes reference six repository paths that **no longer exist**:
-
-```text
-.review/M1_BASELINE.tsv                source-diet.py:41
-.review/M1_METRICS.tsv                 source-diet.py:42
-.review/M1_FILE_DISPOSITION.tsv        source-diet.py:43, 1912, 1949
-.review/M1_DECLARATION_DELETIONS.tsv   source-diet.py:44
-.review/M1_OBLIGATION_MATRIX.tsv       source-diet.py:50, 1435
-.review/M2_PERFORMANCE_SNAPSHOT.md     source-diet.py:1444
-```
-
-3. **25 of the 67 mutants** in `tools/gate-mutation-test.py` are `--m1-self-test` mutants (all
+2. Those modes reference six repository paths that **no longer exist** — the M1 baseline, metrics, file
+   disposition, declaration-deletion and obligation ledgers, and the retired M2 checkpoint document. Their
+   exact spellings are in `tools/source-diet.py` at lines 41–44, 50, 1435, 1444, 1912 and 1949; they are not
+   repeated here because this file must not name paths that are gone.
+3. **25 of the 68 mutants** in `tools/gate-mutation-test.py` are `--m1-self-test` mutants (all
    `source-diet.py`). `mutant_mode` routes them there, and `--m1` is invoked nowhere, so they never run.
 
-So the dead mode is protected by dead mutants, and the pair has been keeping each other alive.
+The dead mode is protected by dead mutants, and the pair has been keeping each other alive.
 
 Disposition: **DELETE** → `M4-06`.
 
 ## M3-CLAIM-SUBJECT — the manually retargeted active-checkpoint constant
 
-The retarget has already drifted. `tools/claim-matrix-gate.py:44` reads
-`TSV_REL = '.review/M3_OBLIGATION_MATRIX.tsv'`, while its own docstring at line 20 still says:
+The retarget has already drifted. `tools/claim-matrix-gate.py` sets `TSV_REL` to the current matrix while its
+own docstring still names the previous checkpoint's matrix, which was deleted at M2 closeout. No gate catches
+it: D-24 scans *authority documents* and a tool is not one; the naming gate scans retired *names*, not
+retired *paths*.
 
-```text
-Matrix: `.review/M2_OBLIGATION_MATRIX.tsv`.
-```
-
-`.review/M2_OBLIGATION_MATRIX.tsv` does not exist. No gate catches it: D-24 scans *authority documents*
-and a tool is not one; the naming gate scans retired *names*, not retired *paths*.
-
-Disposition: **SIMPLIFY** → `M4-07` (make the subject follow the review state instead of a hand-edited
-constant, and give the tools the same not-a-dangling-path check the authorities already have).
+Disposition: **SIMPLIFY** → `M4-07`, narrowed to deleting the stale string. `TSV_REL` stays the one current
+subject authority: deriving it from review state would couple the gate to a document it should not read, and
+the drift that actually happened was prose, not the constant.
 
 ## M3-NAMING-EXCLUSION — the inert exclusion
 
-`tools/naming-gate.py:42 EXCLUDED_FILES` holds three entries. One does not resolve:
+`tools/naming-gate.py:EXCLUDED_FILES` holds three entries. Two resolve — the FCB amendments tree, which must
+quote the names it retires, and the gate itself, which spells every retired name by necessity. The third
+names a C4 review document that is **not in the tree**.
 
-```text
-.review/fcb/amendments/                    EXISTS   (an amendment must quote the names it retires)
-tools/naming-gate.py                       EXISTS   (spells every retired name by necessity)
-.review/C4_IMPLEMENTATION_REPAIR_21.md     MISSING
-```
+An exclusion for a file that is not there excludes nothing and hides the next file to take that name.
 
-An exclusion for a file that is not in the tree excludes nothing and hides the next file that takes that
-name. Every retained exclusion must resolve.
-
-Disposition: **DELETE** the third entry → `M4-07`.
+Disposition: **DELETE** that entry → `M4-07`.
 
 ## M3-ASSUMPTION-DUPLICATES — duplicate `Print Assumptions` in `gate/Assumptions.v`
 
@@ -305,16 +337,16 @@ Compilable.member_at_in_forest
 Compilable.occurrence_expr_diags_conv_sound
 ```
 
-The count check in the `prover` stage is `want=$(grep -c '^Print Assumptions')` versus
+The `prover` stage compares `want=$(grep -c '^Print Assumptions')` against
 `got=$(grep -c '^Closed under the global context')`, and a duplicate raises both sides equally, so the gate
-still passes — but its message says "540/540 surfaces closed" when 535 surfaces are closed.
+passes — while reporting "540/540 surfaces closed" when 535 surfaces are closed.
 
 Disposition: **DELETE** the five duplicate lines → `M4-08`.
 
 ## M3-ASSUMPTION-SURFACES — omitted Complex imaginary-component readable surfaces
 
-`Complex.v` declares 11 `_real` and 11 `_imaginary` lemmas. The readable gate carries 16 Complex surfaces.
-Four real/imaginary pairs are asymmetric — the real half is gated, the imaginary half is not:
+`Complex.v` declares 11 `_real` and 11 `_imaginary` lemmas; the readable gate carries 16 Complex surfaces.
+Four real/imaginary pairs are asymmetric — the real half gated, the imaginary half not:
 
 ```text
 typed_runtime_real_coherent      gated  /  typed_runtime_imaginary_coherent      NOT
@@ -323,9 +355,8 @@ typed_runtime_real_not_nan       gated  /  typed_runtime_imaginary_not_nan      
 typed_runtime_real_not_neg_zero  gated  /  typed_runtime_imaginary_not_neg_zero  NOT
 ```
 
-(`typed_runtime_real_shape` / `typed_runtime_imaginary_shape` are both gated, so the asymmetry is an
-omission rather than a policy.) The whole-theory `Fido Audit Assumptions` already covers them; what is
-missing is the *readable* surface a human checks.
+`typed_runtime_real_shape` / `typed_runtime_imaginary_shape` are both gated, so this is an omission rather
+than a policy. The whole-theory audit already covers them; what is missing is the *readable* surface.
 
 Disposition: **KEEP the lemmas, add the four missing readable lines** → `M4-08`.
 
@@ -341,119 +372,99 @@ Makefile:137  sh tools/regen-guard-test.sh           make regen-guard
 Makefile:185  sh tools/perf.sh                       make perf
 ```
 
-plus `ocaml-origin-gate.sh`, `generated-output-gate.sh` and `generated-mode-gate.sh` from the hook. Between
-them they invoke host `git`, `find`, `sed`, `grep`, `diff`, `awk`, `tar`, `cmp` and `mktemp`, none pinned.
+plus three from the hook. Between them they invoke host `git`, `find`, `sed`, `grep`, `diff`, `awk`, `tar`,
+`cmp` and `mktemp`, none pinned. One concrete consequence: the `fcb-write` recipe uses `find … -printf`
+twice, which is GNU findutils only, so that recipe cannot run on a BSD or busybox host.
 
-One concrete exposure, not hypothetical: the `fcb-write` recipe uses `find … -printf '%P\n'` twice
-(`Makefile:212`, `Makefile:221`). `-printf` is GNU findutils only, so that recipe cannot run on a BSD or
-busybox host.
+This is a **declared-scope** fact, not a defect: the project's declared host boundary is "shell, Make, Git,
+Docker and Buildx", so host shell is inside the trusted base by design, and nothing in the current
+requirement set asks for BSD portability.
 
-This is a **declared-scope** question, not a defect: the project's declared host boundary is "shell, Make,
-Git, Docker and Buildx", so host shell is inside the trusted base by design.
-
-Disposition: **KEEP, no M4 change** — the boundary is as declared. Recorded so the exposure is stated
-rather than assumed away; widening it is a scope decision for Rob, not an M4 refactor.
+Disposition: **KEEP, no M4 change.** Recorded so the exposure is stated rather than assumed away. Widening
+the host boundary is a scope decision for Rob, not an M4 refactor, and tidying a mode bit is not a
+requirement.
 
 ## M3-CLAIM-MUTATION — does the claim-matrix gate need mutation coverage?
 
-**Yes, and `closure-ledger-view.py` needs it more.** Mutation coverage against top-level helper count:
+**Yes — and the audit proved it the hard way.** Mutation coverage against top-level helper count at the
+subject ref:
 
 | tool | top-level defs | selected mutants |
 |---|---:|---:|
 | source-diet.py | 67 | 16 (+25 that never run) |
 | fcb-reference-gate.py | 59 | 11 |
 | host-python-gate.py | 26 | 9 |
-| claim-matrix-gate.py | 17 | **1** |
+| claim-matrix-gate.py | 18 | 2 |
 | naming-gate.py | 15 | 2 |
 | human-review-index.py | 12 | 2 |
 | closure-ledger-view.py | 6 | **0** |
 | worktree-list.py | 5 | 1 |
 
-`claim-matrix-gate.py` runs 21 of its own controls, but only one of its rules has been shown load-bearing.
-`closure-ledger-view.py` has no mutant at all, and it publishes a generated FCB view.
-
-**And while auditing it, its own self-test failed — on a defect a mutant would have caught.** M3 closed all
-twelve obligations with `unsupported-boundary` implementation cells, because M3 implements nothing by
-contract §1 and so declares no surface. `make claims` then reported:
+While closing the matrix, `tools/claim-matrix-gate.py` failed its own self-test on a matrix that was correct:
 
 ```text
 FAIL  a named implementation surface was renamed: could not construct the scenario
       (no closed row with a locatable declaration to rename)
 ```
 
-The mechanism is exact:
+`rename_named_surface` needed a closed row naming a movable `.v` declaration or Python `def`/`class`;
+`ensure_closed_row` guaranteed only that *some* row was closed. Every closed row of a documentation-only
+checkpoint honestly carries `unsupported-boundary`, so the control could not be built. It had never fired
+because some closed row always happened to name a Python `def` — at M2 only after that cell was reordered so
+the locatable entry came first.
 
-```text
-tools/claim-matrix-gate.py:468 rename_named_surface
-  -> :470 ensure_closed_row(work)          guarantees only that SOME closed row exists
-  -> :472 scans closed rows for a first implementation entry that is `path:symbol`
-          AND whose file the rename regex at :486/:488 can match — `.v` declaration kinds,
-          or Python `def`/`class`.  A Makefile target or a `.sh` function passes
-          check_implementation but is not renameable, so it is skipped.
-  -> :492 raise AssertionError('no closed row with a locatable declaration to rename')
-```
+That defect is repaired under Amendment `M3-A1` (`.review/M3_CONTRACT_AMENDMENT_1.md`): one shared
+`renameable_declaration` predicate, a `require_declaration` flag mirroring the existing `require_builder`,
+four new controls, and one mutation entry. `closure-ledger-view.py` still has no mutant at all and it
+publishes a generated FCB view.
 
-`ensure_closed_row` at `:413` appends `SYNTHETIC_CLOSED` — which names `Compilable.v:deep_nested_compile_fixture`,
-a real declaration — but **only if no closed row already serves**. Its own docstring says the flag exists
-because "a documentation checkpoint legitimately has neither". The author saw this class and covered the
-*builder* scenario with `require_builder`; the *rename* scenario has no equivalent, so the precondition it
-establishes is weaker than the one it needs.
-
-It has never fired before because some closed row always happened to name a Python `def`. At M2 that was
-`M2-08 → tools/worktree-list.py:tracked_and_untracked`, and it only worked because that cell was reordered
-during M2 Repair so the locatable entry came first. This is therefore the **second** time the defect has been
-worked around in data.
-
-M3 is the first checkpoint where no honest such entry exists, because M3 wrote no Rocq and no Python.
-
-**This blocks M3's exit** (`M3-11`, `M3-12`, contract §11) and M3 may not repair it: contract §9 forbids
-changing a project tool. Reported as an architectural conflict rather than worked around a third time.
-
-Disposition: **KEEP the harness, extend coverage, and repair `ensure_closed_row`** → `M4-09`, and the
-blocking conflict in `.review/OPEN_QUESTIONS.md` `Q-M3-02`.
+Disposition: **the precondition repair is done under `M3-A1`; the remaining coverage** → `M4-09`.
 
 ## M3-SOURCE-ENUMERATION — every independent enumeration and its one right owner
 
 Seven independent enumerations of the repository:
 
 ```text
-tools/worktree-list.py          git ls-files --cached --others --exclude-standard   (declared owner)
-tools/naming-gate.py            git ls-files … + iterdir + rglob
-tools/fcb-reference-gate.py     git ls-files … + os.walk + rglob + scandir
-tools/source-diet.py            git ls-files … + os.walk
-tools/host-python-gate.py       git ls-files … + rglob
-tools/generated-mode-gate.sh    git ls-files -s        (index-authoritative, deliberately distinct)
+tools/worktree-list.py             git ls-files --cached --others --exclude-standard  (declared owner)
+tools/naming-gate.py               git ls-files … + iterdir + rglob
+tools/fcb-reference-gate.py        git ls-files … + os.walk + rglob + scandir
+tools/source-diet.py               git ls-files … + os.walk
+tools/host-python-gate.py          git ls-files … + rglob
+tools/generated-mode-gate.sh       git ls-files -s        (index-authoritative, deliberately distinct)
 tools/staged-generated-compare.sh  git ls-files --cached --others --exclude-standard
 ```
 
 `Makefile:59` names `tools/worktree-list.py` as the one that "owns the inventory" — but it owns it only for
-the `make check` tar export. Six other components enumerate for themselves.
+the `make check` tar export.
 
-**Not all six are wrong.** `generated-mode-gate.sh` must read `git ls-files -s` from the real index to see
-file *modes*, which an exported tree cannot show; that is a different question, not a duplicate answer. The
-Python gates, however, each re-derive the same tracked-file set with different traversal primitives, and
-each must independently get the fail-closed behaviour right.
+**They do not all ask the same question.** `generated-mode-gate.sh` must read `git ls-files -s` from the real
+index to see file *modes*, invisible in an export. And the Python gates differ in *selection*, not just
+traversal: the naming gate examined 102 files at the subject ref while the reference gate inventoried 113 and
+source-diet 111. A shared owner would have to preserve three different selections through one API, and this
+audit has not shown that it can.
 
-Disposition: **MERGE** the Python-side enumeration behind one owner → `M4-05`; **KEEP**
-`generated-mode-gate.sh` distinct with its reason recorded.
+Disposition: **KEEP each enumeration, no M4 change.** Recorded as a real duplication with a real cost, and
+retained because unifying it is a redesign this evidence does not justify. It needs its own contract if it is
+ever wanted.
 
 ## M3-NO-HOST-PYTHON-COST — the deliberate cost of the accepted boundary
 
 `make check` starts the pinned Python container **16 times**; the hook starts it **14 times**.
 
-Floor cost per start, configuration B, host idle: `make pytools` (a bare `docker image inspect`) is 170 ms;
-`make fmt` (that prerequisite plus exactly one container start plus a scan of 111 files) is 980 ms. Cross-
-checking against configuration A — `claims` 1 720 ms for 2 starts, `diet` 2 690 ms for 3, `hostpython`
-2 920 ms for 2 — puts container start plus interpreter start at roughly **0.6–0.7 s**.
+Floor cost per start, configuration B at the subject ref, host idle: `make pytools` (a bare
+`docker image inspect`) is 170–210 ms; `make fmt` (that prerequisite plus exactly one container start plus a
+scan of 111 files) is 1 240 ms. Cross-checking against configuration A — `claims` 1 720 ms for 2 starts,
+`diet` 2 690 ms for 3, `hostpython` 2 920 ms for 2 — puts container start plus interpreter start at roughly
+**0.6–0.7 s**, so **≈10 s of the 63.7 s hot `make check`**, about 16%.
 
-So **≈10 s of the 63.7 s hot `make check` is container startup** — about 16%, paid 16 times for what is one
-read-only mount of one tree by one image.
+This is the price of a boundary worth having, and it is paid 16 times for what is one read-only mount of one
+tree by one image.
 
-This is the *price of a boundary worth having*: project Python never touching the host is a permanent
-accepted invariant and M4 must not weaken it. But the boundary requires Python to run **in the image**, not
-to run **once per gate**.
-
-Disposition: **MERGE** the per-gate invocations into one container start per source view → `M4-04`.
+Disposition: **KEEP, no M4 change.** Batching the gates into one container start would have to preserve
+separate public targets, exact staged copies, gate-specific failure messages, the completion markers `make
+perf` measures, and the two source views — a restructuring of both the Makefile and the hook to recover a
+floor that shrinks anyway once `M4-01`, `M4-02` and `M4-03` land. Re-measure after M4 and reconsider then;
+this is recorded evidence, not a deferred promise.
 
 ## M3-INVALIDATION — why ordinary edits rebuild more than the proof graph requires
 
@@ -463,36 +474,38 @@ Disposition: **MERGE** the per-gate invocations into one container start per sou
 PYTAG := fido-python-tools:$(shell cat Dockerfile tools/python-requirements.lock | sha256sum | cut -c1-16)
 ```
 
-Only lines 23–27 of 1 245 define that image. Demonstrated (one-off, no tree modified — the edit was applied
-to a pipe):
+Only lines 23–27 of 1 245 define that image. Demonstrated at the subject ref, with the edit applied to a pipe
+so no tracked file changed:
 
 ```text
 current PYTAG suffix                                              6e65f59ae32bd774
 after one comment edit in the go-e2e stage (~line 803)            b5562f3bf16ae2a8
 ```
 
-A comment 776 lines away from the stage that defines it forces a full `--load` rebuild of the tooling
-image. The pre-commit hook computes the same tag the same way, so the cost is paid twice.
+A comment 776 lines from the stage that defines it forces a full `--load` rebuild, and the hook computes the
+same tag the same way.
 
-Disposition: **SIMPLIFY** → `M4-10`.
+Disposition: **KEEP, no M4 change.** A tag hit costs 170–210 ms and the miss is rare. Narrowing the key means
+a fail-closed Dockerfile-stage extractor duplicated in the Makefile *and* the hook, and it inverts the risk
+from "rebuilds too often" to "runs a stale tooling image" — the worse failure. Under `D-30` that parser is
+not justified by this benefit. Recorded as measured evidence; the over-keying is real and cheap.
 
 ## M3-BUILDX-CACHE — stage boundaries, COPY sets, cache mounts and false invalidation
 
-Six persistent caches; the DAG is in §2.3. Two structural facts:
+Six persistent caches; the DAG is §2.3. Two structural facts:
 
 1. `prover`, `profile` and `emit` COPY the **same** four inputs (`dune-project dune`, `*.v`, `gate/`,
    `plugin/`), so BuildKit content-addresses those layers once and shares them. `emit` adds `e2e/` last, so
-   an `e2e/` edit invalidates only `emit`, not `prover`. That ordering is correct and deliberate.
-2. All three mount the **same** `fido-dune-rocq-9.2.0-$arch` `_build` cache with `sharing=locked`. So a
-   theory compile is done once and reused across stages — but the stages also **serialize** on it, which is
-   why parallel `make check` gains little on the Rocq half.
+   an `e2e/` edit invalidates only `emit`. That ordering is correct and deliberate.
+2. All three mount the **same** `fido-dune-rocq-9.2.0-$arch` `_build` cache with `sharing=locked`. A theory
+   compile is done once and reused across stages — and the stages also **serialize** on it, which is why
+   parallel `make check` gains little on the Rocq half.
 
-**A cache-mount is not a Docker layer.** `--no-cache-filter prover` re-runs the stage's `RUN` but leaves
+**A cache mount is not a Docker layer.** `--no-cache-filter prover` re-runs the stage's `RUN` but leaves
 `_build` populated, so even a "cold" `prove` does not recompile the theory from nothing. That is what
 `.review/PERFORMANCE.tsv`'s cold column measures, and §1.1's cold numbers must be read that way.
 
-Disposition: **KEEP the cache topology, no M4 change**; the COPY ordering and the shared `_build` are both
-doing their job. The invalidation defect is `M3-INVALIDATION`, which is a Make-level key, not a Buildx one.
+Disposition: **KEEP, no M4 change.** The COPY ordering and the shared `_build` both do their job.
 
 ## M3-ACCEPTANCE-DUPLICATION — repeated work across `make check`, partial targets and the hook
 
@@ -502,36 +515,60 @@ What is genuinely repeated over one source view:
 
 1. **Every gate's `--self-test` is source-view independent.** The controls build their own fixtures in
    `tempfile.TemporaryDirectory()`; they do not read the tree under test. Running them in `make check` and
-   again in the hook is therefore the *same computation twice*, not two views. Cost: the full self-test set
-   is the dominant part of both `names` and `fcb`.
-2. **`gate-mutation-test` re-runs those same self-tests 42 more times** (`M3-MUTATION-ARCHITECTURE`), inside
-   the run that already ran each of them once.
-3. `make check` runs `prove` and then `e2e`; `e2e`'s `emit` stage repeats `dune build @install @all`. This
-   one is **already cheap** — the shared `_build` cache makes it a re-check, not a recompile.
+   again in the hook is therefore the same computation twice, not two views.
+2. **`gate-mutation-test` re-runs those same self-tests 43 more times** (`M3-MUTATION-ARCHITECTURE`), inside
+   the run that already ran each of them once. 2 019 nested control executions, 845 full tree copies.
+3. `make check` runs `prove` then `e2e`; `e2e`'s `emit` stage repeats `dune build @install @all`. Already
+   cheap — the shared `_build` cache makes it a re-check, not a recompile.
 
-Disposition: **SIMPLIFY** (1) and (2) → `M4-02`, `M4-03`, `M4-04`; **KEEP** (3).
+Disposition: **SIMPLIFY** (2) → `M4-02`, `M4-03`. **KEEP** (1) and (3): the self-tests are the adversarial
+half of the evidence and must stay always-run in both views, and (3) costs nothing.
 
 ## M3-DUNE-FANOUT — the real Dune/Rocq graph, critical path and rebuild set
 
-Root `.v` modules, size and their `From Fido Require` edges:
+**Authority: the pinned toolchain's own dependency output**, not source imports. Obtained at the subject ref
+with a temporary diagnostic image (no Dockerfile stage added, nothing tracked):
 
 ```text
-Decimal 116   FilePath 219   Integer 102   Float 477   Version 18   ModulePath 279   Names 214   (no Fido deps)
-Complex 186      <- Float
-Collections 178  <- FilePath
-Syntax 282       <- Collections Complex FilePath Float Integer ModulePath Names Version
-Index 3525       <- Collections FilePath Syntax
-Typing 644       <- Complex Float Integer Syntax
-Compilable 10156 <- Collections Complex FilePath Float Index Integer ModulePath Syntax Typing
-Safe 343         <- Compilable Complex Float Integer Syntax Typing
-Render 1458      <- Compilable Complex Decimal Float Integer ModulePath Safe Syntax Typing Version
-Emit 279         <- Collections Compilable FilePath ModulePath Render Safe Syntax Version
+docker buildx build --builder fido-builder --platform linux/amd64 --target prover --load -t fido-m3-diag .
+docker run --rm fido-m3-diag sh -c 'rocq dep -Q . Fido *.v'
 ```
 
-**`Compilable.v` is 10 156 of ~18 500 lines — 55% of the theory — and every remaining module depends on
-it.** Editing it rebuilds `Safe`, `Render`, `Emit` and re-runs every downstream gate.
+Normalized adjacency, transitive closure and downstream rebuild set, computed from that raw output:
 
-But the compile itself is not the problem. `make profile FILE=Compilable.v` (configuration B):
+```text
+module        direct  transitive  downstream rebuild set (transitive dependents)
+FilePath           0      0        8  Collections Compilable Emit Index Render Safe Syntax Typing
+Float              0      0        8  Compilable Complex Emit Index Render Safe Syntax Typing
+Collections        1      1        7  Compilable Emit Index Render Safe Syntax Typing
+Complex            1      1        7  Compilable Emit Index Render Safe Syntax Typing
+Integer            0      0        7  Compilable Emit Index Render Safe Syntax Typing
+ModulePath         0      0        7  Compilable Emit Index Render Safe Syntax Typing
+Names              0      0        7  Compilable Emit Index Render Safe Syntax Typing
+Version            0      0        7  Compilable Emit Index Render Safe Syntax Typing
+Syntax             8      8        6  Compilable Emit Index Render Safe Typing
+Index              3      9        4  Compilable Emit Render Safe
+Typing             4      9        4  Compilable Emit Render Safe
+Compilable         9     11        3  Emit Render Safe
+Decimal            0      0        2  Emit Render
+Safe               6     12        2  Emit Render
+Render            10     14        1  Emit
+Emit               8     15        0  (none)
+
+critical path, depth 8:
+  FilePath/Float -> Collections/Complex -> Syntax -> Typing/Index -> Compilable -> Safe -> Render -> Emit
+```
+
+The `From Fido Require` declarations agree with the toolchain graph edge for edge at this ref. That is a
+useful fact — the imports are a faithful projection here — but the toolchain is the authority and the
+imports are not.
+
+**The decisive number is Compilable's downstream set: 3.** `Compilable.v` is 10 156 of ~18 500 lines, 55% of
+the theory, and it sits *low* in the dependents order: editing it rebuilds only `Safe`, `Render` and `Emit`.
+Editing a leaf like `FilePath` or `Float` rebuilds 8. So the largest module already has one of the smallest
+rebuild sets.
+
+Cost, configuration B at the subject ref (`make profile FILE=Compilable.v`):
 
 ```text
 Compilable.v recompiled alone in 6.5 s (deps already built)
@@ -539,116 +576,147 @@ Compilable.v recompiled alone in 6.5 s (deps already built)
 slowest single sentence 0.239 s (the Stdlib Require), then 0.210 s (the Fido Require)
 ```
 
-No lemma dominates; the cost is spread across 8 962 sentences. A module split would reduce the *rebuild
-set* after an edit, not the total compile time, and it would be a change to certified source — outside
-M4's mechanical remit and requiring its own contract.
+Disposition: **KEEP, no M4 change** — and the rationale is measured, not categorical. A split is *permitted*
+to M4 under Governance `D-27` when M3 evidence and Rob's approved plan justify it. This evidence does not:
+the fan-out a split would reduce is already 3, no sentence dominates the 6.5 s, and the change would be
+substantial certified-source churn for a rebuild set that is nearly minimal.
 
-Disposition: **KEEP, no M4 change.** The measured fan-out does not justify splitting a certified module;
-`M3-EDIT-WEIGHT` below shows why the edit frequency does not either.
+## M3-EDIT-WEIGHT — files edited and co-change groups, over separated immutable ranges
 
-## M3-EDIT-WEIGHT — files edited, over separated named ranges
+Three exact ranges with full immutable endpoints, kept apart because pooling them predicts neither kind of
+work.
 
-Three exact ranges, kept apart, because pooling them predicts neither kind of work.
-
-**Range 1 — whole history to C4 acceptance, `.v` only: `git log 39ea7e3 -- '*.v'`, 1 829 commits.**
+**Range 1 — whole history to C4 acceptance, `.v` only.**
+`git log 39ea7e3b012ec798c6a756c971c10bb363557ef8 -- '*.v'`, 1 829 commits.
 Top files, all deleted: `main.v` 369, `builtins.v` 297, `GoSem.v` 216.
 Also deleted, next in rank: `GoCompile.v` 211, `GoPrint.v` 180.
-This range describes an architecture that no longer exists and predicts nothing about the current tree.
-Recorded so nobody reaches for it.
+This range describes an architecture that no longer exists. Recorded so nobody reaches for it.
 
-**Range 2 — the current module set: `git log 20c5ad5..39ea7e3`, 55 commits.** `20c5ad5` (2026-07-26) is the
-commit that introduced the whole current module set. This is the only range that describes today's files:
-
-```text
-Compilable.v 22   gate/Assumptions.v 18   Emit.v 8   Safe.v 4   Render.v 3
-e2e/Witness*.v 3 each   Typing/Syntax/Index/Float/Complex 2 each   the seven leaf modules 1 each
-```
-
-Relevance to M4: `Compilable.v` and `gate/Assumptions.v` are together 40 of 76 `.v` touches, so the cold
-path — which is `Compilable`'s compile plus the assumptions gate — is exactly the path semantic work pays.
-
-**Range 3 — the M-series: `git log 39ea7e3..HEAD`, 168 commits.**
+**Range 2 — the current module set (the semantic/proof range).**
+`git log 20c5ad5c499d5046563471624117b80c737c7157..39ea7e3b012ec798c6a756c971c10bb363557ef8 -- '*.v'`,
+25 commits. `20c5ad5c…` is the commit that introduced the whole current module set.
 
 ```text
-tools/build-observatory.py 101   tools/gate-mutation-test.py 86   .review/NEXT_STEPS.md 46
-.review/REVIEW_REQUEST.md 40     .review/BUILD_OBSERVATORY_SUITE.json 29   Makefile 19
+per-file touches   Compilable.v 22   gate/Assumptions.v 18   Emit.v 8   Safe.v 4   Render.v 3
+                   e2e/Witness*.v 3 each   Typing/Syntax/Index/Float/Complex 2 each   leaves 1 each
+
+co-change groups   12  Compilable.v + gate/Assumptions.v
+                    4  Compilable.v alone
+                    2  Emit.v + gate/Assumptions.v
+                    2  Compilable.v + Emit.v + gate/Assumptions.v
+                    1  Compilable.v + Render.v + Safe.v
+                    1  the five e2e witnesses + Emit.v + Safe.v
+                    1  a whole-tree rename touching every module
 ```
 
-The top entry and three others are **files Rob withdrew and that no longer exist**. This range measures the
-M2 culling, not future work. It must not be pooled with Range 2, and it is not evidence for any M4 decision
-about the certified tree.
+**The dominant group is `Compilable.v` with `gate/Assumptions.v`, 12 of 25 commits**, and 16 of 25 touch the
+assumptions gate alongside a certified module. This is the single most decision-relevant fact in the range:
+semantic work almost always edits the readable assumption gate, and the readable assumption gate is the 77 s
+cold cost in §3.1. The cold path hurts exactly where proof work walks — which is why `M4-11` is written down
+and why `Q-M3-01` is worth Rob answering.
 
-Disposition: **KEEP the ranges as recorded, no M4 change**; they are the input to
-`M3-DUNE-FANOUT`'s KEEP and to `M4-01`/`M4-02`'s ordering.
+**Range 3 — the M-series tooling/documentation campaign.**
+`git log 39ea7e3b012ec798c6a756c971c10bb363557ef8..a0482140384de3d8c193263c3bf5281e53ccdd8b`, restricted to
+`tools Makefile Dockerfile .githooks dune`.
+
+```text
+co-change groups   63  the withdrawn observatory tool + gate-mutation-test.py
+                   24  the withdrawn observatory tool alone
+                    3  Makefile + those two
+                    3  the hook + Makefile + those two
+                    2  source-diet.py alone
+                    2  gate-mutation-test.py + source-diet.py
+```
+
+The top two groups are dominated by a tool Rob withdrew, which is no longer in the tree. This range measures
+the M2 culling, not future work. It is **not** pooled with Range 2 and is not evidence for any M4 decision
+about the certified tree. Its one usable signal is the third and fourth groups: a Makefile or hook change
+travels with the gate tools, which is why `M4` keeps Makefile and hook edits out of the retained steps.
+
+Disposition: **KEEP the ranges as recorded, no M4 change.** They are the input to `M3-DUNE-FANOUT`'s KEEP and
+to the ordering of `M4-01`/`M4-02`.
 
 ## M3-COMPILABLE-SURFACES — ungated `Compilable.v` surfaces
 
-`Compilable.v` declares 623 top-level `Theorem`/`Lemma`/`Corollary`. `gate/Assumptions.v` names 249 of them.
+`Compilable.v` declares **623** top-level `Theorem`/`Lemma`/`Corollary`, all distinct names.
 
-The 374 remainder are **not** unproved or unaudited: the whole-certified-theory `Fido Audit Assumptions`
-seeds from every Fido constant, mutual inductive and surviving named assumption, so it covers all 623 plus
-every internal definition. What the readable gate adds is a *human-readable* list, and it is a strict subset
-by construction.
+**Method, exactly.** For each name, search for `(?<![\w'])(?:Compilable\.)?<name>(?![\w'])` — bare or
+module-qualified — in `gate/Assumptions.v`, then the other root `.v` modules, then `e2e/` and `plugin/`, then
+elsewhere within `Compilable.v` itself excluding its own declaration site. First hit wins; the groups are
+disjoint and sum to 623. Run in the pinned image at the subject ref.
 
-The finding asks whether each is "required guarantee, proof dependency, or dead". Answering that for 374
-lemmas one at a time is exactly the per-theorem inventory §3 of the contract forbids. The auditable question
-is the **rule**: which classes of surface belong in the readable gate.
+```text
+A  named in gate/Assumptions.v — readable public surface        200
+B  referenced by another root .v module                           3
+D  referenced by e2e/ or plugin/                                  1
+C  referenced only inside Compilable.v — proof dependency        371
+E  no consumer found anywhere                                    48
+                                                                ---
+                                                                623
+```
 
-Disposition: **KEEP, no M4 change to the lemma set.** The readable gate's *cost* is the real issue and it is
-§3.1 below. No lemma is deleted on this evidence.
+**Why "no textual consumer" means "no consumer" here.** A Rocq lemma can normally be used without being
+named, through a hint database. `Compilable.v` contains **no `Hint` declaration of any kind**, so nothing is
+registered into a database and the 19 `auto`/`eauto` uses can only reach stdlib's core hints. A lemma in this
+module therefore cannot be applied without appearing by name. The method's residual error is in the safe
+direction: a name mentioned only in a comment counts as a consumer, so group E is a *lower bound* on what is
+genuinely dead.
+
+Group C is the honest answer to "required guarantee, proof dependency, or dead": 371 are proof dependencies —
+load-bearing, just not readable surfaces — and the whole-theory `Fido Audit Assumptions` covers all 623
+regardless.
+
+Group E is 48 declarations with no consumer anywhere and no readable surface. Under the project's own law —
+ruthless correctness or ruthless deletion — they are dead weight.
+
+Disposition: groups A, B, C, D **KEEP, no M4 change**. Group E → **DELETE**, `M4-14`, which names all 48.
 
 ## M3-TOOL-COMPLEXITY — every retained tool under D-30
 
-Per-file dispositions are the table in §4.1. The summary across all eighteen tracked tool files:
+Per-file dispositions are §4.1. The summary across all eighteen tracked tool files:
 
 ```text
-KEEP      12   ocaml-origin / generated-output / generated-mode / staged-generated-compare /
+KEEP      13   ocaml-origin / generated-output / generated-mode / staged-generated-compare /
                regen-guard / perf.sh, host-python-gate, human-review-index, closure-ledger-view,
-               fmt-check, rocq-profile, python-requirements.lock
+               fmt-check, rocq-profile, worktree-list, python-requirements.lock
 SIMPLIFY   5   naming-gate, gate-mutation-test, source-diet, fcb-reference-gate, claim-matrix-gate
-MERGE      1   worktree-list  (into one enumeration owner)
+MERGE      0
 DELETE     0   at file granularity
 ```
 
 **No tool file is deleted, and that is a finding rather than a shrug.** Each of the eighteen owns a distinct
-policy fact and is invoked by a live target or hook line. What is over-built is *inside* five of them —
-`source-diet.py`'s dead M1 replay path, the mutation harness's re-run of whole self-tests, the naming
-gate's per-line pattern construction, the reference gate's per-control tree copy, and the claim gate's
-hand-maintained subject. Those are `M4-01` … `M4-07`.
+policy fact and is invoked by a live target or hook line. What is over-built is *inside* five of them:
+`source-diet.py`'s dead M1 replay path, the mutation harness's re-run of whole self-tests, the naming gate's
+per-line pattern construction, the reference gate's per-control tree copy, and the claim gate's two stale
+strings. Those are `M4-01`, `M4-02`, `M4-03`, `M4-06`, `M4-07`, `M4-09`.
 
-Two observations that a current gate invocation does **not** by itself justify:
+Two observations a current gate invocation does **not** by itself justify:
 
-- `tools/source-diet.py` is 2 294 lines, the largest tool in the repository, and enforces one rule (the `.v`
-  comment law). The rest is M1 exit-evidence machinery that no longer has ledgers to read
-  (`M3-SOURCE-DIET-REPLAY`).
-- `tools/gate-mutation-test.py` is invoked by two live lines, but 25 of its 67 entries are unreachable from
-  either (`M3-SOURCE-DIET-REPLAY` item 3).
-
-Disposition: as tabulated in §4.1 → `M4-01`, `M4-02`, `M4-03`, `M4-05`, `M4-06`, `M4-07`, `M4-09`, `M4-12`.
+- `tools/source-diet.py` is 2 294 lines, the largest tool here, and enforces one rule — the `.v` comment law.
+  The rest is M1 exit-evidence machinery with no ledgers left to read (`M3-SOURCE-DIET-REPLAY`).
+- `tools/gate-mutation-test.py` is invoked by two live lines, but 25 of its 68 entries are unreachable from
+  either.
 
 ## M3-FRAGILE-PROSE — mutable counts, line-number identity, list-position identity
 
-Three classes found, each with a live instance:
+Three classes; each with its live instance and its disposition:
 
-1. **A tool's prose naming a path that no longer exists** — `tools/claim-matrix-gate.py:20` and the six
-   `source-diet.py` M1 ledger paths (`M3-CLAIM-SUBJECT`, `M3-SOURCE-DIET-REPLAY`). Nothing checks tool
-   prose; D-24 checks authority documents only.
-2. **A count in a gate's own success message that is not the quantity it claims** — the `prover` stage
-   prints "540/540 surfaces closed" for 535 distinct surfaces (`M3-ASSUMPTION-DUPLICATES`).
-3. **List-position identity** — none found in the current normative documents. The mandatory findings use
-   stable IDs, the obligation matrix uses `M3-nn` keys, and the FCB registries are keyed TSVs. This class is
-   already closed; recorded so its absence is stated rather than assumed.
-
-Disposition: (1) **SIMPLIFY** → `M4-07`; (2) **DELETE** the duplicates → `M4-08`; (3) **KEEP, no M4
-change**.
+1. **A tool's prose naming a path that no longer exists** — the claim gate's docstring and the six
+   `source-diet.py` M1 ledger constants. Nothing checks tool prose: D-24 checks authority documents only.
+   → **DELETE the strings** (`M4-06`, `M4-07`). A generic "tool prose path" checker is *not* proposed: it
+   would be a weak path scanner built to catch two strings that deletion already removes.
+2. **A count in a gate's success message that is not the quantity it claims** — the `prover` stage prints
+   "540/540 surfaces closed" for 535 distinct surfaces. → **DELETE the duplicates** (`M4-08`).
+3. **List-position identity** — none found. Mandatory findings use stable IDs, the matrix uses `M3-nn` keys,
+   the FCB registries are keyed TSVs. → **KEEP, no M4 change**; recorded so its absence is stated rather than
+   assumed.
 
 ---
 
 # 3.1 Cold-path decomposition — inside the `prover` stage
 
-Not a mandatory stable ID; the forensic account the mandatory performance findings depend on. Two
-independent runs of `make prover-log FIDO_PERF_COLD=1` (configuration B), reading `--progress=plain`
-timestamps:
+Not a mandatory stable ID; the forensic account the mandatory performance findings rest on. Two independent
+runs of `make prover-log FIDO_PERF_COLD=1` (configuration B), reading `--progress=plain` timestamps:
 
 | step | run 1 s | run 2 s | share |
 |---|---:|---:|---:|
@@ -660,24 +728,20 @@ timestamps:
 | sealed F–AG + meta-controls + mint AB–AD + positive | 33.1 | 32.0 | 25% |
 | **stage total** | **131.1** | **130.3** | |
 
-Two results worth stating plainly.
-
 **1. The readable Print-Assumptions gate costs 77 s; the strictly stronger whole-theory audit costs 1.7 s.**
 `gate/Assumptions.v` issues 540 `Print Assumptions` commands, each re-walking one constant's assumption
-closure with no sharing between them; `Fido Audit Assumptions` walks the whole theory once. The readable
-gate's guarantee is a **subset** of the audit's — it covers 535 distinct declared surfaces, the audit covers
-every constant, mutual inductive and surviving named assumption. 77 s is 59% of the cold prover stage and
-**29% of the entire 270 s cold `make check`**.
+closure with no sharing; `Fido Audit Assumptions` walks the whole theory once. The readable gate covers 535
+distinct declared surfaces; the audit covers every constant, mutual inductive and surviving named assumption.
+77 s is 59% of the cold `prover` stage and **29% of the entire 270 s cold `make check`** — and
+`M3-EDIT-WEIGHT` shows this is the path semantic work actually walks.
 
-That is a proof-gate architecture question, not a mechanical refactor. It is written up as `M4-11` with the
-preservation argument stated, and flagged in `.review/OPEN_QUESTIONS.md` because deleting a readable proof
-surface is Rob's call, not mine.
+That is a proof-gate architecture question, not a mechanical refactor. It is `M4-11`, written up with its
+preservation argument and deliberately left **unauthorized**, and `Q-M3-01` in `.review/OPEN_QUESTIONS.md`.
 
-**2. The sealed-capability self-tests recompute their own precondition 25 times.**
-`Dockerfile:156 sealed()` runs **two** `rocq c` invocations per call: stage 1 compiles
-`SEALED_PRELUDE + Definition sentinel := <sentinel>.` and must succeed (proving the module loaded), then
-stage 2 adds the hidden term and must fail. There are 25 sealed calls but only **four distinct
-(prelude, sentinel) pairs**:
+**2. The sealed-capability self-tests recompute their own precondition 21 times.**
+`Dockerfile:sealed()` runs **two** `rocq c` invocations per call: stage 1 compiles
+`SEALED_PRELUDE + Definition sentinel := <sentinel>.` and must succeed, then stage 2 adds the hidden term and
+must fail. There are 25 sealed calls but only **four distinct (prelude, sentinel) pairs**:
 
 ```text
 Compilable.compile   F G H I J K L M N O P Q R S T U V W X   (19 calls)
@@ -686,18 +750,16 @@ Emit.of_safe         AA                                      ( 1 call )
 Safe.certify         AE AF AG                                ( 3 calls)
 ```
 
-Measured 1.10 s per sealed call (F at 99.09 s → AG at 126.7 s), so ~0.55 s per `rocq c`, each loading the
-whole theory. Stage 1 is a property of `(prelude, sentinel)` and nothing else — the probe cannot affect
-whether the module loaded. Hoisting it to one run per distinct pair is 4 loads instead of 25, saving
-~21 × 0.55 ≈ **11.6 s** with **no** control weakened: every sealed call still proves its own module loaded,
-because the hoisted stage-1 result is exactly the fact it asserted.
+Measured 1.10 s per sealed call (F at 99.09 s → AG at 126.7 s), so ≈0.55 s per `rocq c`, each loading the
+whole theory. Stage 1 is a property of `(prelude, sentinel)` alone — the probe is not in the compiled file.
+Hoisting it is 4 loads instead of 25, ≈21 × 0.55 ≈ **11.6 s**, with no control weakened.
 
-**3. A cache-mount is not a Docker layer, and the accepted baseline's "cold" reflects that.**
-`dune build` took 16.4 s in *both* runs, with the `fido-dune-rocq-9.2.0-$arch` `_build` cache warm
-throughout. `--no-cache-filter prover` re-runs the stage's `RUN` but does not clear a cache mount. So the
-270 s cold column of `.review/PERFORMANCE.tsv` is **project-stage cold with the theory's `_build`
-warm** — it is a faithful measure of "I edited a `.v` and re-ran acceptance", which is the loop that
-matters, and it is not a from-nothing build. §1.1 must be read that way, and `M4` must not quote it as one.
+**3. A cache mount is not a Docker layer, and the accepted baseline's "cold" reflects that.**
+`dune build` took 16.4 s in *both* runs with the `_build` cache warm throughout. `--no-cache-filter prover`
+re-runs the stage's `RUN` but does not clear a cache mount. So the 270 s cold column of
+`.review/PERFORMANCE.tsv` is **project-stage cold with the theory's `_build` warm** — a faithful measure of
+"I edited a `.v` and re-ran acceptance", not a from-nothing build. §1.1 must be read that way and `M4` must
+not quote it as one.
 
 ---
 
@@ -709,93 +771,94 @@ share a row only where the row lists every path and they have one job, owner, so
 
 ## 4.1 Unit class 1 — tracked tool files
 
-Seventeen files. Git mode is recorded because three `.sh` are `100755` and three are `100644` while **all**
-are invoked as `sh tools/<name>.sh`; the mode decides nothing and reads as though it does.
+Eighteen files.
 
-| # | file | mode | real job / owner | source view | disposition | M4 / reason |
-|---|---|---|---|---|---|---|
-| T-01 | `tools/naming-gate.py` | 644 | A005 scoped-name policy; the only verifier prose gets | working tree or export | **SIMPLIFY** | `M4-01` — 9.0 M `re.escape` calls; 22.3 s, the largest single hot cost |
-| T-02 | `tools/gate-mutation-test.py` | 644 | proves each gate's root helpers load-bearing | copies of the tree | **SIMPLIFY** | `M4-02`, `M4-03` — 22.4 s, 78% of `fcb`; 25 of 67 mutants never run |
-| T-03 | `tools/source-diet.py` | 644 | the permanent `.v` comment law + exception relation | working tree or export | **SIMPLIFY** | `M4-06` — 2 294 lines, of which the M1 replay path is dead and references six deleted files |
-| T-04 | `tools/fcb-reference-gate.py` | 644 | D-24: the complete authority↔manifest reference relation | working tree or export | **SIMPLIFY** | `M4-03`, `M4-05` — 64 controls each copying the tree; own enumeration |
-| T-05 | `tools/host-python-gate.py` | 644 | the permanent no-host-Python boundary | working tree or export | **KEEP** | boundary is a permanent accepted invariant; cost 2.9 s is proportionate |
-| T-06 | `tools/claim-matrix-gate.py` | 644 | every completion claim names a surface that exists | working tree or export | **SIMPLIFY** | `M4-07`, `M4-09` — hand-retargeted subject already drifted; 1 mutant for 17 helpers |
-| T-07 | `tools/human-review-index.py` | 644 | D-07 human-act data + its generated view | working tree or export | **KEEP** | 0.6 s; one canonical source, one generated view, controls load-bearing |
-| T-08 | `tools/closure-ledger-view.py` | 644 | the generated closure-ledger view of its canonical CSV | working tree or export | **KEEP** | 2.1 s; **but** `M4-09` adds the mutation coverage it entirely lacks |
-| T-09 | `tools/worktree-list.py` | 644 | the declared inventory owner for the `make check` export | working tree | **MERGE** | `M4-05` — it owns the tar path only; five other components enumerate for themselves |
-| T-10 | `tools/fmt-check.py` | 644 | `.editorconfig` whitespace report (reports, never gates) | working tree | **KEEP** | 0.98 s, not on the `check` path, delegates property resolution to the reference implementation |
-| T-11 | `tools/rocq-profile.py` | 644 | ranks a `rocq c -time` log; diagnostic only | a profile log | **KEEP** | 100 lines, no gate depends on it, earned its keep in this audit (`M3-DUNE-FANOUT`) |
-| T-12 | `tools/perf.sh` | 644 | the M2 diagnostic timing aid | its own builder | **KEEP** | accepted M2 product, frozen by contract §9; 88 lines |
-| T-13 | `tools/ocaml-origin-gate.sh` | 755 | transport-only OCaml boundary, every depth | exported tree | **KEEP** | 61 lines, host shell, one job |
-| T-14 | `tools/generated-output-gate.sh` | 755 | tracked Go is Fido-headed, no nested `go.mod`, no `.fido` | exported tree | **KEEP** | 57 lines, one job |
-| T-15 | `tools/generated-mode-gate.sh` | 755 | Git **mode** of generated entries, index-authoritative | the real Git index | **KEEP** | 30 lines; its distinct source view is required, not duplicate (`M3-SOURCE-ENUMERATION`) |
-| T-16 | `tools/staged-generated-compare.sh` | 644 | staged/working bytes vs the pristine layer, both directions | exported tree + pristine | **KEEP** | 54 lines, one shared implementation for `make check` and the hook |
-| T-17 | `tools/regen-guard-test.sh` | 644 | proves `sync` is unbuildable when `go-e2e` fails | Docker DAG | **KEEP** | 48 lines; the only control on validate-before-publish |
-| T-18 | `tools/python-requirements.lock` | 644 | states the stdlib-only closure `host-python-gate` proves | — | **KEEP** | data, not code |
-
-`M4-12` normalizes the six `.sh` modes so the bit stops implying an execution path that does not exist.
+| # | file | real job / owner | source view | disposition | M4 / reason |
+|---|---|---|---|---|---|
+| T-01 | `tools/naming-gate.py` | A005 scoped-name policy; the only verifier prose gets | working tree or export | **SIMPLIFY** | `M4-01` — 9 371 786 `re.escape` calls; 23.4 s, the largest single hot cost |
+| T-02 | `tools/gate-mutation-test.py` | proves each gate's root helpers load-bearing | copies of the tree | **SIMPLIFY** | `M4-02`, `M4-06` — 26.2 s, 79% of `fcb`; 25 of 68 entries never run |
+| T-03 | `tools/source-diet.py` | the permanent `.v` comment law + exception relation | working tree or export | **SIMPLIFY** | `M4-06` — 2 294 lines, of which the M1 replay path is dead and names six deleted ledgers |
+| T-04 | `tools/fcb-reference-gate.py` | D-24: the complete authority↔manifest reference relation | working tree or export | **SIMPLIFY** | `M4-03` — 64 controls each copying the tree, 704 copies per `make fcb` |
+| T-05 | `tools/host-python-gate.py` | the permanent no-host-Python boundary | working tree or export | **KEEP** | a permanent accepted invariant; 2.9 s is proportionate to it |
+| T-06 | `tools/claim-matrix-gate.py` | every completion claim names a surface that exists | working tree or export | **SIMPLIFY** | `M4-07` stale docstring path; `M4-09` coverage. The precondition defect is already repaired under `M3-A1` |
+| T-07 | `tools/human-review-index.py` | D-07 human-act data + its generated view | working tree or export | **KEEP** | 1.9 s; one canonical source, one generated view, controls load-bearing. `M4-03` touches only its per-control copy |
+| T-08 | `tools/closure-ledger-view.py` | the generated closure-ledger view of its canonical CSV | working tree or export | **KEEP** | 0.6 s; **but** `M4-09` adds the mutation coverage it entirely lacks |
+| T-09 | `tools/worktree-list.py` | the declared inventory owner for the `make check` export | working tree | **KEEP** | `M3-SOURCE-ENUMERATION`: the five Python enumerations differ in *selection*, not only traversal, so one owner is a redesign this evidence does not justify |
+| T-10 | `tools/fmt-check.py` | `.editorconfig` whitespace report (reports, never gates) | working tree | **KEEP** | 1.24 s, off the `check` path, delegates property resolution to the reference implementation |
+| T-11 | `tools/rocq-profile.py` | ranks a `rocq c -time` log; diagnostic only | a profile log | **KEEP** | 100 lines, no gate depends on it, and it produced `M3-DUNE-FANOUT`'s cost evidence |
+| T-12 | `tools/perf.sh` | the M2 diagnostic timing aid | its own builder | **KEEP** | accepted M2 product, frozen by contract §9; 88 lines |
+| T-13 | `tools/ocaml-origin-gate.sh` | transport-only OCaml boundary, every depth | exported tree | **KEEP** | 61 lines, host shell, one job |
+| T-14 | `tools/generated-output-gate.sh` | tracked Go is Fido-headed, no nested `go.mod`, no `.fido` | exported tree | **KEEP** | 57 lines, one job |
+| T-15 | `tools/generated-mode-gate.sh` | Git **mode** of generated entries, index-authoritative | the real Git index | **KEEP** | 30 lines; its distinct source view is required, not duplicate |
+| T-16 | `tools/staged-generated-compare.sh` | staged/working bytes vs the pristine layer, both directions | exported tree + pristine | **KEEP** | 54 lines, one shared implementation for `make check` and the hook |
+| T-17 | `tools/regen-guard-test.sh` | proves `sync` is unbuildable when `go-e2e` fails | Docker DAG | **KEEP** | 48 lines; the only control on validate-before-publish |
+| T-18 | `tools/python-requirements.lock` | states the stdlib-only closure `host-python-gate` proves | — | **KEEP** | data, not code |
 
 ## 4.2 Unit class 2 — public Make targets
 
-Twenty-one targets (`.PHONY` plus `.DEFAULT_GOAL`).
+Twenty-one targets (`.PHONY` plus `.DEFAULT_GOAL`). **No Makefile change is proposed by M4.**
 
-| target | job | partial or full | disposition | M4 / reason |
+| target | job | partial or full | disposition | reason |
 |---|---|---|---|---|
-| `check` | **full working-tree acceptance** | full | **KEEP** | the one full join; `M4-04` changes how it invokes gates, not what it asserts |
-| `prove` | the complete proof gate | partial | **KEEP** | `M4-11` addresses its dominant internal cost |
+| `check` | **full working-tree acceptance** | full | **KEEP** | the one full join |
+| `prove` | the complete proof gate | partial | **KEEP** | `M4-13` changes its internals, not the target |
 | `emit` | materialize witnesses + exercise the sink | partial | **KEEP** | |
 | `e2e` | emit + pinned `go build ./...` + goldens | partial | **KEEP** | |
 | `regenerate` | validate-before-publish republication | full (publication) | **KEEP** | |
 | `regen-guard` | proves `regenerate` cannot publish unvalidated | partial | **KEEP** | |
 | `audit-fresh` | forces `prover` + `go-e2e` to run, not report a cache hit | partial | **KEEP** | this audit used the same mechanism via `FIDO_PERF_COLD` |
-| `fcb`, `claims`, `diet`, `names`, `hostpython` | one gate family each | **partial** | **KEEP** | `M4-04` batches their container starts; each stays separately invocable |
-| `fcb-write` | regenerate every generated FCB view | writer | **SIMPLIFY** | `M4-12` — GNU-only `find -printf` twice |
+| `fcb`, `claims`, `diet`, `names`, `hostpython` | one gate family each | **partial** | **KEEP** | each stays separately invocable; M4 changes only what runs inside them |
+| `fcb-write` | regenerate every generated FCB view | writer | **KEEP** | its GNU-only `find -printf` is inside the declared host boundary |
 | `fmt` | whitespace report | partial, non-gate | **KEEP** | |
 | `perf` | the M2 serial diagnostic | diagnostic | **KEEP** | frozen by contract §9 |
 | `profile` | rank one module's sentences | diagnostic | **KEEP** | |
-| `prover-log`, `prove-errors` | readable proof diagnostics | diagnostic | **KEEP** | `prover-log` is what produced §3.1 |
-| `pytools`, `builder` | image/builder prerequisites | infrastructure | **KEEP** | `M4-10` fixes `pytools`' key |
+| `prover-log`, `prove-errors` | readable proof diagnostics | diagnostic | **KEEP** | `prover-log` produced §3.1 |
+| `pytools`, `builder` | image/builder prerequisites | infrastructure | **KEEP** | `PYTAG`'s over-keying is recorded and retained |
 | `install-hooks` | one `git config` | setup | **KEEP** | |
 
 Every partial target prints a scoped success line naming what it checked; none claims full acceptance. That
-distinction holds today and `M4` preserves it.
+distinction holds today and no M4 step touches it.
 
 ## 4.3 Unit class 3 — named pre-commit stages
 
+**No hook change is proposed by M4.**
+
 | stage | source view | disposition | reason |
 |---|---|---|---|
-| export the index once (`git checkout-index --ignore-skip-worktree-bits --all`) | — | **KEEP** | one export, then everything reads it; `--ignore-skip-worktree-bits` is load-bearing |
-| recompute `PYTAG` from the **staged** Dockerfile + lock | staged | **SIMPLIFY** | `M4-10` — same over-keying as `make check` |
+| export the index once (`git checkout-index --ignore-skip-worktree-bits --all`) | — | **KEEP** | one export, then everything reads it; the flag is load-bearing |
+| recompute `PYTAG` from the **staged** Dockerfile + lock | staged | **KEEP** | over-keyed, cheap on a hit, and narrowing it inverts the risk |
 | three shell policy gates on the export | exported index | **KEEP** | |
 | `generated-mode-gate.sh` from the repo cwd | the real Git index | **KEEP** | mode is invisible in an export |
-| the seven Python gate families on the export | exported index | **MERGE** | `M4-04` — 14 container starts for one mount |
+| the seven Python gate families on the export | exported index | **KEEP** | 14 container starts is the boundary's price; `M4-01/02/03` shrink what runs inside them |
 | `buildx --target prover`, `--target go-e2e` | staged Buildx context | **KEEP** | |
 | `--target generated-artifact` + `staged-generated-compare.sh` | staged + pristine | **KEEP** | |
 
 ## 4.4 Unit class 4 — Docker/Buildx stages, caches, source-view boundaries
 
+**No Dockerfile stage or cache key changes**; `M4-13` edits only the `prover` stage's heredoc body.
+
 | unit | disposition | reason |
 |---|---|---|
-| `python-tools` | **KEEP** | 5 Dockerfile lines; the *tag* is the defect (`M4-10`), not the stage |
-| `rocq-builder` → `rocq-base` | **KEEP** | digest-pinned, builder/runtime split is right |
-| `prover` | **KEEP** | `M4-11` addresses its internals, not the stage |
+| `python-tools` | **KEEP** | 5 Dockerfile lines; the tag is over-keyed and retained (`M3-INVALIDATION`) |
+| `rocq-builder` → `rocq-base` | **KEEP** | digest-pinned; builder/runtime split is right |
+| `prover` | **KEEP** | `M4-13` changes its heredoc, not the stage |
 | `profile` / `profile-log` | **KEEP** | diagnostic; export surface is the raw log only |
 | `emit` | **KEEP** | |
-| `generated-module` → `generated-artifact` | **KEEP** | content-addressed pristine layer; the whole byte-compare rests on it |
+| `generated-module` → `generated-artifact` | **KEEP** | content-addressed pristine layer; the byte-compare rests on it |
 | `go-base` → `go-e2e` | **KEEP** | `go-base` exists so the digest appears once and can be primed outside a timed interval |
 | `sync` | **KEEP** | the validate-before-publish DAG edge; `regen-guard` proves it |
 | caches `fido-apt-pytools`, `-builder`, `-base`, `fido-opam` | **KEEP** | apt/opam layer caches, correctly `sharing=locked` |
-| cache `fido-dune-rocq-9.2.0-$arch` (locked, shared by 3 stages) | **KEEP** | one compile reused; serialization is the price and it is the right one |
+| cache `fido-dune-rocq-9.2.0-$arch` (locked, shared by 3 stages) | **KEEP** | one compile reused; serialization is the right price |
 | cache `fido-crossmnt-$arch` (private, emit) | **KEEP** | it *is* the cross-device test fixture |
-| `.dockerignore` excluding `/go.mod` and `**/*.go` | **KEEP** | the exclusion is what makes the pristine independent of the committed bytes |
+| `.dockerignore` excluding `/go.mod` and `**/*.go` | **KEEP** | the exclusion makes the pristine independent of the committed bytes |
 
 ## 4.5 Unit class 5 — Dune aliases and proof-build units
 
 | unit | disposition | reason |
 |---|---|---|
 | `dune build @install @all` | **KEEP** | one command builds theory and plugin; 16.4 s, 13% of the cold stage |
-| `(rocq.theory (name Fido) (modules …))` — 16 modules | **KEEP** | `M3-DUNE-FANOUT`: no split justified by measured cost or edit weight |
-| `(library (name fido_emit) (private_modules sink))` | **KEEP** | `sink` private is the reason no external consumer can publish |
+| `(rocq.theory (name Fido) (modules …))` — 16 modules | **KEEP** | `M3-DUNE-FANOUT`: `Compilable`'s downstream set is already 3; a split reduces nothing measured |
+| `(library (name fido_emit) (private_modules sink))` | **KEEP** | `sink` private is why no external consumer can publish |
 | `(rocq.pp (modules materialize))` | **KEEP** | |
 | the certified-module coverage check (tracked root `.v` == `(modules …)`) | **KEEP** | costs 0.01 s and closes a real hole |
 
@@ -803,10 +866,10 @@ distinction holds today and `M4` preserves it.
 
 | gate | disposition | M4 / reason |
 |---|---|---|
-| readable `Print Assumptions` (`gate/Assumptions.v`, 540 lines / 535 distinct) | **SIMPLIFY** | `M4-08` duplicates + omissions; `M4-11` its 77 s cost |
+| readable `Print Assumptions` (`gate/Assumptions.v`, 540 lines / 535 distinct) | **SIMPLIFY** | `M4-08` duplicates and the four missing twins. Its 77 s cost is `M4-11`, unauthorized |
 | whole-theory `Fido Audit Assumptions` | **KEEP** | 1.7 s for a strictly stronger guarantee |
 | assumption self-tests A–E | **KEEP** | 2.2 s; each proves the audit is not fail-open |
-| sealed-capability self-tests F–AG + meta + mint AB–AD + positive | **SIMPLIFY** | `M4-13` — hoist the 25 recomputed stage-1 loads to 4 |
+| sealed-capability self-tests F–AG + meta + mint AB–AD + positive | **SIMPLIFY** | `M4-13` — hoist the 21 recomputed stage-1 loads |
 | emit-time provenance rejection (6 forged-image classes) | **KEEP** | rejects before any effect; transiently generated, never tracked |
 | the internal sink exercise (`sink_test`) | **KEEP** | dirty/adversarial trees; the only control on the publication sink |
 | `go build ./...` e2e + goldens + differentials | **KEEP** | 45 s cold, the last-mile integration alarm |
@@ -821,10 +884,12 @@ dominant measured cost. Five do:
 
 | helper | why it qualifies | disposition | M4 |
 |---|---|---|---|
-| `naming-gate.py:318 check_prose` | dominant measured cost — 23.9 s of 35.9 s profiled | **SIMPLIFY** | `M4-01` |
-| `gate-mutation-test.py:434 run_mutant` | owns the per-mutant tree copy and control selection | **SIMPLIFY** | `M4-02`, `M4-03` |
-| `fcb-reference-gate.py:584 scenario` | owns the per-control tree copy | **SIMPLIFY** | `M4-03` |
-| `Makefile:20 PYTAG` | owns a cache key, and keys it on 1 245 lines instead of 5 | **SIMPLIFY** | `M4-10` |
-| `Dockerfile:156 sealed()` | owns a production proof-gate edge and recomputes its precondition 25× | **SIMPLIFY** | `M4-13` |
+| `naming-gate.py:check_prose` | dominant measured cost — 25.4 s of 37.6 s profiled | **SIMPLIFY** | `M4-01` |
+| `gate-mutation-test.py:run_mutant` | owns per-mutant tree copy and control selection | **SIMPLIFY** | `M4-02` |
+| `fcb-reference-gate.py:scenario` | owns the per-control tree copy — 704 of 845 | **SIMPLIFY** | `M4-03` |
+| `claim-matrix-gate.py:ensure_closed_row` | owns the self-test precondition that blocked M3 | **SIMPLIFY** | repaired under `M3-A1` |
+| `Dockerfile:sealed()` | owns a production proof-gate edge, recomputes its precondition 21× | **SIMPLIFY** | `M4-13` |
+
+`Makefile:PYTAG` owns a cache key and was inventoried, but its disposition is **KEEP** (`M3-INVALIDATION`).
 
 No other helper is inventoried. Functions, theorems and proof bodies are explicitly out of scope.

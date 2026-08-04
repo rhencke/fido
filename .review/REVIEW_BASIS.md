@@ -10,6 +10,12 @@ human_authorization: M2-ACCEPT-9814db7
 This is the reviewer's GREEN bounded-confirmation output, installed verbatim as the accepted basis. It
 governs how the M3 candidate will be reviewed. It does not override the contract or a later human decision.
 
+**Later authorities, cited here so this basis is read with them:** the blocking forensic-audit review
+`.review/M3_FORENSIC_AUDIT_REPAIR_1.md`, and Amendment `M3-A1` in `.review/M3_CONTRACT_AMENDMENT_1.md`,
+which supersedes contract §9 and obligation `M3-11` for the claim-matrix self-test precondition repair
+alone. Where the "A production path moved" defect class below says *any* tool change, read it as amended:
+that one reviewed repair is authorized, and nothing else.
+
 ## Accepted claim surface
 
 M3 will make only these material claims:
