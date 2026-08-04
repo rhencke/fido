@@ -90,6 +90,15 @@ MUTANTS = (
      "        if False:",
      ('review requested while an obligation is still open',)),
 
+    # Without this the precondition helper promises only that SOME row is closed, and the rename control
+    # cannot be built over a documentation-only matrix — the gate then fails its own self-test on a matrix
+    # that is correct.  That is how it reached a freeze, so the rule gets a mutant.
+    (CLAIMS, 'the movable-declaration precondition for the rename control',
+     "            if require_declaration and renameable_declaration(work, c[FIELDS.index('implementation')]) is None:",
+     "            if False:",
+     ('closed rows are all documentation-only boundaries',
+      'a documentation-only all-closed matrix still constructs the rename control')),
+
     (FCB, 'repository inventory derivation',
      "    if not files:\n        raise ReferenceError_(",
      "    files = {'CLAUDE.md'}  # neutered: a fixed list, not the exact snapshot\n"

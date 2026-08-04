@@ -1,10 +1,15 @@
 # Open questions — Claude Code to the reviewer and to Rob
 
-## Q-M3-02 — BLOCKING: M3 cannot close its obligations without changing a tool it may not change
+## Q-M3-02 — RESOLVED by Amendment `M3-A1`
 
-owner: **Rob** (an amendment; the reviewer may specify it)
-blocks: **YES** — M3's exit condition cannot be met until this is decided
-default if nobody answers: **none is available.** This is why work stopped rather than continued.
+owner: Rob · blocks: no longer · outcome: **option 1** — one exact repair, authorized
+
+The reviewer accepted the narrow repair and installed it as Amendment `M3-A1`
+(`.review/M3_CONTRACT_AMENDMENT_1.md`): M3 may change `tools/claim-matrix-gate.py` and the claim-matrix
+entries in `tools/gate-mutation-test.py`, **only** for this defect. `ensure_closed_row` now takes a
+`require_declaration` flag mirroring the `require_builder` that was already there, both it and
+`rename_named_surface` share one `renameable_declaration` predicate, and a mutation entry proves the new
+condition load-bearing. The question below is kept as the record of why work stopped.
 
 **The conflict, exactly.** M3 implements nothing by contract §1, so no obligation can name a declared code
 surface; all twelve `implementation` cells are honestly `unsupported-boundary`. With every row closed,

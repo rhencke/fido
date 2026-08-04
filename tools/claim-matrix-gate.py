@@ -383,6 +383,82 @@ def self_test(root: Path) -> int:
              inject_banned_builder,
              expect='names the PROHIBITED builder')
 
+    # ── controls on the PRECONDITION HELPER itself ────────────────────────────────────────────────────
+    # `ensure_closed_row` promised only that SOME row was closed, while `rename_named_surface` needed one
+    # naming a MOVABLE declaration. Every closed row of a documentation-only checkpoint carries an honest
+    # `unsupported-boundary`, so the control could not be built and this gate failed its own self-test over
+    # a matrix that was correct. These four pin both directions of the repaired precondition.
+    DOC_ONLY = 'unsupported-boundary: a documentation checkpoint declares no code surface'
+
+    def helper_control(label: str, check):
+        """`check(work)` returns None when the helper behaved, or the reason it did not."""
+        counts['total'] += 1
+        with tempfile.TemporaryDirectory() as d:
+            work = Path(d) / 'tree'
+            shutil.copytree(root, work, symlinks=True,
+                            ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob'))
+            try:
+                why = check(work)
+            except Exception as exc:
+                failures.append(f'{label}: could not construct the scenario ({exc})'); return
+            if why:
+                failures.append(f'{label}: {why}')
+
+    def close_every_row(work: Path, implementation: str):
+        """The documentation-only shape: every row closed, every implementation cell one stated boundary."""
+        L = lines(work)
+        for i, l in enumerate(L[1:], start=1):
+            c = l.split('\t')
+            if len(c) != len(FIELDS):
+                continue
+            c[FIELDS.index('status')] = 'closed'
+            c[FIELDS.index('owning_authority')] = SYNTHETIC_CLOSED[FIELDS.index('owning_authority')]
+            for k in EVIDENCE_FIELDS:
+                c[FIELDS.index(k)] = SYNTHETIC_CLOSED[FIELDS.index(k)]
+            c[FIELDS.index('implementation')] = implementation
+            L[i] = '\t'.join(c)
+        write(work, L)
+
+    def synthetic_present(work: Path) -> bool:
+        return any(l.split('\t')[0] == SYNTHETIC_CLOSED[0] for l in lines(work)[1:])
+
+    def doc_only_appends(work: Path):
+        close_every_row(work, DOC_ONLY)
+        ensure_closed_row(work, require_declaration=True)
+        return None if synthetic_present(work) else (
+            'every closed row is an honest documentation boundary, but no synthetic row was appended — '
+            'the rename control cannot be constructed')
+
+    def real_declaration_suffices(work: Path):
+        close_every_row(work, 'tools/worktree-list.py:tracked_and_untracked')
+        ensure_closed_row(work, require_declaration=True)
+        return ('a closed row already named a movable declaration, but the synthetic row was appended anyway'
+                ) if synthetic_present(work) else None
+
+    def make_target_does_not_suffice(work: Path):
+        close_every_row(work, 'Makefile:check')
+        ensure_closed_row(work, require_declaration=True)
+        return None if synthetic_present(work) else (
+            'a Makefile target satisfied the declaration precondition, but the rename control cannot move '
+            'one — the precondition and the control disagree again')
+
+    def doc_only_constructs_the_control(work: Path):
+        close_every_row(work, DOC_ONLY)
+        run(work)                      # the documentation-only matrix must be ACCEPTED exactly as it stands
+        rename_named_surface(work)     # …and the rename control must still be constructible over it
+        try:
+            run(work)
+        except MatrixError as exc:
+            return None if 'declares no such top-level surface' in str(exc) else \
+                f'the rename fired, but for the wrong reason: {exc}'
+        return 'the renamed declaration was not noticed on a documentation-only matrix'
+
+    helper_control('closed rows are all documentation-only boundaries', doc_only_appends)
+    helper_control('a closed row already names a movable declaration', real_declaration_suffices)
+    helper_control('a Makefile target is not a movable declaration', make_target_does_not_suffice)
+    helper_control('a documentation-only all-closed matrix still constructs the rename control',
+                   doc_only_constructs_the_control)
+
     total, must_fail = counts['total'], counts['must_fail']
     if failures:
         for f in failures:
@@ -410,19 +486,45 @@ SYNTHETIC_CLOSED = (
     'closed')
 
 
-def ensure_closed_row(work: Path, require_builder: bool = False):
+def renameable_declaration(work: Path, implementation: str):
+    """The ONE meaning of "this row names a declaration the rename control can move".
+
+    Returns `(target, rewritten)` for the row's FIRST implementation entry, or None. It reads and never
+    writes; the caller decides. `ensure_closed_row` and `rename_named_surface` share it, so "a closed row
+    serves" and "the rename actually happened" cannot drift apart — they had, and a documentation-only
+    checkpoint whose implementation cells are all honest boundaries could not construct the control."""
+    entry = implementation.split(';')[0].strip()
+    if ':' not in entry:
+        return None
+    rel, name = (x.strip() for x in entry.split(':', 1))
+    target = work / rel
+    if not target.is_file():
+        return None
+    text = target.read_text(encoding='utf-8')
+    # A Makefile target and a shell function are DECLARATIONS the matrix accepts but this control cannot
+    # move, so they do not satisfy the precondition either.
+    head = rf'(?:{"|".join(DECL_KINDS)})' if rel.endswith('.v') else r'(?:def|class)'
+    rewritten = re.sub(rf'(?m)^(\s*{head}\s+){re.escape(name)}\b', rf'\1{name}_renamed', text, count=1)
+    return None if rewritten == text else (target, rewritten)
+
+
+def ensure_closed_row(work: Path, require_builder: bool = False, require_declaration: bool = False):
     """Guarantee a CLOSED row the controls can mutate, appending the synthetic one only if none serves.
 
-    `require_builder` additionally demands a row carrying the builder prohibition over a Rocq surface. A
-    documentation checkpoint legitimately has neither, so without this the builder control would degrade into
+    `require_builder` additionally demands a row carrying the builder prohibition over a Rocq surface, and
+    `require_declaration` a row whose implementation names a declaration `renameable_declaration` can move. A
+    documentation checkpoint legitimately has neither, so without these the controls would degrade into
     "could not construct the scenario" — a control that stops testing whenever the active work is not Rocq."""
     p = work / TSV_REL
     L = p.read_text(encoding='utf-8').split('\n')
     for l in L[1:]:
         c = l.split('\t')
         if len(c) == len(FIELDS) and c[FIELDS.index('status')] == 'closed':
-            if not require_builder or BUILDER_PROHIBITION in c[FIELDS.index('gate')]:
-                return
+            if require_builder and BUILDER_PROHIBITION not in c[FIELDS.index('gate')]:
+                continue
+            if require_declaration and renameable_declaration(work, c[FIELDS.index('implementation')]) is None:
+                continue
+            return
     tail = L.pop() if L and L[-1] == '' else None      # keep the file's trailing newline exactly as it was
     L.append('\t'.join(SYNTHETIC_CLOSED))
     if tail is not None:
@@ -467,28 +569,19 @@ def request_review(work: Path):
 
 def rename_named_surface(work: Path):
     """Rename the declaration the first CLOSED row points at — the matrix must notice."""
-    ensure_closed_row(work)
+    ensure_closed_row(work, require_declaration=True)
     p = work / TSV_REL
     for l in p.read_text(encoding='utf-8').split('\n')[1:]:
         c = l.split('\t')
         if len(c) != len(FIELDS) or c[FIELDS.index('status')] != 'closed':
             continue
-        entry = c[FIELDS.index('implementation')].split(';')[0].strip()
-        if ':' not in entry:
-            continue
-        rel, name = (x.strip() for x in entry.split(':', 1))
-        target = work / rel
-        if not target.is_file():
-            continue
-        t = target.read_text(encoding='utf-8')
-        kinds = '|'.join(DECL_KINDS)
-        if rel.endswith('.v'):
-            t2 = re.sub(rf'(?m)^(\s*(?:{kinds})\s+){re.escape(name)}\b', rf'\1{name}_renamed', t, count=1)
-        else:
-            t2 = re.sub(rf'(?m)^(\s*(?:def|class)\s+){re.escape(name)}\b', rf'\1{name}_renamed', t, count=1)
-        if t2 != t:
-            target.write_text(t2, encoding='utf-8')
+        found = renameable_declaration(work, c[FIELDS.index('implementation')])
+        if found is not None:
+            target, rewritten = found
+            target.write_text(rewritten, encoding='utf-8')
             return
+    # Unreachable while ensure_closed_row honours its postcondition; kept so a future edit that breaks that
+    # postcondition fails loudly here instead of silently testing nothing.
     raise AssertionError('no closed row with a locatable declaration to rename')
 
 

@@ -17,14 +17,12 @@ under human review, but it does not own mutable state. Canonical data rows carry
   `.review/M3_CONTRACT_REVIEW_REPAIR_1.md` and were repaired as one batch.
   **The contract and the accepted basis are FROZEN.** M3 may not edit either. A contract defect found during
   the audit is a stop and an amendment request, never an edit.
-  **THE AUDIT AND THE M4 PLAN ARE COMPLETE**: `.review/M3_AUDIT.md` and
-  `.review/M4_MECHANICAL_REFACTOR_PLAN.md`. Twenty mandatory findings dispositioned, every audit unit
-  dispositioned, thirteen M4 steps in dependency order.
-  **⚠ BLOCKED, AND STOPPED: `Q-M3-02` in `.review/OPEN_QUESTIONS.md`.** M3 cannot close its twelve
-  obligations without changing `tools/claim-matrix-gate.py`, which contract §9 forbids: no M3 obligation can
-  honestly name a declared code surface, because M3 implements nothing, and with every row closed that gate
-  fails its own self-test. The rows are therefore left OPEN and **no Implementation Review is requested** —
-  asking for one with open obligations is what the do-not-freeze-early rule exists to refuse. Rob decides.
+  **M3 FORENSIC AUDIT REPAIR 1 IS THE SOLE PERMITTED WORK.** The blocking review ordering it is
+  `.review/M3_FORENSIC_AUDIT_REPAIR_1.md`, the sole active M3 repair authority. <!-- FIDO-FCB-REF:REVIEW-M3-FORENSIC-AUDIT-REPAIR-1-MD -->
+  Amendment `M3-A1` is accepted and recorded in `.review/M3_CONTRACT_AMENDMENT_1.md`: it supersedes contract <!-- FIDO-FCB-REF:REVIEW-M3-CONTRACT-AMENDMENT-1-MD -->
+  §9 and obligation `M3-11` **only** for the claim-matrix self-test precondition repair, and authorizes no
+  other project-tool change in M3. `Q-M3-02` is thereby resolved.
+  The audit is `.review/M3_AUDIT.md` and the plan is `.review/M4_MECHANICAL_REFACTOR_PLAN.md`.
   **M3 implemented nothing** — no M4 step ran, and no production, proof, build, tool, generated or runtime
   path moved.
   The accepted review basis is `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
