@@ -1,5 +1,4 @@
-# FIDO FCB — living document; derived reference, not authority; code and gated theorems are sole implementation authority.
-# Canonical live location: .review/fcb/current/ in the exact Git ref used for the task; project libraries contain bootstrap shims only.
+# Derived reference, not authority: the code and its gated theorems are the sole implementation authority.
 # Regenerate, verify, and commit affected FCB files in Git after checkpoint acceptance or an accepted amendment.
 # ID discipline: BOUND-### are live boundary rows; BOUND-X### are priced exclusions. IDs are stable and never renumbered.
 # Platform note: ADR-0001 is adopted for go1.23.2 linux/amd64; the target set reopens at C16 or an earlier target/uintptr request.

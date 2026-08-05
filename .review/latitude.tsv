@@ -1,6 +1,5 @@
-# FIDO FCB — living document; derived reference, not authority; code and gated theorems are sole implementation authority.
+# Derived reference, not authority: the code and its gated theorems are the sole implementation authority.
 # LAT-X004 is closed by the option-(ii) rounding-invariant-domain policy.
-# Canonical live location: .review/fcb/current/ in the exact Git ref used for the task; project libraries contain bootstrap shims only.
 # Regenerate, verify, and commit affected FCB files in Git after checkpoint acceptance or an accepted amendment.
 # Candidate rows LAT-001.. are mechanically extracted from the frozen manifest. LAT-X rows are required supplemental observable-latitude rows whose governing sentences do not contain an extraction trigger.
 latitude_id	source	anchor	matched_terms	sentence	disposition	owner_row	contract	justification	acceptance_observation	fido_elaboration_obligation	implementation_status	implementing_checkpoint	decision_status	rob_choice	rob_countersign

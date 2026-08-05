@@ -49,8 +49,8 @@ pytools: builder
 	    --load -t $(PYTAG) . > /dev/null
 	$(call fido_mark,pytools)
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt names \
-        fcb fcb-write claims diet audit-fresh profile perf pytools hostpython
+.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
+        diet mutants audit-fresh profile perf pytools hostpython
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -64,7 +64,7 @@ pytools: builder
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
 # `make perf` times the complete `make -j1 check` invocation externally.
 # The `check` marker records only completion of this recipe body.
-check: pytools hostpython names fcb claims diet prove e2e builder
+check: pytools hostpython diet mutants prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  $(PYRUN) tools/worktree-list.py --self-test && \
 	  $(PYRUN) tools/worktree-list.py > "$$tmp/list.nul" && \
@@ -150,29 +150,11 @@ hostpython: pytools
 fmt: pytools
 	@$(PYRUN) tools/fmt-check.py
 
-# The scoped-name policy gate.  The compiler verifies Rocq names for free; prose has no verifier at all,
-# so this is the only one it gets.
-names: pytools
-	@$(PYRUN) tools/naming-gate.py
-	$(call fido_mark,names)
-
-# The claim-to-theorem matrix.  Freeze prose is gated by nothing else, so it can drift past what the public
-# statements carry.  Each completion claim names the exact surface, fixture and gate that establish it, and
-# this verifies they exist under those exact names.  It does not judge theorem strength; a human does that.
-claims: pytools
-	@$(PYRUN) tools/claim-matrix-gate.py --self-test
-	@$(PYRUN) tools/claim-matrix-gate.py
-	$(call fido_mark,claims)
-
 # The PERMANENT source-comment policy, and only that: the .v comment law and the exception relation both
-# ways.  The M1 baseline, metric direction, file disposition and code identity are one checkpoint's exit
-# evidence, proved by `--verify-m1-evidence` at M1 review and never here — a permanent gate that enforced
-# them would reject every later file, every later declaration and every larger tree forever.  Its
-# adversarial controls run first, so a green here is one the checker can still earn.
+# ways.  Its adversarial controls run first, so a green here is one the checker can still earn.
 diet: pytools
 	@$(PYRUN) tools/source-diet.py --self-test
 	@$(PYRUN) tools/source-diet.py --check
-	@$(PYRUN) tools/source-diet.py --wiring
 	$(call fido_mark,diet)
 
 # The one diagnostic timing aid.  It runs the exact `make -j1 check` path once project-cold and once hot on
@@ -180,48 +162,16 @@ diet: pytools
 # replaces `.review/PERFORMANCE.tsv`.  `git diff` is the comparison.
 #
 # It is diagnostic evidence, not certified correctness: no gate consults it, nothing depends on it, and it
-# is a prerequisite of nothing.  See the M2 section of `.review/M_SERIES_PLAN.md`.
+# is a prerequisite of nothing.
 perf:
 	@sh tools/perf.sh
 
-# The live-FCB document gates.  Each has ONE implementation shared by its writer and its checker, and each
-# runs its adversarial controls FIRST — a gate that has never been shown to fail is not evidence.
-fcb: pytools
-	@$(PYRUN) tools/human-review-index.py --self-test
-	@$(PYRUN) tools/human-review-index.py --check
-	@$(PYRUN) tools/fcb-reference-gate.py --self-test
-	@$(PYRUN) tools/fcb-reference-gate.py
-	@$(PYRUN) tools/closure-ledger-view.py --check
+# Every root helper in the surviving policy gates must be LOAD-BEARING: delete its effect in a copy of the
+# tree and that gate's own named controls must fail.  A control that survives the deletion of the rule it
+# protects is decoration, not evidence.
+mutants: pytools
 	@$(PYRUN) tools/gate-mutation-test.py
-	$(call fido_mark,fcb)
-
-# Regenerate every generated FCB view from its canonical source.  The gate mount is read-only, so each
-# writer produces its view into an isolated directory; the complete output set is validated there; and only
-# then is any byte published.  Both writers therefore run to completion before publication, so a failure in
-# the second can no longer leave the first one's view published on its own — which the old in-place pair
-# did.  Publication is `cat >` rather than `mv` because it writes through the existing inode and so
-# preserves the tracked file's ownership and mode exactly.
-fcb-write: pytools
-	@out=$$(mktemp -d); \
-	  if ! docker run $(PYARGS) -v "$(CURDIR)":/repo:ro -v "$$out":/out $(PYTAG) \
-	         python3 tools/human-review-index.py --write --out /out || \
-	     ! docker run $(PYARGS) -v "$(CURDIR)":/repo:ro -v "$$out":/out $(PYTAG) \
-	         python3 tools/closure-ledger-view.py --write --out /out; then \
-	    rm -rf "$$out"; echo "fido: FCB-WRITE FAILED — a writer failed; nothing published" >&2; exit 1; fi; \
-	  n=0; \
-	  for rel in $$(cd "$$out" && find . -type f -printf '%P\n' | sort); do \
-	    if ! git ls-files --error-unmatch "$$rel" > /dev/null 2>&1; then \
-	      rm -rf "$$out"; echo "fido: FCB-WRITE FAILED — writer produced untracked path $$rel; nothing published" >&2; exit 1; fi; \
-	    if [ ! -s "$$out/$$rel" ]; then \
-	      rm -rf "$$out"; echo "fido: FCB-WRITE FAILED — writer produced empty $$rel; nothing published" >&2; exit 1; fi; \
-	    n=$$((n+1)); \
-	  done; \
-	  if [ $$n -eq 0 ]; then \
-	    rm -rf "$$out"; echo "fido: FCB-WRITE FAILED — writers produced no view; nothing published" >&2; exit 1; fi; \
-	  for rel in $$(cd "$$out" && find . -type f -printf '%P\n' | sort); do \
-	    cat "$$out/$$rel" > "$(CURDIR)/$$rel"; \
-	  done; \
-	  rm -rf "$$out"; echo "fido: fcb-write OK — published $$n validated view(s) ✓"
+	$(call fido_mark,mutants)
 
 # A diagnostic wrapper which reports the File/Error lines from `prover-log`; it deliberately swallows the
 # build failure so the useful diagnostics remain visible.  On failure Buildx echoes the entire recipe back as

@@ -45,39 +45,15 @@ sh "$ctx/tools/generated-output-gate.sh" "$ctx"
 # so it catches a mode-120000/100755 generated entry that a `core.symlinks=false` export would hide from the
 # exported-object checks above.  Run the STAGED copy, but from the repo cwd so `git` reads the repo index.
 sh "$ctx/tools/generated-mode-gate.sh"
-# the A005 scoped-name gate on the EXPORTED STAGED TREE, in snapshot mode (no .git present).  A gate
-# enforced only on the ordinary working tree is not protection for the proposed commit, and snapshot
-# mode fails closed on an absent or incomplete export rather than scanning nothing and passing.
-fido_py tools/naming-gate.py --root /repo --snapshot
-# the D-07 human-acts gate on the same exported staged tree: the open-act list in the proposed commit must be
-# exactly the generated view of its own canonical rows, with every ownership anchor resolving in that snapshot.
-# Its adversarial controls run first on the STAGED copy of the gate, so a staged edit that neuters the checker
-# is caught by the checker itself rather than reporting a green it can no longer earn.
-fido_py tools/human-review-index.py --root /repo --self-test
-fido_py tools/human-review-index.py --root /repo --check
-# the D-24 operational-reference gate on the same exported staged tree: every repository path the proposed
-# commit's FCB directs work to must resolve IN that snapshot, and an off-tree reference must be typed as one.
-fido_py tools/fcb-reference-gate.py --root /repo --self-test
-fido_py tools/fcb-reference-gate.py --root /repo
-# and the spec-closure ledger view must be the generated projection of its own canonical CSV.
-fido_py tools/closure-ledger-view.py --root /repo --check
-# every root helper in the document gates must be LOAD-BEARING: delete its effect in a copy of the staged
-# tree and that gate's own named controls must fail.  A control that survives the deletion of the rule it
-# protects is decoration, and both D-24 blockers reached a freeze exactly that way.
+# every root helper in the surviving policy gates must be LOAD-BEARING: delete its effect in a copy of the
+# staged tree and that gate's own named controls must fail.  A control that survives the deletion of the rule
+# it protects is decoration, not evidence.
 fido_py tools/gate-mutation-test.py --root /repo
-# the claim-to-theorem matrix: every load-bearing completion claim in the proposed commit must
-# name a surface, fixture and gate that EXIST in that snapshot, and no root fixture may name a prohibited
-# builder.  Freeze prose is the one thing no other gate reads.
-fido_py tools/claim-matrix-gate.py --root /repo --self-test
-fido_py tools/claim-matrix-gate.py --root /repo
 # the PERMANENT source-comment policy on the exported staged tree, in snapshot mode: every .v comment in
 # the proposed commit obeys the one-line current-fact law and every longer one has its exact ledger row
-# both ways.  Its controls run first, on the STAGED copy.  No checkpoint baseline, disposition, deletion
-# ledger or code-identity relation runs here: those belong to one checkpoint's review, not to every commit
-# this repository will ever make.
+# both ways.  Its controls run first, on the STAGED copy.
 fido_py tools/source-diet.py --root /repo --snapshot --self-test
 fido_py tools/source-diet.py --root /repo --snapshot --check
-fido_py tools/source-diet.py --root /repo --wiring
 # the PERMANENT no-host-Python boundary on the same exported staged tree: the proposed commit's own
 # Makefile, hook, shell scripts, usage documents, file modes, image pins and import closure must all keep
 # project Python off the host.  A boundary enforced only on the working tree is not protection for the

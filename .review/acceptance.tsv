@@ -1,0 +1,13 @@
+# Standing compile-acceptance obligations. A row discharges only when its milestone implements the Fido
+# rule and records BOTH halves: the pinned-gc observation under the TOOLCHAIN.md probe profile, and the
+# exact Fido diagnostic. Keep fixture source byte-exact; replay pinned gc; run Fido elaboration through
+# the production path; require the exact diagnostic id and shape; add the theorem or constructor-absence
+# proof the milestone names. Rob discharges the row on accepting the milestone.
+id	milestone	diagnostic	requirement	fixture	status
+LAT-019	C6	FIDO-E-CONSTANT-PRECISION	constant expression exceeds the countersigned accepted precision domain	lat019_shift_511_accept build 0; lat019_shift_512_reject build 1	PENDING
+LAT-077	C6	FIDO-E-UNUSED-LOCAL	local variable is declared and not used	lat077_unused_local_reject build 1	PENDING
+LAT-177	C7	FIDO-E-PRINT-OPERAND-TYPE	print or println operand type is outside the pinned accepted profile	lat177_print_struct_reject build 1	PENDING
+LAT-148	C8	FIDO-E-DUPLICATE-SWITCH-CASE	duplicate constant case expression in one expression switch	lat148_duplicate_switch_case_reject build 1	PENDING
+LAT-171	C9	FIDO-E-SHADOWED-RESULT-RETURN	naked return is used while a named result is shadowed	lat171_shadowed_result_naked_return_reject build 1	PENDING
+LAT-049	C13	FIDO-E-UNION-TERM-RESTRICTION	multi-term union contains comparable, methods, or an embedded interface containing them	lat049_union_method_reject build 1	PENDING
+LAT-085	C13	FIDO-E-EMPTY-TYPE-SET-OPERAND	operator has no admissible operand type because the type set is empty	lat085_empty_type_set_operand_reject build 1	PENDING

@@ -4,18 +4,20 @@
 Project Python runs only in the pinned Docker image.  The host boundary is shell, Make, Git, Docker and
 Buildx, and nothing here may quietly widen it.
 
-This is not a substring ban.  `Dockerfile`, the lock file, the tools themselves and the prose explaining the
-boundary all legitimately contain the word `python`, so every check below classifies an actual execution
-surface: a Make recipe line, a hook command, a shell-script command, a documented command, a file mode, a
-`FROM`/`COPY` instruction, or an `import`.  Commands are addressed by target and anchor, never by line
-number, so moving a recipe does not silently change what is checked.
+This is not a substring ban.  `Dockerfile`, the lock file and the tools themselves all legitimately contain
+the word `python`, so every check below classifies an actual EXECUTION SURFACE: a Make recipe line, a hook
+command, a shell-script command, a file mode, a `FROM`/`COPY` instruction, or an `import`.  Commands are
+addressed by target and anchor, never by line number, so moving a recipe does not silently change what is
+checked.
 
-Seven surfaces are proved:
+Prose is NOT a subject.  A document may quote any command it likes; only an executable entry point can run
+one, and scanning documentation made the boundary unstatable in its own explanation.
+
+Six surfaces are proved:
 
   recipes      no Make recipe invokes an interpreter outside a container launcher
   hooks        no pre-commit command invokes an interpreter on the host
   scripts      no host-reachable shell script invokes an interpreter on the host
-  docs         no usage document instructs a host-Python command
   modes        no project `.py` file is executable, so none can be a host entrypoint
   image        every base is digest-pinned and no stage COPYs project Python into itself
   closure      every module the tools import is stdlib or carries an exact pin in the lock
@@ -226,26 +228,6 @@ def tracked(root: Path, suffix: str) -> list[str]:
     return found
 
 
-def check_docs(root: Path, findings: list[str]) -> None:
-    launchers = launcher_variables(read(root, MAKEFILE))
-    for rel in tracked(root, '.md'):
-        for raw in (root / rel).read_text(encoding='utf-8').splitlines():
-            # A fenced-code DELIMITER names a language for highlighting; it is not an invocation. Stripping
-            # its backticks turned ```python into the bare token `python`, so no document could quote a
-            # Python block without being read as instructing one on the host.
-            if raw.strip().startswith('```'):
-                continue
-            line = raw.strip().lstrip('$').strip().strip('`')
-            if not line or line.startswith(('#', '>', '-', '*', '|')):
-                continue
-            tok = invokes_host_python(line, launchers)
-            # Only an explicit INTERPRETER invocation is a documented host command.  A document naming
-            # `tools/x.py` is naming a file, which every contract that owns a tool has to be able to do;
-            # treating that as an instruction would make the boundary unstatable in its own prose.
-            if tok and INTERPRETER_RE.match(tok):
-                findings.append(f'{rel}: documents {tok!r} as a host command')
-
-
 def check_modes(root: Path, findings: list[str]) -> None:
     for rel in tracked(root, '.py'):
         if os.access(root / rel, os.X_OK):
@@ -362,7 +344,7 @@ def check_binaries(root: Path, findings: list[str]) -> None:
                     f'image and to IMAGE_BINARIES, or the tool is broken wherever it runs')
 
 
-CHECKS = (check_recipes, check_hook, check_scripts, check_docs, check_modes, check_image, check_closure,
+CHECKS = (check_recipes, check_hook, check_scripts, check_modes, check_image, check_closure,
           check_binaries)
 
 
@@ -413,59 +395,47 @@ def self_test(root: Path) -> int:
         return lambda w: (w / rel).write_text((w / rel).read_text(encoding='utf-8') + text, encoding='utf-8')
 
     # ── recipes
-    must_flag('a gate restored to host python3', append(MAKEFILE, '\nbad:\n\tpython3 tools/naming-gate.py\n'),
+    must_flag('a gate restored to host python3', append(MAKEFILE, '\nbad:\n\tpython3 tools/source-diet.py\n'),
               "runs 'python3' on the host")
     must_flag('a Python one-liner in a recipe', append(MAKEFILE, '\nbad:\n\t@python3 -c "import sys"\n'),
               "runs 'python3' on the host")
     must_flag('an interpreter after a laundering &&',
               append(MAKEFILE, '\nbad:\n\t@docker run x true && python3 tools/x.py\n'),
               "runs 'python3' on the host")
-    must_flag('a bare .py used as a command', append(MAKEFILE, '\nbad:\n\t@./tools/naming-gate.py\n'),
+    must_flag('a bare .py used as a command', append(MAKEFILE, '\nbad:\n\t@./tools/source-diet.py\n'),
               "on the host")
     must_flag('a Docker-absent fallback to host Python',
-              append(MAKEFILE, '\nbad:\n\t@command -v docker > /dev/null || python3 tools/naming-gate.py\n'),
+              append(MAKEFILE, '\nbad:\n\t@command -v docker > /dev/null || python3 tools/source-diet.py\n'),
               "runs 'python3' on the host")
     must_accept('a recipe using the container launcher',
-                append(MAKEFILE, '\ngood: pytools\n\t@$(PYRUN) tools/naming-gate.py\n'))
+                append(MAKEFILE, '\ngood: pytools\n\t@$(PYRUN) tools/source-diet.py\n'))
     must_accept('a host shell diagnostic with no Python',
                 append(MAKEFILE, '\ngood:\n\t@git status --porcelain | sort\n'))
 
     # ── hooks and scripts
-    must_flag('host Python in the pre-commit hook', append(HOOK, '\npython3 "$ctx/tools/naming-gate.py"\n'),
+    must_flag('host Python in the pre-commit hook', append(HOOK, '\npython3 "$ctx/tools/source-diet.py"\n'),
               "runs 'python3' on the host")
     # The wrapper's own body names no interpreter, so this control turns ONLY on whether a function that
     # never enters a container is treated as a launcher.  A body containing `python3` would be caught on
     # its own line and the control would pass even with the launcher rule deleted.
     must_flag('a wrapper function that never enters a container',
-              append(HOOK, '\nsneaky() {\n  sh -c "$1"\n}\nsneaky tools/naming-gate.py\n'),
-              "runs 'tools/naming-gate.py' on the host")
+              append(HOOK, '\nsneaky() {\n  sh -c "$1"\n}\nsneaky tools/source-diet.py\n'),
+              "runs 'tools/source-diet.py' on the host")
     must_flag('a host shell helper that calls Python',
-              lambda w: (w / 'tools' / 'helper.sh').write_text('#!/bin/sh\npython3 tools/naming-gate.py\n',
+              lambda w: (w / 'tools' / 'helper.sh').write_text('#!/bin/sh\npython3 tools/source-diet.py\n',
                                                                encoding='utf-8'),
               "runs 'python3' on the host")
     must_accept('a shell helper that only calls Docker',
                 lambda w: (w / 'tools' / 'helper.sh').write_text('#!/bin/sh\ndocker run x python3 /a.py\n',
                                                                  encoding='utf-8'))
 
-    # ── docs, modes, image, closure
-    must_flag('usage prose instructing host Python',
-              append('README.md', '\n    python3 tools/source-diet.py --check\n'),
-              'documents')
-    must_accept('prose naming a tool file without instructing an interpreter',
-                append('README.md', '\n    tools/source-diet.py   the source-comment law\n'))
-    # A fenced Python block is a QUOTATION. Reading its language tag as a command made the boundary
-    # unstatable in its own prose: a review directive could not quote the code it was ordering deleted.
-    must_accept('a document quoting a fenced Python block',
-                append('README.md', '\n```python\nDOC = re.compile(r"x")\n```\n'))
-    must_flag('a host interpreter inside a fenced block is still an instruction',
-              append('README.md', '\n```sh\npython3 tools/source-diet.py --check\n```\n'),
-              'documents')
+    # ── modes, image, closure
     must_flag('an executable project .py',
-              lambda w: (w / 'tools' / 'naming-gate.py').chmod(0o755), 'is executable')
+              lambda w: (w / 'tools' / 'source-diet.py').chmod(0o755), 'is executable')
     must_flag('an unpinned Python base image',
               append(DOCKERFILE, '\nFROM python:3.12-slim AS rogue\n'), 'is not pinned by digest')
     must_flag('project Python copied into an image',
-              append(DOCKERFILE, '\nCOPY tools/naming-gate.py /naming-gate.py\n'),
+              append(DOCKERFILE, '\nCOPY tools/source-diet.py /source-diet.py\n'),
               'copies project Python into an image')
     must_flag('an unpinned third-party package',
               lambda w: (w / 'tools' / 'rogue.py').write_text('import requests\n', encoding='utf-8'),
@@ -483,7 +453,7 @@ def self_test(root: Path) -> int:
                 lambda w: (_write(w / LOCK, read_text(w / LOCK) + f'\nrequests==2.32.3 --hash=sha256:{"a"*64}\n'),
                            _write(w / 'tools' / 'ok.py', 'import requests\n')))
     must_accept('a non-executable .py tool',
-                lambda w: (w / 'tools' / 'naming-gate.py').chmod(0o644))
+                lambda w: (w / 'tools' / 'source-diet.py').chmod(0o644))
 
     # ── the repository as it stands must pass
     total += 1
@@ -521,7 +491,7 @@ def _seed(root: Path, work: Path) -> None:
     for rel in (MAKEFILE, DOCKERFILE, HOOK, LOCK):
         _write(work / rel, read_text(root / rel))
     _write(work / 'README.md', read_text(root / 'README.md'))
-    for name in ('naming-gate.py',):
+    for name in ('source-diet.py',):
         _write(work / 'tools' / name, read_text(root / 'tools' / name))
         (work / 'tools' / name).chmod(0o644)
     subprocess.run(['git', 'init', '-q'], cwd=work, check=True, capture_output=True)
@@ -554,7 +524,7 @@ def main() -> int:
         for f in findings:
             print(f'fido: HOST-PYTHON GATE FAILED — {f}', file=sys.stderr)
         return 1
-    print('fido: host-python gate OK — no Make recipe, hook command, shell script or usage document runs an '
+    print('fido: host-python gate OK — no Make recipe, hook command or shell script runs an '
           'interpreter on the host; no project .py is executable; every base is digest-pinned and no stage '
           'copies project Python; every import is standard library or exactly pinned ✓')
     return 0

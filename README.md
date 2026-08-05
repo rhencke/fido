@@ -1,112 +1,65 @@
 # Fido
 
-A theorem-first experiment in a **proved** Go generator. An untrusted proposer (an LLM) may write a raw Go
-program (as an AST) and arbitrary supporting lemmas; **Fido emits Go only after Rocq proves the whole
-program compile-admissible and safe.** It will never be "formally verified Go" — Go's own toolchain is
-trusted — but the path from AST to bytes is built from proved layers, and the last mile is a differential
-integration check against `go build ./...`.
+A Go generator that proves its output correct before the output exists.
 
-## What actually works today
+An untrusted proposer may write any program it likes. **No Go is emitted unless Rocq first proves the whole
+program compile-admissible and safe.** There is one program representation — the AST *is* the IR — and
+"compiled" and "safe" are proofs over that one program, never new trees.
 
-One complete vertical slice, proved **and** executed end to end. A witness exercising every admitted
-primitive — bool, the ten integer types (incl. the `-(2^63)` boundary), exact float32/float64 constants,
-exact complex64/complex128 constants, and byte-sequence strings (empty, ASCII, quote, backslash, tab, CR,
-NL) — is the tracked canonical artifact **`main.go`** (not copied into this README, so it cannot drift;
-`make check` and the pre-commit hook verify it byte-exact against the pristine `generated-module` layer, and
-its reviewed stdout/stderr/exit are `e2e/golden.*`).
+## What it does today
 
-That program is produced from proved bytes, synchronized into a directory tree, built by `go build ./...`,
-and run with
-its stdout/stderr/exit compared byte-for-byte to reviewed goldens — alongside a boundary-byte string witness
-(bytes `0x00`/`0x1f`/`0x7f`/`0x80`/`0xff`, checked byte-exact via an `od` hex oracle) and representative
-differential fixtures (a multi-package tree accepted; no-main and duplicate-main trees rejected; `go list
-./...` matches the emitted package set) that exercise the whole-program rules against real Go.
+Emits a complete Go module — a rendered `go.mod` plus a possibly-empty set of `.go` files — for one small
+certified fragment: files group by directory into `package main` packages, and each `func main()` prints
+primitive literals and one source-shaped explicit conversion naming one of sixteen source type names.
 
-The float lines exercise exact float32/float64 **constants**: a bare default-`float64` literal and its
-`float32` conversion, explicit conversions, an exact float→int and int→float constant, the
-**direct-vs-nested** double-rounding scar shown as exact `uint64` integer observations
-(`uint64(float32(2305843146652647425.0e+0))` prints `2305843284091600896` but
-`uint64(float32(float64(2305843146652647425.0e+0)))` prints `2305843009213693952` — direct binary32
-rounding differs from binary64-then-binary32), and an underflow to `+0`. A bare float denotes its **exact
-rational**; a conversion rounds **once** at the destination format (F32 directly at binary32, never through
-F64). Float printing is Go's runtime `%e` format and is integration evidence only. It is still exact float
-**constants** — no float arithmetic and no imports.
+Bools, the ten integer types, `float32`/`float64`, `complex64`/`complex128` and byte-sequence strings are
+complete, with exact untyped constants, single-rounding conversions and canonical rendering. `byte` and
+`rune` are distinct source syntax resolving to equal semantic types. The empty module is a valid program.
 
-The complex lines exercise exact complex64/complex128 **constants**: a bare complex128-default literal
-`complex(1.5, -2.5)`, its complex64/complex128 conversions, zero-imaginary complex→int/float32 conversions,
-and the **component** double-round scar as an exact `uint64` observation (direct `complex64` vs nested
-`complex128`-then-`complex64`). An untyped complex constant is an exact **pair of rational components** (real
-and imaginary); its default type is complex128; complex64/complex128 components are float32/float64; a complex
-conversion rounds **each component once**, and a scalar↔complex conversion follows Go's zero-imaginary rule.
-Go prints a complex as `(real+imagi)` — integration evidence only. It is still exact complex **constants** —
-no complex arithmetic, no `real`/`imag`, no imports.
+Anything outside that fragment is **unrepresentable**, not rejected.
 
-- **One program representation.** A `Syntax.Program` is an intrinsic `ModuleSpec` (a narrow canonical module
-  path + a singleton Go version — the facts of the generated module, **not** a target config) paired with a
-  **possibly-empty** verified finite map from intrinsic `FilePath.T` keys to one raw file AST per file (a raw
-  string is **not** a path). A raw file is a source-shaped `Syntax.File` — a **source-owned package clause**,
-  an intrinsically-empty import section, and its declarations; package **grouping**, entry-point status, and
-  import **resolution** are compilation results. There is no second tree and no separate IR.
-- **One type authority.** Each raw literal denotes an exact **untyped** constant (`Typing.Constant`); `Typing` — the
-  single type authority, evidence over the same AST (universe `Typing.BoolType` / the integer family `Typing.IntegerType` (ten
-  members) / `Typing.FloatType` (`float32`/`float64`) / `Typing.ComplexType` (`complex64`/`complex128`) / `Typing.StringType`) — resolves it
-  in a use context (an untyped int defaults to `int` and its range is checked; a bare float to `float64`; a
-  bare complex to `complex128`; every string representable as `Typing.StringType`). An explicit conversion is a **typed**
-  constant of the destination type, routed through one target-directed `Typing.convert_constant` authority (integer
-  conversions value-preserving + range-checked at every nesting layer; float/complex conversions round once —
-  each complex component once; scalar↔complex by Go's zero-imaginary rule). A literal is not a typed value,
-  and there is no typed AST or second IR.
-- **Exact, whole-program compilation = the pinned one-shot `go build ./...` acceptance.** `Admissible p :=
-  fresh_build_preflight_ok p /\ SourceProgramValid p`: it groups files by directory into `package main`
-  packages, requires the source valid (typed through `Typing`, plus the two factored package rules —
-  name uniqueness and main-package entry), AND models cmd/go's default-OUTPUT behaviour (a sole main package
-  whose default executable name collides with an existing root directory is rejected). Two claims stay
-  distinct: (A) the checker matches the formal judgment — PROVED; (B) it matches `go build ./...` — the GOAL,
-  exercised by a differential matrix, never a kernel theorem about `cmd/go`.
-- **Real semantics + faithful rendering.** `Property` evaluates to real Go values that carry the **same**
-  `Typing.SemanticType` and are range-well-formed; evaluation is partial (a compiler-invalid conversion has no value), so a
-  resolved expression provably evaluates to a well-formed value of its resolved type. `Render` proves
-  `Render.const_info_denotes` (a spelling denotes exactly the Typing.ConstantInfo Typing computes) and
-  `Render.resolved_expr_denotes`, plus all-ASCII and the header as the exact first line, and renders the
-  `go.mod` directly from the `ModuleSpec`. Every layer is proved **axiom-free** in a pinned Rocq 9.2.0
-  container — asserted by a whole-certified-theory assumption-closure audit, not just per-surface `Print
-  Assumptions`.
-- **A transport boundary, not a backend.** An `Emit.Image` is a reducible carrier that RETAINS the exact
-  `Safe.Program`, the exact `go.mod` bytes and a possibly-empty map of `.go` bytes, together with an opaque
-  `Emit.Mint.Token` indexed by those exact values. `Emit.Mint.issue` is the sole authority-producing
-  operation; the carrier's pack constructor is not a mint, and what stops it authorizing foreign bytes is
-  that the token's indices force the payload. Provenance is therefore a projection of what the image
-  retains, never an equality a caller supplied.
-  Publication is ONE validate-before-publish workflow, never a standalone publish command: the SOLE Rocq
-  transport vernac `Fido Materialize` writes the authoritative pristine bytes into a fresh disposable root, the
-  pinned `go build ./...` **validates** that tree, and only THEN does the internal sink (its own test driver +
-  the `make regenerate` apply CLI) publish the SAME validated bytes — a failed build prevents publication.
-  There is NO public `Fido Emit`. `Fido Materialize`'s guards run before any effect (typecheck the image type
-  + reject a non-empty assumption closure, so a postulated proof cannot cross). The sink is a generic
-  **ownership-aware dirty-directory synchronizer** that **rejects foreign Go/module inputs** rather than merge
-  them, stages the complete image into reserved sibling temps, installs by atomic rename, and
-  two-phase-recovers abandoned temps fail-closed. No handwritten OCaml walks a program.
-- **The generated module is a tracked, reviewed artifact.** One pristine content-addressed Buildx
-  `generated-module` layer is the output authority; the canonical `go.mod` + `main.go` are committed
-  (Fido-headed) so the example builds/runs without Rocq or Docker, while the `.v`/proof sources stay
-  authoritative. `make regenerate` rewrites them through the SAME validate-before-publish workflow (the
-  deployed path IS the tested path); `make check` verifies the WORKING TREE byte-exact against the pristine
-  layer, and a pre-commit hook verifies the proposed STAGED commit the same way (a prototype boundary offering
-  reasonable assurance for a cooperating developer, not tamper resistance; `--no-verify` bypasses it).
+The tracked `main.go` is the canonical witness. It is generated, not written: `make check` and the pre-commit
+hook verify it byte-exact against a pristine build, and its reviewed stdout, stderr and exit status are
+`e2e/golden.*`.
 
-The admitted fragment is deliberately tiny; anything else is **unrepresentable**, not stubbed. Imports are
-absent and unrepresentable — a permanent closed-world contract governs their eventual introduction.
+## What it proves
 
-## Verify it
+- `Compilable.compile` succeeds **exactly** for the declarative `Admissible` judgment — sound and complete.
+- `Admissible` is exact whole-**program** admissibility, aiming at the pinned `go build ./...` acceptance for
+  every representable program. A program `go build` accepts but Fido rejects is a **model bug**, not a
+  documented limitation.
+- Rendering denotes what typing computes, and a rendered spelling denotes at most one constant status.
+- Every emitted image carries proof it came from rendering one certified program, and the transport rejects
+  an image whose proof depends on an axiom.
+- **Zero project axioms**, asserted every build by a readable surface gate plus a whole-theory
+  assumption-closure audit that descends opaque proof bodies.
 
-All Rocq/Go runs go through the pinned toolchain via `buildx` (host Rocq is unsupported):
+That the real Go toolchain agrees is a *goal*, attacked by differential fixtures and an end-to-end build —
+never a kernel theorem. Integration tests are alarms, not proofs.
 
-```
-make check       # gates + pinned-Rocq proof (complete whole-theory audit) + pinned-Go whole-tree e2e vs goldens + tracked-generated byte compare
-make regenerate  # fresh go build ./... validates the pristine, THEN re-applies the SAME bytes into the repo via the sink
+## Running it
+
+Everything runs in pinned containers through Buildx. Host Rocq is not supported.
+
+```sh
+make check       # the full gate: policy + pinned-Rocq proof + pinned-Go e2e + generated byte-compare
+make prove       # the proof gate alone
+make e2e         # emit, then the pinned Go toolchain builds and runs the witness against goldens
+make regenerate  # republish the canonical module, only after a validated fresh build
 ```
 
 ## Where to read next
 
-- `ARCHITECTURE.md` — the binding charter. · `PROGRESS.md` — what is proved+executed and the frontier. ·
-  `PAINFUL_LESSONS.md` — the mistakes that shaped this design. · `CLAUDE.md` — the operating law.
+| | |
+|---|---|
+| `ARCHITECTURE.md` | the semantic, proof, provenance and trust architecture — read before any structural change |
+| `ROADMAP.md` | what is left to build, in dependency order |
+| `DECISIONS.md` | every current human decision, accepted and open |
+| `TOOLCHAIN.md` | pinned identities, provenance status, verification commands |
+| `.review/NEXT.md` | the active task, and nothing else |
+| `CLAUDE.md` | the rules Claude works under |
+
+Data lives beside them: `.review/closure.csv`, `.review/latitude.tsv`, `.review/acceptance.tsv`,
+`.review/scope.tsv`, `.review/PERFORMANCE.tsv`.
+
+Git history owns everything superseded.
