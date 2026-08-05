@@ -201,6 +201,21 @@ the index, facts, layout, plan and both diagnostic lists are projections of it, 
 rerun. The core, program, failure and facts records, their constructors and the core builder are all
 **sealed**, so a client cannot assemble a peer core, and `Compilable.compile` is the only mint.
 
+### Machine — the abstract run base
+
+`Machine.T` is the one labelled-transition base every later runtime milestone shares: opaque `State`,
+`Start`, `Label` and `Result`, plus `initial`, a **relational** `step`, and `final`. Nothing else is a field.
+
+`FiniteRun` is built only from real steps, so a trace is exactly the labels it consumed; `InfiniteRun` is
+coinductive and observes one real step at a time. `Reachable`, `Enabled`, `Disabled`, `FinalAbsorbing` and
+`Stuck` are derived from those, and `EnabledDecision` freezes the one decision shape later machines must
+prove **from the same relational `step`** — it is not a second semantics.
+
+**`Machine` fixes no Go feature and has no inhabitant.** There is no concrete state, label or result
+constructor, no `EnabledDecision` inhabitant, and no module imports it. Its product is the base itself; the
+first complete runtime vertical feature is what consumes it. Adding a concrete machine early, merely to give
+it a consumer, would be exactly the scaffold ARCH-11 forbids.
+
 ---
 
 ## 4. Safety, capabilities and provenance
@@ -477,7 +492,7 @@ contract. `ROADMAP.md` names which milestone consumes which; `.review/closure.cs
 | SC-15 | BUILTINS | Every admitted predeclared built-in resolves through ordinary binding facts, receives exact use facts and executes through `step`; `print`/`println` output formatting is pinned-toolchain adequacy evidence, never a portable language theorem. |
 | SC-16 | ERRORS-UNREPRESENTABILITY | Acceptance and rejection are decided over one retained whole-elaboration object and every diagnostic projects from the exact object that produced it; no rejected program mints `Compilable.Program`, `Safe.Program` or `Emit.Image`, and no broad "unsupported" catch-all stands where the ledger names distinct exclusions. |
 | SC-17 | RENDER-ADEQUACY-MEMBERSHIP | Direct rendering covers every admitted constructor with no raw-text escape and one `Emit.Mint.issue` publication path; a deterministic program matches the pinned observation tuple exactly, and a nondeterministic one only through a sound-and-complete membership checker that consumes `enabled_dec` and defines no semantics. |
-| SC-18 | ENABLEDNESS-DECISION | `enabled_dec` decides readiness for nil, buffered, unbuffered, closed, select-with-default, absorbing and deadlock states, and agrees exactly with relational `step` on reachable well-formed states. |
+| SC-18 | ENABLEDNESS-DECISION | `enabled_dec` decides readiness for nil, buffered, unbuffered, closed, select-with-default, absorbing and deadlock states, and agrees exactly with relational `step` on reachable well-formed states. Staged: **C5** freezes the generic `EnabledDecision`, `FinalAbsorbing` and `Stuck` shapes over abstract `Machine.T` and provides no decision inhabitant; **C8** closes ordinary control and absorbing-final readiness; **C14** closes nil, buffered, unbuffered and closed-channel readiness plus select readiness; **C15** closes deadlock classification and exact agreement with relational `step` on all reachable well-formed states. |
 | SC-19 | OUT-BOUNDARIES | Every `OUT` row freezes its missing constructor, the valid Go it gives up, the reason, the future-inclusion price, and a proof that no host helper or generic fallback can reintroduce the behaviour. |
 | SC-20 | EVAL-ORDER-LATITUDE | Every latitude row is owned by the one relational `step` with no generic choice authority, and no row adds a public machine field, a second evaluator, a scheduler object or a generic `Choice` action. |
 | SC-21 | PROOF-COST-INTERNALS | The public base is fixed while internal forms stay disposable: an internal type or index is kept only when removing it admits a real invalid state, and a capability retaining only copied fields plus equality to a recomputation is a failed design even when its extensional theorems pass. |
