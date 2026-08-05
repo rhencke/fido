@@ -352,12 +352,21 @@ verifier. Local verifier tamper-resistance is explicitly out of scope.
 boundary (typechecking and assumption-closure rejection via Rocq's own machinery, then decoding only the
 final transport; the sink is filesystem-only); and the Go toolchain.
 
-**Proved axiom-free, asserted every build** by the Rocq-native `Fido Audit Assumptions` — the one
-zero-project-axiom authority. It is a whole-certified-theory assumption-closure audit seeded from every Fido
-constant, every mutual inductive and every surviving named assumption, rejecting every axiom category and
-every variable. It catches an external axiom reached transitively through an opaque lemma, which a
-source-text scanner cannot do soundly. A module-coverage gate and adversarial self-tests prove it is not
-fail-open. **It enumerates its own roots**, so nothing beside it has to be kept in step by hand.
+**Proved axiom-free, asserted every build** by one three-part enforcement chain, no part of which is
+sufficient alone:
+
+```text
+certified-module coverage → whole-theory Fido Audit Assumptions → adversarial controls A-E
+```
+
+The Rocq-native `Fido Audit Assumptions` owns assumption closure **over the certified environment actually
+loaded**: it seeds every Fido constant, every mutual inductive and every surviving named assumption, rejects
+every axiom category and every variable, and catches an external axiom reached transitively through an opaque
+lemma, which a source-text scanner cannot do soundly. It enumerates its own roots, so no hand-maintained list
+sits beside it. But it can only audit what is loaded — **certified-module coverage is what proves every
+tracked root `.v` is in that environment**, by requiring tracked root `.v` to equal `dune (modules ...)`
+exactly. Controls A-E then prove the audit is not fail-open. Drop module coverage and a module could leave
+`dune` and be silently unaudited; drop the controls and the audit could pass by doing nothing.
 
 **Zero project axioms.** Never `Axiom`, `Parameter`, `Admitted`, a kernel primitive, or functional
 extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are generated transiently.

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # The build stages, in the order the DAG forces:
-#   prover:  dune-compiles the theory; the always-run gate confirms every declared surface axiom-free.
+#   prover:  dune-compiles the theory; the certified-module coverage check and whole-theory audit establish
+#            zero project axioms.
 #   emit:    compiles theory and plugin, materializes each witness image, and exercises the sink separately.
 #   go-e2e:  the pinned Go toolchain validates the pristine image with `go build ./...` and the goldens.
 #   sync:    only after that validation marker may `make regenerate` publish the same validated bytes.
@@ -18,8 +19,6 @@
 # found out.  The apt pins are exact, so a withdrawn version fails this build loudly instead of drifting.
 # Project sources are MOUNTED read-only from the exact source view under measurement, never COPYed in, so a
 # stale green verdict from an incomplete COPY set is unrepresentable here rather than merely checked for.
-# The base is Debian bookworm rather than Alpine, and that is a measured choice, not a preference: the
-# naming gate is allocation-heavy Python and musl runs it at 1.74x the host against glibc's 1.27x.
 FROM python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b AS python-tools
 RUN --mount=type=cache,id=fido-apt-pytools,target=/var/cache/apt,sharing=locked \
     apt-get update \

@@ -169,7 +169,7 @@ def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-te
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='mutation tests for the document gates')
+    ap = argparse.ArgumentParser(description='mutation tests for the surviving policy gates')
     ap.add_argument('--root', default='.')
 
     args = ap.parse_args()

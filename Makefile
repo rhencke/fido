@@ -9,19 +9,18 @@ NC := $(foreach root,$(NOCACHE),--no-cache-filter $(root))
 
 # ── The Python boundary ───────────────────────────────────────────────────────
 # Project Python never runs on the host.  This block is the whole boundary: every Python-consuming recipe
-# below goes through PYRUN or PYWRITE, and none of them names an interpreter itself.  The host needs only
+# below goes through PYRUN, and none of them names an interpreter itself.  The host needs only
 # shell, Make, Git, Docker and Buildx.
 #
 # The tag is content-addressed over the two files that define the image, so changing the pin or the lock
 # builds a new tag and a stale image cannot be reused; an unchanged pin costs one `docker image inspect`.
 # Sources are MOUNTED rather than copied in, so a gate inspects exactly the source view named at the mount
 # — the working tree here, the exported index in the hook — and no COPY set can silently go stale.
-# The mount is read-only for every gate; PYWRITE exists only for the writers, which publish under §7.
+# The mount is read-only, because every surviving Python tool reports and none of them writes.
 PYTAG   := fido-python-tools:$(shell cat Dockerfile tools/python-requirements.lock | sha256sum | cut -c1-16)
 PYARGS  := --rm -u $(shell id -u):$(shell id -g) -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo -w /repo
 PYRUN    = docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3
-PYWRITE  = docker run $(PYARGS) -v "$(CURDIR)":/repo    $(PYTAG) python3
 
 # ── Completion markers.  INERT unless FIDO_PERF_LOG names a file: with the variable absent the `if` is
 # false and nothing is written, so command order, bytes, output, exit status, side effects and normal

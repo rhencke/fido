@@ -1,47 +1,101 @@
-# ASSUM-GATE — delete the readable assumption gate
+# C5 — Machine base
 
-Baseline: 94c8a6dd3bb1aca77a1905f8df5d880050e5232e
-Review: implementation
+Baseline: 87c0ad7466f7841dff2502f564500341b0b9e44a
+Review: contract
 
-Rob's decision, recorded in `DECISIONS.md`: delete `gate/Assumptions.v`. The whole-theory
-`Fido Audit Assumptions` and its existing adversarial self-tests own the zero-project-axiom build claim.
+Dependency:
+ASSUM-GATE is implemented at the baseline plus the cleanup in this candidate, but remains pending Rob's
+acceptance. C5 implementation is forbidden until Rob accepts ASSUM-GATE and this contract passes review.
 
 Goal:
-Remove the redundant readable assumptions gate while preserving the complete whole-theory audit.
+Add the smallest public labelled-transition base that every later runtime milestone shares. C5 defines no
+Go feature semantics and no concrete Go machine.
 
-Change:
-- delete `gate/Assumptions.v`, which empties `gate/`;
-- delete all three `COPY gate/ gate/` from the Dockerfile;
-- delete the readable-gate compile, grep, count and message block from the prover stage;
-- rename the remaining prover-stage step letters only where the deletion leaves a gap;
-- make the prover-stage success message report the whole-theory audit, module coverage and self-tests,
-  with no readable-gate count;
-- in `plugin/materialize.mlg`, remove only the claim that `Print Assumptions` remains a complementary
-  public-surface check; leave the audit implementation untouched;
-- update the references in `README.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `TOOLCHAIN.md`, `ROADMAP.md`,
-  `DECISIONS.md`, `Makefile` and this file;
-- record `ASSUMPTION-GATE-PLACEMENT` as ACCEPTED;
-- add no replacement gate, list, registry, generator, schema or compatibility path.
+Scope:
+- add `Machine.v` and place `Machine` after `Compilable` and before `Safe` in `dune`;
+- consume the exact `.review/closure.csv` and `.review/latitude.tsv` rows whose `milestone` is `C5`;
+- preserve the existing source, index, typing, compilation, safety, rendering, emission, and transport paths;
+- add no parser, second source form, typed AST, command language, evaluator, scheduler, store, runtime value,
+  panic state, goroutine state, or compatibility layer.
 
-Preserve exactly:
-- `Fido Audit Assumptions`, its root enumeration and its assumption filtering;
-- the certified-module coverage check;
-- audit self-tests A-E;
-- the sealed-capability tests, mint controls and the positive client control;
-- the emit-time provenance assumption guard;
-- every certified `.v` module;
-- generated Go bytes and runtime goldens;
-- the staged-index and working-tree source-view distinction;
+Public base:
+`Machine.v` defines exactly one record:
+
+```coq
+Record T : Type := {
+  State  : Type;
+  Start  : Type;
+  Label  : Type;
+  Result : Type;
+
+  initial : Start -> State;
+  step    : State -> Label -> State -> Prop;
+  final   : State -> Result -> Prop
+}.
+```
+
+Nothing else is a field of `Machine.T`.
+
+Derived public notions:
+- `Trace m := list (Label m)`;
+- `FiniteRun m s trace s'`, with only reflexive-empty and one-step/cons constructors;
+- `InfiniteRun m s`, coinductively built only from a real `step`;
+- `Reachable m s := exists start trace, FiniteRun m (initial m start) trace s`;
+- `Enabled m s := { l : Label m & { s' : State m & step m s l s' } }`;
+- `Disabled m s := forall l s', ~ step m s l s'`;
+- `EnabledDecision m := forall s, Reachable m s -> Enabled m s + Disabled m s`;
+- `FinalAbsorbing m := forall s r, final m s r -> Disabled m s`;
+- `Stuck m s := Disabled m s /\ forall r, ~ final m s r`.
+
+Required theorem surface:
+- finite-run composition appends traces;
+- every `initial m start` is reachable;
+- reachability is closed under one `step`;
+- `FinalAbsorbing m` excludes a step from a final state;
+- a finite run beginning in an absorbing final state has an empty trace and ends in the same state;
+- an infinite run cannot begin in an absorbing final state.
+
+Use direct structural induction or coinductive inversion. No fuel, bound, classical shortcut, axiom, or admitted
+fact.
+
+Explicitly not in C5:
+- no `GoMachine`;
+- no concrete `State`, `Start`, `Label`, or `Result` constructors;
+- no `enabled_dec` inhabitant for a Go machine;
+- no deadlock, fairness, safety, liveness, output, panic, function, object-store, channel, or scheduler semantics;
+- no change to `Safe.Property`, which remains the current truthful property until a concrete machine exists;
+- no new generated output or runtime behavior.
+
+The concrete machine and its sealed state types arrive only with the first complete runtime vertical feature.
+`EnabledDecision` freezes the one decision shape later machines must prove from the same relational `step`; it
+does not define a second semantics.
+
+Preserve:
+- `Syntax.Program` as the sole source authority;
+- the exact retained `Compilable.Program` and failure cores;
+- every current accepted and rejected program;
+- diagnostics, generated bytes, runtime goldens, and the staged-index/working-tree distinction;
+- zero project axioms and the complete retained enforcement chain;
+- every public theorem statement outside the new `Machine` module;
 - `life.md`.
 
+Allowed implementation files after Contract Review:
+- `Machine.v`;
+- `dune`;
+- `ARCHITECTURE.md`, `ROADMAP.md`, and `.review/NEXT.md` only to state the accepted current result;
+- no other file unless implementation evidence proves this contract incomplete, in which case stop.
+
 Done:
-- no tracked `gate/Assumptions.v` and no remaining `COPY` of `gate/`;
-- no current reference to a readable assumption gate;
-- audit self-tests A-E still execute;
-- generated Go and goldens unchanged;
-- `make prove`, `make check`, `make audit-fresh` green; one `make perf` records the new baseline;
-- Review is set to implementation and Claude stops.
+- the public base and theorem surface above exist exactly;
+- no feature-specific runtime representation or second step relation exists;
+- all C5 ledger rows retain their current owner and meaning;
+- `make prove`, `make check`, and `make audit-fresh` pass;
+- generated Go and runtime goldens are unchanged;
+- one whole-system implementation review passes;
+- Rob accepts C5.
 
 Stop:
-- deleting the gate would drop a guarantee the whole-theory audit does not already make;
-- any step needs a replacement mechanism to keep the build green.
+- the public base needs another field;
+- any required theorem needs a concrete Go feature or a second behavior authority;
+- a C5 ledger row requires changing the existing source/static/render foundation;
+- implementation would need a placeholder, compatibility path, trusted shortcut, fuel, or premature future state.
