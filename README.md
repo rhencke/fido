@@ -60,6 +60,6 @@ make regenerate  # republish the canonical module, only after a validated fresh 
 | `CLAUDE.md` | the rules Claude works under |
 
 Data lives beside them: `.review/closure.csv`, `.review/latitude.tsv`, `.review/acceptance.tsv`,
-`.review/scope.tsv`, `.review/PERFORMANCE.tsv`.
+`.review/scope.tsv`, `.review/M1_COMMENT_EXCEPTIONS.tsv`, `.review/PERFORMANCE.tsv`.
 
 Git history owns everything superseded.

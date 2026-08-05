@@ -3,6 +3,9 @@
 Baseline: f09c01b1a895f3c1154e17b164eaf34e513a4091
 Review: implementation
 
+The baseline is the documentation state this task replaces. It is not a whole-tree byte reference: the
+separately authorized life.md commit d113bc4 lands after it, and life.md is outside this task either way.
+
 Goal:
 Replace the documentation and review-process subsystem with the minimal corpus defined by Rob's
 documentation-reset plan.
@@ -12,11 +15,16 @@ Change:
 - move canonical data;
 - delete superseded documentation;
 - delete documentation-only tools and process paths;
-- simplify the surviving policy tools to their real jobs.
+- simplify the surviving policy tools to their real jobs;
+- give every closure and latitude row its exact milestone owner, and reduce both ledger schemas to the
+  facts each one owns;
+- state the binding obligation of every SC-00…SC-22 contract in ARCHITECTURE.md.
 
 Preserve:
-- all semantic, proof, provenance, artifact, generated-byte, runtime, source-view, and toolchain guarantees;
-- life.md exactly.
+- all semantic, proof, provenance, artifact, generated-byte, runtime, source-view, and toolchain guarantees.
+
+Out of scope:
+- life.md. No commit of this task may modify it.
 
 Done:
 - only the approved documents and data remain;

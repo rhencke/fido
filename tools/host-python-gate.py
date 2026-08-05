@@ -13,7 +13,7 @@ checked.
 Prose is NOT a subject.  A document may quote any command it likes; only an executable entry point can run
 one, and scanning documentation made the boundary unstatable in its own explanation.
 
-Six surfaces are proved:
+Seven surfaces are proved:
 
   recipes      no Make recipe invokes an interpreter outside a container launcher
   hooks        no pre-commit command invokes an interpreter on the host
@@ -21,6 +21,7 @@ Six surfaces are proved:
   modes        no project `.py` file is executable, so none can be a host entrypoint
   image        every base is digest-pinned and no stage COPYs project Python into itself
   closure      every module the tools import is stdlib or carries an exact pin in the lock
+  binaries     every external command a tool shells out to is one the pinned image declares
 
 The image rule is the one worth explaining.  Project sources are MOUNTED read-only from the exact source
 view rather than COPYed into a policy image, so a stale green layer from an incomplete `COPY` set is not
@@ -526,7 +527,8 @@ def main() -> int:
         return 1
     print('fido: host-python gate OK — no Make recipe, hook command or shell script runs an '
           'interpreter on the host; no project .py is executable; every base is digest-pinned and no stage '
-          'copies project Python; every import is standard library or exactly pinned ✓')
+          'copies project Python; every import is standard library or exactly pinned; every external command '
+          'a tool invokes is one the image declares ✓')
     return 0
 
 

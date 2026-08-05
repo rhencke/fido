@@ -412,7 +412,8 @@ Git carries the history. Re-admit a feature only when the roots make its proof o
 ## 9. Fixed points and proof contracts
 
 Binding constraints on everything built from here. They are not restated per milestone; `ROADMAP.md` names
-which milestone consumes which contract.
+which milestone consumes which contract. IDs are stable and never renumbered, so a gap means a fixed point
+was retired because another row already carried its obligation.
 
 | id | fixed point |
 |---|---|
@@ -427,7 +428,7 @@ which milestone consumes which contract.
 | ARCH-09 | Finite bad-prefix safety; safety and liveness stay separate. |
 | ARCH-10 | No vacuous library safety — an empty set of starts does not prove open-world safety. |
 | ARCH-11 | Do-not-do-early: no state, feature or compatibility scaffold lands before its complete vertical feature. Narrowly reopened once, for the `Emit.Image` mint (§6). |
-| ARCH-12 | Candidate-only acceptance — Rob alone records acceptance, against frozen green artifacts. |
+| ARCH-12 | Rob accepts only the exact reviewed green HEAD. |
 | EVID-01 | Pinned spec and memory-model bytes. |
 | EVID-02 | Reproducible extraction and audit outputs. |
 | EVID-03 | Evaluation-order nondeterminism and deterministic specified-order fixtures. |
@@ -435,21 +436,37 @@ which milestone consumes which contract.
 | EVID-05 | Select, map-iteration and scheduling nondeterminism; print adequacy demotion. |
 | EVID-06 | Module, language and toolchain boundary; no-switch invocation. |
 | EVID-07 | The terminal observation tuple (`TOOLCHAIN.md`). |
-| EVID-08 | Applied-only provenance, empty countersigns, judgment split. |
-| EVID-09 | Synthesized anchors and the grammar counting rule. |
+| EVID-08 | Applied-only provenance and the judgment split: a record names the change actually applied, and a mechanically checkable claim is kept separate from a human judgment, which is never certified. |
 | EVID-10 | NaN map and struct-tag semantics, with fixtures. |
 | EVID-11 | The proof-cost contract remains fixed. |
 | EVID-12 | `uintptr` stays out unless a reviewed scope change lands. |
 
-Frozen spec-closure proof contracts, consumed by the milestones in `ROADMAP.md`:
+Frozen spec-closure proof contracts. Each row states the obligation a milestone must discharge to claim the
+contract. `ROADMAP.md` names which milestone consumes which; `.review/closure.csv` and
+`.review/latitude.tsv` name the exact rows, each carrying its `contract` and its owning `milestone`.
 
-```text
-SC-00 PIN-LEDGER-CLOSURE          SC-08 STORE-PLACES-CONVERSIONS    SC-16 ERRORS-UNREPRESENTABILITY
-SC-01 SOURCE-LEXICAL-RENDER       SC-09 PANIC-DEFER-RECOVER         SC-17 RENDER-ADEQUACY-MEMBERSHIP
-SC-02 CONSTANTS-LITERALS          SC-10 GOROUTINES-CHANNELS-SELECT   SC-18 ENABLEDNESS-DECISION
-SC-03 BINDINGS-DECLARATIONS-BLANK SC-11 MAP-ITERATION-NONDET        SC-19 OUT-BOUNDARIES
-SC-04 TYPES-PROPERTIES-GENERICS   SC-12 HB-RACE-CHANNEL-EDGES       SC-20 EVAL-ORDER-LATITUDE
-SC-05 EXPR-FACT-USE-EVAL          SC-13 INTERFACE-GENERIC-CLOSURE   SC-21 PROOF-COST-INTERNALS
-SC-06 SOURCE-ZIPPER-CONTROL       SC-14 PACKAGES-INIT-STARTS-EXIT   SC-22 ACCEPTANCE-ALIGNMENT
-SC-07 FUNCTIONS-CLOSURES-MULTIRESULT  SC-15 BUILTINS
-```
+| id | contract | binding obligation |
+|---|---|---|
+| SC-00 | PIN-LEDGER-CLOSURE | Every pinned spec, memory-model, cmd/go and toolchain artifact is hash-recorded, and every heading, EBNF production, reserved keyword, operator, punctuation token, predeclared identifier and extracted latitude sentence it contains has exactly one ledger row — `IN` with an owner chain and a contract, or `OUT` with constructor-level unrepresentability and a written price. |
+| SC-01 | SOURCE-LEXICAL-RENDER | Source representation, identifiers, tokens, semicolon insertion and canonical literal spelling encode exact source values, and comments, raw-string spelling, raw-source parsing, build constraints and directives have no constructors. |
+| SC-02 | CONSTANTS-LITERALS | Every literal form, exact untyped constant, typed constant, `iota`, constant expression, representability, defaulting and overflow rule is covered, and no fixture bound stands in for a spec bound. |
+| SC-03 | BINDINGS-DECLARATIONS-BLANK | Blocks, scopes, labels, declarations, per-iteration variables and closure capture keep static slot identity separate from dynamic place identity, and `_ = f()` evaluates `f` exactly once while creating no binding. |
+| SC-04 | TYPES-PROPERTIES-GENERICS | One type algebra decides underlying type, identity, assignability, conversion, comparability and instantiation for every type form including generics — struct tags participating in identity — and no second type-identity system exists. |
+| SC-05 | EXPR-FACT-USE-EVAL | One context-free fact per expression and one exact fact per use edge; the production path never re-analyses the raw child, absent use kinds are unrepresentable, and order is proved exactly where the spec fixes it while both permitted sibling orders stay runs where it does not. |
+| SC-06 | SOURCE-ZIPPER-CONTROL | All control flow runs on a running focus continuation plus a finishing reason, with jump targets consuming retained continuation skeletons and no runtime source walk constructing one. |
+| SC-07 | FUNCTIONS-CLOSURES-MULTIRESULT | Function declarations and literals, methods, variadics, closures, recursion, method values and expressions, and typed argument/result sequences have exact call and return continuations. |
+| SC-08 | STORE-PLACES-CONVERSIONS | Composite objects, allocation, addressability and conversions forge no identity and reuse none, typed lookup is total on reachable states, strings are values rather than mutable objects, and append aliasing, fresh-capacity and zero-size-comparison latitude keep every permitted branch. |
+| SC-09 | PANIC-DEFER-RECOVER | Defer, panic and recover use stack-only state — no recover token, panic monad, global panic state or second evaluator — and a non-defer push from `Finishing` is unrepresentable by constructor absence. |
+| SC-10 | GOROUTINES-CHANNELS-SELECT | Goroutines, buffered, unbuffered and nil channels, send, receive, close, range and select are decided by `enabled_dec` and the one `step`, with no ready queue, waiter registry or second scheduler, and every permitted schedule remains a run. |
+| SC-11 | MAP-ITERATION-NONDET | Every valid next-key choice is a `step` branch and every key order a valid run, the chosen order appears in `Action` labels, and no host map order or canonical sort decides semantics. |
+| SC-12 | HB-RACE-CHANNEL-EDGES | The channel happens-before edge set is exhaustive and named — send-to-receive-completion, capacity, close-to-zero-receive, unbuffered receive-to-send-completion — each with a positive fixture and a negative fixture whose race result changes without it, and every trace event comes from `step`. |
+| SC-13 | INTERFACE-GENERIC-CLOSURE | Method sets, promoted selectors, typed nil, dispatch, assertion and type switches close under substitution, with no runtime type registry and no re-derived conformance. |
+| SC-14 | PACKAGES-INIT-STARTS-EXIT | Initialization follows every dependency edge and rejects cycles before `Compilable.Program`, multiple command roots produce independent starts, the emitted `go.mod` carries exactly the accepted module path and `go 1.23` with no `toolchain` directive, and final states have no steps. |
+| SC-15 | BUILTINS | Every admitted predeclared built-in resolves through ordinary binding facts, receives exact use facts and executes through `step`; `print`/`println` output formatting is pinned-toolchain adequacy evidence, never a portable language theorem. |
+| SC-16 | ERRORS-UNREPRESENTABILITY | Acceptance and rejection are decided over one retained whole-elaboration object and every diagnostic projects from the exact object that produced it; no rejected program mints `Compilable.Program`, `Safe.Program` or `Emit.Image`, and no broad "unsupported" catch-all stands where the ledger names distinct exclusions. |
+| SC-17 | RENDER-ADEQUACY-MEMBERSHIP | Direct rendering covers every admitted constructor with no raw-text escape and one `Emit.Mint.issue` publication path; a deterministic program matches the pinned observation tuple exactly, and a nondeterministic one only through a sound-and-complete membership checker that consumes `enabled_dec` and defines no semantics. |
+| SC-18 | ENABLEDNESS-DECISION | `enabled_dec` decides readiness for nil, buffered, unbuffered, closed, select-with-default, absorbing and deadlock states, and agrees exactly with relational `step` on reachable well-formed states. |
+| SC-19 | OUT-BOUNDARIES | Every `OUT` row freezes its missing constructor, the valid Go it gives up, the reason, the future-inclusion price, and a proof that no host helper or generic fallback can reintroduce the behaviour. |
+| SC-20 | EVAL-ORDER-LATITUDE | Every latitude row is owned by the one relational `step` with no generic choice authority, and no row adds a public machine field, a second evaluator, a scheduler object or a generic `Choice` action. |
+| SC-21 | PROOF-COST-INTERNALS | The public base is fixed while internal forms stay disposable: an internal type or index is kept only when removing it admits a real invalid state, and a capability retaining only copied fields plus equality to a recomputation is a failed design even when its extensional theorems pass. |
+| SC-22 | ACCEPTANCE-ALIGNMENT | `fido_accepts_subset_pinned_gc` is discharged incrementally by the checkpoint that makes each restriction representable, without making pinned gc a language-semantics authority — a finite probe set is evidence, never the global theorem. |

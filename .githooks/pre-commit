@@ -54,10 +54,11 @@ fido_py tools/gate-mutation-test.py --root /repo
 # both ways.  Its controls run first, on the STAGED copy.
 fido_py tools/source-diet.py --root /repo --snapshot --self-test
 fido_py tools/source-diet.py --root /repo --snapshot --check
-# the PERMANENT no-host-Python boundary on the same exported staged tree: the proposed commit's own
-# Makefile, hook, shell scripts, usage documents, file modes, image pins and import closure must all keep
-# project Python off the host.  A boundary enforced only on the working tree is not protection for the
-# commit that would erase it.  Its controls run first, on the STAGED copy.
+# the PERMANENT no-host-Python boundary on the same exported staged tree: the proposed commit's own Make
+# recipes, hook commands, shell scripts, file modes, image pins, import closure and external-binary set must
+# all keep project Python off the host.  Prose is not a subject — only an executable entry point can run a
+# command.  A boundary enforced only on the working tree is not protection for the commit that would erase
+# it, so its controls run first, on the STAGED copy.
 fido_py tools/host-python-gate.py --root /repo --self-test
 fido_py tools/host-python-gate.py --root /repo
 
