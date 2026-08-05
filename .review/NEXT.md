@@ -1,101 +1,85 @@
 # C5 — Machine base
 
-Baseline: 87c0ad7466f7841dff2502f564500341b0b9e44a
-Review: contract
-
-Dependency:
-ASSUM-GATE is implemented at the baseline plus the cleanup in this candidate, but remains pending Rob's
-acceptance. C5 implementation is forbidden until Rob accepts ASSUM-GATE and this contract passes review.
+Baseline: 187af467f0de356b3fee9b58c7f3bd819702b0d2
+Review: implementation
 
 Goal:
-Add the smallest public labelled-transition base that every later runtime milestone shares. C5 defines no
-Go feature semantics and no concrete Go machine.
+Add the smallest public labelled-transition base that all later runtime milestones share. C5 defines no Go
+feature semantics and no concrete Go machine.
 
-Scope:
-- add `Machine.v` and place `Machine` after `Compilable` and before `Safe` in `dune`;
-- consume the exact `.review/closure.csv` and `.review/latitude.tsv` rows whose `milestone` is `C5`;
-- preserve the existing source, index, typing, compilation, safety, rendering, emission, and transport paths;
-- add no parser, second source form, typed AST, command language, evaluator, scheduler, store, runtime value,
-  panic state, goroutine state, or compatibility layer.
+Scope — C5 may:
+- add `Machine.v`;
+- place `Machine` after `Compilable` and before `Safe` in `dune`;
+- audit the exact closure and latitude rows whose `milestone` is `C5`;
+- update `ARCHITECTURE.md`, `ROADMAP.md` and this file to state the current accepted result.
 
-Public base:
-`Machine.v` defines exactly one record:
+Scope — C5 may not add:
+- a parser, token layer, second source form, typed AST, target IR, or command language;
+- a concrete Go state, start, label, result, evaluator, scheduler, store, runtime value, panic state, or
+  goroutine state;
+- a second step relation or an `EnabledDecision` inhabitant;
+- deadlock, fairness, safety, liveness, output, panic, function, object-store, channel, or scheduler
+  semantics;
+- a compatibility layer, placeholder, trusted shortcut, fuel, bound, or premature future state;
+- any change to `Safe.Property`, generated output, or runtime behavior.
+
+Exact public API — `Machine.v` adds these declarations and no others:
 
 ```coq
-Record T : Type := {
-  State  : Type;
-  Start  : Type;
-  Label  : Type;
-  Result : Type;
-
+Record T : Type := Make {
+  State  : Type;  Start  : Type;  Label  : Type;  Result : Type;
   initial : Start -> State;
   step    : State -> Label -> State -> Prop;
   final   : State -> Result -> Prop
 }.
+
+Trace, FiniteRun (FiniteRefl, FiniteStep), InfiniteRun (InfiniteStep), Reachable,
+Enabled, Disabled, EnabledDecision, FinalAbsorbing, Stuck
+
+finite_run_app, initial_reachable, reachable_step,
+final_absorbing_no_step, finite_run_from_absorbing_final, infinite_run_from_absorbing_final
 ```
 
-Nothing else is a field of `Machine.T`.
+Every proof helper is `Local`. No alias, notation, alternate constructor, convenience lemma, decidable
+equality, classical principle, instance, or second run representation. Direct structural induction and
+coinductive inversion only — no axiom, parameter, admitted fact, fuel, arbitrary bound, or classical
+shortcut.
 
-Derived public notions:
-- `Trace m := list (Label m)`;
-- `FiniteRun m s trace s'`, with only reflexive-empty and one-step/cons constructors;
-- `InfiniteRun m s`, coinductively built only from a real `step`;
-- `Reachable m s := exists start trace, FiniteRun m (initial m start) trace s`;
-- `Enabled m s := { l : Label m & { s' : State m & step m s l s' } }`;
-- `Disabled m s := forall l s', ~ step m s l s'`;
-- `EnabledDecision m := forall s, Reachable m s -> Enabled m s + Disabled m s`;
-- `FinalAbsorbing m := forall s r, final m s r -> Disabled m s`;
-- `Stuck m s := Disabled m s /\ forall r, ~ final m s r`.
+Contract slices — C5 consumes only these slices of the cumulative SC contracts:
+- SC-00 audit the C5 ledger and pinned-vocabulary foundation; add no manifest machinery;
+- SC-01 preserve and audit only the source, identifier and rendering forms currently admitted;
+- SC-16 preserve the current accepted/rejected static capability and constructor-level unrepresentability;
+- SC-18 freeze only `EnabledDecision`, `FinalAbsorbing` and `Stuck` over abstract `Machine.T`; provide no
+  inhabitant;
+- SC-21 keep the public base exact and minimal; every proof helper remains local.
 
-Required theorem surface:
-- finite-run composition appends traces;
-- every `initial m start` is reachable;
-- reachability is closed under one `step`;
-- `FinalAbsorbing m` excludes a step from a final state;
-- a finite run beginning in an absorbing final state has an empty trace and ends in the same state;
-- an infinite run cannot begin in an absorbing final state.
-
-Use direct structural induction or coinductive inversion. No fuel, bound, classical shortcut, axiom, or admitted
-fact.
-
-Explicitly not in C5:
-- no `GoMachine`;
-- no concrete `State`, `Start`, `Label`, or `Result` constructors;
-- no `enabled_dec` inhabitant for a Go machine;
-- no deadlock, fairness, safety, liveness, output, panic, function, object-store, channel, or scheduler semantics;
-- no change to `Safe.Property`, which remains the current truthful property until a concrete machine exists;
-- no new generated output or runtime behavior.
-
-The concrete machine and its sealed state types arrive only with the first complete runtime vertical feature.
-`EnabledDecision` freezes the one decision shape later machines must prove from the same relational `step`; it
-does not define a second semantics.
+`Machine` is deliberately imported by nothing. C5's product is the public base itself; the first complete
+runtime vertical feature consumes it.
 
 Preserve:
 - `Syntax.Program` as the sole source authority;
-- the exact retained `Compilable.Program` and failure cores;
-- every current accepted and rejected program;
-- diagnostics, generated bytes, runtime goldens, and the staged-index/working-tree distinction;
-- zero project axioms and the complete retained enforcement chain;
-- every public theorem statement outside the new `Machine` module;
+- the exact retained `Compilable.Program`, `Failure` and whole-elaboration cores;
+- the existing `Safe.Property` and `Safe.Program`;
+- direct rendering and the one `Emit.Mint.issue` authority;
+- certified-module coverage, the whole-theory audit, and controls A-E;
+- emit-time assumption-closure provenance rejection;
+- every sealed-capability, mint, transport and positive client control;
+- working-tree and staged-index separation, and no-host-Python;
+- generated `go.mod` and `.go` bytes, and runtime stdout, stderr and exit status;
 - `life.md`.
 
-Allowed implementation files after Contract Review:
-- `Machine.v`;
-- `dune`;
-- `ARCHITECTURE.md`, `ROADMAP.md`, and `.review/NEXT.md` only to state the accepted current result;
-- no other file unless implementation evidence proves this contract incomplete, in which case stop.
-
 Done:
-- the public base and theorem surface above exist exactly;
-- no feature-specific runtime representation or second step relation exists;
-- all C5 ledger rows retain their current owner and meaning;
-- `make prove`, `make check`, and `make audit-fresh` pass;
+- the public base and theorem surface exist exactly, with no additional public declaration;
+- no second run relation, concrete machine, or feature-specific state exists;
+- all C5 ledger rows name an owner that actually exists;
+- `make prove`, `make check`, `make audit-fresh`, `make regenerate`, `make regen-guard` pass;
 - generated Go and runtime goldens are unchanged;
-- one whole-system implementation review passes;
-- Rob accepts C5.
+- one whole-system implementation review passes, then Rob accepts C5.
 
 Stop:
-- the public base needs another field;
-- any required theorem needs a concrete Go feature or a second behavior authority;
-- a C5 ledger row requires changing the existing source/static/render foundation;
-- implementation would need a placeholder, compatibility path, trusted shortcut, fuel, or premature future state.
+- the exact public API needs another field, constructor, definition, or theorem;
+- one of the theorem statements is false or needs a concrete Go feature;
+- a C5 ledger row needs the accepted source/static/render foundation changed;
+- implementation needs a placeholder, compatibility path, trusted shortcut, fuel, bound, or premature future
+  state;
+- any existing public theorem statement or generated/runtime artifact would change.
