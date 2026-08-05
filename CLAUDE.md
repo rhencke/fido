@@ -41,10 +41,15 @@ writing, and never select a target by position alone.**
 **Taking longer to be right beats shipping wrong fast.** Rob is not under time pressure. Never trade
 correctness for throughput.
 
-**Make each component as exact and rigorous as its real job requires, and no more complicated than that job
-justifies.** State the component's real job before proposing machinery, and keep only machinery that serves
-it. A new framework, registry, schema, validator hierarchy or governance surface that the active task does
-not already require needs Rob's approval first.
+**Every added or retained byte must earn its weight.** This includes code, proofs, tests, tools, files,
+types, fields, constructors, abstractions, dependencies, documentation, and process steps. It earns its
+weight only if it belongs to the certified correctness path, enforces a proved restriction, defines an
+explicit unsupported boundary, or makes one of those materially clearer and simpler than the available
+alternative. Its cost includes repository size, conceptual load, proof burden, execution time, maintenance,
+authority surface, and the patterns it teaches future work. Past usefulness, possible future use,
+familiarity, and implementation convenience are not sufficient; Git preserves the past. Anything that
+does not still earn its weight must be deleted. New frameworks, registries, schemas, validator hierarchies,
+compatibility layers, or governance surfaces require Rob's approval.
 
 ## The rules
 
