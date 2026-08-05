@@ -1,22 +1,23 @@
 # command: make -j1 check
 # builder: fido-perf-v1; BuildKit max-parallelism=1
-# cold: project stages forced (prover, emit); stable image/toolchain layers primed on this builder
+# cold: one forced prover in prove, one forced emit in e2e; the final artifact comparison reuses
+#       that generated module; stable image/toolchain layers primed on this builder
 # hot: immediate repeat, same source and builder
 # clock: /proc/uptime, 10ms resolution; elapsed_ms is cumulative from that run start
 mode	checkpoint	elapsed_ms
 cold	start	0
-cold	pytools	160
-cold	hostpython	2650
-cold	diet	4270
-cold	mutants	9110
-cold	prove	64890
-cold	e2e	108640
-cold	check	140560
+cold	pytools	170
+cold	hostpython	2290
+cold	diet	4070
+cold	mutants	8960
+cold	prove	52610
+cold	e2e	96600
+cold	check	99730
 hot	start	0
-hot	pytools	180
-hot	hostpython	2400
-hot	diet	4080
-hot	mutants	9110
-hot	prove	10530
-hot	e2e	11760
-hot	check	14200
+hot	pytools	170
+hot	hostpython	2330
+hot	diet	4250
+hot	mutants	9210
+hot	prove	10350
+hot	e2e	11800
+hot	check	14240
