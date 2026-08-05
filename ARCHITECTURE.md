@@ -211,10 +211,13 @@ coinductive and observes one real step at a time. `Reachable`, `Enabled`, `Disab
 `Stuck` are derived from those, and `EnabledDecision` freezes the one decision shape later machines must
 prove **from the same relational `step`** — it is not a second semantics.
 
-**`Machine` fixes no Go feature and has no inhabitant.** There is no concrete state, label or result
-constructor, no `EnabledDecision` inhabitant, and no module imports it. Its product is the base itself; the
-first complete runtime vertical feature is what consumes it. Adding a concrete machine early, merely to give
-it a consumer, would be exactly the scaffold ARCH-11 forbids.
+**`Machine` fixes no Go feature, and this repository defines no concrete `Machine.T` value.** The record and
+its constructor are public — its component types are abstract parameters of a value, not an opaque interface
+— so a `Machine.T` is constructible by anyone who supplies the seven fields. What does not exist here is any
+concrete Go state, label or result, any machine value, or any `EnabledDecision` inhabitant, and no module
+imports `Machine` yet. Its product is the base itself; the first complete runtime vertical feature is what
+consumes it. Adding a concrete machine early, merely to give it a consumer, would be exactly the scaffold
+ARCH-11 forbids.
 
 ---
 
