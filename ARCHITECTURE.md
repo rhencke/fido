@@ -352,11 +352,12 @@ verifier. Local verifier tamper-resistance is explicitly out of scope.
 boundary (typechecking and assumption-closure rejection via Rocq's own machinery, then decoding only the
 final transport; the sink is filesystem-only); and the Go toolchain.
 
-**Proved axiom-free, asserted every build** by `gate/Assumptions.v` plus the Rocq-native
-`Fido Audit Assumptions` — a whole-certified-theory assumption-closure audit seeded from every Fido constant,
-every mutual inductive and every surviving named assumption, rejecting every axiom category and every
-variable. It catches an external axiom reached transitively through an opaque lemma, which a source-text
-scanner cannot do soundly. A module-coverage gate and adversarial self-tests prove it is not fail-open.
+**Proved axiom-free, asserted every build** by the Rocq-native `Fido Audit Assumptions` — the one
+zero-project-axiom authority. It is a whole-certified-theory assumption-closure audit seeded from every Fido
+constant, every mutual inductive and every surviving named assumption, rejecting every axiom category and
+every variable. It catches an external axiom reached transitively through an opaque lemma, which a
+source-text scanner cannot do soundly. A module-coverage gate and adversarial self-tests prove it is not
+fail-open. **It enumerates its own roots**, so nothing beside it has to be kept in step by hand.
 
 **Zero project axioms.** Never `Axiom`, `Parameter`, `Admitted`, a kernel primitive, or functional
 extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are generated transiently.
@@ -399,11 +400,13 @@ metadata in raw file values. Raw `string` map keys. A nonemptiness restriction o
 handwritten `go.mod`, or a `go.mod` smuggled into the path map. A central staging directory, nonce, or
 record-driven recovery subsystem. Device or inode ownership records. A foreign file preserved and merged into
 the built tree, or a nested control directory skipped instead of rejected. A checksum posing as proof that a
-build succeeded. A constant-only audit that skips inductives or named assumptions. Tracked axiom-bearing
-fixtures. `go vet` as a blocking gate. Single-file compiler semantics, or a subset filter posing as
-admissibility. A fail-open regex axiom scanner. A `dist/` directory. Handwritten Go in the canonical module. A
-pre-commit that reads the unstaged tree or auto-stages. A claimed transactional whole-directory guarantee. A
-`TargetConfig`. A lexer, parser, tokenizer, text IR or target IR in the certified path. Fuel.
+build succeeded. A constant-only audit that skips inductives or named assumptions. A hand-maintained list of
+assumption surfaces beside the whole-theory audit — a weaker subset with no rule deriving it, which drifts.
+Tracked axiom-bearing fixtures. `go vet` as a blocking gate. Single-file compiler semantics, or a subset
+filter posing as admissibility. A fail-open regex axiom scanner. A `dist/` directory. Handwritten Go in the
+canonical module. A pre-commit that reads the unstaged tree or auto-stages. A claimed transactional
+whole-directory guarantee. A `TargetConfig`. A lexer, parser, tokenizer, text IR or target IR in the
+certified path. Fuel.
 
 Git carries the history. Re-admit a feature only when the roots make its proof obligations natural.
 

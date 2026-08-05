@@ -80,7 +80,7 @@ check: pytools hostpython diet mutants prove e2e builder
 	  exit $$rc
 	$(call fido_mark,check)
 
-# The reproducible container proof: dune compiles the modules + the always-run assumptions gate.
+# The reproducible container proof: dune compiles the modules + the always-run whole-theory assumption audit.
 prove: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target prover .
 	$(call fido_mark,prove)

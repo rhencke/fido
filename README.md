@@ -31,8 +31,8 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
 - Rendering denotes what typing computes, and a rendered spelling denotes at most one constant status.
 - Every emitted image carries proof it came from rendering one certified program, and the transport rejects
   an image whose proof depends on an axiom.
-- **Zero project axioms**, asserted every build by a readable surface gate plus a whole-theory
-  assumption-closure audit that descends opaque proof bodies.
+- **Zero project axioms**, asserted every build by a whole-theory assumption-closure audit that enumerates
+  its own roots and descends opaque proof bodies.
 
 That the real Go toolchain agrees is a *goal*, attacked by differential fixtures and an end-to-end build —
 never a kernel theorem. Integration tests are alarms, not proofs.

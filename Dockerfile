@@ -62,20 +62,19 @@ RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove — dune compiles the modules; the assumptions gate (gate/Assumptions.v — the sole
-#    Print-Assumptions target) is compiled fresh against the dune-built .vo and is fail-closed both ways:
-#    zero '^Axioms:' AND exactly as many 'Closed under the global context' lines as declared surfaces.
+# ── Stage 3: prove — dune compiles the modules, then the whole-certified-theory assumption audit runs
+#    against the dune-built .vo. The audit is the ONE zero-project-axiom authority: it enumerates its own
+#    roots, so there is no hand-written surface list to drift out of date.
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
 # `make prove` is the COMPLETE proof gate: Dune builds the theory AND the audit/transport plugin; then the
-# readable Print-Assumptions surfaces, the certified-module coverage check, the WHOLE-certified-theory
-# assumption-closure audit (constants + mutual INDUCTIVES + surviving named assumptions, descending opaque Qed
-# bodies, rejecting every Printer.Axiom category AND Printer.Variable), and the adversarial self-tests A-E run
-# HERE — so a retained internal declaration depending on an assumption fails even when it is not a public theorem.
+# certified-module coverage check, the WHOLE-certified-theory assumption-closure audit (constants + mutual
+# INDUCTIVES + surviving named assumptions, descending opaque Qed bodies, rejecting every Printer.Axiom
+# category AND Printer.Variable), and the adversarial self-tests A-E run HERE — so a retained internal
+# declaration depending on an assumption fails even when it is not a public theorem.
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }
@@ -83,25 +82,18 @@ fail() { echo "fido: prove FAILED — $*"; exit 1; }
 if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
 cat /tmp/build.log
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
-# (b) readable Print-Assumptions surfaces, fresh against the dune-built .vo, fail-closed both ways
-rm -f gate/*.vo gate/*.glob gate/.*.aux
-if ! rocq c -Q _build/default Fido gate/Assumptions.v > /tmp/gate.log 2>&1; then cat /tmp/gate.log; fail "assumptions gate failed to compile"; fi
-if grep -q '^Axioms:' /tmp/gate.log; then grep -A3 '^Axioms:' /tmp/gate.log; fail "a gated surface depends on an assumption"; fi
-want=$(grep -c '^Print Assumptions' gate/Assumptions.v); got=$(grep -c '^Closed under the global context' /tmp/gate.log)
-[ "$want" -eq "$got" ] || fail "readable gate incomplete — $want surfaces declared, $got closed"
-echo "fido: readable Print-Assumptions gate OK — $got/$want surfaces closed"
-# (c) certified-module coverage: tracked root .v == dune (modules ...) (test/gate/e2e .v are outside)
+# (b) certified-module coverage: tracked root .v == dune (modules ...) (test/e2e .v are outside)
 mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune); [ -n "$mods" ] || fail "no (modules ...) in dune"
 tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
 declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
 [ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked=[$tracked_mods] dune=[$declared_mods]"
 echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
-# (d) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
+# (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/audit.log || { cat /tmp/audit.log; fail "audit did not confirm zero assumptions"; }
 echo "fido: whole-certified-theory audit OK — constants + inductives + named ($mods)"
-# (e) adversarial self-tests — the audit must REJECT A-D and ACCEPT E (all fixtures transient, none tracked)
+# (d) adversarial self-tests — the audit must REJECT A-D and ACCEPT E (all fixtures transient, none tracked)
 reject() { # <dir> <label>: the audit over module in <dir> must fail with the PROJECT AXIOMS reason
   printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit Assumptions.\n' > "$1/Check.v"
   if rocq c -R "$1" Fido -Q _build/default/. Fido "$1/Check.v" > "$1/c.log" 2>&1; then cat "$1/c.log"; fail "self-test $2: audit did NOT reject"; fi
@@ -139,7 +131,7 @@ printf 'From Fido Require Import T.\nDeclare ML Module "fido.emit".\nFido Audit 
 if ! rocq c -R /tmp/tE Fido -Q _build/default/. Fido /tmp/tE/Check.v > /tmp/tE/c.log 2>&1; then cat /tmp/tE/c.log; fail "self-test E: a closed Section theorem was FALSELY rejected"; fi
 grep -q 'assumption audit OK' /tmp/tE/c.log || { cat /tmp/tE/c.log; fail "self-test E: closed Section theorem not accepted"; }
 echo "fido: audit self-test E — closed Section theorem accepted (as required)"
-# (f) SEALED-CAPABILITY negative CLIENT fixtures.  "A client cannot forge a capability" is not a Rocq
+# (e) SEALED-CAPABILITY negative CLIENT fixtures.  "A client cannot forge a capability" is not a Rocq
 #     theorem — you cannot prove a term fails to typecheck.  It is a BUILD fact, so it is tested the way the
 #     axiom self-tests are: a transient client that names a raw constructor must FAIL to compile, and fail
 #     for the RIGHT reason (the name does not exist), never for an unrelated error.  Note the fixtures name
@@ -241,7 +233,7 @@ mintfail AC "an image with a foreign file map" \
   'Definition forged (sp : Safe.Program) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Collections.FileMap.empty string) (Emit.Mint.issue sp).'
 mintfail AD "an image authorized by an equality proof instead of a token" \
   'Definition forged (sp : Safe.Program) (H : Emit.module_file sp = Emit.module_file sp) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Emit.file_map sp) H.'
-# (g) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
+# (f) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
 From Fido Require Import Syntax Compilable Safe Emit.
@@ -270,7 +262,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; readable gate $got/$want; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (each proves its module loaded and its public sentinel resolved first) + helper meta-controls + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (each proves its module loaded and its public sentinel resolved first) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
@@ -284,7 +276,6 @@ ARG PROFILE_FILE=Compilable.v
 RUN mkdir -p /workspace/profile
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
@@ -316,7 +307,6 @@ FROM rocq-base AS emit
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam gate/ gate/
 COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
 # pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below

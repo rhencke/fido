@@ -120,8 +120,7 @@ let modpath_is_fido mp =
    constant happened to reference the inductive.  This is strictly stronger than a per-constant-body check:
    it catches an EXTERNAL axiom reached transitively through an internal opaque lemma, an UNUSED Fido axiom
    (its own closure entry), AND an unreferenced assumption-bearing inductive.  Unlike a source-text scanner
-   it cannot be fooled by comments/strings/attributes/module aliases.  `Print Assumptions` on the public
-   surfaces stays the complementary readable per-surface check. *)
+   it cannot be fooled by comments/strings/attributes/module aliases. *)
 let do_audit () =
   let env = Global.env () in
   let sigma = Evd.from_env env in
