@@ -108,8 +108,7 @@ also delete       the third EXCLUDED_FILES entry in tools/naming-gate.py, which 
                   that name
 ```
 
-**Not authorized:** dynamic discovery, a new file, a registry, a schema, or a review-state parser. A
-checkpoint transition retargets exactly one object.
+**Not authorized:** dynamic discovery, a new file, a registry, a schema, or a review-state parser.
 
 **This step is FIRST.** Its staged snapshot must already contain the M4 obligation matrix and the new subject
 object, so the real pre-commit hook judges M4's own matrix. No other M4 source commit may land while the gate
@@ -120,8 +119,10 @@ unchanged; the deleted exclusion excluded nothing, so no file changes classifica
 
 **Baseline:** two hand-retargeted constants plus one dangling docstring path; one dangling naming exclusion.
 **Acceptance:** exactly one occurrence of the matrix path in the module; `make claims` green with the same
-reported obligation counts; `make names` reports the same file count and the same empty violation set; a
-control proving a required ID absent from `SUBJECT.required` is still detected.
+reported obligation counts; `make names` reports the same file count and the same empty violation set; and
+every ID in `SUBJECT.required` still resolves to exactly one matrix row. **Not** "an ID missing from
+`SUBJECT.required` is detected" — `M4-09` states why that is unenforceable, and this step must not ask for it
+in different words.
 
 ### M4-06 — delete the dead M1 replay implementations, keep the boundary that names them
 
@@ -330,8 +331,10 @@ tools/gate-mutation-test.py
   one exact mutant per retained root fact above that is not already covered
 ```
 
-Existing controls are used where they exist; two are added narrowly. **No mutant is promised for a helper
-merely because it exists.**
+Existing controls are used where they exist; two are added narrowly.
+
+The subject mutant removes or bypasses the comparison between the loaded row IDs and the supplied subject's
+required IDs; the named missing-row control must then fail.
 
 **`tools/closure-ledger-view.py` is not in this step.** It has no `--self-test` at all, which the audit
 records — but giving it a self-test interface and a mutation family adds a gate surface during an
@@ -340,9 +343,6 @@ canonical CSV and its exact `--check` relation are unchanged. This also removes 
 contradiction, which promised a new gate would run first in `make fcb` while listing no Makefile change.
 
 **Files changed:** `tools/claim-matrix-gate.py`, `tools/gate-mutation-test.py`.
-
-The subject mutant removes or bypasses the comparison between the loaded row IDs and the supplied
-subject's required IDs; the named missing-row control must then fail.
 
 **Baseline:** 2 claim-gate mutants over 18 root helpers.
 **Acceptance:** each named root fact has one mutant, each proved load-bearing by name; the two new controls

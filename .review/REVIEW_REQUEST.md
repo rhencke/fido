@@ -14,8 +14,10 @@ amendment: .review/M3_CONTRACT_AMENDMENT_1.md
 amendment: .review/M3_CONTRACT_AMENDMENT_2.md
 review_basis: .review/REVIEW_BASIS.md
 prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_3.md
-candidate_sha: 89dd81e15737e31e3a9c53e96b3338474af30e50
-freeze_sha: this commit — the documentation-only freeze that follows the candidate above
+candidate_sha: (this repair candidate; the freeze that follows pins its exact SHA)
+freeze_sha: (the documentation-only freeze that follows the candidate; it names itself there)
+supersedes: 89dd81e15737e31e3a9c53e96b3338474af30e50 / f09c01b1a895f3c1154e17b164eaf34e513a4091
+            — the previous offer, withdrawn on finding the leaked claim described below
 blocked_candidate: c0560426d9c0d50a45f7c015b6493983dff03878
 blocked_freeze: c73e1f1aaea9fce0327cdb909034181a56ddc7e1
 
@@ -56,6 +58,18 @@ Wave 2. `git diff` between the two records is the full-path comparison. The fore
 Also corrected: the review state said M3 "implements nothing", which stopped being true when `M3-A1` changed
 two tool files — it now says M3 does not implement the refactor, and names the exception. The sentence
 calling `M4-14` a proposed deletion is gone, since `M4-14` is not in the plan.
+
+**The impossible claim §4 removed had leaked into a second section, and I missed it.** `M4-09`'s table was
+corrected, but `M4-07`'s acceptance criteria still required "a control proving a required ID absent from
+`SUBJECT.required` is still detected" — the same unenforceable thing, in the step that builds the subject
+object. The plan therefore contradicted itself and still asked M4 for something it cannot do. Both places now
+state the enforceable relation, and `M4-07` says explicitly that it must not ask for the other one in
+different words. The two duplicated sentences §5 named are gone with it: `M4-07`'s restatement of "one
+object, not two authorities", and `M4-09`'s restatement of "not every helper that exists".
+
+This was found on a second pass over the review, item by item — the first pass verified four of §5's bullets
+and skipped one, then reported completeness. That is the same failure the audit keeps turning up, so the
+check is now the whole numbered list, run and printed, not the parts I remembered.
 
 **Rob approved `M3-A1` and `M3-A2` in plain language on 2026-08-04**, and both amendments record him. The
 previous round recorded his authority before he had stated it that way; asking cost one exchange and is the
