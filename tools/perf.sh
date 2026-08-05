@@ -36,7 +36,9 @@ docker buildx inspect --bootstrap "$BUILDER" >/dev/null
 # Every stable toolchain authority, built ON THE MEASURED BUILDER, so no registry pull and no toolchain
 # construction can land inside a timed interval.  A fresh builder shares nothing with the developer's, so
 # priming only Python left Rocq, OCaml and Go to be acquired inside the cold run the file called excluded.
-# Cold means cold for the PROJECT, not an empty machine.
+# Cold means cold for the PROJECT, not an empty machine — and it means ONE cold pass: the Makefile forces the
+# prover root once in `prove` and the emit root once in `e2e`, and the final generated-artifact comparison
+# reuses that generated module rather than rebuilding it a second time inside the same measured interval.
 echo "fido: perf — priming stable toolchain layers on $BUILDER (outside every measured interval)"
 for stage in python-tools rocq-builder rocq-base go-base; do
     docker buildx build --builder "$BUILDER" --platform "$PLATFORM" --target "$stage" . >/dev/null 2>&1
@@ -74,7 +76,8 @@ tmp=$(mktemp "$root/.review/.PERFORMANCE.tsv.XXXXXX")
 {
     echo '# command: make -j1 check'
     echo "# builder: $BUILDER; BuildKit max-parallelism=1"
-    echo '# cold: project stages forced (prover, emit); stable image/toolchain layers primed on this builder'
+    echo '# cold: one forced prover in prove, one forced emit in e2e; the final artifact comparison reuses'
+    echo '#       that generated module; stable image/toolchain layers primed on this builder'
     echo '# hot: immediate repeat, same source and builder'
     echo '# clock: /proc/uptime, 10ms resolution; elapsed_ms is cumulative from that run start'
     printf 'mode\tcheckpoint\telapsed_ms\n'

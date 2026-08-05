@@ -1,11 +1,17 @@
 BUILDER := fido-builder
 # The 64-bit target the theory assumes; `override` makes a command-line or environment change inert.
 override PLATFORM := linux/amd64
-# Project-stage cold, for `make perf` alone: unset, this expands to nothing and every recipe below is
-# exactly the one that has always run.  Set, it forces the project roots `make check` depends on to rebuild
-# while their stable toolchain ancestors stay cache hits — cold for the project, not an empty machine.
-NOCACHE := $(if $(FIDO_PERF_COLD),prover emit,)
-NC := $(foreach root,$(NOCACHE),--no-cache-filter $(root))
+# Project-stage cold, for `make perf` alone: unset, both expand to nothing and every recipe below is exactly
+# the one that has always run.  Set, ONE cold pass forces ONE prover root in `prove` and ONE emit root in
+# `e2e`, while their stable toolchain ancestors stay cache hits — cold for the project, not an empty machine.
+#
+# The final generated-artifact comparison in `check` deliberately carries NO filter: it must REUSE the
+# generated module the forced-cold `e2e` already produced.  A single filter list applied to every Buildx
+# invocation forced `emit` a second time there, after e2e had already built and consumed it, and the total
+# was still called one cold pass.  Each root is forced exactly where it is intentionally forced, and nowhere
+# else.
+PERF_PROVER_NC := $(if $(FIDO_PERF_COLD),--no-cache-filter prover,)
+PERF_EMIT_NC   := $(if $(FIDO_PERF_COLD),--no-cache-filter emit,)
 
 # ── The Python boundary ───────────────────────────────────────────────────────
 # Project Python never runs on the host.  This block is the whole boundary: every Python-consuming recipe
@@ -71,7 +77,7 @@ check: pytools hostpython diet mutants prove e2e builder
 	  tar -xf "$$tmp/tree.tar" -C "$$tree" && \
 	  sh tools/ocaml-origin-gate.sh    "$$tree" && \
 	  sh tools/generated-output-gate.sh "$$tree" && \
-	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target generated-artifact \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
 	    --output "type=local,dest=$$tmp/pristine" . && \
 	  sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; \
 	  rc=$$?; rm -rf "$$tmp"; \
@@ -81,11 +87,11 @@ check: pytools hostpython diet mutants prove e2e builder
 
 # The reproducible container proof: dune compiles the modules + the always-run whole-theory assumption audit.
 prove: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_PROVER_NC) --target prover .
 	$(call fido_mark,prove)
 
 prover-log: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_PROVER_NC) --progress=plain --target prover .
 
 # Diagnostic only, never a gate.  Recompiles ONE module with `-time` and ranks its sentences by cost, so a
 # slow build can be attributed instead of guessed at.  `make profile FILE=Typing.v TOP=25`.
@@ -105,11 +111,11 @@ profile: pytools builder
 # explicit `rocq c`, not a .vo side effect.  The internal sink is exercised separately, against dirty and
 # adversarial trees.  The fresh-build validation that gates real publication is in `e2e`.
 emit: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target emit .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target emit .
 
 # Emit the whole tree, then the pinned Go toolchain builds it and runs the witness against the goldens.
 e2e: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --progress=plain --target go-e2e .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target go-e2e .
 	$(call fido_mark,e2e)
 
 # Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` FORCES
@@ -117,7 +123,7 @@ e2e: builder
 # fresh build makes `sync` unbuildable and no sink effect occurs.  It publishes the original pristine bytes,
 # never a post-build one.
 regenerate: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(NC) --target sync --load -t fido-sync .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
 	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"

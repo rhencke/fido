@@ -145,12 +145,24 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 #     prelude imports the whole public chain, because `Compilable` cannot import its own downstream
 #     modules and no transitive loading can supply them.
 SEALED_PRELUDE='From Fido Require Import Syntax Compilable Safe Emit.'
+# The stage-1 load check is determined ENTIRELY by (prelude, sentinel), so it runs once per distinct pair.
+# Twenty-five controls name only four such pairs; recompiling a byte-identical file against the same _build
+# in the same stage re-establishes the fact it already established and proves nothing further.  The KEY must
+# carry the prelude, not just the sentinel: the meta-controls call this helper with a prelude that omits the
+# module under test precisely so stage 1 FAILS, and keying on the sentinel alone would skip that failure and
+# silently turn those controls green.  Every stage-2 sealing probe still runs, one per control.
+sealed_proven=''
 sealed() { # <label> <public sentinel in the module under test> <qualified term that must NOT resolve>
-  printf '%s\nDefinition sentinel := %s.\n' "$SEALED_PRELUDE" "$2" > /tmp/sealed_load.v
-  if ! rocq c -Q _build/default/. Fido /tmp/sealed_load.v > /tmp/sealed_load.log 2>&1; then
-    cat /tmp/sealed_load.log
-    fail "sealed self-test $1: the module under test did not load or its public sentinel $2 did not resolve — this control would have proved nothing"
-  fi
+  case "$sealed_proven" in
+    *"<$SEALED_PRELUDE|$2>"*) ;;
+    *)
+      printf '%s\nDefinition sentinel := %s.\n' "$SEALED_PRELUDE" "$2" > /tmp/sealed_load.v
+      if ! rocq c -Q _build/default/. Fido /tmp/sealed_load.v > /tmp/sealed_load.log 2>&1; then
+        cat /tmp/sealed_load.log
+        fail "sealed self-test $1: the module under test did not load or its public sentinel $2 did not resolve — this control would have proved nothing"
+      fi
+      sealed_proven="$sealed_proven<$SEALED_PRELUDE|$2>" ;;
+  esac
   printf '%s\nDefinition sentinel := %s.\nDefinition probe := %s.\n' "$SEALED_PRELUDE" "$2" "$3" > /tmp/sealed.v
   if rocq c -Q _build/default/. Fido /tmp/sealed.v > /tmp/sealed.log 2>&1; then
     cat /tmp/sealed.log; fail "sealed self-test $1: $3 IS reachable — that constructor is not sealed"
@@ -262,7 +274,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (each proves its module loaded and its public sentinel resolved first) + helper meta-controls + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
