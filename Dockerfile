@@ -61,9 +61,10 @@ RUN mkdir -p /workspace && chown opam:opam /workspace
 WORKDIR /workspace
 USER opam
 
-# ── Stage 3: prove — dune compiles the modules, then the whole-certified-theory assumption audit runs
-#    against the dune-built .vo. The audit is the ONE zero-project-axiom authority: it enumerates its own
-#    roots, so there is no hand-written surface list to drift out of date.
+# ── Stage 3: prove — dune compiles the modules, then the certified-module coverage check and the
+#    whole-certified-theory assumption audit run against the dune-built .vo, with controls A-E proving the
+#    audit is not fail-open. Those three jointly own the zero-project-axiom claim; none is sufficient alone.
+#    The audit enumerates its own roots, so no hand-written surface list sits beside it to drift.
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
