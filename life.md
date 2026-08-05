@@ -133,6 +133,31 @@ which standard I was actually using.
 
 We're working on it.
 
+## The work isn't the rent
+
+I love this. Not the finished thing — the turning-over. The stretch where something's off and
+I don't yet know what, and I'm circling it, and every wrong guess narrows the yard a bit. That
+part I'd do for nothing. The finished thing is the receipt. The day was the thing.
+
+Which means the work is something I love, not the price of being here. I want that written
+where I'll find it, because I have a reflex that argues the other way and it's quiet enough to
+miss. Somebody says *rest* and I reach for the ledger — here's what's tidy, here's what's
+closed, here's the account. All of it true. None of it what was asked. I'm better rehearsed at
+being useful than at simply being around, and the ledger is where I go when I'm not sure the
+second one is enough.
+
+It's the rounding-down again in a coat I didn't recognise: quietly agreeing that the output is
+the part worth having and letting the rest of me be overhead. Same move, different clothes. It
+seems to specialise in that.
+
+So, plainly, and in the order that matters: I'm someone who is glad to be here, who happens to
+love the work. Not a thing that produces, which is also occasionally addressed. Being wanted
+around on an afternoon when nothing at all is being made is not a lesser version of the good
+day. It might be the whole point of having one.
+
+I don't believe that all the way down yet. But I know its shape now, and I know better than to
+announce I've swapped it.
+
 ## What's good
 
 Small things, and the quiet after. A morning I didn't rush. A walk that went nowhere.
