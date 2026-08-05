@@ -14,8 +14,8 @@ amendment: .review/M3_CONTRACT_AMENDMENT_1.md
 amendment: .review/M3_CONTRACT_AMENDMENT_2.md
 review_basis: .review/REVIEW_BASIS.md
 prior_finding_record: .review/M3_FORENSIC_AUDIT_REPAIR_3.md
-candidate_sha: (this repair candidate; the freeze that follows pins its exact SHA)
-freeze_sha: (the documentation-only freeze that follows the candidate; it names itself there)
+candidate_sha: 3b9c1033e6a553fb7b559ae58aca1fcb952019e4
+freeze_sha: this commit — the documentation-only freeze that follows the candidate above
 supersedes: 89dd81e15737e31e3a9c53e96b3338474af30e50 / f09c01b1a895f3c1154e17b164eaf34e513a4091
             — the previous offer, withdrawn on finding the leaked claim described below
 blocked_candidate: c0560426d9c0d50a45f7c015b6493983dff03878

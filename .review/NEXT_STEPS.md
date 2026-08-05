@@ -32,9 +32,11 @@ under human review, but it does not own mutable state. Canonical data rows carry
   the immutable subject ref `a0482140384de3d8c193263c3bf5281e53ccdd8b`.
   **M3 implemented no M4 step. Its sole project-tool change is the `M3-A1` claim-matrix self-test
   precondition repair; no production, proof, Make, hook, Docker, Dune, generated or runtime path moved.**
-  **M3 repair candidate: `89dd81e15737e31e3a9c53e96b3338474af30e50`.** This commit is its
-  documentation-only freeze; it adds no work, and no commit follows it. Both replace the blocked pair —
-  candidate `c0560426d9c0d50a45f7c015b6493983dff03878`, freeze `c73e1f1aaea9fce0327cdb909034181a56ddc7e1`.
+  **M3 repair candidate: `3b9c1033e6a553fb7b559ae58aca1fcb952019e4`.** This commit is its
+  documentation-only freeze; it adds no work, and no commit follows it. It supersedes the withdrawn
+  offer `89dd81e15737e31e3a9c53e96b3338474af30e50` / `f09c01b1a895f3c1154e17b164eaf34e513a4091`, and
+  both replace the blocked pair `c0560426d9c0d50a45f7c015b6493983dff03878` /
+  `c73e1f1aaea9fce0327cdb909034181a56ddc7e1`.
   The accepted review basis is `.review/REVIEW_BASIS.md`. <!-- FIDO-FCB-REF:REVIEW-REVIEW-BASIS-MD -->
 - **Accepted checkpoints and their dispositions** are owned by
   `.review/fcb/current/FIDO_FCB_GOVERNANCE.md`. Git history owns each accepted checkpoint's contract,
