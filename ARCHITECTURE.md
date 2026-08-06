@@ -35,10 +35,15 @@ functional-lookup theorem is not proof of key uniqueness. Regex source scanning 
 gate. **Axiom-free is not correct** — always check that the theorem's statement is the right one.
 
 **One authority per fact.** `Integer` owns integer width, `Float` float format, `Complex` complex format,
-`Names` the closed sixteen-name source type-name class, `Typing` the type universe, and `Admissible`'s
-predeclared context is the one source-name → `Typing.SemanticType` resolver. There is no `TargetConfig`, no
-`GoTypeTag`, no second width or conversion authority, no typed AST beside the one raw `Syntax`, and no
-source-name table in `Syntax`, `Typing` or `Render`.
+and `Typing` the type universe. There is no `TargetConfig`, no `GoTypeTag`, no second width or conversion
+authority, no typed AST beside the one raw `Syntax`, and no source-name table in `Syntax`, `Typing` or
+`Render`.
+
+Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
+`Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
+C6, an ordinary source name resolves through the retained binding phase, predeclared names are ordinary
+entries in the outer scope that a declaration may shadow, an alias creates no identity, and a defined type's
+identity is its exact nonblank declaration reference.
 
 **Standard collections only.** Where a mature collection exists in the pinned Rocq stdlib (`FMapAVL`,
 `FMapPositive`), the OCaml stdlib (`Map.Make`, `Set.Make`) or the Rocq runtime (`Names.GlobRef.Set`), Fido
@@ -122,8 +127,11 @@ second tree.
 
 ### Typing — the one type authority
 
-`Typing` is evidence over the raw syntax, never a typed AST. The permanent type universe is exactly
-`{ BoolType, IntegerType over the ten Integer kinds, FloatType, ComplexType, StringType }`.
+`Typing` is evidence over the raw syntax, never a typed AST. The type universe **today** is exactly
+`{ BoolType, IntegerType over the ten Integer kinds, FloatType, ComplexType, StringType }`. It is not
+permanent: the algebra becomes program-indexed at C6 and gains defined types identified by their exact
+declaration reference. It grows only through reviewed milestones, never by a string, numeric tag or
+registry.
 
 A raw literal denotes an **exact untyped constant**: integers arbitrary-precision, a bare float literal an
 exact canonical rational, a complex literal an exact pair of rationals, strings exact byte sequences.
@@ -138,7 +146,8 @@ scalar↔complex follows Go's zero-imaginary rule.
 
 One source-shaped conversion `Syntax.Convert ts e` names a **source** type. Its semantic target is the
 compiler-owned resolution of `ts`. The index-free typing spec is parameterized by that resolver, so `Typing`
-never owns a source-name → semantic-type table.
+never owns a source-name → semantic-type table. C6 replaces the fixed resolver parameter with the retained
+binding phase; the property that `Typing` owns no name table survives that change.
 
 `Typing.resolve_constant_info` is use-context resolution. An untyped constant **defaults** (int →
 `IntegerType Int`, float → `FloatType F64`, complex → `ComplexType C128`); a typed constant **packs
@@ -220,8 +229,9 @@ consumes it. Adding a concrete machine early, merely to give it a consumer, woul
 ARCH-11 forbids.
 
 **There will be exactly one concrete machine, and C7 builds it.** C6 supplies the static facts, typed
-values, slots, places, store and closed-command start facts that a runtime consumes, and instantiates
-nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing expression and `println`
+values, slots, places, store, environment and static initialization-dependency results that a runtime
+consumes, and instantiates nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
+expression and `println`
 fragment one run relation and adds its own expression, output, order and fatal-panic slice. Every later
 milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
 and package dependency order — and none replaces it with a peer. A second run relation is the failure this
