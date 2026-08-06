@@ -4,7 +4,7 @@
 # the production path; require the exact diagnostic id and shape; add the theorem or constructor-absence
 # proof the milestone names. Rob discharges the row on accepting the milestone.
 id	milestone	diagnostic	requirement	fixture	status
-LAT-019	C6	FIDO-E-CONSTANT-PRECISION	constant expression exceeds the accepted precision domain (DECISIONS.md LAT-X004)	lat019_shift_511_accept build 0; lat019_shift_512_reject build 1	PENDING
+LAT-019	C7	FIDO-E-CONSTANT-PRECISION	constant expression exceeds the accepted precision domain (DECISIONS.md LAT-X004)	lat019_shift_511_accept build 0; lat019_shift_512_reject build 1	PENDING
 LAT-077	C6	FIDO-E-UNUSED-LOCAL	local variable is declared and not used	lat077_unused_local_reject build 1	PENDING
 LAT-177	C7	FIDO-E-PRINT-OPERAND-TYPE	print or println operand type is outside the pinned accepted profile	lat177_print_struct_reject build 1	PENDING
 LAT-148	C8	FIDO-E-DUPLICATE-SWITCH-CASE	duplicate constant case expression in one expression switch	lat148_duplicate_switch_case_reject build 1	PENDING

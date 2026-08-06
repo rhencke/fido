@@ -219,6 +219,12 @@ imports `Machine` yet. Its product is the base itself; the first complete runtim
 consumes it. Adding a concrete machine early, merely to give it a consumer, would be exactly the scaffold
 ARCH-11 forbids.
 
+**There will be exactly one concrete machine.** C6 is its first consumer and defines one slice over the
+accepted fragment plus its own declarations. Every later milestone extends the same machine's sealed
+internals — C7 generalises expression evaluation, output, order and panic on it, C8 adds control — and none
+of them replaces it with a peer. A second run relation beside `go_step` is the failure this base exists to
+prevent.
+
 ---
 
 ## 4. Safety, capabilities and provenance
@@ -422,8 +428,9 @@ A handwritten OCaml backend, lowering, renderer or semantic decoder, or a bridge
 final transport type. A second program-AST hierarchy, a copied compiled AST, or a typed AST beside the one
 raw `Syntax`. A type attached to a raw literal, or a placeholder, unknown, opaque or raw type constructor
 added ahead of the syntax that needs it. A second numeric-width, float-precision, complex, conversion or type
-authority. F32 rounded through F64. A float stored as a rounded or decimal-string constant. Package or import
-metadata in raw file values. Raw `string` map keys. A nonemptiness restriction on the program or image. A
+authority. A type identity that is a string, a numeric `TypeId`, a registry entry or a tag rather than the
+exact source declaration reference. F32 rounded through F64. A float stored as a rounded or decimal-string
+constant. Package or import metadata in raw file values. Raw `string` map keys. A nonemptiness restriction on the program or image. A
 handwritten `go.mod`, or a `go.mod` smuggled into the path map. A central staging directory, nonce, or
 record-driven recovery subsystem. Device or inode ownership records. A foreign file preserved and merged into
 the built tree, or a nested control directory skipped instead of rejected. A checksum posing as proof that a

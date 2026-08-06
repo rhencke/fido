@@ -43,9 +43,9 @@ An earlier milestone may not claim cases assigned to a later one.
 
 | id | depends_on | goal | public_result | scope | evidence |
 |---|---|---|---|---|---|
-| C6 | C5 | Declarations and scope, the type algebra, and the predeclared universe: blocks, const/var/type declarations, `iota`, the blank identifier, identifier uniqueness and export, underlying and core types, type identity, assignability and representability, and the 22 predeclared type and constant names. Static slot identity stays separate from dynamic place identity. | Constants, variables and named types with exact roles; the first acceptance gates discharged. | `milestone=C6` (66 + 23) | **slices only**: SC-03 declarations, scope and blank uses that need no loop, closure or user function; SC-04 the type algebra over predeclared, alias and defined types, with no structural type; SC-05 blank-identifier occurrences only; SC-08 the `Variables` row only; SC-14 the zero value only; SC-21, SC-22. Gates LAT-019, LAT-077 |
-| C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. | Observable output and exit status under the pinned target. | `milestone=C7` (73 + 42) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
-| C8 | C7 | Control flow with retained jump continuations. | Structured control with no CFG lowering. | `milestone=C8` (41 + 16) | SC-03, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
+| C6 | C5 | Exact binding and use roles, the one type algebra, the predeclared universe, static slots, dynamic places, basic closed runtime values, the first scalar-cell object-store slice, and the expression-fact/use boundary that declarations and variables need. C6 is the **first consumer of `Machine.T`**: it defines one concrete machine slice over the accepted fragment plus C6 declarations, never a peer evaluator or second run relation. | Package and local declarations with exact roles; named types whose identity is their declaration; variables with slots, places and zero values; one concrete machine. | `milestone=C6` (66 + 22) | **slices only**: SC-02 predeclared constants, constant declarations, `iota` and C6 initializers; SC-03 package and local scope, declarations, binding facts, slots, blank uses, uniqueness, export and predeclared shadowing; SC-04 one type algebra over basic, alias and defined types, no structural or generic case; SC-05 context-free facts and C6 use edges including ordinary name expressions; SC-08 scalar cells, places, allocation identity and typed lookup only; SC-14 C6 zero values and the current closed-command start only; SC-21; SC-22 via `LAT-077`. Gate LAT-077 |
+| C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. | Observable output and exit status under the pinned target. | `milestone=C7` (72 + 43) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
+| C8 | C7 | Control flow with retained jump continuations. | Structured control with no CFG lowering. | `milestone=C8` (42 + 16) | SC-03, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
 | C9 | C8 | Functions, closures, multi-results, defer, panic, recover. | Stack-only panic/defer/recover. | `milestone=C9` (24 + 15) | SC-03…SC-07, SC-09, SC-15…SC-17, SC-20…SC-22; gate LAT-171 |
 | C10 | C9 | Composite data and typed mutable objects. | One runtime object store. | `milestone=C10` (49 + 28) | SC-03…SC-05, SC-08, SC-10, SC-11, SC-15, SC-20, SC-21 |
 | C11 | C10 | Packages, initialization, starts, and range. | Package init order and program starts. | `milestone=C11` (26 + 13) | SC-02, SC-05…SC-07, SC-10, SC-11, SC-14, SC-16, SC-17, SC-20, SC-21 |
@@ -63,11 +63,17 @@ A new AST constructor enters only when COMPLETE: exact whole-program `Admissible
 where observable — a differential fixture and an e2e witness. **Shrink the representable language before
 weakening `Admissible`.**
 
-The type universe grows in one reviewed order, each root landing complete before the next begins: integers,
-floats, complex, and the predeclared source aliases are **done**. Then `uintptr` and exact rune constants
-(each a separately priced scope change); unnamed structural types; aliases, defined types and valid
-recursion; method signatures and method sets; non-generic value interfaces; and only then the operations that
-consume those roots. Each root adds STATIC facts only and never resurrects a fake operational value to assert
-a static type exists.
+The type universe grows in one reviewed order, each root landing complete before the next begins. Integers,
+floats, complex, and the predeclared source aliases are **done**. C6 adds named types over exactly those
+roots: an **alias creates no new type identity**, and a **defined type's identity is its exact source
+declaration reference** — never a string, a numeric `TypeId`, a registry entry or a tag. C6 resolves aliases
+and definitions through predeclared types and other C6 named types, and rejects **every** type-declaration
+cycle. Unnamed structural types are not a prerequisite for either.
+
+After C6: valid recursive named types arrive with the later type-literal forms that make recursion legal;
+composite structural types with the composite-data milestone; function types with functions; interfaces with
+interfaces; generics with generics. `uintptr` and exact rune constants remain separately priced scope
+changes, and neither blocks C6. Each root adds STATIC facts only and never resurrects a fake operational
+value to assert a static type exists.
 
 Imports stay unrepresentable until the closed-world resolver lands with its proof. See `.review/scope.tsv`.
