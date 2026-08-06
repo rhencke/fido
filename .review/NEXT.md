@@ -29,15 +29,19 @@ Record OrdinaryIdentifier : Type := MakeOrdinary {
   ordinary_not_blank  : Names.spelling ordinary_identifier <> "_"%string
 }.
 
+(* One authority for "spellings C6 cannot resolve to a type it implements". *)
+Definition unimplemented_type_names : list string := ["any"; "comparable"; "error"; "uintptr"].
+
 Record TypeIdentifier : Type := MakeTypeIdentifier {
   type_identifier : OrdinaryIdentifier;
   type_identifier_supported :
-    ~ In (Names.spelling (ordinary_identifier type_identifier))
-         ["any"; "comparable"; "error"; "uintptr"]
+    ~ In (Names.spelling (ordinary_identifier type_identifier)) unimplemented_type_names
 }.
 
 Record OperandIdentifier : Type := MakeOperandIdentifier {
   operand_identifier : OrdinaryIdentifier;
+  operand_identifier_supported :
+    ~ In (Names.spelling (ordinary_identifier operand_identifier)) unimplemented_type_names;
   operand_identifier_not_main :
     Names.spelling (ordinary_identifier operand_identifier) <> "main"%string
 }.
@@ -55,8 +59,9 @@ Inductive Expr : Type :=
 | NegatedIntegerLiteral : N -> Expr
 | StringLiteral         : string -> Expr
 | FloatLiteral          : Float.Decimal -> Expr
-| ComplexLiteral        : Complex.Decimal -> Expr
-| Convert               : TypeExpr -> Expr -> Expr.
+| Apply                 : Application -> Expr
+with Application : Type :=
+| MakeApplication : Expr -> list Expr -> Application.
 
 Record IdentifierList : Type := MakeIdentifierList {
   first_identifier : NameOrBlank; more_identifiers : list NameOrBlank }.
@@ -85,9 +90,9 @@ Inductive Declaration : Type :=
 | TypeDecl  : list TypeSpec  -> Declaration.
 
 Inductive Stmt : Type :=
-| Println         : list Expr -> Stmt
-| DeclarationStmt : Declaration -> Stmt
-| ShortVarDecl    : IdentifierList -> ExpressionList -> Stmt.
+| ExpressionStatement : Application -> Stmt
+| DeclarationStmt     : Declaration -> Stmt
+| ShortVarDecl        : IdentifierList -> ExpressionList -> Stmt.
 
 Inductive Block : Type := MakeBlock : list Stmt -> Block.
 
@@ -96,32 +101,42 @@ Inductive TopLevelDecl : Type :=
 | Main           : Block -> TopLevelDecl.
 ```
 
-`TypeIdentifier` and `OperandIdentifier` exist because C6 implements neither `any`/`comparable`/`error`/
-`uintptr` nor function values. A raw identifier there would make **valid Go representable and then rejected**,
-which violates exact admissibility. These are temporary source boundaries priced in `.review/scope.tsv`
-`SR-010` and `SR-011`. A user declaration may still bind those spellings; only the C6 type-use and operand
-source forms are restricted, which deliberately gives up their shadowed uses until the full roots land. No
-special function type for `main` is added to dodge the boundary.
+### One application root
+
+`complex(a, b)`, `println(a, b)` and `T(x)` are **one source shape** — `head(argument, …)` — and differ
+only after the exact head occurrence resolves. `Application` is therefore the basic source object. The
+dedicated `ComplexLiteral`, `Println` and `Convert` constructors are **deleted**, with no alias or wrapper.
+`Complex.Decimal` survives as a semantic constant and value representation; it is not a source constructor.
+
+Source construction does not decide whether a head is a type or a callable. Static resolution of that exact
+head occurrence decides the application kind, and no reconstructed equal application, head or argument may
+substitute for the retained occurrence.
+
+`ExpressionStatement` carries an exact `Application`, so a non-application expression statement is
+unrepresentable rather than rejected. Statement eligibility is a *fact*, not a spelling: an application is a
+valid expression statement only when its retained target is **callable**, never merely because its spelling
+has parentheses. A conversion used as a statement is rejected with an exact diagnostic. Future
+receive-expression statements join the same eligibility relation rather than replacing it.
+
+`OperandIdentifier` excludes `main`, `any`, `comparable`, `error` and `uintptr`, because with one application
+root a conversion head **is** an operand: admitting those spellings would make valid Go representable and
+then rejected, violating exact admissibility. That also makes `main()` unrepresentable, which is a valid Go
+call — the widened price is `SR-010`. `TypeIdentifier` excludes the four unimplemented type names for the
+declaration positions that still take a type. Both are temporary source boundaries priced in
+`.review/scope.tsv`. A user declaration may still bind any of those spellings; only these source forms are
+restricted, which deliberately gives up their shadowed uses until the full roots land. No special function
+type for `main` is added to dodge the boundary.
 
 `Block` is the **`main` function body only**. A package block is a semantic scope built by the static phase,
 not a source construct. Short variable declarations are function-local only; the package-level form is
 unrepresentable.
-
-**Fixed callee spellings.** `Stmt.Println` renders `println(...)` and `ComplexLiteral` renders
-`complex(re, im)`. Because C6 introduces shadowing, the static phase establishes two semantic use edges,
-`PrintlnCalleeUseRef` and `ComplexLiteralCalleeUseRef`, each resolving through the same scope relation as
-every other name. An accepted program using either form proves the use resolves to the corresponding
-predeclared object; a shadowing constant, variable, alias or defined type yields the exact wrong-role
-diagnostic. These names are not hardwired outside the binding phase, `Render` never reruns resolution, no
-generic call expression appears, and declarations named `println` or `complex` remain legal. C7 owns call and
-output behaviour and closes `PRE-31` and `PRE-42`.
 
 ## 3. Index — one node per source occurrence
 
 ```text
 FileKind  PackageClauseKind  MainKind  DeclarationKind  BlockKind  StatementKind
 ConstSpecKind  VarSpecKind  AliasSpecKind  DefSpecKind  DeclaredNameKind  BlankKind
-ExpressionKind  TypeUseKind
+ExpressionKind  ApplicationKind  TypeUseKind
 ```
 
 `DeclarationKind` is reused for ordinary const/var/type declarations once the old `Decl` is deleted; there is
@@ -136,12 +151,24 @@ Roles:
 ```text
 FilePackage  FileTopLevel n  MainBlock  BlockStatement n  StatementDeclaration  DeclarationSpec n
 ConstSpecName n  ConstSpecType  ConstSpecValue n  VarSpecName n  VarSpecType  VarSpecValue n
-TypeSpecName  TypeSpecTarget  ShortDeclName n  ShortDeclValue n  PrintlnArgument n
-ConversionTarget  ConversionOperand
+TypeSpecName  TypeSpecTarget  ShortDeclName n  ShortDeclValue n
+ApplicationHead  ApplicationArgument n  ExpressionStatementApplication
 ```
 
-No source child exists for the fixed `println` or `complex` spellings; their callee uses are semantic edges
-from the enclosing source reference.
+There is **one** node kind and view per application occurrence — no second node for "call", "conversion",
+`complex` or `println` over the same source. The **roles** `PrintlnArgument`, `ConversionTarget` and
+`ConversionOperand`, and the references `PrintlnCalleeUseRef` and `ComplexLiteralCalleeUseRef`, are all
+**deleted**: each was a special name for an application child. (The surviving `ConversionTarget` in §7 is an
+`ApplicationTarget` constructor, a different thing in a different namespace.) The `n` in a role is an
+indexing label only; every public use reference is an intrinsic validated child reference, never a parent
+plus an unchecked natural.
+
+Refined application references, each retaining the exact parent, exact child, exact role, and proof the child
+occupies that role:
+
+```text
+ApplicationRef  ApplicationHeadRef  ApplicationArgumentRef  ExpressionStatementApplicationRef
+```
 
 **Short declarations.** `ShortLhsRef p` refines a name-or-blank occurrence inside a `ShortVarDecl`. The
 static phase classifies every nonblank one as exactly `NewShortBinding` or `ExistingSameBlockSlot`. An
@@ -283,19 +310,57 @@ arbitrary reference with an arbitrary target.
 | `BlankUseFact` | `BlankRef` | `blank_use_fact cp r` |
 | `SlotFact` | `DeclaredNameRef` of a var spec | `slot_fact cp r` |
 | `ShortLhsFact` | `ShortLhsRef` | `short_lhs_fact cp r` |
-| `PrintlnCalleeFact` | `PrintlnCalleeUseRef` | `println_callee_fact cp r` |
-| `ComplexLiteralCalleeFact` | `ComplexLiteralCalleeUseRef` | `complex_callee_fact cp r` |
+| `ApplicationFact` | `ApplicationRef` | `application_fact cp r` |
 
 Public observations: binding target; binding package and scope; resolved source type; semantic type;
 constant status and exact constant; nonconstant value type; use target type; defaulting and representability
-result; short-LHS new-or-existing classification; slot type and exact declaring source reference; and each
-special callee's exact predeclared target. Every observation has a theorem tying it to the retained phase.
+result; short-LHS new-or-existing classification; slot type and exact declaring source reference. Every
+observation has a theorem tying it to the retained phase.
+
+**One application fact, no per-builtin stores.** There is no `CallFact`, `ConversionFact`, `ComplexFact` or
+`PrintlnFact`; builtin-specific theorems are consequences of `ApplicationFact`, not peer authorities. Its
+projections expose, without making it constructible: the exact retained head occurrence; the exact head
+binding/type result; the exact `ApplicationTarget`; the exact ordered argument occurrences; each argument's
+retained context-free fact; each argument-use fact; the **exact ordered result-type vector**; proof that the
+target's application rule accepts those arguments; and the exact context where result arity is consumed.
+
+```text
+ApplicationTarget = ConversionTarget <exact type object>
+                  | CallableTarget   <exact callable object>
+```
+
+Both refine the **exact retained binding result** — no string tag, numeric callable id, registry lookup or
+independently assembled target. A `CallableTarget` is proof-carrying. At C6 its members are `complex` and
+`println`; declared functions, methods and further builtins extend the same path at their own milestones. A
+predeclared builtin may be callable **without** having an ordinary first-class Go function type.
+
+Result vectors are exact ordered lists, never a Boolean has-value flag: `complex(…)` one result,
+`println(…)` **zero**, `T(x)` one. Value contexts consume the vector and enforce their own arity. An
+expression statement does **not** require zero results — Go permits discarding them — it requires that the
+target be callable. Short declarations and const/var initializers consume the same vector authority and grow
+no peer arity logic.
+
+The static application relation is one executable decision with a reflection theorem, closed over the target:
+
+- **conversion** — exactly one argument in C6; consumes the retained argument fact; uses the one
+  `Typing.Env`; applies the one convertibility and representability authority; one result type; retains
+  constant-versus-nonconstant status; reruns no name resolution, type resolution or constant evaluation.
+- **`complex`** — exactly two arguments. Each must be a constant or value of an admitted float type, or an
+  untyped numeric constant representable as one; the result is `complex128` when both are untyped or
+  `float64`-typed, and `complex64` when both are `float32`-typed; a mismatched pair is rejected. One result.
+  No output effect. No dedicated source or renderer path.
+- **`println`** — a variadic ordered list; each argument must be a constant or value of an admitted basic
+  type — bool, any integer kind, float, complex or string — with untyped constants defaulted first.
+  **Zero** results. No C6 runtime step and no output event; C7's machine gives it output behaviour. No
+  dedicated source or renderer path.
 
 Binding target universe: the eighteen admitted predeclared type objects; `true`; `false`; `iota`; `nil`; the
-binding-only entries for `complex` and `println`; exact package and local constants and variables; exact
-alias and defined-type declarations; and the exact package `main` binding, present for role diagnostics even
-though C6 operand syntax cannot name it as a value. **This is the C6 subset, not the whole predeclared
-universe** — every other predeclared function arrives at its own milestone.
+callable entries for `complex` and `println`; exact package and local constants and variables; exact alias
+and defined-type declarations; and the exact package `main` binding, present for role diagnostics though C6
+operand syntax cannot name it. **This is the C6 subset, not the whole predeclared universe** — every other
+predeclared function arrives at its own milestone. Head resolution uses the ordinary scope relation only;
+there is no builtin spelling check beside it, and `complex` or `println` may be shadowed exactly like any
+other predeclared object.
 
 ## 8. `Runtime` — one causal memory root
 
@@ -363,6 +428,16 @@ Codes: `FIDO-E-DUPLICATE-DECL`, `FIDO-E-MAIN-CONFLICT`, `FIDO-E-INIT-MISUSE`,
 `FIDO-E-INIT-CYCLE`, `FIDO-E-NIL-NO-TYPE`, `FIDO-E-IOTA-CONTEXT`, `FIDO-E-INIT-NOT-ASSIGNABLE`,
 `FIDO-E-UNUSED-LOCAL`.
 
+Application diagnostics are **generic**, flowing through one authority rather than per-builtin paths. A head
+that resolves to nothing is the ordinary `FIDO-E-UNRESOLVED-NAME`; the rest are:
+`FIDO-E-NOT-APPLICABLE` (head resolves to neither a type nor a callable, anchored at the head, payload the
+`BindingTarget`); `FIDO-E-CONVERSION-ARITY` (anchored at the application, payload expected and found counts);
+`FIDO-E-CALL-ARITY` (same shape, for a callable target); `FIDO-E-BAD-ARGUMENT` (anchored at the exact
+argument occupying the failing position, payload the target's precise reason); `FIDO-E-RESULT-ARITY`
+(anchored at the consuming use, payload the exact result vector and the arity the context required);
+`FIDO-E-CONVERSION-AS-STATEMENT` (anchored at the expression statement's application). A builtin contributes
+a precise payload for its own rejected argument rule; it never contributes a separate diagnostic authority.
+
 A wrong-role target may be predeclared and carry no declaration reference, so its payload is a
 `BindingTarget`. A short redeclaration anchors at a `ShortLhsRef`. Arity applies to short declarations too.
 An inferred or short-declaration assignment target may have no `TypeUseRef`. Unused locals cover local var
@@ -388,8 +463,19 @@ exact replacement or states why the guarantee is subsumed. No compatibility alia
 ## 10. Rendering
 
 `Render` stays a direct structural function over `Syntax.Program`. It never consults binding facts or
-reconstructs a phase; the static phase separately proves the fixed `println` and `complex` forms resolve to
-their predeclared objects.
+reconstructs a phase.
+
+There is **one** application rendering equation, and no dedicated conversion, `complex` or `println` path:
+
+```text
+render_expr(Apply (MakeApplication h args)) = render_expr(h) "(" join(", ", map render_expr args) ")"
+render_stmt(ExpressionStatement a, n)       = indent(n) render_expr(Apply a) NL
+```
+
+Rendering never reruns resolution to decide whether an application is a conversion or a call, because the
+source spelling is identical either way. That is precisely why one root is correct — the old split invented
+three renderers for one set of bytes. Current accepted programs therefore render **byte-identically**:
+`println(x)`, `uint8(300)` and `complex(re, im)` all come out of this one equation.
 
 File level keeps the existing bytes exactly: the header line, a blank line, the package clause, a blank line
 before each top-level declaration, and the exact final newline. Within a declaration: one tab per block
@@ -416,14 +502,40 @@ every module mechanically required for coherence. It may **not** add C6 feature 
 C6 fixtures and `LAT-077`, generated artifacts and pinned-Go evidence, and current documentation and ledger
 truth.
 
-## 12. `LAT-077` — the exact unused-local rule
+## 12. The C6/C7 application boundary
+
+C6 owns application **source structure**, exact identities and roles, ordinary head binding, type-versus-
+callable classification, static argument acceptance, exact result-type vectors, application and use facts,
+static diagnostics, and canonical rendering. C6 defines no run relation and performs no application.
+
+C7 owns evaluation order, argument evaluation, conversion execution, callable execution, `println` output
+actions, runtime faults, and the first concrete `Machine.T`. It **consumes** the exact C6 `ApplicationFact`
+and the exact source occurrences: it does not rediscover the target, rebuild argument order, or introduce a
+second call or conversion semantics.
+
+## 13. `LAT-077` — the exact unused-local rule
 
 Package variables are exempt. Only function-local regular variables and new short bindings are checked. A
 right-hand operand use counts as a read. An existing slot appearing only on a short-declaration left side
 does **not** count as a read. Blank never binds. The gate is discharged from the retained exact use facts,
 never by a syntax rescan.
 
-## 13. Fixtures
+## 14. Deletions — no alias, wrapper or compatibility constructor
+
+Source: `Syntax.BoolLiteral`; `Syntax.ComplexLiteral`; `Syntax.Convert`; `Stmt.Println`; `Syntax.TypeName`
+(`Unqualified`) and the `type_expr_*` helpers over `Names.SupportedType`. Names: `Names.TypeName`,
+`Names.SupportedType`, `Names.classify`, `Names.supported_of`, `Names.all_type_names` and every projection.
+Resolver: `Compilable.predeclared_type`, `predeclared_type_of_name` and its ten `Local Notation`s. Phase: the
+old expression `Phase` and its constructible expression-fact records. Runtime: `Safe.eval_expr` and the
+unindexed `Safe.Value`. Index: the `PrintlnArgument`, `ConversionTarget` and `ConversionOperand` roles, the
+`PrintlnCalleeUseRef` and `ComplexLiteralCalleeUseRef` references, `DeclarationKind'`, `TopLevelDeclKind`,
+`NameExprKind`, `TypeNameKind` and the `VariableNameRef` refinement.
+
+`Complex.Decimal` is **kept** as a semantic constant and value representation; only its role as a source
+constructor is deleted. Current programs migrate to the ordinary-name and application forms first; the
+competing paths are deleted in the same milestone. Git owns the old topology.
+
+## 15. Fixtures
 
 Package and local `const`/`type`/`var` accepted; a local variable read by `println`; unused local rejected;
 cross-file package declarations resolving independent of file order; two packages using the same spelling
