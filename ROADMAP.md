@@ -22,6 +22,12 @@ zero-project-axiom claim is owned by one chain — certified-module coverage, th
 `Fido Audit Assumptions`, then adversarial controls A-E — of which no part is sufficient alone.
 `DECISIONS.md` owns the decision; Git owns the accepted implementation.
 
+`C5` is accepted. `Machine.T` is the one labelled-transition base every later runtime milestone shares —
+opaque `State`, `Start`, `Label` and `Result`, plus `initial`, a relational `step`, and `final` — with finite
+and infinite runs, reachability, enabledness and absorbing-final results derived from it. It fixes no Go
+feature, no module imports it, and this repository defines no concrete `Machine.T` value; the first complete
+runtime vertical feature is what consumes it. `ARCHITECTURE.md` §3 describes it.
+
 ## Ahead
 
 `scope` is the exact row set a milestone must discharge: every row of `.review/closure.csv` and
@@ -37,8 +43,7 @@ An earlier milestone may not claim cases assigned to a later one.
 
 | id | depends_on | goal | public_result | scope | evidence |
 |---|---|---|---|---|---|
-| C5 | ASSUM-GATE | The permanent `Machine` base: opaque state, starts, labels, results, finite and infinite runs, absorbing final states. Carry the existing source/index/render foundation in as one sealed prerequisite; add no parser and no second source form. | One public `Machine` base and the theorem surface later milestones consume. | `milestone=C5` (106 closure + 5 latitude) | **slices only**, not full closure: SC-00 audit the C5 ledger and pinned-vocabulary foundation, adding no manifest machinery; SC-01 preserve and audit only the currently admitted source, identifier and rendering forms; SC-16 preserve the current accepted/rejected capability and constructor-level unrepresentability; SC-18 freeze `EnabledDecision`, `FinalAbsorbing` and `Stuck` over abstract `Machine.T` with no inhabitant; SC-21 keep the public base exact and minimal with every proof helper local |
-| C6 | C5 | Binding and use roles, static slots, dynamic places, basic closed runtime values, the first object-store slice, the expression fact/use boundary. | Constants and variables with exact roles; first acceptance gates discharged. | `milestone=C6` (66 + 23) | SC-02…SC-05, SC-08, SC-14, SC-21, SC-22; gates LAT-019, LAT-077 |
+| C6 | C5 | Declarations and scope, the type algebra, and the predeclared universe: blocks, const/var/type declarations, `iota`, the blank identifier, identifier uniqueness and export, underlying and core types, type identity, assignability and representability, and the 22 predeclared type and constant names. Static slot identity stays separate from dynamic place identity. | Constants, variables and named types with exact roles; the first acceptance gates discharged. | `milestone=C6` (66 + 23) | **slices only**: SC-03 declarations, scope and blank uses that need no loop, closure or user function; SC-04 the type algebra over predeclared, alias and defined types, with no structural type; SC-05 blank-identifier occurrences only; SC-08 the `Variables` row only; SC-14 the zero value only; SC-21, SC-22. Gates LAT-019, LAT-077 |
 | C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. | Observable output and exit status under the pinned target. | `milestone=C7` (73 + 42) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
 | C8 | C7 | Control flow with retained jump continuations. | Structured control with no CFG lowering. | `milestone=C8` (41 + 16) | SC-03, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
 | C9 | C8 | Functions, closures, multi-results, defer, panic, recover. | Stack-only panic/defer/recover. | `milestone=C9` (24 + 15) | SC-03…SC-07, SC-09, SC-15…SC-17, SC-20…SC-22; gate LAT-171 |
