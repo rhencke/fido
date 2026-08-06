@@ -34,16 +34,41 @@ A green boolean checker is not a compile authority. A printer's own inverse is n
 functional-lookup theorem is not proof of key uniqueness. Regex source scanning is not a sound zero-axiom
 gate. **Axiom-free is not correct** — always check that the theorem's statement is the right one.
 
-**One authority per fact.** `Integer` owns integer width, `Float` float format, `Complex` complex format,
-and `Typing` the type universe. There is no `TargetConfig`, no `GoTypeTag`, no second width or conversion
-authority, no typed AST beside the one raw `Syntax`, and no source-name table in `Syntax`, `Typing` or
-`Render`.
+**One authority per fact.** Each module owns exactly what this table names, and never what another owns.
+
+| owner | owns | does not own |
+|---|---|---|
+| `Collections` | standard maps and sets, and one tiny nonempty sequence type | a new collection framework |
+| `Names` | lexical identifier validity, ordinary-name refinement, and the complete pinned predeclared spelling identity catalog | scope, binding, semantic type, call rules, or support policy |
+| `Syntax` | source structure and source values | resolution, object identity, semantic type, diagnostics, variable identity, or behaviour |
+| `Index` | exact source-occurrence identity, views, parents, children, and source roles | binding, typing, diagnostics, or semantic facts |
+| `Typing` | the type and constant algebra, one source-indexed type environment, and executable type decisions with reflection theorems | scope lookup, runtime values, diagnostics, or stepping |
+| `Compilable` | scopes, semantic objects, binding, the retained static phase, exact static facts, static variable identity, dependency objects, diagnostics, and the accepted/rejected capabilities | runtime values, dynamic places, rendering, or behaviour |
+| `Runtime` | typed runtime values, the permanent object store, dynamic places, dynamic environments, and their intrinsic operations | static variable identity, name binding, expression evaluation, safety, or stepping |
+| `Machine` | the one behaviour relation and derived runs | static compilation or a second evaluator |
+| `Safe` | only the safety property and the sealed certificate over the exact `Compilable.Program` | values, stores, evaluation, rendering, or static facts |
+| `Render` | direct canonical bytes from `Syntax.Program` | resolution, fact construction, or evaluation |
+| `Emit` | the one image mint and exact emitted bytes | source or semantic authority |
+
+`Integer` owns integer width, `Float` float format and `Complex` complex format. There is no `TargetConfig`,
+no `GoTypeTag`, no second width or conversion authority, no typed AST beside the one raw `Syntax`, and no
+source-name table in `Syntax`, `Typing` or `Render`.
+
+Two rows are the destination rather than today's tree: `Runtime` does not exist yet, and `Safe` still holds
+the runtime value and evaluator path that belongs to it. C6 creates `Runtime` and moves them. Every other row
+holds now.
 
 Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
 `Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
-C6, an ordinary source name resolves through the retained binding phase, predeclared names are ordinary
-entries in the outer scope that a declaration may shadow, an alias creates no identity, and a defined type's
-identity is its exact nonblank declaration reference.
+C6 one ordinary identifier fills every name position, the complete predeclared catalog sits in the outer
+scope where any declaration may shadow it, an ordinary source name resolves through the retained binding
+phase, an alias creates no identity, and a defined type's identity is its exact nonblank declaration
+reference.
+
+**Support that depends on binding is decided after binding.** Constructor absence owns every exclusion syntax
+alone can identify. Where legality depends on which object a name resolves to, `Syntax` carries the ordinary
+source form and `Compilable` enforces the exact resolved capability boundary before minting
+`Compilable.Program`.
 
 **Standard collections only.** Where a mature collection exists in the pinned Rocq stdlib (`FMapAVL`,
 `FMapPositive`), the OCaml stdlib (`Map.Make`, `Set.Make`) or the Rocq runtime (`Names.GlobRef.Set`), Fido
@@ -146,8 +171,9 @@ scalar↔complex follows Go's zero-imaginary rule.
 
 One source-shaped conversion `Syntax.Convert ts e` names a **source** type. Its semantic target is the
 compiler-owned resolution of `ts`. The index-free typing spec is parameterized by that resolver, so `Typing`
-never owns a source-name → semantic-type table. C6 replaces the fixed resolver parameter with the retained
-binding phase; the property that `Typing` owns no name table survives that change.
+never owns a source-name → semantic-type table. C6 deletes `Syntax.Convert` in favour of one `Application`
+whose head resolves through the retained binding phase; the property that `Typing` owns no name table
+survives that change.
 
 `Typing.resolve_constant_info` is use-context resolution. An untyped constant **defaults** (int →
 `IntegerType Int`, float → `FloatType F64`, complex → `ComplexType C128`); a typed constant **packs
@@ -228,9 +254,10 @@ imports `Machine` yet. Its product is the base itself; the first complete runtim
 consumes it. Adding a concrete machine early, merely to give it a consumer, would be exactly the scaffold
 ARCH-11 forbids.
 
-**There will be exactly one concrete machine, and C7 builds it.** C6 supplies the static facts, typed
-values, slots, places, store, environment and static initialization-dependency results that a runtime
-consumes, and instantiates nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
+**There will be exactly one concrete machine, and C7 builds it.** C6 supplies the static facts,
+compiler-owned variable identities, typed values, dynamic places, the permanent store, dynamic environments
+and the static initialization-dependency object that a runtime consumes, and instantiates
+nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
 expression and `println`
 fragment one run relation and adds its own expression, output, order and fatal-panic slice. Every later
 milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
@@ -413,10 +440,17 @@ extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are gene
 declarative `Admissible` judgment: sound, complete, and the one elaboration root satisfies
 `elaboration_accepted_iff_admissible`.
 
-**(B) External adequacy — the GOAL, not a kernel theorem.** That the judgment matches `go build ./...` for
-every representable rendered program is attacked by differential experiments and the e2e, never proved about
-`cmd/go`. **A representable program `go build` accepts but `Admissible` rejects is a model bug**, never a
-documented limitation. A program `Admissible` accepts but `go build` rejects is a correctness failure.
+**(B) External adequacy — the GOAL, not a kernel theorem.** The public claim is `SC-22`'s incremental subset
+theorem: every program `Admissible` accepts, pinned `go build ./...` accepts. **A program `Admissible`
+accepts but `go build` rejects is a correctness failure**, always, with no exception. It is attacked by
+differential experiments and the e2e, never proved about `cmd/go`.
+
+The converse direction is bounded, not free. Valid Go that Fido does not accept must be excluded by exactly
+one of two named mechanisms: **constructor absence**, priced as a `.review/scope.tsv` row, wherever syntax
+alone identifies the exclusion; or an **exact resolved-capability boundary** owned by a `.review/closure.csv`
+row, wherever legality depends on binding and the object's semantic rule belongs to a later milestone. A
+rejection answering to neither row is a model bug. Both sets shrink as milestones land, and what remains at
+C17 is exactly the ledger's permanent `OUT` rows.
 
 Integration tests are **alarms, not proofs**. A Go build or run failure for an emitted program is never an
 expected test — it means `Admissible`, rendering, the derived facts or the transport is wrong. Negative
@@ -426,10 +460,12 @@ candidates fail in Rocq, before any bytes.
 
 ## 8. Boundaries
 
-Every live scope restriction is one row in `.review/scope.tsv`: the pinned target, unmodelled platform
-limits, the cooperating-developer threat boundary, buildx-only builds, module-path and file-naming
-narrowings, imports on hold, the admitted fragment, and the bounded float-decimal domain. No restriction may
-live only in a code comment.
+Every live **representability** restriction is one row in `.review/scope.tsv`: the pinned target, unmodelled
+platform limits, the cooperating-developer threat boundary, buildx-only builds, module-path and file-naming
+narrowings, imports on hold, the admitted fragment, and the bounded float-decimal domain. Every live
+**resolved-capability** boundary — a name that binds to its exact object whose semantic rule belongs to a
+later milestone — is instead the `.review/closure.csv` row that owns that object. Those are the two
+mechanisms §7 (B) permits, and no restriction may live only in a code comment.
 
 Standing acceptance obligations are rows in `.review/acceptance.tsv`. Spec-closure and latitude rows are
 `.review/closure.csv` and `.review/latitude.tsv`.
