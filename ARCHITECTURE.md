@@ -219,11 +219,13 @@ imports `Machine` yet. Its product is the base itself; the first complete runtim
 consumes it. Adding a concrete machine early, merely to give it a consumer, would be exactly the scaffold
 ARCH-11 forbids.
 
-**There will be exactly one concrete machine.** C6 is its first consumer and defines one slice over the
-accepted fragment plus its own declarations. Every later milestone extends the same machine's sealed
-internals — C7 generalises expression evaluation, output, order and panic on it, C8 adds control — and none
-of them replaces it with a peer. A second run relation beside `go_step` is the failure this base exists to
-prevent.
+**There will be exactly one concrete machine, and C7 builds it.** C6 supplies the static facts, typed
+values, slots, places, store and closed-command start facts that a runtime consumes, and instantiates
+nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing expression and `println`
+fragment one run relation and adds its own expression, output, order and fatal-panic slice. Every later
+milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
+and package dependency order — and none replaces it with a peer. A second run relation is the failure this
+base exists to prevent.
 
 ---
 

@@ -43,8 +43,8 @@ An earlier milestone may not claim cases assigned to a later one.
 
 | id | depends_on | goal | public_result | scope | evidence |
 |---|---|---|---|---|---|
-| C6 | C5 | Exact binding and use roles, the one type algebra, the predeclared universe, static slots, dynamic places, basic closed runtime values, the first scalar-cell object-store slice, and the expression-fact/use boundary that declarations and variables need. C6 is the **first consumer of `Machine.T`**: it defines one concrete machine slice over the accepted fragment plus C6 declarations, never a peer evaluator or second run relation. | Package and local declarations with exact roles; named types whose identity is their declaration; variables with slots, places and zero values; one concrete machine. | `milestone=C6` (66 + 22) | **slices only**: SC-02 predeclared constants, constant declarations, `iota` and C6 initializers; SC-03 package and local scope, declarations, binding facts, slots, blank uses, uniqueness, export and predeclared shadowing; SC-04 one type algebra over basic, alias and defined types, no structural or generic case; SC-05 context-free facts and C6 use edges including ordinary name expressions; SC-08 scalar cells, places, allocation identity and typed lookup only; SC-14 C6 zero values and the current closed-command start only; SC-21; SC-22 via `LAT-077`. Gate LAT-077 |
-| C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. | Observable output and exit status under the pinned target. | `milestone=C7` (72 + 43) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
+| C6 | C5 | Exact binding and use roles, the one type algebra, the predeclared universe, static slots, dynamic places, typed closed runtime values, the first scalar-cell store slice, and the expression-fact/use boundary that declarations and variables need. C6 **instantiates no machine**: it builds the facts and store roots a runtime consumes. | Package and local declarations with exact roles; named types whose identity is their declaration; variables with slots, typed places and zero values. | `milestone=C6` (66 + 22) | **slices only**: SC-02 predeclared constants, constant declarations, `iota` and C6 initializers; SC-03 package and local scope, declarations, binding facts, slots, blank uses, uniqueness, package-only export and predeclared shadowing; SC-04 one type algebra over basic, alias and defined types, no structural or generic case; SC-05 context-free facts and C6 use edges including ordinary name expressions; SC-08 typed scalar cells, typed places, allocation identity and typed lookup only; SC-14 C6 zero values and closed-command start **facts** only; SC-21; SC-22 via `LAT-077`. Gate LAT-077 |
+| C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. C7 builds the **first concrete `Machine.T`** for a `Safe.Program`, consuming C6's retained facts and store roots and giving the existing expression and `println` fragment one run relation. | Observable output and exit status under the pinned target, on the one machine every later milestone extends. | `milestone=C7` (72 + 43) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-14 the first concrete machine start, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
 | C8 | C7 | Control flow with retained jump continuations. | Structured control with no CFG lowering. | `milestone=C8` (42 + 16) | SC-03, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
 | C9 | C8 | Functions, closures, multi-results, defer, panic, recover. | Stack-only panic/defer/recover. | `milestone=C9` (24 + 15) | SC-03…SC-07, SC-09, SC-15…SC-17, SC-20…SC-22; gate LAT-171 |
 | C10 | C9 | Composite data and typed mutable objects. | One runtime object store. | `milestone=C10` (49 + 28) | SC-03…SC-05, SC-08, SC-10, SC-11, SC-15, SC-20, SC-21 |
@@ -58,10 +58,12 @@ An earlier milestone may not claim cases assigned to a later one.
 
 ## How the language grows
 
-A new AST constructor enters only when COMPLETE: exact whole-program `Admissible` rules matching
-`go build ./...`, operational meaning in `Property`, renderer support with its value and syntax proofs, and —
-where observable — a differential fixture and an e2e witness. **Shrink the representable language before
-weakening `Admissible`.**
+A constructor lands with every source, acceptance, fact, rendering, fixture and proof obligation assigned to
+**its** milestone: exact whole-program `Admissible` rules matching `go build ./...`, renderer support with
+its value and syntax proofs, and — where observable — a differential fixture and an e2e witness. Runtime
+stepping lands at the first mandatory runtime milestone the roadmap names for it. No earlier milestone may
+claim a run theorem for a constructor, and no alternate evaluator may be added meanwhile. **Shrink the
+representable language before weakening `Admissible`.**
 
 The type universe grows in one reviewed order, each root landing complete before the next begins. Integers,
 floats, complex, and the predeclared source aliases are **done**. C6 adds named types over exactly those

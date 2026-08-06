@@ -1,109 +1,234 @@
-# C6 — Names, types, slots, places, and the first concrete machine
+# C6 — Names, types, scopes, facts, values and the scalar store
 
-Baseline: 57b913af9c15deee46df5b117839c2b9528d6b1a
+Baseline: 6b2b083c5cb0e1bb767d72622c745f2e80179090
 Review: contract
 
 Goal:
 C6 lands exact binding and use roles, the one type algebra, the predeclared universe, static slots, dynamic
-places, basic closed runtime values, the first scalar-cell object-store slice, and the expression-fact/use
-boundary needed by declarations and variables.
+places, typed closed runtime values, the first scalar-cell store slice, and the expression-fact/use boundary
+that declarations and variables need.
 
-C6 is the first consumer of `Machine.T`. It defines **one** concrete machine slice over the already accepted
-fragment plus C6 declarations. It defines no peer evaluator and no second run relation. Future milestones
-extend the same machine internals; they never replace C6's machine with another one.
+**C6 instantiates no `Machine.T`.** It builds the static facts, typed values, slots, places, store and exact
+closed-command **start facts** that the runtime consumes. C7 is the first concrete machine for a
+`Safe.Program`: it consumes C6's retained facts and store roots, gives the existing expression/`println`
+fragment one run relation, and adds the C7 expression, output, order and fatal-panic slice. C11 generalizes
+starts and initialization to imports and package dependency order.
 
-`Safe.Property` stays `True` while the represented fragment has no unsafe behaviour. Operational meaning
-belongs to the one machine; no false safety claim is invented to make `Property` nontrivial.
+`Safe.Property` stays `True` while the represented fragment has no unsafe behaviour, and the current pure
+constant-evaluation claim is preserved — its value carrier migrates, but C6 does not delete the only current
+evaluator.
 
 ## Rows and gates
 
-66 closure rows and 22 latitude rows carry `milestone` `C6`. Counts are derived from the ledgers, never
-written by hand. `LAT-077` is C6's only acceptance gate.
-
-Reassigned by this review: `SPEC-045` (Label scopes) to C8; `LAT-X004` to C7 beside its owner `SPEC-096`;
-acceptance gate `LAT-019` to C7, whose shift fixtures need C7 constant-expression syntax; `GRAM-104`
-(`OperandName`) to C6, admitting only its unqualified-identifier branch, with `GRAM-105` staying at C11.
-`GRAM-050` (`TypeLit`) is sum-production evidence only and authorises no C6 constructor.
+66 closure rows and 22 latitude rows carry `milestone` `C6`; counts are derived from the ledgers, never
+written by hand. `LAT-077` is C6's only acceptance gate. `LAT-019` and `LAT-X004` are C7. Label scopes are
+C8. `GRAM-104`'s unqualified `OperandName` branch is C6; `GRAM-105`'s qualified branch is C11. `GRAM-050`
+(`TypeLit`) is sum-production evidence and authorises no C6 constructor.
 
 ## Contract slices
-
-C6 consumes only these, and claims no later slice of any cumulative contract:
 
 - **SC-02** predeclared constants, constant declarations, `iota`, C6 constant initializers, defaulting and
   representability for admitted forms;
 - **SC-03** package and local scopes, declarations, binding facts, static slots, blank uses, uniqueness,
-  export classification, predeclared shadowing;
+  package-only export classification, predeclared shadowing;
 - **SC-04** one type algebra over basic, alias and defined types, with no structural or generic case;
 - **SC-05** context-free facts and exact C6 use edges, including ordinary name expressions;
-- **SC-08** scalar cells, places, allocation identity and typed lookup only;
-- **SC-14** C6 zero values and the current closed-command start only;
-- **SC-21** minimal exact public roots, disposable internals, every proof helper `Local`;
+- **SC-08** typed scalar cells, typed places, allocation identity and typed lookup only;
+- **SC-14** C6 zero values and exact closed-command **start facts** only. The first concrete machine start is
+  C7's;
+- **SC-21** minimal exact public roots and disposable internals;
 - **SC-22** `LAT-077` only.
 
-## The cost this contract commits to
+## 1. Source constructor topology
 
-A defined type's identity is its exact source declaration reference. The only such reference is
-`Index`-indexed by the program. Therefore **`Typing.SemanticType` becomes program-indexed**, and every
-current signature mentioning it — in `Typing`, `Compilable`, `Safe` and `Render` — gains that index. This is
-the single largest mechanical cost in C6 and it is deliberate: the alternative is a string, numeric `TypeId`,
-registry or tag as type identity, which is forbidden.
-
-## Exact public source surface
-
-`Names` loses its closed sixteen-name class. `Names.TypeName`, `Names.SupportedType`, `Names.classify`,
-`Names.supported_of` and every projection over them are **deleted**, not wrapped.
+`Names.Identifier` admits the spelling `_`, so it cannot be the ordinary-name type. There is exactly one
+ordinary-name authority and exactly one blank constructor:
 
 ```coq
-(* Syntax: an ordinary identifier is the only way to name a type or an object. *)
+Record OrdinaryIdentifier : Type := MakeOrdinary {
+  ordinary_identifier : Names.Identifier;
+  ordinary_not_blank  : Names.spelling ordinary_identifier <> "_"%string
+}.
+
+Record IdentifierList : Type := MakeIdentifierList {
+  first_identifier : NameOrBlank;
+  more_identifiers : list NameOrBlank
+}.
+
+Record ExpressionList : Type := MakeExpressionList {
+  first_expression : Expr;
+  more_expressions : list Expr
+}.
+```
+
+These are source-grammar carriers, not a generic collection framework. A spec's identifier list and an
+explicit expression list are never empty; an empty parenthesized group is an empty `list ConstSpec`,
+`list VarSpec` or `list TypeSpec`.
+
+```coq
 Inductive TypeExpr : Type :=
-| NamedType : Names.Identifier -> TypeExpr.
+| NamedType : OrdinaryIdentifier -> TypeExpr.
 
 Inductive NameOrBlank : Type :=
-| DeclaredName : Names.Identifier -> NameOrBlank
+| DeclaredName : OrdinaryIdentifier -> NameOrBlank
 | BlankName    : NameOrBlank.
 
 Inductive Expr : Type :=
-| Name                 : Names.Identifier -> Expr
-| IntegerLiteral       : N -> Expr
+| Name                  : OrdinaryIdentifier -> Expr
+| IntegerLiteral        : N -> Expr
 | NegatedIntegerLiteral : N -> Expr
-| StringLiteral        : string -> Expr
-| FloatLiteral         : Float.Decimal -> Expr
-| ComplexLiteral       : Complex.Decimal -> Expr
-| Convert              : TypeExpr -> Expr -> Expr.
+| StringLiteral         : string -> Expr
+| FloatLiteral          : Float.Decimal -> Expr
+| ComplexLiteral        : Complex.Decimal -> Expr
+| Convert               : TypeExpr -> Expr -> Expr.
+
+Inductive ConstInitializer : Type :=
+| ExplicitConstInitializer  : option TypeExpr -> ExpressionList -> ConstInitializer
+| InheritedConstInitializer : ConstInitializer.
+
+Record ConstSpec : Type := MakeConstSpec {
+  const_names       : IdentifierList;
+  const_initializer : ConstInitializer
+}.
+
+Inductive VarInitializer : Type :=
+| VarTypeOnly : TypeExpr -> VarInitializer
+| VarValues   : option TypeExpr -> ExpressionList -> VarInitializer.
+
+Record VarSpec : Type := MakeVarSpec {
+  var_names       : IdentifierList;
+  var_initializer : VarInitializer
+}.
+
+Inductive TypeSpec : Type :=
+| AliasSpec : NameOrBlank -> TypeExpr -> TypeSpec
+| DefSpec   : NameOrBlank -> TypeExpr -> TypeSpec.
+
+Inductive Declaration : Type :=
+| ConstDecl : list ConstSpec -> Declaration
+| VarDecl   : list VarSpec   -> Declaration
+| TypeDecl  : list TypeSpec  -> Declaration.
+
+Inductive Stmt : Type :=
+| Println         : list Expr -> Stmt
+| DeclarationStmt : Declaration -> Stmt
+| ShortVarDecl    : IdentifierList -> ExpressionList -> Stmt.
+
+Inductive Block : Type :=
+| MakeBlock : list Stmt -> Block.
+
+Inductive TopLevelDecl : Type :=
+| TopDeclaration : Declaration -> TopLevelDecl
+| Main           : Block -> TopLevelDecl.
 ```
 
-`Syntax.BoolLiteral` is **deleted**. `true` and `false` are predeclared constants reached through `Name`.
+No `with` group is needed: `Stmt` reaches `Declaration` but not `Block`, so every type above is a plain
+inductive in dependency order. `VarInitializer` gives "no type and no values" no constructor. A nested
+`Main` is **unrepresentable**, not rejected after construction. `Syntax.File` carries `list TopLevelDecl`
+and no compatibility alias for the old `Decl` survives. `BoolLiteral` is deleted; `true` and `false` are
+ordinary resolved names.
 
-Declarations and statements are mutually inductive, because a block holds statements and a statement may hold
-a local declaration:
+An `InheritedConstInitializer` in the **first** spec of a group is representable source and is rejected with
+an exact diagnostic; it is never silently read as an empty expression list.
+
+## 2. Exact references and roles
+
+`Index.Kind` gains structural kinds so no reference stands for two semantically different objects. The
+refined public references are at least:
+
+```text
+BlockRef            ConstSpecRef        VarSpecRef          AliasSpecRef
+DefinedTypeSpecRef  BoundDefinedTypeRef DeclaredNameRef     VariableNameRef
+BlankRef            NameExprRef         TypeUseRef          ExprUseRef
+```
+
+`BoundDefinedTypeRef` names **only** a nonblank defined-type declaration — a blank definition creates no
+type identity — and `DefinedType` is defined over it, never over a reference that could also name an alias.
+
+`Index.Role` gains exact C6 roles; the contract enumerates them rather than using one generic spec-child
+role, because const inheritance, variable initialization, a type right-hand side, a declaration name and a
+short declaration obey different rules:
+
+```text
+TopLevelDeclaration n     BlockStatement n        DeclarationSpec n
+ConstSpecName n           ConstSpecType           ConstSpecValue n
+VarSpecName n             VarSpecType             VarSpecValue n
+TypeSpecName              TypeSpecTarget
+ShortDeclName n           ShortDeclValue n
+```
+
+A reference remains indexed by the exact `Syntax.Program` and exact source occurrence. No spelling, list
+position, rebuilt equal syntax or independently rediscovered predecessor is identity.
+
+## 3. Inherited const use is an intrinsic causal object
+
+`LAT-067` is not closed by representing an omitted expression list as `[]`. Each inherited constant use
+retains, by construction:
+
+- the exact current `ConstSpecRef`;
+- the current spec index that determines `iota`;
+- the exact value position within the current identifier list;
+- the exact predecessor explicit expression reference, from the nearest preceding non-inherited spec of the
+  same declaration group;
+- the proof that this is the required predecessor.
+
+The inherited use consumes the predecessor's retained **context-free expression fact** while applying the
+**current** const-spec context and current `iota`. It does not copy the prior expression, reuse the prior
+resolved value, search backward again, or reconstruct an equal predecessor. This is frozen as an exact
+`InheritedConstUseRef` constructor of `ExprUseRef`, not left to implementation.
+
+## 4. One retained static phase
+
+C6 **extends the existing retained whole-elaboration object**. It creates no free-standing scope, type,
+binding or slot authority beside `Compilable.Core`. One C6 static phase joins the causal chain, taking the
+exact prior index/elaboration object as input and retaining by construction:
+
+package blocks built across all files; local block and scope structure; the predeclared outer scope; the
+exact type-declaration graph and its resolution result; binding targets for every admitted name use;
+type-use facts; context-free expression facts; exact expression-use facts; blank-use facts; static slot
+facts; C6 diagnostics.
+
+Both the accepted `Compilable.Program` and the rejected `Compilable.Failure` retain that exact phase through
+their existing core. A rejection retains the phase, not a copied diagnostic list.
+
+Scope construction is two-stage and file-order-independent: collect every package-level declaration name
+across all files of the package, rejecting duplicates; then resolve package-level declarations against the
+complete package block. Local blocks are sequential — a declaration enters scope exactly where the Go rule
+says, a later local declaration is not visible earlier, and local names may shadow package and predeclared
+names where Go permits. `main` participates in package uniqueness though its constructor is special.
+Package-scope `init` may not be introduced by a C6 const, type or var declaration. Blank names introduce no
+binding.
+
+Scope and identity-keyed tables use the pinned standard finite maps and sets. Duplicate insertion **fails**;
+it never overwrites. No project-authored map storage and no list scan is a semantic authority.
+
+## 5. Facts are indexed projections, not constructible records
+
+A public record pairing a reference with a target can be forged. Facts are abstract dependent families
+indexed by exact references, with total queries projected from the accepted capability:
 
 ```coq
-Inductive ConstSpec : Type :=
-| MakeConstSpec : list NameOrBlank -> option TypeExpr -> list Expr -> ConstSpec
-with VarSpec : Type :=
-| MakeVarSpec   : list NameOrBlank -> option TypeExpr -> list Expr -> VarSpec
-with TypeSpec : Type :=
-| AliasSpec : Names.Identifier -> TypeExpr -> TypeSpec
-| DefSpec   : Names.Identifier -> TypeExpr -> TypeSpec
-with Decl : Type :=
-| ConstDecl : list ConstSpec -> Decl
-| VarDecl   : list VarSpec   -> Decl
-| TypeDecl  : list TypeSpec  -> Decl
-| Main      : Block -> Decl
-with Stmt : Type :=
-| Println      : list Expr -> Stmt
-| DeclStmt     : Decl -> Stmt
-| ShortVarDecl : list NameOrBlank -> list Expr -> Stmt
-with Block : Type :=
-| MakeBlock : list Stmt -> Block.
+BindingFact  : forall (cp : Compilable.Program), Index.NameExprRef (Compilable.source cp) -> Type.
+binding_fact : forall cp (r : Index.NameExprRef (Compilable.source cp)), BindingFact cp r.
 ```
 
-`Main` now carries a real `Block`. `DeclStmt` admits only `ConstDecl`, `VarDecl` and `TypeDecl`; a nested
-`Main` is rejected by `Admissible`, not by constructor absence, because the constructor is shared.
+Type-use, expression-use, blank-use and slot facts take the same topology. Public total queries live on
+`Compilable.Program` and rerun no scope construction, type resolution or expression analysis.
 
-`Syntax.File` keeps its shape; `TopLevelDecl := Decl` continues to name the same type.
+The binding target universe distinguishes each admitted predeclared type object; `true`; `false`; `iota`;
+`nil`; an exact declared constant; an exact declared variable; an exact alias declaration; an exact
+defined-type declaration; and the current `main` declaration where a package-name conflict is checked. A
+value-role use cannot silently receive a type object, and a type use cannot silently receive a variable or
+constant; wrong-kind resolution produces a structured diagnostic **from the retained binding object**.
 
-## Exact type algebra
+A slot fact exists only for a nonblank variable declaration or a newly introduced nonblank short-declaration
+name. Constants, aliases, defined types, blanks and predeclared objects have no slot constructor.
+
+`ExprUseRef` constructors are frozen and include at least: println argument; conversion operand; explicit
+const initializer; inherited const initializer; variable initializer; short-variable initializer. Every use
+builder consumes the retained child `ExpressionFact` and never re-reads the raw child.
+
+## 6. One type algebra with one environment
 
 ```coq
 Inductive SemanticType (p : Syntax.Program) : Type :=
@@ -112,268 +237,171 @@ Inductive SemanticType (p : Syntax.Program) : Type :=
 | FloatType   : Float.Kind   -> SemanticType p
 | ComplexType : Complex.Kind -> SemanticType p
 | StringType  : SemanticType p
-| DefinedType : Index.TypeSpecRef p -> SemanticType p.
+| DefinedType : Index.BoundDefinedTypeRef p -> SemanticType p.
 ```
 
-An alias has **no constructor**: it resolves to the type its right-hand side denotes. A defined type carries
-its declaration reference and nothing else. These are separate relations over the one algebra:
+A type value carrying only a declaration reference **cannot compute its own underlying type**, so every type
+operation consumes the one retained C6 environment; public accepted-program queries consume the exact
+`Compilable.Program` that retains it. The environment retains exact facts for alias target, defined-type
+right-hand side, underlying type, core type for the C6 slice, identity, assignability, convertibility,
+representability and zero value. An alias has no semantic-type constructor; it resolves to its target.
+
+Every decision the compiler consumes has **one executable decision function and a reflection theorem**. A
+proof-only relation beside a separate checker is forbidden.
+
+The type-declaration graph is built once and retained: on success it carries acyclicity and exact
+resolution; on failure an exact cycle witness and a diagnostic anchored in the declarations forming the
+cycle. Package type declarations may refer forward across files; local ones obey sequential scope. With no
+structural type constructor in C6, every declaration cycle is invalid.
+
+All current typed-constant and conversion surfaces migrate to the program-indexed algebra. A typed constant
+of a defined basic type retains that exact defined type while its value is represented through the exact
+underlying basic type. `byte` and `rune` remain aliases of `uint8` and `int32`: they preserve source
+spelling and mint no identity.
+
+**No top-level Rocq `Parameter`.** Abstract public components live in a `Module Type` supplied by one
+concrete sealed module, as the capability boundaries already do. The whole-theory assumption audit stays
+empty.
+
+## 7. Typed values, places and store
 
 ```coq
-Parameter underlying : forall {p}, SemanticType p -> SemanticType p.
-Parameter core_type  : forall {p}, SemanticType p -> option (SemanticType p).
-Parameter Identical  : forall {p}, SemanticType p -> SemanticType p -> Prop.
-Parameter Assignable : forall {p}, SemanticType p -> SemanticType p -> Prop.
-Parameter ConvertibleTo : forall {p}, SemanticType p -> SemanticType p -> Prop.
-Parameter zero_value : forall {p}, SemanticType p -> Value p.
+Value : forall (cp : Compilable.Program), Typing.SemanticType (Compilable.source cp) -> Type.
+Place : forall (cp : Compilable.Program), Typing.SemanticType (Compilable.source cp) -> Type.
+Store : Compilable.Program -> Type.
 
-Theorem identical_defined_iff_same_decl : forall p (a b : Index.TypeSpecRef p),
-  Identical (DefinedType p a) (DefinedType p b) <-> a = b.
-Theorem underlying_defined_not_defined : forall p (r : Index.TypeSpecRef p),
-  forall r', underlying (DefinedType p r) <> DefinedType p r'.
-Theorem alias_preserves_identity : forall p (d : Index.TypeSpecRef p) (t : SemanticType p),
-  AliasDenotes p d t -> Identical t (alias_target p d).
+allocate : forall cp t, Store cp -> Value cp t -> Store cp * Place cp t.
+load     : forall cp t, Store cp -> Place cp t -> option (Value cp t).
 ```
 
-No second runtime type enum, `TypeId`, registry, tag or string-keyed identity exists anywhere.
+Basic constructors carry their intrinsic evidence — an integer value carries representability — and a
+defined-type value carries a value of its exact underlying type without losing the defined identity. A
+packed dynamic object exists only at the private map boundary and is not a second runtime-type authority.
 
-## Exact index additions
+`ObjectId` and the raw store representation are private inside the sealed implementation. Only allocation
+mints an identity, and an identity is never derived from a source reference, a name, a client-supplied
+natural number, a type tag or a trace position. Environment lookup is typed by the exact slot, not
+`DeclaredNameRef -> option (Place p)`.
 
-```coq
-Inductive Kind := FileKind | PackageClauseKind | DeclarationKind | StatementKind | ExpressionKind
-                | TypeNameKind | BlockKind | SpecKind | DeclaredNameKind | BlankKind.
+Frozen and proved: load-after-allocate; allocation freshness; no identity reuse; preservation of every
+previously allocated cell; loaded value/type coherence; constants, aliases, defined-type declarations and
+blanks allocate nothing; a variable slot maps only to a place of its exact static type. The full
+reachable-state lookup theorem belongs with C7's machine; C6 proves the store and environment invariants
+that theorem consumes.
 
-(* Roles gained by C6; existing roles keep their meaning and argument order. *)
-| DeclarationSpec  (n : nat)
-| SpecName         (n : nat)
-| SpecType
-| SpecValue        (n : nat)
-| BlockStatement   (n : nat)
-| ShortDeclName    (n : nat)
-| ShortDeclValue   (n : nat)
-```
+The unindexed `Safe.Value` path migrates to this one typed authority. No peer value type is added.
 
-Refined references C6 adds, each `NodeRefOf p k`:
+## 8. Diagnostics
 
-```coq
-Definition BlockRef        (p : Syntax.Program) := NodeRefOf p BlockKind.
-Definition SpecRef         (p : Syntax.Program) := NodeRefOf p SpecKind.
-Definition TypeSpecRef     (p : Syntax.Program) := { r : SpecRef p | spec_is_type r = true }.
-Definition DeclaredNameRef (p : Syntax.Program) := NodeRefOf p DeclaredNameKind.
-Definition BlankRef        (p : Syntax.Program) := NodeRefOf p BlankKind.
-```
+C6 extends the existing snapshot-indexed `DiagnosticReason`; no second diagnostic system appears. For every
+class below the contract fixes the constructor, the stable code, the exact primary anchor, related anchors,
+payload, erased form, and precedence relative to the others:
 
-A reference belongs to the exact `Syntax.Program` and the exact source occurrence. No source name, string,
-list position or rebuilt equal occurrence is identity.
+| code | class | primary anchor |
+|---|---|---|
+| `FIDO-E-UNRESOLVED-NAME` | name resolves to nothing in any enclosing scope | the name use |
+| `FIDO-E-WRONG-ROLE` | object used in the wrong role | the name use |
+| `FIDO-E-DUPLICATE-DECL` | duplicate declaration in one block | the later declared name |
+| `FIDO-E-INIT-MISUSE` | package-scope `init` introduced by a C6 declaration | the declared name |
+| `FIDO-E-FIRST-SPEC-INHERITED` | first const spec has an inherited initializer | that spec's name use |
+| `FIDO-E-DECL-ARITY` | declaration name/value arity mismatch | the spec |
+| `FIDO-E-TYPE-CYCLE` | type-declaration cycle | the declarations forming the cycle |
+| `FIDO-E-INIT-NOT-ASSIGNABLE` | initializer not assignable or representable | the initializer expression |
+| `FIDO-E-SHORT-DECL-NO-NEW` | short declaration with no new nonblank name | the short declaration |
+| `FIDO-E-SHORT-REDECL-TYPE` | short redeclaration with a mismatched type | the redeclared name |
+| `FIDO-E-UNUSED-LOCAL` | unused function-local variable | the declared name |
+| `FIDO-E-MAIN-CONFLICT` | package `main` conflicts with another declaration | the conflicting declaration |
 
-## Exact fact surface
+## 9. Rendering
 
-Facts are retained before any runtime state exists. A consumer reads the retained child fact and never
-re-reads the raw child to rediscover binding or type meaning.
+The renderer stays direct over the one AST: no token layer, no parser, no raw-text escape. The contract
+fixes canonical output for package and local const/var/type declaration groups; empty groups; explicit and
+inherited const specs; type aliases and definitions; blocks and indentation; short declarations; ordinary
+names and blanks; the migrated `main` body; and conversions through ordinary resolved type names.
 
-```coq
-Inductive Binding (p : Syntax.Program) : Type :=
-| PredeclaredBinding : PredeclaredObject -> Binding p
-| DeclaredBinding    : DeclaredNameRef p -> Binding p.
+Required theorems: exact ASCII/UTF-8 validity; direct source spelling; injectivity where the existing
+renderer relies on it; and **byte-identical rendering of every program accepted before C6**.
 
-Record BindingFact (p : Syntax.Program) : Type := MakeBindingFact {
-  binding_use    : ExprRef p;
-  binding_target : Binding p
-}.
+## 10. Public theorem surface
 
-Record TypeUseFact (p : Syntax.Program) : Type := MakeTypeUseFact {
-  type_use     : TypeNameRef p;
-  type_denoted : SemanticType p
-}.
+These are public because C7 and later milestones consume them; only proof helpers are `Local`.
 
-Record SlotFact (p : Syntax.Program) : Type := MakeSlotFact {
-  slot_name : DeclaredNameRef p;
-  slot_type : SemanticType p
-}.
+Package block construction independent of file order; duplicate rejection with no overwrite; local scope
+start and sequential visibility; exact shadowing of package and predeclared names; total binding for every
+accepted ordinary name use; blank never binds and never owns a slot; package-only export classification;
+short-declaration same-block and new-name rules; exact predeclared resolution including `byte`, `rune`,
+`true`, `false`, `iota` and `nil`; alias identity preservation; distinct defined declarations have distinct
+identity; exact underlying/basic resolution; every C6 type cycle rejected; reflected identity, assignability,
+convertibility and representability decisions; expression fact/use separation; exact inherited-const
+predecessor and current-`iota` facts; one static slot per accepted variable name; typed zero values; store
+freshness, no reuse, frame preservation and load coherence.
 
-Record BlankUseFact (p : Syntax.Program) : Type := MakeBlankUseFact {
-  blank_use     : BlankRef p;
-  blank_operand : option (ExprRef p)
-}.
+## 11. Deletions — no wrappers, aliases or compatibility constructors
 
-Theorem blank_never_binds : forall p (b : BlankRef p) (f : BindingFact p),
-  binding_use f <> blank_expr b.
-Theorem slot_unique_per_name : forall p (a b : SlotFact p),
-  slot_name a = slot_name b -> a = b.
-Theorem binding_total_on_names : forall p (idx : Index.Program p) (e : ExprRef p),
-  name_expr e = true -> exists f, BindingOf idx e f.
-```
+`Syntax.BoolLiteral`; `Names.TypeName`, `Names.SupportedType`, `Names.classify`, `Names.supported_of`,
+`Names.all_type_names` and every projection over them; `Syntax.TypeName` (`Unqualified`) and the
+`type_expr_*` helpers built on `Names.SupportedType`; `Compilable.predeclared_type`,
+`predeclared_type_of_name` and the ten `Local Notation`s fixing it. Current programs migrate through the
+ordinary-name path first; the competing path is then deleted in the same milestone.
 
-`PredeclaredObject` is the closed universe: the eighteen predeclared type names, `true`, `false`, `iota`,
-`nil`. `Compilable.predeclared_type` and its ten fixing notations are **deleted**; every predeclared name
-resolves through `BindingFact` like any other.
+## 12. Two implementation reviews
 
-## Exact store, place and value surface
+**Semantic-root review** — stop when all are complete: corrected source constructors; exact `Index` kinds,
+roles and refined references; the retained package/local scope object; the retained type environment and
+cycle result; abstract dependent binding, type, expression, use, blank and slot facts; reflected decisions
+and universal invariants; migration of the existing fragment to ordinary names; deletion of the closed
+sixteen-name resolver and every competing name/type authority. **Do not start values, store or rendering
+until this review passes.**
 
-```coq
-Parameter ObjectId : Type.                       (* private; only allocation mints one *)
-Inductive Place (p : Syntax.Program) : Type :=
-| ScalarCell : ObjectId -> Place p.
+**Final review** — typed values; typed places and the scalar store; zero values; declaration rendering;
+exact diagnostics; fixtures and `LAT-077`; generated artifacts and pinned-Go evidence; the current
+documentation updates below.
 
-Inductive Value (p : Syntax.Program) : Type :=
-| BoolValue    : bool -> Value p
-| IntegerValue : Integer.Kind -> Z -> Value p
-| FloatValue   : forall ft, Float.Value ft -> Value p
-| ComplexValue : forall ct, Complex.Value ct -> Value p
-| StringValue  : string -> Value p.
+No concrete `Machine.T` appears in C6.
 
-Parameter Store : Syntax.Program -> Type.
-Parameter allocate : forall {p}, Store p -> SemanticType p -> Value p -> Store p * Place p.
-Parameter load  : forall {p}, Store p -> Place p -> option (Value p).
-Parameter Env   : Syntax.Program -> Type.
-Parameter lookup_slot : forall {p}, Env p -> DeclaredNameRef p -> option (Place p).
+## Documents the C6 implementation must update
 
-Theorem allocate_fresh : forall p (s : Store p) t v s' pl,
-  allocate s t v = (s', pl) -> load s pl = None /\ load s' pl = Some v.
-Theorem allocate_never_reuses : forall p (s : Store p) t v s' pl pl' w,
-  allocate s t v = (s', pl) -> load s pl' = Some w -> pl <> pl'.
-Theorem reachable_lookup_total : forall p (st : GoState p),
-  Reachable st -> forall sl, SlotDeclared st sl -> exists pl, lookup_slot (env st) sl = Some pl.
-```
-
-Runtime object identities are private, come only from allocation, never derive from a declaration reference
-or a name, and are never reused. Constants and types create no place. The current unindexed `Safe.Value`
-path is **replaced**, not retained beside this one.
-
-## Exact machine surface
-
-```coq
-Parameter GoState  : Syntax.Program -> Type.
-Parameter GoStart  : Syntax.Program -> Type.
-Parameter GoLabel  : Syntax.Program -> Type.
-Inductive GoResult : Type := NormalExit.
-
-Parameter go_machine : forall (sp : Safe.Program), Machine.T.
-Parameter go_initial : forall {p}, GoStart p -> GoState p.
-Parameter go_step    : forall {p}, GoState p -> GoLabel p -> GoState p -> Prop.
-Parameter go_final   : forall {p}, GoState p -> GoResult -> Prop.
-
-Theorem go_machine_state  : forall sp, Machine.State  (go_machine sp) = GoState (Safe.source sp).
-Theorem go_machine_step   : forall sp, Machine.step   (go_machine sp) = go_step.
-Theorem go_machine_final  : forall sp, Machine.final  (go_machine sp) = go_final.
-Theorem go_final_absorbing : forall sp, Machine.FinalAbsorbing (go_machine sp).
-Theorem go_initial_wf   : forall p (s : GoStart p), WellFormed (go_initial s).
-Theorem go_step_preserves_wf : forall p (a : GoState p) l b,
-  WellFormed a -> go_step a l b -> WellFormed b.
-Theorem go_start_accepts_current_fragment : forall sp,
-  exists s : GoStart (Safe.source sp), True.
-```
-
-`GoState`, `GoStart`, `GoLabel`, `Place`, `ObjectId` and `Store` are **sealed**. `WellFormed` is hidden; only
-its preservation is public. C6 provides **no** `Machine.EnabledDecision` inhabitant unless a C6 proof
-genuinely needs and earns one. No empty future state field and no future action constructor is added.
-
-C6 gives operational meaning to exactly: entering the current command start; the `main` block; constant,
-type, variable and short-variable declarations; zero initialization; constant initialization; identifier
-reads; blank discard in C6 contexts; the existing conversion and `println` forms; normal completion.
-
-C6 adds no operator, general call, user function, loop, label, panic, concurrency, composite object, import
-or package initialization. C7 generalises expression evaluation, output, order and panic **on this same
-machine**. C8 adds control.
-
-## Scope rules that must not be generalised into one vague algorithm
-
-- the predeclared universe is the outer scope;
-- the package block is built across all files before package declarations are resolved, so package-level
-  order and file order do not choose meaning;
-- duplicate package names are rejected exactly;
-- the existing `main` declaration participates in package-block uniqueness;
-- local blocks are sequential: a declaration enters scope at the exact point the Go specification gives it;
-- local names may shadow package and predeclared names where Go permits;
-- short declarations are local only and require at least one new nonblank name in the current block;
-- `_` never creates a binding or slot;
-- `init` creates no ordinary package binding and may not name a C6 const, type or variable declaration;
-- `byte` and `rune` keep their source binding and spelling and create no identity distinct from `uint8` and
-  `int32`;
-- `nil` is in the universe, but C6 has no nilable type form, so a source occurrence may resolve to the
-  predeclared object and still fail every available value context;
-- `iota` is the ordinary predeclared identifier in its exact const-spec context, never a global numeric value.
-
-## Deletions — no aliases, wrappers or compatibility constructors
-
-- `Syntax.BoolLiteral`;
-- `Names.TypeName`, `Names.SupportedType`, `Names.classify`, `Names.supported_of`, `Names.all_type_names`
-  and every projection over them;
-- `Syntax.TypeName` (`Unqualified`) and the `type_expr_*` helpers built on `Names.SupportedType`;
-- `Compilable.predeclared_type`, `predeclared_type_of_name`, and the ten `Local Notation`s fixing it;
-- the unindexed `Safe.Value` and `Safe.eval_expr` path, once the indexed value authority lands.
-
-Current programs migrate through the ordinary-name path first; the competing path is then deleted in the
-same milestone. Nothing is kept for compatibility.
-
-## Two implementation review points
-
-C6 is one milestone with two dependency-ordered reviews. There is no review stop between individual
-constructors or files.
-
-1. **Semantic-root review** — exact source constructor topology; block, declaration, binding, slot,
-   name-use, type-use, expression-use and blank-use references; one type algebra and one predeclared
-   universe; package and local scope construction; universal invariants and reflected decisions; migration of
-   the existing fragment; deletion of every competing name and type authority.
-2. **Final vertical review** — basic closed runtime values; slots, places and the first scalar-cell store;
-   the concrete machine slice; declaration initialization, zero values, name reads, blank discard and the
-   current `main`/`println` path; diagnostics, rendering, fixtures, generated artifacts and pinned-Go
-   evidence.
+`README.md` current capability; `.review/scope.tsv` row `SR-008`; `ARCHITECTURE.md`; `ROADMAP.md`;
+`.review/NEXT.md`; and the affected acceptance and ledger rows. None of these is edited during contract
+review, because the code has not changed yet.
 
 ## Required fixtures
 
-Positive and negative, at minimum:
-
-- package `const`/`type`/`var` declarations accepted;
-- local `const`/`type`/`var` declarations accepted;
-- a local variable used by the existing `println` path accepted;
-- an unused local rejected with `FIDO-E-UNUSED-LOCAL`;
-- cross-file package declarations resolve independent of file order;
-- duplicate package names rejected;
-- local shadowing of package and predeclared names accepted where Go permits;
-- a short declaration with no new nonblank name rejected;
-- blank declarations create no binding and no slot;
-- `true`, `false`, the predeclared type names, `byte` and `rune` resolve through ordinary binding facts;
-- shadowing those names changes resolution exactly;
-- an alias preserves identity;
-- two distinct defined declarations have distinct identity even with equal underlying types;
-- every C6 type-declaration cycle rejected;
-- zero values materialize for every admitted basic and defined type;
-- every currently accepted program renders **byte-identically** after migration to the ordinary-name path;
-- generated C6 programs pass the pinned Go build with their exact expected runtime observation.
-
-The `LAT-019` shift-precision fixtures are **not** C6's; they belong to C7.
+Package and local `const`/`type`/`var` declarations accepted; a local variable used by the existing
+`println` path; an unused local rejected with `FIDO-E-UNUSED-LOCAL`; cross-file package declarations
+resolving independent of file order; duplicate package names rejected; local shadowing of package and
+predeclared names where Go permits; a short declaration with no new nonblank name rejected; blank
+declarations creating no binding and no slot; `true`, `false`, the predeclared type names, `byte` and `rune`
+resolving through ordinary binding facts; shadowing those names changing resolution exactly; an alias
+preserving identity; two distinct defined declarations with equal underlying types having distinct identity;
+every C6 type-declaration cycle rejected; a first const spec with an inherited initializer rejected; typed
+zero values for every admitted basic and defined type; **every currently accepted program rendering
+byte-identically after migration**; and generated C6 programs passing the pinned Go build with their exact
+expected runtime observation. The `LAT-019` shift-precision fixtures are C7's.
 
 ## Preserve
 
-- `Syntax.Program` as the sole source authority, and the AST as the one IR;
-- the exact retained `Compilable.Program`, `Failure` and whole-elaboration cores, and their sealing;
-- `Machine.T` exactly as C5 froze it;
-- direct rendering and the one `Emit.Mint.issue` authority;
-- certified-module coverage, the whole-theory audit, and controls A-E;
-- every sealed-capability, mint, transport and positive client control;
-- working-tree and staged-index separation, and no-host-Python;
-- `life.md`.
+`Syntax.Program` as the sole source authority and the AST as the one IR; the exact retained
+`Compilable.Program`, `Failure` and whole-elaboration cores, and their sealing; `Machine.T` exactly as C5
+froze it, uninstantiated; direct rendering and the one `Emit.Mint.issue` authority; certified-module
+coverage, the whole-theory audit and controls A-E; every sealed-capability, mint, transport and positive
+client control; working-tree and staged-index separation; no-host-Python; `life.md`.
 
 ## Done
 
-- every C6 closure and latitude row is discharged or explicitly repriced under review;
-- `LAT-077` discharges with its exact diagnostic and fixture;
-- no structural type, loop, closure, user function, label, panic, concurrency, composite object or package
-  initialization appears;
-- exactly one machine exists, and no second run relation or peer evaluator;
-- every deleted authority is gone, with no wrapper or compatibility constructor;
-- `make prove`, `make check`, `make audit-fresh`, `make regenerate`, `make regen-guard` pass;
-- generated bytes change only where a newly admitted construct is actually rendered, with goldens updated in
-  the same commit and the differential evidence to justify them;
-- both implementation reviews pass, then Rob accepts C6.
+Every C6 closure and latitude row discharged or explicitly repriced under review; `LAT-077` discharged with
+its exact diagnostic and fixture; no structural type, loop, closure, user function, label, panic,
+concurrency, composite object, import, package initialization **or concrete machine** appears; every deleted
+authority gone with no wrapper; `make prove`, `make check`, `make audit-fresh`, `make regenerate`,
+`make regen-guard` pass; generated bytes change only where a newly admitted construct is actually rendered,
+with goldens updated in the same commit and the differential evidence to justify them; both implementation
+reviews pass; then Rob accepts C6.
 
 ## Stop
 
-- the program-indexed `SemanticType` migration cannot be completed without weakening an existing theorem;
-- a C6 row needs a construct assigned to a later milestone;
-- a new AST constructor cannot land complete, with its `Admissible` rule, machine meaning, rendering proofs
-  and differential evidence together;
-- `LAT-077` needs a diagnostic the elaboration cannot produce from the retained object;
-- the concrete machine would need a second run relation, a peer evaluator, or an empty future field;
-- implementation needs a placeholder, compatibility path, trusted shortcut, fuel, bound, or premature future
-  state.
+The program-indexed `SemanticType` migration cannot complete without weakening an existing theorem; a C6 row
+needs a construct assigned to a later milestone; a decision cannot be given one executable function and a
+reflection theorem; an abstract fact family cannot be projected from the retained core without a free-standing
+authority beside it; `LAT-077` needs a diagnostic the elaboration cannot produce from the retained object; a
+run relation, evaluator or machine instantiation would be needed to discharge a C6 row; implementation needs
+a placeholder, compatibility path, trusted shortcut, fuel, bound or premature future state.
