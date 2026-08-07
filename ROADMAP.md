@@ -41,20 +41,23 @@ owns the latitude row it gates.
 slice frozen in its own active contract, and the last milestone listed against it closes the full obligation.
 An earlier milestone may not claim cases assigned to a later one.
 
+Milestones are ordered by **semantic dependency**, not by Go feature name. A feature family whose members
+have different prerequisites is split across the milestones that can actually carry them, and the row that
+names the family closes when its last member lands.
+
 | id | depends_on | goal | public_result | scope | evidence |
 |---|---|---|---|---|---|
-| C6 | C5 | Ordinary names and shadowing: one identifier fills every name position and the retained binding fact decides what each occurrence means. The complete predeclared identity catalog, the one type algebra, compiler-owned static variable identity, one expression-result and one structural arity authority, and the permanent runtime store with its distinct dynamic environment. C6 **instantiates no machine**: it builds the facts and store roots a runtime consumes. | Package and local declarations resolved by ordinary binding, with every predeclared name shadowable; named types whose identity is their declaration; variables with compiler-owned identity, typed places and zero values. | `milestone=C6` (67 + 22) | **slices only**: SC-01 literal magnitude and the unary-minus source and rendering slice; SC-02 predeclared constants, constant declarations, `iota` and C6 initializers; SC-03 package and local scope, declarations, binding facts, static variable identity, blank uses, uniqueness, package-only export and predeclared shadowing; SC-04 one type algebra over basic, alias and defined types, no structural or generic case; SC-05 context-free facts and C6 use edges including ordinary name expressions and one application root; SC-08 typed scalar cells, typed places, allocation identity and typed lookup only; SC-14 C6 zero values and the retained package initialization-dependency result only, with no runtime order and no machine start; SC-21; SC-22 via `LAT-077` and the resolved-capability boundaries. Gate LAT-077 |
-| C7 | C6 | Runtime expressions, evaluation order, output, and fatal panic. C7 builds the **first concrete `Machine.T`** for a `Safe.Program`, consuming C6's retained facts and store roots and giving the existing expression and `println` fragment one run relation. | Observable output and exit status under the pinned target, on the one machine every later milestone extends. | `milestone=C7` (72 + 43) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-14 the first concrete machine start, SC-15, SC-17, SC-20, SC-21, SC-22; gate LAT-177 |
-| C8 | C7 | Control flow with retained jump continuations. | Structured control with no CFG lowering. | `milestone=C8` (42 + 16) | SC-03, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
-| C9 | C8 | Functions, closures, multi-results, defer, panic, recover. | Stack-only panic/defer/recover. | `milestone=C9` (24 + 15) | SC-03…SC-07, SC-09, SC-15…SC-17, SC-20…SC-22; gate LAT-171 |
-| C10 | C9 | Composite data and typed mutable objects. | One runtime object store. | `milestone=C10` (49 + 28) | SC-03…SC-05, SC-08, SC-10, SC-11, SC-15, SC-20, SC-21 |
-| C11 | C10 | Packages, initialization, starts, and range. | Package init order and program starts. | `milestone=C11` (26 + 13) | SC-02, SC-05…SC-07, SC-10, SC-11, SC-14, SC-16, SC-17, SC-20, SC-21 |
-| C12 | C11 | Methods and interfaces. | Method sets and non-generic value interfaces. | `milestone=C12` (28 + 20) | SC-03…SC-07, SC-13, SC-21, SC-22 |
-| C13 | C12 | Generics and closing substitution. | Type parameters with closed instantiation. | `milestone=C13` (17 + 20) | SC-03…SC-05, SC-13, SC-21, SC-22; gates LAT-049, LAT-085 |
-| C14 | C13 | Goroutines, channels, select, and enabledness. | Concurrency with a decidable enabledness relation. | `milestone=C14` (16 + 8) | SC-03…SC-06, SC-08, SC-10, SC-15, SC-18, SC-20, SC-21 |
-| C15 | C14 | Happens-before, races, and deadlock. | A race and deadlock account tied to the memory model. | `milestone=C15` (12 + 11) | SC-12, SC-16, SC-18, SC-20, SC-21 |
-| C16 | C15 | Platform matrix and target model. | More than one validated target; ADR-0004 decided. | `milestone=C16` (1 + 0) | SC-00, SC-17, SC-19, SC-21 |
-| C17 | C16 | Ruthless trim and final authority audit. | One authority per fact across the whole system. | none — C17 discharges no ledger row | SC-19, SC-21 |
+| C6 | C5 | **Static semantic foundation.** Ordinary names and shadowing, scopes, semantic objects, the complete predeclared identity catalog, binding, one type algebra and environment, exact constants, expression/use/application facts, result-consumption plans, compiler-owned static variable identity, the type and package dependency objects, diagnostics and exact scope boundaries. **No runtime module, no value, no place, no store, no environment, no machine.** | One retained static authority every runtime milestone consumes, and a three-way decision that never calls unmodelled Go a rejection. | `milestone=C6` (63 + 10) | SC-01 literal magnitude and the unary-minus source and rendering slice; SC-02 predeclared constants, constant declarations, `iota` and C6 initializers; SC-03 scopes, declarations, binding facts, static variable identity, blank and uniqueness; SC-04 one type algebra over basic, alias and defined types; SC-05 context-free facts, C6 use edges and the one application root; SC-14 the retained package dependency object only; SC-16 the three-way decision; SC-19; SC-21; SC-22 exact acceptance over the no-boundary domain. Gate LAT-077 |
+| C7 | C6 | **Scalar runtime foundation and execution.** Introduce `Runtime` — values, the permanent object store, dynamic places, dynamic environments, zero values and typed-constant materialization — and the **first concrete `Machine.T`**. Execute C6's scalar expressions and declarations, conversions, `complex`, `println`, scalar operators, closed no-import package initialization over C6's dependency object, output and scalar runtime faults. | One machine and one runtime root, both of which every later milestone extends rather than replaces. | `milestone=C7` (74 + 43) | SC-01…SC-03, SC-05, SC-08, SC-13, SC-14 closed no-import initialization and the first machine start, SC-15, SC-17, SC-20, SC-21, SC-22; gates LAT-019, LAT-177 |
+| C8 | C7 | **Control and continuations.** Assignment, `if`, switches, loops, labels, `break`/`continue`/`goto`, nested blocks, the permanent focus and continuation root; the range control root with its integer and string domains. | One source-zipper control authority with no CFG lowering. | `milestone=C8` (46 + 17) | SC-03, SC-05, SC-06, SC-18, SC-21, SC-22; gate LAT-148 |
+| C9 | C8 | **Functions and activations.** Function types, declarations and literals, callable expression heads, parameters and results, multi-results, calls and returns, closures, activation environments, `defer`/`panic`/`recover`; the iterator-function range domain. | One activation and call authority extending the same application and control roots. | `milestone=C9` (25 + 15) | SC-03…SC-07, SC-09, SC-15…SC-17, SC-20…SC-22; gate LAT-171 |
+| C10 | C9 | **Aggregate and addressable data.** Arrays, structs, pointers, slices, maps, composite literals, indexing and slicing, addressability, aliasing, `append`/`copy`/`clear` and map operations; the array, slice and map range domains. | Aggregate objects extend the C7 store rather than replacing it. | `milestone=C10` (48 + 29) | SC-03…SC-05, SC-08, SC-10, SC-11, SC-15, SC-20, SC-21 |
+| C11 | C10 | **Package orchestration.** Imports, qualified identifiers, the package graph, `init`, generalized package initialization order, command starts and module execution. | C6's dependency object and C7's initialization path generalize to closed multi-package programs, with no peer graph. | `milestone=C11` (20 + 14) | SC-02, SC-05…SC-07, SC-10, SC-14, SC-16, SC-17, SC-20, SC-21 |
+| C12 | C11 | **Methods and interfaces.** Methods, selectors, method values and expressions, interface types and values, conformance, assertions, type switches and dynamic dispatch through the same application path. | One method and interface closure with no runtime type registry. | `milestone=C12` (28 + 23) | SC-03…SC-07, SC-13, SC-21, SC-22 |
+| C13 | C12 | **Generics.** Type parameters, constraints, inference, unification, core types, instantiation and closing substitution. | Parametric typing extends the same type and interface roots. | `milestone=C13` (18 + 23) | SC-03…SC-05, SC-13, SC-21, SC-22; gates LAT-049, LAT-085 |
+| C14 | C13 | **Concurrency.** Goroutines, channel types and objects, send, receive, close, `select`, the channel range domain, and enabledness for concurrency. | The same machine and store gain concurrent behaviour. | `milestone=C14` (22 + 11) | SC-03…SC-06, SC-08, SC-10, SC-15, SC-18, SC-20, SC-21 |
+| C15 | C14 | **Memory model and whole-runtime safety.** Actions, happens-before, races, deadlock, complete enabledness agreement, finite bad-prefix safety. | Global safety theorems over the C14 machine. | `milestone=C15` (12 + 11) | SC-12, SC-16, SC-18, SC-20, SC-21 |
+| C16 | C15 | **External adequacy, platform closure and final authority audit.** The target-matrix decision, pinned-Go correspondence, the terminal observation, every remaining external boundary, and the final ruthless trim. | A closed external claim and one authority per fact across the whole system. | `milestone=C16` (1 + 0) | SC-00, SC-17, SC-19, SC-21 |
 
 ## How the language grows
 
@@ -63,7 +66,8 @@ A constructor lands with every source, acceptance, fact, rendering, fixture and 
 its value and syntax proofs, and — where observable — a differential fixture and an e2e witness. Runtime
 stepping lands at the first mandatory runtime milestone the roadmap names for it. No earlier milestone may
 claim a run theorem for a constructor, and no alternate evaluator may be added meanwhile. **Shrink the
-representable language before weakening `Admissible`.**
+representable language before weakening `Admissible`** — and where a construct is representable but its
+meaning is not yet modelled, report the exact scope boundary rather than a rejection.
 
 The type universe grows in one reviewed order, each root landing complete before the next begins. Integers,
 floats, complex, and the predeclared source aliases are **done**. C6 adds named types over exactly those
@@ -72,10 +76,11 @@ declaration reference** — never a string, a numeric `TypeId`, a registry entry
 and definitions through predeclared types and other C6 named types, and rejects **every** type-declaration
 cycle. Unnamed structural types are not a prerequisite for either.
 
-After C6: valid recursive named types arrive with the later type-literal forms that make recursion legal;
-composite structural types with the composite-data milestone; function types with functions; interfaces with
-interfaces; generics with generics. `uintptr` and exact rune constants remain separately priced scope
-changes, and neither blocks C6. Each root adds STATIC facts only and never resurrects a fake operational
-value to assert a static type exists.
+Each type form lands with the semantics that give it meaning, and there is no general "all structural types"
+event: function types at C9, array, struct, pointer, slice and map types at C10, interfaces at C12, generic
+forms at C13, channels at C14. Valid recursive named types arrive with the first type-literal form that makes
+recursion legal. `uintptr` and exact rune constants remain separately priced scope changes, and neither
+blocks C6. Each root adds STATIC facts only and never resurrects a fake operational value to assert a static
+type exists.
 
 Imports stay unrepresentable until the closed-world resolver lands with its proof. See `.review/scope.tsv`.

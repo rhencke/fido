@@ -1,42 +1,82 @@
-# C6 — ordinary names, one type algebra, static objects, and the permanent store
+# C6 — the static semantic foundation
 
 Review: contract
 
 Goal:
-C6 introduces ordinary names and shadowing. One ordinary identifier fills every name position; the retained
-binding fact decides what each occurrence means. C6 lands the complete predeclared identity catalog, the
-program-indexed type algebra, compiler-owned static variable identity, one expression-result authority, one
-structural arity authority, and the permanent runtime store and environment. It defines **no run relation and
-instantiates no `Machine.T`**; C7 builds the first machine.
+Ordinary names and shadowing. One identifier fills every name position and the retained binding fact decides
+what each occurrence means. C6 lands the complete predeclared identity catalog, one type algebra and
+environment, exact constants, expression/use/application facts, one result-consumption root, compiler-owned
+static variable identity, both dependency objects, and a **three-way** decision that never calls unmodelled
+Go a rejection.
+
+**C6 is entirely static.** It defines no run relation, adds no `Runtime` module, and mints no value, place,
+store, environment or `Machine.T`. C7 introduces all of those together as one vertical, per `ARCH-11`.
 
 ## 1. Module order and ownership
 
 ```text
 Decimal Integer Float Complex FilePath ModulePath Version Collections Names Syntax Index Typing
-Compilable Machine Runtime Safe Render Emit
+Compilable Machine Safe Render Emit
 ```
 
-`Typing` imports `Index` and neither `Compilable` nor `Runtime`. `Runtime` sits after `Compilable`, because a
-dynamic environment is keyed by a compiler-owned variable object.
+`ARCHITECTURE.md` §1 states the ownership law once; this contract adds nothing to it. The two facts that bind
+here: `Typing` imports `Index` and **never** `Compilable`, so no `Typing` signature may mention an
+`ObjectRef`; and `Runtime` does not appear in this order at all.
 
-`ARCHITECTURE.md` §1 states the ownership law once. This contract adds nothing to it and contradicts nothing
-in it.
+## 2. Three public outcomes
 
-## 2. Support depends on binding, not on spelling
+One analysis computes two orthogonal sets. A **diagnostic** asserts the source is invalid Go. A **boundary**
+asserts only that Fido does not yet model an exact capability of an exact object.
 
-`main`, `any`, `error`, `uintptr` and `append` each denote a predeclared object **or** a user declaration that
-shadows it. `T(x)` is a conversion or a call only after the head name resolves. A support decision that a
-spelling ban would have to make before binding is therefore made after binding, against the exact object.
+```coq
+Parameter Elaboration : Syntax.Program -> Type.
+Parameter elaborate   : forall p, Elaboration p.
+Parameter diagnostics : forall {p}, Elaboration p -> list (DiagnosticReason p).
+Parameter boundaries  : forall {p}, Elaboration p -> list (ScopeBoundary p).
 
-Constructor absence still owns every exclusion syntax alone can identify. Where legality depends on binding,
-`Syntax` carries the ordinary source form and `Compilable` enforces the exact resolved capability boundary
-before minting `Compilable.Program`. A resolved object whose semantic rule belongs to a later milestone
-produces an exact unavailable-capability diagnostic naming the object, the required capability and the ledger
-row that owns it — never an unresolved name, never a false wrong-role, never a broad unsupported catch-all.
+Inductive Decision (p : Syntax.Program) : Type :=
+| Compiled     : Program p -> Decision p
+| Rejected     : Failure p -> Decision p
+| OutsideScope : Outside p -> Decision p.
 
-The public acceptance claim is therefore the `SC-22` incremental subset theorem, not equivalence with pinned
-`go build` over every `Syntax.Program`. `TypeIdentifier`, `OperandIdentifier`, `SR-010` and `SR-011` are
-deleted.
+Parameter compile : forall p, Decision p.
+```
+
+`Program p`, `Failure p` and `Outside p` are sealed and each retains the exact `Elaboration p` that produced
+it. Precedence is fixed: any diagnostic gives `Rejected`; no diagnostic with any boundary gives
+`OutsideScope`; both empty gives `Compiled`. **A boundary is never converted to a diagnostic to keep a binary
+result type.** Only `Compiled` carries a `Program`, so only `Compiled` reaches `Safe.Program` or an image.
+
+A boundary names an object and a capability — never a ledger row, a code, a string or a payload bag:
+
+```coq
+Inductive Capability : Type :=
+| TypeCap | ConstantCap | VariableCap | CallableCap | ContextualCap.
+
+Record ScopeBoundary (p : Syntax.Program) : Type := MakeBoundary {
+  boundary_use      : Index.NameUseRef p;
+  boundary_object   : ObjectRef p;
+  boundary_bound    : Binds boundary_use boundary_object;
+  boundary_required : Capability;
+  boundary_absent   : ~ Admits boundary_object boundary_required
+}.
+```
+
+`.review/closure.csv` maps each object to the milestone that owes its capability. That mapping is project
+scheduling data and lives nowhere inside a certified type.
+
+Frozen statements:
+
+```text
+compile_compiled_iff        compile p = Compiled _  <->  diagnostics = [] /\ boundaries = []
+compile_rejected_iff        compile p = Rejected _  <->  diagnostics <> []
+compile_outside_scope_iff   compile p = OutsideScope _  <->  diagnostics = [] /\ boundaries <> []
+rejected_has_witness        every Rejected carries at least one exact definite-invalidity witness
+outside_scope_is_not_rejection   OutsideScope yields no Program and no proof of Go invalidity
+compiled_has_no_boundary    every accepted capability lies inside the current semantic scope
+```
+
+The declarative `Admissible` judgment stays **exact** over the no-boundary domain, in both directions.
 
 ## 3. Source topology
 
@@ -44,8 +84,7 @@ deleted.
 (* Names *)
 Record OrdinaryIdentifier : Type := MakeOrdinary {
   ordinary_identifier : Identifier;
-  ordinary_not_blank  : spelling ordinary_identifier <> "_"%string
-}.
+  ordinary_not_blank  : spelling ordinary_identifier <> "_"%string }.
 
 (* Collections *)
 Record NonEmpty (A : Type) : Type := MakeNonEmpty { ne_first : A; ne_rest : list A }.
@@ -57,21 +96,21 @@ Inductive BindingName : Type :=
 
 Inductive UnaryOp : Type := UnaryMinus.
 
-Inductive ApplicationHead : Type :=
-| NamedHead : Names.OrdinaryIdentifier -> ApplicationHead.
+Definition NonNegDecimal : Type := { d : Float.Decimal | (0 <= Float.coefficient d)%Z }.
+
+Inductive Literal : Type :=
+| IntegerLiteral : N -> Literal
+| FloatLiteral   : NonNegDecimal -> Literal
+| StringLiteral  : string -> Literal.
 
 Inductive TypeExpr : Type :=
 | NamedType : Names.OrdinaryIdentifier -> TypeExpr.
 
-Definition NonNegDecimal : Type := { d : Float.Decimal | (0 <= Float.coefficient d)%Z }.
-
 Inductive Expr : Type :=
-| Name           : Names.OrdinaryIdentifier -> Expr
-| IntegerLiteral : N -> Expr
-| FloatLiteral   : NonNegDecimal -> Expr
-| StringLiteral  : string -> Expr
-| Unary          : UnaryOp -> Expr -> Expr
-| Application    : ApplicationHead -> list Expr -> Expr.
+| Name        : Names.OrdinaryIdentifier -> Expr
+| LiteralExpr : Literal -> Expr
+| Unary       : UnaryOp -> Expr -> Expr
+| Application : Expr -> list Expr -> Expr.
 
 Inductive ConstInitializer : Type :=
 | ExplicitConstInit  : option TypeExpr -> NonEmpty Expr -> ConstInitializer
@@ -106,135 +145,121 @@ Inductive TopLevelDecl : Type :=
 | Main           : Block -> TopLevelDecl.
 ```
 
-`T(x)`, `complex(a, b)` and `println(a, b)` are the same `Application`. `ApplicationHead` is a distinct root
-so C9 can add a callable-expression head and C10 a non-name type head without touching application semantics;
-no placeholder constructor lands early. Because a head is not an `Expr`, a type name never needs an expression
-result, and a bare type name in expression position is an ordinary wrong-role rejection.
+An application head is **one real child expression occurrence** under the `ApplicationHead` role — a name
+used as a head is the same source object as a name anywhere else. There is no `ApplicationHead` source
+category, kind or reference. C9 adds callable expression heads without touching this constructor; a future
+explicit non-name type head is a real Go grammar distinction and may add its own constructor then,
+projecting into this same application machinery.
 
-Literals carry magnitude only. `IntegerLiteral` is a nonnegative `N`, `FloatLiteral` a `Float.Decimal` with
-nonnegative coefficient, and every negative numeric source value is `Unary UnaryMinus`. The floating exponent
-keeps its own sign inside the literal grammar. C6 owns the static unary-minus slice the existing fragment and
-C6 variables need; C7 owns its execution and every other unary and binary operator. Unary plus, complement,
-logical not, address, dereference, receive and all binary operators stay unrepresentable.
+Literals carry magnitude only; every negative numeric source value is `Unary UnaryMinus`. The floating
+exponent keeps its sign inside the literal. C6 owns the static unary-minus slice; C7 owns its execution and
+every other operator. `Blank` creates no object and no variable identity. `Block` is the reusable block root,
+reached only through `Main` at C6; no general function-declaration scaffold lands early. Short declarations
+are function-local; the package-level form is unrepresentable. A package block is a semantic scope, not a
+source construct.
 
-`Blank` creates no semantic object and no variable identity. `Block` is the reusable source block root, which
-C6 reaches only through `Main`. Short declarations are function-local; the package-level form is
-unrepresentable. A package block is a semantic scope built by the static phase, not a source construct.
+## 4. Index and use topology
 
-## 4. Index topology
-
-One kind and one view per source category, refined by view where the category has variants — one `TypeSpec`
-occurrence refined to alias or definition, one `BindingName` occurrence refined to named or blank, one `Expr`
-occurrence, one `ApplicationHead` occurrence. There is no peer node for call versus conversion, none for
-`complex` versus `println`, and no wrapper occurrence duplicating the `Main` or declaration occurrence it
-contains.
+One kind and view per source category, refined by view where a category has variants. No peer node for call
+versus conversion, for `complex` versus `println`, for a name expression versus the same expression
+occurrence, for an application head versus its exact child expression, or for a top-level wrapper versus the
+declaration it contains.
 
 ```text
-FileKind  PackageClauseKind  MainKind  DeclarationKind  BlockKind  StatementKind
-ConstSpecKind  VarSpecKind  TypeSpecKind  BindingNameKind
-ExpressionKind  ApplicationHeadKind  TypeUseKind
+kinds  FileKind PackageClauseKind MainKind DeclarationKind BlockKind StatementKind
+       ConstSpecKind VarSpecKind TypeSpecKind BindingNameKind ExpressionKind TypeUseKind
+
+roles  FilePackage  FileTopLevel n  MainBlock  BlockStatement n  StatementDeclaration
+       DeclarationSpec n  BindingNameOccurrence n  ConstSpecType  ConstInitializerExpression n
+       VarSpecType  VarInitializerExpression n  TypeSpecTarget  TypeNameUse
+       ShortRightExpression n  StatementExpression  UnaryOperand
+       ApplicationHead  ApplicationArgument n
 ```
 
-Roles:
+One sealed structural root covers **every** ordinary expression child — application head, application
+argument, unary operand, statement expression, explicit const initializer, var initializer, short-declaration
+right side:
 
 ```text
-FilePackage  FileTopLevel n  MainBlock  BlockStatement n  StatementDeclaration  DeclarationSpec n
-BindingNameOccurrence n  ConstSpecType  ConstInitializerExpression n
-VarSpecType  VarInitializerExpression n  TypeSpecTarget  TypeNameUse
-ShortRightExpression n  StatementExpression  UnaryOperand
-ApplicationHead  ApplicationArgument n
+DirectExprUseRef = exact parent occurrence + exact child ExprRef + exact source role
+                 + proof the child occupies that role
 ```
 
-`Index` owns one sealed structural refinement used for **every** ordinary expression child:
+No public reference is a parent plus an unchecked natural. An inherited const initializer has no current
+expression child, so it stays a distinct causal object: `InheritedConstUseRef` retains the exact current const
+spec, current binding-name occurrence, enclosing const declaration, nearest preceding explicit const spec,
+predecessor expression occurrence at the corresponding result position, optional predecessor type occurrence,
+current structural `iota` index, and proofs of same-declaration, nearest-predecessor and corresponding
+position. No consumer searches backward, copies source, reconstructs an equal predecessor, or reuses the
+predecessor's resolved result or plan.
 
 ```text
-DirectExprUseRef  =  exact parent occurrence
-                  +  exact child ExprRef
-                  +  exact source role
-                  +  proof the child occupies that role
+ExprUseRef = DirectExprUseRef | InheritedConstUseRef
 ```
 
-A parent plus an unchecked natural is forbidden; the `n` in a role is an indexing label inside the proof, not
-a public field. Frozen refinements: `NameUseRef`, `BindingSiteRef`, `ApplicationRef`, `ApplicationHeadRef`,
-`ExpressionStatementRef`. A `NameUseRef` covers ordinary identifier occurrences in the expression-name,
-type-name and named-application-head roles, and binding is one fact family over that one root.
+Frozen refinements: `NameUseRef`, `BindingSiteRef`, `ApplicationRef`, `ExpressionStatementRef`.
 
-An inherited const initializer has no current expression child, so it is a distinct causal use object.
-`InheritedConstUseRef` retains the exact current const spec; the exact current binding-name occurrence; the
-exact enclosing const declaration; the exact nearest preceding explicit const spec in that declaration; the
-exact predecessor expression occurrence at the corresponding result position; the exact optional predecessor
-type occurrence; the exact current structural `iota` index; and proofs of same-declaration, nearest-
-predecessor and corresponding-position. No consumer searches backward, copies source, reconstructs an equal
-predecessor, reuses the predecessor's resolved result, or reuses its arity plan.
+## 5. Semantic objects
 
-`ExprUseRef` is exactly the sum of `DirectExprUseRef` and `InheritedConstUseRef`.
-
-## 5. Predeclared identity and semantic objects
-
-`Names.PredeclaredName` is the complete identity catalog over every pinned `PRE-*` spelling, owning exact
-identity, spelling, equality and classification from a spelling — and no semantics. C6 installs every one of
-them in the outer scope. Later milestones add capabilities to those exact identities; none creates a new
-predeclared identity or a second lookup path. `Typing` owns the mapping from an admitted predeclared type
-object to its `BasicType`; `Names` does not.
-
-`Compilable` owns one sealed semantic object identity with exact origin:
-
-```text
-ObjectOrigin = Predeclared exact Names.PredeclaredName
-             | Source      exact named BindingSiteRef
-             | Main        exact MainRef
+```coq
+Inductive ObjectOrigin (p : Syntax.Program) : Type :=
+| Predeclared : Names.PredeclaredName -> ObjectOrigin p
+| Source      : Index.BindingSiteRef p -> ObjectOrigin p
+| Main        : Index.MainRef p -> ObjectOrigin p.
 ```
 
-Blank creates no object. There is no binding-target constructor per predeclared type, constant, variable,
-alias, definition or builtin.
+`ObjectRef p` is sealed over that origin. Identity is never a string, integer, map index or reconstructed
+equality. Blank has no object.
 
-Object **kind** — what the object is under Go's namespace rules — is separate from **admitted
-capability**, what Fido currently implements. Capabilities are proof-carrying refinements of the exact
-object, never a Boolean flag bag and never a callback registry:
+`Names.PredeclaredName` is the complete catalog over every pinned `PRE-*` spelling, owning exact identity,
+spelling, equality and classification from a spelling — and no semantics. C6 installs every one in the outer
+scope, which is what makes shadowing correct. `Typing` owns the map from an admitted predeclared type object
+to its `BasicType`; `Names` does not.
 
-```text
-TypeTarget  ConstantTarget  VariableTarget  CallableTarget  ContextualTarget
-```
-
-An object may be known to be a type or a builtin while its semantic rule is assigned to a later milestone;
-that is the unavailable-capability boundary of §2, not a wrong-role result.
+**Kind** is what Go says the object is. **Capability** is what Fido currently implements. Capabilities are
+proof-carrying refinements of the exact object, never a boolean list, a callback registry, one constructor per
+spelling, or an independently rebuilt target record. An object may be known to be a type or a builtin while
+its rule belongs to a later milestone; that is a `ScopeBoundary`, not a wrong-role diagnostic.
 
 `BindingFact cp use` retains the exact `NameUseRef` and the exact resolved object from the one binding phase.
-Type use, value use and application-head use consume that same fact and require different capabilities. No
-consumer reruns lookup.
-
-One binder fact over an exact binding site classifies it as `Blank`, `Declares` an exact new object, or
+Type use, value use and head use consume that same fact and require different capabilities; no consumer reruns
+lookup. One binder fact over an exact binding site classifies it `Blank`, `Declares` an exact new object, or
 `Reuses` an exact existing variable object (short declaration only). A same-block short redeclaration reuses
 the exact object; an outer object is shadowed by a new one; at least one nonblank short left name must be new.
 
-## 6. Static variable identity
+**Static variable identity.** A named var declaration or new short binding creates one exact compiler-owned
+variable object carrying one semantic type, and **that object is the static slot**.
+`Compilable.VariableObject cp t` is a type-indexed refinement and projection of the exact semantic object —
+never an independent id, registry entry, or equality to a reconstructed object. Constants, types, blank names
+and `main` have none. C7's dynamic environment maps these exact objects to dynamic places.
 
-A named var declaration or a new short binding creates one exact compiler-owned variable object carrying one
-semantic type. **That object is the static slot.** `Compilable.VariableObject cp t` is a type-indexed
-refinement and projection of the exact semantic object — never an independently minted id, record, registry
-entry, or equality to a reconstructed object. `Runtime` mints no slot identity and uses this exact object as
-its environment key. Constants, types, blank names and `main` have no variable object.
+## 6. Typing
 
-The object identity is minted during scope construction; the type index is added only once type and
-initializer facts exist.
-
-## 7. Typing
+`Typing` mentions no `Compilable` type. It owns type forms, semantic types, exact constants, the environment's
+input and output, and reflected decisions — and no scope lookup, source traversal or object identity.
 
 ```coq
-Inductive BasicType : Type :=
-| BoolBasic | IntegerBasic : Integer.Kind -> BasicType
-| FloatBasic : Float.Kind -> BasicType | ComplexBasic : Complex.Kind -> BasicType | StringBasic.
+Inductive TypeForm (p : Syntax.Program) : Type :=
+| BasicForm : BasicType -> TypeForm p.
+(* later milestones add function, aggregate, interface, generic and channel forms *)
 
 Inductive SemanticType (p : Syntax.Program) : Type :=
-| BasicTypeOf : BasicType -> SemanticType p
+| FormType    : TypeForm p -> SemanticType p
 | DefinedType : Index.BoundDefinedTypeRef p -> SemanticType p.
 
+Inductive TypeTarget (p : Syntax.Program) : Type :=
+| PredeclaredTarget : BasicType -> TypeTarget p
+| AliasTarget       : Index.AliasSpecRef p -> TypeTarget p
+| DefinedTarget     : Index.BoundDefinedTypeRef p -> TypeTarget p.
+
 Module Type TYPE_ENV.
+  Parameter ResolvedTypeEquations : Syntax.Program -> Type.
+  Parameter TypeGraphEvidence : forall {p}, ResolvedTypeEquations p -> Type.
   Parameter Env : Syntax.Program -> Type.
-  Parameter build : forall p, ResolvedEquations p -> Acyclic p -> Env p.
-  Parameter alias_target   : forall {p}, Env p -> Index.AliasSpecRef p -> SemanticType p.
-  Parameter definition_rhs : forall {p}, Env p -> Index.BoundDefinedTypeRef p -> SemanticType p.
-  Parameter underlying     : forall {p}, Env p -> SemanticType p -> SemanticType p.
+  Parameter build : forall {p} (eqs : ResolvedTypeEquations p), TypeGraphEvidence eqs -> Env p.
+
+  Parameter denote     : forall {p}, Env p -> TypeTarget p -> SemanticType p.
+  Parameter underlying : forall {p}, Env p -> SemanticType p -> TypeForm p.
   Parameter identicalb     : forall {p}, Env p -> SemanticType p -> SemanticType p -> bool.
   Parameter assignableb    : forall {p}, Env p -> SemanticType p -> SemanticType p -> bool.
   Parameter convertibleb   : forall {p}, Env p -> SemanticType p -> SemanticType p -> bool.
@@ -243,48 +268,48 @@ Module Type TYPE_ENV.
 End TYPE_ENV.
 ```
 
-`underlying` is the ordinary underlying-type operation, not a permanently basic-only one, so later structural
-types extend the algebra rather than replace it; C6 additionally proves every C6-admitted type has a basic
-underlying type. A defined type's identity is its exact nonblank declaration reference; an alias resolves to
-its target and mints none. Each decision has one executable function and one reflection theorem.
+`underlying` returns a **`TypeForm`**, so a defined type is never an underlying result. C6 proves every
+admitted form is basic; later milestones extend `TypeForm` and do not replace `underlying`. A defined type's
+identity is its exact nonblank declaration reference; an alias mints none and resolves to its target.
+`TypedConstant` is indexed by the exact `Env` that establishes a defined type's underlying form — an equal
+rebuilt environment is not provenance. Each decision has one function, one relation and one reflection
+theorem. `Compilable` builds the exact `ResolvedTypeEquations` from retained bindings and owns the fact that
+an exact object has an exact `TypeTarget`; `Typing` owns what that target means.
 
-`Env` is indexed by `Syntax.Program`, built once from exact resolved equations and exact acyclicity evidence
-supplied by `Compilable`. `TypedConstant` is indexed by the exact environment, because a defined typed
-constant's underlying type and representability depend on it; an independently rebuilt equal environment is
-not provenance. `Typing` owns no name table, no scope lookup and no runtime value.
+## 7. Static phase
 
-## 8. Static phase
-
-Package expression facts may depend on forward constants and variables, so the dependency object is built
-**before** the facts that consume it.
+An initializer determines the type of `var x = e` and `x := e`, so typed variable facts cannot precede
+expression facts. Declaration elaboration is therefore interleaved, in package dependency order and local
+source order.
 
 ```text
 exact Input
-→ scope forest + binder classifications + semantic object identities
+→ scope forest + binder classifications + object identities
 → all name bindings + structural uses
 → type equations / type graph
 → exact TypeEnv or exact type-cycle object
 → package const/var dependency graph from retained bindings
 → exact acyclic order or exact dependency-cycle object
-→ declaration and object semantic facts + typed variable-object refinements
-→ bottom-up expression / use / application facts
-→ arity and context plans + unused-local result
-→ diagnostics
+→ declaration elaboration, in package dependency order and local source order:
+    → bottom-up initializer expression facts
+    → exact use facts
+    → exact result-consumption plan
+    → constant / variable semantic fact
+    → typed variable-object refinement where applicable
+→ remaining bottom-up expression and application facts
+→ unused-local result
+→ diagnostics + scope boundaries
 ```
 
 Each stage is indexed by the exact prior object, so a later stage cannot pair with a foreign equal
 predecessor. Short-declaration new-versus-reused classification sits in scope construction because later
-statements bind against its result. Local declarations are sequential; package declarations use the retained
-acyclic order. The type graph and the package const/var dependency graph stay distinct — different nodes,
-edges, cycle rules and later consumers. C11 consumes this same dependency object for runtime initialization
+statements bind against its result. The type graph and the package const/var dependency graph stay
+distinct — different nodes, edges, cycle rules and later consumers; C11 consumes the same dependency object
 and adds no peer graph.
 
-Scopes and both graphs are per package, keyed by the parent directory `Compilable` already retains. Each
-package block is built from all files of that package before package-level resolution, rejecting duplicates
-without overwrite. The same spelling in another package is unrelated, and no cross-package name resolves while
-imports are absent.
-
-**Exact scope starts:**
+Scopes and both graphs are per package, keyed by the parent directory `Compilable` already retains, built from
+all files of that package before package-level resolution, rejecting duplicates without overwrite. The same
+spelling in another package is unrelated, and no cross-package name resolves while imports are absent.
 
 | declaration | scope begins |
 |---|---|
@@ -296,32 +321,35 @@ imports are absent.
 | predeclared object | the outer universe block |
 | blank | never |
 
-A local alias or definition therefore sees its own name; with only named right-hand sides in C6, every
-self-reference and every longer cycle is invalid and diagnosed. `init` is forbidden only for C6 package
-declarations; a local declaration named `init` is ordinary.
+A local alias or definition sees its own name; with only named right-hand sides, every self-reference and
+longer cycle is invalid and diagnosed. `init` is forbidden only for C6 package declarations.
 
 The existing proof-carrying input, work forest, member index, outcome trace and sealed core are generalized
-where they own these same causal facts. No second analyzer stands beside them. Accepted and rejected outcomes
-retain the same exact phase object that produced their facts and diagnostics.
+where they own these same causal facts. No second analyzer and no post-hoc fact table stands beside them.
 
-## 9. Expression results
+## 8. Expression results
 
-Where a result came from is not what a result **is**. There is no `NameConstantFact`, `NameVariableFact`,
-`ConversionConstantFact`, `ConversionNonconstantFact`, `ComplexFact` or `PrintlnFact`.
+A result is not classified by the syntax that produced it. There is no `NameConstantFact`,
+`NameVariableFact`, `ConversionConstantFact`, `ConversionNonconstantFact`, `ComplexFact` or `PrintlnFact`.
 
 ```text
-ResultAtom   = UntypedConstant exact Constant
-             | TypedConstant   exact SemanticType + exact Typing.TypedConstant
-             | ValueResult     exact SemanticType
+ResultAtom  = UntypedConstant exact Constant
+            | TypedConstant   exact SemanticType + exact Typing.TypedConstant
+            | ValueResult     exact SemanticType
 
-ExprResult   = FixedResults exact ordered list of ResultAtom
-             | Contextual   exact contextual object
+ExprMeaning = FixedResults    exact ordered list of ResultAtom
+            | ObjectReference exact ObjectRef
+            | Contextual      exact contextual object
 ```
 
+`ObjectReference` lets a head name retain its exact object without pretending a type object is a standalone
+value.
+
 ```text
-integer / float / string literal → one constant result
+literal                          → one constant result
 true / false                     → one constant result through ordinary binding
 variable name                    → one value result
+type or callable name, head role → exact object reference
 unary minus                      → one result
 T(x)                             → one result
 complex(a, b)                    → one result
@@ -330,142 +358,106 @@ iota                             → contextual until its exact const use suppli
 nil                              → contextual until a legal target type exists
 ```
 
-`ExpressionFact cp expr_ref` is the sole accepted context-free fact for that exact occurrence, and its
-representation is sealed. Syntax-specific theorems are projections of it, never peer stores. C9 extends this
-root for multi-result functions rather than replacing it.
+`ExpressionFact cp expr_ref` is the sole context-free fact for that exact occurrence and its representation is
+sealed; syntax-specific theorems are projections, never peer stores. `UseFact cp use_ref` consumes the exact
+use, the exact child fact, the exact retained context and the exact target facts, and owns defaulting, target
+selection, assignability, representability, result selection and `iota`/`nil` context. It never rereads the
+raw child and never reruns binding. C9 extends the result vector for multi-results.
 
-`UseFact cp use_ref` consumes the exact use, the exact child `ExpressionFact`, the exact retained context and
-the exact target facts. It owns context defaulting, target selection, assignability, representability, result
-selection and `iota`/`nil` context. It never rereads the raw child and never reruns binding.
-
-## 10. Application
+## 9. Application
 
 The head's exact `BindingFact` classifies the application. Both cases share source structure and result
 plumbing, not typing rules:
 
 ```text
-ApplicationTarget = ConversionTarget exact TypeTarget
-                  | CallableTarget   exact callable object
+ApplicationTarget = ConversionTarget exact TypeCapability
+                  | CallableTarget   exact CallableCapability
 ```
 
-One closed executable application judgment with a reflection theorem decides acceptance. It stores no callback
-in any object. Admitted rules:
+One closed executable judgment with a reflection theorem decides acceptance; no object stores a callback.
+Admitted rules:
 
 - **conversion** — exactly one argument, one result, through the one `Typing` convertibility and
   representability authority, retaining constant-versus-nonconstant status and rerunning no resolution;
-- **`complex`** — exactly two arguments; each a constant or value of an admitted float type, or an untyped
-  numeric constant representable as one; the result is `complex128` when both are untyped or `float64`-typed
-  and `complex64` when both are `float32`-typed; a mismatched pair is rejected. One result;
-- **`println`** — a variadic list, each argument a constant or value of an admitted basic type (bool, any
-  integer kind, float, complex, string) with untyped constants defaulted first. Zero results.
+- **`complex`** — exactly two arguments, each an untyped numeric constant or a value of an admitted float
+  type:
 
-Every other predeclared callable identity resolves correctly and has no C6 application rule; it receives the
-exact unavailable-capability diagnostic owned by its `PRE-*` row. The package `main` object is the same case
-under a different row: `main()` is valid Go, C6 has no function objects, so the head resolves to the exact
-`Main` object and the boundary is owned by `SPEC-060` and `SPEC-076` at C9.
+  | arguments | result |
+  |---|---|
+  | both untyped numeric constants | **untyped complex constant** |
+  | one untyped, one typed `float32` | the untyped one converts to `float32`; `complex64` |
+  | one untyped, one typed `float64` | the untyped one converts to `float64`; `complex128` |
+  | both typed `float32` | `complex64` |
+  | both typed `float64` | `complex128` |
+  | both typed, differing float types | rejected |
 
-`ApplicationFact` is a dependent view of the exact `ExpressionFact`, not a second table. It exposes the exact
-source application, the exact head occurrence, binding, object and target, the exact ordered argument uses and
-child facts, the exact argument arity plan, the exact result vector, and proof of the reflected judgment. C7
-consumes this exact fact and neither reclassifies the target nor rebuilds argument order.
+- **`println`** — a variadic list, each argument an untyped constant or a value of an admitted basic type
+  (bool, any integer kind, float, complex, string), untyped constants defaulted first. Zero results. C6 owns
+  static acceptance only; C7 owns evaluation and output.
 
-`StatementEligible` is a separate executable and reflected judgment. Result count alone does not decide it: at
-C6 `println(...)` is eligible, `complex(...)` is not, and a conversion is not. Later function calls become
-eligible because their results may be discarded, and receive expressions join this same relation at their
-milestone.
+Every other predeclared callable resolves correctly, has no C6 application rule, and produces a
+`ScopeBoundary` — never a rejection. The package `main` object is the same case: `main()` is valid Go, C6
+has no function objects, so the head resolves to the exact `Main` object and the boundary names its missing
+`CallableCap`.
 
-## 11. Arity
+`ApplicationFact` is a dependent view of the exact `ExpressionFact`, not a peer table. It exposes the exact
+application and head occurrence, the exact head use, binding, object and target, the exact ordered argument
+uses and child facts, the exact argument result-consumption plan, the exact result vector, and proof of the
+reflected judgment. C7 consumes it and neither reclassifies the target nor rebuilds argument order.
 
-One structural `ArityPlan` over an exact sequence of expression result vectors, with only the legal Go shapes:
+`StatementEligible` is a separate executable and reflected judgment; result count alone does not decide it. At
+C6 `println(...)` is eligible, `complex(...)` is not, a conversion is not, and any non-application expression
+statement is rejected by the exact Go statement rule. Later calls become eligible because their results may be
+discarded; receive expressions join the same relation at their milestone.
+
+## 10. Result consumption
+
+One structural root over an exact sequence of expression result vectors, with only the legal Go shapes:
 
 ```text
 Pairwise     each right-hand expression supplies exactly one result
 SingleMulti  one right-hand expression supplies the complete target sequence
 ```
 
-Context plans retain that same exact `ArityPlan` and add their own rules — const initialization, var
-initialization, short declaration, application arguments. Later assignment, return and call milestones extend
-these context plans and add no second arity authority. Inherited const initialization builds a new
-current-spec plan from the inherited source uses under the current `iota`; it never reuses the predecessor's
-resolved plan.
+Context plans retain that same exact root and add their own rules — const initialization, var
+initialization, short declaration, application arguments. Later assignment and return milestones extend
+these context plans and add no second arity, defaulting or assignability authority. Inherited const
+initialization builds a new current-spec plan from the inherited source uses under the current `iota`; it
+never reuses the predecessor's resolved plan.
 
-## 12. Runtime
+## 11. Safe and Render
 
-C6 creates the permanent store, not a disposable scalar one. C10 adds composite, map and channel object forms
-behind these same roots and extends `Place` projections; it replaces nothing public.
+`Safe` keeps only `Property = True`, the safety property, and the sealed certificate retaining the exact
+compiled capability. `Safe.Value`, value well-formedness, typed-constant materialization and every expression,
+statement, declaration and file evaluator are deleted: constants and types to `Typing`, static expression
+results to `Compilable`, and runtime values and evaluation to C7.
+
+`Render` is structural and performs no binding or type lookup. Rendering must be **precedence- and
+token-safe**: `"-" ++ render e` is not a correct unary renderer, because a nested unary emits `--x` and
+retokenizes.
 
 ```coq
-Module Type RUNTIME_ROOT.
-  Parameter Value : forall (cp : Compilable.Program), Typing.SemanticType (source cp) -> Type.
-  Parameter Observation : forall (cp : Compilable.Program), Typing.SemanticType (source cp) -> Type.
-  Parameter observe : forall {cp} {t}, Value cp t -> Observation cp t.
-  Parameter Place : forall (cp : Compilable.Program), Typing.SemanticType (source cp) -> Type.
-  Parameter Store : Compilable.Program -> Type.
-  Parameter Environment : Compilable.Program -> Type.
+Inductive Prec : Type := PrimaryPrec | UnaryPrec.
 
-  Parameter Live  : forall {cp} {t}, Store cp -> Place cp t -> Prop.
-  Parameter Bound : forall {cp} {t}, Environment cp -> Compilable.VariableObject cp t -> Place cp t -> Prop.
-  Parameter EnvironmentWF : forall {cp}, Store cp -> Environment cp -> Prop.
-
-  Parameter zero_value : forall cp t, Value cp t.
-  Parameter materialize_constant :
-    forall cp t, Typing.TypedConstant (Compilable.type_environment cp) t -> Value cp t.
-
-  Parameter empty_store : forall cp, Store cp.
-  Parameter empty_environment : forall cp, Environment cp.
-  Parameter load : forall {cp} {t} {m : Store cp} {q : Place cp t}, Live m q -> Value cp t.
-
-  Parameter Allocation : forall {cp} {t} (before : Store cp), Value cp t -> Type.
-  Parameter allocate   : forall {cp} {t} (m : Store cp) (v : Value cp t), Allocation m v.
-  Parameter Write      : forall {cp} {t} {m : Store cp} {q : Place cp t}, Live m q -> Value cp t -> Type.
-  Parameter write      : forall {cp} {t} {m : Store cp} {q : Place cp t} (ev : Live m q) (v : Value cp t),
-    Write ev v.
-  Parameter Bind : forall {cp} {t} {m : Store cp} {e : Environment cp} (wf : EnvironmentWF m e)
-    (x : Compilable.VariableObject cp t) {q : Place cp t} (ev : Live m q), Type.
-  Parameter bind : forall {cp} {t} {m : Store cp} {e : Environment cp} (wf : EnvironmentWF m e)
-    (x : Compilable.VariableObject cp t) {q : Place cp t} (ev : Live m q), Bind wf x ev.
-  Parameter lookup : forall {cp} {t} {m : Store cp} {e : Environment cp} (wf : EnvironmentWF m e)
-    (x : Compilable.VariableObject cp t), option { q : Place cp t | Live m q /\ Bound e x q }.
-End RUNTIME_ROOT.
+prec (Name _)          = PrimaryPrec
+prec (LiteralExpr _)   = PrimaryPrec
+prec (Application _ _) = PrimaryPrec
+prec (Unary _ _)       = UnaryPrec
 ```
 
-Every operation result is **indexed by its exact inputs**, so the successor cannot be paired with a foreign
-predecessor and no field-plus-equality claims an input it did not consume. Each projects the exact successor
-and its preservation facts (§15). `load` takes liveness evidence rather than a bare place, so an earlier or
-foreign store cannot satisfy it.
-
-Store and environment stay separate because the store maps dynamic places to values while an environment maps
-compiler-owned static variables to places, and future activations carry different environments over one
-shared store. There is no merged `Memory`. Allocation, write and binding stay distinct operations and are not
-a second transition relation.
-
-`Value cp t` is intrinsically typed and every public observation stays indexed by the exact type, so C10 has
-no untyped scalar observation to replace. `Runtime` owns zero values, typed-constant materialization, value
-representation and store/place/environment operations — and no expression evaluator.
-
-## 13. Safe and Render
-
-`Safe` keeps only the safety property and the sealed certificate retaining the exact `Compilable.Program`.
-`Safe.Property = True` remains honest for this fragment. Runtime value representation, value
-well-formedness, typed-constant materialization and every expression, statement, declaration and file
-evaluator leave `Safe`: constants and types to `Typing`, static expression results to `Compilable`, runtime
-values and materialization to `Runtime`, dynamic evaluation to C7's machine.
-
-`Render` stays a direct structural function over `Syntax.Program` and performs no resolution. Shared
-renderers: integer, nonnegative float, string, unary minus, `NonEmpty` lists, declarations, blocks, one
-application and one expression statement.
+`render_at r e` parenthesizes exactly when `prec e` binds looser than `r`, and never otherwise:
 
 ```text
-render_expr(Unary UnaryMinus e)         = "-" render_expr(e)
-render_expr(Application h args)         = render_head(h) "(" join(", ", map render_expr args) ")"
-render_stmt(ExprStmt e, n)              = indent(n) render_expr(e) NL
+render (Unary UnaryMinus e)  = "-" ++ render_at PrimaryPrec e
+render (Application h args)  = render_at PrimaryPrec h ++ "(" ++ join(", ", map render args) ++ ")"
+render_stmt (ExprStmt e, n)  = indent(n) ++ render e ++ NL
 ```
 
-Rendering never asks whether a head resolves to a type or a callable, because the source bytes are identical
-either way. There is no special complex, conversion or `println` renderer. Render theorems depending on
-`Safe.eval_expr` move or are deleted; semantic denotation belongs to `Typing`, `Compilable` or C7. **Every
-previously accepted generated byte is preserved exactly**, including `println(x)`, `uint8(300)` and
-`complex(re, im)`.
+Arguments sit at the top of the expression grammar and take no parentheses. Frozen outputs: `-1`; `-(-x)`;
+`-T(x)` — minimal parentheses, since a call binds tighter than unary; `f(x)`; `f(-x)`; `(-f)(x)` if a unary
+ever heads an application. One literal renderer, one unary renderer, one application renderer and one
+expression-statement renderer replace the special complex, conversion and `println` paths. **Every pre-C6
+generated byte is preserved exactly**, including `println(x)`, `uint8(300)` and `complex(re, im)`.
 
 File level keeps the existing bytes: the header line, a blank line, the package clause, a blank line before
 each top-level declaration, and the exact final newline. Within a declaration: one tab per block depth,
@@ -473,46 +465,51 @@ comma-space separators, no trailing whitespace, direct source spelling, and an i
 names only. One spec renders ungrouped; zero or two-or-more render grouped, with the zero branches exactly
 `const ()`, `var ()`, `type ()` each followed by a newline.
 
-## 14. Diagnostics
+## 12. Diagnostics
 
-Frozen as exact Rocq constructors, codes, primary and related anchors, payloads, erasure and precedence in the
-implementation's first commit, before any proof is attempted. Anchors are exact refined references. Precedence
-derives from one canonical source order within each package plus the existing preflight rule; every pre-C6
-program keeps its exact existing diagnostics.
+Frozen here, not selected during implementation. Every constructor takes exact refined references; erasure
+drops payloads and keeps the code; precedence is one canonical source order per package plus the existing
+preflight rule. Every pre-C6 program keeps its exact existing diagnostics. A boundary is **not** a diagnostic
+and has its own public projection (§2).
 
-| code | rule | primary anchor | payload |
-|---|---|---|---|
-| `FIDO-E-DUPLICATE-DECL` | one identifier bound twice in a block, including a conflicting `main` | later `BindingSiteRef` | the exact earlier site |
-| `FIDO-E-MISSING-MAIN` | a main package has no entry point | the package | — |
-| `FIDO-E-INIT-MISUSE` | package-level `init` used for a C6 declaration | `BindingSiteRef` | — |
-| `FIDO-E-UNRESOLVED-NAME` | no object in any enclosing scope | `NameUseRef` | the spelling |
-| `FIDO-E-WRONG-ROLE` | the object exists with a different Go role | `NameUseRef` | exact object + required role |
-| `FIDO-E-CAPABILITY-BOUNDARY` | the object's semantic rule belongs to a later milestone | `NameUseRef` | exact object + required capability + owning ledger row |
-| `FIDO-E-TYPE-CYCLE` | a type-declaration cycle | one cycle member | the exact cycle evidence |
-| `FIDO-E-INIT-CYCLE` | a package const/var dependency cycle | one cycle member | the exact cycle evidence |
-| `FIDO-E-FIRST-SPEC-INHERITED` | the first const spec omits its expression list | `ConstSpecRef` | — |
-| `FIDO-E-ARITY` | no legal `ArityPlan` shape fits the site | the exact plan site | the exact result vectors and target count |
-| `FIDO-E-SHORT-DECL-NO-NEW` | no nonblank left name is new | `ShortVarDecl` occurrence | — |
-| `FIDO-E-SHORT-REDECL-TYPE` | a reused variable object gets a different type | the left `BindingSiteRef` | both exact types |
-| `FIDO-E-NIL-NO-TYPE` | `nil` has no legal target type | `ExprRef` | — |
-| `FIDO-E-IOTA-CONTEXT` | `iota` outside a const initializer | `ExprRef` | — |
-| `FIDO-E-INIT-NOT-ASSIGNABLE` | an initializer is not assignable or representable | `ExprUseRef` | source and target types |
-| `FIDO-E-UNUSED-LOCAL` | a local variable object is never read | its `BindingSiteRef` | — |
-| `FIDO-E-BAD-ARGUMENT` | an argument fails the target's application rule | the exact argument occurrence | the target's precise reason |
-| `FIDO-E-BAD-OPERAND` | an operand fails the operator's rule | the exact operand occurrence | the operator's precise reason |
-| `FIDO-E-NOT-STATEMENT` | the expression is not statement-eligible | `ExpressionStatementRef` | why it is ineligible |
+```coq
+Inductive DiagnosticReason (p : Syntax.Program) : Type :=
+| DuplicateBinding   : Index.BindingSiteRef p -> Index.BindingSiteRef p -> DiagnosticReason p
+| MissingMain        : Index.PackageRef p -> DiagnosticReason p
+| InitMisuse         : Index.BindingSiteRef p -> DiagnosticReason p
+| UnresolvedName     : Index.NameUseRef p -> DiagnosticReason p
+| WrongRole          : Index.NameUseRef p -> ObjectKind -> Capability -> DiagnosticReason p
+| TypeCycle          : Index.TypeSpecRef p -> CycleEvidence p -> DiagnosticReason p
+| DependencyCycle    : Index.BindingSiteRef p -> CycleEvidence p -> DiagnosticReason p
+| FirstSpecInherited : Index.ConstSpecRef p -> DiagnosticReason p
+| ResultMismatch     : PlanSiteRef p -> list nat -> nat -> DiagnosticReason p
+| ShortDeclNoNew     : Index.StatementRef p -> DiagnosticReason p
+| ShortRedeclType    : Index.BindingSiteRef p -> SemanticType p -> SemanticType p -> DiagnosticReason p
+| NilNoTarget        : Index.ExprRef p -> DiagnosticReason p
+| IotaNoContext      : Index.ExprRef p -> DiagnosticReason p
+| NotAssignable      : Index.ExprUseRef p -> SemanticType p -> SemanticType p -> DiagnosticReason p
+| UnusedLocal        : Index.BindingSiteRef p -> DiagnosticReason p
+| BadArgument        : Index.DirectExprUseRef p -> ArgumentReason p -> DiagnosticReason p
+| BadOperand         : Index.DirectExprUseRef p -> OperandReason p -> DiagnosticReason p
+| NotStatement       : Index.ExpressionStatementRef p -> IneligibleReason p -> DiagnosticReason p.
+```
 
-There is no generic code-plus-payload bag and no broad unsupported catch-all.
-`FIDO-E-CAPABILITY-BOUNDARY` retains the exact object, the exact required capability and the exact governing
-ledger row, and is distinct from both unresolved-name and wrong-role. Arity is one authority: conversion
-argument counts, call argument counts, const/var initializer counts and short-declaration counts all fail
-through `FIDO-E-ARITY`. Unused locals cover function-local variable objects only; package variables are
-exempt.
+Codes: `FIDO-E-DUPLICATE-DECL`, `FIDO-E-MISSING-MAIN`, `FIDO-E-INIT-MISUSE`, `FIDO-E-UNRESOLVED-NAME`,
+`FIDO-E-WRONG-ROLE`, `FIDO-E-TYPE-CYCLE`, `FIDO-E-INIT-CYCLE`, `FIDO-E-FIRST-SPEC-INHERITED`,
+`FIDO-E-RESULT-MISMATCH`, `FIDO-E-SHORT-DECL-NO-NEW`, `FIDO-E-SHORT-REDECL-TYPE`, `FIDO-E-NIL-NO-TYPE`,
+`FIDO-E-IOTA-CONTEXT`, `FIDO-E-INIT-NOT-ASSIGNABLE`, `FIDO-E-UNUSED-LOCAL`, `FIDO-E-BAD-ARGUMENT`,
+`FIDO-E-BAD-OPERAND`, `FIDO-E-NOT-STATEMENT`.
 
-## 15. Public interfaces and theorems
+`DuplicateBinding` covers a conflicting `main` and duplicate nonblank names in one short declaration; missing
+`main` stays distinct. `ResultMismatch` is the one arity authority — conversion and call argument counts,
+const and var initializer counts, and short-declaration counts all fail through it. `WrongRole` fires only
+when the object's Go kind cannot fill the source role; when the kind fits but Fido has no rule, the outcome is
+a boundary. Unused locals cover function-local variable objects only.
 
-Every public fact is an abstract dependent family or a projection from the retained capability. No
-client-constructible peer record may pair a reference with a target.
+## 13. Public interfaces and theorems
+
+Every public fact is an abstract dependent family or a projection from the retained capability; no
+client-constructible record pairs a reference with a target.
 
 | query | index |
 |---|---|
@@ -523,82 +520,75 @@ client-constructible peer record may pair a reference with a target.
 | `expression_fact` | `ExprRef` |
 | `use_fact` | `ExprUseRef` |
 | `application_view` | `ApplicationRef` |
-| `arity_plan` | an exact plan site |
+| `result_plan` | an exact plan site |
 | `variable_object` | `BindingSiteRef` of a var name or new short binding |
 | `package_dependency_fact` | an exact package |
+| `scope_boundaries` | the exact elaboration |
 
-Full theorem statements — binders, indices, premises and relation direction — are frozen in the same
-commit for: complete predeclared outer-scope identity and ordinary shadowing; per-package scope construction
-and
-file-order independence; duplicate rejection without overwrite; the const/var scope-start law and the separate
-local-type scope-start law beginning at the identifier; binding totality and uniqueness on accepted programs;
-object kind and capability refinements; alias non-identity and exact defined-type identity; the type
-environment and each reflected decision; type-cycle and dependency-cycle reflection; direct-use structural
-provenance; inherited-const predecessor and current-`iota` provenance; expression-result and use-fact
-totality; application target classification and result-vector exactness; statement eligibility; structural
-arity matching and context-plan exactness; short binding classification and exact variable reuse; store
-allocation, freshness, liveness, load and write with its frame law; environment binding, lookup and
-well-formedness preservation; direct rendering and pre-C6 byte preservation.
+Full statements — binders, indices, premises and direction — are frozen in the same commit for: the six
+outcome theorems of §2; complete predeclared outer-scope identity and ordinary shadowing; per-package scope
+construction and file-order independence; duplicate rejection without overwrite; the const/var scope-start law
+and the separate local-type law beginning at the identifier; binding totality and uniqueness on accepted
+programs; object kind and capability refinements; alias non-identity and exact defined-type identity;
+`underlying` returning a form and every reflected decision; type-cycle and dependency-cycle reflection;
+direct-use structural provenance; inherited-const predecessor and current-`iota` provenance; expression-result
+and use-fact totality; application target classification and result-vector exactness; statement eligibility;
+structural result matching and context-plan exactness; short binding classification and exact variable reuse;
+static variable identity; precedence-safe rendering and pre-C6 byte preservation.
 
 A public theorem exposes an accepted guarantee or is required by a named later consumer. Obsolete carrier
 names do not survive as aliases; for every existing theorem whose carrier changes, the implementation names
 its exact replacement or states why the guarantee is subsumed. Proof helpers stay local.
 
-## 16. Review boundaries
+## 14. Review boundaries
 
-C6 is one milestone with two implementation reviews. A file allowlist cannot bound either, because
-program-indexing `SemanticType` necessarily reaches `Safe`, `Render`, the witnesses and every downstream
-theorem naming the old type.
+**Semantic-root review** stops only when the whole repository is green and: the source and index roots exist;
+the exact three-way outcome exists; the complete predeclared identity and object/binding roots exist; the type
+form, environment and reflected decisions exist; the static phase runs in the §7 order; expression, use,
+application and result-plan facts project from the retained core; compiler-owned variable identity exists; the
+fixed sixteen-name resolver, the old expression phase, the special source forms, `Safe.Value` and
+`Safe.eval_expr` are deleted; **no `Runtime` module, value, place, store, environment or machine has landed**;
+and every existing program renders byte-identically.
 
-**Semantic-root review** stops only when the whole repository is green and all of these hold: the corrected
-source and index topology exist; the complete predeclared identity and binding root exist; scopes, both graphs
-and the exact type environment exist; the static phase runs in the §8 order; object, expression, use,
-application, arity, binder and variable facts project from the retained core; the permanent `Runtime`
-value/store/place/environment roots exist; the pre-C6 fragment is mechanically migrated through every module
-required for coherence; the fixed sixteen-name resolver, the old expression phase, the special source forms,
-the `Safe` value and evaluator path and every compatibility wrapper are deleted; all existing generated bytes
-and runtime goldens are unchanged; and `make check` plus forced-fresh verification pass. No C6 feature fixture
-and no C7 runtime semantics land before this review.
+**Final C6 review** then completes declarations and shadowing, the diagnostics and boundaries of §2 and §12,
+C6 rendering, C6 fixtures, `LAT-077`, generated-artifact evidence, and current document and ledger truth.
 
-**Final review** then completes C6 declaration and name behaviour, the diagnostics of §14, canonical
-rendering, C6 fixtures and `LAT-077`, generated artifacts and pinned-Go evidence, and current document and
-ledger truth.
+C7 is forbidden until Rob accepts C6.
 
-## 17. Fixtures
+## Done
 
 Package and local `const`/`type`/`var` accepted; a local variable read by `println`; unused local rejected;
-cross-file package declarations resolving independent of file order; two packages using the same spelling
-without collision; duplicate package names rejected; local shadowing of package and predeclared names; a
-shadowed `println` and a shadowed `complex` each producing the exact wrong-role diagnostic; an unshadowed
-`len`, an unshadowed `var x uintptr` and a recursive `main()` each producing the exact capability-boundary
-diagnostic naming its own owning row; short
-declaration with no new nonblank name rejected; short redeclaration reusing its variable object; blank
-declarations creating no object; `true`, `false`, the predeclared type names, `byte` and `rune` resolving
-through ordinary binding; alias preserving identity; two defined declarations with equal underlying types
-having distinct identity; a local type spec referring to its own name rejected as a cycle; a package constant
-cycle and a package variable cycle each rejected; a package expression depending on a forward constant
-accepted; a first const spec with an inherited initializer rejected; an inherited spec taking the predecessor
-expression under its own `iota`; unshadowed `nil` rejected in every C6 use; `iota` outside a const initializer
-rejected; unary minus on a constant and on a variable accepted, and on a string rejected; `complex(...)` as an
-expression statement rejected; typed zero values for every admitted basic and defined type; every currently
-accepted program rendering byte-identically after migration; generated C6 programs passing the pinned Go build
-with their exact expected runtime observation.
+cross-file package declarations independent of file order; two packages sharing a spelling without collision;
+duplicate package names rejected; local shadowing of package and predeclared names; a shadowed `println` and a
+shadowed `complex` each giving the exact wrong-role diagnostic; an unshadowed `len`, a `var x uintptr` and a
+recursive `main()` each giving `OutsideScope` with its exact object and capability and **no** diagnostic;
+short declaration with no new nonblank name rejected; short redeclaration reusing its variable object; blank
+declarations creating no object; `true`, `false`, `byte` and `rune` resolving through ordinary binding; alias
+preserving identity; two defined declarations with equal underlying forms having distinct identity; a local
+type spec naming itself rejected as a cycle; package constant and variable cycles rejected; a package
+expression depending on a forward constant accepted; a first const spec with an inherited initializer
+rejected; an inherited spec taking the predecessor expression under its own `iota`; unshadowed `nil` and
+out-of-context `iota` rejected; `complex` of two untyped constants yielding an untyped complex constant;
+unary minus on a constant and a variable accepted and on a string rejected; `-(-x)` rendering with its
+parentheses; `complex(...)` as an expression statement rejected; every currently accepted program rendering
+byte-identically after migration; generated C6 programs passing the pinned Go build with their exact expected
+observation.
 
 ## Preserve
 
-`Syntax.Program` as the sole source authority and the AST as the one IR; the retained `Compilable.Program`,
-`Failure` and whole-elaboration cores and their sealing; `Machine.T` uninstantiated; direct rendering and the
-one `Emit.Mint.issue` authority; certified-module coverage, the whole-theory audit and controls A-E; every
-sealed-capability, mint, transport and positive client control; working-tree and staged-index separation;
-no-host-Python; `life.md`.
+`Syntax.Program` as the sole source authority and the AST as the one IR; the retained `Compilable` cores and
+their sealing; `Machine.T` uninstantiated; direct rendering and the one `Emit.Mint.issue` authority;
+certified-module coverage, the whole-theory audit and controls A-E; every sealed-capability, mint, transport
+and positive client control; working-tree and staged-index separation; no-host-Python; `life.md`.
 
 ## Stop
 
 The program-indexed `SemanticType` migration cannot complete without weakening an accepted guarantee; a C6 row
 needs a construct assigned to a later milestone; a decision cannot be given one function and one reflection
 theorem; a fact family cannot be projected from the retained core without a free-standing authority beside it;
-the dependency object cannot be built from retained bindings before the facts that consume it; a place could
-be paired with a foreign store or an environment with a foreign variable object; an unavailable capability
-cannot be reported with its exact object and owning ledger row; `LAT-077` needs a diagnostic the phase cannot
-produce; a run relation, evaluator or machine instantiation is needed for a C6 row; implementation needs a
-placeholder, compatibility path, trusted shortcut, fuel, bound or premature future state.
+the dependency object cannot be built before the facts that consume it, or declaration elaboration cannot be
+interleaved as §7 requires; a boundary cannot be reported with its exact object and capability without naming
+a ledger row inside a certified type; `Typing` cannot be closed without mentioning a `Compilable` type;
+`LAT-077` needs a diagnostic the phase cannot produce; a run relation, value, store, environment or machine is
+needed for a C6 row; implementation needs a placeholder, compatibility path, trusted shortcut, fuel, bound or
+premature future state.

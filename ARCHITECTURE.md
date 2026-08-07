@@ -42,21 +42,22 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 | `Names` | lexical identifier validity, ordinary-name refinement, and the complete pinned predeclared spelling identity catalog | scope, binding, semantic type, call rules, or support policy |
 | `Syntax` | source structure and source values | resolution, object identity, semantic type, diagnostics, variable identity, or behaviour |
 | `Index` | exact source-occurrence identity, views, parents, children, and source roles | binding, typing, diagnostics, or semantic facts |
-| `Typing` | the type and constant algebra, one source-indexed type environment, and executable type decisions with reflection theorems | scope lookup, runtime values, diagnostics, or stepping |
-| `Compilable` | scopes, semantic objects, binding, the retained static phase, exact static facts, static variable identity, dependency objects, diagnostics, and the accepted/rejected capabilities | runtime values, dynamic places, rendering, or behaviour |
-| `Runtime` | typed runtime values, the permanent object store, dynamic places, dynamic environments, and their intrinsic operations | static variable identity, name binding, expression evaluation, safety, or stepping |
+| `Typing` | type forms, semantic types, exact constants, type-environment input and output, and reflected type decisions | scopes, semantic object identity, source lookup, diagnostics, runtime values, or behaviour |
+| `Compilable` | scopes, semantic objects, binding, the retained static analysis, expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision | runtime values, dynamic places or environments, rendering, or behaviour |
 | `Machine` | the one behaviour relation and derived runs | static compilation or a second evaluator |
-| `Safe` | only the safety property and the sealed certificate over the exact `Compilable.Program` | values, stores, evaluation, rendering, or static facts |
-| `Render` | direct canonical bytes from `Syntax.Program` | resolution, fact construction, or evaluation |
+| `Safe` | only the safety property and the sealed certificate retaining the exact compiled capability | values, stores, evaluation, rendering, or static facts |
+| `Render` | direct canonical source bytes | binding, typing, fact construction, or evaluation |
+| `Runtime` | **introduced by C7**: values, the permanent object store, dynamic places, dynamic environments, and their intrinsic operations | static variable identity, name binding, static facts, safety, or a second run relation |
 | `Emit` | the one image mint and exact emitted bytes | source or semantic authority |
 
 `Integer` owns integer width, `Float` float format and `Complex` complex format. There is no `TargetConfig`,
 no `GoTypeTag`, no second width or conversion authority, no typed AST beside the one raw `Syntax`, and no
 source-name table in `Syntax`, `Typing` or `Render`.
 
-Two rows are the destination rather than today's tree: `Runtime` does not exist yet, and `Safe` still holds
-the runtime value and evaluator path that belongs to it. C6 creates `Runtime` and moves them. Every other row
-holds now.
+One row is the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**, because
+no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). `Safe`
+still holds the runtime value and evaluator path that belongs there; C6 deletes it from `Safe` and C7 rebuilds
+it under `Runtime`. Every other row holds now.
 
 Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
 `Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
@@ -67,8 +68,9 @@ reference.
 
 **Support that depends on binding is decided after binding.** Constructor absence owns every exclusion syntax
 alone can identify. Where legality depends on which object a name resolves to, `Syntax` carries the ordinary
-source form and `Compilable` enforces the exact resolved capability boundary before minting
-`Compilable.Program`.
+source form and `Compilable` reports an exact scope boundary — the exact object and the exact capability it
+lacks — which is a third outcome beside acceptance and rejection, never a claim that the source is invalid
+Go.
 
 **Standard collections only.** Where a mature collection exists in the pinned Rocq stdlib (`FMapAVL`,
 `FMapPositive`), the OCaml stdlib (`Map.Make`, `Set.Make`) or the Rocq runtime (`Names.GlobRef.Set`), Fido
@@ -201,9 +203,16 @@ default output, and the empty program is accepted.
 The one elaboration root `elaborate` builds one retained `Index.Program` and returns a `Compilable.Elaboration`.
 `Compilable.compile` **projects** it — there is no second checker.
 
-An accepted program yields `Compilable.Compiled` carrying a `Compilable.Program`, which retains the program,
-its exact elaborated index, and its `Compilable.Facts`. A rejected program yields `Compilable.Rejected`
-carrying exact structured diagnostics **and no `Compilable.Program`** — hence no `Safe.Program` and no image.
+The one analysis computes two orthogonal sets — **definite diagnostics** and **exact scope boundaries** —
+and the public decision has three branches whose precedence is fixed: any diagnostic gives `Rejected`; no
+diagnostic with any boundary gives `OutsideScope`; both empty gives `Compiled`. **A boundary never becomes a
+diagnostic to preserve a binary result type.**
+
+`Compiled` carries a `Compilable.Program` retaining the program, its exact elaborated index and its
+`Compilable.Facts`. `Rejected` carries exact structured diagnostics and at least one exact
+definite-invalidity witness. `OutsideScope` carries the exact whole-elaboration object and the exact
+boundaries, and asserts nothing about Go validity. Only `Compiled` mints `Compilable.Program`, hence only
+`Compiled` reaches `Safe.Program` or an image.
 
 Diagnostics are structured values anchored in the exact snapshot: invalid conversion (primary = the innermost
 failing conversion, with an outer-context field), default-not-representable, duplicate-main, missing-main and
@@ -254,10 +263,10 @@ imports `Machine` yet. Its product is the base itself; the first complete runtim
 consumes it. Adding a concrete machine early, merely to give it a consumer, would be exactly the scaffold
 ARCH-11 forbids.
 
-**There will be exactly one concrete machine, and C7 builds it.** C6 supplies the static facts,
-compiler-owned variable identities, typed values, dynamic places, the permanent store, dynamic environments
-and the static initialization-dependency object that a runtime consumes, and instantiates
-nothing. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
+**There will be exactly one concrete machine, and C7 builds it.** C6 is entirely static: it supplies the
+retained facts, compiler-owned variable identities and the initialization-dependency object a runtime
+consumes, and adds no runtime module, value, place, store or environment. C7 introduces `Runtime` and the
+machine together, as one vertical. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
 expression and `println`
 fragment one run relation and adds its own expression, output, order and fatal-panic slice. Every later
 milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
@@ -440,17 +449,24 @@ extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are gene
 declarative `Admissible` judgment: sound, complete, and the one elaboration root satisfies
 `elaboration_accepted_iff_admissible`.
 
-**(B) External adequacy — the GOAL, not a kernel theorem.** The public claim is `SC-22`'s incremental subset
-theorem: every program `Admissible` accepts, pinned `go build ./...` accepts. **A program `Admissible`
-accepts but `go build` rejects is a correctness failure**, always, with no exception. It is attacked by
-differential experiments and the e2e, never proved about `cmd/go`.
+**(B) External adequacy — the GOAL, not a kernel theorem.** Adequacy is **bidirectional over the in-scope
+domain**, and the domain is named rather than assumed:
 
-The converse direction is bounded, not free. Valid Go that Fido does not accept must be excluded by exactly
-one of two named mechanisms: **constructor absence**, priced as a `.review/scope.tsv` row, wherever syntax
-alone identifies the exclusion; or an **exact resolved-capability boundary** owned by a `.review/closure.csv`
-row, wherever legality depends on binding and the object's semantic rule belongs to a later milestone. A
-rejection answering to neither row is a model bug. Both sets shrink as milestones land, and what remains at
-C17 is exactly the ledger's permanent `OUT` rows.
+```text
+Fido accepts                            -> pinned go build ./... accepts
+pinned go build accepts + no boundary   -> Fido accepts
+```
+
+**A program `Admissible` accepts but `go build` rejects is a correctness failure**, always. **A representable
+program `go build` accepts, carrying no scope boundary, that Fido rejects is a model bug** — never a
+documented limitation. Neither direction is proved about `cmd/go`; both are attacked by differential
+experiments and the e2e.
+
+What makes the second direction honest is that "outside the current semantic scope" is **not a rejection**.
+Valid Go that Fido does not yet model leaves the compiler through `OutsideScope`, carrying the exact object
+and the exact capability it lacks, and asserting nothing about the source's validity. Syntax-identifiable
+exclusions stay unrepresentable and are priced as `.review/scope.tsv` rows. Both sets shrink as milestones
+land, and what remains at C16 is exactly the ledger's permanent `OUT` rows.
 
 Integration tests are **alarms, not proofs**. A Go build or run failure for an emitted program is never an
 expected test — it means `Admissible`, rendering, the derived facts or the transport is wrong. Negative
@@ -462,9 +478,9 @@ candidates fail in Rocq, before any bytes.
 
 Every live **representability** restriction is one row in `.review/scope.tsv`: the pinned target, unmodelled
 platform limits, the cooperating-developer threat boundary, buildx-only builds, module-path and file-naming
-narrowings, imports on hold, the admitted fragment, and the bounded float-decimal domain. Every live
-**resolved-capability** boundary — a name that binds to its exact object whose semantic rule belongs to a
-later milestone — is instead the `.review/closure.csv` row that owns that object. Those are the two
+narrowings, imports on hold, ASCII-only identifiers, and the bounded float-decimal domain. A **scope
+boundary** is not a restriction of this kind: it is a semantic outcome over an exact object and an exact
+missing capability, and `.review/closure.csv` records which milestone owes that capability. Those are the two
 mechanisms §7 (B) permits, and no restriction may live only in a code comment.
 
 Standing acceptance obligations are rows in `.review/acceptance.tsv`. Spec-closure and latitude rows are
@@ -548,10 +564,10 @@ contract. `ROADMAP.md` names which milestone consumes which; `.review/closure.cs
 | SC-13 | INTERFACE-GENERIC-CLOSURE | Method sets, promoted selectors, typed nil, dispatch, assertion and type switches close under substitution, with no runtime type registry and no re-derived conformance. |
 | SC-14 | PACKAGES-INIT-STARTS-EXIT | Initialization follows every dependency edge and rejects cycles before `Compilable.Program`, multiple command roots produce independent starts, the emitted `go.mod` carries exactly the accepted module path and `go 1.23` with no `toolchain` directive, and final states have no steps. |
 | SC-15 | BUILTINS | Every admitted predeclared built-in resolves through ordinary binding facts, receives exact use facts and executes through `step`; `print`/`println` output formatting is pinned-toolchain adequacy evidence, never a portable language theorem. |
-| SC-16 | ERRORS-UNREPRESENTABILITY | Acceptance and rejection are decided over one retained whole-elaboration object and every diagnostic projects from the exact object that produced it; no rejected program mints `Compilable.Program`, `Safe.Program` or `Emit.Image`, and no broad "unsupported" catch-all stands where the ledger names distinct exclusions. |
+| SC-16 | ERRORS-UNREPRESENTABILITY | One retained whole-elaboration object decides `Compiled`, `Rejected` and `OutsideScope`, and every diagnostic and every boundary projects from the exact object that produced it. **A scope boundary is never collapsed into a rejection**; only `Compiled` mints `Compilable.Program`, `Safe.Program` or `Emit.Image`; and no broad "unsupported" catch-all stands where the ledger names distinct exclusions. |
 | SC-17 | RENDER-ADEQUACY-MEMBERSHIP | Direct rendering covers every admitted constructor with no raw-text escape and one `Emit.Mint.issue` publication path; a deterministic program matches the pinned observation tuple exactly, and a nondeterministic one only through a sound-and-complete membership checker that consumes `enabled_dec` and defines no semantics. |
 | SC-18 | ENABLEDNESS-DECISION | `enabled_dec` decides readiness for nil, buffered, unbuffered, closed, select-with-default, absorbing and deadlock states, and agrees exactly with relational `step` on reachable well-formed states. Staged: **C5** freezes the generic `EnabledDecision`, `FinalAbsorbing` and `Stuck` shapes over abstract `Machine.T` and provides no decision inhabitant; **C8** closes ordinary control and absorbing-final readiness; **C14** closes nil, buffered, unbuffered and closed-channel readiness plus select readiness; **C15** closes deadlock classification and exact agreement with relational `step` on all reachable well-formed states. |
-| SC-19 | OUT-BOUNDARIES | Every `OUT` row freezes its missing constructor, the valid Go it gives up, the reason, the future-inclusion price, and a proof that no host helper or generic fallback can reintroduce the behaviour. |
+| SC-19 | OUT-BOUNDARIES | Every `OUT` row freezes the valid Go it gives up, the reason, the future-inclusion price, and a proof that no host helper or generic fallback can reintroduce the behaviour. Its boundary is established **either** by an exact missing source constructor **or** by an exact missing semantic capability over a resolved object; missing-constructor is not the only permitted form. |
 | SC-20 | EVAL-ORDER-LATITUDE | Every latitude row is owned by the one relational `step` with no generic choice authority, and no row adds a public machine field, a second evaluator, a scheduler object or a generic `Choice` action. |
 | SC-21 | PROOF-COST-INTERNALS | The public base is fixed while internal forms stay disposable: an internal type or index is kept only when removing it admits a real invalid state, and a capability retaining only copied fields plus equality to a recomputation is a failed design even when its extensional theorems pass. |
-| SC-22 | ACCEPTANCE-ALIGNMENT | `fido_accepts_subset_pinned_gc` is discharged incrementally by the checkpoint that makes each restriction representable, without making pinned gc a language-semantics authority — a finite probe set is evidence, never the global theorem. |
+| SC-22 | ACCEPTANCE-ALIGNMENT | Exact compile acceptance is retained over the no-boundary domain: a program pinned gc accepts and that carries no scope boundary is accepted by Fido. The one-way `fido_accepts_subset_pinned_gc` theorem remains mandatory but is not the whole claim. Both are discharged incrementally by the checkpoint that makes each restriction representable, without making pinned gc a language-semantics authority — a finite probe set is evidence, never the global theorem. |
