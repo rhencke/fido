@@ -592,6 +592,28 @@ No compatibility alias survives.
 
 ## 13. Theorems
 
+The §13 statements are written in the **post-`Arguments`** spelling, which is what the implementation
+declares:
+
+```coq
+Arguments MakeNonEmpty {A} _ _.
+Arguments Predeclared {p} _.  Arguments SourceBound {p} _.  Arguments MainObject {p} _.
+Arguments DirectUse {p} _.  Arguments InheritedUse {p} _.
+Arguments GraphAcyclic {p eqs} _.  Arguments GraphCyclic {p eqs} _.
+Arguments TypeMeaningReq {p i ph} _ _.  Arguments ValueMeaningReq {p i ph} _ _.
+Arguments ApplicationReq {p i ph} _ _.  Arguments StatementReq {p i ph} _ _.
+Arguments UnaryReq {p i ph} _ _.
+Arguments AcceptedDecision {p core} _ _.
+Arguments RejectedDecision {p core} _.  Arguments OutsideDecision {p core} _ _.
+Arguments Compiled {p} _ _.  Arguments Rejected {p} _.  Arguments OutsideScope {p} _.
+Arguments DispBlank {cp}.  Arguments DispDeclares {cp} _.  Arguments DispReuses {cp} _ _.
+Arguments UntypedConstant {cp} _.  Arguments TypedConstantAtom {cp} _ _.
+Arguments ValueResult {cp} _.
+Arguments FixedResults {cp} _.  Arguments ContextualForm {cp} _.  Arguments NoStandaloneResult {cp}.
+Arguments ConversionTarget {cp r f} _ _.  Arguments CallableTarget {cp r f} _.
+Arguments UnusedLocal {p} _.
+```
+
 ```coq
 Theorem decision_accepted_iff : forall p (a : Elaboration p),
   (exists Hd Hb, decision a = AcceptedDecision Hd Hb)
@@ -691,7 +713,7 @@ Theorem plan_pairs_every_target : forall cp s,
   map fst (plan_pairing (result_plan cp s)) = plan_targets (result_plan cp s).
 Theorem plan_consumes_every_result : forall cp s,
   map snd (plan_pairing (result_plan cp s)) ++ plan_blank_consumed (result_plan cp s)
-  = concat (plan_vectors (result_plan cp s)).
+  = List.concat (plan_vectors (result_plan cp s)).
 
 Theorem short_decl_has_new_name : forall cp s,
   ShortDeclSite cp s ->
