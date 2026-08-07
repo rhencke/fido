@@ -57,7 +57,10 @@ source-name table in `Syntax`, `Typing` or `Render`.
 One row is the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**, because
 no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). `Safe`
 still holds the runtime value and evaluator path that belongs there; C6 deletes it from `Safe` and C7 rebuilds
-it under `Runtime`. Every other row holds now.
+it under `Runtime`. The other rows describe the destination too, not a finished tree: `Names` does not yet
+hold the complete predeclared catalog, `Index` does not yet own the refined references C6 adds, `Typing` does
+not yet own a program-indexed algebra, and `Compilable` owns no scope, object, boundary or three-way decision.
+Each is a C6 obligation. What holds **today** is the division of responsibility, not its contents.
 
 Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
 `Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
@@ -156,10 +159,13 @@ second tree.
 ### Typing — the one type authority
 
 `Typing` is evidence over the raw syntax, never a typed AST. The type universe **today** is exactly
-`{ BoolType, IntegerType over the ten Integer kinds, FloatType, ComplexType, StringType }`. It is not
-permanent: the algebra becomes program-indexed at C6 and gains defined types identified by their exact
-declaration reference. It grows only through reviewed milestones, never by a string, numeric tag or
-registry.
+`{ BoolType, IntegerType over the ten Integer kinds, FloatType, ComplexType, StringType }` — bare forms with
+no identity of their own. C6 replaces that with the Go rule: each predeclared basic type is a **named
+identity**, so `int` and `int32` are distinct types that merely share an integer form, and a defined type is
+a further identity carrying its exact declaration reference. Form is what conversion and representability
+read; identity is what assignability reads, and the two are never the same fact. `byte` and `rune` are
+aliases — they mint no identity and are identical to `uint8` and `int32`. The universe grows only through
+reviewed milestones, never by a string, numeric tag or registry.
 
 A raw literal denotes an **exact untyped constant**: integers arbitrary-precision, a bare float literal an
 exact canonical rational, a complex literal an exact pair of rationals, strings exact byte sequences.
@@ -167,10 +173,19 @@ exact canonical rational, a complex literal an exact pair of rationals, strings 
 `Typing.TypedConstant : SemanticType -> Type` is an intrinsic dependent family. **A mismatched or
 out-of-range typed constant is unrepresentable, never merely rejected.**
 
-`Typing.convert_constant` is the one conversion authority. Integer conversions are value-preserving and
-range-checked. Float conversions round **once at the destination** — F32 directly at binary32, never via F64,
-and a same-format float is returned unchanged. Complex conversions round each component once, and
-scalar↔complex follows Go's zero-imaginary rule.
+`Typing.convert_constant` is today's one conversion authority, and every conversion the current fragment can
+express is constant. Integer conversions are value-preserving and range-checked. Float conversions round
+**once at the destination** — F32 directly at binary32, never via F64, and a same-format float is returned
+unchanged. Complex conversions round each component once, and scalar↔complex follows Go's zero-imaginary
+rule.
+
+C6 makes conversion **two rules, because Go's are not one rule**. The constant authority keeps exactly the
+behaviour above, restated over a destination basic form. Beside it C6 adds the **nonconstant** authority,
+which is strictly narrower: identical types, types sharing an underlying form, scalar numeric to scalar
+numeric, and complex to complex. It admits no scalar↔complex crossing, so `complex128(i)` and `float64(c)`
+on variables are rejected — exactly as pinned `gc` rejects them. A conversion site reads the constant rule
+when its operand is constant and the value rule otherwise; neither is a fallback for the other, and neither is
+defined from the other.
 
 One source-shaped conversion `Syntax.Convert ts e` names a **source** type. Its semantic target is the
 compiler-owned resolution of `ts`. The index-free typing spec is parameterized by that resolver, so `Typing`
@@ -250,7 +265,9 @@ From C6 the same rule binds the phase the core retains. The **exact type environ
 phase, the **exact package dependency outcome**, and every accepted binding, object, expression, use,
 application, result-plan and static-variable fact are projections of that one phase — not rebuilt by a
 second call to the environment builder, and not declared as independent accepted-world families beside it.
-that found a type cycle holds a cyclic result and therefore has no environment at all.
+The environment is not total over phases: the phase result is a sum, and a phase that found a type cycle
+holds a cyclic result and therefore has no environment at all. The accepted environment is reached by
+**dependent elimination** of that result, never by an equality bridge to a rerun.
 
 ### Machine — the abstract run base
 
@@ -274,8 +291,8 @@ ARCH-11 forbids.
 retained facts, compiler-owned variable identities and the initialization-dependency object a runtime
 consumes, and adds no runtime module, value, place, store or environment. C7 introduces `Runtime` and the
 machine together, as one vertical. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
-expression and `println`
-fragment one run relation and adds its own expression, output, order and fatal-panic slice. Every later
+expression and `println` fragment one run relation and adds its own expression, output, order and
+fatal-panic slice. Every later
 milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
 and package dependency order — and none replaces it with a peer. A second run relation is the failure this
 base exists to prevent.
@@ -454,7 +471,15 @@ extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are gene
 
 **(A) Kernel-internal exactness — PROVED.** The executable `Compilable.compile` succeeds exactly for the
 declarative `Admissible` judgment: sound, complete, and the one elaboration root satisfies
-`elaboration_accepted_iff_admissible`.
+`elaboration_accepted_iff_admissible`. Today the decision is two-way and that equivalence is unconditional.
+
+C6 makes the decision three-way, and the equivalence is then stated **over the in-scope domain**: soundness
+stays unconditional — a `Compiled` outcome always carries `Admissible` — and completeness holds exactly as
+wide as the domain, `Admissible p -> InScope p -> compile p` compiling. A program carrying an unmet semantic
+requirement returns the third outcome with that exact requirement, which is a statement about Fido's reach
+and never a claim that the program is invalid Go. Narrowing the domain to hide a rejection Fido gets wrong is
+the one way this claim can be laundered, so `InScope` is a proved property of the program, never a residue of
+whatever the checker failed on.
 
 **(B) External adequacy — the GOAL, not a kernel theorem.** Adequacy is **bidirectional over the in-scope
 domain**, and the domain is named rather than assumed:
@@ -472,8 +497,8 @@ experiments and the e2e.
 What makes the second direction honest is that "outside the current semantic scope" is **not a rejection**.
 Valid Go that Fido does not yet model leaves the compiler through `OutsideScope`, carrying the exact unmet
 semantic requirement — site, resolved object or target, and argument profile where the rule needs one —
-and asserting nothing about the source's validity. Syntax-identifiable
-exclusions stay unrepresentable and are priced as `.review/scope.tsv` rows. Both sets shrink as milestones
+and asserting nothing about the source's validity. Syntax-identifiable exclusions stay unrepresentable
+and are priced as `.review/scope.tsv` rows. Both sets shrink as milestones
 land, and what remains at C16 is exactly the ledger's permanent `OUT` rows.
 
 Integration tests are **alarms, not proofs**. A Go build or run failure for an emitted program is never an

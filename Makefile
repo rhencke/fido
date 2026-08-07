@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants audit-fresh profile perf pytools hostpython contract-surface
+        diet mutants audit-fresh profile perf pytools hostpython contract-surface go-probe
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -206,6 +206,29 @@ contract-surface: builder
 	@docker run --rm -e HOME=/tmp -w /tmp -v "$(SURFACE)":/tmp/in.v:ro $(ROCQTAG) \
 	  sh -c 'cp /tmp/in.v /tmp/surface.v && rocq c -q /tmp/surface.v' \
 	  && echo "fido: contract-surface OK — $(SURFACE) elaborates under the pinned Rocq"
+
+# Differential ALARM against the pinned Go toolchain, never a proof authority.  Each immediate subdirectory
+# of $(GOPROBE) is one self-contained module; the target reports whether pinned `go build` accepts it.  This
+# is how a proposed static rule is checked against `gc` before the rule is written down — the same role the
+# e2e differentials play for emitted programs, applied to hand-written probes during contract work.
+#
+# Sources are MOUNTED read-only and copied to a writable scratch inside, because the Go build cache and
+# module bookkeeping write beside the source.  Nothing here enters the repository or the build context.
+GOPROBE ?= /tmp/fido-go-probe
+GOTAG   := fido-go:$(shell sha256sum Dockerfile | cut -c1-16)
+go-probe: builder
+	@test -d "$(GOPROBE)" || { echo "fido: no $(GOPROBE) — write probe modules there first"; exit 1; }
+	@docker image inspect $(GOTAG) > /dev/null 2>&1 || \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target go-base \
+	    --load -t $(GOTAG) . > /dev/null
+	@docker run --rm -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOFLAGS=-mod=mod \
+	  -v "$(GOPROBE)":/probe:ro $(GOTAG) sh -c ' \
+	    cp -r /probe /tmp/p; cd /tmp/p; \
+	    for d in */; do d=$${d%/}; \
+	      out=$$(cd "$$d" && go build ./... 2>&1); \
+	      if [ -z "$$out" ]; then printf "ACCEPT  %s\n" "$$d"; \
+	      else printf "REJECT  %s  %s\n" "$$d" "$$(echo "$$out" | head -1)"; fi; \
+	    done'
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
