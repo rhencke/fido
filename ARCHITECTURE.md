@@ -68,9 +68,10 @@ reference.
 
 **Support that depends on binding is decided after binding.** Constructor absence owns every exclusion syntax
 alone can identify. Where legality depends on which object a name resolves to, `Syntax` carries the ordinary
-source form and `Compilable` reports an exact scope boundary — the exact object and the exact capability it
-lacks — which is a third outcome beside acceptance and rejection, never a claim that the source is invalid
-Go.
+source form and `Compilable` reports an exact scope boundary over an exact unmet **semantic requirement** —
+the exact site, the exact resolved object or target, and the exact argument profile where the missing rule
+depends on one. That is a third outcome beside acceptance and rejection, never a claim that the source is
+invalid Go.
 
 **Standard collections only.** Where a mature collection exists in the pinned Rocq stdlib (`FMapAVL`,
 `FMapPositive`), the OCaml stdlib (`Map.Make`, `Set.Make`) or the Rocq runtime (`Names.GlobRef.Set`), Fido
@@ -244,6 +245,12 @@ component is unrepresentable by type mismatch rather than rejected by a check.
 the index, facts, layout, plan and both diagnostic lists are projections of it, never a stored equality to a
 rerun. The core, program, failure and facts records, their constructors and the core builder are all
 **sealed**, so a client cannot assemble a peer core, and `Compilable.compile` is the only mint.
+
+From C6 the same rule binds the phase the core retains. The **exact type environment** built during the
+phase, the **exact package dependency outcome**, and every accepted binding, object, expression, use,
+application, result-plan and static-variable fact are projections of that one phase — not rebuilt by a
+second call to the environment builder, and not declared as independent accepted-world families beside it.
+that found a type cycle holds a cyclic result and therefore has no environment at all.
 
 ### Machine — the abstract run base
 
@@ -463,8 +470,9 @@ documented limitation. Neither direction is proved about `cmd/go`; both are atta
 experiments and the e2e.
 
 What makes the second direction honest is that "outside the current semantic scope" is **not a rejection**.
-Valid Go that Fido does not yet model leaves the compiler through `OutsideScope`, carrying the exact object
-and the exact capability it lacks, and asserting nothing about the source's validity. Syntax-identifiable
+Valid Go that Fido does not yet model leaves the compiler through `OutsideScope`, carrying the exact unmet
+semantic requirement — site, resolved object or target, and argument profile where the rule needs one —
+and asserting nothing about the source's validity. Syntax-identifiable
 exclusions stay unrepresentable and are priced as `.review/scope.tsv` rows. Both sets shrink as milestones
 land, and what remains at C16 is exactly the ledger's permanent `OUT` rows.
 
