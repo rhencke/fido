@@ -51,6 +51,10 @@ familiarity, and implementation convenience are not sufficient; Git preserves th
 does not still earn its weight must be deleted. New frameworks, registries, schemas, validator hierarchies,
 compatibility layers, or governance surfaces require Rob's approval.
 
+**Physical structure follows semantic structure.** Split a subsystem only at permanent roots with one-way
+dependencies; use `Foo.v` with `Foo/Bar.v`, keep one authority per fact, and reject `Utils`/`Common`/`Helpers`
+grab bags.
+
 ## The rules
 
 1. Resolve one exact Git ref and read `.review/NEXT.md`.

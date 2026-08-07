@@ -88,6 +88,35 @@ a second identity authority. A failed builder stays failed. If nothing fits, rep
 
 **No fuel, ever.** Totality comes from decreasing structure.
 
+### Physical structure follows semantic structure
+
+One semantic owner may span several Rocq compilation units. Size alone never triggers a split; only a
+permanent semantic root with a one-way dependency does. `Foo.v` is the composition and public-capability
+boundary. `Foo/Bar.v` is a permanent internal layer named `Foo.Bar`, and it is named for the facts it owns —
+never `Utils`, `Common` or `Helpers`.
+
+Lower layers do not import higher layers, and production never imports an evidence layer. A split creates no
+duplicate carrier, compatibility facade, callback registry or reconstructed provenance: the same fact keeps
+the same single owner on both sides of the cut. A circular dependency is not an obstacle to route around; it
+means the semantic cut is wrong, and it returns to review.
+
+C6 decomposes `Compilable` on exactly this rule:
+
+```text
+Compilable.v            phase composition, Core, Elaboration, Decision, Program/Failure/Outside, compile
+Compilable/Bindings.v          package identity, scopes, object identity, binding, shadowing
+Compilable/TypeResolution.v    type equations, graph decision, retained result and environment
+Compilable/Dependencies.v      package const/var dependency nodes, order, runtime projection
+Compilable/Expressions.v       expression, role-indexed use, unary, application and statement facts
+Compilable/Results.v           result-to-target plans, binder finalization, static variables
+Compilable/Report.v            failure causes, diagnostics, requirements, boundaries, canonical lists
+Compilable/Evidence.v          certified fixtures and controls; no production module imports it
+```
+
+Bindings precedes TypeResolution, Dependencies and Expressions; Expressions precedes Results; Results and
+Dependencies precede Report; Report precedes `Compilable.v`; `Compilable.v` precedes Evidence. No child
+imports `Compilable.v`.
+
 ---
 
 ## 2. Source and program representation
