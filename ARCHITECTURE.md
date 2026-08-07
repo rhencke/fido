@@ -520,7 +520,7 @@ was retired because another row already carried its obligation.
 |---|---|
 | ARCH-01 | The deletion and generalization standard: retention tests and the prohibition list. |
 | ARCH-02 | Minimal machine base — no Go feature defines a second run relation. |
-| ARCH-03 | One owner per meaning; the opaque static capability and failure retain the exact compiler object by construction. Public fact, diagnostic, layout and plan interfaces are projections. **Equality to a rerun is never provenance.** |
+| ARCH-03 | One owner per meaning; the opaque static capability, its failure **and its outside-scope result** all retain the exact compiler object by construction. Public fact, diagnostic, boundary, layout and plan interfaces are projections of that object, never independently minted peers. **Equality to a rerun is never provenance.** |
 | ARCH-04 | Expression fact/use split — the use builder never inspects the raw child again. |
 | ARCH-05 | Single type algebra; aliases do not create identity; recursive named types refer to declarations. |
 | ARCH-06 | Static slot versus dynamic place — source binding identity and runtime storage identity never collapse. |
