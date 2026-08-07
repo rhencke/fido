@@ -3,10 +3,10 @@
 Review: contract
 
 Goal:
-Ordinary names and shadowing, with meaning decided by binding. C6 lands the complete predeclared identity
-catalog, one type algebra and environment, exact constants, expression/use/application facts, one
-result-consumption root, compiler-owned static variable identity, both dependency objects, and a **three-way**
-decision that never calls unmodelled Go a rejection.
+Ordinary names acquire meaning only through binding. C6 lands the complete predeclared identity catalog, one
+type environment, exact constants, expression/use/application facts, one result-consumption root,
+compiler-owned static variable identity, both dependency objects, and a three-way decision that never calls
+unmodelled Go a rejection.
 
 **C6 is entirely static.** No `Runtime` module, no value, place, store, environment or `Machine.T`. C7
 introduces all of them together as one vertical, per `ARCH-11`.
@@ -18,70 +18,77 @@ Decimal Integer Float Complex FilePath ModulePath Version Collections Names Synt
 Compilable Machine Safe Render Emit
 ```
 
-`ARCHITECTURE.md` §1 states the ownership law once. Two consequences bind here: `Typing` imports `Index` and
-never `Compilable`, so no `Typing` signature mentions an `ObjectRef`; and `Runtime` is absent from this order.
-`Float` owns decimal representation, so the nonnegative refinement `Float.NonNegativeDecimal` lives there and
-`Syntax` never inspects `Float.coefficient`.
+`ARCHITECTURE.md` §1 states the ownership law once. Two consequences bind here: `Typing` sees only `Names`,
+`Syntax` and `Index`, so no `Typing` signature mentions a `Compilable` type; and `Runtime` is absent.
+`Float` owns decimal representation, so `Float.NonNegativeDecimal` lives there and `Syntax` never inspects
+`Float.coefficient`.
 
-## 2. Core-indexed three-way outcome
+## 2. The phase owns static meaning; the core owns the report
 
-The accepted C4 topology already indexes the decision by the exact retained core. C6 **extends** it; it does
-not replace it with an unindexed payload plus a theorem.
+The existing implementation already retains one exact expression `Phase` inside one exact `Core`. That phase
+is generalized into the permanent static-analysis object. No second analyzer is added beside it.
 
-```coq
-Module Type ELABORATION.
-  Parameter Core : Syntax.Program -> Type.
-  Parameter core_diagnostics : forall {p}, Core p -> list (DiagnosticReason p).
-  Parameter core_boundaries  : forall {p} (core : Core p), list (ScopeBoundary core).
-
-  Inductive Decision {p} (core : Core p) : Type :=
-  | AcceptedDecision (Hd : core_diagnostics core = nil) (Hb : core_boundaries core = nil)
-  | RejectedDecision (Hd : core_diagnostics core <> nil)
-  | OutsideDecision  (Hd : core_diagnostics core = nil) (Hb : core_boundaries core <> nil).
-
-  Parameter Elaboration : Syntax.Program -> Type.
-  Parameter elaboration_core : forall {p}, Elaboration p -> Core p.
-  Parameter decision : forall {p} (a : Elaboration p), Decision (elaboration_core a).
-  Parameter elaborate : forall p : Syntax.Program, Elaboration p.
-End ELABORATION.
-```
-
-Emptiness and nonemptiness are stated over the **canonical projections of the exact core**, which is how C4
-already carries `AcceptedDecision`/`RejectedDecision`; a `Collections.NonEmpty` payload would restate a fact
-the index already forces. Every branch is about the same retained `Core`.
-
-`Program` stays the opaque capability accepted at C4 — `Program : Type`, not `Program p`.
+The **phase** owns scopes, semantic objects, binding, type inputs and environments, expression/use/
+application/result-plan facts, static variable identities, both dependency objects, root diagnostics and root
+boundaries. The **core** additionally owns build plan, layout, package facts and the canonical report. Static
+identity is never indexed by those unrelated core fields.
 
 ```coq
-Module Type CAPABILITY.
-  Parameter Program : Type.
-  Parameter source   : Program -> Syntax.Program.
-  Parameter core     : forall cp : Program, Core (source cp).
-  Parameter accepted : forall cp : Program, core_diagnostics (core cp) = nil.
-  Parameter in_scope : forall cp : Program, core_boundaries (core cp) = nil.
+Parameter Phase : forall {p : Syntax.Program}, Input p -> Type.
+Parameter phase : forall {p} (core : Core p), Phase (core_input core).
 
-  Parameter Failure : Syntax.Program -> Type.
-  Parameter failure_core : forall {p}, Failure p -> Core p.
-  Parameter rejected : forall {p} (fail : Failure p), core_diagnostics (failure_core fail) <> nil.
+Parameter ObjectRef     : forall {p} {i : Input p}, Phase i -> Type.
+Parameter ScopeBoundary : forall {p} {i : Input p}, Phase i -> Type.
 
-  Parameter Outside : Syntax.Program -> Type.
-  Parameter outside_core : forall {p}, Outside p -> Core p.
-  Parameter outside_clean : forall {p} (o : Outside p), core_diagnostics (outside_core o) = nil.
-  Parameter outside_blocked : forall {p} (o : Outside p), core_boundaries (outside_core o) <> nil.
-
-  Inductive Outcome (p : Syntax.Program) : Type :=
-  | Compiled     (cp : Program) (Hcp : source cp = p)
-  | Rejected     (fail : Failure p)
-  | OutsideScope (out : Outside p).
-
-  Parameter compile : forall p : Syntax.Program, Outcome p.
-End CAPABILITY.
+Parameter core_diagnostics : forall {p}, Core p -> list (DiagnosticReason p).
+Parameter core_boundaries  : forall {p} (core : Core p), list (ScopeBoundary (phase core)).
 ```
 
-Only the internal mint constructs `Program`, `Failure` or `Outside`. `Compiled` alone reaches `Safe.Program`
-and `Emit.Image`.
+This removes the self-reference in which `ScopeBoundary core` was defined through facts over the same `core`
+whose boundary list it inhabits.
 
-## 3. Object kind, requirement, and the sealed boundary
+`Decision` stays indexed by the exact `Core`, extending the accepted C4 shape to three branches:
+
+```coq
+Inductive Decision {p} (core : Core p) : Type :=
+| AcceptedDecision (Hd : core_diagnostics core = nil) (Hb : core_boundaries core = nil)
+| RejectedDecision (Hd : core_diagnostics core <> nil)
+| OutsideDecision  (Hd : core_diagnostics core = nil) (Hb : core_boundaries core <> nil).
+```
+
+Precedence: any diagnostic gives `Rejected`; no diagnostic with any boundary gives `OutsideScope`; both empty
+gives `Compiled`. A boundary is never converted to a diagnostic.
+
+`Program` stays the opaque C4 capability.
+
+```coq
+Parameter Program : Type.
+Parameter source   : Program -> Syntax.Program.
+Parameter core     : forall cp : Program, Core (source cp).
+Parameter accepted : forall cp : Program, core_diagnostics (core cp) = nil.
+Parameter in_scope : forall cp : Program, core_boundaries (core cp) = nil.
+
+Parameter Failure : Syntax.Program -> Type.
+Parameter failure_core : forall {p}, Failure p -> Core p.
+Parameter rejected : forall {p} (f : Failure p), core_diagnostics (failure_core f) <> nil.
+
+Parameter Outside : Syntax.Program -> Type.
+Parameter outside_core : forall {p}, Outside p -> Core p.
+Parameter outside_clean : forall {p} (o : Outside p), core_diagnostics (outside_core o) = nil.
+Parameter outside_blocked : forall {p} (o : Outside p), core_boundaries (outside_core o) <> nil.
+
+Inductive Outcome (p : Syntax.Program) : Type :=
+| Compiled     (cp : Program) (Hcp : source cp = p)
+| Rejected     (fail : Failure p)
+| OutsideScope (out : Outside p).
+
+Parameter compile : forall p : Syntax.Program, Outcome p.
+```
+
+Only the internal mint constructs `Program`, `Failure` or `Outside`; only `Compiled` reaches `Safe.Program`
+or `Emit.Image`.
+
+## 3. Requirements, boundaries, and the internal partial analysis
 
 **Kind** is what Go says an object is, independent of what Fido implements.
 
@@ -94,100 +101,98 @@ Inductive ObjectOrigin (p : Syntax.Program) : Type :=
 | SourceBound : Index.BindingSiteRef p -> ObjectOrigin p
 | MainObject  : Index.MainRef p -> ObjectOrigin p.
 
-Parameter ObjectRef  : forall {p}, Core p -> Type.
-Parameter object_origin : forall {p} {core : Core p}, ObjectRef core -> ObjectOrigin p.
-Parameter object_kind   : forall {p} {core : Core p}, ObjectRef core -> ObjectKind.
+Parameter object_origin : forall {p} {i} {ph : Phase i}, ObjectRef ph -> ObjectOrigin p.
+Parameter object_kind   : forall {p} {i} {ph : Phase i}, ObjectRef ph -> ObjectKind.
 ```
 
 `iota` is a `ConstantObject` with an exact contextual rule; `nil` is `NilObject`; `main` is a
-`FunctionObject`; predeclared builtins are `BuiltinObject`. `WrongRole` means the **kind** cannot satisfy the
-source role — never that Fido has not implemented the object. There is no flat `Capability` enumeration and
-no `ContextualCap`.
+`FunctionObject`; predeclared builtins are `BuiltinObject`. `WrongRole` means the **kind** cannot fill the
+source role — never that Fido has not implemented the object.
 
-A **requirement** is an exact semantic obligation at an exact site. It is closed; later milestones add
-constructors when a genuinely new obligation arrives, never handlers.
+A requirement is an exact semantic obligation at an exact site, indexed by the phase. A type-meaning
+requirement carries the bound object and does **not** presuppose an admitted type meaning; the absence of one
+is exactly what may be unmet.
 
 ```coq
-Inductive SemanticRequirement {p} (core : Core p) : Type :=
+Inductive SemanticRequirement {p} {i : Input p} (ph : Phase i) : Type :=
 | TypeMeaningReq
-    (u : Index.NameUseRef p) (b : BindingFact core u) (i : TypeIdentity p)
+    (u : Index.NameUseRef p) (b : PhaseBindingFact ph u) (o : ObjectRef ph)
 | ValueMeaningReq
-    (u : Index.NameUseRef p) (b : BindingFact core u)
+    (u : Index.NameUseRef p) (b : PhaseBindingFact ph u) (o : ObjectRef ph)
 | ApplicationReq
     (a : Index.ApplicationRef p)
-    (hf : ExpressionFact core (Index.application_head a))
-    (tgt : ApplicationTarget hf)
-    (args : ArgumentFacts core a)
-    (demand : ResultDemand)
+    (hf : PhaseExprFact ph (Index.application_head a))
+    (cand : TargetCandidate hf)
+    (args : PhaseArgFacts ph a)
+    (prof : ArgumentProfile ph a)
 | StatementReq
-    (s : Index.ExpressionStatementRef p)
-    (ef : ExpressionFact core (Index.statement_expression s))
+    (s : Index.ExpressionStatementRef p) (ef : PhaseExprFact ph (Index.statement_expression s))
 | UnaryReq
-    (n : Index.UnaryRef p) (op : Syntax.UnaryOp)
-    (of_ : ExpressionFact core (Index.unary_operand n)).
+    (n : Index.UnaryRef p) (op : Syntax.UnaryOp) (of_ : PhaseExprFact ph (Index.unary_operand n)).
 ```
 
-`ApplicationReq` carries the exact **profile** — the head target plus the exact ordered argument facts —
-so one `len` object supports strings at C7, arrays/slices/maps at C10 and channels at C14 without changing
-identity or asserting invalidity. `make(slice)` and `make(channel)` are two distinct unmet requirements over
-one object.
+`ApplicationReq` carries no result demand: intrinsic application support and use-context result consumption
+are different facts, and §7 owns the latter. The argument profile is what lets one `len` object support
+strings at C7, aggregates at C10 and channels at C14 — `make(slice)` and `make(channel)` are two
+requirements over one identity.
 
-`ScopeBoundary` is a sealed dependent family indexed by the exact core and the exact unmet requirement. It has
-no public constructor, so no client can pair an independently proved binding with an independently proved
-negative.
+One executable decision, and only its negative branch mints a boundary:
 
 ```coq
-Parameter RequirementSatisfied : forall {p} {core : Core p}, SemanticRequirement core -> Prop.
-Parameter ScopeBoundary : forall {p} (core : Core p), Type.
+Parameter RequirementSatisfied :
+  forall {p} {i : Input p} {ph : Phase i}, SemanticRequirement ph -> Prop.
+Parameter requirement_dec :
+  forall {p} {i : Input p} {ph : Phase i} (r : SemanticRequirement ph),
+    { RequirementSatisfied r } + { ~ RequirementSatisfied r }.
+
 Parameter boundary_requirement :
-  forall {p} {core : Core p}, ScopeBoundary core -> SemanticRequirement core.
+  forall {p} {i} {ph : Phase i}, ScopeBoundary ph -> SemanticRequirement ph.
 Parameter boundary_missing :
-  forall {p} {core : Core p} (b : ScopeBoundary core),
-  ~ RequirementSatisfied (boundary_requirement b).
-
-Inductive BoundaryView {p} (core : Core p) : Type :=
-| MissingTypeMeaning      (u : Index.NameUseRef p) (o : ObjectRef core)
-| MissingValueMeaning     (u : Index.NameUseRef p) (o : ObjectRef core)
-| MissingApplicationRule  (a : Index.ApplicationRef p) (tgt : ErasedTarget) (prof : ErasedProfile)
-| MissingStatementRule    (s : Index.ExpressionStatementRef p)
-| MissingUnaryRule        (n : Index.UnaryRef p) (op : Syntax.UnaryOp) (form : ErasedForm).
-
-Parameter boundary_view : forall {p} {core : Core p}, ScopeBoundary core -> BoundaryView core.
-Parameter erase_boundary : forall {p} {core : Core p}, ScopeBoundary core -> ErasedBoundary.
+  forall {p} {i} {ph : Phase i} (b : ScopeBoundary ph),
+    ~ RequirementSatisfied (boundary_requirement b).
 ```
 
-`ErasedBoundary` is the boundary's own stable erased view, separate from `ErasedDiagnostic`. No certified
-value contains a roadmap or ledger-row identifier; `.review/closure.csv` maps an object to the milestone
-that owes its rule, on its own side.
-
-## 4. Honest analysis after a boundary
-
-An unsupported type or callable can prevent a later fact from existing. Every semantic site therefore has one
-closed outcome, and a dependent site records that it was blocked without inventing a second root.
+`ScopeBoundary` is sealed: no public constructor, so no client pairs an independently proved binding with an
+independently proved negative. Canonicality uses a **proof-free** key, never equality of proof-rich dependent
+requirements:
 
 ```coq
-Inductive SiteOutcome {p} (core : Core p) (A : Type) : Type :=
-| Supported       (a : A)
-| DefiniteFailure (d : DiagnosticReason p) (root : RootDiagnostic core d)
-| OutsideSite     (b : ScopeBoundary core)
-| Blocked         (q : Index.Snapshot.NodeRef p) (h : NotSupportedAt core q).
+Inductive RequirementKind : Type :=
+| KTypeMeaning | KValueMeaning | KApplication | KStatement | KUnary.
+
+Record BoundaryKey : Type := MakeBoundaryKey {
+  bk_site    : Index.Key;
+  bk_kind    : RequirementKind;
+  bk_object  : option ErasedObjectOrigin;
+  bk_profile : option ErasedProfile }.
+
+Parameter boundary_key : forall {p} {i} {ph : Phase i}, ScopeBoundary ph -> BoundaryKey.
 ```
 
-```text
-type U uintptr   root boundary: the exact uintptr type requirement
-type T U         Blocked by the exact U site; no duplicate boundary
-var x T          Blocked by the exact T site; no fake semantic type
+The public boundary view preserves the exact anchor and resolved object without exposing proof constructors:
+
+```coq
+Inductive BoundaryView : Type :=
+| MissingTypeMeaning     (site : Index.Key) (obj : ErasedObjectOrigin)
+| MissingValueMeaning    (site : Index.Key) (obj : ErasedObjectOrigin)
+| MissingApplicationRule (site : Index.Key) (tgt : ErasedTarget) (prof : ErasedProfile)
+| MissingStatementRule   (site : Index.Key) (form : ErasedForm)
+| MissingUnaryRule       (site : Index.Key) (op : Syntax.UnaryOp) (form : ErasedForm).
+
+Parameter boundary_view : forall {p} {i} {ph : Phase i}, ScopeBoundary ph -> BoundaryView.
 ```
 
-Independent branches are still traversed and every independently establishable diagnostic is retained. No
-placeholder type, fake fact or "unknown" result is ever minted. `core_diagnostics` contains **root**
-diagnostics only and `core_boundaries` **root** boundaries only; both are deterministically ordered by the one
-source and preflight order, duplicate-free by exact requirement identity, and projections of the retained
-core — never rebuilt from the final branch. `Compiled` makes every accepted fact query total because both
-lists are empty; `Failure` and `Outside` retain the exact partial analysis and expose no total
-accepted-program API.
+No certified value contains a roadmap or ledger-row identifier. `.review/closure.csv` maps a stable
+`BoundaryView` to the milestone that owes its rule, outside the certified model.
 
-## 5. Source topology
+**Partial analysis is internal and sealed.** Each internal site result retains the exact site, the exact
+predecessor phase object, and either its exact supported fact, its exact root diagnostic, its exact root
+boundary, or — when blocked — the exact dependency edge and the exact predecessor result that blocked it.
+A blocked site adds no diagnostic and no boundary and mints no placeholder type, object, fact or plan. There
+is no public constructor for a partial site result; the public surface is exactly the total accepted queries
+of §9, the canonical diagnostics of a `Failure` and the canonical boundaries of an `Outside`.
+
+## 4. Source topology
 
 ```coq
 (* Names *)
@@ -200,14 +205,11 @@ Record NonEmpty (A : Type) : Type := MakeNonEmpty { ne_first : A; ne_rest : list
 
 (* Float *)
 Record NonNegativeDecimal : Type := MakeNonNegDecimal {
-  nnd_decimal  : Decimal;
-  nnd_nonneg   : (0 <= coefficient nnd_decimal)%Z }.
+  nnd_decimal : Decimal;
+  nnd_nonneg  : (0 <= coefficient nnd_decimal)%Z }.
 
 (* Syntax *)
-Inductive BindingName : Type :=
-| Named : Names.OrdinaryIdentifier -> BindingName
-| Blank : BindingName.
-
+Inductive BindingName : Type := Named (n : Names.OrdinaryIdentifier) | Blank.
 Inductive UnaryOp : Type := UnaryMinus.
 
 Inductive Literal : Type :=
@@ -215,8 +217,7 @@ Inductive Literal : Type :=
 | FloatLiteral   : Float.NonNegativeDecimal -> Literal
 | StringLiteral  : string -> Literal.
 
-Inductive TypeExpr : Type :=
-| NamedType : Names.OrdinaryIdentifier -> TypeExpr.
+Inductive TypeExpr : Type := NamedType (n : Names.OrdinaryIdentifier).
 
 Inductive Expr : Type :=
 | Name        : Names.OrdinaryIdentifier -> Expr
@@ -257,17 +258,16 @@ Inductive TopLevelDecl : Type :=
 | Main           : Block -> TopLevelDecl.
 ```
 
-An application head is one real child expression occurrence under the `ApplicationHead` role. There is no
+An application head is one real child expression occurrence under the `ApplicationHead` role; there is no
 `ApplicationHead` source category, kind or reference. Literals carry magnitude; every negative numeric source
-value is `Unary UnaryMinus`. `Blank` creates no object. `Block` is reached only through `Main` at C6; no
-general function-declaration scaffold lands early. Short declarations are function-local. A package block is a
-semantic scope, not a source construct.
+value is `Unary UnaryMinus`. `Blank` creates no object. `Block` is reached only through `Main` at C6. Short
+declarations are function-local. A package block is a semantic scope, not a source construct.
 
-## 6. Index and use topology
+## 5. Index and use topology
 
-One kind and view per source category, refined by view where a category has variants. No peer node for call
-versus conversion, `complex` versus `println`, a name expression versus the same expression occurrence, an
-application head versus its exact child expression, or a top-level wrapper versus the declaration it contains.
+One kind and view per source category. No peer node for call versus conversion, `complex` versus `println`, a
+name expression versus the same occurrence, an application head versus its exact child, or a top-level wrapper
+versus the declaration it contains.
 
 ```text
 kinds  FileKind PackageClauseKind MainKind DeclarationKind BlockKind StatementKind
@@ -285,8 +285,7 @@ Parameter DirectExprUseRef : Syntax.Program -> Type.
 Parameter direct_parent : forall {p}, DirectExprUseRef p -> Index.Snapshot.NodeRef p.
 Parameter direct_child  : forall {p}, DirectExprUseRef p -> Index.ExprRef p.
 Parameter direct_role   : forall {p}, DirectExprUseRef p -> Index.Role p.
-Parameter direct_occupies :
-  forall {p} (u : DirectExprUseRef p),
+Parameter direct_occupies : forall {p} (u : DirectExprUseRef p),
   Index.OccupiesRole (direct_parent u) (direct_child u) (direct_role u).
 
 Parameter InheritedConstUseRef : Syntax.Program -> Type.
@@ -296,87 +295,104 @@ Inductive ExprUseRef (p : Syntax.Program) : Type :=
 | InheritedUse : InheritedConstUseRef p -> ExprUseRef p.
 ```
 
-`DirectExprUseRef` covers every ordinary expression child — application head, application argument, unary
-operand, statement expression, explicit const initializer, var initializer, short-declaration right side. No
-public reference is a parent plus an unchecked natural. `InheritedConstUseRef` stays distinct because the
-current spec has no expression child; it retains the exact current const spec, current binding-name
-occurrence, enclosing const declaration, nearest preceding explicit const spec, predecessor expression
-occurrence at the corresponding result position, optional predecessor type occurrence, current structural
-`iota` index, and proofs of same-declaration, nearest-predecessor and corresponding position. No consumer
-searches backward, copies source, reconstructs an equal predecessor, or reuses the predecessor's resolved
-result or plan.
+`DirectExprUseRef` covers every ordinary expression child — head, argument, unary operand, statement
+expression, const initializer, var initializer, short right side. No public reference is a parent plus an
+unchecked natural. `InheritedConstUseRef` stays distinct because the current spec has no expression child; it
+retains the exact current spec, current binding-name occurrence, enclosing declaration, nearest preceding
+explicit spec, predecessor expression at the corresponding position, optional predecessor type, current
+structural `iota`, and proofs of same-declaration, nearest-predecessor and corresponding position.
 
-## 7. Typing
+## 6. Typing
 
-`Typing` mentions no `Compilable` type. Raw type identity is separate from admitted semantic type, so no
-client can build a semantic type for a cyclic, rejected or blocked definition.
+`Typing` sees only `Names`, `Syntax` and `Index`. `Compilable` constructs the exact inputs from retained
+bindings; `Typing` gives them meaning. An unsupported predeclared type object stays an exact `Compilable`
+object and raises a type-meaning boundary **before** any `TypeTarget` is minted.
 
 ```coq
-Inductive TypeIdentity (p : Syntax.Program) : Type :=
-| PredeclaredIdentity : BasicType -> TypeIdentity p
-| DefinedIdentity     : Index.BoundDefinedTypeRef p -> TypeIdentity p.
+Inductive TypeTarget (p : Syntax.Program) : Type :=
+| PredeclaredTarget : BasicType -> TypeTarget p
+| AliasTarget       : Index.AliasSpecRef p -> TypeTarget p
+| DefinedTarget     : Index.BoundDefinedTypeRef p -> TypeTarget p.
 
-Module Type TYPE_ENV.
-  Parameter ResolvedTypeEquations : Syntax.Program -> Type.
-  Parameter TypeGraphEvidence : forall {p}, ResolvedTypeEquations p -> Type.
-  Parameter Env : forall {p} (eqs : ResolvedTypeEquations p), TypeGraphEvidence eqs -> Type.
+Parameter ResolvedTypeEquations : Syntax.Program -> Type.
+Parameter GraphOutcome : forall {p}, ResolvedTypeEquations p -> Type.
+Parameter TypeGraphEvidence : forall {p}, ResolvedTypeEquations p -> Type.
+Parameter TypeCycle : forall {p}, ResolvedTypeEquations p -> Type.
+Parameter resolve_graph : forall {p} (eqs : ResolvedTypeEquations p), GraphOutcome eqs.
+Parameter graph_acyclic : forall {p} {eqs : ResolvedTypeEquations p},
+  GraphOutcome eqs -> option (TypeGraphEvidence eqs).
+Parameter graph_cycle : forall {p} {eqs : ResolvedTypeEquations p},
+  GraphOutcome eqs -> option (TypeCycle eqs).
 
-  Parameter TypeForm : forall {p} {eqs : ResolvedTypeEquations p} {ev}, Env eqs ev -> Type.
-  Parameter BasicForm : forall {p} {eqs} {ev} (env : Env eqs ev), BasicType -> TypeForm env.
+Parameter Env : forall {p} (eqs : ResolvedTypeEquations p), TypeGraphEvidence eqs -> Type.
+Parameter build_env : forall {p} (eqs : ResolvedTypeEquations p) (ev : TypeGraphEvidence eqs),
+  Env eqs ev.
 
-  Parameter SemanticType : forall {p} {eqs : ResolvedTypeEquations p} {ev}, Env eqs ev -> Type.
-  Parameter Resolved : forall {p} {eqs} {ev}, Env eqs ev -> TypeIdentity p -> Prop.
-  Parameter semantic_of_identity :
-    forall {p} {eqs} {ev} (env : Env eqs ev) (i : TypeIdentity p), Resolved env i -> SemanticType env.
-  Parameter semantic_identity :
-    forall {p} {eqs} {ev} {env : Env eqs ev}, SemanticType env -> TypeIdentity p.
+Parameter TypeForm     : forall {p} {eqs} {ev}, Env eqs ev -> Type.
+Parameter SemanticType : forall {p} {eqs} {ev}, Env eqs ev -> Type.
+Parameter basic_form   : forall {p} {eqs} {ev} (env : Env eqs ev), BasicType -> TypeForm env.
+Parameter form_type    : forall {p} {eqs} {ev} {env : Env eqs ev}, TypeForm env -> SemanticType env.
 
-  Parameter underlying : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> TypeForm env.
-  Parameter identicalb   : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> SemanticType env -> bool.
-  Parameter assignableb  : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> SemanticType env -> bool.
-  Parameter convertibleb : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> SemanticType env -> bool.
-  Parameter representableb : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> Constant -> bool.
-  Parameter TypedConstant : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> Type.
-End TYPE_ENV.
+Parameter Resolves : forall {p} {eqs} {ev}, Env eqs ev -> TypeTarget p -> SemanticType env -> Prop.
+Parameter denote : forall {p} {eqs} {ev} (env : Env eqs ev) (t : TypeTarget p),
+  { s : SemanticType env | Resolves env t s }.
+
+Parameter underlying     : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> TypeForm env.
+Parameter identicalb     : forall {p} {eqs} {ev} (env : Env eqs ev),
+  SemanticType env -> SemanticType env -> bool.
+Parameter assignableb    : forall {p} {eqs} {ev} (env : Env eqs ev),
+  SemanticType env -> SemanticType env -> bool.
+Parameter convertibleb   : forall {p} {eqs} {ev} (env : Env eqs ev),
+  SemanticType env -> SemanticType env -> bool.
+Parameter representableb : forall {p} {eqs} {ev} (env : Env eqs ev),
+  SemanticType env -> Constant -> bool.
+Parameter TypedConstant  : forall {p} {eqs} {ev} (env : Env eqs ev), SemanticType env -> Type.
+
+Parameter TypeView : Type.
+Parameter type_view : forall {p} {eqs} {ev} {env : Env eqs ev}, SemanticType env -> TypeView.
 ```
 
-`Env` is indexed by the exact equations and the exact successful graph evidence, so an equal rebuilt
-environment is not provenance. `underlying` returns a `TypeForm`, never a defined type. C6 proves every
-admitted form is basic; later milestones extend `TypeForm` and do not replace `underlying`. An alias mints no
-`TypeIdentity` and resolves to the target semantic type. `TypedConstant` is indexed by that same exact
-environment and semantic type. The exact `Compilable` core retains the exact equations, graph evidence and
-environment; a boundary-bearing or cyclic type requirement produces a `SiteOutcome`, never an invalid
-environment.
+A defined semantic type exists only through `denote` on an exact `DefinedTarget` resolved in the exact
+environment, so a cyclic, rejected or blocked declaration cannot produce one. An alias returns its target's
+semantic type and mints no identity. `underlying` returns a `TypeForm`, never a defined semantic type. C6's
+`TypeForm` has only the admitted basic forms; later milestones extend it. `TypeView` is the derived
+proof-free representation diagnostics use, and is not a second semantic authority. There is no universal
+`TypeIdentity`.
 
-## 8. Static phase
+## 7. Static phase order, facts, and result consumption
 
 An initializer determines the type of `var x = e` and `x := e`, so declaration elaboration is interleaved, in
-package dependency order and local source order.
+package dependency order and local source order. **Scope construction depends only on the early binding
+disposition**, never on the later typed static variable.
 
 ```text
 exact Input
-→ scope forest + binder classifications + object identities
+→ scope forest + early binder disposition + object identities
 → all name bindings + structural uses
-→ resolved type equations
-→ exact TypeEnv (equations + graph evidence) or exact type-cycle outcome
-→ package const/var dependency graph from retained bindings
-→ exact acyclic order or exact dependency-cycle outcome
+→ resolved type equations → graph outcome → exact Env or exact type cycle
+→ package const/var dependency graph from retained bindings → exact order or exact cycle
 → declaration elaboration, in package dependency order and local source order:
     → bottom-up initializer expression facts
     → exact use facts
-    → exact result-consumption plan
+    → exact result plan
     → constant / variable semantic fact
-    → typed static-variable refinement where applicable
+    → exact typed static-variable refinement where applicable
 → remaining bottom-up expression and application facts
 → unused-local result
 → root diagnostics + root boundaries
 ```
 
-Each stage is indexed by the exact prior object. Short-declaration new-versus-reused classification sits in
-scope construction because later statements bind against its result. The type graph and the package const/var
-dependency graph stay distinct; C11 consumes the same dependency object and adds no peer graph. Scopes and
-both graphs are per package, keyed by the parent directory the core already retains, built from all files of
-that package before package-level resolution, rejecting duplicates without overwrite.
+```coq
+Inductive BinderDisposition {p} {i} (ph : Phase i) : Type :=
+| DispBlank
+| DispDeclares (o : ObjectRef ph)
+| DispReuses   (o : ObjectRef ph) (Hsame : SameBlockVariable ph o).
+```
+
+`DispReuses` names the exact existing **object**, not a typed static variable, so scopes are built before any
+type decision. After initializer facts, type decisions and result plans exist, the exact typed
+`StaticVariable` is minted and the accepted short-LHS fact projects blank, a new exact static variable, or an
+existing exact static variable.
 
 | declaration | scope begins |
 |---|---|
@@ -388,45 +404,25 @@ that package before package-level resolution, rejecting duplicates without overw
 | predeclared object | the outer universe block |
 | blank | never |
 
-The existing proof-carrying input, work forest, member index, outcome trace and sealed core are generalized
-where they own these same causal facts. No second analyzer stands beside them.
+Scopes and both graphs are per package, keyed by the parent directory the input already retains, built from
+all files of that package before package-level resolution and rejecting duplicates without overwrite. The type
+graph and the package const/var dependency graph stay distinct; C11 consumes the same dependency object and
+adds no peer graph.
 
-## 9. Facts
+**Result form.** A result is not classified by the syntax that produced it. `referenced_object` and
+`result_form` are independent projections, so a name retains both its exact object and its exact results.
 
 ```coq
-Parameter BindingFact : forall {p} (core : Core p), Index.NameUseRef p -> Type.
-Parameter bound_object : forall {p} {core} {u}, BindingFact core u -> ObjectRef core.
+Inductive ResultAtom {p} {i} (ph : Phase i) : Type :=
+| UntypedConstant   (c : Typing.Constant)
+| TypedConstantAtom (s : PhaseSemanticType ph) (tc : PhaseTypedConstant ph s)
+| ValueResult       (s : PhaseSemanticType ph).
 
-Inductive BinderClass {p} (core : Core p) : Type :=
-| BinderBlank
-| BinderDeclares (o : ObjectRef core)
-| BinderReuses   (v : StaticVariable core).
-Parameter BinderFact : forall {p} (core : Core p), Index.BindingSiteRef p -> Type.
-Parameter binder_class : forall {p} {core} {s}, BinderFact core s -> BinderClass core.
-
-Inductive ResultAtom {p} (core : Core p) : Type :=
-| UntypedConstant (c : Typing.Constant)
-| TypedConstantAtom (t : SemanticTypeOf core) (tc : TypedConstantOf core t)
-| ValueResult (t : SemanticTypeOf core).
-
-Inductive ResultForm {p} (core : Core p) : Type :=
-| FixedResults      (v : list (ResultAtom core))
-| ContextualResult  (r : ContextualRule core)
+Inductive ResultForm {p} {i} (ph : Phase i) : Type :=
+| FixedResults     (v : list (ResultAtom ph))
+| ContextualResult (r : ContextualRule ph)
 | NoStandaloneResult.
-
-Parameter ExpressionFact : forall {p} (core : Core p), Index.ExprRef p -> Type.
-Parameter referenced_object : forall {p} {core} {r}, ExpressionFact core r -> option (ObjectRef core).
-Parameter result_form : forall {p} {core} {r}, ExpressionFact core r -> ResultForm core.
-
-Parameter UseFact : forall {p} (core : Core p), ExprUseRef p -> Type.
-Parameter ResultPlan : forall {p} (core : Core p), PlanSiteRef p -> Type.
-Parameter StaticVariable : forall {p}, Core p -> Type.
-Parameter static_variable_object : forall {p} {core}, StaticVariable core -> ObjectRef core.
-Parameter static_variable_type : forall {p} {core} (v : StaticVariable core), SemanticTypeOf core.
 ```
-
-`referenced_object` and `result_form` are **independent** projections, so a name retains both its exact object
-and its exact results. No public constructor permits an arbitrary pairing.
 
 ```text
 literal        referenced_object = None                       result_form = one constant
@@ -438,173 +434,206 @@ iota           referenced_object = exact iota object           result_form = Con
 nil            referenced_object = exact nil object            result_form = Contextual nil rule
 ```
 
-A named var declaration or new short binding creates one exact `StaticVariable` — **that object is the
-static slot**. It is a refinement and projection of the exact semantic object, never an independent id or
-registry entry. Constants, types, blank names and `main` create none. C7's dynamic environment maps these
-exact objects to dynamic places.
+**Result consumption** is one abstract `ResultPlan` indexed by the exact plan site — not a two-case label.
+It retains the exact target occurrences, the exact right-hand expression uses, each exact result vector, the
+exact legal pairing, blank consumption, target types, defaulting, assignability, representability, and the
+short-declaration new-or-reused classification where applicable. Its construction relation distinguishes
+several expressions each supplying one result from one expression supplying the complete sequence. Later
+assignments and returns extend the same relation under their own context rules and add no peer arity logic.
+Inherited const initialization builds a new current-spec plan from the inherited **source uses** under the
+current `iota`; it never reuses the predecessor's resolved plan.
 
-## 10. Application
-
-Classification consumes the exact head **`ExpressionFact`**, not the head binding fact, so C9's
-function-valued heads extend this sum rather than replacing it.
+## 8. Application
 
 ```coq
-Inductive ApplicationTarget {p} {core : Core p} {h : Index.ExprRef p}
-                            (f : ExpressionFact core h) : Type :=
-| ConversionTarget     (t : SemanticTypeOf core) (Ht : HeadDenotesType f t)
-| ObjectCallableTarget (o : ObjectRef core) (Ho : HeadDenotesCallableObject f o).
-(* C9 adds ValueCallableTarget: an exact one-result function value carried by the same head fact *)
+Parameter HeadCallable :
+  forall {p} {i} {ph : Phase i} {h : Index.ExprRef p}, PhaseExprFact ph h -> Type.
 
-Parameter ApplicationFact : forall {p} (core : Core p), Index.ApplicationRef p -> Type.
-Parameter application_head_fact :
-  forall {p} {core} {a} (af : ApplicationFact core a), ExpressionFact core (Index.application_head a).
-Parameter application_target :
-  forall {p} {core} {a} (af : ApplicationFact core a), ApplicationTarget (application_head_fact af).
-Parameter application_results :
-  forall {p} {core} {a}, ApplicationFact core a -> list (ResultAtom core).
+Inductive ApplicationTarget {p} {i} {ph : Phase i} {h : Index.ExprRef p}
+                            (f : PhaseExprFact ph h) : Type :=
+| ConversionTarget (s : PhaseSemanticType ph) (Hs : HeadDenotesType f s)
+| CallableTarget   (c : HeadCallable f).
 ```
 
-`ApplicationFact` is a dependent projection of the exact application `ExpressionFact`, not a peer table. C7
-consumes it and neither reclassifies the target nor rebuilds argument order.
+`HeadCallable` is an abstract refinement of the exact head expression fact. At C6 predeclared callable objects
+inhabit it; at C9 an expression producing a function value inhabits the **same** relation. **C9 adds no
+constructor to `ApplicationTarget`.**
 
-Admitted C6 rules, all over **exact underlying forms**, so a defined type named over an admitted form is not
-rejected for being named:
+`ApplicationFact` is a dependent view of the exact application `ExpressionFact`, not a peer table, and exposes
+the exact application occurrence, head occurrence and head fact, target, ordered argument uses, exact child
+expression facts, exact argument-use facts, exact result vector, and the reflected acceptance proof.
+
+Admitted C6 rules:
 
 - **conversion** — exactly one argument, one result, through the one `Typing` convertibility and
   representability authority, retaining constant-versus-nonconstant status and rerunning no resolution;
-- **`complex`** — exactly two arguments whose underlying forms are floating:
+- **`complex`** — exactly two arguments:
 
   | arguments | result |
   |---|---|
-  | both untyped numeric constants, each valid for the real/imaginary operand rule | **untyped complex constant** |
-  | one untyped, one typed with underlying `float32` | the untyped one converts through the one `Typing` authority; `complex64` |
-  | one untyped, one typed with underlying `float64` | likewise; `complex128` |
-  | both typed with underlying `float32` | `complex64` |
-  | both typed with underlying `float64` | `complex128` |
-  | both typed, differing underlying float forms | rejected |
+  | two untyped numeric constants valid for the real/imaginary rule | one untyped complex constant |
+  | one untyped, one typed floating | the untyped operand converts to the **exact type** of the typed one |
+  | two typed operands with **identical semantic types** whose underlying form is `float32` | `complex64` |
+  | two typed operands with **identical semantic types** whose underlying form is `float64` | `complex128` |
+  | two typed operands whose semantic types are not identical | rejected |
 
-- **`println`** — a variadic list, each argument an untyped constant or a value whose **underlying form** is
-  an admitted basic form (bool, any integer kind, float, complex, string), untyped constants defaulted first.
-  Empty result vector. C7 alone owns evaluation and output.
+  Two distinct defined types are **not** accepted merely because their underlying forms match; identity is
+  decided by `identicalb`, and the defined-type rule follows the pinned Go rule through exact identity plus
+  underlying form.
 
-There is no separate complex or println fact store. Every other predeclared callable resolves correctly and
-produces an `ApplicationReq` boundary for the exact missing profile. `main()` is the same case: valid Go, no
-C6 function objects, so the head resolves to the exact `MainObject` and its `ApplicationReq` is unmet.
+- **`println`** — a variadic list, each argument an untyped constant or a value whose underlying form is an
+  admitted basic form, untyped constants defaulted first. Zero results, no C6 runtime effect.
 
-`StatementEligible` is a separate executable and reflected judgment; result count alone does not decide it.
+Every other predeclared callable resolves correctly and raises an `ApplicationReq` boundary for the exact
+missing profile. `main()` is the same case: valid Go, no C6 function objects, so the head resolves to the
+exact `MainObject` and its requirement is unmet.
 
-## 11. Result consumption
+`StatementEligible` is a separate executable and reflected judgment over the exact expression fact; result
+count alone does not decide it. Result-use demand is not part of intrinsic application support — result
+plans and statement eligibility consume the exact result vector separately.
+
+## 9. Accepted public queries
+
+Partial facts stay internal to the exact phase. Every public fact is **total** over an accepted
+`Compilable.Program`, following the existing accepted-facts pattern. `Failure` and `Outside` retain the same
+core and phase but expose none of this.
 
 ```coq
-Inductive ResultPlanShape : Type := Pairwise | SingleMulti.
+Parameter Object : Program -> Type.
+
+Parameter BindingFact : forall cp : Program, Index.NameUseRef (source cp) -> Type.
+Parameter binding_fact : forall cp u, BindingFact cp u.
+
+Parameter BinderFact : forall cp : Program, Index.BindingSiteRef (source cp) -> Type.
+Parameter binder_fact : forall cp s, BinderFact cp s.
+
+Parameter ExpressionFact : forall cp : Program, Index.ExprRef (source cp) -> Type.
+Parameter expression_fact : forall cp r, ExpressionFact cp r.
+
+Parameter UseFact : forall cp : Program, ExprUseRef (source cp) -> Type.
+Parameter use_fact : forall cp u, UseFact cp u.
+
+Parameter ApplicationFact : forall cp : Program, Index.ApplicationRef (source cp) -> Type.
+Parameter application_fact : forall cp a, ApplicationFact cp a.
+
+Parameter ResultPlan : forall cp : Program, Index.PlanSiteRef (source cp) -> Type.
+Parameter result_plan : forall cp s, ResultPlan cp s.
+
+Parameter StaticVariable : Program -> Type.
+Parameter static_variable_object : forall {cp}, StaticVariable cp -> Object cp.
+Parameter static_variable_type : forall {cp} (v : StaticVariable cp), AcceptedSemanticType cp.
+
+Parameter referenced_object : forall {cp} {r}, ExpressionFact cp r -> option (Object cp).
+Parameter result_form : forall {cp} {r}, ExpressionFact cp r -> AcceptedResultForm cp.
+Parameter object_kind_of : forall {cp}, Object cp -> ObjectKind.
+Parameter accepted_env : forall cp : Program, AcceptedEnv cp.
+Parameter package_dependency_fact : forall cp (k : Index.PackageRef (source cp)), DependencyFact cp k.
 ```
 
-Context plans retain that same exact root and add their own rules — const initialization, var
-initialization, short declaration, application arguments. Later assignment and return milestones extend
-these context plans and add no second arity, defaulting or assignability authority. Inherited const
-initialization builds a new current-spec plan from the inherited source uses under the current `iota`; it
-never reuses the predecessor's resolved plan.
+A named var declaration or new short binding creates one exact `StaticVariable` — **that object is the
+static slot**, a refinement and projection of the exact semantic object, never an independent id or registry
+entry. Constants, types, blank names and `main` create none. C7 maps it to a dynamic place.
 
-## 12. Safe and Render
+## 10. Safe and Render
 
 `Safe` keeps `Property`, the sealed certificate retaining the exact compiled capability, and nothing else.
 `Safe.Value`, `value_type`, `ValueWellFormed`, `value_well_formedb`, `ValueDenotesConstant`,
 `typed_constant_to_value`, `resolved_constant_value`, `eval_expr`, `eval_stmt`, `eval_decl` and `eval_file`
-are deleted; §14 records where each guarantee goes.
+are deleted; §12 records where each guarantee goes.
 
-`Render` is structural and performs no binding or type lookup. Rendering is **precedence- and token-safe**:
-`"-" ++ render e` is wrong because a nested unary emits `--x` and retokenizes.
+`Render` is structural and performs no binding or type lookup. `"-" ++ render e` is wrong: a nested unary
+emits `--x` and retokenizes.
 
 ```coq
 Inductive Prec : Type := PrimaryPrec | UnaryPrec.
-
 Definition prec (e : Syntax.Expr) : Prec :=
-  match e with
-  | Syntax.Unary _ _ => UnaryPrec
-  | _ => PrimaryPrec
-  end.
-
+  match e with Syntax.Unary _ _ => UnaryPrec | _ => PrimaryPrec end.
 Parameter render_at : Prec -> Syntax.Expr -> string.
 ```
 
-`render_at r e` parenthesizes exactly when `prec e` binds looser than `r`, and never otherwise.
+`render_at r e` parenthesizes exactly when `prec e` binds looser than `r`, never otherwise.
 
 ```text
-render (Unary UnaryMinus e)  = "-" ++ render_at PrimaryPrec e
-render (Application h args)  = render_at PrimaryPrec h ++ "(" ++ join(", ", map render args) ++ ")"
-render_stmt (ExprStmt e, n)  = indent(n) ++ render e ++ NL
+render (Unary UnaryMinus e) = "-" ++ render_at PrimaryPrec e
+render (Application h args) = render_at PrimaryPrec h ++ "(" ++ join(", ", map render args) ++ ")"
+render_stmt (ExprStmt e, n) = indent(n) ++ render e ++ NL
 ```
 
-Frozen outputs: `-1`; `-(-x)`; `-T(x)`, minimal parentheses since a call binds tighter than unary; `f(x)`;
-`f(-x)`; `(-f)(x)` if a unary ever heads an application. Arguments sit at the top of the expression grammar
-and take no parentheses. One literal, one unary, one application and one expression-statement renderer replace
-the special complex, conversion and `println` paths. **Every pre-C6 generated byte is preserved exactly.**
+Frozen outputs: `-1`; `-(-x)`; `-T(x)` with minimal parentheses since a call binds tighter than unary;
+`f(x)`; `f(-x)`; `(-f)(x)`. One literal, one unary, one application and one expression-statement renderer
+replace the special complex, conversion and `println` paths. **Every pre-C6 generated byte is preserved
+exactly.** File level keeps the existing bytes: the header line, a blank line, the package clause, a blank
+line before each top-level declaration, and the exact final newline; within a declaration one tab per block
+depth, comma-space separators, no trailing whitespace, direct source spelling, an inherited const spec
+rendering names only, one spec ungrouped, and zero or two-or-more grouped with the zero branches exactly
+`const ()`, `var ()`, `type ()`.
 
-File level keeps the existing bytes: the header line, a blank line, the package clause, a blank line before
-each top-level declaration, and the exact final newline. Within a declaration: one tab per block depth,
-comma-space separators, no trailing whitespace, direct source spelling, and an inherited const spec rendering
-names only. One spec renders ungrouped; zero or two-or-more render grouped, with the zero branches exactly
-`const ()`, `var ()`, `type ()` each followed by a newline.
+## 11. Diagnostics
 
-## 13. The complete diagnostic surface
+`DiagnosticCode` is an inductive of constructors, extended not replaced. Every accepted current constructor
+keeps its public meaning, carrier, code and anchors.
 
-`DiagnosticCode` is an inductive of constructors, not strings, and is extended — not replaced. Every
-retained current diagnostic keeps its code and user-visible result.
+| constructor | code | status |
+|---|---|---|
+| `InvalidConversion (primary : Index.ApplicationRef p) (head : Index.ExprRef p) (operand : Index.ExprRef p) (outer : list (Index.ApplicationRef p)) (target : TypeView) (operand_status : ConstantInfo)` | `CodeInvalidConversion` | carrier changed: anchors an `Application`, not the deleted `Convert`; `TypeNameRef` becomes the head `ExprRef`; `SemanticType` becomes the proof-free `TypeView` |
+| `DefaultNotRepresentable (primary : Index.ExprRef p) (exact_constant : Constant) (default_target : TypeView)` | `CodeDefaultNotRepresentable` | retained; payload becomes `TypeView` |
+| `MainRedeclared (later : Index.DeclRef p) (earlier : Index.DeclRef p)` | `CodeMainRedeclared` | retained unchanged |
+| `MissingMainEntry (pkg : PackageRef p)` | `CodeMissingMainEntry` | retained unchanged |
+| `BuildOutputIsDirectory (pkg : PackageRef p) (output_name : string)` | `CodeBuildOutputIsDirectory` | retained unchanged |
+| `DuplicateBinding (later : Index.BindingSiteRef p) (earlier : Index.BindingSiteRef p)` | `CodeDuplicateBinding` | new |
+| `InitMisuse (site : Index.BindingSiteRef p)` | `CodeInitMisuse` | new |
+| `UnresolvedName (u : Index.NameUseRef p)` | `CodeUnresolvedName` | new |
+| `WrongRole (u : Index.NameUseRef p) (required : Index.UseRole) (actual : ObjectKind)` | `CodeWrongRole` | new; carries Go kind and required role, never implementation support |
+| `NotApplicable (a : Index.ApplicationRef p) (actual : ObjectKind)` | `CodeNotApplicable` | new |
+| `TypeCycleDiag (eqs : ResolvedTypeEquations p) (c : Typing.TypeCycle eqs)` | `CodeTypeCycle` | new; evidence indexed by the exact type equations |
+| `DependencyCycleDiag (g : DependencyGraph p) (c : DependencyCycle g)` | `CodeDependencyCycle` | new; evidence indexed by the exact dependency graph |
+| `FirstSpecInherited (s : Index.ConstSpecRef p)` | `CodeFirstSpecInherited` | new |
+| `ResultMismatch (site : Index.PlanSiteRef p) (targets : nat) (observed : list ErasedResultVector)` | `CodeResultMismatch` | new |
+| `ShortDeclNoNew (s : Index.StatementRef p)` | `CodeShortDeclNoNew` | new |
+| `ShortRedeclType (site : Index.BindingSiteRef p) (existing : TypeView) (found : TypeView)` | `CodeShortRedeclType` | new |
+| `NilNoTarget (r : Index.ExprRef p)` | `CodeNilNoTarget` | new |
+| `IotaNoContext (r : Index.ExprRef p)` | `CodeIotaNoContext` | new |
+| `NotAssignable (u : ExprUseRef p) (target : AssignmentTargetAnchor p) (from : TypeView) (to : TypeView)` | `CodeNotAssignable` | new; `AssignmentTargetAnchor` is a sum over an explicit `TypeUseRef` and an inferred or short-declaration target that has none |
+| `UnusedLocal (site : Index.BindingSiteRef p)` | `CodeUnusedLocal` | new |
+| `BadArgument (u : DirectExprUseRef p) (why : ArgumentReason)` | `CodeBadArgument` | new |
+| `BadOperand (u : DirectExprUseRef p) (why : OperandReason)` | `CodeBadOperand` | new |
+| `NotStatement (s : Index.ExpressionStatementRef p) (why : IneligibleReason)` | `CodeNotStatement` | new |
 
-| constructor | code | primary anchor | related | erased payload | status |
-|---|---|---|---|---|---|
-| `InvalidConversion (primary : Index.ApplicationRef p) (head : Index.ExprRef p) (operand : Index.ExprRef p) (outer : list (Index.ApplicationRef p)) (target : TypeIdentity p) (operand_status : ConstantInfo)` | `CodeInvalidConversion` | the innermost failing application | outer applications | target identity + source target | **carrier changed**: anchors an `Application`, not a deleted `Convert`; `Index.TypeNameRef` becomes the head `ExprRef` |
-| `DefaultNotRepresentable (primary : Index.ExprRef p) (exact_constant : Constant) (default_target : TypeIdentity p)` | `CodeDefaultNotRepresentable` | the expression | — | constant + target | retained; `SemanticType` becomes `TypeIdentity` |
-| `MainRedeclared (later : Index.DeclRef p) (earlier : Index.DeclRef p)` | `CodeMainRedeclared` | later declaration | earlier declaration | — | **retained unchanged** |
-| `MissingMainEntry (package_primary : PackageRef p)` | `CodeMissingMainEntry` | the package | — | — | retained unchanged |
-| `BuildOutputIsDirectory (package_primary : PackageRef p) (output_name : string)` | `CodeBuildOutputIsDirectory` | the package | — | output name | retained unchanged |
-| `DuplicateBinding (later : Index.BindingSiteRef p) (earlier : Index.BindingSiteRef p)` | `CodeDuplicateBinding` | later site | earlier site | — | new |
-| `InitMisuse (site : Index.BindingSiteRef p)` | `CodeInitMisuse` | the site | — | — | new |
-| `UnresolvedName (u : Index.NameUseRef p)` | `CodeUnresolvedName` | the use | — | spelling | new |
-| `WrongRole (u : Index.NameUseRef p) (role : Index.UseRole) (actual : ObjectKind)` | `CodeWrongRole` | the use | the object's binding site when it has one | role + kind | new |
-| `NotApplicable (a : Index.ApplicationRef p) (actual : ObjectKind)` | `CodeNotApplicable` | the application head | — | kind | new |
-| `TypeCycle (site : Index.TypeSpecRef p) (cycle : CycleEvidence p)` | `CodeTypeCycle` | one cycle member | the other members | — | new |
-| `DependencyCycle (site : Index.BindingSiteRef p) (cycle : CycleEvidence p)` | `CodeDependencyCycle` | one cycle member | the other members | — | new |
-| `FirstSpecInherited (s : Index.ConstSpecRef p)` | `CodeFirstSpecInherited` | the const spec | — | — | new |
-| `ResultMismatch (site : PlanSiteRef p) (expected : ResultPlanShape) (targets : nat) (observed : list ErasedResultVector)` | `CodeResultMismatch` | the plan site | each right-hand expression | shape + target count + observed vectors | new |
-| `ShortDeclNoNew (s : Index.StatementRef p)` | `CodeShortDeclNoNew` | the short declaration | — | — | new |
-| `ShortRedeclType (site : Index.BindingSiteRef p) (existing : TypeIdentity p) (found : TypeIdentity p)` | `CodeShortRedeclType` | the left name | the earlier declaration | both identities | new |
-| `NilNoTarget (r : Index.ExprRef p)` | `CodeNilNoTarget` | the expression | — | — | new |
-| `IotaNoContext (r : Index.ExprRef p)` | `CodeIotaNoContext` | the expression | — | — | new |
-| `NotAssignable (u : ExprUseRef p) (from : TypeIdentity p) (to : TypeIdentity p)` | `CodeNotAssignable` | the use | the target's type occurrence | both identities | new |
-| `UnusedLocal (site : Index.BindingSiteRef p)` | `CodeUnusedLocal` | the binding site | — | — | new |
-| `BadArgument (u : DirectExprUseRef p) (why : ArgumentReason)` | `CodeBadArgument` | the exact argument | the application | reason | new |
-| `BadOperand (u : DirectExprUseRef p) (why : OperandReason)` | `CodeBadOperand` | the exact operand | the operator occurrence | reason | new |
-| `NotStatement (s : Index.ExpressionStatementRef p) (why : IneligibleReason)` | `CodeNotStatement` | the statement | — | reason | new |
+A failed preflight still precedes a package's semantic errors; otherwise one canonical source order per
+package. Unavailable semantics are boundaries, never diagnostics. Boundary erasure is separate from
+diagnostic erasure.
 
-Precedence: a failed preflight still takes precedence over a package's semantic errors; otherwise one
-canonical source order within each package. `WrongRole` carries the exact use role and the exact actual
-`ObjectKind` and never a support flag. `MainRedeclared` is **not** folded into `DuplicateBinding` — its code
-and payload are accepted user-visible results. Unavailable semantics are boundaries, never diagnostics.
+## 12. Migration of accepted guarantees
 
-## 14. Migration of accepted guarantees
+`OutsideScope` makes two current statements **false as written**: an invalid program may depend on an
+unavailable semantic root, so C6 cannot always establish its downstream invalidity, and it is honestly
+`OutsideScope` rather than `Rejected`. Both gain the no-boundary premise.
+
+```coq
+Definition InScope (p : Syntax.Program) : Prop :=
+  core_boundaries (elaboration_core (elaborate p)) = nil.
+```
 
 | current guarantee | disposition |
 |---|---|
-| `compile_complete : forall p, Admissible p -> exists cp Hcp, compile p = Compiled cp Hcp` | retained, premise strengthened: `Admissible p -> core_boundaries (elaboration_core (elaborate p)) = nil -> …` |
-| `compile_rejected_of_inadmissible : forall p, ~ Admissible p -> exists fail, compile p = Rejected fail` | retained unchanged |
-| `compile_ok_valid : forall p cp Hcp, compile p = Compiled cp Hcp -> source cp = p /\ Admissible (source cp)` | retained unchanged |
-| `compile_rejected_not_admissible` | retained unchanged |
-| `compile_program_typed` | retained; `Typing.Program predeclared_type p` becomes the binding-phase judgment |
-| `compile_ok_of_source_spec_valid_b` | retained, gaining the no-boundary premise |
-| `elaboration_accepted_iff_admissible : core_diagnostics … = nil <-> Admissible p` | retained; the accepted branch additionally requires `core_boundaries … = nil` |
-| `elaboration_rejected_iff_inadmissible` | retained unchanged |
-| `program_of_admissible`, `capability_of_admissible`, `capability_source`, `capability_is_compile_outcome` | retained, each gaining the no-boundary premise |
-| `Safe.eval_expr` and its ten lemmas (`eval_expr_resolved`, `eval_expr_resolved_type`, `eval_expr_resolved_value`, `eval_projects_stored_float_runtime`, `eval_projects_stored_complex_runtime`, `eval_expr_denotes`, `eval_zero_sign_agnostic`, `eval_string_value`, `eval_string_resolved_type`, and the value helpers) | **deleted from `Safe` at C6; re-proved at C7** over `Runtime.Value` and the one machine. `SPEC-140` and the C7 rows own them. |
+| `compile_complete` | **restated**: `Admissible p -> InScope p -> exists cp Hcp, compile p = Compiled cp Hcp` |
+| `compile_rejected_of_inadmissible` | **restated, not retained**: `InScope p -> ~ Admissible p -> exists fail, compile p = Rejected fail`. The unpremised form is false. |
+| `elaboration_accepted_iff_admissible` | **restated**: `InScope p -> (core_diagnostics (elaboration_core (elaborate p)) = nil <-> Admissible p)` |
+| `elaboration_rejected_iff_inadmissible` | **restated, not retained**: same `InScope` premise; the unpremised converse is false |
+| `compile_ok_valid` | retained unchanged |
+| `compile_rejected_not_admissible` | retained unchanged — rejection soundness needs no premise |
+| `compile_program_typed` | retained; the fixed resolver becomes the binding phase |
+| `compile_ok_of_source_spec_valid_b` | restated with the `InScope` premise |
+| `program_of_admissible`, `capability_of_admissible`, `capability_source`, `capability_is_compile_outcome` | restated with the `InScope` premise |
+| `Safe.eval_expr` and its lemmas `eval_expr_resolved`, `eval_expr_resolved_type`, `eval_expr_resolved_value`, `eval_projects_stored_float_runtime`, `eval_projects_stored_complex_runtime`, `eval_expr_denotes`, `eval_zero_sign_agnostic`, `eval_string_value`, `eval_string_resolved_type` | deleted from `Safe` at C6; re-proved at C7 over `Runtime.Value`. `SPEC-X034`, `SPEC-X035` and `SPEC-X036` own them. |
 | `Safe.Value`, `value_type`, `ValueWellFormed`, `value_well_formedb`, `ValueDenotesConstant`, `typed_constant_to_value`, `resolved_constant_value` | deleted from `Safe`; C7 `Runtime` |
-| `Render.const_info_denotes` | **retained at C6** — spelling denotes constant status, no runtime value |
-| `Render.const_info_denotes_functional` | retained at C6 unchanged |
-| `Render.resolved_expr_denotes` | **split**: the constant/spelling half is retained at C6; the value half (`eval_expr`, `ValueWellFormed`, `ValueDenotesConstant`) is deferred to C7 and re-proved there |
+| `Render.const_info_denotes`, `Render.const_info_denotes_functional` | retained at C6 — spelling denotes constant status, no runtime value |
+| `Render.resolved_expr_denotes` | **split**: the constant/spelling half retained at C6; the value half deferred to C7 with `SPEC-X034` |
 | `Render.resolved_string_denotes`, `boundary_max`, `boundary_min` | deferred to C7 with the value half |
 
-No obsolete name survives as an alias, and no guarantee is dropped without a row here naming where it goes.
+No obsolete name survives as an alias, and no guarantee is dropped without a row naming where it goes.
 
-## 15. Public theorem types
+## 13. Public theorems
 
 ```coq
 Theorem decision_accepted_iff : forall p (a : Elaboration p),
@@ -618,110 +647,157 @@ Theorem decision_outside_iff : forall p (a : Elaboration p),
   (exists Hd Hb, decision a = OutsideDecision Hd Hb)
   <-> core_diagnostics (elaboration_core a) = nil /\ core_boundaries (elaboration_core a) <> nil.
 
-Theorem compiled_retains_core : forall p cp Hcp,
-  compile p = Compiled cp Hcp -> core cp = elaboration_core (elaborate p).
-Theorem rejected_retains_core : forall p fail,
+Theorem compiled_retains_core : forall p cp (Hcp : source cp = p),
+  compile p = Compiled cp Hcp ->
+  eq_rect (source cp) Core (core cp) p Hcp = elaboration_core (elaborate p).
+
+Theorem rejected_retains_core : forall p (fail : Failure p),
   compile p = Rejected fail -> failure_core fail = elaboration_core (elaborate p).
-Theorem outside_retains_core : forall p out,
+
+Theorem outside_retains_core : forall p (out : Outside p),
   compile p = OutsideScope out -> outside_core out = elaboration_core (elaborate p).
 
-Theorem outcome_branches_disjoint : forall p,
-  ~ (core_diagnostics (elaboration_core (elaborate p)) <> nil
-     /\ core_boundaries (elaboration_core (elaborate p)) <> nil
-     /\ exists out, compile p = OutsideScope out).
+Theorem compiled_admissible : forall p cp (Hcp : source cp = p),
+  compile p = Compiled cp Hcp -> Admissible (source cp) /\ InScope (source cp).
 
-Theorem boundaries_canonical : forall p (core : Core p) b1 b2,
-  In b1 (core_boundaries core) -> In b2 (core_boundaries core) ->
-  boundary_requirement b1 = boundary_requirement b2 -> b1 = b2.
-Theorem boundaries_are_roots : forall p (core : Core p) b,
-  In b (core_boundaries core) -> RootBoundary core b.
-Theorem blocked_adds_no_boundary : forall p (core : Core p) q h A (o : SiteOutcome core A),
-  o = Blocked q h -> forall b, In b (core_boundaries core) -> boundary_site b <> q.
+Theorem rejected_not_admissible : forall p (fail : Failure p),
+  compile p = Rejected fail -> ~ Admissible p.
 
-Theorem predeclared_complete : forall (n : Names.PredeclaredName) p (core : Core p),
-  exists o : ObjectRef core, object_origin o = Predeclared n /\ InUniverseScope core o.
-Theorem predeclared_shadowed : forall p (core : Core p) (u : Index.NameUseRef p)
-    (b : BinderFact core (enclosing_binding_site u)) o,
-  binder_class b = BinderDeclares o -> ShadowsAt core u o.
+Theorem in_scope_accepted_iff : forall p, InScope p ->
+  (core_diagnostics (elaboration_core (elaborate p)) = nil <-> Admissible p).
 
-Theorem binding_total : forall p cp (u : Index.NameUseRef (source cp)),
-  exists! bf : BindingFact (core cp) u, True.
-Theorem object_kind_correct : forall p (core : Core p) (o : ObjectRef core),
-  object_kind o = go_kind_of_origin (object_origin o).
+Theorem in_scope_inadmissible_rejected : forall p, InScope p -> ~ Admissible p ->
+  exists fail, compile p = Rejected fail.
 
-Theorem env_provenance : forall p (core : Core p),
-  Typing.Env (core_equations core) (core_graph_evidence core) = core_env core.
-Theorem alias_no_identity : forall p (core : Core p) (a : Index.AliasSpecRef p) i,
-  AliasResolves core a i -> ~ exists r, i = DefinedIdentity r /\ AliasMints core a r.
-Theorem defined_identity_exact : forall p (core : Core p) r1 r2,
-  Typing.identicalb (core_env core) (defined_semantic core r1) (defined_semantic core r2) = true <-> r1 = r2.
+Theorem in_scope_admissible_compiled : forall p, Admissible p -> InScope p ->
+  exists cp Hcp, compile p = Compiled cp Hcp.
 
-Theorem underlying_reflect : forall p (core : Core p) t f,
-  Typing.underlying (core_env core) t = f <-> UnderlyingRel (core_env core) t f.
-Theorem identical_reflect : forall p (core : Core p) t u,
-  Typing.identicalb (core_env core) t u = true <-> Identical (core_env core) t u.
-Theorem assignable_reflect : forall p (core : Core p) t u,
-  Typing.assignableb (core_env core) t u = true <-> Assignable (core_env core) t u.
-Theorem convertible_reflect : forall p (core : Core p) t u,
-  Typing.convertibleb (core_env core) t u = true <-> Convertible (core_env core) t u.
-Theorem representable_reflect : forall p (core : Core p) t c,
-  Typing.representableb (core_env core) t c = true <-> Representable (core_env core) t c.
+Theorem outside_claims_nothing : forall p (out : Outside p),
+  compile p = OutsideScope out ->
+  core_diagnostics (outside_core out) = nil /\ core_boundaries (outside_core out) <> nil.
+
+Theorem requirement_dec_reflects :
+  forall p (i : Input p) (ph : Phase i) (r : SemanticRequirement ph),
+  (exists h, requirement_dec r = left h) <-> RequirementSatisfied r.
+
+Theorem boundary_root_sound : forall p (core : Core p) (b : ScopeBoundary (phase core)),
+  In b (core_boundaries core) -> ~ RequirementSatisfied (boundary_requirement b).
+
+Theorem boundary_root_complete :
+  forall p (core : Core p) (r : SemanticRequirement (phase core)),
+  RequirementRaisedBy (phase core) r -> ~ RequirementSatisfied r ->
+  RootRequirement (phase core) r ->
+  exists b, In b (core_boundaries core) /\ boundary_requirement b = r.
+
+Theorem boundary_keys_nodup : forall p (core : Core p),
+  NoDup (map boundary_key (core_boundaries core)).
+
+Theorem boundary_order_canonical : forall p (core : Core p),
+  Sorted boundary_key_lt (map boundary_key (core_boundaries core)).
+
+Theorem blocked_adds_no_boundary :
+  forall p (core : Core p) (r : SemanticRequirement (phase core)),
+  ~ RootRequirement (phase core) r ->
+  forall b, In b (core_boundaries core) -> boundary_requirement b <> r.
+
+Theorem predeclared_complete : forall p (i : Input p) (ph : Phase i) (n : Names.PredeclaredName),
+  exists o : ObjectRef ph, object_origin o = Predeclared n /\ InUniverseScope ph o.
+
+Theorem predeclared_shadowed :
+  forall p (i : Input p) (ph : Phase i) (s : Index.BindingSiteRef p) (o : ObjectRef ph),
+  binder_disposition ph s = DispDeclares o -> forall u, ResolvesAt ph u s -> BoundTo ph u o.
+
+Theorem binding_fact_total : forall cp u, BindingFact cp u.
+Theorem expression_fact_total : forall cp r, ExpressionFact cp r.
+Theorem result_plan_total : forall cp s, ResultPlan cp s.
+
+Theorem env_provenance : forall cp,
+  accepted_env cp = build_env (core_equations cp) (core_graph_evidence cp).
+
+Theorem denote_resolves : forall p eqs ev (env : Env eqs ev) (t : TypeTarget p),
+  Resolves env t (proj1_sig (denote env t)).
+
+Theorem alias_no_identity : forall p eqs ev (env : Env eqs ev) (a : Index.AliasSpecRef p),
+  proj1_sig (denote env (AliasTarget a)) = proj1_sig (denote env (alias_target_of a)).
+
+Theorem defined_identity_exact : forall p eqs ev (env : Env eqs ev) r1 r2,
+  identicalb env (proj1_sig (denote env (DefinedTarget r1)))
+                 (proj1_sig (denote env (DefinedTarget r2))) = true <-> r1 = r2.
+
+Theorem underlying_reflect : forall p eqs ev (env : Env eqs ev) s f,
+  underlying env s = f <-> UnderlyingRel env s f.
+Theorem identical_reflect : forall p eqs ev (env : Env eqs ev) s t,
+  identicalb env s t = true <-> Identical env s t.
+Theorem assignable_reflect : forall p eqs ev (env : Env eqs ev) s t,
+  assignableb env s t = true <-> Assignable env s t.
+Theorem convertible_reflect : forall p eqs ev (env : Env eqs ev) s t,
+  convertibleb env s t = true <-> Convertible env s t.
+Theorem representable_reflect : forall p eqs ev (env : Env eqs ev) s c,
+  representableb env s c = true <-> Representable env s c.
 
 Theorem direct_use_provenance : forall p (u : DirectExprUseRef p),
   Index.OccupiesRole (direct_parent u) (direct_child u) (direct_role u).
+
 Theorem inherited_const_provenance : forall p (u : InheritedConstUseRef p),
-  NearestPrecedingExplicit p (inherited_current u) (inherited_predecessor u)
-  /\ CorrespondingPosition p (inherited_current u) (inherited_predecessor u) (inherited_position u)
+  NearestPrecedingExplicit (inherited_current u) (inherited_predecessor u)
+  /\ CorrespondingPosition (inherited_current u) (inherited_predecessor u) (inherited_position u)
   /\ inherited_iota u = structural_iota_index (inherited_current u).
 
-Theorem expression_object_result_coherent : forall p cp r (f : ExpressionFact (core cp) r),
-  (referenced_object f = None -> result_form f <> NoStandaloneResult)
-  /\ (forall o, referenced_object f = Some o ->
-        object_kind o = TypeObject \/ object_kind o = BuiltinObject -> result_form f = NoStandaloneResult).
+Theorem expression_object_result_coherent : forall cp r (f : ExpressionFact cp r) o,
+  referenced_object f = Some o ->
+  (object_kind_of o = TypeObject \/ object_kind_of o = BuiltinObject) ->
+  result_form f = NoStandaloneResult cp.
 
-Theorem application_target_from_head : forall p cp a (af : ApplicationFact (core cp) a),
-  TargetDeterminedBy (application_target af) (application_head_fact af).
-Theorem application_results_exact : forall p cp a (af : ApplicationFact (core cp) a),
-  application_results af = target_result_vector (application_target af) (application_args af).
+Theorem application_target_from_head : forall cp a,
+  ApplicationTargetOf (application_fact cp a) (application_head_fact cp a).
 
-Theorem result_plan_exact : forall p cp s (rp : ResultPlan (core cp) s),
-  PlanPairs rp = pair_targets_with_results (plan_targets rp) (plan_result_vectors rp).
-Theorem short_binding_classified : forall p cp s (bf : BinderFact (core cp) s),
-  ShortLeftName s -> binder_class bf = BinderBlank
-                  \/ (exists o, binder_class bf = BinderDeclares o)
-                  \/ (exists v, binder_class bf = BinderReuses v /\ SameBlockExisting s v).
-Theorem static_variable_identity : forall p cp (v1 v2 : StaticVariable (core cp)),
+Theorem application_results_exact : forall cp a,
+  application_results (application_fact cp a)
+  = target_result_vector (application_target cp a) (application_args cp a).
+
+Theorem result_plan_pairs_exact : forall cp s,
+  PlanPairing (result_plan cp s) (plan_targets cp s) (plan_result_vectors cp s).
+
+Theorem short_binding_classified : forall cp s,
+  ShortLeftName s ->
+  short_lhs_class cp s = ShortBlank
+  \/ (exists v, short_lhs_class cp s = ShortNew v)
+  \/ (exists v, short_lhs_class cp s = ShortExisting v).
+
+Theorem static_variable_identity : forall cp (v1 v2 : StaticVariable cp),
   static_variable_object v1 = static_variable_object v2 -> v1 = v2.
 
-Theorem unused_local_sound : forall p cp s,
-  In (UnusedLocal s) (core_diagnostics (core cp)) -> ~ exists u, ReadsVariableAt (core cp) u s.
+Theorem dependency_graph_sound : forall cp k,
+  DependencyEdgesFromBindings (package_dependency_fact cp k).
+
+Theorem dependency_cycle_reflect : forall p (g : DependencyGraph p),
+  acyclicb g = true <-> ~ exists c : DependencyCycle g, True.
+
+Theorem unused_local_sound : forall cp s,
+  In (UnusedLocal s) (core_diagnostics (core cp)) -> ~ ReadsVariableAt cp s.
 Theorem unused_local_complete : forall p (core : Core p) s,
-  LocalVariableSite core s -> (~ exists u, ReadsVariableAt core u s) ->
+  LocalVariableSite (phase core) s -> ~ PhaseReadsVariableAt (phase core) s ->
   In (UnusedLocal s) (core_diagnostics core).
 
-Theorem render_precedence_safe : forall e,
-  RetokenizesAs (render_expr e) e.
-Theorem render_bytes_preserved : forall p (Hpre : PreC6Program p),
+Theorem render_precedence_safe : forall e, RetokenizesAs (render_expr e) e.
+Theorem render_bytes_preserved : forall p, PreC6Program p ->
   render_program (migrate p) = legacy_render_program p.
 ```
 
-Every public fact is an abstract dependent family or a projection from the retained core; no
-client-constructible record pairs a reference with a target. Proof helpers stay local; obsolete carrier names
-do not survive as aliases.
+Every declaration above uses only types introduced earlier in this contract. Proof helpers stay local;
+obsolete carrier names do not survive as aliases.
 
-## 16. Review boundaries
+## 14. Review boundaries
 
-**Semantic-root review** stops only when the whole repository is green and: the source and index roots exist;
-internal decisions remain indexed by the exact retained core; `Compiled`/`Rejected`/`OutsideScope` exist
-intrinsically; exact object kind, binding, requirement and sealed boundary roots exist; the type
-identity/environment topology exists; facts carry object and result information coherently; application
-classification consumes the exact head expression fact; result plans and compiler-owned static variable
-identity exist; the old fixed resolver, the old expression phase, the special source forms, `Safe.Value` and
-`Safe.eval_expr` are deleted; **no `Runtime` module or machine has landed**; and every existing program
-renders byte-identically.
+**Semantic-root review** stops only when the repository is green and contains: the corrected source and index
+roots; the generalized exact phase; phase-indexed objects, facts and requirements; the core-indexed three-way
+decision; sealed requirement boundaries with their proof-free key; the module-order-safe type environment with
+its actual `build_env`; total accepted-program fact queries; the stable application and result-plan roots;
+compiler-owned static variable identity; the old fixed resolver and old expression phase deleted; `Safe.Value`
+and `Safe.eval_expr` deleted; no `Runtime` module or machine; and prior generated bytes unchanged.
 
-**Final C6 review** then completes declarations and shadowing, diagnostics and boundary erasure, C6 rendering,
-C6 fixtures, `LAT-077`, generated-artifact evidence, and current document and ledger truth.
+**Final C6 review** then completes declaration and shadowing behaviour, diagnostics and boundaries, direct
+rendering, C6 fixtures, `LAT-077`, generated-artifact evidence, and current document and ledger truth.
 
 C7 is forbidden until Rob accepts C6.
 
@@ -731,8 +807,6 @@ Package and local `const`/`type`/`var` accepted; a local variable read by `print
 cross-file package declarations independent of file order; two packages sharing a spelling without collision;
 duplicate package names rejected; local shadowing of package and predeclared names.
 
-Exact shadowing cases, decided by ordinary binding and nothing else:
-
 ```text
 type complex int; complex(x)     conversion, accepted
 var complex int;  complex(x)     NotApplicable — definite invalidity
@@ -741,37 +815,36 @@ var println int;  println(x)     NotApplicable — definite invalidity
 ```
 
 An unshadowed `len(s)`, a `var x uintptr` and a recursive `main()` each give `OutsideScope` with the exact
-unmet requirement and **no** diagnostic; `type U uintptr; type T U; var x T` gives exactly one root boundary
-and two `Blocked` sites. Short declaration with no new nonblank name rejected; short redeclaration reusing its
-static variable; blank declarations creating no object; `true`, `false`, `byte` and `rune` resolving through
-ordinary binding; alias preserving identity; two defined declarations with equal underlying forms having
-distinct identity; a local type spec naming itself rejected as a cycle; package constant and variable cycles
+unmet requirement and no diagnostic; `type U uintptr; type T U; var x T` gives exactly one root boundary and
+two blocked sites. Two defined types with identical underlying `float32` but distinct identity are
+**rejected** by `complex`; one defined `float32`-based type used twice is accepted and yields `complex64`.
+Short declaration with no new nonblank name rejected; short redeclaration reusing its static variable; blank
+declarations creating no object; `true`, `false`, `byte` and `rune` resolving through ordinary binding; alias
+preserving identity; a local type spec naming itself rejected as a cycle; package constant and variable cycles
 rejected; a package expression depending on a forward constant accepted; a first const spec with an inherited
 initializer rejected; an inherited spec taking the predecessor expression under its own `iota`; unshadowed
-`nil` and out-of-context `iota` rejected; `complex` of two untyped constants yielding an untyped complex
-constant, and of two values of a defined type whose underlying form is `float32` yielding `complex64`; a
-`println` argument of a defined type whose underlying form is `string` accepted; unary minus on a constant and
-a variable accepted and on a string rejected; `-(-x)` rendering with its parentheses; every currently accepted
-program rendering byte-identically after migration; generated C6 programs passing the pinned Go build with
-their exact expected observation.
+`nil` and out-of-context `iota` rejected; a `println` argument of a defined type whose underlying form is
+`string` accepted; unary minus on a constant and a variable accepted and on a string rejected; `-(-x)`
+rendering with its parentheses; every currently accepted program rendering byte-identically after migration;
+generated C6 programs passing the pinned Go build with their exact expected observation.
 
 ## Preserve
 
 `Syntax.Program` as the sole source authority and the AST as the one IR; `Program` as the opaque C4
-capability, with `Failure` and `Outside` retaining the exact core; the retained work forest, member index,
-outcome trace and sealed core; `Machine.T` uninstantiated; direct rendering and the one `Emit.Mint.issue`
-authority; certified-module coverage, the whole-theory audit and controls A-E; every sealed-capability, mint,
-transport and positive client control; working-tree and staged-index separation; no-host-Python; `life.md`.
+capability, with `Failure` and `Outside` retaining the exact core; the retained input, work forest, member
+index, outcome trace and sealed core; `Machine.T` uninstantiated; direct rendering and the one
+`Emit.Mint.issue` authority; certified-module coverage, the whole-theory audit and controls A-E; every
+sealed-capability, mint, transport and positive client control; working-tree and staged-index separation;
+no-host-Python; `life.md`.
 
 ## Stop
 
-The migration cannot complete without weakening an accepted guarantee that §14 does not relocate; a C6 row
-needs a construct assigned to a later milestone; a decision cannot be given one function and one reflection
-theorem; a fact family cannot be projected from the retained core without a free-standing authority beside it;
-`ScopeBoundary` cannot be sealed and still expose the exact requirement its consumers need; a blocked site
-cannot be recorded without minting a second root; the dependency object cannot be built before the facts that
-consume it, or declaration elaboration cannot be interleaved as §8 requires; `Typing` cannot be closed
-without mentioning a `Compilable` type; an invalid defined declaration can still construct a `SemanticType`;
-`LAT-077` needs a diagnostic the phase cannot produce; a run relation, value, store, environment or machine is
-needed for a C6 row; implementation needs a placeholder, compatibility path, trusted shortcut, fuel, bound or
-premature future state.
+A static identity cannot be indexed by the exact phase without reaching a core field; the boundary key cannot
+be made proof-free; a blocked site cannot be recorded without minting a root; `requirement_dec` needs a second
+Boolean checker beside it; an accepted fact query cannot be made total over `Program`; the `InScope` premise
+cannot be discharged where an accepted guarantee needs it; `Typing` cannot be closed without a `Compilable`
+type; `build_env` cannot be given an exact cycle-or-evidence predecessor; `ApplicationTarget` would need a C9
+constructor; `complex` cannot decide identity without a second type authority; a theorem in §13 cannot be
+stated over the names defined here; `LAT-077` needs a diagnostic the phase cannot produce; a run relation,
+value, store, environment or machine is needed for a C6 row; implementation needs a placeholder, compatibility
+path, trusted shortcut, fuel, bound or premature future state.
