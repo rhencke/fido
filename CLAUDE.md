@@ -58,7 +58,9 @@ grab bags.
 ## The rules
 
 1. Resolve one exact Git ref and read `.review/NEXT.md`.
-2. Code and proved theorem statements own implementation truth. Documentation describes; it never decides.
+2. Governing prose owns required meaning, scope and boundaries; canonical code and proved theorem statements
+   own the exact formal realization. A conflict between the two is a defect to report and resolve, never a
+   precedence shortcut.
 3. Review public types and constructor topology before proof bodies.
 4. Retain exact causal objects. Equality to a recomputation is not provenance.
 5. One authority per fact.
@@ -68,8 +70,18 @@ grab bags.
 9. Implement only the active task.
 10. Stop when the active task conflicts with the code, the proofs, or the architecture. Name the exact
     conflict; do not implement an alternative autonomously.
-11. Contract review precedes implementation; implementation review precedes acceptance.
-12. Rob alone changes scope or accepts.
+11. The active milestone is formalized directly in its canonical modules, in dependency-closed roots, only
+    after every milestone it depends on is accepted; each commit deletes the prose rendition and any
+    superseded authority it replaces. Future milestones stay prose-only until their dependencies are accepted.
+12. A falsified load-bearing lower layer freezes all higher work and invokes dependency retreat: repair and
+    reaccept the earliest affected layer, then reopen each dependent layer in dependency order.
+13. Shadow implementations are forbidden. A scratch check answers one isolated question, defines no subsystem
+    or public surface, never enters the build or repository, and is deleted before terminal verification and
+    reported with the decision it informed.
+14. Rob alone changes scope or accepts.
+
+The detailed process is `ARCHITECTURE.md` §1 "Two authorities, never two formal implementations"; these rules
+index it.
 
 ## Review
 
@@ -77,8 +89,8 @@ grab bags.
 
 ```text
 Review: none            no substantive review
-Review: contract        review NEXT.md before implementation
-Review: implementation  review the exact current HEAD across the whole live system
+Review: contract        review semantic prose, scope, boundaries and gates — never a duplicate Rocq surface
+Review: implementation  review the exact canonical formal implementation and the whole live system at HEAD
 ```
 
 A blocking review returns every finding in one pass. Findings live in the review conversation — they are
@@ -113,8 +125,9 @@ timeout — the hook does a full re-extract and build.
 
 ## Where the detail lives
 
-`ARCHITECTURE.md` governs the semantics, proofs, provenance and trust boundary — read it before any
-structural change. `ROADMAP.md` is what is left to build. `DECISIONS.md` is every current human decision.
+`ARCHITECTURE.md` governs the semantics, proofs, provenance, trust boundary and the milestone process (§1
+"Two authorities, never two formal implementations") — read it before any structural change. `ROADMAP.md` is
+what is left to build. `DECISIONS.md` is every current human decision.
 `TOOLCHAIN.md` is the pinned identities and verification commands. `.review/NEXT.md` is the active task.
 
 Git history owns everything superseded.

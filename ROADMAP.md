@@ -3,10 +3,13 @@
 What is left to build, in dependency order. `.review/NEXT.md` owns the active task; this file owns the
 sequence.
 
+Governing prose owns each milestone's semantic contract and evidence obligations; the exact formalization is
+developed directly in that milestone's canonical implementation, never as a separate formal surface that must
+converge first. A milestone may begin only when every milestone it depends on is accepted, and a falsified
+lower layer triggers the dependency retreat and ordered relayering in `ARCHITECTURE.md` §1.
+
 **A milestone closes when its contract, its required evidence, a whole-system review, and Rob's acceptance
 all pass.** That rule is the same for every row below and is not repeated in them.
-
-A milestone may begin only when every milestone it depends on is accepted.
 
 ## Done
 

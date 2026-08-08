@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants audit-fresh profile perf pytools hostpython contract-surface go-probe ns-probe
+        diet mutants audit-fresh profile perf pytools hostpython go-probe
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -186,27 +186,6 @@ prove-errors:
 	@grep -E '(^|[0-9.# ]+)(File "|Error:)' /tmp/fido-prover.log | sed 's/^[0-9.# ]*//' | sort -u | head -40 \
 	  || echo "fido: no File/Error lines — see /tmp/fido-prover.log"
 
-# Type-check a PROPOSED public Rocq surface before any of it is implemented.  Diagnostic, never a gate, and
-# deliberately not part of `check`: it elaborates ONE scratch file through the pinned Rocq image so a contract
-# can name signatures that are known to elaborate rather than ones that merely read plausibly.  The file
-# models future private implementations with abstract `Parameter`s and imports no Fido module, because the
-# property under test is that the proposed surface is well formed IN DEPENDENCY ORDER — binders, indices and
-# forward references — not that it agrees with today's theory.
-#
-# The default path is outside the repository, so a scratch surface is never a build input, never a tracked
-# root `.v`, and cannot drift into the certified-module coverage set.  The file is MOUNTED read-only and
-# copied to a writable scratch name inside, because `rocq c` writes its `.vo` beside the source.
-SURFACE ?= /tmp/fido-contract-surface.v
-ROCQTAG := fido-rocq:$(shell sha256sum Dockerfile | cut -c1-16)
-contract-surface: builder
-	@test -f "$(SURFACE)" || { echo "fido: no $(SURFACE) — write the proposed surface there first"; exit 1; }
-	@docker image inspect $(ROCQTAG) > /dev/null 2>&1 || \
-	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target rocq-base \
-	    --load -t $(ROCQTAG) . > /dev/null
-	@docker run --rm -e HOME=/tmp -w /tmp -v "$(SURFACE)":/tmp/in.v:ro $(ROCQTAG) \
-	  sh -c 'cp /tmp/in.v /tmp/surface.v && rocq c -q /tmp/surface.v' \
-	  && echo "fido: contract-surface OK — $(SURFACE) elaborates under the pinned Rocq"
-
 # Differential ALARM against the pinned Go toolchain, never a proof authority.  Each immediate subdirectory
 # of $(GOPROBE) is one self-contained module; the target reports whether pinned `go build` accepts it.  This
 # is how a proposed static rule is checked against `gc` before the rule is written down — the same role the
@@ -229,25 +208,6 @@ go-probe: builder
 	      if [ -z "$$out" ]; then printf "ACCEPT  %s\n" "$$d"; \
 	      else printf "REJECT  %s  %s\n" "$$d" "$$(echo "$$out" | head -1)"; fi; \
 	    done'
-
-# Namespace shape probe: does the pinned Dune/Rocq accept `Foo.v` beside `Foo/Bar.v` under
-# `(include_subdirs qualified)`, yielding the logical module `Foo.Bar` without colliding with `Foo`?  This
-# answers the physical-structure question BEFORE a subsystem is split, so a semantic cut is never made on an
-# assumption the toolchain rejects.  Diagnostic only: never part of `make check`, and it builds a scratch
-# theory that is not this repository.
-#
-# The tree is MOUNTED read-only and copied to a writable scratch inside, because dune writes `_build` beside
-# the sources.  Nothing here enters the repository or the build context.
-NSPROBE ?= /tmp/fido-ns-probe
-ns-probe: builder
-	@test -d "$(NSPROBE)" || { echo "fido: no $(NSPROBE) — write the scratch theory there first"; exit 1; }
-	@docker image inspect $(ROCQTAG) > /dev/null 2>&1 || \
-	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target rocq-base \
-	    --load -t $(ROCQTAG) . > /dev/null
-	@docker run --rm -e HOME=/tmp -v "$(NSPROBE)":/probe:ro $(ROCQTAG) \
-	  sh -c 'cp -r /probe /tmp/ns && cd /tmp/ns && dune build 2>&1 && \
-	         find _build/default -name "*.vo" | sort' \
-	  && echo "fido: ns-probe OK — the pinned Dune/Rocq accepts the qualified namespace"
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \

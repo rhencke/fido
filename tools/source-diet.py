@@ -209,13 +209,9 @@ def owner_after(text: str, block, path: str, is_first: bool):
         return 'file-module', Path(path).stem
     return None, None
 
-SCRATCH_PREFIXES = ('.review/scratch/',)
-
 def _residue(rel: str) -> bool:
     parts = rel.split('/')
-    return (any(p in RESIDUE_DIRS for p in parts)
-            or any(rel.endswith(s) for s in RESIDUE_SUFFIXES)
-            or any(rel.startswith(pfx) for pfx in SCRATCH_PREFIXES))
+    return any(p in RESIDUE_DIRS for p in parts) or any(rel.endswith(s) for s in RESIDUE_SUFFIXES)
 
 def inventory(root: Path, snapshot: bool):
     """The exact file set of the snapshot being measured. Never a silent empty scan."""
@@ -654,6 +650,11 @@ def self_test() -> int:
     scenario('a new .v comment that breaks the law',
              lambda d: fixture(d, CLEAN_V, extra={'Later.v': '(* THEOREM: the label the law rejects *)\n'
                                                              'Definition later : nat := 1.\n'}),
+             expect='section label')
+    scenario('a .v under .review/scratch is inspected, not skipped',
+             lambda d: fixture(d, CLEAN_V, extra={'.review/scratch/shadow.v':
+                                                  '(* THEOREM: a scratch directory hides no .v *)\n'
+                                                  'Definition shadow : nat := 0.\n'}),
              expect='section label')
     scenario('a terse one-line comment', lambda d: fixture(d, CLEAN_V))
     scenario('a qualified Rocq name containing a period',

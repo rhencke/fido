@@ -125,6 +125,73 @@ each of which is the routing-around this rule forbids.
 
 ---
 
+### Two authorities, never two formal implementations
+
+Two kinds of authority govern every milestone, and there are never two of the same kind. **Governing prose** —
+`ROADMAP.md`, `DECISIONS.md`, `.review/scope.tsv` and the active `.review/NEXT.md` — owns required semantic
+meaning, checkpoint scope, supported and unsupported boundaries, downstream obligations, acceptance and
+evidence gates, and dependency order. The **canonical Rocq implementation**, in its permanent production owner,
+owns the exact inductive, record and index topology, the exact constructors, the exact theorem statements, the
+exact definitions and proofs, and the formal object later layers consume.
+
+Neither silently overrides the other. If canonical code fails a governing semantic obligation, the code is
+wrong. If implementation or proof evidence shows the prose forces a wrong abstraction, the prose is wrong and
+is amended in the same review. A mismatch is a defect to resolve, never a precedence shortcut. There is no
+second executable or formal rendition of the same layer: no shadow `.v` subsystem, no independently elaborated
+"contract surface", no duplicate theorem catalogue used as an implementation source, no peer formal model that
+production is later reconstructed from, and no future-milestone implementation disguised as planning.
+
+**The active milestone is formalized directly in its canonical modules**, once every milestone it depends on is
+accepted. Work proceeds in dependency-closed semantic roots — never line-count, time or convenience slices. For
+each root: establish public types and constructor topology first; secure exact provenance and impossible-state
+exclusion; state only the guarantees the root exposes; complete definitions, proofs, tests, artifacts and
+required document changes; delete every superseded representation and path in the same terminal change; and
+review the whole current system before building a dependent root. No dependent root may use an unsettled one.
+
+While a milestone still carries a prose rendition of its own formal surface — as C6 does in `.review/NEXT.md` —
+that rendition is migration input only: non-authoritative, not independently elaborated, and true only of the
+portions not yet canonicalized. Each implementation commit canonicalizes one dependency-closed portion in its
+permanent owner, deletes the corresponding rendition in the same commit, and deletes any superseded production
+authority in the same commit, so no exact formal fact is ever authoritative in two places. The rendition
+reaches zero at milestone completion; nothing is moved to another document, because Git owns history.
+
+**Future milestones remain prose-only** until all their dependencies are accepted. Their prose is adversarial
+downstream pressure — used to test whether the active lower abstraction is general enough — never permission to
+implement the future, to add future state, fields, constructors or theorems early, or to keep compatibility
+scaffolding.
+
+**Shadow implementation is forbidden; scratch checks are narrow and disposable.** A permitted scratch check is
+the smallest experiment that answers one isolated question cheaper to test in the pinned toolchain than to
+settle by inspection — whether one constructor elaborates, whether one index introduces a cycle, whether one
+impossible state stays unconstructible, whether the pinned toolchain accepts one namespace or parser fact. It
+defines no alternate subsystem or public surface, carries no milestone-wide theorem catalogue, never becomes a
+source production is reimplemented from, never enters the build or repository history, and is deleted before
+terminal verification and reported with its question, result and the decision it informed. If scratch work
+begins to carry load-bearing architecture, it stops: delete it and continue in the canonical owner. There is
+no committed scratch directory and no retained scratch manifest.
+
+**Dependency retreat.** If new evidence shows a load-bearing accepted abstraction at layer `Cn` is wrong — its
+public type or constructor topology, its semantic meaning, its retained provenance or causal identity, its
+public theorem guarantees, its boundaries, or an accepted fact a higher layer's correctness depends on — all
+work above `Cn` freezes. Identify the earliest affected accepted layer, stop everything above it, repair and
+reaccept it, then reopen each dependent layer one at a time in dependency order, revalidating that each is
+still the abstraction that should be chosen on the repaired foundation — not merely that it still compiles —
+and simplifying, deleting or redesigning before reopening the next. Resume the former frontier only when every
+intervening layer is accepted again. A demonstrably internal proof refactor that changes no semantic,
+provenance, public-guarantee or boundary dependency needs no ceremonial retreat; the burden is on the claimant
+to show that non-effect, and uncertainty means freeze and report.
+
+**Review and acceptance.** The active milestone is reviewed against its governing semantic obligations, the
+whole current implementation, proofs, tests, artifacts, gates and live paths, all accepted lower layers, and
+later-milestone prose as adversarial pressure — public types and constructor topology before proof bodies,
+graded by the weakest load-bearing link on the certified causal path. An A+ means the reviewer found no
+load-bearing defect in the exact reviewed `HEAD`; it is not acceptance by itself. Acceptance requires one
+frontier model to find no load-bearing fault, a different frontier model to independently review the same exact
+`HEAD` and also find none, and Rob to decide. No milestone is accepted without Rob, and no work is manufactured
+after the fault frontier has survived review.
+
+---
+
 ## 2. Source and program representation
 
 A `Syntax.Program` is a `ModuleSpec` paired with a possibly-**empty** `Syntax.Files`.
@@ -598,6 +665,7 @@ was retired because another row already carried its obligation.
 | ARCH-10 | No vacuous library safety — an empty set of starts does not prove open-world safety. |
 | ARCH-11 | Do-not-do-early: no state, feature or compatibility scaffold lands before its complete vertical feature. Narrowly reopened once, for the `Emit.Image` mint (§6). |
 | ARCH-12 | Rob accepts only the exact reviewed green HEAD. |
+| ARCH-13 | Two authorities, never two formal: governing prose owns meaning, scope and boundaries, canonical Rocq owns exact formal realization, and a mismatch is a defect. The active milestone is formalized directly in its canonical owners with its prose rendition deleted in lockstep; future milestones stay prose-only; shadow implementations and committed scratch are forbidden; a falsified lower layer triggers dependency retreat and ordered relayering. See §1 "Two authorities, never two formal implementations". |
 | EVID-01 | Pinned spec and memory-model bytes. |
 | EVID-02 | Reproducible extraction and audit outputs. |
 | EVID-03 | Evaluation-order nondeterminism and deterministic specified-order fixtures. |

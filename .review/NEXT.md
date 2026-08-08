@@ -1,6 +1,6 @@
 # C6 — the static semantic foundation
 
-Review: contract
+Review: implementation
 
 Goal: ordinary source names acquire meaning only through binding. Every predeclared spelling is a legal
 source identifier and may be shadowed; blank is not an identifier at all. C6 lands the pinned predeclared
@@ -11,15 +11,17 @@ the static package dependency object, and a three-way decision that never calls 
 **C6 is entirely static.** No `Runtime`, value, place, store, environment or `Machine.T`; C7 introduces them
 as one vertical and materializes package **variables** only — constants stay compile-time facts.
 
-The declarations below are the published surface **verbatim**: `make contract-surface` elaborates exactly
-this text under the pinned Rocq. Names are written unqualified, as they elaborate. Its typed rules were
-checked against pinned Go 1.23 with `make go-probe`, and the module namespace with `make ns-probe`, before
-being written down; both are in §Done.
+C6 is implemented directly in its permanent `Compilable.*` canonical modules, following the milestone process
+in `ARCHITECTURE.md` §1 "Two authorities, never two formal implementations". This document is governing prose:
+it owns C6's required meaning, scope, boundaries, evidence and stop conditions. The formal-looking blocks below
+(§"Remaining C6 migration inventory" and §"Theorems") are **temporary, non-authoritative migration inventory**,
+not an independently elaborated specification — read their terms before using them.
 
 ## Ownership and physical modules
 
-`ARCHITECTURE.md` owns the ownership law and the physical-structure doctrine; `ROADMAP.md` owns the milestone
-sequence. `make ns-probe` confirms the pinned Dune and Rocq accept this shape.
+`ARCHITECTURE.md` owns the ownership law and the physical-structure doctrine, including the `Compilable.*`
+decomposition; `ROADMAP.md` owns the milestone sequence. The table below is the C6 instantiation of that
+doctrine, not a competing authority.
 
 | module | owns |
 |---|---|
@@ -57,7 +59,7 @@ local, type cycle and initialization cycle.
 
 ## Sealing
 
-The declarations below are the specification of what each module must contain, not a public interface. Three
+The sealing below is C6 implementation-review guidance, not a public interface. Three
 families are module-private and export only their projections: site outcomes, site failures and boundaries
 in `Compilable.Report`, and node outcomes in `Compilable.TypeResolution`. Their constructors are freely
 applicable, so a client holding them could fabricate an outcome or a boundary; production values come only
@@ -67,10 +69,25 @@ from `phase_outcome`, `node_outcome` and `core_boundaries`.
 acyclicity of the whole graph plus support for every node, and that evidence exists only where the phase's
 own decision produced it.
 
-## The published surface
+## Remaining C6 migration inventory (temporary, non-authoritative)
+
+The Rocq block below, together with the §Theorems block, is **remaining C6 migration inventory** — not a
+specification and not the active surface:
+
+- it is non-authoritative;
+- it is not independently elaborated: no gate type-checks it, and it is no longer a "published surface";
+- it applies only to the portions of C6 not yet canonicalized;
+- the canonical `Compilable.*` implementation owns the exact topology and may prove any of it wrong;
+- each later implementation commit canonicalizes one dependency-closed portion and deletes the corresponding
+  inventory here in the same commit;
+- no implemented declaration or theorem may keep a duplicate exact rendition in this block;
+- nothing here is moved elsewhere when deleted — Git owns history;
+- it must reach zero by C6 completion, leaving only C6's semantic obligations, boundaries, gates, preserved
+  facts and review instructions.
 
 ```coq
-(* Proposed C6 public surface, in dependency order.  Scratch: untracked, not a build input. *)
+(* Remaining C6 migration inventory, in dependency order.  Non-authoritative: the canonical Compilable.* *)
+(* implementation owns exact topology, may prove any of this wrong, and deletes it in lockstep as it lands. *)
 
 From Stdlib Require Import List String Ascii ZArith NArith Sorted.
 Import ListNotations.
@@ -2269,7 +2286,8 @@ Definition NoTrailingBlank (s : string) : Prop :=
 
 ## Theorems
 
-Every statement below elaborates over the names above; proof bodies are the implementation's work.
+These theorem statements are part of the migration inventory above: non-authoritative, and the canonical
+implementation owns their exact statements and proofs.
 
 ```coq
 (* ── §17 Theorem surface ───────────────────────────────────────────────────── *)
@@ -2501,14 +2519,13 @@ fixtures, `LAT-077`, generated-artifact evidence, and current document and ledge
 
 C7 is forbidden until Rob accepts C6.
 
-## Done
+## Pinned-gc observations
 
-**`make ns-probe`.** A scratch theory with `Compilable.v` beside `Compilable/Bindings.v` under
-`(include_subdirs qualified)` builds under the pinned Dune 3.21 and Rocq 9.2.0, producing
-`_build/default/Compilable.vo` and `_build/default/Compilable/Bindings.vo`, and `Compilable.v` resolves
-`From Fido Require Import Compilable.Bindings`. The module name does not collide with the directory.
+Adversarial observations of what pinned Go 1.23 (`gc`) accepts and rejects, gathered with `make go-probe`.
+They are implementation-review evidence: the C6 implementation must agree with every one, and none is a
+language-semantics authority — a finite probe set is evidence, never a global theorem.
 
-**`make go-probe`, source root.** Every predeclared spelling is a legal ordinary source identifier: `int`,
+**Source root.** Every predeclared spelling is a legal ordinary source identifier: `int`,
 `int32` and `any` as type names, `true`, `iota`, `nil`, `len`, `println` and `complex` as ordinary bindings,
 at package level and locally. `_` is rejected as a value and as a type, so blank is exclusively a
 `BindingName`. `type _ = int`, `type _ int`, `const _ = 1` and `var _ = 1` all accept. `const ()`, `var ()`
