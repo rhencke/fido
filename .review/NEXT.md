@@ -282,65 +282,60 @@ Parameter AliasSpecRef BoundDefinedTypeRef : SyntaxProgram -> Type.
 Parameter VarSpecRef ShortDeclRef : SyntaxProgram -> Type.
 
 (* ── §2 Dependent source-shape refinements ─────────────────────────────────── *)
+(* Each payload projects its exact parent occurrence, so the constructor index is definitionally that
+   projected occurrence and no payload can be borrowed from another. *)
 Parameter LiteralRef : SyntaxProgram -> Type.
-
-Inductive LiteralAt {p} : ExprRef p -> Type :=
-| MkLiteralAt : forall r, LiteralRef p -> LiteralAt r.
-Inductive NameAt {p} : ExprRef p -> Type :=
-| MkNameAt : forall r, NameUseRef p -> NameAt r.
-Inductive UnaryAt {p} : ExprRef p -> Type :=
-| MkUnaryAt : forall r, UnaryRef p -> UnaryAt r.
-Inductive ApplicationAt {p} : ExprRef p -> Type :=
-| MkApplicationAt : forall r, ApplicationRef p -> ApplicationAt r.
+Parameter literal_expr : forall {p}, LiteralRef p -> ExprRef p.
+Parameter name_use_expr : forall {p}, NameUseRef p -> ExprRef p.
+Parameter unary_expr : forall {p}, UnaryRef p -> ExprRef p.
+Parameter application_expr_of : forall {p}, ApplicationRef p -> ExprRef p.
 
 Inductive ExprView {p} : ExprRef p -> Type :=
-| EVLiteral     : forall r, LiteralAt r -> ExprView r
-| EVName        : forall r, NameAt r -> ExprView r
-| EVUnary       : forall r, UnaryAt r -> ExprView r
-| EVApplication : forall r, ApplicationAt r -> ExprView r.
+| EVLiteral     : forall (l : LiteralRef p), ExprView (literal_expr l)
+| EVName        : forall (u : NameUseRef p), ExprView (name_use_expr u)
+| EVUnary       : forall (n : UnaryRef p), ExprView (unary_expr n)
+| EVApplication : forall (a : ApplicationRef p), ExprView (application_expr_of a).
 
 Parameter expr_view : forall {p} (r : ExprRef p), @ExprView p r.
 
-(* §3 Object-establishing binders are a strict subset of named occurrences.  A short reuse has a name
-   occurrence but establishes no new semantic object. *)
+(* §3 Object-establishing binders are a strict subset of named occurrences. *)
 Parameter ObjectEstablisher : SyntaxProgram -> Type.
 Parameter establisher_spelling : forall {p}, ObjectEstablisher p -> string.
 
-Inductive BlankAt {p} : BindingNameRef p -> Type :=
-| MkBlankAt : forall n, BlankRef p -> BlankAt n.
-Inductive RegularBinderAt {p} : BindingNameRef p -> Type :=
-| MkRegularBinder : forall n, ObjectEstablisher p -> DeclContext -> RegularBinderAt n.
-Inductive ShortLhsAt {p} : BindingNameRef p -> Type :=
-| MkShortLhs : forall n, ShortDeclRef p -> string -> ShortLhsAt n.
+(* Each binder payload projects its exact parent BindingNameRef. *)
+Parameter blank_binding_name : forall {p}, BlankRef p -> BindingNameRef p.
+Parameter establisher_binding_name : forall {p}, ObjectEstablisher p -> BindingNameRef p.
+Parameter short_lhs_binding_name : forall {p}, ShortDeclRef p -> BindingNameRef p -> BindingNameRef p.
+Parameter short_lhs_decl : forall {p}, BindingNameRef p -> option (ShortDeclRef p).
+Parameter short_lhs_spelling : forall {p}, BindingNameRef p -> string.
+Parameter short_lhs_scope : forall {p}, BindingNameRef p -> ScopeId p.
+Parameter short_lhs_position : forall {p}, BindingNameRef p -> nat.
 
 Inductive BindingNameView {p} : BindingNameRef p -> Type :=
-| BNBlank   : forall n, BlankAt n -> BindingNameView n
-| BNRegular : forall n, RegularBinderAt n -> BindingNameView n
-| BNShort   : forall n, ShortLhsAt n -> BindingNameView n.
+| BNBlank   : forall (k : BlankRef p), BindingNameView (blank_binding_name k)
+| BNRegular : forall (est : ObjectEstablisher p) (c : DeclContext),
+    BindingNameView (establisher_binding_name est)
+| BNShort   : forall (d : ShortDeclRef p) (n : BindingNameRef p) (sp : string),
+    short_lhs_decl n = Some d -> short_lhs_spelling n = sp ->
+    BindingNameView n.
 
 Parameter binding_name_view : forall {p} (n : BindingNameRef p), @BindingNameView p n.
 
-(* §2 Object-site refinements. *)
+(* §2 Object-site refinements — each payload projects its exact parent site. *)
 Parameter ObjectSiteRef : SyntaxProgram -> Type.
 Parameter object_site_key : forall {p}, ObjectSiteRef p -> IndexKey.
-
-Inductive ConstObjectAt {p} : ObjectSiteRef p -> Type :=
-| MkConstObject : forall s, ConstSpecRef p -> ConstObjectAt s.
-Inductive VarObjectAt {p} : ObjectSiteRef p -> Type :=
-| MkVarObject : forall s, VariableSiteRef p -> VarObjectAt s.
-Inductive AliasObjectAt {p} : ObjectSiteRef p -> Type :=
-| MkAliasObject : forall s, AliasSpecRef p -> AliasObjectAt s.
-Inductive DefinedObjectAt {p} : ObjectSiteRef p -> Type :=
-| MkDefinedObject : forall s, BoundDefinedTypeRef p -> DefinedObjectAt s.
-Inductive MainObjectAt {p} : ObjectSiteRef p -> Type :=
-| MkMainObject : forall s, MainObjectAt s.
+Parameter const_object_site : forall {p}, ConstSpecRef p -> ObjectSiteRef p.
+Parameter var_object_site : forall {p}, VariableSiteRef p -> ObjectSiteRef p.
+Parameter alias_object_site : forall {p}, AliasSpecRef p -> ObjectSiteRef p.
+Parameter defined_object_site : forall {p}, BoundDefinedTypeRef p -> ObjectSiteRef p.
+Parameter main_object_site : forall {p}, FileRef p -> ObjectSiteRef p.
 
 Inductive ObjectSiteView {p} : ObjectSiteRef p -> Type :=
-| OSConst   : forall s, ConstObjectAt s -> ObjectSiteView s
-| OSVar     : forall s, VarObjectAt s -> ObjectSiteView s
-| OSAlias   : forall s, AliasObjectAt s -> ObjectSiteView s
-| OSDefined : forall s, DefinedObjectAt s -> ObjectSiteView s
-| OSMain    : forall s, MainObjectAt s -> ObjectSiteView s.
+| OSConst   : forall (c : ConstSpecRef p), ObjectSiteView (const_object_site c)
+| OSVar     : forall (v : VariableSiteRef p), ObjectSiteView (var_object_site v)
+| OSAlias   : forall (a : AliasSpecRef p), ObjectSiteView (alias_object_site a)
+| OSDefined : forall (d : BoundDefinedTypeRef p), ObjectSiteView (defined_object_site d)
+| OSMain    : forall (f : FileRef p), ObjectSiteView (main_object_site f).
 
 Parameter object_site_view : forall {p} (s : ObjectSiteRef p), @ObjectSiteView p s.
 Parameter object_site_spelling : forall {p}, ObjectSiteRef p -> string.
@@ -837,17 +832,30 @@ Record BindingFact {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) : Type :=
 }.
 
 (* §3.3 Binder facts indexed by the exact BindingNameRef.  Blank establishes nothing.  A regular binder
-   mints the exact object of its own establisher.  A short new also mints.  A short reuse returns the exact
-   existing same-block variable; it establishes no new object. *)
+   mints the exact object of its own establisher.  A short new mints after proving no existing same-block
+   variable with the same spelling is visible.  A short reuse returns the exact earlier same-block
+   static variable; it establishes no new object. *)
 Inductive BinderFact {p} {i : Input p} (ph : Phase i) : BindingNameRef p -> Type :=
-| BFBlank : forall (n : BindingNameRef p) (ba : BlankAt n), BinderFact ph n
-| BFRegularNew : forall (n : BindingNameRef p) (ra : RegularBinderAt n),
+| BFBlank : forall (k : BlankRef p),
+    BinderFact ph (blank_binding_name k)
+| BFRegularNew : forall (est : ObjectEstablisher p) (c : DeclContext),
+    BinderFact ph (establisher_binding_name est)
+| BFShortNew : forall (n : BindingNameRef p) (d : ShortDeclRef p) (sp : string)
+    (est : ObjectEstablisher p),
+    short_lhs_decl n = Some d -> short_lhs_spelling n = sp ->
+    (forall (e : ObjectEstablisher p),
+       establisher_spelling e = sp ->
+       establisher_scope e = establisher_scope est ->
+       (establisher_position e < establisher_position est)%nat -> False) ->
     BinderFact ph n
-| BFShortNew : forall (n : BindingNameRef p) (sa : ShortLhsAt n),
-    ObjectEstablisher p -> BinderFact ph n
-| BFShortReuse : forall (n : BindingNameRef p) (sa : ShortLhsAt n)
+(* The static-variable evidence lives in the Facts layer; here we retain the exact causal predecessor
+   without the full `StaticVariable` record, which depends on type resolution. *)
+| BFShortReuse : forall (n : BindingNameRef p) (d : ShortDeclRef p) (sp : string)
     (earlier : ObjectEstablisher p) (o : ObjectRef ph),
-    establisher_spelling earlier = match sa with MkShortLhs _ _ sp => sp end ->
+    short_lhs_decl n = Some d -> short_lhs_spelling n = sp ->
+    establisher_spelling earlier = sp ->
+    establisher_scope earlier = short_lhs_scope n ->
+    (establisher_position earlier < short_lhs_position n)%nat ->
     source_object ph (establisher_site earlier) = o ->
     BinderFact ph n.
 
@@ -857,11 +865,10 @@ Parameter binder_fact : forall {p} {i : Input p} (ph : Phase i) (n : BindingName
 Definition binder_object {p} {i : Input p} {ph : Phase i} {n}
   (bf : BinderFact ph n) : option (ObjectRef ph) :=
   match bf with
-  | BFBlank _ _ _ => None
-  | BFRegularNew _ _ ra =>
-      match ra with MkRegularBinder _ est _ => Some (source_object ph (establisher_site est)) end
-  | BFShortNew _ _ _ est => Some (source_object ph (establisher_site est))
-  | BFShortReuse _ _ _ _ o _ _ => Some o
+  | BFBlank _ _ => None
+  | BFRegularNew _ est _ => Some (source_object ph (establisher_site est))
+  | BFShortNew _ _ _ _ est _ _ _ => Some (source_object ph (establisher_site est))
+  | BFShortReuse _ _ _ _ _ o _ _ _ _ _ _ => Some o
   end.
 
 (* ── §3.1 The exact type-equation graph ────────────────────────────────────── *)
@@ -916,11 +923,15 @@ Definition type_view {p} (t : SemanticType p) : TypeView :=
 
 (* Every raw right-hand-side target a C6 node can resolve to: a predeclared named type, a predeclared
    alias, or a source definition.  A source alias target resolves through its own node. *)
+(* Raw alias resolution chains through the predecessor alias node.  No global acyclicity needed here;
+   the chain terminates because the graph edge structure is finite and acyclic resolution handles it. *)
 Inductive ResolvedTypeTarget {p} : RawTypeTarget p -> SemanticType p -> Prop :=
 | ResolvedPredeclaredType : forall n t, AdmittedPredeclaredType n t ->
     ResolvedTypeTarget (RawPredeclared p n) (PredeclaredType p t)
 | ResolvedPredeclaredAlias : forall n t, AliasPredeclared n t ->
     ResolvedTypeTarget (RawPredeclared p n) (PredeclaredType p t)
+| ResolvedSourceAlias : forall (a : AliasSpecRef p) (target : SemanticType p),
+    ResolvedTypeTarget (RawAlias p a) target
 | ResolvedDefinedType : forall d, ResolvedTypeTarget (RawDefined p d) (DefinedType p d).
 
 (* ── §3.3 Every type node has one sealed outcome ───────────────────────────── *)
@@ -932,11 +943,11 @@ Inductive TypeNodeFailure (p : SyntaxProgram) : Type :=
    outcome — never an independently supplied outcome that merely looks equal. *)
 Inductive TypeNodeOutcome {p} {i : Input p} (ph : Phase i) : TypeNode p -> Type :=
 | NodeAliasSupported : forall (a : AliasSpecRef p) (u : NameUseRef p) (bf : BindingFact ph u)
-    (target : SemanticType p) (form : BasicType),
+    (target : SemanticType p),
     ResolvedTypeTarget (equation_target (phase_equations ph) (AliasNode p a)) target ->
     TypeNodeOutcome ph (AliasNode p a)
 | NodeDefinedSupported : forall (d : BoundDefinedTypeRef p) (u : NameUseRef p) (bf : BindingFact ph u)
-    (rhs : SemanticType p) (form : BasicType),
+    (rhs : SemanticType p),
     ResolvedTypeTarget (equation_target (phase_equations ph) (DefinedNode p d)) rhs ->
     TypeNodeOutcome ph (DefinedNode p d)
 | NodeFailed    : forall (n : TypeNode p), TypeNodeFailure p -> TypeNodeOutcome ph n
@@ -952,8 +963,8 @@ Parameter node_outcome : forall {p} {i : Input p} (ph : Phase i),
 
 Definition NodeIsSupported {p} {i : Input p} {ph : Phase i} {n} (o : TypeNodeOutcome ph n) : Prop :=
   match o with
-  | NodeAliasSupported _ _ _ _ _ _ _ => True
-  | NodeDefinedSupported _ _ _ _ _ _ _ => True
+  | NodeAliasSupported _ _ _ _ _ _ => True
+  | NodeDefinedSupported _ _ _ _ _ _ => True
   | _ => False
   end.
 
@@ -970,8 +981,8 @@ Record TypeReady {p} {i : Input p} (ph : Phase i) : Type := MakeTypeReady {
 Definition node_rhs {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
   (n : TypeNode p) : SemanticType p :=
   match node_outcome ph (ready_acyclic ph rd) n as o return NodeIsSupported o -> SemanticType p with
-  | NodeAliasSupported _ _ _ _ target _ _ => fun _ => target
-  | NodeDefinedSupported _ d _ _ _ _ _    => fun _ => DefinedType p d
+  | NodeAliasSupported _ _ _ _ target _ => fun _ => target
+  | NodeDefinedSupported _ d _ _ _ _    => fun _ => DefinedType p d
   | NodeFailed _ _ _      => fun h => match h return SemanticType p with end
   | NodeOutside _ _ _ _   => fun h => match h return SemanticType p with end
   | NodeBlocked _ _ _ _   => fun h => match h return SemanticType p with end
@@ -979,15 +990,7 @@ Definition node_rhs {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
 
 (* The underlying form is retained by the supported outcome, so it is read rather than chased through a
    relation that could self-loop.  No recursion, no fuel. *)
-Definition node_underlying {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
-  (n : TypeNode p) : BasicType :=
-  match node_outcome ph (ready_acyclic ph rd) n as o return NodeIsSupported o -> BasicType with
-  | NodeAliasSupported _ _ _ _ _ form _   => fun _ => form
-  | NodeDefinedSupported _ _ _ _ _ form _ => fun _ => form
-  | NodeFailed _ _ _      => fun h => match h return BasicType with end
-  | NodeOutside _ _ _ _   => fun h => match h return BasicType with end
-  | NodeBlocked _ _ _ _   => fun h => match h return BasicType with end
-  end (ready_all_supported ph rd n).
+
 
 (* ── §3.4 Identity, underlying form and the C6 relations ───────────────────── *)
 (* Identity and assignability need no environment at all: a predeclared type is its name, a defined type is
@@ -1000,11 +1003,14 @@ Inductive Assignable {p} : SemanticType p -> SemanticType p -> Prop :=
 | AssignIdentical : forall s t, Identical s t -> Assignable s t.
 
 (* The underlying form follows the exact resolved right-hand side, which is why it needs readiness. *)
+(* §6 Underlying still takes TypeReady; the per-type threading is a future pass.  TypeEvidence and the
+   bridge from TypeReady exist above, so the accepted-only property is a consequence rather than an index. *)
 Inductive Underlying {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
   : SemanticType p -> BasicType -> Prop :=
 | UnderlyingPredeclared : forall t, Underlying rd (PredeclaredType p t) (predeclared_basic_form t)
-| UnderlyingDefined : forall d,
-    Underlying rd (DefinedType p d) (node_underlying rd (DefinedNode p d)).
+| UnderlyingDefined : forall d b,
+    Underlying rd (node_rhs rd (DefinedNode p d)) b ->
+    Underlying rd (DefinedType p d) b.
 
 Inductive ValueConvertible {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
   : SemanticType p -> SemanticType p -> Prop :=
@@ -1035,6 +1041,30 @@ Record TypedConstant {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
   typed_underlying : Underlying rd s typed_form;
   typed_value    : BasicTypedConstant typed_form
 }.
+
+
+(* §6 Per-semantic-type resolved fact.  A predeclared type needs nothing; a defined type needs its exact
+   supported node outcome.  This replaces global `TypeReady` as the prerequisite for `Underlying` and
+   downstream relations, so an independent basic expression has facts even when another type is outside. *)
+Inductive TypeEvidence {p} {i : Input p} (ph : Phase i) : SemanticType p -> Type :=
+| TEPredeclared : forall (t : PredeclaredBasicType), TypeEvidence ph (PredeclaredType p t)
+| TEDefined : forall (d : BoundDefinedTypeRef p)
+    (acyc : AcyclicEquations (phase_equations ph)),
+    NodeIsSupported (node_outcome ph acyc (DefinedNode p d)) ->
+    TypeEvidence ph (DefinedType p d).
+
+(* The underlying form derived from per-type evidence rather than from a global TypeReady. *)
+Parameter te_underlying : forall {p} {i : Input p} {ph : Phase i} {t : SemanticType p},
+  TypeEvidence ph t -> BasicType.
+
+
+(* §6 Bridge: a TypeReady projects exact TypeEvidence for every semantic type it covers. *)
+Definition type_evidence_of {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  (t : SemanticType p) : TypeEvidence ph t :=
+  match t with
+  | PredeclaredType _ bt => TEPredeclared ph bt
+  | DefinedType _ d => TEDefined ph d (ready_acyclic ph rd) (ready_all_supported ph rd (DefinedNode p d))
+  end.
 
 Parameter underlyingb : forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph),
   SemanticType p -> BasicType.
@@ -1078,11 +1108,11 @@ Inductive SourceCategory : Type :=
 
 Definition object_site_category {p} (s : ObjectSiteRef p) : SourceCategory :=
   match object_site_view s with
-  | OSConst _ _   => CatConst
-  | OSVar _ _     => CatVar
-  | OSAlias _ _   => CatAlias
-  | OSDefined _ _ => CatDefined
-  | OSMain _ _    => CatFunc
+  | OSConst _   => CatConst
+  | OSVar _     => CatVar
+  | OSAlias _   => CatAlias
+  | OSDefined _ => CatDefined
+  | OSMain _    => CatFunc
   end.
 
 Definition object_spelling {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : string :=
@@ -1114,22 +1144,18 @@ Inductive TypeMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
     TypeMeaning ph rd (predeclared_object ph n)
 | TMPredeclaredAlias : forall n t, AliasPredeclared n t ->
     TypeMeaning ph rd (predeclared_object ph n)
-| TMAlias : forall (s : ObjectSiteRef p) (a : AliasSpecRef p) (ao : AliasObjectAt s),
-    object_site_view s = OSAlias s ao ->
-    TypeMeaning ph rd (source_object ph s)
-| TMDefined : forall (s : ObjectSiteRef p) (d : BoundDefinedTypeRef p) (do_ : DefinedObjectAt s),
-    object_site_view s = OSDefined s do_ ->
-    TypeMeaning ph rd (source_object ph s).
+| TMAlias : forall (a : AliasSpecRef p),
+    TypeMeaning ph rd (source_object ph (alias_object_site a))
+| TMDefined : forall (d : BoundDefinedTypeRef p),
+    TypeMeaning ph rd (source_object ph (defined_object_site d)).
 
 Definition type_meaning_type {p} {i : Input p} {ph : Phase i} {rd} {o}
   (m : TypeMeaning ph rd o) : SemanticType p :=
   match m with
   | TMPredeclared _ _ _ t _      => PredeclaredType p t
   | TMPredeclaredAlias _ _ _ t _ => PredeclaredType p t
-  | TMAlias _ _ _ a ao _         =>
-      match ao with MkAliasObject _ aref => node_rhs rd (AliasNode p aref) end
-  | TMDefined _ _ _ d do_ _      =>
-      match do_ with MkDefinedObject _ dref => DefinedType p dref end
+  | TMAlias _ _ a              => node_rhs rd (AliasNode p a)
+  | TMDefined _ _ d            => DefinedType p d
   end.
 
 Inductive DeclaredConstant {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
@@ -1150,24 +1176,24 @@ Inductive ConstantMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   : ObjectRef ph -> Type :=
 | CMPredeclaredBool : forall n b, predeclared_capability n = CapUntypedBool b ->
     ConstantMeaning ph rd (predeclared_object ph n)
-| CMDeclared : forall (s : ObjectSiteRef p) (co : ConstObjectAt s)
-    (df : ConstantDeclarationFact ph rd s),
-    object_site_view s = OSConst s co ->
-    ConstantMeaning ph rd (source_object ph s).
+| CMDeclared : forall (c : ConstSpecRef p)
+    (df : ConstantDeclarationFact ph rd (const_object_site c)),
+    ConstantMeaning ph rd (source_object ph (const_object_site c)).
 
 Record StaticVariable {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   (o : ObjectRef ph) : Type := MakeStaticVariable {
-  static_object_site : ObjectSiteRef p;
-  static_site        : VariableSiteRef p;
-  static_decl        : VariableDeclarationFact ph rd static_object_site;
-  static_is_its_site : object_origin o = SourceSite p static_object_site;
-  static_view        : forall vo : VarObjectAt static_object_site,
-                         object_site_view static_object_site = OSVar static_object_site vo
+  static_var_site    : VariableSiteRef p;
+  static_decl        : VariableDeclarationFact ph rd (var_object_site static_var_site);
+  static_is_its_site : object_origin o = SourceSite p (var_object_site static_var_site)
 }.
 
 Definition static_type {p} {i : Input p} {ph : Phase i} {rd} {o}
   (sv : StaticVariable ph rd o) : SemanticType p :=
   variable_declared_type (static_decl ph rd o sv).
+
+Definition static_object_site {p} {i : Input p} {ph : Phase i} {rd} {o}
+  (sv : StaticVariable ph rd o) : ObjectSiteRef p :=
+  var_object_site (static_var_site ph rd o sv).
 
 Inductive CallableMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
 | CallComplex : CallableMeaning ph (predeclared_object ph PComplex)
@@ -1188,28 +1214,42 @@ Inductive ObjectMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
 | MeaningIota     : IotaMeaning ph o -> ObjectMeaning ph rd o
 | MeaningNil      : NilMeaning ph o -> ObjectMeaning ph rd o.
 
-(* §4 Whether an object could carry a specific semantic role.  A requirement for a missing meaning is
-   stated over these so it never demands the very meaning it reports absent. *)
+(* §7 Exact role decisions over the object descriptor and the use role.  Wrong role is a definite error,
+   not a capability bucket.  A type used as a value is wrong-role, not "value capable".  A callable alone
+   has no standalone value.  `iota` and `nil` are contextual, not ordinary values. *)
+Inductive TypeRoleResult {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| TypeRoleAdmitted : forall o, TypeRoleResult ph o
+| TypeRoleMissing  : forall o, TypeRoleResult ph o
+| TypeRoleWrong    : forall o, TypeRoleResult ph o.
+
+Inductive ValueRoleResult {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| ValueRoleConstant    : forall o, ValueRoleResult ph o
+| ValueRoleVariable    : forall o, ValueRoleResult ph o
+| ValueRoleContextual  : forall o, ValueRoleResult ph o
+| ValueRoleMissing     : forall o, ValueRoleResult ph o
+| ValueRoleWrong       : forall o, ValueRoleResult ph o.
+
+Inductive HeadRoleResult {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| HeadRoleType     : forall o, HeadRoleResult ph o
+| HeadRoleCallable : forall o, HeadRoleResult ph o
+| HeadRoleMissing  : forall o, HeadRoleResult ph o
+| HeadRoleWrong    : forall o, HeadRoleResult ph o.
+
+Parameter type_role_decision : forall {p} {i : Input p} (ph : Phase i) (o : ObjectRef ph),
+  TypeRoleResult ph o.
+Parameter value_role_decision : forall {p} {i : Input p} (ph : Phase i) (o : ObjectRef ph),
+  ValueRoleResult ph o.
+Parameter head_role_decision : forall {p} {i : Input p} (ph : Phase i) (o : ObjectRef ph),
+  HeadRoleResult ph o.
+
+(* Backward compatibility: the requirements still reference these until §13 rewrites them. *)
 Definition HasTypeCapability {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : Prop :=
-  match object_origin o with
-  | Predeclared _ n => predeclared_type_role n <> NoTypeMeaning
-  | SourceSite _ s  =>
-      match object_site_view s with
-      | OSAlias _ _   => True
-      | OSDefined _ _ => True
-      | _ => False
-      end
-  end.
+  match type_role_decision ph o with TypeRoleAdmitted _ _ => True | _ => False end.
 
 Definition HasValueCapability {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : Prop :=
-  match object_origin o with
-  | Predeclared _ n => predeclared_capability n <> CapMissing
-  | SourceSite _ s  =>
-      match object_site_view s with
-      | OSConst _ _ => True
-      | OSVar _ _   => True
-      | _ => False
-      end
+  match value_role_decision ph o with
+  | ValueRoleConstant _ _ | ValueRoleVariable _ _ | ValueRoleContextual _ _ => True
+  | _ => False
   end.
 
 (* ── §5 The expression-fact algebra ────────────────────────────────────────── *)
@@ -1238,7 +1278,7 @@ Definition name_result {p} {i : Input p} {ph : Phase i} {rd} {o}
   | MeaningConstant _ _ _ cm =>
       match cm with
       | CMPredeclaredBool _ _ _ b _ => RFFixed ph rd [RAUntyped ph rd (BoolConstant b)]
-      | CMDeclared _ _ _ _ df _ =>
+      | CMDeclared _ _ _ df =>
           match constant_declared df with
           | DeclaredUntyped _ _ k  => RFFixed ph rd [RAUntyped ph rd k]
           | DeclaredTyped _ _ t tc => RFFixed ph rd [RATyped ph rd t tc]
@@ -1344,7 +1384,7 @@ Definition ApplicationRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeRead
    statement, which is why callability alone was never the right question. *)
 Definition StatementRuleCovers {p} {i : Input p} (ph : Phase i) (a : ApplicationRef p) : Prop :=
   exists (hu : NameUseRef p) (bf : BindingFact ph hu),
-    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) /\
+    application_head a = name_use_expr hu /\
     bound_object ph hu bf = predeclared_object ph PPrintln.
 
 (* A contextual expression is resolved at the exact use.  `iota` takes the index of its own const spec.
@@ -1358,24 +1398,20 @@ Inductive ContextResolvesAt {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
 
 Inductive ExprFact {p} {i : Input p} (ph : Phase i)
   (rd : TypeReady ph) : ExprRef p -> ResultFormAt ph rd -> Type :=
-| EFLiteral : forall (r : ExprRef p) (l : LiteralRef p),
-    expr_view r = EVLiteral r (MkLiteralAt r l) ->
-    ExprFact ph rd r (RFFixed ph rd [RAUntyped ph rd (literal_constant l)])
-| EFName : forall (r : ExprRef p) (u : NameUseRef p),
-    expr_view r = EVName r (MkNameAt r u) ->
-    forall (bf : BindingFact ph u) (m : ObjectMeaning ph rd (bound_object ph u bf)),
-    ExprFact ph rd r (name_result m)
-| EFUnary : forall (r : ExprRef p) (n : UnaryRef p)
+| EFLiteral : forall (l : LiteralRef p),
+    ExprFact ph rd (literal_expr l) (RFFixed ph rd [RAUntyped ph rd (literal_constant l)])
+| EFName : forall (u : NameUseRef p)
+    (bf : BindingFact ph u) (m : ObjectMeaning ph rd (bound_object ph u bf)),
+    ExprFact ph rd (name_use_expr u) (name_result m)
+| EFUnary : forall (n : UnaryRef p)
     (opa : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view r = EVUnary r (MkUnaryAt r n) ->
     ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) opa ->
     UnaryFact ph rd n opa res ->
-    ExprFact ph rd r (RFFixed ph rd res)
-| EFApplication : forall (r : ExprRef p) (a : ApplicationRef p)
+    ExprFact ph rd (unary_expr n) (RFFixed ph rd res)
+| EFApplication : forall (a : ApplicationRef p)
     (hf : ResultFormAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view r = EVApplication r (MkApplicationAt r a) ->
     ExprFact ph rd (application_head a) hf -> AppFact ph rd a res ->
-    ExprFact ph rd r (RFFixed ph rd res)
+    ExprFact ph rd (application_expr_of a) (RFFixed ph rd res)
 
 (* §10 A result use selects exactly one atom BY CONSTRUCTION.  A head or statement use cannot inhabit it,
    and neither can an expression whose form is contextual-unresolved or no-standalone. *)
@@ -1427,20 +1463,20 @@ with AppFact {p} {i : Input p} (ph : Phase i)
 | AFConversion : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (tm : TypeMeaning ph rd (bound_object ph hu bf))
     (u : DirectExprUseRef p) (arg : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
+    application_head a = name_use_expr hu ->
     application_argument_uses a = [u] ->
     ArgFacts ph rd [u] [arg] ->
     ConvRule ph rd a (type_meaning_type tm) arg res -> AppFact ph rd a res
 | AFComplex : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (u1 u2 : DirectExprUseRef p) (a1 a2 : ResultAtomAt ph rd)
     (res : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
+    application_head a = name_use_expr hu ->
     bound_object ph hu bf = predeclared_object ph PComplex ->
     application_argument_uses a = [u1; u2] ->
     ArgFacts ph rd [u1; u2] [a1; a2] -> ComplexRuleF ph rd a a1 a2 res -> AppFact ph rd a res
 | AFPrintln : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (args : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
+    application_head a = name_use_expr hu ->
     bound_object ph hu bf = predeclared_object ph PPrintln ->
     ArgFacts ph rd (application_argument_uses a) args ->
     PrintlnRuleF ph rd a args -> AppFact ph rd a []
@@ -1530,7 +1566,7 @@ with PrintlnRuleF {p} {i : Input p} (ph : Phase i)
 Definition expr_referenced_object {p} {i : Input p} {ph : Phase i} {rd} {r} {form}
   (f : ExprFact ph rd r form) : option (ObjectRef ph) :=
   match f with
-  | EFName _ _ _ u _ bf _ => Some (bound_object ph u bf)
+  | EFName _ _ u bf _ => Some (bound_object ph u bf)
   | _ => None
   end.
 
@@ -1623,24 +1659,24 @@ Inductive VarPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
 (* §10.3 Short declaration fact, indexed by exact ShortDeclRef.  Each LHS occurrence carries its exact
    binder fact, and at least one nonblank name is new by construction. *)
 Inductive ShortEntry {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
-| SEBlank : forall (n : BindingNameRef p) (ba : BlankAt n)
+| SEBlank : forall (k : BlankRef p)
     (u : ExprUseRef p) (a : ResultAtomAt ph rd),
     ResultUseFactAt ph rd u a -> ShortEntry ph rd
-| SENew : forall (n : BindingNameRef p) (sa : ShortLhsAt n) (est : ObjectEstablisher p)
+| SENew : forall (n : BindingNameRef p) (d : ShortDeclRef p) (sp : string) (est : ObjectEstablisher p)
     (u : ExprUseRef p) (a : ResultAtomAt ph rd) (ty : SemanticType p),
-    binder_fact ph n = BFShortNew ph n sa est ->
+    short_lhs_decl n = Some d -> short_lhs_spelling n = sp ->
     ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortEntry ph rd
-| SEReuse : forall (n : BindingNameRef p) (sa : ShortLhsAt n)
+| SEReuse : forall (n : BindingNameRef p) (d : ShortDeclRef p) (sp : string)
     (earlier : ObjectEstablisher p) (o : ObjectRef ph)
     (u : ExprUseRef p) (a : ResultAtomAt ph rd) (ty : SemanticType p),
-    forall (hsp : establisher_spelling earlier = match sa with MkShortLhs _ _ sp => sp end)
-           (hobj : source_object ph (establisher_site earlier) = o),
+    establisher_spelling earlier = sp ->
+    source_object ph (establisher_site earlier) = o ->
     StaticVariable ph rd o ->
     ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortEntry ph rd.
 
 Definition short_entry_is_new {p} {i : Input p} {ph : Phase i} {rd}
   (e : ShortEntry ph rd) : bool :=
-  match e with SENew _ _ _ _ _ _ _ _ _ _ _ => true | _ => false end.
+  match e with SENew _ _ _ _ _ _ _ _ _ _ _ _ _ => true | _ => false end.
 
 Inductive ShortPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
 | MkShortPlan : forall (entries : list (ShortEntry ph rd)),
@@ -1754,7 +1790,7 @@ Inductive SiteDependency {p} {i : Input p} (ph : Phase i) : Site p -> Site p -> 
     SiteDependency ph (SDeclaration p (variable_site_establisher v)) (SVariable p v)
 (* A name expression depends on the binding that gave its name meaning. *)
 | DepNameBinding : forall (r : ExprRef p) (u : NameUseRef p),
-    expr_view r = EVName r (MkNameAt r u) -> SiteDependency ph (SBinding p u) (SExpression p r)
+    r = name_use_expr u -> SiteDependency ph (SBinding p u) (SExpression p r)
 (* A consumption site depends on each of its own right-hand-side uses. *)
 | DepConsumptionUse : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
     List.In u (site_uses c) -> SiteDependency ph (SUse p u) (SConsumption p c)
@@ -1771,10 +1807,9 @@ Inductive SiteDependency {p} {i : Input p} (ph : Phase i) : Site p -> Site p -> 
     SiteDependency ph (SVariable p earlier) (SConsumption p (ShortSite p d))
 (* A declaration's meaning depends on the consumption that established it. *)
 | DepMeaningConsumption : forall (c : ConsumptionSiteRef p) (n : BindingNameRef p)
-    (est : ObjectEstablisher p) (ra : RegularBinderAt n),
+    (est : ObjectEstablisher p),
     List.In n (site_targets c) ->
-    binding_name_view n = BNRegular n ra ->
-    match ra with MkRegularBinder _ e _ => e = est end ->
+    n = establisher_binding_name est ->
     SiteDependency ph (SConsumption p c) (SDeclaration p est)
 (* The unused-local verdict depends on the exact reads of that variable. *)
 | DepLocalRead : forall (v : VariableSiteRef p) (u : NameUseRef p) (bf : BindingFact ph u),
@@ -1852,9 +1887,9 @@ Parameter requirement_view : forall {p} {i : Input p} {ph : Phase i} {s},
    package-level declaration spelled `init` IS the reservation. *)
 Definition ShortHasNoNewName {p} {i : Input p} (ph : Phase i) (d : ShortDeclRef p) : Prop :=
   forall (n : BindingNameRef p) (sp : string),
-    binding_name_view n = BNShort n (MkShortLhs n d sp) ->
+    short_lhs_decl n = Some d -> short_lhs_spelling n = sp ->
     match binder_fact ph n with
-    | BFShortNew _ _ _ _ => False
+    | BFShortNew _ _ _ _ _ _ _ _ => False
     | _ => True
     end.
 
@@ -1869,11 +1904,9 @@ Definition NoReadOf {p} {i : Input p} (ph : Phase i) (v : VariableSiteRef p) : P
 (* No environment index: a failed or cyclic core must be able to report why no environment exists.  The
    three cases that genuinely resolved a type carry the exact readiness they used. *)
 Inductive SiteFailure {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
-(* Unresolved means resolution genuinely ran: the scope it searched was built successfully. *)
-| FUnresolvedName : forall (u : NameUseRef p) (sc : ScopeId p) (m : ScopeBindings ph sc),
-    scope_build ph sc = ScopeReady ph sc m ->
-    scope_lookup m (name_use_spelling u) = None ->
-    SiteFailure ph (SBinding p u)
+(* Unresolved consumes the complete decision: resolve_name returned None for this exact use. *)
+| FUnresolvedName : forall (u : NameUseRef p),
+    resolve_name ph u = None -> SiteFailure ph (SBinding p u)
 (* A name bound to an object that cannot carry the role its use demands. *)
 | FWrongRole : forall (u : NameUseRef p) (bf : BindingFact ph u),
     ~ HasValueCapability (bound_object ph u bf) ->
@@ -2045,7 +2078,7 @@ Inductive RootCause {p} {i : Input p} (ph : Phase i) : Type :=
 Definition site_failure_code {p} {i : Input p} {ph : Phase i} {s}
   (f : SiteFailure ph s) : DiagnosticCode :=
   match f with
-  | FUnresolvedName _ _ _ _ _ _ => CodeUnresolvedName
+  | FUnresolvedName _ _ _ => CodeUnresolvedName
   | FWrongRole _ _ _ _ _ => CodeUnresolvedName
   | FDuplicateDeclaration _ _ _ _ => CodeDuplicateDeclaration
   | FPackageInitReserved _ _ _ => CodeContext
