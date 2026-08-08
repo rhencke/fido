@@ -1499,13 +1499,13 @@ with AppFact {p} {i : Input p} (ph : Phase i)
     (u1 u2 : DirectExprUseRef p) (a1 a2 : ResultAtomAt ph rd)
     (res : list (ResultAtomAt ph rd)),
     expr_view (application_head a) = NameView (application_head a) hu ->
-    CallableMeaning ph (bound_object ph hu bf) ->
+    bound_object ph hu bf = predeclared_object ph PComplex ->
     application_argument_uses a = [u1; u2] ->
     ArgFacts ph rd [u1; u2] [a1; a2] -> ComplexRuleF ph rd a a1 a2 res -> AppFact ph rd a res
 | AFPrintln : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (args : list (ResultAtomAt ph rd)),
     expr_view (application_head a) = NameView (application_head a) hu ->
-    CallableMeaning ph (bound_object ph hu bf) ->
+    bound_object ph hu bf = predeclared_object ph PPrintln ->
     ArgFacts ph rd (application_argument_uses a) args ->
     PrintlnRuleF ph rd a args -> AppFact ph rd a []
 
