@@ -107,15 +107,21 @@ Compilable.v            phase composition, Core, Elaboration, Decision, Program/
 Compilable/Bindings.v          package identity, scopes, object identity, binding, shadowing
 Compilable/TypeResolution.v    type equations, graph decision, retained result and environment
 Compilable/Dependencies.v      package const/var dependency nodes, order, runtime projection
-Compilable/Expressions.v       expression, role-indexed use, unary, application and statement facts
-Compilable/Results.v           result-to-target plans, binder finalization, static variables
+Compilable/Facts.v             declaration, expression, role-indexed use, unary, application and statement
+                               facts; result consumption; binder finalization; static variables
 Compilable/Report.v            failure causes, diagnostics, requirements, boundaries, canonical lists
 Compilable/Evidence.v          certified fixtures and controls; no production module imports it
 ```
 
-Bindings precedes TypeResolution, Dependencies and Expressions; Expressions precedes Results; Results and
-Dependencies precede Report; Report precedes `Compilable.v`; `Compilable.v` precedes Evidence. No child
-imports `Compilable.v`.
+Bindings precedes TypeResolution and Dependencies; those three precede Facts; Facts precedes Report; Report
+precedes `Compilable.v`; `Compilable.v` precedes Evidence. No child imports `Compilable.v`.
+
+Expression facts and result consumption are one module because the dependency between them runs both ways.
+An initializer's expression facts establish the variable and constant facts of its declaration, and later
+name-expression facts consume those exact facts; a short declaration interleaves expression analysis, result
+consumption, binder finalization and static-variable creation in a single step. That is a real semantic
+cycle, so splitting them would need a callback, a registry, a duplicate carrier or a forward interface —
+each of which is the routing-around this rule forbids.
 
 ---
 

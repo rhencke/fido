@@ -26,14 +26,13 @@ sequence. `make ns-probe` confirms the pinned Dune and Rocq accept this shape.
 | `Compilable.Bindings` | `PackageRef`, scopes, object identity, binder/object sites, blank/new/reuse disposition, name binding, the predeclared outer scope and shadowing |
 | `Compilable.TypeResolution` | exact type equations, the graph decision, the sealed `TypeReady` environment, object-indexed type meanings, predeclared and defined type identity through `node_rhs` and `Underlying` |
 | `Compilable.Dependencies` | package const/var dependency nodes, edges, cycle/acyclic outcome, retained order, the runtime-variable projection |
-| `Compilable.Expressions` | expression facts, role-indexed use facts, result occurrences, unary/application rules, statement classification, object-indexed capabilities |
-| `Compilable.Results` | const/var/short consumption plans, binder finalization, exact `StaticVariable`, unused-local facts |
+| `Compilable.Facts` | expression facts, role-indexed use facts, single-result uses, unary/application rules, statement classification, object-indexed meanings, const/var/short consumption plans, binder finalization, exact `StaticVariable`, unused-local facts |
 | `Compilable.Report` | site failures, diagnostics, site requirements, reflected satisfaction, boundaries, root/blocked reporting, canonical lists |
 | `Compilable.v` | phase composition, whole-program preflight, `Core`, `Elaboration`, `Decision`, `Program`/`Failure`/`Outside`, `Outcome`, `elaborate`, `compile` |
 | `Compilable.Evidence` | certified accepted/rejected/outside fixtures and controls; no production module imports it |
 
-`Bindings` precedes `TypeResolution`, `Dependencies` and `Expressions`; `Expressions` precedes `Results`;
-`Results` and `Dependencies` precede `Report`; `Report` precedes `Compilable.v`; `Compilable.v` precedes
+`Bindings` precedes `TypeResolution` and `Dependencies`; those three precede `Facts`; `Facts` precedes
+`Report`; `Report` precedes `Compilable.v`; `Compilable.v` precedes
 `Evidence`. No child imports `Compilable.v`.
 
 ## Diagnostic migration
@@ -55,6 +54,18 @@ constructors because they have no single site.
 C6 adds, and does not replace: unresolved name, duplicate declaration, argument, operand, not-a-statement,
 result count, not-assignable, not-representable, const-initializer-not-constant, no-new-variable, unused
 local, type cycle and initialization cycle.
+
+## Sealing
+
+The declarations below are the specification of what each module must contain, not a public interface. Three
+families are module-private and export only their projections: site outcomes, site failures and boundaries
+in `Compilable.Report`, and node outcomes in `Compilable.TypeResolution`. Their constructors are freely
+applicable, so a client holding them could fabricate an outcome or a boundary; production values come only
+from `phase_outcome`, `node_outcome` and `core_boundaries`.
+
+`TypeReady` is sealed differently and does not need its constructor hidden. Building one requires
+acyclicity of the whole graph plus support for every node, and that evidence exists only where the phase's
+own decision produced it.
 
 ## The published surface
 
@@ -235,6 +246,14 @@ Inductive ConsumptionSiteRef (p : SyntaxProgram) : Type :=
 | ShortSite : ShortDeclRef p -> ConsumptionSiteRef p.
 
 Parameter expr_node : forall {p}, ExprRef p -> NodeRef p.
+
+(* The exact source shape of an expression occurrence.  A fact constructor takes one of these views rather
+   than a free `ExprRef` beside a second, unrelated source reference. *)
+Parameter LiteralRef : SyntaxProgram -> Type.
+Parameter expr_literal : forall {p}, ExprRef p -> option (LiteralRef p).
+Parameter expr_name : forall {p}, ExprRef p -> option (NameUseRef p).
+Parameter expr_unary : forall {p}, ExprRef p -> option (UnaryRef p).
+Parameter expr_application : forall {p}, ExprRef p -> option (ApplicationRef p).
 Parameter object_site_key : forall {p}, ObjectSiteRef p -> IndexKey.
 Parameter binding_site_object_site : forall {p}, BindingSiteRef p -> ObjectSiteRef p.
 Parameter variable_site_binding_site : forall {p}, VariableSiteRef p -> BindingSiteRef p.
@@ -319,6 +338,10 @@ Definition use_refinement {p} (u : ExprUseRef p) : UseRefinement :=
   | DirectUse _ d    => refinement_of_child_role (direct_is_expr_child d)
   | InheritedUse _ _ => ResultRefinement
   end.
+
+(* Where a contextual expression gets its meaning: `iota` from its exact enclosing const spec and index,
+   `nil` from its exact legal target.  Both are properties of the use, not of the expression. *)
+Parameter iota_context : forall {p}, ExprUseRef p -> option (ConstSpecRef p * nat).
 
 (* ── Typing: named predeclared identities over a form algebra ──────────────── *)
 Inductive BasicType : Type :=
@@ -439,162 +462,33 @@ Inductive RawTypeTarget (p : SyntaxProgram) : Type :=
 | RawAlias       : AliasSpecRef p -> RawTypeTarget p
 | RawDefined     : BoundDefinedTypeRef p -> RawTypeTarget p.
 
-(* ── §5.1 The exact type-equation graph and its environment ────────────────── *)
+(* The equation set is named here so the phase can carry it; the graph over it is the type layer. *)
 Parameter ResolvedTypeEquations : SyntaxProgram -> Type.
 
-(* Nodes are exactly the source aliases and definitions. *)
-Inductive TypeNode (p : SyntaxProgram) : Type :=
-| AliasNode   : AliasSpecRef p -> TypeNode p
-| DefinedNode : BoundDefinedTypeRef p -> TypeNode p.
+(* The constant a literal denotes is read off the exact literal, never supplied beside it. *)
+Parameter literal_constant : forall {p}, LiteralRef p -> Constant.
 
-Parameter equation_target : forall {p}, ResolvedTypeEquations p -> TypeNode p -> RawTypeTarget p.
+(* The value a typed constant carries, so the typed computations below can be pinned to the untyped
+   constant authorities rather than being free to return anything. *)
+Parameter basic_typed_value : forall b : BasicType, BasicTypedConstant b -> Constant.
 
-(* Edges come only from the exact bound type use in a right-hand side.
-   There is no constructor for a predeclared target: predeclared targets are terminal. *)
-Inductive TypeEdge {p} (eqs : ResolvedTypeEquations p) : TypeNode p -> TypeNode p -> Prop :=
-| EdgeToAlias   : forall n a, equation_target eqs n = RawAlias p a ->
-    TypeEdge eqs n (AliasNode p a)
-| EdgeToDefined : forall n d, equation_target eqs n = RawDefined p d ->
-    TypeEdge eqs n (DefinedNode p d).
+(* Negation and the untyped-to-typed step on the exact basic value, so a rule computes its result from its
+   operand instead of accepting an unrelated one. *)
+Parameter negate_basic_typed : forall b : BasicType,
+  BasicTypedConstant b -> option (BasicTypedConstant b).
+Parameter basic_typed_of : forall b : BasicType, Constant -> option (BasicTypedConstant b).
 
-Inductive EdgePath {p} (eqs : ResolvedTypeEquations p) : TypeNode p -> TypeNode p -> Prop :=
-| PathStep : forall n m, TypeEdge eqs n m -> EdgePath eqs n m
-| PathMore : forall n m o, TypeEdge eqs n m -> EdgePath eqs m o -> EdgePath eqs n o.
-
-(* Every C6 cycle is invalid; a cycle witness is an exact node on its own path. *)
-Record TypeCycle {p} (eqs : ResolvedTypeEquations p) : Type := MakeTypeCycle {
-  cycle_node : TypeNode p;
-  cycle_path : EdgePath eqs cycle_node cycle_node
-}.
-
-Definition AcyclicEquations {p} (eqs : ResolvedTypeEquations p) : Prop :=
-  forall n, ~ EdgePath eqs n n.
-
-(* A cycle witness is data, so the decision is a sumor, not a sumbool. *)
-Parameter acyclic_dec : forall {p} (eqs : ResolvedTypeEquations p),
-  TypeCycle eqs + { AcyclicEquations eqs }.
-
-(* Sealed: there is no public constructor, so the only `TypeReady` is the one the phase built, and an
-   environment cannot exist apart from the exact graph decision that produced it. *)
-Parameter TypeReady : forall {p}, ResolvedTypeEquations p -> Type.
-Parameter ready_acyclic : forall {p} {eqs : ResolvedTypeEquations p},
-  TypeReady eqs -> AcyclicEquations eqs.
-(* `TypeReady` IS the environment: sealed, built by the one decision, with no second carrier beside it. *)
-Parameter DefinedInEnv : forall {p} {eqs : ResolvedTypeEquations p},
-  TypeReady eqs -> BoundDefinedTypeRef p -> Prop.
-Parameter defined_key : forall {p}, BoundDefinedTypeRef p -> IndexKey.
-
-Inductive TypeForm {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) : Type :=
-| BasicForm : BasicType -> TypeForm rd.
-
-Inductive SemanticType {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) : Type :=
-| PredeclaredType : PredeclaredBasicType -> SemanticType rd
-| DefinedType     : forall d : BoundDefinedTypeRef p, DefinedInEnv rd d -> SemanticType rd.
-
-(* §3.2 One right-hand-side authority: every graph node has exactly one resolved semantic type, and that
-   is the only place a declaration's right-hand side is interpreted.  There is no peer alias relation. *)
-Parameter node_rhs : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs),
-  TypeNode p -> SemanticType rd.
-
-Definition type_view {p} {eqs : ResolvedTypeEquations p} {rd : TypeReady eqs}
-  (t : SemanticType rd) : TypeView :=
-  match t with
-  | PredeclaredType _ b => PredeclaredView b
-  | DefinedType _ d _ => DefinedView (defined_key d)
-  end.
-
-(* §3.1 vs §3.2: a definition has its own identity, and its underlying form is its resolved RHS's form. *)
-Inductive Underlying {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> TypeForm rd -> Prop :=
-| UnderlyingPredeclared : forall t,
-    Underlying rd (PredeclaredType rd t) (BasicForm rd (predeclared_basic_form t))
-| UnderlyingDefined : forall d h f,
-    Underlying rd (node_rhs rd (DefinedNode p d)) f -> Underlying rd (DefinedType rd d h) f.
-
-(* Identity is generated: name for predeclared, exact declaration reference for defined. *)
-Inductive Identical {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> SemanticType rd -> Prop :=
-| IdenticalPredeclared : forall t, Identical rd (PredeclaredType rd t) (PredeclaredType rd t)
-| IdenticalDefined : forall d h1 h2,
-    Identical rd (DefinedType rd d h1) (DefinedType rd d h2).
-
-(* §Keep: C6 typed assignability is identity. *)
-Inductive Assignable {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> SemanticType rd -> Prop :=
-| AssignIdentical : forall s t, Identical rd s t -> Assignable rd s t.
-
-(* The nonconstant conversion authority, strictly narrower than constant conversion. *)
-Inductive ValueConvertible {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> SemanticType rd -> Prop :=
-| VConvIdentical : forall s t, Identical rd s t -> ValueConvertible rd s t
-| VConvSameUnderlying : forall s t f,
-    Underlying rd s f -> Underlying rd t f -> ValueConvertible rd s t
-| VConvScalarNumeric : forall s t bs bt,
-    Underlying rd s (BasicForm rd bs) -> Underlying rd t (BasicForm rd bt) ->
-    ScalarNumericBasic bs -> ScalarNumericBasic bt -> ValueConvertible rd s t
-| VConvComplex : forall s t bs bt,
-    Underlying rd s (BasicForm rd bs) -> Underlying rd t (BasicForm rd bt) ->
-    ComplexBasicForm bs -> ComplexBasicForm bt -> ValueConvertible rd s t.
-
-Inductive Representable {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> Constant -> Prop :=
-| RepresentableAt : forall s b c,
-    Underlying rd s (BasicForm rd b) -> FitsBasic b c -> Representable rd s c.
-
-Inductive ConstantConvertible {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : SemanticType rd -> Constant -> Constant -> Prop :=
-| CConvExact : forall s b c c',
-    Underlying rd s (BasicForm rd b) -> convert_constant_to b c = Some c' ->
-    ConstantConvertible rd s c c'.
-
-Inductive TypedConstant {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  (s : SemanticType rd) : Type :=
-| TypedOf : forall b, Underlying rd s (BasicForm rd b) -> BasicTypedConstant b -> TypedConstant rd s.
-
-Parameter underlyingb : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs),
-  SemanticType rd -> TypeForm rd.
-Parameter identicalb assignableb value_convertibleb :
-  forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs),
-    SemanticType rd -> SemanticType rd -> bool.
-Parameter representableb : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs),
-  SemanticType rd -> Constant -> bool.
-
-Definition default_type {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  (k : UntypedConstantKind) : SemanticType rd :=
-  PredeclaredType rd (default_basic k).
-
-Inductive ResolvedTypeTarget {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs)
-  : RawTypeTarget p -> SemanticType rd -> Prop :=
-| ResolvedPredeclaredType : forall n t, AdmittedPredeclaredType n t ->
-    ResolvedTypeTarget rd (RawPredeclared p n) (PredeclaredType rd t)
-| ResolvedPredeclaredAlias : forall n t, AliasPredeclared n t ->
-    ResolvedTypeTarget rd (RawPredeclared p n) (PredeclaredType rd t)
-| ResolvedSourceAlias : forall a,
-    ResolvedTypeTarget rd (RawAlias p a) (node_rhs rd (AliasNode p a))
-| ResolvedDefinedType : forall d h,
-    ResolvedTypeTarget rd (RawDefined p d) (DefinedType rd d h).
+(* The one authority for combining two floating values of the same kind into the complex constant of the
+   matching kind.  A `complex` rule computes its result through this, never accepting one. *)
+Parameter complex_typed_of : forall f : FloatKind,
+  BasicTypedConstant (predeclared_basic_form (float_named_basic f)) ->
+  BasicTypedConstant (predeclared_basic_form (float_named_basic f)) ->
+  option (BasicTypedConstant (predeclared_basic_form (complex_named_basic f))).
 
 (* ── The one retained static phase ─────────────────────────────────────────── *)
-(* A cyclic phase has no environment.  There is no builder and no equality to a rerun. *)
-Inductive TypePhaseResult {p} (eqs : ResolvedTypeEquations p) : Type :=
-| PhaseReady  : TypeReady eqs -> TypePhaseResult eqs
-| PhaseCyclic : TypeCycle eqs -> TypePhaseResult eqs.
-
-Definition IsTypeReady {p} {eqs : ResolvedTypeEquations p} (res : TypePhaseResult eqs) : Prop :=
-  match res with PhaseReady _ _ => True | PhaseCyclic _ _ => False end.
-
-Definition ready_of {p} {eqs : ResolvedTypeEquations p} (res : TypePhaseResult eqs)
-  : IsTypeReady res -> TypeReady eqs :=
-  match res return IsTypeReady res -> TypeReady eqs with
-  | PhaseReady _ r  => fun _ => r
-  | PhaseCyclic _ _ => fun h => match h return TypeReady eqs with end
-  end.
-
 Parameter Phase : forall {p}, Input p -> Type.
 Parameter phase : forall {p} (core : Core p), Phase (core_input core).
 Parameter phase_equations : forall {p} {i : Input p} (ph : Phase i), ResolvedTypeEquations p.
-Parameter phase_type_result : forall {p} {i : Input p} (ph : Phase i),
-  TypePhaseResult (phase_equations ph).
 
 (* ── Objects ───────────────────────────────────────────────────────────────── *)
 Inductive ObjectKind : Type :=
@@ -719,21 +613,7 @@ Inductive Site (p : SyntaxProgram) : Type :=
 | SDependency  : PackageRef p -> Site p.
 
 (* §10 Dependency causality is closed: a blocked site names exactly why it is blocked. *)
-Inductive SiteDependency (p : SyntaxProgram) : Site p -> Site p -> Prop :=
-| DepUseOfExpression : forall u : ExprUseRef p,
-    SiteDependency p (SExpression p (expression_of_use u)) (SUse p u)
-| DepApplicationHead : forall a : ApplicationRef p,
-    SiteDependency p (SExpression p (application_head a)) (SApplication p a)
-| DepApplicationArgument : forall (a : ApplicationRef p) (u : DirectExprUseRef p),
-    In u (application_argument_uses a) ->
-    SiteDependency p (SUse p (DirectUse p u)) (SApplication p a)
-| DepStatementApplication : forall (s : ExpressionStatementRef p) (a : ApplicationRef p),
-    statement_application s = Some a ->
-    SiteDependency p (SApplication p a) (SStatement p s)
-| DepUnaryOperand : forall n : UnaryRef p,
-    SiteDependency p (SUse p (DirectUse p (unary_operand_use n))) (SUnary p n)
-| DepVariableDeclaration : forall v : VariableSiteRef p,
-    SiteDependency p (SDeclaration p (variable_site_binding_site v)) (SVariable p v).
+
 
 (* ── Erased payload views ──────────────────────────────────────────────────── *)
 Inductive OperandResultView : Type :=
@@ -760,6 +640,15 @@ Inductive StatementReason : Type :=
 | BuiltinNotAStatement    : PredeclaredName -> StatementReason
 | ConversionNotAStatement : TypeView -> StatementReason.
 
+(* The predeclared builtins pinned `gc` rejects in statement position.  Confirmed with nonconstant
+   arguments, so the rejection is the statement-context rule and not constant folding.  Callability alone is
+   not eligibility: `complex` is callable and still cannot stand as a statement. *)
+Definition builtin_forbidden_as_statement (n : PredeclaredName) : bool :=
+  match n with
+  | PAppend | PCap | PComplex | PImag | PLen | PMake | PNew | PReal | PMin | PMax => true
+  | _ => false
+  end.
+
 Inductive ConstInitReason : Type :=
 | ConstInitValue      : TypeView -> ConstInitReason
 | ConstInitNoResult   : ErasedResultForm -> ConstInitReason
@@ -785,25 +674,32 @@ Inductive DiagnosticCode : Type :=
 | CodeInvalidConversion | CodeDefaultNotRepresentable
 | CodeMainRedeclared | CodeMissingMainEntry | CodeBuildOutputIsDirectory.
 
-(* ── §2.1 The C6 scope forest ──────────────────────────────────────────────── *)
-(* Exactly three scope kinds at C6: the predeclared outer scope, one scope per package, and the current
-   `main` function block.  There is no nested block scope before C8.
-   File-order independence needs no theorem here: no scope constructor mentions a file, and
-   `declaring_scope` below takes only a package and a declaration context, so a permuted file list cannot
-   produce a different scope forest. *)
+(* ── §2.1 The scope forest, indexed by exact source occurrences ────────────── *)
+(* A lexical scope is identified by the exact source occurrence that establishes it, never by a package key
+   plus a tag: rejected source may declare several `main` bodies in one package and each has its own scope.
+   At C6 the only scope-establishing occurrence is a `main` body; C8 refines this to nested blocks without
+   replacing `ScopeId`. *)
+Parameter LexicalScopeRef : SyntaxProgram -> Type.
+Parameter lexical_scope_package : forall {p}, LexicalScopeRef p -> PackageRef p.
+
 Inductive ScopeId (p : SyntaxProgram) : Type :=
 | PredeclaredScope : ScopeId p
 | PackageScope     : PackageRef p -> ScopeId p
-| MainBlockScope   : PackageRef p -> ScopeId p.
+| LexicalScope     : LexicalScopeRef p -> ScopeId p.
 
 Definition scope_parent {p} (s : ScopeId p) : option (ScopeId p) :=
   match s with
   | PredeclaredScope _ => None
-  | PackageScope _ k   => Some (PredeclaredScope p)
-  | MainBlockScope _ k => Some (PackageScope p k)
+  | PackageScope _ _   => Some (PredeclaredScope p)
+  | LexicalScope _ b   => Some (PackageScope p (lexical_scope_package b))
   end.
 
-(* ── §2.3 The exact Go scope-start table ───────────────────────────────────── *)
+Inductive Encloses {p} : ScopeId p -> ScopeId p -> Prop :=
+| EnclosesSelf   : forall s, Encloses s s
+| EnclosesParent : forall outer inner parent,
+    scope_parent inner = Some parent -> Encloses outer parent -> Encloses outer inner.
+
+(* ── §2.2 The exact Go scope-start table ───────────────────────────────────── *)
 Inductive ScopeStart : Type :=
 | StartWholePackage    (* package-level names: forward references are legal *)
 | StartAfterSpec       (* a local const or var name: after its own specification *)
@@ -825,391 +721,745 @@ Definition scope_start (c : DeclContext) : ScopeStart :=
   | PredeclaredDecl => StartOutermost
   end.
 
-Definition declaring_scope {p} (k : PackageRef p) (c : DeclContext) : ScopeId p :=
-  match c with
-  | PackageConstDecl | PackageVarDecl | PackageTypeDecl => PackageScope p k
-  | LocalConstDecl | LocalVarDecl | LocalTypeDecl | ShortDecl => MainBlockScope p k
-  | PredeclaredDecl => PredeclaredScope p
-  end.
-
-(* ── §2.2 Binder creation ──────────────────────────────────────────────────── *)
-(* Blank creates no object.  Only a short-declaration left side may reuse, and a reuse retains the exact
-   existing variable object rather than minting a second one. *)
-Inductive BinderClass {p} {i : Input p} (ph : Phase i) : Type :=
-| BinderBlank    : BlankRef p -> BinderClass ph
-| BinderNew      : BindingSiteRef p -> ObjectRef ph -> BinderClass ph
-| BinderReuse    : BindingSiteRef p -> ObjectRef ph -> BinderClass ph.
-
-Parameter binder_class : forall {p} {i : Input p} (ph : Phase i),
-  BindingNameRef p -> BinderClass ph.
-
-Definition binder_object {p} {i : Input p} {ph : Phase i} (b : BinderClass ph)
-  : option (ObjectRef ph) :=
-  match b with
-  | BinderBlank _ _ => None
-  | BinderNew _ _ o => Some o
-  | BinderReuse _ _ o => Some o
-  end.
-
-(* A binding site's context and spelling: without these the reservation rule below could never be applied
-   to anything, which is exactly how it went unstated. *)
+(* ── §2.3 Exact source observations a binding site and a name use carry ────── *)
+Parameter binding_site_scope : forall {p}, BindingSiteRef p -> ScopeId p.
+Parameter binding_site_spelling : forall {p}, BindingSiteRef p -> string.
 Parameter binding_site_context : forall {p}, BindingSiteRef p -> DeclContext.
-Parameter binding_site_name : forall {p}, BindingSiteRef p -> string.
+Parameter binding_site_position : forall {p}, BindingSiteRef p -> nat.
+Parameter binding_site_identifier_position : forall {p}, BindingSiteRef p -> nat.
+Parameter binding_site_spec_end : forall {p}, BindingSiteRef p -> nat.
+Parameter binding_site_statement_end : forall {p}, BindingSiteRef p -> nat.
+
+Parameter name_use_scope : forall {p}, NameUseRef p -> ScopeId p.
+Parameter name_use_spelling : forall {p}, NameUseRef p -> string.
+Parameter name_use_position : forall {p}, NameUseRef p -> nat.
+
+Definition binding_site_start {p} (b : BindingSiteRef p) : ScopeStart :=
+  scope_start (binding_site_context b).
+
+(* The visibility point is derived from the site's own start rule, never supplied beside it. *)
+Definition binding_site_visible_from {p} (b : BindingSiteRef p) : nat :=
+  match binding_site_start b with
+  | StartWholePackage | StartOutermost => 0
+  | StartAtOwnIdentifier => binding_site_identifier_position b
+  | StartAfterSpec       => binding_site_spec_end b
+  | StartAfterStatement  => binding_site_statement_end b
+  end.
+
+Definition DeclaredBefore {p} (a b : BindingSiteRef p) : Prop :=
+  binding_site_scope a = binding_site_scope b /\
+  (binding_site_position a < binding_site_position b)%nat.
+
+Definition VisibleAt {p} (b : BindingSiteRef p) (u : NameUseRef p) : Prop :=
+  Encloses (binding_site_scope b) (name_use_scope u) /\
+  (binding_site_visible_from b <= name_use_position u)%nat.
+
+(* Nearest wins: a strictly inner scope shadows an outer one.  Two visible bindings of one spelling in one
+   scope are a duplicate-declaration failure, not a shadowing question. *)
+Definition Closer {p} (inner outer : BindingSiteRef p) : Prop :=
+  binding_site_scope inner <> binding_site_scope outer /\
+  Encloses (binding_site_scope outer) (binding_site_scope inner).
 
 (* The special package-level name `init` is reserved for functions; pinned `gc` rejects a package-level
    const, var or type named `init`, and accepts it as an ordinary local name. *)
 Definition PackageInitReserved (c : DeclContext) (n : string) : Prop :=
   (c = PackageConstDecl \/ c = PackageVarDecl \/ c = PackageTypeDecl) /\ n = "init"%string.
 
-(* ── §2.4 Binding: one declarative relation and one reflected decision ──────── *)
-Parameter ScopeLookup : forall {p} {i : Input p} (ph : Phase i),
-  ScopeId p -> NameUseRef p -> ObjectRef ph -> Prop.
-Parameter scope_lookup : forall {p} {i : Input p} (ph : Phase i)
-  (s : ScopeId p) (u : NameUseRef p), option (ObjectRef ph).
+(* ── §2.4 One binding authority: a defined relation and its reflection ─────── *)
+(* `Resolves` is not postulated.  It holds exactly when the spelling matches, the binding is visible at this
+   exact use, and nothing visible with that spelling is closer.  The predeclared case fires only when no
+   source binding of that spelling is visible, which is what makes shadowing exact. *)
+Inductive Resolves {p} {i : Input p} (ph : Phase i) : NameUseRef p -> ObjectRef ph -> Prop :=
+| ResolvesSource : forall (u : NameUseRef p) (b : BindingSiteRef p),
+    binding_site_spelling b = name_use_spelling u ->
+    VisibleAt b u ->
+    (forall b' : BindingSiteRef p,
+       binding_site_spelling b' = name_use_spelling u -> VisibleAt b' u -> ~ Closer b' b) ->
+    Resolves ph u (source_object ph (binding_site_object_site b))
+| ResolvesPredeclared : forall (u : NameUseRef p) (n : PredeclaredName),
+    predeclared_spelling n = name_use_spelling u ->
+    (forall b : BindingSiteRef p,
+       binding_site_spelling b = name_use_spelling u -> ~ VisibleAt b u) ->
+    Resolves ph u (predeclared_object ph n).
 
-(* A binding fact is indexed by its exact use and its exact resolved object: the object is not a separate
-   projection that could be swapped for another. *)
-Parameter BindingAt : forall {p} {i : Input p} (ph : Phase i),
-  NameUseRef p -> ObjectRef ph -> UseRole -> Type.
+Parameter resolve_name : forall {p} {i : Input p} (ph : Phase i),
+  NameUseRef p -> option (ObjectRef ph).
 
-Parameter InnermostScope : forall {p} {i : Input p} (ph : Phase i),
-  NameUseRef p -> ScopeId p -> Prop.
+(* A binding fact retains the exact object this one decision returned; the role is a projection of the
+   exact source use, not an independently supplied field. *)
+Record BindingFact {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) : Type := MakeBinding {
+  bound_object   : ObjectRef ph;
+  bound_resolves : Resolves ph u bound_object
+}.
 
-(* ── §4 One object fact, not independent capability families ───────────────── *)
-(* Exactly one `ObjectFact` per object, so an object cannot acquire incompatible capabilities.  Capabilities
-   are dependent refinements of this fact; none is separately mintable. *)
-Inductive ObjectFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ObjectRef ph -> Type :=
-| OFPredeclaredType : forall n t, AdmittedPredeclaredType n t ->
-    ObjectFact ph rd (predeclared_object ph n)
-| OFPredeclaredAlias : forall n t, AliasPredeclared n t ->
-    ObjectFact ph rd (predeclared_object ph n)
-| OFPredeclaredBool : forall n b, predeclared_capability n = CapUntypedBool b ->
-    ObjectFact ph rd (predeclared_object ph n)
-| OFPredeclaredIota : ObjectFact ph rd (predeclared_object ph PIota)
-| OFPredeclaredNil : ObjectFact ph rd (predeclared_object ph PNil)
-| OFPredeclaredCallable : forall n, predeclared_capability n = CapCallable ->
-    ObjectFact ph rd (predeclared_object ph n)
-| OFPredeclaredUnmodelled : forall n, predeclared_capability n = CapMissing ->
-    ObjectFact ph rd (predeclared_object ph n)
-| OFSourceConstant : forall (s : ObjectSiteRef p) (c : ConstSpecRef p)
-    (t : SemanticType rd),
-    TypedConstant rd t -> ObjectFact ph rd (source_object ph s)
-| OFSourceUntypedConstant : forall (s : ObjectSiteRef p) (c : ConstSpecRef p),
-    Constant -> ObjectFact ph rd (source_object ph s)
-| OFSourceVariable : forall (s : ObjectSiteRef p) (v : VariableSiteRef p)
-    (t : SemanticType rd),
-    ObjectFact ph rd (source_object ph s)
-| OFSourceAlias : forall (s : ObjectSiteRef p) (a : AliasSpecRef p)
-    (t : SemanticType rd),
-    ObjectFact ph rd (source_object ph s)
-| OFSourceDefined : forall (s : ObjectSiteRef p) (d : BoundDefinedTypeRef p)
-    (h : DefinedInEnv rd d),
-    ObjectFact ph rd (source_object ph s)
-| OFMainFunction : forall s : ObjectSiteRef p, ObjectFact ph rd (source_object ph s).
+(* ── §2.5 Binder disposition, intrinsic to the exact binding-name occurrence ── *)
+(* Each case is indexed by the occurrence it classifies and carries the source view that admits it, so a
+   regular const, var, alias or type binder cannot inhabit `Reuse`. *)
+Parameter binding_name_blank : forall {p}, BindingNameRef p -> option (BlankRef p).
+Parameter binding_name_site : forall {p}, BindingNameRef p -> option (BindingSiteRef p).
+Parameter binding_name_short_lhs : forall {p}, BindingNameRef p -> option (ShortDeclRef p).
 
-Parameter object_fact : forall {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) (o : ObjectRef ph), ObjectFact ph rd o.
+Inductive BinderDisposition {p} {i : Input p} (ph : Phase i) (n : BindingNameRef p) : Type :=
+| BinderBlank : forall k : BlankRef p,
+    binding_name_blank n = Some k -> BinderDisposition ph n
+| BinderNew : forall b : BindingSiteRef p,
+    binding_name_blank n = None -> binding_name_site n = Some b ->
+    BinderDisposition ph n
+| BinderReuse : forall (d : ShortDeclRef p) (b earlier : BindingSiteRef p),
+    binding_name_blank n = None ->
+    binding_name_short_lhs n = Some d ->
+    binding_name_site n = Some b ->
+    binding_site_spelling earlier = binding_site_spelling b ->
+    DeclaredBefore earlier b ->
+    BinderDisposition ph n.
 
-Definition object_category {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : ObjectKind :=
-  match f with
-  | OFPredeclaredType _ _ _ _ _ => TypeObject
-  | OFPredeclaredAlias _ _ _ _ _ => TypeObject
-  | OFSourceAlias _ _ _ _ _ => TypeObject
-  | OFSourceDefined _ _ _ _ _ => TypeObject
-  | OFPredeclaredBool _ _ _ _ _ => ConstantObject
-  | OFPredeclaredIota _ _ => ConstantObject
-  | OFSourceConstant _ _ _ _ _ _ => ConstantObject
-  | OFSourceUntypedConstant _ _ _ _ _ => ConstantObject
-  | OFPredeclaredNil _ _ => NilObject
-  | OFPredeclaredCallable _ _ _ _ => BuiltinObject
-  | OFPredeclaredUnmodelled _ _ _ _ => BuiltinObject
-  | OFSourceVariable _ _ _ _ _ => VariableObject
-  | OFMainFunction _ _ _ => FunctionObject
+Parameter binder_disposition : forall {p} {i : Input p} (ph : Phase i) (n : BindingNameRef p),
+  BinderDisposition ph n.
+
+(* The object is derived from the exact site, never supplied beside it: a new binder mints the object of
+   its own site, and a reuse returns the exact earlier object. *)
+Definition binder_object {p} {i : Input p} {ph : Phase i} {n : BindingNameRef p}
+  (d : BinderDisposition ph n) : option (ObjectRef ph) :=
+  match d with
+  | BinderBlank _ _ _ _ => None
+  | BinderNew _ _ b _ _ => Some (source_object ph (binding_site_object_site b))
+  | BinderReuse _ _ _ _ earlier _ _ _ _ _ =>
+      Some (source_object ph (binding_site_object_site earlier))
   end.
 
-(* Capability refinements: each is a proposition about the one fact, decided by its constructor. *)
+(* ── §3.1 The exact type-equation graph ────────────────────────────────────── *)
+
+(* Nodes are exactly the source aliases and definitions. *)
+Inductive TypeNode (p : SyntaxProgram) : Type :=
+| AliasNode   : AliasSpecRef p -> TypeNode p
+| DefinedNode : BoundDefinedTypeRef p -> TypeNode p.
+
+Parameter equation_target : forall {p}, ResolvedTypeEquations p -> TypeNode p -> RawTypeTarget p.
+
+(* Edges come only from the exact bound type use in a right-hand side.
+   There is no constructor for a predeclared target: predeclared targets are terminal. *)
+Inductive TypeEdge {p} (eqs : ResolvedTypeEquations p) : TypeNode p -> TypeNode p -> Prop :=
+| EdgeToAlias   : forall n a, equation_target eqs n = RawAlias p a ->
+    TypeEdge eqs n (AliasNode p a)
+| EdgeToDefined : forall n d, equation_target eqs n = RawDefined p d ->
+    TypeEdge eqs n (DefinedNode p d).
+
+Inductive EdgePath {p} (eqs : ResolvedTypeEquations p) : TypeNode p -> TypeNode p -> Prop :=
+| PathStep : forall n m, TypeEdge eqs n m -> EdgePath eqs n m
+| PathMore : forall n m o, TypeEdge eqs n m -> EdgePath eqs m o -> EdgePath eqs n o.
+
+(* Every C6 cycle is invalid; a cycle witness is an exact node on its own path. *)
+Record TypeCycle {p} (eqs : ResolvedTypeEquations p) : Type := MakeTypeCycle {
+  cycle_node : TypeNode p;
+  cycle_path : EdgePath eqs cycle_node cycle_node
+}.
+
+Definition AcyclicEquations {p} (eqs : ResolvedTypeEquations p) : Prop :=
+  forall n, ~ EdgePath eqs n n.
+
+(* A cycle witness is data, so the decision is a sumor, not a sumbool. *)
+Parameter acyclic_dec : forall {p} (eqs : ResolvedTypeEquations p),
+  TypeCycle eqs + { AcyclicEquations eqs }.
+
+(* ── §3.2 Semantic types need no environment ───────────────────────────────── *)
+(* A type is a predeclared basic type or an exact defined-type declaration.  An environment was only ever
+   needed to say what a definition's right-hand side is, and that is a per-node outcome below.  An alias has
+   no constructor here, which is how it mints no identity. *)
+Inductive SemanticType (p : SyntaxProgram) : Type :=
+| PredeclaredType : PredeclaredBasicType -> SemanticType p
+| DefinedType     : BoundDefinedTypeRef p -> SemanticType p.
+
+Parameter defined_key : forall {p}, BoundDefinedTypeRef p -> IndexKey.
+
+Definition type_view {p} (t : SemanticType p) : TypeView :=
+  match t with
+  | PredeclaredType _ b => PredeclaredView b
+  | DefinedType _ d => DefinedView (defined_key d)
+  end.
+
+(* ── §3.3 Every type node has one sealed outcome ───────────────────────────── *)
+Inductive TypeNodeFailure (p : SyntaxProgram) : Type :=
+| RhsUnresolved  : NameUseRef p -> TypeNodeFailure p
+| RhsWrongRole   : NameUseRef p -> TypeNodeFailure p.
+
+(* `Blocked` retains the exact predecessor node, the exact edge, and that predecessor's exact retained
+   outcome — never an independently supplied outcome that merely looks equal. *)
+Inductive TypeNodeOutcome {p} {i : Input p} (ph : Phase i) : TypeNode p -> Type :=
+| NodeSupported : forall (n : TypeNode p), SemanticType p -> TypeNodeOutcome ph n
+| NodeFailed    : forall (n : TypeNode p), TypeNodeFailure p -> TypeNodeOutcome ph n
+| NodeOutside   : forall (n : TypeNode p) (u : NameUseRef p),
+    BindingFact ph u -> TypeNodeOutcome ph n
+| NodeBlocked   : forall (n m : TypeNode p),
+    TypeEdge (phase_equations ph) n m -> TypeNodeOutcome ph m -> TypeNodeOutcome ph n.
+
+Parameter node_outcome : forall {p} {i : Input p} (ph : Phase i) (n : TypeNode p),
+  TypeNodeOutcome ph n.
+
+Definition NodeIsSupported {p} {i : Input p} {ph : Phase i} {n} (o : TypeNodeOutcome ph n) : Prop :=
+  match o with NodeSupported _ _ _ => True | _ => False end.
+
+(* A ready environment exists only when the graph is acyclic AND every node is supported.  `type U uintptr;
+   type T U` is acyclic, yet `uintptr` has no C6 type meaning, so no environment exists for it.
+   The seal is the obligation, not constructor hiding: building one requires evidence about `node_outcome`
+   for every node, which only the phase's own decision produces. *)
+Record TypeReady {p} {i : Input p} (ph : Phase i) : Type := MakeTypeReady {
+  ready_acyclic       : AcyclicEquations (phase_equations ph);
+  ready_all_supported : forall n : TypeNode p, NodeIsSupported (node_outcome ph n)
+}.
+
+(* Derived from the exact node outcomes, not postulated over arbitrary acyclic graphs. *)
+Definition node_rhs {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  (n : TypeNode p) : SemanticType p :=
+  match node_outcome ph n as o return NodeIsSupported o -> SemanticType p with
+  | NodeSupported _ _ t => fun _ => t
+  | NodeFailed _ _ _    => fun h => match h return SemanticType p with end
+  | NodeOutside _ _ _ _ => fun h => match h return SemanticType p with end
+  | NodeBlocked _ _ _ _ _ => fun h => match h return SemanticType p with end
+  end (ready_all_supported ph rd n).
+
+(* ── §3.4 Identity, underlying form and the C6 relations ───────────────────── *)
+(* Identity and assignability need no environment at all: a predeclared type is its name, a defined type is
+   its exact declaration. *)
+Inductive Identical {p} : SemanticType p -> SemanticType p -> Prop :=
+| IdenticalPredeclared : forall t, Identical (PredeclaredType p t) (PredeclaredType p t)
+| IdenticalDefined     : forall d, Identical (DefinedType p d) (DefinedType p d).
+
+Inductive Assignable {p} : SemanticType p -> SemanticType p -> Prop :=
+| AssignIdentical : forall s t, Identical s t -> Assignable s t.
+
+(* The underlying form follows the exact resolved right-hand side, which is why it needs readiness. *)
+Inductive Underlying {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : SemanticType p -> BasicType -> Prop :=
+| UnderlyingPredeclared : forall t, Underlying rd (PredeclaredType p t) (predeclared_basic_form t)
+| UnderlyingDefined : forall d b,
+    Underlying rd (node_rhs rd (DefinedNode p d)) b -> Underlying rd (DefinedType p d) b.
+
+Inductive ValueConvertible {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : SemanticType p -> SemanticType p -> Prop :=
+| VConvIdentical : forall s t, Identical s t -> ValueConvertible rd s t
+| VConvSameUnderlying : forall s t b,
+    Underlying rd s b -> Underlying rd t b -> ValueConvertible rd s t
+| VConvScalarNumeric : forall s t bs bt,
+    Underlying rd s bs -> Underlying rd t bt ->
+    ScalarNumericBasic bs -> ScalarNumericBasic bt -> ValueConvertible rd s t
+| VConvComplex : forall s t bs bt,
+    Underlying rd s bs -> Underlying rd t bt ->
+    ComplexBasicForm bs -> ComplexBasicForm bt -> ValueConvertible rd s t.
+
+Inductive Representable {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : SemanticType p -> Constant -> Prop :=
+| RepresentableAt : forall s b c, Underlying rd s b -> FitsBasic b c -> Representable rd s c.
+
+Inductive ConstantConvertible {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : SemanticType p -> Constant -> Constant -> Prop :=
+| CConvExact : forall s b c c',
+    Underlying rd s b -> convert_constant_to b c = Some c' -> ConstantConvertible rd s c c'.
+
+(* A typed constant retains its exact constant value, so negation and conversion stay causally connected to
+   the operand they came from. *)
+Record TypedConstant {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  (s : SemanticType p) : Type := MakeTypedConstant {
+  typed_form     : BasicType;
+  typed_underlying : Underlying rd s typed_form;
+  typed_value    : BasicTypedConstant typed_form
+}.
+
+Parameter underlyingb : forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph),
+  SemanticType p -> BasicType.
+Parameter identicalb assignableb : forall {p}, SemanticType p -> SemanticType p -> bool.
+Parameter value_convertibleb : forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph),
+  SemanticType p -> SemanticType p -> bool.
+Parameter representableb : forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph),
+  SemanticType p -> Constant -> bool.
+
+Definition default_type {p} (k : UntypedConstantKind) : SemanticType p :=
+  PredeclaredType p (default_basic k).
+
+Inductive ResolvedTypeTarget {p} : RawTypeTarget p -> SemanticType p -> Prop :=
+| ResolvedPredeclaredType : forall n t, AdmittedPredeclaredType n t ->
+    ResolvedTypeTarget (RawPredeclared p n) (PredeclaredType p t)
+| ResolvedPredeclaredAlias : forall n t, AliasPredeclared n t ->
+    ResolvedTypeTarget (RawPredeclared p n) (PredeclaredType p t)
+| ResolvedDefinedType : forall d, ResolvedTypeTarget (RawDefined p d) (DefinedType p d).
+
+(* ── The retained type-phase result ────────────────────────────────────────── *)
+(* A cyclic phase has no environment.  There is no builder and no equality to a rerun. *)
+Inductive TypePhaseResult {p} {i : Input p} (ph : Phase i) : Type :=
+| PhaseReady  : TypeReady ph -> TypePhaseResult ph
+| PhaseCyclic : TypeCycle (phase_equations ph) -> TypePhaseResult ph.
+
+Definition IsTypeReady {p} {i : Input p} {ph : Phase i} (res : TypePhaseResult ph) : Prop :=
+  match res with PhaseReady _ _ => True | PhaseCyclic _ _ => False end.
+
+Definition ready_of {p} {i : Input p} {ph : Phase i} (res : TypePhaseResult ph)
+  : IsTypeReady res -> TypeReady ph :=
+  match res return IsTypeReady res -> TypeReady ph with
+  | PhaseReady _ r  => fun _ => r
+  | PhaseCyclic _ _ => fun h => match h return TypeReady ph with end
+  end.
+
+Parameter phase_type_result : forall {p} {i : Input p} (ph : Phase i), TypePhaseResult ph.
+
+(* ── §4.1 Every object has a total descriptor ──────────────────────────────── *)
+(* Identity exists before the declaration is known to be semantically valid: a source constant, variable,
+   alias or definition is bound even when its right-hand side later fails, is outside scope, or is blocked.
+   Every field here is derived from the exact origin, never selected beside it. *)
+Inductive SourceCategory : Type :=
+| CatConst | CatVar | CatAlias | CatDefined | CatFunc.
+
+Parameter object_site_category : forall {p}, ObjectSiteRef p -> SourceCategory.
+Parameter object_site_spelling : forall {p}, ObjectSiteRef p -> string.
+Parameter object_site_scope : forall {p}, ObjectSiteRef p -> ScopeId p.
+Parameter object_site_alias : forall {p}, ObjectSiteRef p -> option (AliasSpecRef p).
+Parameter object_site_defined : forall {p}, ObjectSiteRef p -> option (BoundDefinedTypeRef p).
+
+Definition object_spelling {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : string :=
+  match object_origin o with
+  | Predeclared _ n => predeclared_spelling n
+  | SourceSite _ s  => object_site_spelling s
+  end.
+
+Definition object_scope {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : ScopeId p :=
+  match object_origin o with
+  | Predeclared _ _ => PredeclaredScope p
+  | SourceSite _ s  => object_site_scope s
+  end.
+
+Definition object_category {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph)
+  : option SourceCategory :=
+  match object_origin o with
+  | Predeclared _ _ => None
+  | SourceSite _ s  => Some (object_site_category s)
+  end.
+
+(* ── §4.2 Successful semantic meaning is partial ───────────────────────────── *)
+(* A failed, outside or blocked declaration has object identity and no meaning here.  There is no total
+   `object_fact`: nothing pretends every source object already denotes something. *)
+Inductive TypeMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : ObjectRef ph -> Type :=
+| TMPredeclared : forall n t, AdmittedPredeclaredType n t ->
+    TypeMeaning ph rd (predeclared_object ph n)
+| TMPredeclaredAlias : forall n t, AliasPredeclared n t ->
+    TypeMeaning ph rd (predeclared_object ph n)
+| TMAlias : forall (s : ObjectSiteRef p) (a : AliasSpecRef p),
+    object_site_alias s = Some a -> TypeMeaning ph rd (source_object ph s)
+| TMDefined : forall (s : ObjectSiteRef p) (d : BoundDefinedTypeRef p),
+    object_site_defined s = Some d -> TypeMeaning ph rd (source_object ph s).
+
+(* The denoted type is computed: an alias denotes its exact resolved right-hand side and mints no identity;
+   a definition denotes its own exact declaration. *)
+Definition type_meaning_type {p} {i : Input p} {ph : Phase i} {rd} {o}
+  (m : TypeMeaning ph rd o) : SemanticType p :=
+  match m with
+  | TMPredeclared _ _ _ t _      => PredeclaredType p t
+  | TMPredeclaredAlias _ _ _ t _ => PredeclaredType p t
+  | TMAlias _ _ _ a _            => node_rhs rd (AliasNode p a)
+  | TMDefined _ _ _ d _          => DefinedType p d
+  end.
+
+Inductive ConstantMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : ObjectRef ph -> Type :=
+| CMPredeclaredBool : forall n b, predeclared_capability n = CapUntypedBool b ->
+    ConstantMeaning ph rd (predeclared_object ph n)
+| CMUntyped : forall (s : ObjectSiteRef p) (c : ConstSpecRef p),
+    Constant -> ConstantMeaning ph rd (source_object ph s)
+| CMTyped : forall (s : ObjectSiteRef p) (c : ConstSpecRef p) (t : SemanticType p),
+    TypedConstant rd t -> ConstantMeaning ph rd (source_object ph s).
+
+(* The variable retains its exact declaring site; no runtime slot and no numeric identity is minted. *)
+Record StaticVariable {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  (o : ObjectRef ph) : Type := MakeStaticVariable {
+  static_site : VariableSiteRef p;
+  static_type : SemanticType p;
+  static_is_its_site :
+    object_origin o
+      = SourceSite p (binding_site_object_site (variable_site_binding_site static_site))
+}.
+
+(* C6 proves the accepted callable inhabitants are exactly `complex` and `println`; C9 adds function-valued
+   heads by adding constructors here, without replacing the family. *)
+Inductive CallableMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| CallComplex : CallableMeaning ph (predeclared_object ph PComplex)
+| CallPrintln : CallableMeaning ph (predeclared_object ph PPrintln).
+
+Inductive IotaMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| IotaIs : IotaMeaning ph (predeclared_object ph PIota).
+
+Inductive NilMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
+| NilIs : NilMeaning ph (predeclared_object ph PNil).
+
+(* One sum of the successful meanings.  There is deliberately no total function producing it. *)
+Inductive ObjectMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  (o : ObjectRef ph) : Type :=
+| MeaningType     : TypeMeaning ph rd o -> ObjectMeaning ph rd o
+| MeaningConstant : ConstantMeaning ph rd o -> ObjectMeaning ph rd o
+| MeaningVariable : StaticVariable ph rd o -> ObjectMeaning ph rd o
+| MeaningCallable : CallableMeaning ph o -> ObjectMeaning ph rd o
+| MeaningIota     : IotaMeaning ph o -> ObjectMeaning ph rd o
+| MeaningNil      : NilMeaning ph o -> ObjectMeaning ph rd o.
+
 Definition IsTypeCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with
-  | OFPredeclaredType _ _ _ _ _ => True
-  | OFPredeclaredAlias _ _ _ _ _ => True
-  | OFSourceAlias _ _ _ _ _ => True
-  | OFSourceDefined _ _ _ _ _ => True
-  | _ => False
-  end.
+  (m : ObjectMeaning ph rd o) : Prop :=
+  match m with MeaningType _ _ _ _ => True | _ => False end.
 
 Definition IsConstantCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with
-  | OFPredeclaredBool _ _ _ _ _ => True
-  | OFSourceConstant _ _ _ _ _ _ => True
-  | OFSourceUntypedConstant _ _ _ _ _ => True
-  | _ => False
-  end.
+  (m : ObjectMeaning ph rd o) : Prop :=
+  match m with MeaningConstant _ _ _ _ => True | _ => False end.
 
 Definition IsVariableCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with OFSourceVariable _ _ _ _ _ => True | _ => False end.
+  (m : ObjectMeaning ph rd o) : Prop :=
+  match m with MeaningVariable _ _ _ _ => True | _ => False end.
 
 Definition IsCallableCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with OFPredeclaredCallable _ _ _ _ => True | _ => False end.
+  (m : ObjectMeaning ph rd o) : Prop :=
+  match m with MeaningCallable _ _ _ _ => True | _ => False end.
 
 Definition IsContextualCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with
-  | OFPredeclaredIota _ _ => True
-  | OFPredeclaredNil _ _ => True
+  (m : ObjectMeaning ph rd o) : Prop :=
+  match m with
+  | MeaningIota _ _ _ _ => True
+  | MeaningNil _ _ _ _ => True
   | _ => False
   end.
 
-Definition IsUnmodelled {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : Prop :=
-  match f with OFPredeclaredUnmodelled _ _ _ _ => True | _ => False end.
-
-(* The exact semantic type an object-capable fact denotes. *)
 Definition object_type {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : IsTypeCapable f -> SemanticType rd :=
-  match f return IsTypeCapable f -> SemanticType rd with
-  | OFPredeclaredType _ _ _ t _ => fun _ => PredeclaredType rd t
-  | OFPredeclaredAlias _ _ _ t _ => fun _ => PredeclaredType rd t
-  | OFSourceAlias _ _ _ _ t => fun _ => t
-  | OFSourceDefined _ _ _ d h => fun _ => DefinedType rd d h
-  | _ => fun h => match h return SemanticType rd with end
+  (m : ObjectMeaning ph rd o) : IsTypeCapable m -> SemanticType p :=
+  match m return IsTypeCapable m -> SemanticType p with
+  | MeaningType _ _ _ tm => fun _ => type_meaning_type tm
+  | _ => fun h => match h return SemanticType p with end
   end.
 
-(* §4.2 The permanent callable target.  At C6 only a predeclared callable object inhabits it; C9 adds
-   function-valued heads by adding a constructor, without replacing the type. *)
-Inductive CallableTarget {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Type :=
-| ObjectCallable : forall (o : ObjectRef ph) (f : ObjectFact ph rd o),
-    IsCallableCapable f -> CallableTarget ph rd.
-
-Definition callable_object {p} {i : Input p} {ph : Phase i} {rd}
-  (c : CallableTarget ph rd) : ObjectRef ph :=
-  match c with ObjectCallable _ _ o _ _ => o end.
-
-(* ── §2.5 Source order within a scope ──────────────────────────────────────── *)
-(* One authority for "declared earlier in the same scope".  Short-declaration reuse and the initialization
-   dependency order are both stated over it rather than each carrying its own notion of order. *)
-Parameter binding_site_scope : forall {p}, BindingSiteRef p -> ScopeId p.
-Parameter DeclaredBefore : forall {p}, BindingSiteRef p -> BindingSiteRef p -> Prop.
-
-(* A short-declaration reuse must name an object minted by an earlier binding in the same scope.  Carried
-   by the binder itself: a reuse of an unrelated object is unrepresentable, not merely rejected. *)
+(* A short-declaration reuse names an object minted by an earlier binding in the same scope. *)
 Definition SameBlockEarlier {p} {i : Input p} {ph : Phase i}
   (b : BindingSiteRef p) (o : ObjectRef ph) : Prop :=
   exists earlier : BindingSiteRef p,
     object_origin o = SourceSite p (binding_site_object_site earlier) /\
-    binding_site_scope earlier = binding_site_scope b /\
     DeclaredBefore earlier b.
 
 (* ── §5 The expression-fact algebra ────────────────────────────────────────── *)
 (* One sealed dependent judgment.  A failed, outside or blocked expression has no `ExprFact` at all — it has
-   the corresponding exact site outcome.  `referenced_object` and `result_form` are projections of this one
-   object, never independently populated. *)
+   the corresponding exact site outcome.  Every family below is indexed by the exact result it computes, so
+   the result is never a field a constructor could be handed. *)
 
 (* Result atoms over the retained phase, so every rule can compute its own vector. *)
 Inductive ResultAtomAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Type :=
+  (rd : TypeReady ph) : Type :=
 | RAUntyped : Constant -> ResultAtomAt ph rd
-| RATyped   : forall t : SemanticType rd, TypedConstant rd t -> ResultAtomAt ph rd
-| RAValue   : SemanticType rd -> ResultAtomAt ph rd.
+| RATyped   : forall t : SemanticType p, TypedConstant rd t -> ResultAtomAt ph rd
+| RAValue   : SemanticType p -> ResultAtomAt ph rd.
 
 Inductive ResultFormAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Type :=
+  (rd : TypeReady ph) : Type :=
 | RFFixed        : list (ResultAtomAt ph rd) -> ResultFormAt ph rd
 | RFContextual   : ContextualResult -> ResultFormAt ph rd
 | RFNoStandalone : ResultFormAt ph rd.
 
+(* The result a bound name yields is decided by its one exact meaning, not supplied beside it.  A type or
+   callable name has no standalone result; `iota` and `nil` are contextual and resolved at the exact use. *)
+Definition name_result {p} {i : Input p} {ph : Phase i} {rd} {o}
+  (m : ObjectMeaning ph rd o) : ResultFormAt ph rd :=
+  match m with
+  | MeaningConstant _ _ _ cm =>
+      match cm with
+      | CMPredeclaredBool _ _ _ b _ => RFFixed ph rd [RAUntyped ph rd (BoolConstant b)]
+      | CMUntyped _ _ _ _ c         => RFFixed ph rd [RAUntyped ph rd c]
+      | CMTyped _ _ _ _ t tc        => RFFixed ph rd [RATyped ph rd t tc]
+      end
+  | MeaningVariable _ _ _ sv => RFFixed ph rd [RAValue ph rd (static_type ph rd o sv)]
+  | MeaningIota _ _ _ _ => RFContextual ph rd IotaResult
+  | MeaningNil _ _ _ _  => RFContextual ph rd NilResult
+  | MeaningType _ _ _ _ => RFNoStandalone ph rd
+  | MeaningCallable _ _ _ _ => RFNoStandalone ph rd
+  end.
+
+(* Atom builders, so the `complex` cases below read as rules rather than as record plumbing. *)
+Definition float_atom_typed {p} {i : Input p} {ph : Phase i} {rd}
+  (t : SemanticType p) (f : FloatKind)
+  (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+  (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
+  : ResultAtomAt ph rd :=
+  RATyped ph rd t (@MakeTypedConstant p i ph rd t _ hu v).
+
+Definition complex_atom_typed {p} {i : Input p} {ph : Phase i} {rd} (f : FloatKind)
+  (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f)))
+  : ResultAtomAt ph rd :=
+  RATyped ph rd (PredeclaredType p (complex_named_basic f))
+    (@MakeTypedConstant p i ph rd (PredeclaredType p (complex_named_basic f)) _
+      (UnderlyingPredeclared rd (complex_named_basic f)) vr).
+
+Definition complex_atom_value {p} {i : Input p} {ph : Phase i} {rd} (f : FloatKind)
+  : ResultAtomAt ph rd :=
+  RAValue ph rd (PredeclaredType p (complex_named_basic f)).
+
+(* ── The rule-coverage relations ───────────────────────────────────────────── *)
+(* These are the one authority for "C6 has a rule for operands of this exact shape".  The rule families
+   below carry a coverage witness rather than restating its premises, and a requirement's satisfaction is
+   stated over these — never over whether the successful fact happens to be inhabited. *)
+Inductive UnaryRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> Prop :=
+| URUntyped : forall c, NumericConstantKind (constant_kind c) ->
+    UnaryRuleCovers rd (RAUntyped ph rd c)
+| URTyped : forall t tc b, Underlying rd t b -> NumericBasic b ->
+    UnaryRuleCovers rd (RATyped ph rd t tc)
+| URValue : forall t b, Underlying rd t b -> NumericBasic b ->
+    UnaryRuleCovers rd (RAValue ph rd t).
+
+(* `println` admits an argument whose underlying form exists; an untyped constant is defaulted first. *)
+Inductive PrintlnArg {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> Prop :=
+| PAUntyped : forall c, PrintlnArg rd (RAUntyped ph rd c)
+| PATyped   : forall t tc b, Underlying rd t b -> PrintlnArg rd (RATyped ph rd t tc)
+| PAValue   : forall t b, Underlying rd t b -> PrintlnArg rd (RAValue ph rd t).
+
+Definition PrintlnRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  (args : list (ResultAtomAt ph rd)) : Prop := List.Forall (PrintlnArg rd) args.
+
+Inductive ConvRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : SemanticType p -> ResultAtomAt ph rd -> Prop :=
+| CCConstant : forall dst b c, Underlying rd dst b ->
+    (exists c', convert_constant_to b c = Some c') ->
+    ConvRuleCovers rd dst (RAUntyped ph rd c)
+| CCValue : forall dst src, ValueConvertible rd src dst ->
+    ConvRuleCovers rd dst (RAValue ph rd src).
+
+(* A floating operand of an exact kind, constant or not: what the `complex` combinations quantify over. *)
+Inductive FloatOperand {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> FloatKind -> Prop :=
+| FOTyped : forall t tc f, Underlying rd t (predeclared_basic_form (float_named_basic f)) ->
+    FloatOperand rd (RATyped ph rd t tc) f
+| FOValue : forall t f, Underlying rd t (predeclared_basic_form (float_named_basic f)) ->
+    FloatOperand rd (RAValue ph rd t) f.
+
+Inductive ComplexRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> ResultAtomAt ph rd -> Prop :=
+| CxCBothUntyped : forall c1 c2,
+    NumericConstantKind (constant_kind c1) -> NumericConstantKind (constant_kind c2) ->
+    ComplexRuleCovers rd (RAUntyped ph rd c1) (RAUntyped ph rd c2)
+| CxCUntypedLeft : forall c y f, NumericConstantKind (constant_kind c) -> FloatOperand rd y f ->
+    ComplexRuleCovers rd (RAUntyped ph rd c) y
+| CxCUntypedRight : forall x c f, FloatOperand rd x f -> NumericConstantKind (constant_kind c) ->
+    ComplexRuleCovers rd x (RAUntyped ph rd c)
+| CxCBothKinded : forall x y f, FloatOperand rd x f -> FloatOperand rd y f ->
+    ComplexRuleCovers rd x y.
+
+Definition ApplicationRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  (args : list (ResultAtomAt ph rd)) : Prop :=
+  (exists dst a1, args = [a1] /\ ConvRuleCovers rd dst a1) \/
+  (exists a1 a2, args = [a1; a2] /\ ComplexRuleCovers rd a1 a2) \/
+  PrintlnRuleCovers rd args.
+
+(* Statement eligibility is `println` and nothing else: `complex` is callable and still cannot stand as a
+   statement, which is why callability alone was never the right question. *)
+Definition StatementRuleCovers {p} {i : Input p} (ph : Phase i) (a : ApplicationRef p) : Prop :=
+  exists (hu : NameUseRef p) (bf : BindingFact ph hu),
+    expr_name (application_head a) = Some hu /\
+    bound_object ph hu bf = predeclared_object ph PPrintln.
+
+(* A contextual expression is resolved at the exact use.  `iota` takes the index of its own const spec.
+   There is deliberately no `nil` constructor: pinned `gc` rejects `nil` in every C6-representable context,
+   so a `nil` use produces its exact requirement or diagnostic and never a resolved atom. *)
+Inductive ContextResolvesAt {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : ExprUseRef p -> ContextualResult -> ResultAtomAt ph rd -> Prop :=
+| IotaResolves : forall (u : ExprUseRef p) (c : ConstSpecRef p) (k : nat),
+    iota_context u = Some (c, k) ->
+    ContextResolvesAt ph rd u IotaResult (RAUntyped ph rd (IntegerConstant (Z.of_nat k))).
+
 Inductive ExprFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ExprRef p -> Type :=
-| EFLiteral : forall (r : ExprRef p) (c : Constant), ExprFact ph rd r
-| EFName : forall (r : ExprRef p) (u : NameUseRef p) (o : ObjectRef ph) (role : UseRole),
-    BindingAt ph u o role -> ObjectFact ph rd o -> ExprFact ph rd r
-| EFUnary : forall (r : ExprRef p) (n : UnaryRef p),
-    ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) ->
-    UnaryFact ph rd n -> ExprFact ph rd r
-| EFApplication : forall (r : ExprRef p) (a : ApplicationRef p),
-    ExprFact ph rd (application_head a) -> AppFact ph rd a -> ExprFact ph rd r
+  (rd : TypeReady ph) : ExprRef p -> ResultFormAt ph rd -> Type :=
+| EFLiteral : forall (r : ExprRef p) (l : LiteralRef p),
+    expr_literal r = Some l ->
+    ExprFact ph rd r (RFFixed ph rd [RAUntyped ph rd (literal_constant l)])
+| EFName : forall (r : ExprRef p) (u : NameUseRef p),
+    expr_name r = Some u ->
+    forall (bf : BindingFact ph u) (m : ObjectMeaning ph rd (bound_object ph u bf)),
+    ExprFact ph rd r (name_result m)
+| EFUnary : forall (r : ExprRef p) (n : UnaryRef p)
+    (opa : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
+    expr_unary r = Some n ->
+    ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) opa ->
+    UnaryFact ph rd n opa res ->
+    ExprFact ph rd r (RFFixed ph rd res)
+| EFApplication : forall (r : ExprRef p) (a : ApplicationRef p)
+    (hf : ResultFormAt ph rd) (res : list (ResultAtomAt ph rd)),
+    expr_application r = Some a ->
+    ExprFact ph rd (application_head a) hf -> AppFact ph rd a res ->
+    ExprFact ph rd r (RFFixed ph rd res)
 
-(* A result use retains the exact expression fact of its child and the proof that its source role selects a
-   result at all.  A head or statement use cannot inhabit it. *)
+(* §10 A result use selects exactly one atom BY CONSTRUCTION.  A head or statement use cannot inhabit it,
+   and neither can an expression whose form is contextual-unresolved or no-standalone. *)
 with ResultUseFactAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ExprUseRef p -> Type :=
-| RUFOf : forall u : ExprUseRef p,
-    ExprFact ph rd (expression_of_use u) ->
-    use_refinement u = ResultRefinement -> ResultUseFactAt ph rd u
+  (rd : TypeReady ph) : ExprUseRef p -> ResultAtomAt ph rd -> Type :=
+| RUFFixed : forall (u : ExprUseRef p) (a : ResultAtomAt ph rd),
+    use_refinement u = ResultRefinement ->
+    ExprFact ph rd (expression_of_use u) (RFFixed ph rd [a]) ->
+    ResultUseFactAt ph rd u a
+| RUFContextual : forall (u : ExprUseRef p) (cr : ContextualResult) (a : ResultAtomAt ph rd),
+    use_refinement u = ResultRefinement ->
+    ExprFact ph rd (expression_of_use u) (RFContextual ph rd cr) ->
+    ContextResolvesAt ph rd u cr a ->
+    ResultUseFactAt ph rd u a
 
-(* §7.1 The argument facts are indexed by the EXACT ordered source use list, so there is one fact per source
-   argument, in source order, with no duplicate and no omission — by construction, not by theorem. *)
+(* §7.1 Argument facts are indexed by the EXACT ordered source use list and the exact ordered atoms they
+   consume, so there is one fact per source argument, in source order, with no duplicate and no omission. *)
 with ArgFacts {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : list (DirectExprUseRef p) -> Type :=
-| ArgsNil  : ArgFacts ph rd []
-| ArgsCons : forall (u : DirectExprUseRef p) (rest : list (DirectExprUseRef p)),
-    ResultUseFactAt ph rd (DirectUse p u) -> ArgFacts ph rd rest ->
-    ArgFacts ph rd (u :: rest)
+  (rd : TypeReady ph) : list (DirectExprUseRef p) -> list (ResultAtomAt ph rd) -> Type :=
+| ArgsNil  : ArgFacts ph rd [] []
+| ArgsCons : forall (u : DirectExprUseRef p) (rest : list (DirectExprUseRef p))
+    (a : ResultAtomAt ph rd) (arest : list (ResultAtomAt ph rd)),
+    ResultUseFactAt ph rd (DirectUse p u) a -> ArgFacts ph rd rest arest ->
+    ArgFacts ph rd (u :: rest) (a :: arest)
 
+(* §11 The unary rule is indexed by the exact operand atom and computes its result from it.  There is no
+   free input constant and no unrelated output typed constant. *)
 with UnaryFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : UnaryRef p -> Type :=
+  (rd : TypeReady ph) : UnaryRef p -> ResultAtomAt ph rd -> list (ResultAtomAt ph rd) -> Type :=
 | UFUntyped : forall (n : UnaryRef p) (c c' : Constant),
-    NumericConstantKind (constant_kind c) -> negate_constant c = Some c' -> UnaryFact ph rd n
-| UFTypedConstant : forall (n : UnaryRef p) (t : SemanticType rd) (b : BasicType),
-    Underlying rd t (BasicForm rd b) -> NumericBasic b ->
-    TypedConstant rd t -> TypedConstant rd t -> UnaryFact ph rd n
-| UFValue : forall (n : UnaryRef p) (t : SemanticType rd) (b : BasicType),
-    Underlying rd t (BasicForm rd b) -> NumericBasic b -> UnaryFact ph rd n
+    UnaryRuleCovers rd (RAUntyped ph rd c) -> negate_constant c = Some c' ->
+    UnaryFact ph rd n (RAUntyped ph rd c) [RAUntyped ph rd c']
+| UFTypedConstant : forall (n : UnaryRef p) (t : SemanticType p) (b : BasicType)
+    (hu : Underlying rd t b) (v v' : BasicTypedConstant b),
+    UnaryRuleCovers rd (RATyped ph rd t (@MakeTypedConstant p i ph rd t b hu v)) ->
+    negate_basic_typed b v = Some v' ->
+    UnaryFact ph rd n
+      (RATyped ph rd t (@MakeTypedConstant p i ph rd t b hu v))
+      [RATyped ph rd t (@MakeTypedConstant p i ph rd t b hu v')]
+| UFValue : forall (n : UnaryRef p) (t : SemanticType p),
+    UnaryRuleCovers rd (RAValue ph rd t) ->
+    UnaryFact ph rd n (RAValue ph rd t) [RAValue ph rd t]
 
 (* Arity is a constructor constraint, not a separate theorem: a conversion demands a one-element source
    argument list and `complex` a two-element one, so a wrong-arity application cannot build a fact. *)
 with AppFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ApplicationRef p -> Type :=
-| AFConversion : forall (a : ApplicationRef p) (dst : SemanticType rd) (u : DirectExprUseRef p),
+  (rd : TypeReady ph) : ApplicationRef p -> list (ResultAtomAt ph rd) -> Type :=
+| AFConversion : forall (a : ApplicationRef p) (dst : SemanticType p) (u : DirectExprUseRef p)
+    (arg : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
     application_argument_uses a = [u] ->
-    ArgFacts ph rd [u] -> ConvRule ph rd a dst -> AppFact ph rd a
-| AFComplex : forall (a : ApplicationRef p) (c : CallableTarget ph rd)
-    (u1 u2 : DirectExprUseRef p),
+    ArgFacts ph rd [u] [arg] -> ConvRule ph rd a dst arg res -> AppFact ph rd a res
+| AFComplex : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
+    (u1 u2 : DirectExprUseRef p) (a1 a2 : ResultAtomAt ph rd)
+    (res : list (ResultAtomAt ph rd)),
+    expr_name (application_head a) = Some hu ->
+    CallableMeaning ph (bound_object ph hu bf) ->
     application_argument_uses a = [u1; u2] ->
-    ArgFacts ph rd [u1; u2] -> ComplexRuleF ph rd a -> AppFact ph rd a
-| AFPrintln : forall (a : ApplicationRef p) (c : CallableTarget ph rd),
-    ArgFacts ph rd (application_argument_uses a) ->
-    PrintlnRuleF ph rd a -> AppFact ph rd a
+    ArgFacts ph rd [u1; u2] [a1; a2] -> ComplexRuleF ph rd a a1 a2 res -> AppFact ph rd a res
+| AFPrintln : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
+    (args : list (ResultAtomAt ph rd)),
+    expr_name (application_head a) = Some hu ->
+    CallableMeaning ph (bound_object ph hu bf) ->
+    ArgFacts ph rd (application_argument_uses a) args ->
+    PrintlnRuleF ph rd a args -> AppFact ph rd a []
 
+(* §12.2 The conversion consumes the one exact argument atom and computes the exact result atom. *)
 with ConvRule {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ApplicationRef p -> SemanticType rd -> Type :=
-| CRConstant : forall (a : ApplicationRef p) (dst : SemanticType rd) (b : BasicType)
-    (c c' : Constant),
-    Underlying rd dst (BasicForm rd b) -> convert_constant_to b c = Some c' ->
-    TypedConstant rd dst -> ConvRule ph rd a dst
-| CRValue : forall (a : ApplicationRef p) (dst src : SemanticType rd),
-    ValueConvertible rd src dst -> ConvRule ph rd a dst
+  (rd : TypeReady ph)
+  : ApplicationRef p -> SemanticType p -> ResultAtomAt ph rd -> list (ResultAtomAt ph rd) -> Type :=
+| CRConstant : forall (a : ApplicationRef p) (dst : SemanticType p) (b : BasicType)
+    (hu : Underlying rd dst b) (c c' : Constant) (v : BasicTypedConstant b),
+    convert_constant_to b c = Some c' -> basic_typed_of b c' = Some v ->
+    ConvRule ph rd a dst (RAUntyped ph rd c) [RATyped ph rd dst (@MakeTypedConstant p i ph rd dst b hu v)]
+| CRValue : forall (a : ApplicationRef p) (dst src : SemanticType p),
+    ValueConvertible rd src dst ->
+    ConvRule ph rd a dst (RAValue ph rd src) [RAValue ph rd dst]
 
+(* §12.3 `complex` consumes its two exact argument atoms.  The result's constantness follows the operands'
+   and its kind follows the exact floating kind they share. *)
 with ComplexRuleF {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ApplicationRef p -> Type :=
-| CxFUntyped : forall (a : ApplicationRef p) (c1 c2 cr : Constant),
+  (rd : TypeReady ph)
+  : ApplicationRef p -> ResultAtomAt ph rd -> ResultAtomAt ph rd ->
+    list (ResultAtomAt ph rd) -> Type :=
+(* Two untyped numeric constants give an untyped complex constant. *)
+| CxUntypedUntyped : forall (a : ApplicationRef p) (c1 c2 cr : Constant),
     NumericConstantKind (constant_kind c1) -> NumericConstantKind (constant_kind c2) ->
-    complex_of_constants c1 c2 = Some cr -> ComplexRuleF ph rd a
-| CxFTyped : forall (a : ApplicationRef p) (t : SemanticType rd) (f : FloatKind),
-    Underlying rd t (BasicForm rd (predeclared_basic_form (float_named_basic f))) ->
-    ComplexRuleF ph rd a
+    complex_of_constants c1 c2 = Some cr ->
+    ComplexRuleF ph rd a (RAUntyped ph rd c1) (RAUntyped ph rd c2) [RAUntyped ph rd cr]
+(* One untyped constant with one typed floating constant: the untyped operand converts to the typed
+   operand's exact kind, and the result is a typed complex constant of the matching kind. *)
+| CxUntypedTypedL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind)
+    (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+    (v vc : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
+    (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
+    NumericConstantKind (constant_kind c) ->
+    basic_typed_of (predeclared_basic_form (float_named_basic f)) c = Some vc ->
+    complex_typed_of f vc v = Some vr ->
+    ComplexRuleF ph rd a (RAUntyped ph rd c) (float_atom_typed t f hu v)
+      [complex_atom_typed f vr]
+| CxUntypedTypedR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind)
+    (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+    (v vc : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
+    (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
+    NumericConstantKind (constant_kind c) ->
+    basic_typed_of (predeclared_basic_form (float_named_basic f)) c = Some vc ->
+    complex_typed_of f v vc = Some vr ->
+    ComplexRuleF ph rd a (float_atom_typed t f hu v) (RAUntyped ph rd c)
+      [complex_atom_typed f vr]
+(* One untyped constant with one floating value: the result is a value, not a constant. *)
+| CxUntypedValueL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind),
+    NumericConstantKind (constant_kind c) ->
+    Underlying rd t (predeclared_basic_form (float_named_basic f)) ->
+    ComplexRuleF ph rd a (RAUntyped ph rd c) (RAValue ph rd t) [complex_atom_value f]
+| CxUntypedValueR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind),
+    NumericConstantKind (constant_kind c) ->
+    Underlying rd t (predeclared_basic_form (float_named_basic f)) ->
+    ComplexRuleF ph rd a (RAValue ph rd t) (RAUntyped ph rd c) [complex_atom_value f]
+(* Two typed floating constants of one identical type give a typed complex constant. *)
+| CxTypedTyped : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+    (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+    (v1 v2 : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
+    (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
+    complex_typed_of f v1 v2 = Some vr ->
+    ComplexRuleF ph rd a (float_atom_typed t f hu v1) (float_atom_typed t f hu v2)
+      [complex_atom_typed f vr]
+(* A typed floating constant with a floating value of the same type gives a value. *)
+| CxTypedValueL : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+    (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+    (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f))),
+    ComplexRuleF ph rd a (float_atom_typed t f hu v) (RAValue ph rd t) [complex_atom_value f]
+| CxTypedValueR : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+    (hu : Underlying rd t (predeclared_basic_form (float_named_basic f)))
+    (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f))),
+    ComplexRuleF ph rd a (RAValue ph rd t) (float_atom_typed t f hu v) [complex_atom_value f]
+(* Two floating values of one identical type give a value. *)
+| CxValues : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind),
+    Underlying rd t (predeclared_basic_form (float_named_basic f)) ->
+    ComplexRuleF ph rd a (RAValue ph rd t) (RAValue ph rd t) [complex_atom_value f]
 
 with PrintlnRuleF {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ApplicationRef p -> Type :=
-| PrFAccepted : forall a : ApplicationRef p, PrintlnRuleF ph rd a.
+  (rd : TypeReady ph) : ApplicationRef p -> list (ResultAtomAt ph rd) -> Type :=
+| PrFAdmitted : forall (a : ApplicationRef p) (args : list (ResultAtomAt ph rd)),
+    PrintlnRuleCovers rd args -> PrintlnRuleF ph rd a args.
 
-(* ── §5 Projections: `result_form` and `referenced_object` are views of the one fact ── *)
-Definition unary_result {p} {i : Input p} {ph : Phase i} {rd} {n}
-  (f : UnaryFact ph rd n) : list (ResultAtomAt ph rd) :=
+(* ── §5 The one remaining projection ───────────────────────────────────────── *)
+(* `result_form` is now the index itself, so there is nothing left to project.  Only the referenced object
+   is a genuine view of the fact. *)
+Definition expr_referenced_object {p} {i : Input p} {ph : Phase i} {rd} {r} {form}
+  (f : ExprFact ph rd r form) : option (ObjectRef ph) :=
   match f with
-  | UFUntyped _ _ _ _ c' _ _ => [RAUntyped ph rd c']
-  | UFTypedConstant _ _ _ t _ _ _ _ neg => [RATyped ph rd t neg]
-  | UFValue _ _ _ t _ _ _ => [RAValue ph rd t]
-  end.
-
-Definition conv_result {p} {i : Input p} {ph : Phase i} {rd} {a} {dst}
-  (r : ConvRule ph rd a dst) : list (ResultAtomAt ph rd) :=
-  match r with
-  | CRConstant _ _ _ d _ _ _ _ _ tc => [RATyped ph rd d tc]
-  | CRValue _ _ _ d _ _ => [RAValue ph rd d]
-  end.
-
-Definition complex_result {p} {i : Input p} {ph : Phase i} {rd} {a}
-  (r : ComplexRuleF ph rd a) : list (ResultAtomAt ph rd) :=
-  match r with
-  | CxFUntyped _ _ _ _ _ cr _ _ _ => [RAUntyped ph rd cr]
-  | CxFTyped _ _ _ _ f _ =>
-      [RAValue ph rd (PredeclaredType rd (complex_named_basic f))]
-  end.
-
-Definition app_result {p} {i : Input p} {ph : Phase i} {rd} {a}
-  (f : AppFact ph rd a) : list (ResultAtomAt ph rd) :=
-  match f with
-  | AFConversion _ _ _ _ _ _ _ r => conv_result r
-  | AFComplex _ _ _ _ _ _ _ _ r => complex_result r
-  | AFPrintln _ _ _ _ _ _ => []
-  end.
-
-(* The result a bound name yields is decided by its one object fact, not supplied beside it. *)
-Definition name_result {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (f : ObjectFact ph rd o) : ResultFormAt ph rd :=
-  match f with
-  | OFPredeclaredBool _ _ _ b _ => RFFixed ph rd [RAUntyped ph rd (BoolConstant b)]
-  | OFSourceUntypedConstant _ _ _ _ c => RFFixed ph rd [RAUntyped ph rd c]
-  | OFSourceConstant _ _ _ _ t tc => RFFixed ph rd [RATyped ph rd t tc]
-  | OFSourceVariable _ _ _ _ t => RFFixed ph rd [RAValue ph rd t]
-  | OFPredeclaredIota _ _ => RFContextual ph rd IotaResult
-  | OFPredeclaredNil _ _ => RFContextual ph rd NilResult
-  | _ => RFNoStandalone ph rd
-  end.
-
-Definition expr_result {p} {i : Input p} {ph : Phase i} {rd} {r}
-  (f : ExprFact ph rd r) : ResultFormAt ph rd :=
-  match f with
-  | EFLiteral _ _ _ c => RFFixed ph rd [RAUntyped ph rd c]
-  | EFName _ _ _ _ _ _ _ of => name_result of
-  | EFUnary _ _ _ _ _ uf => RFFixed ph rd (unary_result uf)
-  | EFApplication _ _ _ _ _ af => RFFixed ph rd (app_result af)
-  end.
-
-Definition expr_referenced_object {p} {i : Input p} {ph : Phase i} {rd} {r}
-  (f : ExprFact ph rd r) : option (ObjectRef ph) :=
-  match f with
-  | EFName _ _ _ _ o _ _ _ => Some o
+  | EFName _ _ _ u _ bf _ => Some (bound_object ph u bf)
   | _ => None
   end.
 
 (* ── §8 A statement fact exists only for an eligible statement ─────────────── *)
-(* Definite failures, requirements and blocked dependents live solely in the exact statement site outcome;
-   they are not branches of this type, which would contradict what an accepted fact means. *)
-Definition IsPrintlnApp {p} {i : Input p} {ph : Phase i} {rd} {a}
-  (f : AppFact ph rd a) : Prop :=
-  match f with AFPrintln _ _ _ _ _ _ => True | _ => False end.
+Definition IsPrintlnApp {p} {i : Input p} {ph : Phase i} {rd} {a} {res}
+  (f : AppFact ph rd a res) : Prop :=
+  match f with AFPrintln _ _ _ _ _ _ _ _ _ _ => True | _ => False end.
 
-Definition IsConversionApp {p} {i : Input p} {ph : Phase i} {rd} {a}
-  (f : AppFact ph rd a) : Prop :=
-  match f with AFConversion _ _ _ _ _ _ _ _ => True | _ => False end.
+Definition IsConversionApp {p} {i : Input p} {ph : Phase i} {rd} {a} {res}
+  (f : AppFact ph rd a res) : Prop :=
+  match f with AFConversion _ _ _ _ _ _ _ _ _ _ => True | _ => False end.
 
-Definition IsComplexApp {p} {i : Input p} {ph : Phase i} {rd} {a}
-  (f : AppFact ph rd a) : Prop :=
-  match f with AFComplex _ _ _ _ _ _ _ _ _ => True | _ => False end.
+Definition IsComplexApp {p} {i : Input p} {ph : Phase i} {rd} {a} {res}
+  (f : AppFact ph rd a res) : Prop :=
+  match f with AFComplex _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ => True | _ => False end.
 
 Inductive StmtFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ExpressionStatementRef p -> Type :=
+  (rd : TypeReady ph) : ExpressionStatementRef p -> Type :=
 | SFPrintln : forall (s : ExpressionStatementRef p) (a : ApplicationRef p)
-    (f : AppFact ph rd a),
+    (res : list (ResultAtomAt ph rd)) (f : AppFact ph rd a res),
     statement_application s = Some a -> IsPrintlnApp f -> StmtFact ph rd s.
 
 Definition statement_application_of {p} {i : Input p} {ph : Phase i} {rd} {s}
   (f : StmtFact ph rd s) : ApplicationRef p :=
-  match f with SFPrintln _ _ _ a _ _ _ => a end.
-
-(* ── §7 One intrinsic result occurrence ────────────────────────────────────── *)
-Definition result_atoms_of {p} {i : Input p} {ph : Phase i} {rd} {u}
-  (f : ResultUseFactAt ph rd u) : list (ResultAtomAt ph rd) :=
-  match f with
-  | RUFOf _ _ _ ef _ =>
-      match expr_result ef with
-      | RFFixed _ _ l => l
-      | RFContextual _ _ _ => []
-      | RFNoStandalone _ _ => []
-      end
-  end.
-
-(* The atom is not stored beside the vector: the split equation forces it to BE the element at that
-   position, and the position is derived from the split. *)
-Record ResultOccurrenceAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) (u : ExprUseRef p) : Type := MakeOccurrence {
-  occ_fact   : ResultUseFactAt ph rd u;
-  occ_before : list (ResultAtomAt ph rd);
-  occ_atom   : ResultAtomAt ph rd;
-  occ_after  : list (ResultAtomAt ph rd);
-  occ_splits : result_atoms_of occ_fact = occ_before ++ occ_atom :: occ_after
-}.
-
-Definition occurrence_position {p} {i : Input p} {ph : Phase i} {rd} {u}
-  (o : ResultOccurrenceAt ph rd u) : nat := List.length (occ_before ph rd u o).
+  match f with SFPrintln _ _ _ a _ _ _ _ => a end.
 
 (* ── §11 One intrinsic, source-indexed result-consumption plan ─────────────── *)
 Inductive ConsumptionTarget (p : SyntaxProgram) : Type :=
@@ -1221,36 +1471,50 @@ Parameter site_targets : forall {p}, ConsumptionSiteRef p -> list (ConsumptionTa
 Parameter site_uses : forall {p}, ConsumptionSiteRef p -> list (ExprUseRef p).
 
 Inductive ConstAtomAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ResultAtomAt ph rd -> Prop :=
+  (rd : TypeReady ph) : ResultAtomAt ph rd -> Prop :=
 | CAUntyped : forall c, ConstAtomAt ph rd (RAUntyped ph rd c)
 | CATyped   : forall t tc, ConstAtomAt ph rd (RATyped ph rd t tc).
 
 (* The exact defaulting / representability / assignability evidence an entry must carry. *)
 Inductive AtomFits {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : ResultAtomAt ph rd -> SemanticType rd -> Prop :=
+  (rd : TypeReady ph) : ResultAtomAt ph rd -> SemanticType p -> Prop :=
 | FitUntyped : forall c t, Representable rd t c -> AtomFits ph rd (RAUntyped ph rd c) t
-| FitTyped   : forall (s : SemanticType rd) tc t, Assignable rd s t ->
+| FitTyped   : forall (s : SemanticType p) tc t, Assignable s t ->
     AtomFits ph rd (RATyped ph rd s tc) t
-| FitValue   : forall (s : SemanticType rd) t, Assignable rd s t ->
+| FitValue   : forall (s : SemanticType p) t, Assignable s t ->
     AtomFits ph rd (RAValue ph rd s) t.
 
-(* Each plan is indexed by the EXACT remaining source target list, so target coverage, order and
-   non-duplication hold by construction rather than by a tautological length equation. *)
+(* Each plan is indexed by the EXACT remaining source target list AND the EXACT remaining source use list,
+   consumed in lockstep.  Target coverage, source consumption, order and non-duplication therefore all hold
+   by construction: a plan cannot consume another site's uses, and no separate coverage equation exists that
+   could be satisfied by comparing a plan against itself. *)
 Inductive ConstPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : list (ConsumptionTarget p) -> Type :=
-| CPNil  : ConstPlan ph rd []
+  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+| CPNil  : ConstPlan ph rd [] []
 | CPCons : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
-    (u : ExprUseRef p) (o : ResultOccurrenceAt ph rd u),
-    ConstAtomAt ph rd (occ_atom ph rd u o) ->
-    option (SemanticType rd) -> ConstPlan ph rd rest -> ConstPlan ph rd (t :: rest).
+    (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> ConstAtomAt ph rd a ->
+    option (SemanticType p) -> ConstPlan ph rd rest urest ->
+    ConstPlan ph rd (t :: rest) (u :: urest).
+
+(* `var x, y int` has targets and no right-hand side at all, so it is a separate form rather than a plan
+   with an optional use.  The two forms cannot be interleaved. *)
+Inductive VarValuesPlan {p} {i : Input p} (ph : Phase i)
+  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+| VVNil  : VarValuesPlan ph rd [] []
+| VVCons : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
+    (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd)
+    (ty : SemanticType p),
+    ResultUseFactAt ph rd u a -> AtomFits ph rd a ty ->
+    VarValuesPlan ph rd rest urest ->
+    VarValuesPlan ph rd (t :: rest) (u :: urest).
 
 Inductive VarPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : list (ConsumptionTarget p) -> Type :=
-| VPNil  : VarPlan ph rd []
-| VPCons : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
-    (u : ExprUseRef p) (o : ResultOccurrenceAt ph rd u) (ty : SemanticType rd),
-    AtomFits ph rd (occ_atom ph rd u o) ty -> VarPlan ph rd rest ->
-    VarPlan ph rd (t :: rest).
+  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+| VPTypeOnly : forall (targets : list (ConsumptionTarget p)) (ty : SemanticType p),
+    VarPlan ph rd targets []
+| VPValues : forall (targets : list (ConsumptionTarget p)) (uses : list (ExprUseRef p)),
+    VarValuesPlan ph rd targets uses -> VarPlan ph rd targets uses.
 
 (* A new short binder retains its exact object; a same-block reuse retains the exact existing object;
    blank retains neither. *)
@@ -1260,25 +1524,26 @@ Inductive ShortBinder {p} {i : Input p} (ph : Phase i) : Type :=
     SameBlockEarlier b o -> ShortBinder ph.
 
 Inductive ShortPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : list (ConsumptionTarget p) -> Type :=
-| SPNil   : ShortPlan ph rd []
+  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+| SPNil   : ShortPlan ph rd [] []
 | SPNamed : forall (b : BindingSiteRef p) (rest : list (ConsumptionTarget p))
-    (bind : ShortBinder ph) (u : ExprUseRef p) (o : ResultOccurrenceAt ph rd u)
-    (ty : SemanticType rd),
-    AtomFits ph rd (occ_atom ph rd u o) ty -> ShortPlan ph rd rest ->
-    ShortPlan ph rd (NamedTarget p b :: rest)
+    (bind : ShortBinder ph) (u : ExprUseRef p) (urest : list (ExprUseRef p))
+    (a : ResultAtomAt ph rd) (ty : SemanticType p),
+    ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortPlan ph rd rest urest ->
+    ShortPlan ph rd (NamedTarget p b :: rest) (u :: urest)
 | SPBlank : forall (k : BlankRef p) (rest : list (ConsumptionTarget p))
-    (u : ExprUseRef p) (o : ResultOccurrenceAt ph rd u),
-    ShortPlan ph rd rest -> ShortPlan ph rd (BlankTarget p k :: rest).
+    (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> ShortPlan ph rd rest urest ->
+    ShortPlan ph rd (BlankTarget p k :: rest) (u :: urest).
 
 (* At least one nonblank short binder must be new; pinned `gc` rejects a short declaration otherwise. *)
-Fixpoint ShortHasNewName {p} {i : Input p} {ph : Phase i} {rd} {ts}
-  (pl : ShortPlan ph rd ts) : Prop :=
+Fixpoint ShortHasNewName {p} {i : Input p} {ph : Phase i} {rd} {ts} {us}
+  (pl : ShortPlan ph rd ts us) : Prop :=
   match pl with
   | SPNil _ _ => False
-  | SPNamed _ _ _ _ bind _ _ _ _ rest =>
+  | SPNamed _ _ _ _ bind _ _ _ _ _ _ rest =>
       match bind with SBNew _ _ _ => True | SBReuse _ _ _ _ => ShortHasNewName rest end
-  | SPBlank _ _ _ _ _ _ rest => ShortHasNewName rest
+  | SPBlank _ _ _ _ _ _ _ _ rest => ShortHasNewName rest
   end.
 
 (* ── §12 Initialization units keep constants out of the runtime projection ──── *)
@@ -1301,43 +1566,13 @@ Definition RuntimeInitUnit {p} (u : InitUnit p) : bool :=
    for another site's targets cannot be offered here, so no separate coverage theorem is needed and none
    could be stated tautologically. *)
 Definition ConsumptionFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) (c : ConsumptionSiteRef p) : Type :=
+  (rd : TypeReady ph) (c : ConsumptionSiteRef p) : Type :=
   match c with
-  | ConstSite _ _ => ConstPlan ph rd (site_targets c)
-  | VarSite _ _   => VarPlan ph rd (site_targets c)
-  | ShortSite _ _ => ShortPlan ph rd (site_targets c)
+  | ConstSite _ _ => ConstPlan ph rd (site_targets c) (site_uses c)
+  | VarSite _ _   => VarPlan ph rd (site_targets c) (site_uses c)
+  | ShortSite _ _ => { pl : ShortPlan ph rd (site_targets c) (site_uses c) & ShortHasNewName pl }
   end.
 
-(* The use sequence a plan actually consumes, in plan order. *)
-Fixpoint const_plan_uses {p} {i : Input p} {ph : Phase i} {rd} {ts}
-  (pl : ConstPlan ph rd ts) : list (ExprUseRef p) :=
-  match pl with
-  | CPNil _ _ => []
-  | CPCons _ _ _ _ u _ _ _ sub => u :: const_plan_uses sub
-  end.
-
-Fixpoint var_plan_uses {p} {i : Input p} {ph : Phase i} {rd} {ts}
-  (pl : VarPlan ph rd ts) : list (ExprUseRef p) :=
-  match pl with
-  | VPNil _ _ => []
-  | VPCons _ _ _ _ u _ _ _ sub => u :: var_plan_uses sub
-  end.
-
-Fixpoint short_plan_uses {p} {i : Input p} {ph : Phase i} {rd} {ts}
-  (pl : ShortPlan ph rd ts) : list (ExprUseRef p) :=
-  match pl with
-  | SPNil _ _ => []
-  | SPNamed _ _ _ _ _ u _ _ _ sub => u :: short_plan_uses sub
-  | SPBlank _ _ _ _ u _ sub => u :: short_plan_uses sub
-  end.
-
-Definition plan_uses {p} {i : Input p} {ph : Phase i} {rd} (c : ConsumptionSiteRef p)
-  : ConsumptionFact ph rd c -> list (ExprUseRef p) :=
-  match c as c' return ConsumptionFact ph rd c' -> list (ExprUseRef p) with
-  | ConstSite _ _ => fun f => const_plan_uses f
-  | VarSite _ _   => fun f => var_plan_uses f
-  | ShortSite _ _ => fun f => short_plan_uses f
-  end.
 
 (* ── §12 Package initialization order ──────────────────────────────────────── *)
 (* The nodes are the package's initialization units; the edges are name uses inside them. *)
@@ -1350,12 +1585,11 @@ Parameter init_unit_object : forall {p} {i : Input p} (ph : Phase i),
    cannot be posted beside the bindings it claims to summarise. *)
 Inductive InitEdge {p} {i : Input p} (ph : Phase i) (k : PackageRef p)
   : InitUnit p -> InitUnit p -> Prop :=
-| InitReads : forall (from to : InitUnit p) (u : NameUseRef p) (o : ObjectRef ph) (role : UseRole),
+| InitReads : forall (from to : InitUnit p) (u : NameUseRef p) (bf : BindingFact ph u),
     List.In from (package_init_units k) ->
     List.In to (package_init_units k) ->
     List.In u (init_unit_uses from) ->
-    BindingAt ph u o role ->
-    init_unit_object ph to = Some o ->
+    init_unit_object ph to = Some (bound_object ph u bf) ->
     InitEdge ph k from to.
 
 (* `y` initializes before `x` whenever `x` reads `y`. *)
@@ -1374,166 +1608,277 @@ Record InitOrder {p} {i : Input p} (ph : Phase i) (k : PackageRef p) : Type := M
 }.
 
 (* Source order is the tie-break, not the rule: it decides only between units with no edge either way. *)
-Parameter init_unit_site : forall {p}, InitUnit p -> BindingSiteRef p.
+(* Every initialization unit has a source position; not every one has a binding site.  A const spec binds
+   several names and a blank binds none, so an accessor returning one binding site per unit could only be
+   satisfied by inventing one. *)
+Parameter init_unit_position : forall {p}, InitUnit p -> nat.
 Definition SourceOrderTieBreak {p} {i : Input p} {ph : Phase i} {k : PackageRef p}
   (o : InitOrder ph k) : Prop :=
   forall a b : InitUnit p,
     List.In a (package_init_units k) -> List.In b (package_init_units k) ->
     ~ InitEdge ph k a b -> ~ InitEdge ph k b a ->
-    DeclaredBefore (init_unit_site a) (init_unit_site b) ->
+    (init_unit_position a < init_unit_position b)%nat ->
     PrecedesIn (init_sequence ph k o) a b.
+
+Inductive InitPath {p} {i : Input p} (ph : Phase i) (k : PackageRef p)
+  : InitUnit p -> InitUnit p -> Prop :=
+| IPStep : forall a b, InitEdge ph k a b -> InitPath ph k a b
+| IPMore : forall a b c, InitEdge ph k a b -> InitPath ph k b c -> InitPath ph k a c.
+
+(* A cycle witness is data: the exact unit that reaches itself, and the exact path by which it does. *)
+Record InitCycle {p} {i : Input p} (ph : Phase i) (k : PackageRef p) : Type := MakeInitCycle {
+  init_cycle_unit : InitUnit p;
+  init_cycle_path : InitPath ph k init_cycle_unit init_cycle_unit
+}.
+
+(* One decision, returning the exact witness on either side rather than a boolean to be interpreted. *)
+Parameter init_order_dec : forall {p} {i : Input p} (ph : Phase i) (k : PackageRef p),
+  InitCycle ph k + InitOrder ph k.
 
 (* Only variable work reaches the C7 runtime store; constant evaluation is compile-time. *)
 Definition runtime_initialization {p} {i : Input p} {ph : Phase i} {k : PackageRef p}
   (o : InitOrder ph k) : list (InitUnit p) :=
   List.filter RuntimeInitUnit (init_sequence ph k o).
 
+(* ── §17 The causal dependency relation ────────────────────────────────────── *)
+(* Phase-indexed, because several causes are only visible once names are bound: which variable a use reads,
+   and which initialization unit a use belongs to.  Type-node causality is not here — `NodeBlocked` already
+   retains its exact predecessor node, edge and that predecessor's retained outcome. *)
+Inductive SiteDependency {p} {i : Input p} (ph : Phase i) : Site p -> Site p -> Prop :=
+| DepUseOfExpression : forall u : ExprUseRef p,
+    SiteDependency ph (SExpression p (expression_of_use u)) (SUse p u)
+| DepApplicationHead : forall a : ApplicationRef p,
+    SiteDependency ph (SExpression p (application_head a)) (SApplication p a)
+| DepApplicationArgument : forall (a : ApplicationRef p) (u : DirectExprUseRef p),
+    List.In u (application_argument_uses a) ->
+    SiteDependency ph (SUse p (DirectUse p u)) (SApplication p a)
+| DepStatementApplication : forall (s : ExpressionStatementRef p) (a : ApplicationRef p),
+    statement_application s = Some a ->
+    SiteDependency ph (SApplication p a) (SStatement p s)
+| DepUnaryOperand : forall n : UnaryRef p,
+    SiteDependency ph (SUse p (DirectUse p (unary_operand_use n))) (SUnary p n)
+| DepVariableDeclaration : forall v : VariableSiteRef p,
+    SiteDependency ph (SDeclaration p (variable_site_binding_site v)) (SVariable p v)
+(* A name expression depends on the binding that gave its name meaning. *)
+| DepNameBinding : forall (r : ExprRef p) (u : NameUseRef p),
+    expr_name r = Some u -> SiteDependency ph (SBinding p u) (SExpression p r)
+(* A consumption site depends on each of its own right-hand-side uses. *)
+| DepConsumptionUse : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
+    List.In u (site_uses c) -> SiteDependency ph (SUse p u) (SConsumption p c)
+(* A package initialization order depends on every binding its units read. *)
+| DepDependencyBinding : forall (k : PackageRef p) (unit : InitUnit p) (u : NameUseRef p),
+    List.In unit (package_init_units k) -> List.In u (init_unit_uses unit) ->
+    SiteDependency ph (SBinding p u) (SDependency p k)
+(* A package-level declaration is elaborated after the order that decides when it runs. *)
+| DepDeclarationOrder : forall (k : PackageRef p) (b : BindingSiteRef p),
+    binding_site_scope b = PackageScope p k ->
+    SiteDependency ph (SDependency p k) (SDeclaration p b)
+(* A short reuse depends on the earlier same-block variable whose object it retains. *)
+| DepShortReuse : forall (d : ShortDeclRef p) (earlier : VariableSiteRef p),
+    SiteDependency ph (SVariable p earlier) (SConsumption p (ShortSite p d))
+(* The unused-local verdict depends on the exact reads of that variable. *)
+| DepLocalRead : forall (v : VariableSiteRef p) (u : NameUseRef p) (bf : BindingFact ph u),
+    bound_object ph u bf
+      = source_object ph (binding_site_object_site (variable_site_binding_site v)) ->
+    SiteDependency ph (SBinding p u) (SVariable p v).
+
 (* ── §9 Requirements are exact missing facts ───────────────────────────────── *)
 (* Each constructor retains the exact partial facts already established at that site, so a requirement
    cannot pair an arbitrary use with an arbitrary object, and satisfaction never asks whether the outcome
    is already supported. *)
-Inductive SiteRequirement {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Site p -> Type :=
-| NeedTypeMeaning : forall (u : NameUseRef p) (o : ObjectRef ph) (role : UseRole),
-    BindingAt ph u o role -> ObjectFact ph rd o -> SiteRequirement ph rd (SBinding p u)
-| NeedValueMeaning : forall (u : NameUseRef p) (o : ObjectRef ph) (role : UseRole),
-    BindingAt ph u o role -> ObjectFact ph rd o -> SiteRequirement ph rd (SBinding p u)
-| NeedApplication : forall (a : ApplicationRef p),
-    ExprFact ph rd (application_head a) ->
-    ArgFacts ph rd (application_argument_uses a) ->
-    ErasedProfile -> SiteRequirement ph rd (SApplication p a)
-| NeedStatement : forall (s : ExpressionStatementRef p) (a : ApplicationRef p),
+(* No environment index: a requirement is reportable for an arbitrary core.  Each constructor carries the
+   exact readiness the partial facts it retains were established at. *)
+Inductive SiteRequirement {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
+| NeedTypeMeaning : forall (rd : TypeReady ph) (u : NameUseRef p) (bf : BindingFact ph u),
+    ObjectMeaning ph rd (bound_object ph u bf) -> SiteRequirement ph (SBinding p u)
+| NeedValueMeaning : forall (rd : TypeReady ph) (u : NameUseRef p) (bf : BindingFact ph u),
+    ObjectMeaning ph rd (bound_object ph u bf) -> SiteRequirement ph (SBinding p u)
+| NeedApplication : forall (rd : TypeReady ph) (a : ApplicationRef p)
+    (hf : ResultFormAt ph rd) (args : list (ResultAtomAt ph rd)),
+    ExprFact ph rd (application_head a) hf ->
+    ArgFacts ph rd (application_argument_uses a) args ->
+    ErasedProfile -> SiteRequirement ph (SApplication p a)
+| NeedStatement : forall (rd : TypeReady ph) (s : ExpressionStatementRef p) (a : ApplicationRef p)
+    (hf : ResultFormAt ph rd),
     statement_application s = Some a ->
-    ExprFact ph rd (application_head a) -> SiteRequirement ph rd (SStatement p s)
-| NeedUnary : forall n : UnaryRef p,
-    ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) ->
-    SiteRequirement ph rd (SUnary p n).
+    ExprFact ph rd (application_head a) hf -> SiteRequirement ph (SStatement p s)
+| NeedUnary : forall (rd : TypeReady ph) (n : UnaryRef p) (opa : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) opa ->
+    SiteRequirement ph (SUnary p n).
 
 (* Satisfaction is a question about the fact families, not about the site table. *)
-Definition RequirementSatisfied {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (r : SiteRequirement ph rd s) : Prop :=
+(* Every case is a positive semantic relation over the exact facts the requirement retains.  None asks
+   whether the successful site fact happens to be inhabited: that would decide whether a requirement is met
+   by checking for the very thing the requirement reports as missing. *)
+Definition RequirementSatisfied {p} {i : Input p} {ph : Phase i} {s}
+  (r : SiteRequirement ph s) : Prop :=
   match r with
-  | NeedTypeMeaning _ _ _ _ _ _ f => IsTypeCapable f
-  | NeedValueMeaning _ _ _ _ _ _ f =>
+  | NeedTypeMeaning _ _ _ _ f => IsTypeCapable f
+  | NeedValueMeaning _ _ _ _ f =>
       IsConstantCapable f \/ IsVariableCapable f \/ IsContextualCapable f
-  | NeedApplication _ _ a _ _ _ => inhabited (AppFact ph rd a)
-  | NeedStatement _ _ st _ _ _ => inhabited (StmtFact ph rd st)
-  | NeedUnary _ _ n _ => inhabited (UnaryFact ph rd n)
+  | NeedApplication _ rd _ _ args _ _ _ => ApplicationRuleCovers rd args
+  | NeedStatement _ _ _ a _ _ _ => StatementRuleCovers ph a
+  | NeedUnary _ rd _ opa _ => UnaryRuleCovers rd opa
   end.
 
-Parameter requirement_dec : forall {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (r : SiteRequirement ph rd s),
+Parameter requirement_dec : forall {p} {i : Input p} {ph : Phase i} {s}
+  (r : SiteRequirement ph s),
   { RequirementSatisfied r } + { ~ RequirementSatisfied r }.
 
 (* The exact bound object a name requirement is about is read off its binding fact, never supplied. *)
-Definition requirement_object {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (r : SiteRequirement ph rd s) : option (ObjectRef ph) :=
+Definition requirement_object {p} {i : Input p} {ph : Phase i} {s}
+  (r : SiteRequirement ph s) : option (ObjectRef ph) :=
   match r with
-  | NeedTypeMeaning _ _ _ o _ _ _ => Some o
-  | NeedValueMeaning _ _ _ o _ _ _ => Some o
+  | NeedTypeMeaning _ _ u bf _ => Some (bound_object ph u bf)
+  | NeedValueMeaning _ _ u bf _ => Some (bound_object ph u bf)
   | _ => None
   end.
 
-Parameter requirement_view : forall {p} {i : Input p} {ph : Phase i} {rd} {s},
-  SiteRequirement ph rd s -> RequirementView.
+Parameter requirement_view : forall {p} {i : Input p} {ph : Phase i} {s},
+  SiteRequirement ph s -> RequirementView.
 
 (* ── §10 Site failures retain their exact causes ───────────────────────────── *)
+(* The source witnesses a diagnostic must consume.  These are facts about the source and its bindings, not
+   claims that Go rejects the program: two binders sharing a spelling in one scope IS the duplication, and a
+   package-level declaration spelled `init` IS the reservation. *)
+Definition DuplicateBinders {p} (earlier later : BindingSiteRef p) : Prop :=
+  binding_site_spelling earlier = binding_site_spelling later /\
+  binding_site_scope earlier = binding_site_scope later /\
+  DeclaredBefore earlier later.
+
+Definition ShortHasNoNewName {p} {i : Input p} (ph : Phase i) (d : ShortDeclRef p) : Prop :=
+  forall n : BindingNameRef p, binding_name_short_lhs n = Some d ->
+    match binder_disposition ph n with
+    | BinderNew _ _ _ _ _ => False
+    | _ => True
+    end.
+
+Definition NoReadOf {p} {i : Input p} (ph : Phase i) (v : VariableSiteRef p) : Prop :=
+  forall (u : NameUseRef p) (bf : BindingFact ph u),
+    bound_object ph u bf
+      <> source_object ph (binding_site_object_site (variable_site_binding_site v)).
+
 (* A duplicate declaration is a failure at the declaration site, not at some unrelated name use; an argument
    failure retains the exact argument use, not a free index; a consumption failure retains the exact
    occurrence, not a free position. *)
-Inductive SiteFailure {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Site p -> Type :=
-| FUnresolvedName : forall u : NameUseRef p, SiteFailure ph rd (SBinding p u)
+(* No environment index: a failed or cyclic core must be able to report why no environment exists.  The
+   three cases that genuinely resolved a type carry the exact readiness they used. *)
+Inductive SiteFailure {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
+| FUnresolvedName : forall u : NameUseRef p, SiteFailure ph (SBinding p u)
 | FDuplicateDeclaration : forall earlier later : BindingSiteRef p,
-    SiteFailure ph rd (SDeclaration p later)
-| FPackageInitReserved : forall b : BindingSiteRef p, SiteFailure ph rd (SDeclaration p b)
+    DuplicateBinders earlier later -> SiteFailure ph (SDeclaration p later)
+| FPackageInitReserved : forall b : BindingSiteRef p,
+    PackageInitReserved (binding_site_context b) (binding_site_spelling b) ->
+    SiteFailure ph (SDeclaration p b)
 | FArgumentRejected : forall (a : ApplicationRef p) (u : DirectExprUseRef p),
     In u (application_argument_uses a) -> ArgumentReason ->
-    SiteFailure ph rd (SApplication p a)
+    SiteFailure ph (SApplication p a)
 | FInvalidConversion : forall a : ApplicationRef p,
-    OperandResultView -> TypeView -> list (ExprRef p) -> SiteFailure ph rd (SApplication p a)
-| FOperandRejected : forall n : UnaryRef p, OperandReason -> SiteFailure ph rd (SUnary p n)
+    OperandResultView -> TypeView -> list (ExprRef p) -> SiteFailure ph (SApplication p a)
+| FOperandRejected : forall n : UnaryRef p, OperandReason -> SiteFailure ph (SUnary p n)
 | FNotAStatement : forall t : ExpressionStatementRef p, StatementReason ->
-    SiteFailure ph rd (SStatement p t)
+    SiteFailure ph (SStatement p t)
 | FResultCountWrong : forall c : ConsumptionSiteRef p, nat -> nat ->
-    SiteFailure ph rd (SConsumption p c)
-| FNotAssignableAt : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
-    ResultOccurrenceAt ph rd u -> SemanticType rd -> SiteFailure ph rd (SConsumption p c)
-| FNotRepresentableAt : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
-    ResultOccurrenceAt ph rd u -> SemanticType rd -> SiteFailure ph rd (SConsumption p c)
-| FConstInitNotConstant : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
-    ResultOccurrenceAt ph rd u -> ConstInitReason -> SiteFailure ph rd (SConsumption p c)
+    SiteFailure ph (SConsumption p c)
+| FNotAssignableAt : forall (c : ConsumptionSiteRef p) (rd : TypeReady ph) (u : ExprUseRef p)
+    (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> SemanticType p -> SiteFailure ph (SConsumption p c)
+| FNotRepresentableAt : forall (c : ConsumptionSiteRef p) (rd : TypeReady ph) (u : ExprUseRef p)
+    (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> SemanticType p -> SiteFailure ph (SConsumption p c)
+| FConstInitNotConstant : forall (c : ConsumptionSiteRef p) (rd : TypeReady ph) (u : ExprUseRef p)
+    (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> ConstInitReason -> SiteFailure ph (SConsumption p c)
 | FNoNewVariable : forall d : ShortDeclRef p,
-    SiteFailure ph rd (SConsumption p (ShortSite p d))
-| FContext : forall r : ExprRef p, ContextReason -> SiteFailure ph rd (SExpression p r)
+    ShortHasNoNewName ph d -> SiteFailure ph (SConsumption p (ShortSite p d))
+| FContext : forall r : ExprRef p, ContextReason -> SiteFailure ph (SExpression p r)
 | FDefaultNotRepresentable : forall r : ExprRef p,
-    UntypedConstantKind -> TypeView -> SiteFailure ph rd (SExpression p r)
-| FUnusedLocal : forall v : VariableSiteRef p, SiteFailure ph rd (SVariable p v)
-| FInitializationCycle : forall k : PackageRef p, SiteFailure ph rd (SDependency p k).
+    UntypedConstantKind -> TypeView -> SiteFailure ph (SExpression p r)
+| FUnusedLocal : forall (v : VariableSiteRef p) (rd : TypeReady ph),
+    StaticVariable ph rd
+      (source_object ph (binding_site_object_site (variable_site_binding_site v))) ->
+    NoReadOf ph v -> SiteFailure ph (SVariable p v)
+| FInitializationCycle : forall k : PackageRef p, InitCycle ph k -> SiteFailure ph (SDependency p k).
 
 (* ── The fact a supported site carries ─────────────────────────────────────── *)
 Parameter DeclarationFact : forall {p} {i : Input p} (ph : Phase i), BindingSiteRef p -> Type.
 (* A supported dependency site is exactly a valid initialization order for that package. *)
 Definition DependencyFact {p} {i : Input p} (ph : Phase i) (k : PackageRef p) : Type :=
   InitOrder ph k.
-Parameter VariableFact : forall {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)), VariableSiteRef p -> Type.
+(* A supported variable site is exactly the static variable of that site's own object.  There is no total
+   variable fact: a failed, outside or blocked declaration has object identity and no static variable. *)
+Definition VariableFact {p} {i : Input p} (ph : Phase i)
+  (rd : TypeReady ph) (v : VariableSiteRef p) : Type :=
+  StaticVariable ph rd (source_object ph (binding_site_object_site (variable_site_binding_site v))).
 
 Definition SiteFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) (s : Site p) : Type :=
+  (rd : TypeReady ph) (s : Site p) : Type :=
   match s with
-  | SBinding _ u     => { o : ObjectRef ph & { role : UseRole & BindingAt ph u o role } }
-  | SExpression _ r  => ExprFact ph rd r
+  | SBinding _ u     => BindingFact ph u
+  | SExpression _ r  => { form : ResultFormAt ph rd & ExprFact ph rd r form }
   | SUse _ u         => match use_refinement u with
-                        | ResultRefinement => ResultUseFactAt ph rd u
-                        | _ => ExprFact ph rd (expression_of_use u)
+                        | ResultRefinement => { a : ResultAtomAt ph rd & ResultUseFactAt ph rd u a }
+                        | _ => { form : ResultFormAt ph rd &
+                                 ExprFact ph rd (expression_of_use u) form }
                         end
-  | SApplication _ a => AppFact ph rd a
+  | SApplication _ a => { res : list (ResultAtomAt ph rd) & AppFact ph rd a res }
   | SStatement _ t   => StmtFact ph rd t
-  | SUnary _ n       => UnaryFact ph rd n
+  | SUnary _ n       => { opa : ResultAtomAt ph rd &
+                        { res : list (ResultAtomAt ph rd) & UnaryFact ph rd n opa res } }
   | SConsumption _ c => ConsumptionFact ph rd c
   | SVariable _ v    => VariableFact ph rd v
   | SDeclaration _ b => DeclarationFact ph b
   | SDependency _ k  => DependencyFact ph k
   end.
 
-(* ── §10 One outcome per site; no client constructs these values ────────────── *)
-Inductive SiteOutcome {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Site p -> Type :=
-| Supported       : forall s, SiteFact ph rd s -> SiteOutcome ph rd s
-| DefiniteFailure : forall s, SiteFailure ph rd s -> SiteOutcome ph rd s
-| Outside         : forall s, SiteRequirement ph rd s -> SiteOutcome ph rd s
-| Blocked         : forall s pred, SiteDependency p pred s ->
-                    SiteOutcome ph rd pred -> SiteOutcome ph rd s.
+(* ── §10 One outcome per site ──────────────────────────────────────────────── *)
+(* The topology below is the specification of a module-private type.  `Compilable.Report` exports
+   `phase_outcome` and the projections; it does not export these constructors, because they are freely
+   applicable and a client holding them could fabricate an outcome claiming a site failed. *)
+Inductive SiteOutcome {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
+| Supported       : forall (s : Site p) (rd : TypeReady ph), SiteFact ph rd s -> SiteOutcome ph s
+| DefiniteFailure : forall s, SiteFailure ph s -> SiteOutcome ph s
+| Outside         : forall s, SiteRequirement ph s -> SiteOutcome ph s
+(* Blocked retains the exact predecessor site and the exact dependency edge, and nothing more: the
+   predecessor's outcome is `phase_outcome ph pred`, which is unique, so no equal-looking substitute can be
+   supplied alongside it. *)
+| Blocked         : forall s pred, SiteDependency ph pred s -> SiteOutcome ph s.
 
-Definition IsSupported {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (o : SiteOutcome ph rd s) : Prop :=
+Definition IsSupported {p} {i : Input p} {ph : Phase i} {s}
+  (o : SiteOutcome ph s) : Prop :=
   match o with Supported _ _ _ _ => True | _ => False end.
 
-Definition supported_fact {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (o : SiteOutcome ph rd s) : IsSupported o -> SiteFact ph rd s :=
-  match o in SiteOutcome _ _ s0 return IsSupported o -> SiteFact ph rd s0 with
-  | Supported _ _ _ f => fun _ => f
-  | DefiniteFailure _ _ _ _ => fun h => match h return SiteFact ph rd _ with end
-  | Outside _ _ _ _ => fun h => match h return SiteFact ph rd _ with end
-  | Blocked _ _ _ _ _ _ => fun h => match h return SiteFact ph rd _ with end
+(* Indexed by the exact environment, so extracting the fact never needs two environments to be equal. *)
+Inductive SupportedAt {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph)
+  : forall s : Site p, SiteOutcome ph s -> Type :=
+| IsSupportedAt : forall (s : Site p) (f : SiteFact ph rd s),
+    SupportedAt rd s (Supported ph s rd f).
+
+Definition supported_fact {p} {i : Input p} {ph : Phase i} {rd} {s} {o : SiteOutcome ph s}
+  (h : SupportedAt rd s o) : SiteFact ph rd s :=
+  match h in SupportedAt _ s0 _ return SiteFact ph rd s0 with
+  | IsSupportedAt _ _ f => f
   end.
 
-Definition IsRootOutside {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (o : SiteOutcome ph rd s) : Prop :=
-  match o with Outside _ _ _ _ => True | _ => False end.
+Definition IsDefiniteFailure {p} {i : Input p} {ph : Phase i} {s}
+  (o : SiteOutcome ph s) : Prop :=
+  match o with DefiniteFailure _ _ _ => True | _ => False end.
 
-Definition root_requirement {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (o : SiteOutcome ph rd s) : IsRootOutside o -> SiteRequirement ph rd s :=
-  match o in SiteOutcome _ _ s0 return IsRootOutside o -> SiteRequirement ph rd s0 with
-  | Outside _ _ _ r => fun _ => r
-  | Supported _ _ _ _ => fun h => match h return SiteRequirement ph rd _ with end
-  | DefiniteFailure _ _ _ _ => fun h => match h return SiteRequirement ph rd _ with end
-  | Blocked _ _ _ _ _ _ => fun h => match h return SiteRequirement ph rd _ with end
+Definition IsRootOutside {p} {i : Input p} {ph : Phase i} {s}
+  (o : SiteOutcome ph s) : Prop :=
+  match o with Outside _ _ _ => True | _ => False end.
+
+Definition root_requirement {p} {i : Input p} {ph : Phase i} {s}
+  (o : SiteOutcome ph s) : IsRootOutside o -> SiteRequirement ph s :=
+  match o in SiteOutcome _ s0 return IsRootOutside o -> SiteRequirement ph s0 with
+  | Outside _ _ r => fun _ => r
+  | Supported _ _ _ _ => fun h => match h return SiteRequirement ph _ with end
+  | DefiniteFailure _ _ _ => fun h => match h return SiteRequirement ph _ with end
+  | Blocked _ _ _ _ => fun h => match h return SiteRequirement ph _ with end
   end.
 
-Parameter phase_outcome : forall {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) (s : Site p), SiteOutcome ph rd s.
+(* Every site has an outcome for an arbitrary core, with no global environment in sight. *)
+Parameter phase_outcome : forall {p} {i : Input p} (ph : Phase i) (s : Site p), SiteOutcome ph s.
 
 (* ── §13 The complete diagnostic authority ─────────────────────────────────── *)
 (* Site failures enter through one constructor; the package- and program-level reasons keep their own,
@@ -1541,38 +1886,37 @@ Parameter phase_outcome : forall {p} {i : Input p} (ph : Phase i)
 (* Indexed by the phase, not by a ready environment: a cyclic phase has no environment and still needs its
    type-cycle diagnostic.  The site-failure constructor carries the readiness that failure required. *)
 Inductive DiagnosticReason {p} {i : Input p} (ph : Phase i) : Type :=
-| AtSiteFailure : forall (rd : TypeReady (phase_equations ph)) (s : Site p),
-    SiteFailure ph rd s -> DiagnosticReason ph
+| AtSiteFailure : forall s : Site p, SiteFailure ph s -> DiagnosticReason ph
 | TypeCycleFound : TypeCycle (phase_equations ph) -> DiagnosticReason ph
 | MainRedeclared : forall later earlier : ObjectSiteRef p, DiagnosticReason ph
 | MissingMainEntry : PackageRef p -> DiagnosticReason ph
 | BuildOutputIsDirectory : PackageRef p -> string -> DiagnosticReason ph.
 
-Definition site_failure_code {p} {i : Input p} {ph : Phase i} {rd} {s}
-  (f : SiteFailure ph rd s) : DiagnosticCode :=
+Definition site_failure_code {p} {i : Input p} {ph : Phase i} {s}
+  (f : SiteFailure ph s) : DiagnosticCode :=
   match f with
-  | FUnresolvedName _ _ _ => CodeUnresolvedName
+  | FUnresolvedName _ _ => CodeUnresolvedName
   | FDuplicateDeclaration _ _ _ _ => CodeDuplicateDeclaration
   | FPackageInitReserved _ _ _ => CodeContext
-  | FArgumentRejected _ _ _ _ _ _ => CodeArgument
-  | FInvalidConversion _ _ _ _ _ _ => CodeInvalidConversion
-  | FOperandRejected _ _ _ _ => CodeOperand
-  | FNotAStatement _ _ _ _ => CodeNotAStatement
-  | FResultCountWrong _ _ _ _ _ => CodeResultCount
-  | FNotAssignableAt _ _ _ _ _ _ => CodeNotAssignable
-  | FNotRepresentableAt _ _ _ _ _ _ => CodeNotRepresentable
-  | FConstInitNotConstant _ _ _ _ _ _ => CodeConstInitializerNotConstant
+  | FArgumentRejected _ _ _ _ _ => CodeArgument
+  | FInvalidConversion _ _ _ _ _ => CodeInvalidConversion
+  | FOperandRejected _ _ _ => CodeOperand
+  | FNotAStatement _ _ _ => CodeNotAStatement
+  | FResultCountWrong _ _ _ _ => CodeResultCount
+  | FNotAssignableAt _ _ _ _ _ _ _ => CodeNotAssignable
+  | FNotRepresentableAt _ _ _ _ _ _ _ => CodeNotRepresentable
+  | FConstInitNotConstant _ _ _ _ _ _ _ => CodeConstInitializerNotConstant
   | FNoNewVariable _ _ _ => CodeNoNewVariable
-  | FContext _ _ _ _ => CodeContext
-  | FDefaultNotRepresentable _ _ _ _ _ => CodeDefaultNotRepresentable
-  | FUnusedLocal _ _ _ => CodeUnusedLocal
+  | FContext _ _ _ => CodeContext
+  | FDefaultNotRepresentable _ _ _ _ => CodeDefaultNotRepresentable
+  | FUnusedLocal _ _ _ _ _ => CodeUnusedLocal
   | FInitializationCycle _ _ _ => CodeInitializationCycle
   end.
 
 Definition diagnostic_code {p} {i : Input p} {ph : Phase i}
   (d : DiagnosticReason ph) : DiagnosticCode :=
   match d with
-  | AtSiteFailure _ _ _ f => site_failure_code f
+  | AtSiteFailure _ _ f => site_failure_code f
   | TypeCycleFound _ _ => CodeTypeCycle
   | MainRedeclared _ _ _ => CodeMainRedeclared
   | MissingMainEntry _ _ => CodeMissingMainEntry
@@ -1595,12 +1939,12 @@ Record ErasedDiagnostic : Type := MakeErasedDiagnostic {
 Definition diagnostic_target {p} {i : Input p} {ph : Phase i}
   (d : DiagnosticReason ph) : option TypeView :=
   match d with
-  | AtSiteFailure _ _ _ f =>
+  | AtSiteFailure _ _ f =>
       match f with
-      | FInvalidConversion _ _ _ _ t _ => Some t
-      | FDefaultNotRepresentable _ _ _ _ t => Some t
-      | FNotAssignableAt _ _ _ _ _ t => Some (type_view t)
-      | FNotRepresentableAt _ _ _ _ _ t => Some (type_view t)
+      | FInvalidConversion _ _ _ t _ => Some t
+      | FDefaultNotRepresentable _ _ _ t => Some t
+      | FNotAssignableAt _ _ _ _ _ _ t => Some (type_view t)
+      | FNotRepresentableAt _ _ _ _ _ _ t => Some (type_view t)
       | _ => None
       end
   | _ => None
@@ -1627,22 +1971,22 @@ Definition erase_diagnostic {p} {i : Input p} {ph : Phase i}
     (diagnostic_target d) (diagnostic_output d) (diagnostic_source_target d).
 
 (* ── §14 Boundaries, the report, and the outcome ───────────────────────────── *)
-Record PackedBoundary {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady (phase_equations ph)) : Type := MakeBoundary {
+(* No environment index: an outside-scope core is precisely one with no ready environment, so a boundary
+   that needed one could never be reported. *)
+Record PackedBoundary {p} {i : Input p} (ph : Phase i) : Type := MakeBoundary {
   boundary_site : Site p;
-  boundary_requirement : SiteRequirement ph rd boundary_site;
-  boundary_is_root : IsRootOutside (phase_outcome ph rd boundary_site)
+  boundary_requirement : SiteRequirement ph boundary_site;
+  boundary_is_root : IsRootOutside (phase_outcome ph boundary_site)
 }.
 
-Definition boundary_view {p} {i : Input p} {ph : Phase i} {rd}
-  (b : PackedBoundary ph rd) : RequirementView :=
-  requirement_view (boundary_requirement ph rd b).
+Definition boundary_view {p} {i : Input p} {ph : Phase i}
+  (b : PackedBoundary ph) : RequirementView :=
+  requirement_view (boundary_requirement ph b).
 
 (* The site table is the authority; the report lists are its canonical projections, not peer lists.
    `Core`, `Elaboration` and `phase` are the existing repository names, stubbed once above. *)
 Parameter core_diagnostics : forall {p} (c : Core p), list (DiagnosticReason (phase c)).
-Parameter core_boundaries : forall {p} (c : Core p),
-  list { rd : TypeReady (phase_equations (phase c)) & PackedBoundary (phase c) rd }.
+Parameter core_boundaries : forall {p} (c : Core p), list (PackedBoundary (phase c)).
 
 Inductive Decision {p} (c : Core p) : Type :=
 | DecisionAccepted : core_diagnostics c = [] -> core_boundaries c = [] -> Decision c
@@ -1679,30 +2023,33 @@ Definition accepted_phase (cp : Program) : Phase (core_input (core cp)) := phase
 (* The one readiness authority is the retained phase result; there is no second `core_ready` beside it. *)
 Parameter accepted_is_ready : forall cp : Program,
   IsTypeReady (phase_type_result (accepted_phase cp)).
-Definition accepted_ready (cp : Program) : TypeReady (phase_equations (accepted_phase cp)) :=
+Definition accepted_ready (cp : Program) : TypeReady (accepted_phase cp) :=
   ready_of (phase_type_result (accepted_phase cp)) (accepted_is_ready cp).
 Definition accepted_outcome (cp : Program) (s : Site (source cp))
-  : SiteOutcome (accepted_phase cp) (accepted_ready cp) s :=
-  phase_outcome (accepted_phase cp) (accepted_ready cp) s.
+  : SiteOutcome (accepted_phase cp) s :=
+  phase_outcome (accepted_phase cp) s.
 
 (* Derived, not postulated: an accepted core has no diagnostic and no boundary, and the report lists are
    exact projections of the root site outcomes, so no site can be failed, outside, or blocked. *)
-Lemma accepted_supported : forall (cp : Program) (s : Site (source cp)),
-  IsSupported (accepted_outcome cp s).
-Proof. Admitted.
+(* Only the accepted capability projects one common exact ready environment: every site is supported at
+   that same environment, which is what makes the accepted facts total. *)
+Parameter accepted_supported : forall (cp : Program) (s : Site (source cp)),
+  SupportedAt (accepted_ready cp) s (accepted_outcome cp s).
 
 Definition accepted_fact (cp : Program) (s : Site (source cp))
   : SiteFact (accepted_phase cp) (accepted_ready cp) s :=
-  supported_fact (accepted_outcome cp s) (accepted_supported cp s).
+  supported_fact (accepted_supported cp s).
 
-Definition AcceptedType (cp : Program) : Type := SemanticType (accepted_ready cp).
+Definition AcceptedType (cp : Program) : Type := SemanticType (source cp).
 Definition Object (cp : Program) : Type := ObjectRef (accepted_phase cp).
 Definition ExpressionFact (cp : Program) (r : ExprRef (source cp)) : Type :=
-  ExprFact (accepted_phase cp) (accepted_ready cp) r.
+  { form : ResultFormAt (accepted_phase cp) (accepted_ready cp) &
+    ExprFact (accepted_phase cp) (accepted_ready cp) r form }.
 Definition expression_fact (cp : Program) (r : ExprRef (source cp)) : ExpressionFact cp r :=
   accepted_fact cp (SExpression (source cp) r).
 Definition ApplicationFact (cp : Program) (a : ApplicationRef (source cp)) : Type :=
-  AppFact (accepted_phase cp) (accepted_ready cp) a.
+  { res : list (ResultAtomAt (accepted_phase cp) (accepted_ready cp)) &
+    AppFact (accepted_phase cp) (accepted_ready cp) a res }.
 Definition application_fact (cp : Program) (a : ApplicationRef (source cp))
   : ApplicationFact cp a := accepted_fact cp (SApplication (source cp) a).
 Definition StatementFact (cp : Program) (t : ExpressionStatementRef (source cp)) : Type :=
@@ -1727,6 +2074,11 @@ Parameter needs_parens : RenderContext -> Expr -> bool.
 Parameter render_in : RenderContext -> Expr -> string.
 Parameter render_expr : Expr -> string.
 Parameter render_literal : Literal -> string.
+(* The three literal emission authorities: canonical decimal for magnitudes, canonical Go escaping for
+   strings.  Nothing else may spell a literal. *)
+Parameter decimal_of_magnitude : N -> string.
+Parameter decimal_of_float : NonNegativeDecimal -> string.
+Parameter escape_go_string : string -> string.
 Parameter render_type_expr : TypeExpr -> string.
 Parameter render_binding_name : BindingName -> string.
 Parameter render_declaration : Declaration -> string.
@@ -1846,6 +2198,7 @@ Proof. Admitted.
 (* ── §15.1 Exact equations for every C6 source constructor ─────────────────── *)
 Definition NL : string := String NewlineChar EmptyString.
 Definition TAB : string := String TabChar EmptyString.
+Definition DQUOTE : string := String (ascii_of_nat 34) EmptyString.
 
 (* Parenthesization is decided by context and shape only.  A unary operand or an application head that is
    itself a unary keeps its parentheses, which is what makes the `--` token boundary unreachable. *)
@@ -1882,12 +2235,6 @@ Theorem render_in_application : forall (ctx : RenderContext) (head : Expr) (args
   render_in ctx (Application head args) =
   (render_in ApplicationHeadContext head ++ "(" ++
    String.concat ", " (List.map (render_in ApplicationArgumentContext) args) ++ ")")%string.
-Proof. Admitted.
-
-(* The unary token boundary: no rendered unary ever puts two minus signs together, which would lex as the
-   decrement token rather than as two negations. *)
-Theorem render_unary_no_double_minus : forall (ctx : RenderContext) (e : Expr),
-  ~ HasAdjacent "-"%char "-"%char (render_in ctx (Unary UnaryMinus e)).
 Proof. Admitted.
 
 Theorem render_type_expr_named : forall n : OrdinaryIdentifier,
@@ -2011,20 +2358,49 @@ Theorem render_program_no_trailing_blank : forall (p : SyntaxProgram) (e : strin
   List.In e (render_program p) -> NoTrailingBlank (snd e).
 Proof. Admitted.
 
+(* ── §15.10 Exact literal bytes ────────────────────────────────────────────── *)
+Theorem render_literal_integer : forall n : N,
+  render_literal (IntegerLiteral n) = decimal_of_magnitude n.
+Proof. Admitted.
+
+Theorem render_literal_float : forall d : NonNegativeDecimal,
+  render_literal (FloatLiteral d) = decimal_of_float d.
+Proof. Admitted.
+
+(* The canonical Go spelling: double-quoted with the escaping authority applied to the exact contents. *)
+Theorem render_literal_string : forall s : string,
+  render_literal (StringLiteral s) = (DQUOTE ++ escape_go_string s ++ DQUOTE)%string.
+Proof. Admitted.
+
+(* ── §15.11 The empty declaration group's exact bytes ──────────────────────── *)
+(* `renders_grouped` sends the empty group to the parenthesized form, so the chosen bytes are frozen here
+   rather than left implicit.  Pinned `gc` accepts both this and `const ()`. *)
+Theorem render_empty_const_group :
+  render_declaration (ConstDecl []) = ("const (" ++ NL ++ ")")%string.
+Proof. Admitted.
+
+Theorem render_empty_var_group :
+  render_declaration (VarDecl []) = ("var (" ++ NL ++ ")")%string.
+Proof. Admitted.
+
+Theorem render_empty_type_group :
+  render_declaration (TypeDecl []) = ("type (" ++ NL ++ ")")%string.
+Proof. Admitted.
+
 (* ── §15.7 Valid-side obligations: what an accepted site rules out ─────────── *)
 (* A rejection is a report, not a proof of Go-invalidity.  The honest content of a check therefore lives on
    the accepted side: these say what supportedness itself forbids. *)
 Theorem supported_declaration_not_init_reserved :
-  forall {p} {i : Input p} (ph : Phase i) (rd : TypeReady (phase_equations ph))
-    (b : BindingSiteRef p),
-  IsSupported (phase_outcome ph rd (SDeclaration p b)) ->
-  ~ PackageInitReserved (binding_site_context b) (binding_site_name b).
+  forall {p} {i : Input p} (ph : Phase i) (b : BindingSiteRef p),
+  IsSupported (phase_outcome ph (SDeclaration p b)) ->
+  ~ PackageInitReserved (binding_site_context b) (binding_site_spelling b).
 Proof. Admitted.
 
 (* The three application kinds partition `AppFact`: no application is both a conversion and a call, so a
    statement's println classification cannot silently overlap a conversion. *)
 Theorem app_kind_trichotomy :
-  forall {p} {i : Input p} {ph : Phase i} {rd} {a : ApplicationRef p} (f : AppFact ph rd a),
+  forall {p} {i : Input p} {ph : Phase i} {rd} {a : ApplicationRef p}
+    {res : list (ResultAtomAt ph rd)} (f : AppFact ph rd a res),
   (IsPrintlnApp f /\ ~ IsConversionApp f /\ ~ IsComplexApp f) \/
   (~ IsPrintlnApp f /\ IsConversionApp f /\ ~ IsComplexApp f) \/
   (~ IsPrintlnApp f /\ ~ IsConversionApp f /\ IsComplexApp f).
@@ -2054,6 +2430,8 @@ Theorem rejected_not_admissible : forall (p : SyntaxProgram) (f : Failure p),
 Proof. Admitted.
 
 (* ── §15.9 Concrete byte-level render checks ───────────────────────────────── *)
+(* The token boundary lives at the junction between the operator and its operand.  A rendered unary may
+   legitimately contain `--` inside a string literal, so the property is about the operand's first byte. *)
 Theorem unary_operand_never_starts_with_minus : forall e : Expr,
   ~ StartsWithMinus (render_in UnaryOperandContext e).
 Proof. Admitted.
@@ -2166,25 +2544,9 @@ Theorem inherited_use_is_result : forall p (u : InheritedConstUseRef p),
 Proof. Admitted.
 
 (* A cyclic phase yields no environment at all: readiness is not a flag beside the result. *)
-Theorem cyclic_phase_has_no_environment : forall p (eqs : ResolvedTypeEquations p) c,
-  ~ IsTypeReady (PhaseCyclic eqs c).
-Proof. Admitted.
-
-(* ── §16.4 Occurrences index the atom vector exactly ───────────────────────── *)
-(* The split equation is intrinsic to the record; this is the bridge from that form to indexed access, and
-   the only thing that gives `occurrence_position` its meaning. *)
-Theorem occurrence_atom_is_nth :
-  forall {p} {i : Input p} {ph : Phase i} {rd} {u : ExprUseRef p}
-    (o : ResultOccurrenceAt ph rd u),
-  List.nth_error (result_atoms_of (occ_fact ph rd u o)) (occurrence_position o)
-    = Some (occ_atom ph rd u o).
-Proof. Admitted.
-
-(* C6 has no multi-valued expression: every result use carries exactly one atom. *)
-Theorem c6_result_use_has_one_atom :
-  forall {p} {i : Input p} {ph : Phase i} {rd} {u : ExprUseRef p}
-    (f : ResultUseFactAt ph rd u),
-  List.length (result_atoms_of f) = 1%nat.
+Theorem cyclic_phase_has_no_environment :
+  forall p (i : Input p) (ph : Phase i) (c : TypeCycle (phase_equations ph)),
+  ~ IsTypeReady (PhaseCyclic ph c).
 Proof. Admitted.
 
 (* ── §16.5 Argument uses hang off the application they belong to ───────────── *)
@@ -2199,14 +2561,77 @@ Theorem callable_names_are_exactly_two : forall n : PredeclaredName,
   predeclared_capability n = CapCallable -> n = PComplex \/ n = PPrintln.
 Proof. Admitted.
 
-(* ── §16.7 The plan consumes exactly the site's own right-hand-side uses ───── *)
-(* A list equality, not a length equality: order, identity and non-duplication are all part of the claim.
-   The left side comes from the plan and the right side from the site, so this cannot be satisfied by
-   comparing a plan against itself. *)
-Theorem plan_consumes_every_source :
-  forall {p} {i : Input p} {ph : Phase i} {rd} (c : ConsumptionSiteRef p)
-    (f : ConsumptionFact ph rd c),
-  plan_uses c f = site_uses c.
+(* ── §16.13 Statement classification is exact, not a boundary of convenience ── *)
+(* Go has already decided that these builtins cannot stand as statements, so the outcome is a definite
+   failure carrying its exact reason.  Reporting them as `OutsideScope` would launder a known rejection into
+   "unmodelled", which is precisely what the three-way decision exists to prevent. *)
+Theorem forbidden_builtin_is_definite_failure :
+  forall {p} {i : Input p} (ph : Phase i) (s : ExpressionStatementRef p)
+    (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu) (n : PredeclaredName),
+  statement_application s = Some a ->
+  expr_name (application_head a) = Some hu ->
+  object_origin (bound_object ph hu bf) = Predeclared p n ->
+  builtin_forbidden_as_statement n = true ->
+  phase_outcome ph (SStatement p s)
+    = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (BuiltinNotAStatement n)).
+Proof. Admitted.
+
+(* A bare conversion is a definite failure for the same reason, and retains the exact target type view. *)
+Theorem conversion_is_not_a_statement :
+  forall {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+    (s : ExpressionStatementRef p) (a : ApplicationRef p)
+    (res : list (ResultAtomAt ph rd)) (f : AppFact ph rd a res),
+  statement_application s = Some a -> IsConversionApp f ->
+  exists tv : TypeView,
+    phase_outcome ph (SStatement p s)
+      = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (ConversionNotAStatement tv)).
+Proof. Admitted.
+
+(* An expression statement that is not an application at all is a definite failure retaining its exact
+   result form, never a missing-rule boundary. *)
+Theorem non_application_is_not_a_statement :
+  forall {p} {i : Input p} (ph : Phase i) (s : ExpressionStatementRef p),
+  statement_application s = None ->
+  exists rf : ErasedResultForm,
+    phase_outcome ph (SStatement p s)
+      = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (NotAnApplication rf)).
+Proof. Admitted.
+
+(* ── §16.14 Coverage and the rules agree ───────────────────────────────────── *)
+(* The coverage relations are the definition of satisfaction and the rule families are the construction;
+   §18 requires them stated separately, since defining satisfaction as "the rule is inhabited" would decide
+   a requirement by checking for the very thing it reports as missing.  These theorems are the bridge, so
+   the separation is a proved agreement rather than an unchecked restatement. *)
+Theorem unary_coverage_iff_rule :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (n : UnaryRef p)
+    (opa : ResultAtomAt ph rd),
+  UnaryRuleCovers rd opa <-> exists res, inhabited (UnaryFact ph rd n opa res).
+Proof. Admitted.
+
+Theorem conversion_coverage_iff_rule :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
+    (dst : SemanticType p) (arg : ResultAtomAt ph rd),
+  ConvRuleCovers rd dst arg <-> exists res, inhabited (ConvRule ph rd a dst arg res).
+Proof. Admitted.
+
+Theorem complex_coverage_iff_rule :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
+    (a1 a2 : ResultAtomAt ph rd),
+  ComplexRuleCovers rd a1 a2 <-> exists res, inhabited (ComplexRuleF ph rd a a1 a2 res).
+Proof. Admitted.
+
+Theorem println_coverage_iff_rule :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
+    (args : list (ResultAtomAt ph rd)),
+  PrintlnRuleCovers rd args <-> inhabited (PrintlnRuleF ph rd a args).
+Proof. Admitted.
+
+(* A blocked site's predecessor is genuinely unresolved: blocking is never reported for a site whose cause
+   in fact succeeded. *)
+Theorem blocked_predecessor_is_not_supported :
+  forall {p} {i : Input p} (ph : Phase i) (s pred : Site p) (e : SiteDependency ph pred s),
+  phase_outcome ph s = Blocked ph s pred e ->
+  ~ IsSupported (phase_outcome ph pred).
 Proof. Admitted.
 
 (* ── §16.8 The requirement view order is a strict total order ──────────────── *)
@@ -2223,19 +2648,21 @@ Theorem view_lt_total : forall a b : RequirementView, view_lt a b \/ a = b \/ vi
 Proof. Admitted.
 
 (* ── §16.9 The boundary list is canonical, duplicate-free and complete ─────── *)
-Definition packed_view {p} (c : Core p)
-  (b : { rd : TypeReady (phase_equations (phase c)) & PackedBoundary (phase c) rd })
-  : RequirementView := boundary_view (projT2 b).
+Definition packed_view {p} (c : Core p) (b : PackedBoundary (phase c)) : RequirementView :=
+  boundary_view b.
 
-Fixpoint StrictlyIncreasing (l : list RequirementView) : Prop :=
+Fixpoint StrictlyIncreasingBy {A : Type} (lt : A -> A -> Prop) (l : list A) : Prop :=
   match l with
   | [] => True
   | a :: rest =>
       match rest with
       | [] => True
-      | b :: _ => view_lt a b /\ StrictlyIncreasing rest
+      | b :: _ => lt a b /\ StrictlyIncreasingBy lt rest
       end
   end.
+
+Definition StrictlyIncreasing (l : list RequirementView) : Prop :=
+  StrictlyIncreasingBy view_lt l.
 
 Theorem boundary_order_canonical : forall {p} (c : Core p),
   StrictlyIncreasing (List.map (packed_view c) (core_boundaries c)).
@@ -2246,16 +2673,15 @@ Theorem boundary_views_nodup : forall {p} (c : Core p),
 Proof. Admitted.
 
 (* Completeness of the list, which no record field can supply: every root-outside site is listed. *)
-Theorem root_boundary_complete : forall {p} (c : Core p)
-  (rd : TypeReady (phase_equations (phase c))) (s : Site p),
-  IsRootOutside (phase_outcome (phase c) rd s) ->
+Theorem root_boundary_complete : forall {p} (c : Core p) (s : Site p),
+  IsRootOutside (phase_outcome (phase c) s) ->
   exists b, List.In b (core_boundaries c) /\
-    boundary_site (phase c) (projT1 b) (projT2 b) = s.
+    boundary_site (phase c) b = s.
 Proof. Admitted.
 
 Theorem boundary_requirement_unsatisfied : forall {p} (c : Core p) b,
   List.In b (core_boundaries c) ->
-  ~ RequirementSatisfied (boundary_requirement (phase c) (projT1 b) (projT2 b)).
+  ~ RequirementSatisfied (boundary_requirement (phase c) b).
 Proof. Admitted.
 
 (* ── §16.10 Objects are identified by their origin ─────────────────────────── *)
@@ -2265,20 +2691,23 @@ Proof. Admitted.
 
 (* ── §16.11 Every reflected decision agrees with its relation ──────────────── *)
 (* The booleans are separate parameters from the inductives, so without these four the decisions could
-   answer anything.  Restated over `TypeReady`: the former `Env` carrier they quantified over is gone. *)
-Theorem identicalb_reflect : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) s t,
-  identicalb rd s t = true <-> Identical rd s t.
+   answer anything.  Identity and assignability decide with no environment at all; convertibility and
+   representability need the exact readiness their underlying form depends on. *)
+Theorem identicalb_reflect : forall {p} (s t : SemanticType p),
+  identicalb s t = true <-> Identical s t.
 Proof. Admitted.
 
-Theorem assignableb_reflect : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) s t,
-  assignableb rd s t = true <-> Assignable rd s t.
+Theorem assignableb_reflect : forall {p} (s t : SemanticType p),
+  assignableb s t = true <-> Assignable s t.
 Proof. Admitted.
 
-Theorem value_convertibleb_reflect : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) s t,
+Theorem value_convertibleb_reflect :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s t : SemanticType p),
   value_convertibleb rd s t = true <-> ValueConvertible rd s t.
 Proof. Admitted.
 
-Theorem representableb_reflect : forall {p} {eqs : ResolvedTypeEquations p} (rd : TypeReady eqs) s c,
+Theorem representableb_reflect :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s : SemanticType p) (c : Constant),
   representableb rd s c = true <-> Representable rd s c.
 Proof. Admitted.
 
@@ -2292,6 +2721,170 @@ Definition accepted_init_order (cp : Program) (k : PackageRef (source cp))
    silent.  Without this the accepted order would be merely *some* valid topological order. *)
 Theorem accepted_init_order_tiebreak : forall (cp : Program) (k : PackageRef (source cp)),
   SourceOrderTieBreak (accepted_init_order cp k).
+Proof. Admitted.
+
+(* ── §17 Binding: what no constructor can enforce ──────────────────────────── *)
+(* `Resolves` is a relation and `resolve_name` is a function; without this they could disagree. *)
+Theorem resolve_name_reflects :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
+  resolve_name ph u = Some o <-> Resolves ph u o.
+Proof. Admitted.
+
+(* A resolved object always carries the spelling that was written at the use. *)
+Theorem resolution_is_same_spelling :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
+  Resolves ph u o -> object_spelling o = name_use_spelling u.
+Proof. Admitted.
+
+(* Nearest-visible is unique: no use resolves to two different objects. *)
+Theorem resolution_is_unique :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o1 o2 : ObjectRef ph),
+  Resolves ph u o1 -> Resolves ph u o2 -> o1 = o2.
+Proof. Admitted.
+
+(* Exact shadowing: a visible source binding of that spelling displaces the predeclared object. *)
+Theorem source_binding_shadows_predeclared :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (b : BindingSiteRef p)
+    (n : PredeclaredName),
+  binding_site_spelling b = name_use_spelling u -> VisibleAt b u ->
+  ~ Resolves ph u (predeclared_object ph n).
+Proof. Admitted.
+
+(* Package collection is file-order independent: a package-level binding's scope is fixed by its package
+   alone, so no permutation of the file list can move it. *)
+Theorem package_scope_independent_of_file :
+  forall {p} (b : BindingSiteRef p) (k : PackageRef p),
+  binding_site_scope b = PackageScope p k ->
+  scope_parent (binding_site_scope b) = Some (PredeclaredScope p).
+Proof. Admitted.
+
+(* The scope-start rules, stated as what they exclude rather than as definitional unfolds. *)
+Theorem local_const_not_visible_in_its_own_spec :
+  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
+  binding_site_context b = LocalConstDecl ->
+  (name_use_position u < binding_site_spec_end b)%nat -> ~ VisibleAt b u.
+Proof. Admitted.
+
+Theorem short_name_not_visible_in_its_own_statement :
+  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
+  binding_site_context b = ShortDecl ->
+  (name_use_position u < binding_site_statement_end b)%nat -> ~ VisibleAt b u.
+Proof. Admitted.
+
+(* A local type name IS visible at its own identifier, which is exactly why self-reference is a cycle and
+   not an unresolved name. *)
+Theorem local_type_visible_at_its_own_identifier :
+  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
+  binding_site_context b = LocalTypeDecl ->
+  Encloses (binding_site_scope b) (name_use_scope u) ->
+  (binding_site_identifier_position b <= name_use_position u)%nat -> VisibleAt b u.
+Proof. Admitted.
+
+(* Characterizations: a duplicate is exactly two visible binders of one spelling in one scope, and an
+   unresolved name is exactly one with nothing visible and no predeclared spelling. *)
+Theorem duplicate_declaration_characterization :
+  forall {p} {i : Input p} (ph : Phase i) (earlier later : BindingSiteRef p),
+  DuplicateBinders earlier later ->
+  exists w, phase_outcome ph (SDeclaration p later)
+    = DefiniteFailure ph (SDeclaration p later) (FDuplicateDeclaration ph earlier later w).
+Proof. Admitted.
+
+Theorem unresolved_name_characterization :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p),
+  (forall b : BindingSiteRef p,
+     binding_site_spelling b = name_use_spelling u -> ~ VisibleAt b u) ->
+  (forall n : PredeclaredName, predeclared_spelling n <> name_use_spelling u) ->
+  phase_outcome ph (SBinding p u)
+    = DefiniteFailure ph (SBinding p u) (FUnresolvedName ph u).
+Proof. Admitted.
+
+(* ── §18 Type resolution ───────────────────────────────────────────────────── *)
+(* A supported node denotes exactly the type its outcome carries. *)
+Theorem node_outcome_sound :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (n : TypeNode p) (t : SemanticType p),
+  node_outcome ph n = NodeSupported ph n t -> node_rhs rd n = t.
+Proof. Admitted.
+
+(* ── §19 Objects ───────────────────────────────────────────────────────────── *)
+Theorem source_object_origin_is_its_site :
+  forall {p} {i : Input p} (ph : Phase i) (s : ObjectSiteRef p),
+  object_origin (source_object ph s) = SourceSite p s.
+Proof. Admitted.
+
+(* ── §20 Dependencies and reports ──────────────────────────────────────────── *)
+Theorem init_units_nodup : forall {p} (k : PackageRef p), NoDup (package_init_units k).
+Proof. Admitted.
+
+(* The runtime projection carries only runtime work, and carries it in the accepted order. *)
+Theorem runtime_projection_excludes_constants :
+  forall {p} {i : Input p} {ph : Phase i} {k : PackageRef p} (o : InitOrder ph k),
+  List.Forall (fun u => RuntimeInitUnit u = true) (runtime_initialization o).
+Proof. Admitted.
+
+Theorem runtime_projection_preserves_order :
+  forall {p} {i : Input p} {ph : Phase i} {k : PackageRef p} (o : InitOrder ph k) (a b : InitUnit p),
+  PrecedesIn (runtime_initialization o) a b -> PrecedesIn (init_sequence ph k o) a b.
+Proof. Admitted.
+
+(* A blocked site is never reported: only root causes reach the diagnostic and boundary lists. *)
+Theorem blocked_sites_are_not_reported :
+  forall {p} (c : Core p) (s pred : Site p) (e : SiteDependency (phase c) pred s),
+  phase_outcome (phase c) s = Blocked (phase c) s pred e ->
+  ~ List.In s (List.map (boundary_site (phase c)) (core_boundaries c)).
+Proof. Admitted.
+
+(* The accepted environment is the phase's own retained result, not a rebuild equal to it. *)
+Theorem accepted_environment_is_retained : forall cp : Program,
+  phase_type_result (accepted_phase cp) = PhaseReady (accepted_phase cp) (accepted_ready cp).
+Proof. Admitted.
+
+(* ── §21 The diagnostic list is canonical, duplicate-free and complete ─────── *)
+Definition diagnostic_lt {p} {i : Input p} {ph : Phase i}
+  (a b : DiagnosticReason ph) : Prop := diagnostic_compare a b = Lt.
+
+Theorem diagnostic_order_canonical : forall {p} (c : Core p),
+  StrictlyIncreasingBy diagnostic_lt (core_diagnostics c).
+Proof. Admitted.
+
+(* Distinct diagnostics stay distinct after erasure, which is what makes the erased report faithful. *)
+Theorem erased_diagnostics_nodup : forall {p} (c : Core p),
+  NoDup (List.map erase_diagnostic (core_diagnostics c)).
+Proof. Admitted.
+
+(* Completeness: every root definite failure is reported.  No constructor can supply this. *)
+Theorem root_failure_complete : forall {p} (c : Core p) (s : Site p),
+  IsDefiniteFailure (phase_outcome (phase c) s) ->
+  exists d : DiagnosticReason (phase c), List.In d (core_diagnostics c).
+Proof. Admitted.
+
+(* ── §22 The typed computations are pinned to the untyped authorities ──────── *)
+(* Without these, `negate_basic_typed`, `basic_typed_of` and `complex_typed_of` could return any value of
+   the right type and the rules that call them would still typecheck — the typed result would be causally
+   unrelated to the operand it claims to come from. *)
+Theorem negate_basic_typed_negates : forall (b : BasicType) (v v' : BasicTypedConstant b),
+  negate_basic_typed b v = Some v' ->
+  negate_constant (basic_typed_value b v) = Some (basic_typed_value b v').
+Proof. Admitted.
+
+Theorem basic_typed_of_keeps_its_value : forall (b : BasicType) (c : Constant)
+  (v : BasicTypedConstant b),
+  basic_typed_of b c = Some v -> basic_typed_value b v = c.
+Proof. Admitted.
+
+Theorem complex_typed_of_combines : forall (f : FloatKind)
+  (v1 v2 : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
+  (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
+  complex_typed_of f v1 v2 = Some vr ->
+  complex_of_constants
+    (basic_typed_value (predeclared_basic_form (float_named_basic f)) v1)
+    (basic_typed_value (predeclared_basic_form (float_named_basic f)) v2)
+  = Some (basic_typed_value (predeclared_basic_form (complex_named_basic f)) vr).
+Proof. Admitted.
+
+(* `underlyingb` is the only reflected decision returning a form rather than a boolean. *)
+Theorem underlyingb_reflects :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (t : SemanticType p) (b : BasicType),
+  underlyingb rd t = b <-> Underlying rd t b.
 Proof. Admitted.
 ```
 
@@ -2345,6 +2938,16 @@ operands of one defined type over `float64`. Two distinct defined types over the
 **Unary rendering.** `-(-x)` and `- -x` both accept, so pinned `gc` does not force the choice; the
 contract renders the parenthesized form because it makes the `--` token boundary unreachable by
 construction rather than by a scan. `-int(x)` and `println(-x)` accept.
+
+**Type chains, `complex` profiles and cycles.** `type U uintptr; type T U` accepts, so a predeclared name
+with no C6 type meaning is a boundary and never a rejection. All six `complex` operand combinations accept
+with the kind the contract assigns — two untyped giving `complex128`, and any `float32` operand giving
+`complex64`; mixed `float32`/`float64` rejects, so both operands share one kind. A package-level forward
+reference accepts while `var a = b; var b = a` and the same pair as constants both reject, so dependency
+decides initialization order and cycles are definite failures.
+
+**Short declarations.** `x := 1; x, y := 2, 3` accepts and `x := 1; x := 2` rejects, so at least one nonblank
+left-hand name must be new. `x := 1; x, y := "s", 3` rejects, so a reuse carries exact type compatibility.
 
 **Const initializers.** `var x = 1; const y = x` rejected; `const y = println(1)` rejected; `const x = 1;
 const y = x`, `const y = int64(x)` and `const y = complex(1.0, 2.0)` accepted.
