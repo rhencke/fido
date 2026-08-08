@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants audit-fresh profile perf pytools hostpython contract-surface go-probe
+        diet mutants audit-fresh profile perf pytools hostpython contract-surface go-probe ns-probe
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -229,6 +229,25 @@ go-probe: builder
 	      if [ -z "$$out" ]; then printf "ACCEPT  %s\n" "$$d"; \
 	      else printf "REJECT  %s  %s\n" "$$d" "$$(echo "$$out" | head -1)"; fi; \
 	    done'
+
+# Namespace shape probe: does the pinned Dune/Rocq accept `Foo.v` beside `Foo/Bar.v` under
+# `(include_subdirs qualified)`, yielding the logical module `Foo.Bar` without colliding with `Foo`?  This
+# answers the physical-structure question BEFORE a subsystem is split, so a semantic cut is never made on an
+# assumption the toolchain rejects.  Diagnostic only: never part of `make check`, and it builds a scratch
+# theory that is not this repository.
+#
+# The tree is MOUNTED read-only and copied to a writable scratch inside, because dune writes `_build` beside
+# the sources.  Nothing here enters the repository or the build context.
+NSPROBE ?= /tmp/fido-ns-probe
+ns-probe: builder
+	@test -d "$(NSPROBE)" || { echo "fido: no $(NSPROBE) — write the scratch theory there first"; exit 1; }
+	@docker image inspect $(ROCQTAG) > /dev/null 2>&1 || \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target rocq-base \
+	    --load -t $(ROCQTAG) . > /dev/null
+	@docker run --rm -e HOME=/tmp -v "$(NSPROBE)":/probe:ro $(ROCQTAG) \
+	  sh -c 'cp -r /probe /tmp/ns && cd /tmp/ns && dune build 2>&1 && \
+	         find _build/default -name "*.vo" | sort' \
+	  && echo "fido: ns-probe OK — the pinned Dune/Rocq accepts the qualified namespace"
 
 builder:
 	@docker buildx inspect $(BUILDER) > /dev/null 2>&1 || \
