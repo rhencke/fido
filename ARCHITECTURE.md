@@ -104,7 +104,7 @@ C6 decomposes `Compilable` on exactly this rule:
 
 ```text
 Compilable.v            phase composition, Core, Elaboration, Decision, Program/Failure/Outside, compile
-Compilable/Bindings.v          package identity, scopes, object identity, binding, shadowing
+Compilable/Bindings.v          package identity, scopes, object-establishing binders, duplicate-safe maps, name binding
 Compilable/TypeResolution.v    type equations, graph decision, retained result and environment
 Compilable/Dependencies.v      package const/var dependency nodes, order, runtime projection
 Compilable/Facts.v             declaration, expression, role-indexed use, unary, application and statement

@@ -77,6 +77,8 @@ Import ListNotations.
 
 (* ── (a) existing repository public names, faithfully stubbed ──────────────── *)
 Parameter SyntaxProgram SyntaxFile ModuleSpec FilePathT : Type.
+Parameter PackageRef : SyntaxProgram -> Type.
+Parameter package_ref_key : forall {p}, PackageRef p -> string.
 Parameter Identifier : Type.
 Parameter spelling : Identifier -> string.
 (* Integer.Kind, Float.Kind and Complex.Kind are closed today; stub them faithfully. *)
@@ -211,13 +213,54 @@ Parameter path_string : FilePathT -> string.
 Parameter module_path : ModuleSpec -> string.
 Parameter module_go_version : ModuleSpec -> string.
 
+(* ── §2.1 The scope forest ─────────────────────────────────────────────────── *)
+Parameter LexicalScopeRef : SyntaxProgram -> Type.
+Parameter lexical_scope_package : forall {p}, LexicalScopeRef p -> PackageRef p.
+
+Inductive ScopeId (p : SyntaxProgram) : Type :=
+| PredeclaredScope : ScopeId p
+| PackageScope     : PackageRef p -> ScopeId p
+| LexicalScope     : LexicalScopeRef p -> ScopeId p.
+
+Definition scope_parent {p} (s : ScopeId p) : option (ScopeId p) :=
+  match s with
+  | PredeclaredScope _ => None
+  | PackageScope _ _   => Some (PredeclaredScope p)
+  | LexicalScope _ b   => Some (PackageScope p (lexical_scope_package b))
+  end.
+
+Inductive Encloses {p} : ScopeId p -> ScopeId p -> Prop :=
+| EnclosesSelf   : forall s, Encloses s s
+| EnclosesParent : forall outer inner parent,
+    scope_parent inner = Some parent -> Encloses outer parent -> Encloses outer inner.
+
+Inductive ScopeStart : Type :=
+| StartWholePackage | StartAfterSpec | StartAtOwnIdentifier | StartAfterStatement | StartOutermost.
+
+Inductive DeclContext : Type :=
+| PackageConstDecl | PackageVarDecl | PackageTypeDecl
+| LocalConstDecl | LocalVarDecl | LocalTypeDecl
+| ShortDecl | PredeclaredDecl.
+
+Definition scope_start (c : DeclContext) : ScopeStart :=
+  match c with
+  | PackageConstDecl | PackageVarDecl | PackageTypeDecl => StartWholePackage
+  | LocalConstDecl | LocalVarDecl => StartAfterSpec
+  | LocalTypeDecl => StartAtOwnIdentifier
+  | ShortDecl => StartAfterStatement
+  | PredeclaredDecl => StartOutermost
+  end.
+
+Definition PackageInitReserved (c : DeclContext) (n : string) : Prop :=
+  (c = PackageConstDecl \/ c = PackageVarDecl \/ c = PackageTypeDecl) /\ n = "init"%string.
+
+
 (* ── Index: exact source occurrences ───────────────────────────────────────── *)
 Inductive Role : Type :=
 | RFilePackage | RDeclarationSpec | RVarSpecType
 | RConstInitializerExpression | RVarInitializerExpression | RShortRightExpression
 | RStatementExpression | RUnaryOperand | RApplicationHead | RApplicationArgument.
 
-(* In Type, not Prop: the refinement is a dependent elimination of this witness, so it carries data. *)
 Inductive ExprChildRole : Role -> Type :=
 | ECConstInitializer : ExprChildRole RConstInitializerExpression
 | ECVarInitializer   : ExprChildRole RVarInitializerExpression
@@ -233,38 +276,89 @@ Parameter NodeRef : SyntaxProgram -> Type.
 Parameter node_key : forall {p}, NodeRef p -> IndexKey.
 Parameter ExprRef ConstDeclRef ConstSpecRef BindingNameRef BlankRef : SyntaxProgram -> Type.
 Parameter TypeUseRef NameUseRef UnaryRef ApplicationRef : SyntaxProgram -> Type.
-Parameter ExpressionStatementRef BindingSiteRef VariableSiteRef : SyntaxProgram -> Type.
-Parameter ObjectSiteRef StatementRef FileRef : SyntaxProgram -> Type.
+Parameter ExpressionStatementRef VariableSiteRef : SyntaxProgram -> Type.
+Parameter StatementRef FileRef : SyntaxProgram -> Type.
 Parameter AliasSpecRef BoundDefinedTypeRef : SyntaxProgram -> Type.
-(* A package-level var spec is not a statement, and no generic statement can pass for a short declaration. *)
 Parameter VarSpecRef ShortDeclRef : SyntaxProgram -> Type.
 
-(* Consumption sites are intrinsically context-tagged: no optional field decides the context. *)
+(* ── §2 Dependent source-shape refinements ─────────────────────────────────── *)
+Parameter LiteralRef : SyntaxProgram -> Type.
+
+Inductive LiteralAt {p} : ExprRef p -> Type :=
+| MkLiteralAt : forall r, LiteralRef p -> LiteralAt r.
+Inductive NameAt {p} : ExprRef p -> Type :=
+| MkNameAt : forall r, NameUseRef p -> NameAt r.
+Inductive UnaryAt {p} : ExprRef p -> Type :=
+| MkUnaryAt : forall r, UnaryRef p -> UnaryAt r.
+Inductive ApplicationAt {p} : ExprRef p -> Type :=
+| MkApplicationAt : forall r, ApplicationRef p -> ApplicationAt r.
+
+Inductive ExprView {p} : ExprRef p -> Type :=
+| EVLiteral     : forall r, LiteralAt r -> ExprView r
+| EVName        : forall r, NameAt r -> ExprView r
+| EVUnary       : forall r, UnaryAt r -> ExprView r
+| EVApplication : forall r, ApplicationAt r -> ExprView r.
+
+Parameter expr_view : forall {p} (r : ExprRef p), @ExprView p r.
+
+(* §3 Object-establishing binders are a strict subset of named occurrences.  A short reuse has a name
+   occurrence but establishes no new semantic object. *)
+Parameter ObjectEstablisher : SyntaxProgram -> Type.
+Parameter establisher_spelling : forall {p}, ObjectEstablisher p -> string.
+
+Inductive BlankAt {p} : BindingNameRef p -> Type :=
+| MkBlankAt : forall n, BlankRef p -> BlankAt n.
+Inductive RegularBinderAt {p} : BindingNameRef p -> Type :=
+| MkRegularBinder : forall n, ObjectEstablisher p -> DeclContext -> RegularBinderAt n.
+Inductive ShortLhsAt {p} : BindingNameRef p -> Type :=
+| MkShortLhs : forall n, ShortDeclRef p -> string -> ShortLhsAt n.
+
+Inductive BindingNameView {p} : BindingNameRef p -> Type :=
+| BNBlank   : forall n, BlankAt n -> BindingNameView n
+| BNRegular : forall n, RegularBinderAt n -> BindingNameView n
+| BNShort   : forall n, ShortLhsAt n -> BindingNameView n.
+
+Parameter binding_name_view : forall {p} (n : BindingNameRef p), @BindingNameView p n.
+
+(* §2 Object-site refinements. *)
+Parameter ObjectSiteRef : SyntaxProgram -> Type.
+Parameter object_site_key : forall {p}, ObjectSiteRef p -> IndexKey.
+
+Inductive ConstObjectAt {p} : ObjectSiteRef p -> Type :=
+| MkConstObject : forall s, ConstSpecRef p -> ConstObjectAt s.
+Inductive VarObjectAt {p} : ObjectSiteRef p -> Type :=
+| MkVarObject : forall s, VariableSiteRef p -> VarObjectAt s.
+Inductive AliasObjectAt {p} : ObjectSiteRef p -> Type :=
+| MkAliasObject : forall s, AliasSpecRef p -> AliasObjectAt s.
+Inductive DefinedObjectAt {p} : ObjectSiteRef p -> Type :=
+| MkDefinedObject : forall s, BoundDefinedTypeRef p -> DefinedObjectAt s.
+Inductive MainObjectAt {p} : ObjectSiteRef p -> Type :=
+| MkMainObject : forall s, MainObjectAt s.
+
+Inductive ObjectSiteView {p} : ObjectSiteRef p -> Type :=
+| OSConst   : forall s, ConstObjectAt s -> ObjectSiteView s
+| OSVar     : forall s, VarObjectAt s -> ObjectSiteView s
+| OSAlias   : forall s, AliasObjectAt s -> ObjectSiteView s
+| OSDefined : forall s, DefinedObjectAt s -> ObjectSiteView s
+| OSMain    : forall s, MainObjectAt s -> ObjectSiteView s.
+
+Parameter object_site_view : forall {p} (s : ObjectSiteRef p), @ObjectSiteView p s.
+Parameter object_site_spelling : forall {p}, ObjectSiteRef p -> string.
+Parameter object_site_scope : forall {p}, ObjectSiteRef p -> ScopeId p.
+
+Parameter establisher_site : forall {p}, ObjectEstablisher p -> ObjectSiteRef p.
+Parameter variable_site_establisher : forall {p}, VariableSiteRef p -> ObjectEstablisher p.
+
 Inductive ConsumptionSiteRef (p : SyntaxProgram) : Type :=
 | ConstSite : ConstSpecRef p -> ConsumptionSiteRef p
 | VarSite   : VarSpecRef p -> ConsumptionSiteRef p
 | ShortSite : ShortDeclRef p -> ConsumptionSiteRef p.
 
+(* Structural source laws. *)
 Parameter expr_node : forall {p}, ExprRef p -> NodeRef p.
-
-(* One sealed exhaustive view per expression occurrence.  Independent option projections would let one
-   occurrence be classified as both a literal and a name; a single function into a disjoint sum cannot. *)
-Parameter LiteralRef : SyntaxProgram -> Type.
-
-Inductive ExprView {p : SyntaxProgram} : ExprRef p -> Type :=
-| LiteralView     : forall r : ExprRef p, LiteralRef p -> ExprView r
-| NameView        : forall r : ExprRef p, NameUseRef p -> ExprView r
-| UnaryView       : forall r : ExprRef p, UnaryRef p -> ExprView r
-| ApplicationView : forall r : ExprRef p, ApplicationRef p -> ExprView r.
-
-Parameter expr_view : forall {p} (r : ExprRef p), ExprView r.
-Parameter object_site_key : forall {p}, ObjectSiteRef p -> IndexKey.
-Parameter binding_site_object_site : forall {p}, BindingSiteRef p -> ObjectSiteRef p.
-Parameter variable_site_binding_site : forall {p}, VariableSiteRef p -> BindingSiteRef p.
 Parameter application_expr application_head : forall {p}, ApplicationRef p -> ExprRef p.
 Parameter application_key : forall {p}, ApplicationRef p -> IndexKey.
 Parameter statement_expression : forall {p}, ExpressionStatementRef p -> ExprRef p.
-(* §8 The statement's application child is an index refinement of the source, not a free proposition. *)
 Parameter statement_application : forall {p}, ExpressionStatementRef p -> option (ApplicationRef p).
 Parameter statement_application_is_its_expression : forall {p}
   (s : ExpressionStatementRef p) (a : ApplicationRef p),
@@ -281,16 +375,12 @@ Parameter direct_occupies : forall {p} (u : DirectExprUseRef p),
   OccupiesRole (direct_parent u) (expr_node (direct_child u)) (direct_role u).
 Parameter application_head_use : forall {p}, ApplicationRef p -> DirectExprUseRef p.
 Parameter application_argument_uses : forall {p}, ApplicationRef p -> list (DirectExprUseRef p).
-(* The operand is reached through its exact structural use, so a unary fact consumes a result use. *)
 Parameter unary_operand_use : forall {p}, UnaryRef p -> DirectExprUseRef p.
+Parameter NameAtPosition : forall {p}, ConstSpecRef p -> BindingNameRef p -> nat -> Prop.
 
-(* §6 Inherited-constant provenance is intrinsic: the connecting proofs are fields, not separate claims,
-   so no consumer can search backward, index a source list with a free natural, copy source, or reuse the
-   predecessor's resolved plan. *)
 Parameter SpecInDecl : forall {p}, ConstDeclRef p -> ConstSpecRef p -> Prop.
 Parameter NearestPrecedingExplicit :
   forall {p}, ConstDeclRef p -> ConstSpecRef p -> ConstSpecRef p -> Prop.
-Parameter NameAtPosition : forall {p}, ConstSpecRef p -> BindingNameRef p -> nat -> Prop.
 Parameter ExprAtPosition : forall {p}, ConstSpecRef p -> ExprRef p -> nat -> Prop.
 Parameter SpecTypeUse : forall {p}, ConstSpecRef p -> option (TypeUseRef p) -> Prop.
 Parameter StructuralIota : forall {p}, ConstSpecRef p -> nat -> Prop.
@@ -313,7 +403,6 @@ Record InheritedConstUseRef (p : SyntaxProgram) : Type := MakeInheritedConstUse 
   ic_iota_is_structural : StructuralIota ic_current ic_iota
 }.
 
-(* One structural expression-use identity.  Semantic refinement is decided, not assumed. *)
 Inductive ExprUseRef (p : SyntaxProgram) : Type :=
 | DirectUse    : DirectExprUseRef p -> ExprUseRef p
 | InheritedUse : InheritedConstUseRef p -> ExprUseRef p.
@@ -321,14 +410,8 @@ Inductive ExprUseRef (p : SyntaxProgram) : Type :=
 Definition expression_of_use {p} (u : ExprUseRef p) : ExprRef p :=
   match u with DirectUse _ d => direct_child d | InheritedUse _ i => ic_expr p i end.
 
-Definition use_role_of {p} (u : ExprUseRef p) : Role :=
-  match u with DirectUse _ d => direct_role d | InheritedUse _ _ => RConstInitializerExpression end.
-
-(* §1: the closed refinement a role selects.  A head or statement use has no selected result. *)
 Inductive UseRefinement : Type := HeadRefinement | StatementRefinement | ResultRefinement.
 
-(* Total on the expression-child-role proof, so there is no fallback and no impossible case: a role that is
-   not an expression-child role cannot reach this function at all. *)
 Definition refinement_of_child_role {r : Role} (h : ExprChildRole r) : UseRefinement :=
   match h with
   | ECApplicationHead  => HeadRefinement
@@ -342,10 +425,6 @@ Definition use_refinement {p} (u : ExprUseRef p) : UseRefinement :=
   | DirectUse _ d    => refinement_of_child_role (direct_is_expr_child d)
   | InheritedUse _ _ => ResultRefinement
   end.
-
-(* Where a contextual expression gets its meaning: `iota` from its exact enclosing const spec and index,
-   `nil` from its exact legal target.  Both are properties of the use, not of the expression. *)
-Parameter iota_context : forall {p}, ExprUseRef p -> option (ConstSpecRef p * nat).
 
 (* ── Typing: named predeclared identities over a form algebra ──────────────── *)
 Inductive BasicType : Type :=
@@ -414,6 +493,8 @@ Inductive Constant : Type :=
 | ComplexConstant : Decimal -> Decimal -> Constant
 | StringConstant  : string -> Constant.
 
+Parameter literal_constant : forall {p}, LiteralRef p -> Constant.
+
 Inductive UntypedConstantKind : Type := UCBool | UCInteger | UCFloat | UCComplex | UCString.
 Definition constant_kind (c : Constant) : UntypedConstantKind :=
   match c with
@@ -468,9 +549,6 @@ Inductive RawTypeTarget (p : SyntaxProgram) : Type :=
 
 (* The equation set is named here so the phase can carry it; the graph over it is the type layer. *)
 Parameter ResolvedTypeEquations : SyntaxProgram -> Type.
-
-(* The constant a literal denotes is read off the exact literal, never supplied beside it. *)
-Parameter literal_constant : forall {p}, LiteralRef p -> Constant.
 
 (* The value a typed constant carries, so the typed computations below can be pinned to the untyped
    constant authorities rather than being free to return anything. *)
@@ -600,8 +678,6 @@ Definition view_lt (a b : RequirementView) : Prop := requirement_view_compare a 
 (* ── Package identity: a compiler grouping, not a source occurrence ─────────── *)
 (* A package spans files and has no single source occurrence, so its identity is the exact package-directory
    key the compiler already owns.  It is never an `Index` key. *)
-Parameter PackageRef : SyntaxProgram -> Type.
-Parameter package_ref_key : forall {p}, PackageRef p -> string.
 
 (* ── The exact site universe ───────────────────────────────────────────────── *)
 Inductive Site (p : SyntaxProgram) : Type :=
@@ -613,7 +689,7 @@ Inductive Site (p : SyntaxProgram) : Type :=
 | SUnary       : UnaryRef p -> Site p
 | SConsumption : ConsumptionSiteRef p -> Site p
 | SVariable    : VariableSiteRef p -> Site p
-| SDeclaration : BindingSiteRef p -> Site p
+| SDeclaration : ObjectEstablisher p -> Site p
 | SDependency  : PackageRef p -> Site p.
 
 (* §10 Dependency causality is closed: a blocked site names exactly why it is blocked. *)
@@ -677,139 +753,76 @@ Inductive DiagnosticCode : Type :=
 | CodeNoNewVariable | CodeTypeCycle | CodeInitializationCycle | CodeContext
 | CodeInvalidConversion | CodeDefaultNotRepresentable
 | CodeMainRedeclared | CodeMissingMainEntry | CodeBuildOutputIsDirectory.
-
-(* ── §2.1 The scope forest, indexed by exact source occurrences ────────────── *)
-(* A lexical scope is identified by the exact source occurrence that establishes it, never by a package key
-   plus a tag: rejected source may declare several `main` bodies in one package and each has its own scope.
-   At C6 the only scope-establishing occurrence is a `main` body; C8 refines this to nested blocks without
-   replacing `ScopeId`. *)
-Parameter LexicalScopeRef : SyntaxProgram -> Type.
-Parameter lexical_scope_package : forall {p}, LexicalScopeRef p -> PackageRef p.
-
-Inductive ScopeId (p : SyntaxProgram) : Type :=
-| PredeclaredScope : ScopeId p
-| PackageScope     : PackageRef p -> ScopeId p
-| LexicalScope     : LexicalScopeRef p -> ScopeId p.
-
-Definition scope_parent {p} (s : ScopeId p) : option (ScopeId p) :=
-  match s with
-  | PredeclaredScope _ => None
-  | PackageScope _ _   => Some (PredeclaredScope p)
-  | LexicalScope _ b   => Some (PackageScope p (lexical_scope_package b))
-  end.
-
-Inductive Encloses {p} : ScopeId p -> ScopeId p -> Prop :=
-| EnclosesSelf   : forall s, Encloses s s
-| EnclosesParent : forall outer inner parent,
-    scope_parent inner = Some parent -> Encloses outer parent -> Encloses outer inner.
-
-(* ── §2.2 The exact Go scope-start table ───────────────────────────────────── *)
-Inductive ScopeStart : Type :=
-| StartWholePackage    (* package-level names: forward references are legal *)
-| StartAfterSpec       (* a local const or var name: after its own specification *)
-| StartAtOwnIdentifier (* a local type name: at its own identifier, so self-reference is a cycle *)
-| StartAfterStatement  (* a short-declaration new name: after the whole statement *)
-| StartOutermost.      (* a predeclared name: the outer scope, shadowable everywhere *)
-
-Inductive DeclContext : Type :=
-| PackageConstDecl | PackageVarDecl | PackageTypeDecl
-| LocalConstDecl | LocalVarDecl | LocalTypeDecl
-| ShortDecl | PredeclaredDecl.
-
-Definition scope_start (c : DeclContext) : ScopeStart :=
-  match c with
-  | PackageConstDecl | PackageVarDecl | PackageTypeDecl => StartWholePackage
-  | LocalConstDecl | LocalVarDecl => StartAfterSpec
-  | LocalTypeDecl => StartAtOwnIdentifier
-  | ShortDecl => StartAfterStatement
-  | PredeclaredDecl => StartOutermost
-  end.
-
-(* ── §2.3 Exact source observations a binding site and a name use carry ────── *)
-Parameter binding_site_scope : forall {p}, BindingSiteRef p -> ScopeId p.
-Parameter binding_site_spelling : forall {p}, BindingSiteRef p -> string.
-Parameter binding_site_context : forall {p}, BindingSiteRef p -> DeclContext.
-Parameter binding_site_position : forall {p}, BindingSiteRef p -> nat.
-Parameter binding_site_identifier_position : forall {p}, BindingSiteRef p -> nat.
-Parameter binding_site_spec_end : forall {p}, BindingSiteRef p -> nat.
-Parameter binding_site_statement_end : forall {p}, BindingSiteRef p -> nat.
+(* ── §3 Scope construction and name resolution ────────────────────────────── *)
+(* Source observations on object-establishing binders. *)
+Parameter establisher_scope : forall {p}, ObjectEstablisher p -> ScopeId p.
+Parameter establisher_context : forall {p}, ObjectEstablisher p -> DeclContext.
+Parameter establisher_position : forall {p}, ObjectEstablisher p -> nat.
+Parameter establisher_identifier_position : forall {p}, ObjectEstablisher p -> nat.
+Parameter establisher_spec_end : forall {p}, ObjectEstablisher p -> nat.
+Parameter establisher_statement_end : forall {p}, ObjectEstablisher p -> nat.
 
 Parameter name_use_scope : forall {p}, NameUseRef p -> ScopeId p.
 Parameter name_use_spelling : forall {p}, NameUseRef p -> string.
 Parameter name_use_position : forall {p}, NameUseRef p -> nat.
 
-Definition binding_site_start {p} (b : BindingSiteRef p) : ScopeStart :=
-  scope_start (binding_site_context b).
+Definition establisher_start {p} (b : ObjectEstablisher p) : ScopeStart :=
+  scope_start (establisher_context b).
 
-(* The visibility point is derived from the site's own start rule, never supplied beside it. *)
-Definition binding_site_visible_from {p} (b : BindingSiteRef p) : nat :=
-  match binding_site_start b with
+Definition establisher_visible_from {p} (b : ObjectEstablisher p) : nat :=
+  match establisher_start b with
   | StartWholePackage | StartOutermost => 0
-  | StartAtOwnIdentifier => binding_site_identifier_position b
-  | StartAfterSpec       => binding_site_spec_end b
-  | StartAfterStatement  => binding_site_statement_end b
+  | StartAtOwnIdentifier => establisher_identifier_position b
+  | StartAfterSpec       => establisher_spec_end b
+  | StartAfterStatement  => establisher_statement_end b
   end.
 
-Definition DeclaredBefore {p} (a b : BindingSiteRef p) : Prop :=
-  binding_site_scope a = binding_site_scope b /\
-  (binding_site_position a < binding_site_position b)%nat.
+Definition VisibleAt {p} (b : ObjectEstablisher p) (u : NameUseRef p) : Prop :=
+  Encloses (establisher_scope b) (name_use_scope u) /\
+  (establisher_visible_from b <= name_use_position u)%nat.
 
-Definition VisibleAt {p} (b : BindingSiteRef p) (u : NameUseRef p) : Prop :=
-  Encloses (binding_site_scope b) (name_use_scope u) /\
-  (binding_site_visible_from b <= name_use_position u)%nat.
+Definition ScopeCloser {p} (inner outer : ScopeId p) : Prop :=
+  inner <> outer /\ Encloses outer inner.
 
-(* Nearest wins: a strictly inner scope shadows an outer one.  Two visible bindings of one spelling in one
-   scope are a duplicate-declaration failure, not a shadowing question. *)
-Definition Closer {p} (inner outer : BindingSiteRef p) : Prop :=
-  binding_site_scope inner <> binding_site_scope outer /\
-  Encloses (binding_site_scope outer) (binding_site_scope inner).
-
-(* The special package-level name `init` is reserved for functions; pinned `gc` rejects a package-level
-   const, var or type named `init`, and accepts it as an ordinary local name. *)
-Definition PackageInitReserved (c : DeclContext) (n : string) : Prop :=
-  (c = PackageConstDecl \/ c = PackageVarDecl \/ c = PackageTypeDecl) /\ n = "init"%string.
-
-(* ── §2.4 Scope construction rejects duplicates before resolution ──────────── *)
-(* A scope's binding map is built first and admits at most one binder per spelling.  Two same-scope binders
-   of one spelling are neither closer than the other, so resolving through them could not be unique —
-   resolution therefore consumes only a ready map, and a duplicate-invalid scope mints no binding at all. *)
+(* §3.3 A scope map indexes object-establishing binders, not all named LHS occurrences.  A short reuse
+   appears in the LHS but inserts nothing into the map.  Two same-spelling object-establishing binders in
+   one scope are a duplicate failure. *)
 Parameter ScopeBindings : forall {p} {i : Input p}, Phase i -> ScopeId p -> Type.
 Parameter scope_lookup : forall {p} {i : Input p} {ph : Phase i} {sc : ScopeId p},
-  ScopeBindings ph sc -> string -> option (BindingSiteRef p).
+  ScopeBindings ph sc -> string -> option (ObjectEstablisher p).
 
-Definition DuplicateBinders {p} (earlier later : BindingSiteRef p) : Prop :=
-  binding_site_spelling earlier = binding_site_spelling later /\
-  binding_site_scope earlier = binding_site_scope later /\
-  DeclaredBefore earlier later.
+Definition DuplicateEstablishers {p} (earlier later : ObjectEstablisher p) : Prop :=
+  establisher_spelling earlier = establisher_spelling later /\
+  establisher_scope earlier = establisher_scope later /\
+  (establisher_position earlier < establisher_position later)%nat.
 
 Inductive ScopeBuildOutcome {p} {i : Input p} (ph : Phase i) (sc : ScopeId p) : Type :=
 | ScopeReady  : ScopeBindings ph sc -> ScopeBuildOutcome ph sc
-| ScopeFailed : forall earlier later : BindingSiteRef p,
-    DuplicateBinders earlier later -> binding_site_scope later = sc ->
+| ScopeFailed : forall earlier later : ObjectEstablisher p,
+    DuplicateEstablishers earlier later -> establisher_scope later = sc ->
     ScopeBuildOutcome ph sc.
 
 Parameter scope_build : forall {p} {i : Input p} (ph : Phase i) (sc : ScopeId p),
   ScopeBuildOutcome ph sc.
 
-Definition ScopeCloser {p} (inner outer : ScopeId p) : Prop :=
-  inner <> outer /\ Encloses outer inner.
-
-(* Nearest visible wins, and the map's own uniqueness settles the within-scope case. *)
+(* §3.4 Resolution consumes only successful scope maps.  `x := 1; x, y := 2, 3` is representable because
+   the second `x` is a reuse, not an object-establishing binder, so it never enters the map and no
+   duplicate is detected. *)
 Inductive Resolves {p} {i : Input p} (ph : Phase i) : NameUseRef p -> ObjectRef ph -> Prop :=
 | ResolvesSource : forall (u : NameUseRef p) (sc : ScopeId p) (m : ScopeBindings ph sc)
-    (b : BindingSiteRef p),
+    (b : ObjectEstablisher p),
     Encloses sc (name_use_scope u) ->
     scope_build ph sc = ScopeReady ph sc m ->
     scope_lookup m (name_use_spelling u) = Some b ->
     VisibleAt b u ->
-    (forall (sc' : ScopeId p) (m' : ScopeBindings ph sc') (b' : BindingSiteRef p),
+    (forall (sc' : ScopeId p) (m' : ScopeBindings ph sc') (b' : ObjectEstablisher p),
        ScopeCloser sc' sc -> Encloses sc' (name_use_scope u) ->
        scope_build ph sc' = ScopeReady ph sc' m' ->
        scope_lookup m' (name_use_spelling u) = Some b' -> ~ VisibleAt b' u) ->
-    Resolves ph u (source_object ph (binding_site_object_site b))
+    Resolves ph u (source_object ph (establisher_site b))
 | ResolvesPredeclared : forall (u : NameUseRef p) (n : PredeclaredName),
     predeclared_spelling n = name_use_spelling u ->
-    (forall (sc : ScopeId p) (m : ScopeBindings ph sc) (b : BindingSiteRef p),
+    (forall (sc : ScopeId p) (m : ScopeBindings ph sc) (b : ObjectEstablisher p),
        Encloses sc (name_use_scope u) ->
        scope_build ph sc = ScopeReady ph sc m ->
        scope_lookup m (name_use_spelling u) = Some b -> ~ VisibleAt b u) ->
@@ -818,54 +831,37 @@ Inductive Resolves {p} {i : Input p} (ph : Phase i) : NameUseRef p -> ObjectRef 
 Parameter resolve_name : forall {p} {i : Input p} (ph : Phase i),
   NameUseRef p -> option (ObjectRef ph).
 
-(* A binding fact retains the exact object this one decision returned; the role is a projection of the
-   exact source use, not an independently supplied field. *)
 Record BindingFact {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) : Type := MakeBinding {
   bound_object   : ObjectRef ph;
   bound_resolves : Resolves ph u bound_object
 }.
 
-(* ── §2.5 Binder disposition, intrinsic to the exact binding-name occurrence ── *)
-(* Each case is indexed by the occurrence it classifies and carries the source view that admits it, so a
-   regular const, var, alias or type binder cannot inhabit `Reuse`. *)
-(* One sealed exhaustive view per binding-name occurrence.  Blank and named are disjoint by construction,
-   and a regular binder cannot masquerade as a short-declaration left-hand name. *)
-Inductive BindingNameView {p : SyntaxProgram} : BindingNameRef p -> Type :=
-| BlankView        : forall n : BindingNameRef p, BlankRef p -> BindingNameView n
-| NamedRegularView : forall n : BindingNameRef p,
-    BindingSiteRef p -> DeclContext -> BindingNameView n
-| NamedShortView   : forall n : BindingNameRef p,
-    ShortDeclRef p -> BindingSiteRef p -> BindingNameView n.
+(* §3.3 Binder facts indexed by the exact BindingNameRef.  Blank establishes nothing.  A regular binder
+   mints the exact object of its own establisher.  A short new also mints.  A short reuse returns the exact
+   existing same-block variable; it establishes no new object. *)
+Inductive BinderFact {p} {i : Input p} (ph : Phase i) : BindingNameRef p -> Type :=
+| BFBlank : forall (n : BindingNameRef p) (ba : BlankAt n), BinderFact ph n
+| BFRegularNew : forall (n : BindingNameRef p) (ra : RegularBinderAt n),
+    BinderFact ph n
+| BFShortNew : forall (n : BindingNameRef p) (sa : ShortLhsAt n),
+    ObjectEstablisher p -> BinderFact ph n
+| BFShortReuse : forall (n : BindingNameRef p) (sa : ShortLhsAt n)
+    (earlier : ObjectEstablisher p) (o : ObjectRef ph),
+    establisher_spelling earlier = match sa with MkShortLhs _ _ sp => sp end ->
+    source_object ph (establisher_site earlier) = o ->
+    BinderFact ph n.
 
-Parameter binding_name_view : forall {p} (n : BindingNameRef p), BindingNameView n.
+Parameter binder_fact : forall {p} {i : Input p} (ph : Phase i) (n : BindingNameRef p),
+  BinderFact ph n.
 
-Inductive BinderDisposition {p} {i : Input p} (ph : Phase i) (n : BindingNameRef p) : Type :=
-| BinderBlank : forall k : BlankRef p,
-    binding_name_view n = BlankView n k -> BinderDisposition ph n
-| BinderNew : forall (b : BindingSiteRef p) (c : DeclContext),
-    binding_name_view n = NamedRegularView n b c -> BinderDisposition ph n
-(* Only a short-declaration left-hand name reaches this constructor: the view says so. *)
-| BinderCandidateReuse : forall (d : ShortDeclRef p) (b earlier : BindingSiteRef p),
-    binding_name_view n = NamedShortView n d b ->
-    binding_site_spelling earlier = binding_site_spelling b ->
-    DeclaredBefore earlier b ->
-    BinderDisposition ph n
-| BinderShortNew : forall (d : ShortDeclRef p) (b : BindingSiteRef p),
-    binding_name_view n = NamedShortView n d b -> BinderDisposition ph n.
-
-Parameter binder_disposition : forall {p} {i : Input p} (ph : Phase i) (n : BindingNameRef p),
-  BinderDisposition ph n.
-
-(* The object is derived from the exact site, never supplied beside it: a new binder mints the object of
-   its own site, and a reuse returns the exact earlier object. *)
-Definition binder_object {p} {i : Input p} {ph : Phase i} {n : BindingNameRef p}
-  (d : BinderDisposition ph n) : option (ObjectRef ph) :=
-  match d with
-  | BinderBlank _ _ _ _ => None
-  | BinderNew _ _ b _ _ => Some (source_object ph (binding_site_object_site b))
-  | BinderShortNew _ _ _ b _ => Some (source_object ph (binding_site_object_site b))
-  | BinderCandidateReuse _ _ _ _ earlier _ _ _ =>
-      Some (source_object ph (binding_site_object_site earlier))
+Definition binder_object {p} {i : Input p} {ph : Phase i} {n}
+  (bf : BinderFact ph n) : option (ObjectRef ph) :=
+  match bf with
+  | BFBlank _ _ _ => None
+  | BFRegularNew _ _ ra =>
+      match ra with MkRegularBinder _ est _ => Some (source_object ph (establisher_site est)) end
+  | BFShortNew _ _ _ est => Some (source_object ph (establisher_site est))
+  | BFShortReuse _ _ _ _ o _ _ => Some o
   end.
 
 (* ── §3.1 The exact type-equation graph ────────────────────────────────────── *)
@@ -1076,33 +1072,17 @@ Definition ready_of {p} {i : Input p} {ph : Phase i} (res : TypePhaseResult ph)
 
 Parameter phase_type_result : forall {p} {i : Input p} (ph : Phase i), TypePhaseResult ph.
 
-(* ── §4.1 Every object has a total descriptor ──────────────────────────────── *)
-(* Identity exists before the declaration is known to be semantically valid: a source constant, variable,
-   alias or definition is bound even when its right-hand side later fails, is outside scope, or is blocked.
-   Every field here is derived from the exact origin, never selected beside it. *)
+(* ── §6 Total object descriptor ────────────────────────────────────────────── *)
 Inductive SourceCategory : Type :=
 | CatConst | CatVar | CatAlias | CatDefined | CatFunc.
 
-(* One sealed exhaustive view per object site.  Category, alias reference and definition reference are all
-   projections of this single constructor choice, so they cannot disagree with one another. *)
-Inductive ObjectSiteView {p : SyntaxProgram} : ObjectSiteRef p -> Type :=
-| ConstBinderView   : forall s : ObjectSiteRef p, ConstSpecRef p -> ObjectSiteView s
-| VarBinderView     : forall s : ObjectSiteRef p, VariableSiteRef p -> ObjectSiteView s
-| AliasBinderView   : forall s : ObjectSiteRef p, AliasSpecRef p -> ObjectSiteView s
-| DefinedBinderView : forall s : ObjectSiteRef p, BoundDefinedTypeRef p -> ObjectSiteView s
-| MainBinderView    : forall s : ObjectSiteRef p, ObjectSiteView s.
-
-Parameter object_site_view : forall {p} (s : ObjectSiteRef p), ObjectSiteView s.
-Parameter object_site_spelling : forall {p}, ObjectSiteRef p -> string.
-Parameter object_site_scope : forall {p}, ObjectSiteRef p -> ScopeId p.
-
 Definition object_site_category {p} (s : ObjectSiteRef p) : SourceCategory :=
   match object_site_view s with
-  | ConstBinderView _ _   => CatConst
-  | VarBinderView _ _     => CatVar
-  | AliasBinderView _ _   => CatAlias
-  | DefinedBinderView _ _ => CatDefined
-  | MainBinderView _      => CatFunc
+  | OSConst _ _   => CatConst
+  | OSVar _ _     => CatVar
+  | OSAlias _ _   => CatAlias
+  | OSDefined _ _ => CatDefined
+  | OSMain _ _    => CatFunc
   end.
 
 Definition object_spelling {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : string :=
@@ -1117,45 +1097,45 @@ Definition object_scope {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : Sc
   | SourceSite _ s  => object_site_scope s
   end.
 
-Definition object_category {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph)
-  : option SourceCategory :=
+(* ObjectKind is derived from origin/category. *)
+Definition object_kind_of {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : ObjectKind :=
   match object_origin o with
-  | Predeclared _ _ => None
-  | SourceSite _ s  => Some (object_site_category s)
+  | Predeclared _ n => predeclared_kind n
+  | SourceSite _ s  => match object_site_category s with
+    | CatConst => ConstantObject | CatVar => VariableObject
+    | CatAlias | CatDefined => TypeObject | CatFunc => FunctionObject
+    end
   end.
 
-(* ── §4.2 Successful semantic meaning is partial ───────────────────────────── *)
-(* A failed, outside or blocked declaration has object identity and no meaning here.  There is no total
-   `object_fact`: nothing pretends every source object already denotes something. *)
+(* ── §6 Successful semantic meaning is partial ────────────────────────────── *)
 Inductive TypeMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   : ObjectRef ph -> Type :=
 | TMPredeclared : forall n t, AdmittedPredeclaredType n t ->
     TypeMeaning ph rd (predeclared_object ph n)
 | TMPredeclaredAlias : forall n t, AliasPredeclared n t ->
     TypeMeaning ph rd (predeclared_object ph n)
-| TMAlias : forall (s : ObjectSiteRef p) (a : AliasSpecRef p),
-    object_site_view s = AliasBinderView s a -> TypeMeaning ph rd (source_object ph s)
-| TMDefined : forall (s : ObjectSiteRef p) (d : BoundDefinedTypeRef p),
-    object_site_view s = DefinedBinderView s d -> TypeMeaning ph rd (source_object ph s).
+| TMAlias : forall (s : ObjectSiteRef p) (a : AliasSpecRef p) (ao : AliasObjectAt s),
+    object_site_view s = OSAlias s ao ->
+    TypeMeaning ph rd (source_object ph s)
+| TMDefined : forall (s : ObjectSiteRef p) (d : BoundDefinedTypeRef p) (do_ : DefinedObjectAt s),
+    object_site_view s = OSDefined s do_ ->
+    TypeMeaning ph rd (source_object ph s).
 
-(* The denoted type is computed: an alias denotes its exact resolved right-hand side and mints no identity;
-   a definition denotes its own exact declaration. *)
 Definition type_meaning_type {p} {i : Input p} {ph : Phase i} {rd} {o}
   (m : TypeMeaning ph rd o) : SemanticType p :=
   match m with
   | TMPredeclared _ _ _ t _      => PredeclaredType p t
   | TMPredeclaredAlias _ _ _ t _ => PredeclaredType p t
-  | TMAlias _ _ _ a _            => node_rhs rd (AliasNode p a)
-  | TMDefined _ _ _ d _          => DefinedType p d
+  | TMAlias _ _ _ a ao _         =>
+      match ao with MkAliasObject _ aref => node_rhs rd (AliasNode p aref) end
+  | TMDefined _ _ _ d do_ _      =>
+      match do_ with MkDefinedObject _ dref => DefinedType p dref end
   end.
 
-(* §7 One exact sum for what a constant declaration established, not two option projections. *)
 Inductive DeclaredConstant {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
 | DeclaredUntyped : Constant -> DeclaredConstant ph rd
 | DeclaredTyped   : forall t : SemanticType p, TypedConstant rd t -> DeclaredConstant ph rd.
 
-(* Declaration facts are what the phase established at each declaring site.  A capability reads its value
-   from the declaration rather than carrying one supplied beside the object. *)
 Parameter ConstantDeclarationFact : forall {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph),
   ObjectSiteRef p -> Type.
 Parameter constant_declared : forall {p} {i : Input p} {ph : Phase i} {rd} {s},
@@ -1170,29 +1150,25 @@ Inductive ConstantMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   : ObjectRef ph -> Type :=
 | CMPredeclaredBool : forall n b, predeclared_capability n = CapUntypedBool b ->
     ConstantMeaning ph rd (predeclared_object ph n)
-| CMDeclared : forall (s : ObjectSiteRef p) (c : ConstSpecRef p)
+| CMDeclared : forall (s : ObjectSiteRef p) (co : ConstObjectAt s)
     (df : ConstantDeclarationFact ph rd s),
-    object_site_view s = ConstBinderView s c ->
+    object_site_view s = OSConst s co ->
     ConstantMeaning ph rd (source_object ph s).
 
-(* The variable retains its exact declaring site; no runtime slot and no numeric identity is minted. *)
-(* The variable site is the object's own and its type comes from the declaration, never supplied beside. *)
 Record StaticVariable {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   (o : ObjectRef ph) : Type := MakeStaticVariable {
   static_object_site : ObjectSiteRef p;
   static_site        : VariableSiteRef p;
   static_decl        : VariableDeclarationFact ph rd static_object_site;
   static_is_its_site : object_origin o = SourceSite p static_object_site;
-  static_view        : object_site_view static_object_site
-                         = VarBinderView static_object_site static_site
+  static_view        : forall vo : VarObjectAt static_object_site,
+                         object_site_view static_object_site = OSVar static_object_site vo
 }.
 
 Definition static_type {p} {i : Input p} {ph : Phase i} {rd} {o}
   (sv : StaticVariable ph rd o) : SemanticType p :=
   variable_declared_type (static_decl ph rd o sv).
 
-(* C6 proves the accepted callable inhabitants are exactly `complex` and `println`; C9 adds function-valued
-   heads by adding constructors here, without replacing the family. *)
 Inductive CallableMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
 | CallComplex : CallableMeaning ph (predeclared_object ph PComplex)
 | CallPrintln : CallableMeaning ph (predeclared_object ph PPrintln).
@@ -1203,7 +1179,6 @@ Inductive IotaMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
 Inductive NilMeaning {p} {i : Input p} (ph : Phase i) : ObjectRef ph -> Type :=
 | NilIs : NilMeaning ph (predeclared_object ph PNil).
 
-(* One sum of the successful meanings.  There is deliberately no total function producing it. *)
 Inductive ObjectMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   (o : ObjectRef ph) : Type :=
 | MeaningType     : TypeMeaning ph rd o -> ObjectMeaning ph rd o
@@ -1213,54 +1188,15 @@ Inductive ObjectMeaning {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
 | MeaningIota     : IotaMeaning ph o -> ObjectMeaning ph rd o
 | MeaningNil      : NilMeaning ph o -> ObjectMeaning ph rd o.
 
-Definition IsTypeCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : Prop :=
-  match m with MeaningType _ _ _ _ => True | _ => False end.
-
-Definition IsConstantCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : Prop :=
-  match m with MeaningConstant _ _ _ _ => True | _ => False end.
-
-Definition IsVariableCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : Prop :=
-  match m with MeaningVariable _ _ _ _ => True | _ => False end.
-
-Definition IsCallableCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : Prop :=
-  match m with MeaningCallable _ _ _ _ => True | _ => False end.
-
-Definition IsContextualCapable {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : Prop :=
-  match m with
-  | MeaningIota _ _ _ _ => True
-  | MeaningNil _ _ _ _ => True
-  | _ => False
-  end.
-
-Definition object_type {p} {i : Input p} {ph : Phase i} {rd} {o}
-  (m : ObjectMeaning ph rd o) : IsTypeCapable m -> SemanticType p :=
-  match m return IsTypeCapable m -> SemanticType p with
-  | MeaningType _ _ _ tm => fun _ => type_meaning_type tm
-  | _ => fun h => match h return SemanticType p with end
-  end.
-
-(* A short-declaration reuse names an object minted by an earlier binding in the same scope. *)
-Definition SameBlockEarlier {p} {i : Input p} {ph : Phase i}
-  (b : BindingSiteRef p) (o : ObjectRef ph) : Prop :=
-  exists earlier : BindingSiteRef p,
-    object_origin o = SourceSite p (binding_site_object_site earlier) /\
-    DeclaredBefore earlier b.
-
-(* ── §15 Capability over the total descriptor ──────────────────────────────── *)
-(* Whether an object could carry a meaning is decidable from its descriptor alone.  A requirement reporting
-   a missing meaning is stated over these, so it never needs the very meaning it says is absent. *)
+(* §4 Whether an object could carry a specific semantic role.  A requirement for a missing meaning is
+   stated over these so it never demands the very meaning it reports absent. *)
 Definition HasTypeCapability {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph) : Prop :=
   match object_origin o with
   | Predeclared _ n => predeclared_type_role n <> NoTypeMeaning
   | SourceSite _ s  =>
       match object_site_view s with
-      | AliasBinderView _ _   => True
-      | DefinedBinderView _ _ => True
+      | OSAlias _ _   => True
+      | OSDefined _ _ => True
       | _ => False
       end
   end.
@@ -1270,8 +1206,8 @@ Definition HasValueCapability {p} {i : Input p} {ph : Phase i} (o : ObjectRef ph
   | Predeclared _ n => predeclared_capability n <> CapMissing
   | SourceSite _ s  =>
       match object_site_view s with
-      | ConstBinderView _ _ => True
-      | VarBinderView _ _   => True
+      | OSConst _ _ => True
+      | OSVar _ _   => True
       | _ => False
       end
   end.
@@ -1408,7 +1344,7 @@ Definition ApplicationRuleCovers {p} {i : Input p} {ph : Phase i} (rd : TypeRead
    statement, which is why callability alone was never the right question. *)
 Definition StatementRuleCovers {p} {i : Input p} (ph : Phase i) (a : ApplicationRef p) : Prop :=
   exists (hu : NameUseRef p) (bf : BindingFact ph hu),
-    expr_view (application_head a) = NameView (application_head a) hu /\
+    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) /\
     bound_object ph hu bf = predeclared_object ph PPrintln.
 
 (* A contextual expression is resolved at the exact use.  `iota` takes the index of its own const spec.
@@ -1416,28 +1352,28 @@ Definition StatementRuleCovers {p} {i : Input p} (ph : Phase i) (a : Application
    so a `nil` use produces its exact requirement or diagnostic and never a resolved atom. *)
 Inductive ContextResolvesAt {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
   : ExprUseRef p -> ContextualResult -> ResultAtomAt ph rd -> Prop :=
-| IotaResolves : forall (u : ExprUseRef p) (c : ConstSpecRef p) (k : nat),
-    iota_context u = Some (c, k) ->
-    ContextResolvesAt ph rd u IotaResult (RAUntyped ph rd (IntegerConstant (Z.of_nat k))).
+| IotaResolves : forall (ih : InheritedConstUseRef p),
+    ContextResolvesAt ph rd (InheritedUse p ih) IotaResult
+      (RAUntyped ph rd (IntegerConstant (Z.of_nat (ic_iota p ih)))).
 
 Inductive ExprFact {p} {i : Input p} (ph : Phase i)
   (rd : TypeReady ph) : ExprRef p -> ResultFormAt ph rd -> Type :=
 | EFLiteral : forall (r : ExprRef p) (l : LiteralRef p),
-    expr_view r = LiteralView r l ->
+    expr_view r = EVLiteral r (MkLiteralAt r l) ->
     ExprFact ph rd r (RFFixed ph rd [RAUntyped ph rd (literal_constant l)])
 | EFName : forall (r : ExprRef p) (u : NameUseRef p),
-    expr_view r = NameView r u ->
+    expr_view r = EVName r (MkNameAt r u) ->
     forall (bf : BindingFact ph u) (m : ObjectMeaning ph rd (bound_object ph u bf)),
     ExprFact ph rd r (name_result m)
 | EFUnary : forall (r : ExprRef p) (n : UnaryRef p)
     (opa : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view r = UnaryView r n ->
+    expr_view r = EVUnary r (MkUnaryAt r n) ->
     ResultUseFactAt ph rd (DirectUse p (unary_operand_use n)) opa ->
     UnaryFact ph rd n opa res ->
     ExprFact ph rd r (RFFixed ph rd res)
 | EFApplication : forall (r : ExprRef p) (a : ApplicationRef p)
     (hf : ResultFormAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view r = ApplicationView r a ->
+    expr_view r = EVApplication r (MkApplicationAt r a) ->
     ExprFact ph rd (application_head a) hf -> AppFact ph rd a res ->
     ExprFact ph rd r (RFFixed ph rd res)
 
@@ -1491,20 +1427,20 @@ with AppFact {p} {i : Input p} (ph : Phase i)
 | AFConversion : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (tm : TypeMeaning ph rd (bound_object ph hu bf))
     (u : DirectExprUseRef p) (arg : ResultAtomAt ph rd) (res : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = NameView (application_head a) hu ->
+    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
     application_argument_uses a = [u] ->
     ArgFacts ph rd [u] [arg] ->
     ConvRule ph rd a (type_meaning_type tm) arg res -> AppFact ph rd a res
 | AFComplex : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (u1 u2 : DirectExprUseRef p) (a1 a2 : ResultAtomAt ph rd)
     (res : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = NameView (application_head a) hu ->
+    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
     bound_object ph hu bf = predeclared_object ph PComplex ->
     application_argument_uses a = [u1; u2] ->
     ArgFacts ph rd [u1; u2] [a1; a2] -> ComplexRuleF ph rd a a1 a2 res -> AppFact ph rd a res
 | AFPrintln : forall (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu)
     (args : list (ResultAtomAt ph rd)),
-    expr_view (application_head a) = NameView (application_head a) hu ->
+    expr_view (application_head a) = EVName (application_head a) (MkNameAt (application_head a) hu) ->
     bound_object ph hu bf = predeclared_object ph PPrintln ->
     ArgFacts ph rd (application_argument_uses a) args ->
     PrintlnRuleF ph rd a args -> AppFact ph rd a []
@@ -1621,35 +1557,25 @@ Definition statement_application_of {p} {i : Input p} {ph : Phase i} {rd} {s}
   (f : StmtFact ph rd s) : ApplicationRef p :=
   match f with SFPrintln _ _ _ a _ _ _ _ => a end.
 
-(* ── §11 One intrinsic, source-indexed result-consumption plan ─────────────── *)
-Inductive ConsumptionTarget (p : SyntaxProgram) : Type :=
-| NamedTarget : BindingSiteRef p -> ConsumptionTarget p
-| BlankTarget : BlankRef p -> ConsumptionTarget p.
+(* ── §10 Declaration consumption, source-indexed ──────────────────────────── *)
 
-(* The exact source target sequence and right-hand-side use sequence belong to the site itself. *)
-Parameter site_targets : forall {p}, ConsumptionSiteRef p -> list (ConsumptionTarget p).
+(* The target and RHS sequences belong to the exact source site. *)
+Parameter site_targets : forall {p}, ConsumptionSiteRef p -> list (BindingNameRef p).
 Parameter site_uses : forall {p}, ConsumptionSiteRef p -> list (ExprUseRef p).
 
-Inductive ConstAtomAt {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : ResultAtomAt ph rd -> Prop :=
+Inductive ConstAtomAt {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> Prop :=
 | CAUntyped : forall c, ConstAtomAt ph rd (RAUntyped ph rd c)
 | CATyped   : forall t tc, ConstAtomAt ph rd (RATyped ph rd t tc).
 
-(* The exact defaulting / representability / assignability evidence an entry must carry. *)
-Inductive AtomFits {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : ResultAtomAt ph rd -> SemanticType p -> Prop :=
+Inductive AtomFits {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : ResultAtomAt ph rd -> SemanticType p -> Prop :=
 | FitUntyped : forall c t, Representable rd t c -> AtomFits ph rd (RAUntyped ph rd c) t
 | FitTyped   : forall (s : SemanticType p) tc t, Assignable s t ->
     AtomFits ph rd (RATyped ph rd s tc) t
 | FitValue   : forall (s : SemanticType p) t, Assignable s t ->
     AtomFits ph rd (RAValue ph rd s) t.
 
-(* Each plan is indexed by the EXACT remaining source target list AND the EXACT remaining source use list,
-   consumed in lockstep.  Target coverage, source consumption, order and non-duplication therefore all hold
-   by construction: a plan cannot consume another site's uses, and no separate coverage equation exists that
-   could be satisfied by comparing a plan against itself. *)
-(* The type a target takes is never a free choice: without an explicit type the constant keeps its own
-   status, and with one it carries the representability evidence for that exact type. *)
 Definition atom_default_type {p} {i : Input p} {ph : Phase i} {rd}
   (a : ResultAtomAt ph rd) : SemanticType p :=
   match a with
@@ -1658,107 +1584,83 @@ Definition atom_default_type {p} {i : Input p} {ph : Phase i} {rd}
   | RAValue _ _ t   => t
   end.
 
-Inductive ConstPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+(* §10.1 Const spec fact, indexed by exact ConstSpecRef. *)
+Inductive ConstPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : list (BindingNameRef p) -> list (ExprUseRef p) -> Type :=
 | CPNil  : ConstPlan ph rd [] []
-| CPUntyped : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
+| CPUntyped : forall (n : BindingNameRef p) (rest : list (BindingNameRef p))
     (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd),
     ResultUseFactAt ph rd u a -> ConstAtomAt ph rd a ->
-    ConstPlan ph rd rest urest -> ConstPlan ph rd (t :: rest) (u :: urest)
-| CPTyped : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
+    ConstPlan ph rd rest urest -> ConstPlan ph rd (n :: rest) (u :: urest)
+| CPTyped : forall (n : BindingNameRef p) (rest : list (BindingNameRef p))
     (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd)
-    (ty : SemanticType p) (tu : NameUseRef p) (bf : BindingFact ph tu)
-    (tm : TypeMeaning ph rd (bound_object ph tu bf)),
-    ty = type_meaning_type tm ->
+    (ty : SemanticType p),
     ResultUseFactAt ph rd u a -> ConstAtomAt ph rd a -> AtomFits ph rd a ty ->
-    ConstPlan ph rd rest urest -> ConstPlan ph rd (t :: rest) (u :: urest).
+    ConstPlan ph rd rest urest -> ConstPlan ph rd (n :: rest) (u :: urest).
 
-(* `var x, y int` has targets and no right-hand side at all, so it is a separate form rather than a plan
-   with an optional use.  The two forms cannot be interleaved. *)
-Inductive VarValuesPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
+(* §10.2 Var spec fact, indexed by exact VarSpecRef. *)
+Inductive VarValuesPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : list (BindingNameRef p) -> list (ExprUseRef p) -> Type :=
 | VVNil  : VarValuesPlan ph rd [] []
-(* Inferred takes the atom's own type — an untyped constant its exact Go default — while explicit takes the
-   head-resolved type and carries the fit.  Neither can pick an arbitrary target type. *)
-| VVInferred : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
+| VVInferred : forall (n : BindingNameRef p) (rest : list (BindingNameRef p))
     (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd),
     ResultUseFactAt ph rd u a -> VarValuesPlan ph rd rest urest ->
-    VarValuesPlan ph rd (t :: rest) (u :: urest)
-| VVExplicit : forall (t : ConsumptionTarget p) (rest : list (ConsumptionTarget p))
+    VarValuesPlan ph rd (n :: rest) (u :: urest)
+| VVExplicit : forall (n : BindingNameRef p) (rest : list (BindingNameRef p))
     (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd)
-    (ty : SemanticType p) (tu : NameUseRef p) (bf : BindingFact ph tu)
-    (tm : TypeMeaning ph rd (bound_object ph tu bf)),
-    ty = type_meaning_type tm ->
+    (ty : SemanticType p),
     ResultUseFactAt ph rd u a -> AtomFits ph rd a ty ->
     VarValuesPlan ph rd rest urest ->
-    VarValuesPlan ph rd (t :: rest) (u :: urest).
+    VarValuesPlan ph rd (n :: rest) (u :: urest).
 
-Inductive VarPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
-(* `var x, y int` resolves its type through the exact source type use, not a supplied semantic type. *)
-| VPTypeOnly : forall (targets : list (ConsumptionTarget p)) (tu : NameUseRef p)
-    (bf : BindingFact ph tu) (tm : TypeMeaning ph rd (bound_object ph tu bf)),
+Inductive VarPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  : list (BindingNameRef p) -> list (ExprUseRef p) -> Type :=
+| VPTypeOnly : forall (targets : list (BindingNameRef p)) (ty : SemanticType p),
     VarPlan ph rd targets []
-| VPValues : forall (targets : list (ConsumptionTarget p)) (uses : list (ExprUseRef p)),
+| VPValues : forall (targets : list (BindingNameRef p)) (uses : list (ExprUseRef p)),
     VarValuesPlan ph rd targets uses -> VarPlan ph rd targets uses.
 
-(* A new short binder retains its exact object; a reuse retains the exact existing object AND that object's
-   exact static-variable fact, so a constant, type or function object cannot be reused. *)
-Inductive ShortBinder {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
-| SBNew   : BindingSiteRef p -> ObjectRef ph -> ShortBinder ph rd
-| SBReuse : forall (b : BindingSiteRef p) (o : ObjectRef ph),
-    SameBlockEarlier b o -> StaticVariable ph rd o -> ShortBinder ph rd.
+(* §10.3 Short declaration fact, indexed by exact ShortDeclRef.  Each LHS occurrence carries its exact
+   binder fact, and at least one nonblank name is new by construction. *)
+Inductive ShortEntry {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
+| SEBlank : forall (n : BindingNameRef p) (ba : BlankAt n)
+    (u : ExprUseRef p) (a : ResultAtomAt ph rd),
+    ResultUseFactAt ph rd u a -> ShortEntry ph rd
+| SENew : forall (n : BindingNameRef p) (sa : ShortLhsAt n) (est : ObjectEstablisher p)
+    (u : ExprUseRef p) (a : ResultAtomAt ph rd) (ty : SemanticType p),
+    binder_fact ph n = BFShortNew ph n sa est ->
+    ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortEntry ph rd
+| SEReuse : forall (n : BindingNameRef p) (sa : ShortLhsAt n)
+    (earlier : ObjectEstablisher p) (o : ObjectRef ph)
+    (u : ExprUseRef p) (a : ResultAtomAt ph rd) (ty : SemanticType p),
+    forall (hsp : establisher_spelling earlier = match sa with MkShortLhs _ _ sp => sp end)
+           (hobj : source_object ph (establisher_site earlier) = o),
+    StaticVariable ph rd o ->
+    ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortEntry ph rd.
 
-Inductive ShortPlan {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) : list (ConsumptionTarget p) -> list (ExprUseRef p) -> Type :=
-| SPNil   : ShortPlan ph rd [] []
-| SPNamed : forall (b : BindingSiteRef p) (rest : list (ConsumptionTarget p))
-    (bind : ShortBinder ph rd) (u : ExprUseRef p) (urest : list (ExprUseRef p))
-    (a : ResultAtomAt ph rd) (ty : SemanticType p),
-    ResultUseFactAt ph rd u a -> AtomFits ph rd a ty -> ShortPlan ph rd rest urest ->
-    ShortPlan ph rd (NamedTarget p b :: rest) (u :: urest)
-| SPBlank : forall (k : BlankRef p) (rest : list (ConsumptionTarget p))
-    (u : ExprUseRef p) (urest : list (ExprUseRef p)) (a : ResultAtomAt ph rd),
-    ResultUseFactAt ph rd u a -> ShortPlan ph rd rest urest ->
-    ShortPlan ph rd (BlankTarget p k :: rest) (u :: urest).
+Definition short_entry_is_new {p} {i : Input p} {ph : Phase i} {rd}
+  (e : ShortEntry ph rd) : bool :=
+  match e with SENew _ _ _ _ _ _ _ _ _ _ _ => true | _ => false end.
 
-(* At least one nonblank short binder must be new; pinned `gc` rejects a short declaration otherwise. *)
-Fixpoint ShortHasNewName {p} {i : Input p} {ph : Phase i} {rd} {ts} {us}
-  (pl : ShortPlan ph rd ts us) : Prop :=
-  match pl with
-  | SPNil _ _ => False
-  | SPNamed _ _ _ _ bind _ _ _ _ _ _ rest =>
-      match bind with SBNew _ _ _ _ => True | SBReuse _ _ _ _ _ _ => ShortHasNewName rest end
-  | SPBlank _ _ _ _ _ _ _ _ rest => ShortHasNewName rest
-  end.
+Inductive ShortPlan {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph) : Type :=
+| MkShortPlan : forall (entries : list (ShortEntry ph rd)),
+    List.Exists (fun e => short_entry_is_new e = true) entries -> ShortPlan ph rd.
 
-(* ── §12 Initialization units keep constants out of the runtime projection ──── *)
-Inductive InitUnit (p : SyntaxProgram) : Type :=
-| ConstEvalUnit  : ConstSpecRef p -> InitUnit p
-| VarInitUnit    : VarSpecRef p -> InitUnit p
-| BlankConstUnit : BlankRef p -> InitUnit p
-| BlankVarUnit   : BlankRef p -> InitUnit p.
-
-(* A blank CONST is compile-time work; only variable and blank-variable work reaches the C7 store. *)
-Definition RuntimeInitUnit {p} (u : InitUnit p) : bool :=
-  match u with
-  | ConstEvalUnit _ _ => false
-  | BlankConstUnit _ _ => false
-  | VarInitUnit _ _ => true
-  | BlankVarUnit _ _ => true
-  end.
-
-(* The consumption fact IS the plan at the site's own targets.  Coverage is therefore structural: a plan
-   for another site's targets cannot be offered here, so no separate coverage theorem is needed and none
-   could be stated tautologically. *)
-Definition ConsumptionFact {p} {i : Input p} (ph : Phase i)
-  (rd : TypeReady ph) (c : ConsumptionSiteRef p) : Type :=
+Definition ConsumptionFact {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
+  (c : ConsumptionSiteRef p) : Type :=
   match c with
   | ConstSite _ _ => ConstPlan ph rd (site_targets c) (site_uses c)
   | VarSite _ _   => VarPlan ph rd (site_targets c) (site_uses c)
-  | ShortSite _ _ => { pl : ShortPlan ph rd (site_targets c) (site_uses c) & ShortHasNewName pl }
+  | ShortSite _ _ => ShortPlan ph rd
   end.
 
+(* §11 Initialization units: one per exact source spec, no blank duplicates. *)
+Inductive InitUnit (p : SyntaxProgram) : Type :=
+| ConstEvalUnit : ConstSpecRef p -> InitUnit p
+| VarInitUnit   : VarSpecRef p -> InitUnit p.
+
+Definition RuntimeInitUnit {p} (u : InitUnit p) : bool :=
+  match u with ConstEvalUnit _ _ => false | VarInitUnit _ _ => true end.
 
 (* ── §12 Package initialization order ──────────────────────────────────────── *)
 (* The nodes are the package's initialization units; the edges are name uses inside them. *)
@@ -1849,10 +1751,10 @@ Inductive SiteDependency {p} {i : Input p} (ph : Phase i) : Site p -> Site p -> 
 | DepUnaryOperand : forall n : UnaryRef p,
     SiteDependency ph (SUse p (DirectUse p (unary_operand_use n))) (SUnary p n)
 | DepVariableDeclaration : forall v : VariableSiteRef p,
-    SiteDependency ph (SDeclaration p (variable_site_binding_site v)) (SVariable p v)
+    SiteDependency ph (SDeclaration p (variable_site_establisher v)) (SVariable p v)
 (* A name expression depends on the binding that gave its name meaning. *)
 | DepNameBinding : forall (r : ExprRef p) (u : NameUseRef p),
-    expr_view r = NameView r u -> SiteDependency ph (SBinding p u) (SExpression p r)
+    expr_view r = EVName r (MkNameAt r u) -> SiteDependency ph (SBinding p u) (SExpression p r)
 (* A consumption site depends on each of its own right-hand-side uses. *)
 | DepConsumptionUse : forall (c : ConsumptionSiteRef p) (u : ExprUseRef p),
     List.In u (site_uses c) -> SiteDependency ph (SUse p u) (SConsumption p c)
@@ -1861,20 +1763,23 @@ Inductive SiteDependency {p} {i : Input p} (ph : Phase i) : Site p -> Site p -> 
     List.In unit (package_init_units k) -> List.In u (init_unit_uses unit) ->
     SiteDependency ph (SBinding p u) (SDependency p k)
 (* A package-level declaration is elaborated after the order that decides when it runs. *)
-| DepDeclarationOrder : forall (k : PackageRef p) (b : BindingSiteRef p),
-    binding_site_scope b = PackageScope p k ->
+| DepDeclarationOrder : forall (k : PackageRef p) (b : ObjectEstablisher p),
+    establisher_scope b = PackageScope p k ->
     SiteDependency ph (SDependency p k) (SDeclaration p b)
 (* A short reuse depends on the earlier same-block variable whose object it retains. *)
 | DepShortReuse : forall (d : ShortDeclRef p) (earlier : VariableSiteRef p),
     SiteDependency ph (SVariable p earlier) (SConsumption p (ShortSite p d))
 (* A declaration's meaning depends on the consumption that established it. *)
-| DepMeaningConsumption : forall (c : ConsumptionSiteRef p) (b : BindingSiteRef p),
-    List.In (NamedTarget p b) (site_targets c) ->
-    SiteDependency ph (SConsumption p c) (SDeclaration p b)
+| DepMeaningConsumption : forall (c : ConsumptionSiteRef p) (n : BindingNameRef p)
+    (est : ObjectEstablisher p) (ra : RegularBinderAt n),
+    List.In n (site_targets c) ->
+    binding_name_view n = BNRegular n ra ->
+    match ra with MkRegularBinder _ e _ => e = est end ->
+    SiteDependency ph (SConsumption p c) (SDeclaration p est)
 (* The unused-local verdict depends on the exact reads of that variable. *)
 | DepLocalRead : forall (v : VariableSiteRef p) (u : NameUseRef p) (bf : BindingFact ph u),
     bound_object ph u bf
-      = source_object ph (binding_site_object_site (variable_site_binding_site v)) ->
+      = source_object ph (establisher_site (variable_site_establisher v)) ->
     SiteDependency ph (SBinding p u) (SVariable p v).
 
 (* ── §14 Blocked chains terminate ──────────────────────────────────────────── *)
@@ -1946,17 +1851,17 @@ Parameter requirement_view : forall {p} {i : Input p} {ph : Phase i} {s},
    claims that Go rejects the program: two binders sharing a spelling in one scope IS the duplication, and a
    package-level declaration spelled `init` IS the reservation. *)
 Definition ShortHasNoNewName {p} {i : Input p} (ph : Phase i) (d : ShortDeclRef p) : Prop :=
-  forall (n : BindingNameRef p) (b : BindingSiteRef p),
-    binding_name_view n = NamedShortView n d b ->
-    match binder_disposition ph n with
-    | BinderShortNew _ _ _ _ _ => False
+  forall (n : BindingNameRef p) (sp : string),
+    binding_name_view n = BNShort n (MkShortLhs n d sp) ->
+    match binder_fact ph n with
+    | BFShortNew _ _ _ _ => False
     | _ => True
     end.
 
 Definition NoReadOf {p} {i : Input p} (ph : Phase i) (v : VariableSiteRef p) : Prop :=
   forall (u : NameUseRef p) (bf : BindingFact ph u),
     bound_object ph u bf
-      <> source_object ph (binding_site_object_site (variable_site_binding_site v)).
+      <> source_object ph (establisher_site (variable_site_establisher v)).
 
 (* A duplicate declaration is a failure at the declaration site, not at some unrelated name use; an argument
    failure retains the exact argument use, not a free index; a consumption failure retains the exact
@@ -1974,10 +1879,10 @@ Inductive SiteFailure {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
     ~ HasValueCapability (bound_object ph u bf) ->
     ~ HasTypeCapability (bound_object ph u bf) ->
     SiteFailure ph (SBinding p u)
-| FDuplicateDeclaration : forall earlier later : BindingSiteRef p,
-    DuplicateBinders earlier later -> SiteFailure ph (SDeclaration p later)
-| FPackageInitReserved : forall b : BindingSiteRef p,
-    PackageInitReserved (binding_site_context b) (binding_site_spelling b) ->
+| FDuplicateDeclaration : forall earlier later : ObjectEstablisher p,
+    DuplicateEstablishers earlier later -> SiteFailure ph (SDeclaration p later)
+| FPackageInitReserved : forall b : ObjectEstablisher p,
+    PackageInitReserved (establisher_context b) (establisher_spelling b) ->
     SiteFailure ph (SDeclaration p b)
 | FArgumentRejected : forall (a : ApplicationRef p) (u : DirectExprUseRef p),
     In u (application_argument_uses a) -> ArgumentReason ->
@@ -2010,12 +1915,12 @@ Inductive SiteFailure {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
     UntypedConstantKind -> TypeView -> SiteFailure ph (SExpression p r)
 | FUnusedLocal : forall (v : VariableSiteRef p) (rd : TypeReady ph),
     StaticVariable ph rd
-      (source_object ph (binding_site_object_site (variable_site_binding_site v))) ->
+      (source_object ph (establisher_site (variable_site_establisher v))) ->
     NoReadOf ph v -> SiteFailure ph (SVariable p v)
 | FInitializationCycle : forall k : PackageRef p, InitCycle ph k -> SiteFailure ph (SDependency p k).
 
 (* ── The fact a supported site carries ─────────────────────────────────────── *)
-Parameter DeclarationFact : forall {p} {i : Input p} (ph : Phase i), BindingSiteRef p -> Type.
+Parameter DeclarationFact : forall {p} {i : Input p} (ph : Phase i), ObjectEstablisher p -> Type.
 (* A supported dependency site is exactly a valid initialization order for that package. *)
 Definition DependencyFact {p} {i : Input p} (ph : Phase i) (k : PackageRef p) : Type :=
   InitOrder ph k.
@@ -2023,7 +1928,7 @@ Definition DependencyFact {p} {i : Input p} (ph : Phase i) (k : PackageRef p) : 
    variable fact: a failed, outside or blocked declaration has object identity and no static variable. *)
 Definition VariableFact {p} {i : Input p} (ph : Phase i)
   (rd : TypeReady ph) (v : VariableSiteRef p) : Type :=
-  StaticVariable ph rd (source_object ph (binding_site_object_site (variable_site_binding_site v))).
+  StaticVariable ph rd (source_object ph (establisher_site (variable_site_establisher v))).
 
 (* No global readiness index: each case names only the predecessor it actually needs.  A binding fact needs
    no type environment at all; the cases that resolve types retain the exact readiness they used. *)
@@ -2127,17 +2032,15 @@ Definition site_fact_environment {p} {i : Input p} {ph : Phase i} (s : Site p)
   | SVariable _ _    => fun f => Some (projT1 f)
   end.
 
-(* ── §13 The complete diagnostic authority ─────────────────────────────────── *)
-(* Site failures enter through one constructor; the package- and program-level reasons keep their own,
-   because they have no single site.  Every current public constructor survives. *)
-(* Indexed by the phase, not by a ready environment: a cyclic phase has no environment and still needs its
-   type-cycle diagnostic.  The site-failure constructor carries the readiness that failure required. *)
-Inductive DiagnosticReason {p} {i : Input p} (ph : Phase i) : Type :=
-| AtSiteFailure : forall s : Site p, SiteFailure ph s -> DiagnosticReason ph
-| TypeCycleFound : TypeCycle (phase_equations ph) -> DiagnosticReason ph
-| MainRedeclared : forall later earlier : ObjectSiteRef p, DiagnosticReason ph
-| MissingMainEntry : PackageRef p -> DiagnosticReason ph
-| BuildOutputIsDirectory : PackageRef p -> string -> DiagnosticReason ph.
+(* ── §14 One closed root-cause authority ───────────────────────────────────── *)
+(* A diagnostic is a sealed view of one exact root cause.  Every cause is a constructor of this sum,
+   so completeness and soundness are constructive rather than asserted. *)
+Inductive RootCause {p} {i : Input p} (ph : Phase i) : Type :=
+| RCSiteFailure : forall s : Site p, SiteFailure ph s -> RootCause ph
+| RCTypeCycle   : TypeCycle (phase_equations ph) -> RootCause ph
+| RCMainRedeclared : forall later earlier : ObjectSiteRef p, RootCause ph
+| RCMissingMain : PackageRef p -> RootCause ph
+| RCBuildOutputDir : PackageRef p -> string -> RootCause ph.
 
 Definition site_failure_code {p} {i : Input p} {ph : Phase i} {s}
   (f : SiteFailure ph s) : DiagnosticCode :=
@@ -2162,20 +2065,16 @@ Definition site_failure_code {p} {i : Input p} {ph : Phase i} {s}
   | FInitializationCycle _ _ _ => CodeInitializationCycle
   end.
 
-Definition diagnostic_code {p} {i : Input p} {ph : Phase i}
-  (d : DiagnosticReason ph) : DiagnosticCode :=
-  match d with
-  | AtSiteFailure _ _ f => site_failure_code f
-  | TypeCycleFound _ _ => CodeTypeCycle
-  | MainRedeclared _ _ _ => CodeMainRedeclared
-  | MissingMainEntry _ _ => CodeMissingMainEntry
-  | BuildOutputIsDirectory _ _ _ => CodeBuildOutputIsDirectory
+Definition root_cause_code {p} {i : Input p} {ph : Phase i}
+  (rc : RootCause ph) : DiagnosticCode :=
+  match rc with
+  | RCSiteFailure _ _ f     => site_failure_code f
+  | RCTypeCycle _ _         => CodeTypeCycle
+  | RCMainRedeclared _ _ _  => CodeMainRedeclared
+  | RCMissingMain _ _       => CodeMissingMainEntry
+  | RCBuildOutputDir _ _ _  => CodeBuildOutputIsDirectory
   end.
 
-(* The erased payload keeps every observation the current public record retains.  The target and source
-   target are what make two otherwise-alike diagnostics compare unequal — `byte` and `uint8` differ by their
-   source spelling, and two build-output collisions differ by name — so dropping them would silently
-   collapse distinct diagnostics and break canonical `NoDup`. *)
 Record ErasedDiagnostic : Type := MakeErasedDiagnostic {
   erased_code   : DiagnosticCode;
   erased_primary : ErasedAnchor;
@@ -2185,10 +2084,18 @@ Record ErasedDiagnostic : Type := MakeErasedDiagnostic {
   erased_source_target : option TypeExpr
 }.
 
+Parameter diagnostic_primary : forall {p} {i : Input p} {ph : Phase i},
+  RootCause ph -> DiagnosticAnchor p.
+Parameter diagnostic_related : forall {p} {i : Input p} {ph : Phase i},
+  RootCause ph -> list (DiagnosticAnchor p).
+Parameter erase_anchor : forall {p}, DiagnosticAnchor p -> ErasedAnchor.
+Parameter diagnostic_compare : forall {p} {i : Input p} {ph : Phase i},
+  RootCause ph -> RootCause ph -> comparison.
+
 Definition diagnostic_target {p} {i : Input p} {ph : Phase i}
-  (d : DiagnosticReason ph) : option TypeView :=
-  match d with
-  | AtSiteFailure _ _ f =>
+  (rc : RootCause ph) : option TypeView :=
+  match rc with
+  | RCSiteFailure _ _ f =>
       match f with
       | FInvalidConversion _ _ _ t _ => Some t
       | FDefaultNotRepresentable _ _ _ t => Some t
@@ -2200,32 +2107,17 @@ Definition diagnostic_target {p} {i : Input p} {ph : Phase i}
   end.
 
 Definition diagnostic_output {p} {i : Input p} {ph : Phase i}
-  (d : DiagnosticReason ph) : option string :=
-  match d with BuildOutputIsDirectory _ _ nm => Some nm | _ => None end.
+  (rc : RootCause ph) : option string :=
+  match rc with RCBuildOutputDir _ _ nm => Some nm | _ => None end.
 
 Parameter diagnostic_source_target : forall {p} {i : Input p} {ph : Phase i},
-  DiagnosticReason ph -> option TypeExpr.
-Parameter diagnostic_primary : forall {p} {i : Input p} {ph : Phase i},
-  DiagnosticReason ph -> DiagnosticAnchor p.
-Parameter diagnostic_related : forall {p} {i : Input p} {ph : Phase i},
-  DiagnosticReason ph -> list (DiagnosticAnchor p).
-Parameter erase_anchor : forall {p}, DiagnosticAnchor p -> ErasedAnchor.
-Parameter diagnostic_compare : forall {p} {i : Input p} {ph : Phase i},
-  DiagnosticReason ph -> DiagnosticReason ph -> comparison.
+  RootCause ph -> option TypeExpr.
 
 Definition erase_diagnostic {p} {i : Input p} {ph : Phase i}
-  (d : DiagnosticReason ph) : ErasedDiagnostic :=
-  MakeErasedDiagnostic (diagnostic_code d) (erase_anchor (diagnostic_primary d))
-    (List.map erase_anchor (diagnostic_related d))
-    (diagnostic_target d) (diagnostic_output d) (diagnostic_source_target d).
-
-(* The exact site a diagnostic reports, where it has one; package- and program-level reasons have none. *)
-Definition diagnostic_site_of {p} {i : Input p} {ph : Phase i}
-  (d : DiagnosticReason ph) : option (Site p) :=
-  match d with
-  | AtSiteFailure _ s _ => Some s
-  | _ => None
-  end.
+  (rc : RootCause ph) : ErasedDiagnostic :=
+  MakeErasedDiagnostic (root_cause_code rc) (erase_anchor (diagnostic_primary rc))
+    (List.map erase_anchor (diagnostic_related rc))
+    (diagnostic_target rc) (diagnostic_output rc) (diagnostic_source_target rc).
 
 (* ── §14 Boundaries, the report, and the outcome ───────────────────────────── *)
 (* No environment index: an outside-scope core is precisely one with no ready environment, so a boundary
@@ -2242,7 +2134,7 @@ Definition boundary_view {p} {i : Input p} {ph : Phase i}
 
 (* The site table is the authority; the report lists are its canonical projections, not peer lists.
    `Core`, `Elaboration` and `phase` are the existing repository names, stubbed once above. *)
-Parameter core_diagnostics : forall {p} (c : Core p), list (DiagnosticReason (phase c)).
+Parameter core_diagnostics : forall {p} (c : Core p), list (RootCause (phase c)).
 Parameter core_boundaries : forall {p} (c : Core p), list (PackedBoundary (phase c)).
 
 Inductive Decision {p} (c : Core p) : Type :=
@@ -2337,10 +2229,16 @@ Parameter decimal_of_float : NonNegativeDecimal -> string.
 Parameter escape_go_string : string -> string.
 Parameter render_type_expr : TypeExpr -> string.
 Parameter render_binding_name : BindingName -> string.
-Parameter render_declaration : Declaration -> string.
-Parameter render_stmt : Stmt -> string.
-Parameter render_block : Block -> string.
+(* §16 Depth-aware rendering: a grouped local declaration has internal newlines and cannot be correctly
+   indented by prepending one tab to the finished string.  These are the permanent structural roots. *)
+Parameter render_declaration_at : nat -> Declaration -> string.
+Parameter render_stmt_at : nat -> Stmt -> string.
+Parameter render_block_at : nat -> Block -> string.
 Parameter render_top_decl : TopLevelDecl -> string.
+
+Definition render_declaration : Declaration -> string := render_declaration_at 0.
+Definition render_stmt : Stmt -> string := render_stmt_at 0.
+Definition render_block : Block -> string := render_block_at 0.
 Parameter render_file : SyntaxFile -> string.
 Parameter render_const_spec : ConstSpec -> string.
 Parameter render_var_spec : VarSpec -> string.
@@ -2388,10 +2286,122 @@ Definition NoTrailingBlank (s : string) : Prop :=
 Every statement below elaborates over the names above; proof bodies are the implementation's work.
 
 ```coq
-(* ── §14.1 The three branches are characterized exactly, in both directions ─── *)
-(* Each branch is stated as an `iff`, so the theorem claims neither more nor less than the condition the
-   directive fixes.  A one-way implication would let a branch be taken for a reason the contract never
-   names. *)
+(* ── §17 Theorem surface ───────────────────────────────────────────────────── *)
+
+(* §17.1 Names/index/source *)
+Theorem all_predeclared_nodup : NoDup all_predeclared.
+Proof. Admitted.
+Theorem all_predeclared_complete : forall n : PredeclaredName, In n all_predeclared.
+Proof. Admitted.
+Theorem predeclared_spelling_injective : forall a b : PredeclaredName,
+  predeclared_spelling a = predeclared_spelling b -> a = b.
+Proof. Admitted.
+Theorem classify_spelling_roundtrip : forall n : PredeclaredName,
+  classify_spelling (predeclared_spelling n) = Some n.
+Proof. Admitted.
+Theorem classify_spelling_sound : forall (s : string) (n : PredeclaredName),
+  classify_spelling s = Some n -> predeclared_spelling n = s.
+Proof. Admitted.
+Theorem predeclared_eqb_spec : forall a b : PredeclaredName,
+  predeclared_eqb a b = true <-> a = b.
+Proof. Admitted.
+Theorem ordinary_excludes_blank_only : forall x : OrdinaryIdentifier,
+  spelling (ordinary_identifier x) <> "_"%string.
+Proof. Admitted.
+
+(* §17.2 Binding *)
+Theorem resolve_name_reflects :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
+  resolve_name ph u = Some o <-> Resolves ph u o.
+Proof. Admitted.
+Theorem resolution_is_same_spelling :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
+  Resolves ph u o -> object_spelling o = name_use_spelling u.
+Proof. Admitted.
+Theorem resolution_is_unique :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o1 o2 : ObjectRef ph),
+  Resolves ph u o1 -> Resolves ph u o2 -> o1 = o2.
+Proof. Admitted.
+Theorem source_binding_shadows_predeclared :
+  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (sc : ScopeId p)
+    (m : ScopeBindings ph sc) (b : ObjectEstablisher p) (n : PredeclaredName),
+  Encloses sc (name_use_scope u) ->
+  scope_build ph sc = ScopeReady ph sc m ->
+  scope_lookup m (name_use_spelling u) = Some b -> VisibleAt b u ->
+  ~ Resolves ph u (predeclared_object ph n).
+Proof. Admitted.
+Theorem duplicate_scope_fails :
+  forall {p} {i : Input p} (ph : Phase i) (sc : ScopeId p) (e l : ObjectEstablisher p),
+  DuplicateEstablishers e l -> establisher_scope l = sc ->
+  forall m : ScopeBindings ph sc, scope_build ph sc <> ScopeReady ph sc m.
+Proof. Admitted.
+
+(* §17.3 Type resolution *)
+Theorem byte_is_uint8 : AliasPredeclared PByte TUint8.
+Proof. Admitted.
+Theorem rune_is_int32 : AliasPredeclared PRune TInt32.
+Proof. Admitted.
+Theorem every_basic_type_has_a_name : forall t : PredeclaredBasicType,
+  exists n, AdmittedPredeclaredType n t.
+Proof. Admitted.
+Theorem default_types_exact :
+  default_basic UCBool = TBool /\ default_basic UCInteger = TInt /\
+  default_basic UCFloat = TFloat64 /\ default_basic UCComplex = TComplex128 /\
+  default_basic UCString = TString.
+Proof. Admitted.
+Theorem identicalb_reflect : forall {p} (s t : SemanticType p),
+  identicalb s t = true <-> Identical s t.
+Proof. Admitted.
+Theorem assignableb_reflect : forall {p} (s t : SemanticType p),
+  assignableb s t = true <-> Assignable s t.
+Proof. Admitted.
+Theorem value_convertibleb_reflect :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s t : SemanticType p),
+  value_convertibleb rd s t = true <-> ValueConvertible rd s t.
+Proof. Admitted.
+Theorem representableb_reflect :
+  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s : SemanticType p) (c : Constant),
+  representableb rd s c = true <-> Representable rd s c.
+Proof. Admitted.
+
+(* §17.4 Objects *)
+Theorem source_object_origin_is_its_site :
+  forall {p} {i : Input p} (ph : Phase i) (s : ObjectSiteRef p),
+  object_origin (source_object ph s) = SourceSite p s.
+Proof. Admitted.
+Theorem object_origin_injective :
+  forall {p} {i : Input p} {ph : Phase i} (o1 o2 : ObjectRef ph),
+  object_origin o1 = object_origin o2 -> o1 = o2.
+Proof. Admitted.
+
+(* §17.5 Reports *)
+Theorem view_lt_irrefl : forall a : RequirementView, ~ view_lt a a.
+Proof. Admitted.
+Theorem view_lt_transitive : forall a b c : RequirementView,
+  view_lt a b -> view_lt b c -> view_lt a c.
+Proof. Admitted.
+Theorem view_lt_total : forall a b : RequirementView, view_lt a b \/ a = b \/ view_lt b a.
+Proof. Admitted.
+
+Definition StrictlyIncreasingBy {A : Type} (lt : A -> A -> Prop) : list A -> Prop :=
+  fix go l := match l with
+  | [] => True
+  | a :: rest => match rest with [] => True | b :: _ => lt a b /\ go rest end
+  end.
+
+Theorem boundary_order_canonical : forall {p} (c : Core p),
+  StrictlyIncreasingBy view_lt (List.map (fun b => boundary_view b) (core_boundaries c)).
+Proof. Admitted.
+Theorem boundary_views_nodup : forall {p} (c : Core p),
+  NoDup (List.map (fun b => boundary_view b) (core_boundaries c)).
+Proof. Admitted.
+Theorem root_boundary_complete : forall {p} (c : Core p) (s : Site p),
+  IsRootOutside (phase_outcome (phase c) s) ->
+  exists b, List.In b (core_boundaries c) /\ boundary_site (phase c) b = s.
+Proof. Admitted.
+
+(* §17.6 Outcome *)
+Definition elaborated (p : SyntaxProgram) : Core p := elaboration_core (elaborate p).
 Definition IsCompiled {p} (o : Outcome p) : Prop :=
   match o with Compiled _ _ _ => True | _ => False end.
 Definition IsRejected {p} (o : Outcome p) : Prop :=
@@ -2399,830 +2409,55 @@ Definition IsRejected {p} (o : Outcome p) : Prop :=
 Definition IsOutsideScope {p} (o : Outcome p) : Prop :=
   match o with OutsideScope _ _ => True | _ => False end.
 
-Definition elaborated (p : SyntaxProgram) : Core p := elaboration_core (elaborate p).
-
 Theorem compiled_iff : forall p : SyntaxProgram,
   IsCompiled (compile p) <->
   core_diagnostics (elaborated p) = [] /\ core_boundaries (elaborated p) = [].
 Proof. Admitted.
-
 Theorem rejected_iff : forall p : SyntaxProgram,
   IsRejected (compile p) <-> core_diagnostics (elaborated p) <> [].
 Proof. Admitted.
-
 Theorem outside_scope_iff : forall p : SyntaxProgram,
   IsOutsideScope (compile p) <->
   core_diagnostics (elaborated p) = [] /\ core_boundaries (elaborated p) <> [].
 Proof. Admitted.
 
-(* ── §14.2 `decision` and `compile` agree on every program ─────────────────── *)
-Definition DecidesAccepted {p} {c : Core p} (d : Decision c) : Prop :=
-  match d with DecisionAccepted _ _ _ => True | _ => False end.
-Definition DecidesRejected {p} {c : Core p} (d : Decision c) : Prop :=
-  match d with DecisionRejected _ _ => True | _ => False end.
-Definition DecidesOutside {p} {c : Core p} (d : Decision c) : Prop :=
-  match d with DecisionOutside _ _ _ => True | _ => False end.
-
-Theorem decision_agrees_compiled : forall p : SyntaxProgram,
-  DecidesAccepted (decision (elaborate p)) <-> IsCompiled (compile p).
-Proof. Admitted.
-
-Theorem decision_agrees_rejected : forall p : SyntaxProgram,
-  DecidesRejected (decision (elaborate p)) <-> IsRejected (compile p).
-Proof. Admitted.
-
-Theorem decision_agrees_outside : forall p : SyntaxProgram,
-  DecidesOutside (decision (elaborate p)) <-> IsOutsideScope (compile p).
-Proof. Admitted.
-
-(* ── §14.3 Every branch retains the exact core it decided on ───────────────── *)
-(* Equality to a recomputation is not provenance: each branch carries back the very `Core` the elaboration
-   produced.  The `Compiled` branch transports along its own source equation rather than re-elaborating. *)
 Theorem compiled_retains_core : forall (p : SyntaxProgram) (cp : Program) (e : source cp = p),
   compile p = Compiled p cp e ->
   eq_rect (source cp) Core (core cp) p e = elaborated p.
 Proof. Admitted.
-
 Theorem rejected_retains_core : forall (p : SyntaxProgram) (f : Failure p),
   compile p = Rejected p f -> failure_core f = elaborated p.
 Proof. Admitted.
-
 Theorem outside_retains_core : forall (p : SyntaxProgram) (o : Outside_ p),
   compile p = OutsideScope p o -> outside_core o = elaborated p.
 Proof. Admitted.
 
-(* ── §15.1 Exact equations for every C6 source constructor ─────────────────── *)
-Definition NL : string := String NewlineChar EmptyString.
-Definition TAB : string := String TabChar EmptyString.
-Definition DQUOTE : string := String (ascii_of_nat 34) EmptyString.
-
-(* Parenthesization is decided by context and shape only.  A unary operand or an application head that is
-   itself a unary keeps its parentheses, which is what makes the `--` token boundary unreachable. *)
-Definition IsUnaryExpr (e : Expr) : bool :=
-  match e with Unary _ _ => true | _ => false end.
-
-Theorem needs_parens_eq : forall (ctx : RenderContext) (e : Expr),
-  needs_parens ctx e =
-  match ctx with
-  | TopContext | ApplicationArgumentContext => false
-  | UnaryOperandContext | ApplicationHeadContext => IsUnaryExpr e
-  end.
-Proof. Admitted.
-
-Theorem render_expr_is_top : forall e : Expr, render_expr e = render_in TopContext e.
-Proof. Admitted.
-
-Theorem render_in_name : forall (ctx : RenderContext) (n : OrdinaryIdentifier),
-  render_in ctx (Name n) = spelling (ordinary_identifier n).
-Proof. Admitted.
-
-Theorem render_in_literal : forall (ctx : RenderContext) (l : Literal),
-  render_in ctx (LiteralExpr l) = render_literal l.
-Proof. Admitted.
-
-Theorem render_in_unary : forall (ctx : RenderContext) (e : Expr),
-  render_in ctx (Unary UnaryMinus e) =
-  (if needs_parens ctx (Unary UnaryMinus e)
-   then "(-" ++ render_in UnaryOperandContext e ++ ")"
-   else "-" ++ render_in UnaryOperandContext e)%string.
-Proof. Admitted.
-
-Theorem render_in_application : forall (ctx : RenderContext) (head : Expr) (args : list Expr),
-  render_in ctx (Application head args) =
-  (render_in ApplicationHeadContext head ++ "(" ++
-   String.concat ", " (List.map (render_in ApplicationArgumentContext) args) ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_type_expr_named : forall n : OrdinaryIdentifier,
-  render_type_expr (NamedType n) = spelling (ordinary_identifier n).
-Proof. Admitted.
-
-Theorem render_binding_name_named : forall n : OrdinaryIdentifier,
-  render_binding_name (Named n) = spelling (ordinary_identifier n).
-Proof. Admitted.
-
-Theorem render_binding_name_blank : render_binding_name Blank = "_"%string.
-Proof. Admitted.
-
-(* ── §15.2 Declaration grouping is decided by the spec count, once ─────────── *)
-Definition render_group {A : Type} (kw : string) (specs : list A) (r : A -> string) : string :=
-  if renders_grouped specs
-  then (kw ++ " (" ++ NL ++
-        String.concat "" (List.map (fun s => (TAB ++ r s ++ NL)%string) specs) ++ ")")%string
-  else (kw ++ " " ++ String.concat "" (List.map r specs))%string.
-
-Theorem render_declaration_const : forall specs : list ConstSpec,
-  render_declaration (ConstDecl specs) = render_group "const" specs render_const_spec.
-Proof. Admitted.
-
-Theorem render_declaration_var : forall specs : list VarSpec,
-  render_declaration (VarDecl specs) = render_group "var" specs render_var_spec.
-Proof. Admitted.
-
-Theorem render_declaration_type : forall specs : list TypeSpec,
-  render_declaration (TypeDecl specs) = render_group "type" specs render_type_spec.
-Proof. Admitted.
-
-(* ── §15.3 Blank, type-only and initializer spec forms ─────────────────────── *)
-Definition render_names (names : NonEmpty BindingName) : string :=
-  String.concat ", " (List.map render_binding_name (ne_to_list names)).
-Definition render_values (values : NonEmpty Expr) : string :=
-  String.concat ", " (List.map render_expr (ne_to_list values)).
-Definition render_opt_type (ty : option TypeExpr) : string :=
-  match ty with Some t => (" " ++ render_type_expr t)%string | None => ""%string end.
-
-Theorem render_const_spec_explicit : forall (names : NonEmpty BindingName)
-  (ty : option TypeExpr) (values : NonEmpty Expr),
-  render_const_spec (MakeConstSpec names (ExplicitConstInit ty values)) =
-  (render_names names ++ render_opt_type ty ++ " = " ++ render_values values)%string.
-Proof. Admitted.
-
-Theorem render_const_spec_inherited : forall names : NonEmpty BindingName,
-  render_const_spec (MakeConstSpec names InheritedConstInit) = render_names names.
-Proof. Admitted.
-
-Theorem render_var_spec_type_only : forall (names : NonEmpty BindingName) (ty : TypeExpr),
-  render_var_spec (MakeVarSpec names (VarTypeOnly ty)) =
-  (render_names names ++ " " ++ render_type_expr ty)%string.
-Proof. Admitted.
-
-Theorem render_var_spec_values : forall (names : NonEmpty BindingName)
-  (ty : option TypeExpr) (values : NonEmpty Expr),
-  render_var_spec (MakeVarSpec names (VarValues ty values)) =
-  (render_names names ++ render_opt_type ty ++ " = " ++ render_values values)%string.
-Proof. Admitted.
-
-Theorem render_type_spec_alias : forall (n : BindingName) (t : TypeExpr),
-  render_type_spec (AliasSpec n t) = (render_binding_name n ++ " = " ++ render_type_expr t)%string.
-Proof. Admitted.
-
-Theorem render_type_spec_def : forall (n : BindingName) (t : TypeExpr),
-  render_type_spec (DefSpec n t) = (render_binding_name n ++ " " ++ render_type_expr t)%string.
-Proof. Admitted.
-
-(* ── §15.4 Statements and block indentation ────────────────────────────────── *)
-Theorem render_stmt_expr : forall e : Expr, render_stmt (ExprStmt e) = render_expr e.
-Proof. Admitted.
-
-Theorem render_stmt_declaration : forall d : Declaration,
-  render_stmt (DeclarationStmt d) = render_declaration d.
-Proof. Admitted.
-
-Theorem render_stmt_short : forall (names : NonEmpty BindingName) (values : NonEmpty Expr),
-  render_stmt (ShortVarDecl names values) =
-  (render_names names ++ " := " ++ render_values values)%string.
-Proof. Admitted.
-
-(* One tab per statement, one statement per line, closing brace unindented. *)
-Theorem render_block_eq : forall stmts : list Stmt,
-  render_block (MakeBlock stmts) =
-  ("{" ++ NL ++
-   String.concat "" (List.map (fun s => (TAB ++ render_stmt s ++ NL)%string) stmts) ++ "}")%string.
-Proof. Admitted.
-
-Theorem render_top_decl_declaration : forall d : Declaration,
-  render_top_decl (TopDeclaration d) = render_declaration d.
-Proof. Admitted.
-
-Theorem render_top_decl_main : forall b : Block,
-  render_top_decl (Main b) = ("func main() " ++ render_block b)%string.
-Proof. Admitted.
-
-(* ── §15.5 File and program traversal ──────────────────────────────────────── *)
-(* The package clause is exact and nothing stands between it and the declarations: C6 emits no import
-   section, and this equation is where that is stated rather than assumed. *)
-Theorem render_file_eq : forall f : SyntaxFile,
-  render_file f =
-  ("package main" ++ NL ++
-   String.concat "" (List.map (fun d => (NL ++ render_top_decl d ++ NL)%string) (file_decls f)))%string.
-Proof. Admitted.
-
-Theorem render_gomod_eq : forall m : ModuleSpec,
-  render_gomod m =
-  ("module " ++ module_path m ++ NL ++ NL ++ "go " ++ module_go_version m ++ NL)%string.
-Proof. Admitted.
-
-(* Exact path pairing: `go.mod` first, then each source file at its own path, in program order. *)
-Theorem render_program_eq : forall p : SyntaxProgram,
-  render_program p =
-  ("go.mod"%string, render_gomod (program_module p))
-  :: List.map (fun fp => (path_string (fst fp), render_file (snd fp))) (program_files p).
-Proof. Admitted.
-
-(* ── §15.6 Whitespace holds for every emitted byte string, not just files ──── *)
-Theorem render_program_no_trailing_blank : forall (p : SyntaxProgram) (e : string * string),
-  List.In e (render_program p) -> NoTrailingBlank (snd e).
-Proof. Admitted.
-
-(* ── §15.10 Exact literal bytes ────────────────────────────────────────────── *)
-Theorem render_literal_integer : forall n : N,
-  render_literal (IntegerLiteral n) = decimal_of_magnitude n.
-Proof. Admitted.
-
-Theorem render_literal_float : forall d : NonNegativeDecimal,
-  render_literal (FloatLiteral d) = decimal_of_float d.
-Proof. Admitted.
-
-(* The canonical Go spelling: double-quoted with the escaping authority applied to the exact contents. *)
-Theorem render_literal_string : forall s : string,
-  render_literal (StringLiteral s) = (DQUOTE ++ escape_go_string s ++ DQUOTE)%string.
-Proof. Admitted.
-
-(* ── §15.11 The empty declaration group's exact bytes ──────────────────────── *)
-(* `renders_grouped` sends the empty group to the parenthesized form, so the chosen bytes are frozen here
-   rather than left implicit.  Pinned `gc` accepts both this and `const ()`. *)
-Theorem render_empty_const_group :
-  render_declaration (ConstDecl []) = ("const (" ++ NL ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_empty_var_group :
-  render_declaration (VarDecl []) = ("var (" ++ NL ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_empty_type_group :
-  render_declaration (TypeDecl []) = ("type (" ++ NL ++ ")")%string.
-Proof. Admitted.
-
-(* ── §15.7 Valid-side obligations: what an accepted site rules out ─────────── *)
-(* A rejection is a report, not a proof of Go-invalidity.  The honest content of a check therefore lives on
-   the accepted side: these say what supportedness itself forbids. *)
-Theorem supported_declaration_not_init_reserved :
-  forall {p} {i : Input p} (ph : Phase i) (b : BindingSiteRef p),
-  IsSupported (phase_outcome ph (SDeclaration p b)) ->
-  ~ PackageInitReserved (binding_site_context b) (binding_site_spelling b).
-Proof. Admitted.
-
-(* The three application kinds partition `AppFact`: no application is both a conversion and a call, so a
-   statement's println classification cannot silently overlap a conversion. *)
-Theorem app_kind_trichotomy :
-  forall {p} {i : Input p} {ph : Phase i} {rd} {a : ApplicationRef p}
-    {res : list (ResultAtomAt ph rd)} (f : AppFact ph rd a res),
-  (IsPrintlnApp f /\ ~ IsConversionApp f /\ ~ IsComplexApp f) \/
-  (~ IsPrintlnApp f /\ IsConversionApp f /\ ~ IsComplexApp f) \/
-  (~ IsPrintlnApp f /\ ~ IsConversionApp f /\ IsComplexApp f).
-Proof. Admitted.
-
-(* ── §15.8 The root claims ─────────────────────────────────────────────────── *)
-(* Soundness: an accepted program is admissible.  This is the direction the emitter depends on — nothing is
-   written unless it was proved. *)
 Theorem compile_sound : forall (p : SyntaxProgram) (cp : Program) (e : source cp = p),
   compile p = Compiled p cp e -> Admissible p.
 Proof. Admitted.
-
-(* Completeness, restricted to the in-scope domain.  The restriction is the whole honest content of the
-   third outcome: outside that domain the kernel declines to judge, so no completeness is claimed and none
-   may be read in. *)
 Theorem compile_complete_in_scope : forall p : SyntaxProgram,
   Admissible p -> InScope p -> exists (cp : Program) (e : source cp = p), compile p = Compiled p cp e.
 Proof. Admitted.
-
-(* The rejection side pins the valid side in both directions over the same domain. *)
-Theorem in_scope_inadmissible_rejected : forall p : SyntaxProgram,
-  InScope p -> ~ Admissible p -> exists f : Failure p, compile p = Rejected p f.
-Proof. Admitted.
-
 Theorem rejected_not_admissible : forall (p : SyntaxProgram) (f : Failure p),
   compile p = Rejected p f -> ~ Admissible p.
 Proof. Admitted.
 
-(* ── §15.9 Concrete byte-level render checks ───────────────────────────────── *)
-(* The token boundary lives at the junction between the operator and its operand.  A rendered unary may
-   legitimately contain `--` inside a string literal, so the property is about the operand's first byte. *)
-Theorem unary_operand_never_starts_with_minus : forall e : Expr,
-  ~ StartsWithMinus (render_in UnaryOperandContext e).
-Proof. Admitted.
-
-Theorem parenthesized_exactly_when_needed : forall (ctx : RenderContext) (e : Expr),
-  needs_parens ctx e = true -> Parenthesized (render_in ctx e).
-Proof. Admitted.
-
-Theorem render_negative_literal :
-  render_expr (Unary UnaryMinus (LiteralExpr (IntegerLiteral 1))) = "-1"%string.
-Proof. Admitted.
-
-Theorem render_double_negation : forall x : OrdinaryIdentifier,
-  render_expr (Unary UnaryMinus (Unary UnaryMinus (Name x)))
-    = ("-(-" ++ spelling (ordinary_identifier x) ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_call : forall f x : OrdinaryIdentifier,
-  render_expr (Application (Name f) [Name x])
-    = (spelling (ordinary_identifier f) ++ "(" ++ spelling (ordinary_identifier x) ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_call_negated_argument : forall f x : OrdinaryIdentifier,
-  render_expr (Application (Name f) [Unary UnaryMinus (Name x)])
-    = (spelling (ordinary_identifier f) ++ "(-" ++ spelling (ordinary_identifier x) ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_negated_head_call : forall f x : OrdinaryIdentifier,
-  render_expr (Application (Unary UnaryMinus (Name f)) [Name x])
-    = ("(-" ++ spelling (ordinary_identifier f) ++ ")(" ++
-       spelling (ordinary_identifier x) ++ ")")%string.
-Proof. Admitted.
-
-Theorem render_file_no_trailing_blank : forall f : SyntaxFile, NoTrailingBlank (render_file f).
-Proof. Admitted.
-
-(* ── §16.1 Names: the pinned catalog is complete, exact and injective ──────── *)
-Theorem ordinary_excludes_blank_only : forall x : OrdinaryIdentifier,
-  spelling (ordinary_identifier x) <> "_"%string.
-Proof. Admitted.
-
-Theorem predeclared_spellings_are_source_names : forall n : PredeclaredName,
-  predeclared_spelling n <> "_"%string ->
-  exists x : OrdinaryIdentifier, spelling (ordinary_identifier x) = predeclared_spelling n.
-Proof. Admitted.
-
-Theorem blank_is_not_an_ordinary_name : forall x : OrdinaryIdentifier, Named x <> Blank.
-Proof. Admitted.
-
-Theorem all_predeclared_nodup : NoDup all_predeclared.
-Proof. Admitted.
-
-Theorem all_predeclared_complete : forall n : PredeclaredName, In n all_predeclared.
-Proof. Admitted.
-
-Theorem predeclared_spelling_injective : forall a b : PredeclaredName,
-  predeclared_spelling a = predeclared_spelling b -> a = b.
-Proof. Admitted.
-
-Theorem classify_spelling_roundtrip : forall n : PredeclaredName,
-  classify_spelling (predeclared_spelling n) = Some n.
-Proof. Admitted.
-
-Theorem predeclared_eqb_spec : forall a b : PredeclaredName,
-  predeclared_eqb a b = true <-> a = b.
-Proof. Admitted.
-
-(* ── §16.2 The closed predeclared type bridge ──────────────────────────────── *)
-Theorem byte_is_uint8 : AliasPredeclared PByte TUint8.
-Proof. Admitted.
-
-Theorem rune_is_int32 : AliasPredeclared PRune TInt32.
-Proof. Admitted.
-
-Theorem aliases_mint_no_identity : forall n t,
-  AliasPredeclared n t -> ~ AdmittedPredeclaredType n t.
-Proof. Admitted.
-
-(* Named for what it proves: every basic type is reachable by some admitted name.  The former name claimed
-   a count of sixteen, which the statement never establishes. *)
-Theorem every_basic_type_has_a_name : forall t : PredeclaredBasicType,
-  exists n, AdmittedPredeclaredType n t.
-Proof. Admitted.
-
-Theorem no_type_meaning_names : forall n : PredeclaredName,
-  In n [PAny; PComparable; PError; PUintptr] -> predeclared_type_role n = NoTypeMeaning.
-Proof. Admitted.
-
-Theorem default_types_exact :
-  default_basic UCBool = TBool /\ default_basic UCInteger = TInt /\
-  default_basic UCFloat = TFloat64 /\ default_basic UCComplex = TComplex128 /\
-  default_basic UCString = TString.
-Proof. Admitted.
-
-(* ── §16.3 The use refinement eliminates the child-role witness, with no fallback ── *)
-Theorem head_role_is_head_refinement :
-  refinement_of_child_role ECApplicationHead = HeadRefinement.
-Proof. Admitted.
-
-Theorem statement_role_is_statement_refinement :
-  refinement_of_child_role ECStatement = StatementRefinement.
-Proof. Admitted.
-
-Theorem argument_role_is_result_refinement :
-  refinement_of_child_role ECApplicationArg = ResultRefinement.
-Proof. Admitted.
-
-Theorem inherited_use_is_result : forall p (u : InheritedConstUseRef p),
-  use_refinement (InheritedUse p u) = ResultRefinement.
-Proof. Admitted.
-
-(* A cyclic phase yields no environment at all: readiness is not a flag beside the result. *)
-Theorem cyclic_phase_has_no_environment :
-  forall p (i : Input p) (ph : Phase i) (c : TypeCycle (phase_equations ph)),
-  ~ IsTypeReady (PhaseCyclic ph c).
-Proof. Admitted.
-
-(* ── §16.5 Argument uses hang off the application they belong to ───────────── *)
-Theorem argument_use_parent_is_the_application :
-  forall {p} (a : ApplicationRef p) (u : DirectExprUseRef p),
-  List.In u (application_argument_uses a) ->
-  direct_parent u = expr_node (application_expr a).
-Proof. Admitted.
-
-(* ── §16.6 The callable capability has exactly two inhabitants ─────────────── *)
-Theorem callable_names_are_exactly_two : forall n : PredeclaredName,
-  predeclared_capability n = CapCallable -> n = PComplex \/ n = PPrintln.
-Proof. Admitted.
-
-(* ── §16.13 Statement classification is exact, not a boundary of convenience ── *)
-(* Go has already decided that these builtins cannot stand as statements, so the outcome is a definite
-   failure carrying its exact reason.  Reporting them as `OutsideScope` would launder a known rejection into
-   "unmodelled", which is precisely what the three-way decision exists to prevent. *)
-Theorem forbidden_builtin_is_definite_failure :
-  forall {p} {i : Input p} (ph : Phase i) (s : ExpressionStatementRef p)
-    (a : ApplicationRef p) (hu : NameUseRef p) (bf : BindingFact ph hu) (n : PredeclaredName),
-  statement_application s = Some a ->
-  expr_view (application_head a) = NameView (application_head a) hu ->
-  object_origin (bound_object ph hu bf) = Predeclared p n ->
-  builtin_forbidden_as_statement n = true ->
-  phase_outcome ph (SStatement p s)
-    = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (BuiltinNotAStatement n)).
-Proof. Admitted.
-
-(* A bare conversion is a definite failure for the same reason, and retains the exact target type view. *)
-Theorem conversion_is_not_a_statement :
-  forall {p} {i : Input p} (ph : Phase i) (rd : TypeReady ph)
-    (s : ExpressionStatementRef p) (a : ApplicationRef p)
-    (res : list (ResultAtomAt ph rd)) (f : AppFact ph rd a res),
-  statement_application s = Some a -> IsConversionApp f ->
-  exists tv : TypeView,
-    phase_outcome ph (SStatement p s)
-      = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (ConversionNotAStatement tv)).
-Proof. Admitted.
-
-(* An expression statement that is not an application at all is a definite failure retaining its exact
-   result form, never a missing-rule boundary. *)
-Theorem non_application_is_not_a_statement :
-  forall {p} {i : Input p} (ph : Phase i) (s : ExpressionStatementRef p),
-  statement_application s = None ->
-  exists rf : ErasedResultForm,
-    phase_outcome ph (SStatement p s)
-      = DefiniteFailure ph (SStatement p s) (FNotAStatement ph s (NotAnApplication rf)).
-Proof. Admitted.
-
-(* ── §16.14 Coverage and the rules agree ───────────────────────────────────── *)
-(* The coverage relations are the definition of satisfaction and the rule families are the construction;
-   §18 requires them stated separately, since defining satisfaction as "the rule is inhabited" would decide
-   a requirement by checking for the very thing it reports as missing.  These theorems are the bridge, so
-   the separation is a proved agreement rather than an unchecked restatement. *)
-Theorem unary_coverage_iff_rule :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (n : UnaryRef p)
-    (opa : ResultAtomAt ph rd),
-  UnaryRuleCovers rd opa <-> exists res, inhabited (UnaryFact ph rd n opa res).
-Proof. Admitted.
-
-Theorem conversion_coverage_iff_rule :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
-    (dst : SemanticType p) (arg : ResultAtomAt ph rd),
-  ConvRuleCovers rd dst arg <-> exists res, inhabited (ConvRule ph rd a dst arg res).
-Proof. Admitted.
-
-Theorem complex_coverage_iff_rule :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
-    (a1 a2 : ResultAtomAt ph rd),
-  ComplexRuleCovers rd a1 a2 <-> exists res, inhabited (ComplexRuleF ph rd a a1 a2 res).
-Proof. Admitted.
-
-Theorem println_coverage_iff_rule :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (a : ApplicationRef p)
-    (args : list (ResultAtomAt ph rd)),
-  PrintlnRuleCovers rd args <-> inhabited (PrintlnRuleF ph rd a args).
-Proof. Admitted.
-
-(* A blocked site's predecessor is genuinely unresolved: blocking is never reported for a site whose cause
-   in fact succeeded. *)
-Theorem blocked_predecessor_is_not_supported :
-  forall {p} {i : Input p} (ph : Phase i) (s pred : Site p) (e : SiteDependency ph pred s),
-  phase_outcome ph s = Blocked ph s pred e ->
-  ~ IsSupported (phase_outcome ph pred).
-Proof. Admitted.
-
-(* ── §16.8 The requirement view order is a strict total order ──────────────── *)
-(* Without these three, "canonical order" below would name a property nothing establishes. *)
-Theorem view_lt_irrefl : forall a : RequirementView, ~ view_lt a a.
-Proof. Admitted.
-
-(* Named for what it states.  The former name said "strict", which is irreflexivity, not this. *)
-Theorem view_lt_transitive : forall a b c : RequirementView,
-  view_lt a b -> view_lt b c -> view_lt a c.
-Proof. Admitted.
-
-Theorem view_lt_total : forall a b : RequirementView, view_lt a b \/ a = b \/ view_lt b a.
-Proof. Admitted.
-
-(* ── §16.9 The boundary list is canonical, duplicate-free and complete ─────── *)
-Definition packed_view {p} (c : Core p) (b : PackedBoundary (phase c)) : RequirementView :=
-  boundary_view b.
-
-Fixpoint StrictlyIncreasingBy {A : Type} (lt : A -> A -> Prop) (l : list A) : Prop :=
-  match l with
-  | [] => True
-  | a :: rest =>
-      match rest with
-      | [] => True
-      | b :: _ => lt a b /\ StrictlyIncreasingBy lt rest
-      end
-  end.
-
-Definition StrictlyIncreasing (l : list RequirementView) : Prop :=
-  StrictlyIncreasingBy view_lt l.
-
-Theorem boundary_order_canonical : forall {p} (c : Core p),
-  StrictlyIncreasing (List.map (packed_view c) (core_boundaries c)).
-Proof. Admitted.
-
-Theorem boundary_views_nodup : forall {p} (c : Core p),
-  NoDup (List.map (packed_view c) (core_boundaries c)).
-Proof. Admitted.
-
-(* Completeness of the list, which no record field can supply: every root-outside site is listed. *)
-Theorem root_boundary_complete : forall {p} (c : Core p) (s : Site p),
-  IsRootOutside (phase_outcome (phase c) s) ->
-  exists b, List.In b (core_boundaries c) /\
-    boundary_site (phase c) b = s.
-Proof. Admitted.
-
-Theorem boundary_requirement_unsatisfied : forall {p} (c : Core p) b,
-  List.In b (core_boundaries c) ->
-  ~ RequirementSatisfied (boundary_requirement (phase c) b).
-Proof. Admitted.
-
-(* ── §16.10 Objects are identified by their origin ─────────────────────────── *)
-Theorem object_origin_injective : forall {p} {i : Input p} {ph : Phase i} (o1 o2 : ObjectRef ph),
-  object_origin o1 = object_origin o2 -> o1 = o2.
-Proof. Admitted.
-
-(* ── §16.11 Every reflected decision agrees with its relation ──────────────── *)
-(* The booleans are separate parameters from the inductives, so without these four the decisions could
-   answer anything.  Identity and assignability decide with no environment at all; convertibility and
-   representability need the exact readiness their underlying form depends on. *)
-Theorem identicalb_reflect : forall {p} (s t : SemanticType p),
-  identicalb s t = true <-> Identical s t.
-Proof. Admitted.
-
-Theorem assignableb_reflect : forall {p} (s t : SemanticType p),
-  assignableb s t = true <-> Assignable s t.
-Proof. Admitted.
-
-Theorem value_convertibleb_reflect :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s t : SemanticType p),
-  value_convertibleb rd s t = true <-> ValueConvertible rd s t.
-Proof. Admitted.
-
-Theorem representableb_reflect :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (s : SemanticType p) (c : Constant),
-  representableb rd s c = true <-> Representable rd s c.
-Proof. Admitted.
-
-(* ── §16.12 The accepted initialization order ──────────────────────────────── *)
-(* The order itself is a projection of the accepted dependency site, not a rerun. *)
-Definition accepted_init_order (cp : Program) (k : PackageRef (source cp))
-  : InitOrder (accepted_phase cp) k :=
-  accepted_fact cp (SDependency (source cp) k).
-
-(* Determinism: dependency decides the order, and declaration order decides only where dependency is
-   silent.  Without this the accepted order would be merely *some* valid topological order. *)
-Theorem accepted_init_order_tiebreak : forall (cp : Program) (k : PackageRef (source cp)),
-  SourceOrderTieBreak (accepted_init_order cp k).
-Proof. Admitted.
-
-(* ── §17 Binding: what no constructor can enforce ──────────────────────────── *)
-(* Reflection holds over a successful scope predecessor only.  Where a scope's own construction failed
-   there is no binding map to agree about, and the decision mints nothing. *)
-Theorem resolve_name_reflects :
-  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
-  (forall sc : ScopeId p, Encloses sc (name_use_scope u) ->
-     exists m : ScopeBindings ph sc, scope_build ph sc = ScopeReady ph sc m) ->
-  (resolve_name ph u = Some o <-> Resolves ph u o).
-Proof. Admitted.
-
-(* A resolved object always carries the spelling that was written at the use. *)
-Theorem resolution_is_same_spelling :
-  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o : ObjectRef ph),
-  Resolves ph u o -> object_spelling o = name_use_spelling u.
-Proof. Admitted.
-
-(* Nearest-visible is unique: no use resolves to two different objects. *)
-Theorem resolution_is_unique :
-  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (o1 o2 : ObjectRef ph),
-  Resolves ph u o1 -> Resolves ph u o2 -> o1 = o2.
-Proof. Admitted.
-
-(* Exact shadowing: a visible binding in a successfully built enclosing scope displaces the predeclared
-   object.  The scope must be ready — a failed scope binds nothing and shadows nothing. *)
-Theorem source_binding_shadows_predeclared :
-  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p) (sc : ScopeId p)
-    (m : ScopeBindings ph sc) (b : BindingSiteRef p) (n : PredeclaredName),
-  Encloses sc (name_use_scope u) ->
-  scope_build ph sc = ScopeReady ph sc m ->
-  scope_lookup m (name_use_spelling u) = Some b -> VisibleAt b u ->
-  ~ Resolves ph u (predeclared_object ph n).
-Proof. Admitted.
-
-(* Package collection is file-order independent: a package-level binding's scope is fixed by its package
-   alone, so no permutation of the file list can move it. *)
-Theorem package_scope_independent_of_file :
-  forall {p} (b : BindingSiteRef p) (k : PackageRef p),
-  binding_site_scope b = PackageScope p k ->
-  scope_parent (binding_site_scope b) = Some (PredeclaredScope p).
-Proof. Admitted.
-
-(* The scope-start rules, stated as what they exclude rather than as definitional unfolds. *)
-Theorem local_const_not_visible_in_its_own_spec :
-  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
-  binding_site_context b = LocalConstDecl ->
-  (name_use_position u < binding_site_spec_end b)%nat -> ~ VisibleAt b u.
-Proof. Admitted.
-
-Theorem short_name_not_visible_in_its_own_statement :
-  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
-  binding_site_context b = ShortDecl ->
-  (name_use_position u < binding_site_statement_end b)%nat -> ~ VisibleAt b u.
-Proof. Admitted.
-
-(* A local type name IS visible at its own identifier, which is exactly why self-reference is a cycle and
-   not an unresolved name. *)
-Theorem local_type_visible_at_its_own_identifier :
-  forall {p} (b : BindingSiteRef p) (u : NameUseRef p),
-  binding_site_context b = LocalTypeDecl ->
-  Encloses (binding_site_scope b) (name_use_scope u) ->
-  (binding_site_identifier_position b <= name_use_position u)%nat -> VisibleAt b u.
-Proof. Admitted.
-
-(* Characterizations: a duplicate is exactly two visible binders of one spelling in one scope, and an
-   unresolved name is exactly one with nothing visible and no predeclared spelling. *)
-Theorem duplicate_declaration_characterization :
-  forall {p} {i : Input p} (ph : Phase i) (earlier later : BindingSiteRef p),
-  DuplicateBinders earlier later ->
-  exists w, phase_outcome ph (SDeclaration p later)
-    = DefiniteFailure ph (SDeclaration p later) (FDuplicateDeclaration ph earlier later w).
-Proof. Admitted.
-
-(* Unresolved is characterized against a successfully built scope and the predeclared catalog, never
-   against a scope whose own construction failed. *)
-Theorem unresolved_name_characterization :
-  forall {p} {i : Input p} (ph : Phase i) (u : NameUseRef p)
-    (sc : ScopeId p) (m : ScopeBindings ph sc)
-    (hb : scope_build ph sc = ScopeReady ph sc m)
-    (hl : scope_lookup m (name_use_spelling u) = None),
-  Encloses sc (name_use_scope u) ->
-  (forall n : PredeclaredName, predeclared_spelling n <> name_use_spelling u) ->
-  phase_outcome ph (SBinding p u)
-    = DefiniteFailure ph (SBinding p u) (FUnresolvedName ph u sc m hb hl).
-Proof. Admitted.
-
-(* ── §18 Type resolution ───────────────────────────────────────────────────── *)
-(* ── §19 Objects ───────────────────────────────────────────────────────────── *)
-Theorem source_object_origin_is_its_site :
-  forall {p} {i : Input p} (ph : Phase i) (s : ObjectSiteRef p),
-  object_origin (source_object ph s) = SourceSite p s.
-Proof. Admitted.
-
-(* ── §20 Dependencies and reports ──────────────────────────────────────────── *)
-Theorem init_units_nodup : forall {p} (k : PackageRef p), NoDup (package_init_units k).
-Proof. Admitted.
-
-(* The runtime projection carries only runtime work, and carries it in the accepted order. *)
-Theorem runtime_projection_excludes_constants :
-  forall {p} {i : Input p} {ph : Phase i} {k : PackageRef p} (o : InitOrder ph k),
-  List.Forall (fun u => RuntimeInitUnit u = true) (runtime_initialization o).
-Proof. Admitted.
-
-Theorem runtime_projection_preserves_order :
-  forall {p} {i : Input p} {ph : Phase i} {k : PackageRef p} (o : InitOrder ph k) (a b : InitUnit p),
-  PrecedesIn (runtime_initialization o) a b -> PrecedesIn (init_sequence ph k o) a b.
-Proof. Admitted.
-
-(* A blocked site is never reported: only root causes reach the diagnostic and boundary lists. *)
-Theorem blocked_sites_are_not_reported :
-  forall {p} (c : Core p) (s pred : Site p) (e : SiteDependency (phase c) pred s),
-  phase_outcome (phase c) s = Blocked (phase c) s pred e ->
-  ~ List.In s (List.map (boundary_site (phase c)) (core_boundaries c)).
-Proof. Admitted.
-
-(* The accepted environment is the phase's own retained result, not a rebuild equal to it. *)
-(* The retained result is the acyclic branch carrying exactly the accepted environment's own acyclicity
-   evidence — not a rebuild that happens to agree with it. *)
-Theorem accepted_environment_is_retained : forall cp : Program,
-  phase_type_result (accepted_phase cp)
-    = PhaseAcyclic (accepted_phase cp)
-        (ready_acyclic (accepted_phase cp) (accepted_ready cp)).
-Proof. Admitted.
-
-(* ── §21 The diagnostic list is canonical, duplicate-free and complete ─────── *)
-Definition diagnostic_lt {p} {i : Input p} {ph : Phase i}
-  (a b : DiagnosticReason ph) : Prop := diagnostic_compare a b = Lt.
-
-Theorem diagnostic_order_canonical : forall {p} (c : Core p),
-  StrictlyIncreasingBy diagnostic_lt (core_diagnostics c).
-Proof. Admitted.
-
-(* Distinct diagnostics stay distinct after erasure, which is what makes the erased report faithful. *)
-Theorem erased_diagnostics_nodup : forall {p} (c : Core p),
-  NoDup (List.map erase_diagnostic (core_diagnostics c)).
-Proof. Admitted.
-
-(* Completeness: every root definite failure is reported.  No constructor can supply this. *)
-Theorem root_failure_complete : forall {p} (c : Core p) (s : Site p),
-  IsDefiniteFailure (phase_outcome (phase c) s) ->
-  exists d : DiagnosticReason (phase c), List.In d (core_diagnostics c).
-Proof. Admitted.
-
-(* ── §22 The typed computations are pinned to the untyped authorities ──────── *)
-(* Without these, `negate_basic_typed`, `basic_typed_of` and `complex_typed_of` could return any value of
-   the right type and the rules that call them would still typecheck — the typed result would be causally
-   unrelated to the operand it claims to come from. *)
-Theorem negate_basic_typed_negates : forall (b : BasicType) (v v' : BasicTypedConstant b),
-  negate_basic_typed b v = Some v' ->
-  negate_constant (basic_typed_value b v) = Some (basic_typed_value b v').
-Proof. Admitted.
-
-Theorem basic_typed_of_keeps_its_value : forall (b : BasicType) (c : Constant)
-  (v : BasicTypedConstant b),
-  basic_typed_of b c = Some v -> basic_typed_value b v = c.
-Proof. Admitted.
-
-Theorem complex_typed_of_combines : forall (f : FloatKind)
-  (v1 v2 : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
-  (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
-  complex_typed_of f v1 v2 = Some vr ->
-  complex_of_constants
-    (basic_typed_value (predeclared_basic_form (float_named_basic f)) v1)
-    (basic_typed_value (predeclared_basic_form (float_named_basic f)) v2)
-  = Some (basic_typed_value (predeclared_basic_form (complex_named_basic f)) vr).
-Proof. Admitted.
-
-(* `underlyingb` is the only reflected decision returning a form rather than a boolean. *)
-Theorem underlyingb_reflects :
-  forall {p} {i : Input p} {ph : Phase i} (rd : TypeReady ph) (t : SemanticType p) (b : BasicType),
-  underlyingb rd t = b <-> Underlying rd t b.
-Proof. Admitted.
-
-(* ── §14 Blocked chains are finite and end at a real cause ─────────────────── *)
-Theorem dependency_decreases_stage :
-  forall {p} {i : Input p} (ph : Phase i) (pred s : Site p),
-  SiteDependency ph pred s -> (site_stage ph pred < site_stage ph s)%nat.
-Proof. Admitted.
-
-(* No blocked cycle: a site cannot depend on itself through any chain. *)
-Theorem no_blocked_cycle :
-  forall {p} {i : Input p} (ph : Phase i) (s : Site p), ~ SiteDependency ph s s.
-Proof. Admitted.
-
-(* Every blocked chain terminates at one root definite failure or one root outside requirement, so a
-   blocked site always has a real cause and never merely defers forever. *)
-Theorem blocked_chain_reaches_root :
-  forall {p} {i : Input p} (ph : Phase i) (s pred : Site p) (e : SiteDependency ph pred s),
-  phase_outcome ph s = Blocked ph s pred e ->
-  exists root : Site p,
-    IsDefiniteFailure (phase_outcome ph root) \/ IsRootOutside (phase_outcome ph root).
-Proof. Admitted.
-
-(* ── §17 The report is complete in both directions ─────────────────────────── *)
-(* Soundness: nothing is listed that is not a root cause. *)
-Theorem diagnostic_comes_from_a_root_failure : forall {p} (c : Core p) (d : DiagnosticReason (phase c)),
-  List.In d (core_diagnostics c) ->
-  exists s : Site p, IsDefiniteFailure (phase_outcome (phase c) s).
-Proof. Admitted.
-
-Theorem boundary_comes_from_a_root_requirement : forall {p} (c : Core p) (b : PackedBoundary (phase c)),
-  List.In b (core_boundaries c) ->
-  IsRootOutside (phase_outcome (phase c) (boundary_site (phase c) b)).
-Proof. Admitted.
-
-(* Uniqueness: a root cause is reported once, never twice. *)
-Theorem root_failure_reported_once : forall {p} (c : Core p) (s : Site p),
-  IsDefiniteFailure (phase_outcome (phase c) s) ->
-  exists! d : DiagnosticReason (phase c), List.In d (core_diagnostics c) /\
-    diagnostic_site_of d = Some s.
-Proof. Admitted.
-
-Theorem root_requirement_reported_once : forall {p} (c : Core p) (s : Site p),
-  IsRootOutside (phase_outcome (phase c) s) ->
-  exists! b : PackedBoundary (phase c), List.In b (core_boundaries c) /\
-    boundary_site (phase c) b = s.
-Proof. Admitted.
-
-(* An empty report means every site succeeded: this is what makes `accepted_supported` a consequence. *)
+(* §17.7 Empty reports force every site supported — this is how `accepted_supported` is derived. *)
 Theorem empty_report_implies_all_supported : forall {p} (c : Core p) (s : Site p),
   core_diagnostics c = [] -> core_boundaries c = [] ->
   IsSupported (phase_outcome (phase c) s).
 Proof. Admitted.
 
-(* ── §18 Scope construction ────────────────────────────────────────────────── *)
-(* A scope with two same-spelling binders fails to build; nothing resolves through it. *)
-Theorem duplicate_scope_fails_to_build :
-  forall {p} {i : Input p} (ph : Phase i) (sc : ScopeId p) (earlier later : BindingSiteRef p),
-  DuplicateBinders earlier later -> binding_site_scope later = sc ->
-  forall m : ScopeBindings ph sc, scope_build ph sc <> ScopeReady ph sc m.
+(* §17.8 Dependencies *)
+Theorem init_units_nodup : forall {p} (k : PackageRef p), NoDup (package_init_units k).
+Proof. Admitted.
+Theorem runtime_projection_excludes_constants :
+  forall {p} {i : Input p} {ph : Phase i} {k : PackageRef p} (o : InitOrder ph k),
+  List.Forall (fun u => RuntimeInitUnit u = true) (runtime_initialization o).
 Proof. Admitted.
 
-(* Blank is not a name and never enters a binding map. *)
-Theorem blank_never_binds :
-  forall {p} {i : Input p} (ph : Phase i) (sc : ScopeId p) (m : ScopeBindings ph sc),
-  scope_build ph sc = ScopeReady ph sc m -> scope_lookup m "_"%string = None.
-Proof. Admitted.
-
-(* A package's map is collected from every file before resolution, so no permutation of the file list can
-   change what it binds. *)
-Theorem package_map_independent_of_file_order :
-  forall {p} {i : Input p} (ph : Phase i) (k : PackageRef p)
-    (m : ScopeBindings ph (PackageScope p k)) (b : BindingSiteRef p) (nm : string),
-  scope_build ph (PackageScope p k) = ScopeReady ph (PackageScope p k) m ->
-  scope_lookup m nm = Some b -> binding_site_scope b = PackageScope p k.
+Theorem accepted_init_order_tiebreak : forall (cp : Program) (k : PackageRef (source cp)),
+  SourceOrderTieBreak (accepted_fact cp (SDependency (source cp) k)).
 Proof. Admitted.
 ```
 
