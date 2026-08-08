@@ -209,9 +209,13 @@ def owner_after(text: str, block, path: str, is_first: bool):
         return 'file-module', Path(path).stem
     return None, None
 
+SCRATCH_PREFIXES = ('.review/scratch/',)
+
 def _residue(rel: str) -> bool:
     parts = rel.split('/')
-    return any(p in RESIDUE_DIRS for p in parts) or any(rel.endswith(s) for s in RESIDUE_SUFFIXES)
+    return (any(p in RESIDUE_DIRS for p in parts)
+            or any(rel.endswith(s) for s in RESIDUE_SUFFIXES)
+            or any(rel.startswith(pfx) for pfx in SCRATCH_PREFIXES))
 
 def inventory(root: Path, snapshot: bool):
     """The exact file set of the snapshot being measured. Never a silent empty scan."""
