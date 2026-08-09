@@ -295,8 +295,6 @@ Qed.
 
 (* One spelling authority: a type name spells exactly its catalog identity, never a second literal. *)
 Definition type_name_spelling (t : TypeName) : string := predeclared_spelling (type_name_predeclared t).
-Lemma type_name_spelling_ok : forall t, identifier_ok (type_name_spelling t) = true.
-Proof. intro t; unfold type_name_spelling; apply predeclared_spelling_ok. Qed.
 Lemma type_name_spelling_inj : forall a b, type_name_spelling a = type_name_spelling b -> a = b.
 Proof. intros a b H; apply type_name_predeclared_inj, predeclared_spelling_inj; exact H. Qed.
 
@@ -306,12 +304,17 @@ Definition type_name_equalb (a b : TypeName) : bool := if type_name_eq_dec a b t
 Lemma type_name_equalb_spec : forall a b, type_name_equalb a b = true <-> a = b.
 Proof. intros a b; unfold type_name_equalb; destruct (type_name_eq_dec a b); split; congruence. Qed.
 
+(* The source identifier is the exact catalog-owned value, projected, never rebuilt from the spelling. *)
 Definition type_name_identifier (t : TypeName) : Identifier :=
-  MakeIdentifier (type_name_spelling t) (type_name_spelling_ok t).
-Definition type_name_nonblank (t : TypeName) : is_blank (spelling (type_name_identifier t)) = false :=
-  predeclared_nonblank (type_name_predeclared t).
+  predeclared_identifier (type_name_predeclared t).
 Definition type_name_ordinary (t : TypeName) : OrdinaryIdentifier :=
-  MakeOrdinary (type_name_identifier t) (type_name_nonblank t).
+  predeclared_ordinary (type_name_predeclared t).
+Lemma type_name_identifier_projects :
+  forall t, type_name_identifier t = predeclared_identifier (type_name_predeclared t).
+Proof. reflexivity. Qed.
+Lemma type_name_ordinary_projects :
+  forall t, type_name_ordinary t = predeclared_ordinary (type_name_predeclared t).
+Proof. reflexivity. Qed.
 
 (* Source spelling -> full classifier -> current-subset projection: no second search over strings. *)
 Definition classify (s : string) : option TypeName :=

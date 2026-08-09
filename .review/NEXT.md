@@ -3,7 +3,9 @@
 Review: implementation
 
 Goal: ordinary source names acquire meaning only through binding. Every predeclared spelling is a legal
-source identifier and may be shadowed; blank is not an identifier at all. C6 lands the pinned predeclared
+source identifier and may be shadowed; `_` is a valid lexical `Names.Identifier` but not an
+`OrdinaryIdentifier`, and the future `Syntax.BindingName.Blank` source form creates no binding. C6 lands the
+pinned predeclared
 catalog, a closed type algebra with named predeclared types, exact constants, role-indexed use facts, rules
 that consume their exact operands, one result-occurrence authority, compiler-owned static variable identity,
 the static package dependency object, and a three-way decision that never calls unmodelled Go a rejection.
@@ -11,8 +13,9 @@ the static package dependency object, and a three-way decision that never calls 
 **C6 is entirely static.** No `Runtime`, value, place, store, environment or `Machine.T`; C7 introduces them
 as one vertical and materializes package **variables** only — constants stay compile-time facts.
 
-C6 is implemented directly in its permanent `Compilable.*` canonical modules, following the milestone process
-in `ARCHITECTURE.md` §1 "Two authorities, never two formal implementations". This document is governing prose:
+C6 is implemented directly in its permanent semantic owners — `Names.v` for the source-name root and the
+`Compilable.*` modules for the static semantic roots owned there — following the milestone process in
+`ARCHITECTURE.md` §1 "Two authorities, never two formal implementations". This document is governing prose:
 it owns C6's required meaning, scope, boundaries, evidence and stop conditions. The formal-looking blocks below
 (§"Remaining C6 migration inventory" and §"Theorems") are **temporary, non-authoritative migration inventory**,
 not an independently elaborated specification — read their terms before using them.

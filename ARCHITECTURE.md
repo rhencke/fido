@@ -57,10 +57,12 @@ source-name table in `Syntax`, `Typing` or `Render`.
 One row is the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**, because
 no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). `Safe`
 still holds the runtime value and evaluator path that belongs there; C6 deletes it from `Safe` and C7 rebuilds
-it under `Runtime`. The other rows describe the destination too, not a finished tree: `Names` does not yet
-hold the complete predeclared catalog, `Index` does not yet own the refined references C6 adds, `Typing` does
-not yet own a program-indexed algebra, and `Compilable` owns no scope, object, boundary or three-way decision.
-Each is a C6 obligation. What holds **today** is the division of responsibility, not its contents.
+it under `Runtime`. The other rows describe the destination too, not a finished tree: `Names` now owns the
+canonical ordinary-name refinement and the complete predeclared identity catalog, but `Index` does not yet own
+the refined references C6 adds, `Typing` does not yet own a program-indexed algebra, and `Compilable` owns no
+scope, object, boundary or three-way decision. Those remain C6 obligations, and the sixteen-name source
+conversion subset and `Compilable`'s fixed resolver survive only for the accepted C5 path until their later C6
+roots replace them. What holds **today** is the division of responsibility, not its contents.
 
 Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
 `Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
