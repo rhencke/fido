@@ -1,6 +1,6 @@
 From Stdlib Require Import String List.
 From Stdlib Require Import SetoidList.
-From Fido Require Import FilePath Collections ModulePath Version Syntax Compilable Safe Render.
+From Fido Require Import FilePath Collections Names Syntax Safe Render.
 Import ListNotations.
 
 Module FileMap := Syntax.FileMap.
@@ -51,10 +51,6 @@ Proof. intro img. exact (Mint.module_exact _ _ _ (origin img)). Qed.
 Theorem files_are_exact : forall img, files img = file_map (safe img).
 Proof. intro img. exact (Mint.files_exact _ _ _ (origin img)). Qed.
 
-Theorem provenance : forall img : Image,
-  exists sp, module_bytes img = module_file sp /\ files img = file_map sp.
-Proof. intro img. exists (safe img). split; [ apply module_bytes_exact | apply files_are_exact ]. Qed.
-
 Definition of_safe (sp : Safe.Program) : Image :=
   Pack sp (module_file sp) (file_map sp) (Mint.issue sp).
 Lemma of_safe_retains : forall sp, safe (of_safe sp) = sp.
@@ -94,17 +90,17 @@ Qed.
 Lemma of_safe_module_file_header : forall img,
   exists rest, module_bytes img = header ++ String nl_c rest.
 Proof.
-  intro img. destruct (provenance img) as [ sp [ Hgm _ ] ].
-  rewrite Hgm. unfold module_file, module_file_of. apply Render.module_file_first_line.
+  intro img. rewrite (module_bytes_exact img).
+  unfold module_file, module_file_of. apply Render.module_file_first_line.
 Qed.
 
-Lemma of_safe_module_file_ascii : forall img, str_ascii (module_bytes img) = true.
+Lemma of_safe_module_file_ascii : forall img, Names.str_ascii (module_bytes img) = true.
 Proof.
-  intro img. destruct (provenance img) as [ sp [ Hgm _ ] ].
-  rewrite Hgm. unfold module_file, module_file_of. apply Render.module_file_ascii.
+  intro img. rewrite (module_bytes_exact img).
+  unfold module_file, module_file_of. apply Render.module_file_ascii.
 Qed.
 
-Lemma entry_source : forall sp k b,
+Local Lemma entry_source : forall sp k b,
   In (k, b) (FileMap.elements (file_map sp)) -> exists sf, b = Render.file sf.
 Proof.
   intros sp k b Hin.
@@ -117,22 +113,22 @@ Qed.
 Lemma of_safe_header : forall img path bytes,
   In (path, bytes) (entries img) -> exists rest, bytes = header ++ String nl_c rest.
 Proof.
-  intros img path bytes H. destruct (provenance img) as [ sp [ _ Hm ] ].
-  unfold entries in H; rewrite Hm in H. apply List.in_map_iff in H.
+  intros img path bytes H.
+  unfold entries in H; rewrite (files_are_exact img) in H. apply List.in_map_iff in H.
   destruct H as [ [k b] [Heq Hin] ]. cbn in Heq. injection Heq as _ Hb. subst bytes.
-  destruct (entry_source sp k b Hin) as [ sf -> ]. apply Render.file_first_line.
+  destruct (entry_source (safe img) k b Hin) as [ sf -> ]. apply Render.file_first_line.
 Qed.
 
 Lemma of_safe_ascii : forall img path bytes,
-  In (path, bytes) (entries img) -> str_ascii bytes = true.
+  In (path, bytes) (entries img) -> Names.str_ascii bytes = true.
 Proof.
-  intros img path bytes H. destruct (provenance img) as [ sp [ _ Hm ] ].
-  unfold entries in H; rewrite Hm in H. apply List.in_map_iff in H.
+  intros img path bytes H.
+  unfold entries in H; rewrite (files_are_exact img) in H. apply List.in_map_iff in H.
   destruct H as [ [k b] [Heq Hin] ]. cbn in Heq. injection Heq as _ Hb. subst bytes.
-  destruct (entry_source sp k b Hin) as [ sf -> ]. apply Render.file_ascii.
+  destruct (entry_source (safe img) k b Hin) as [ sf -> ]. apply Render.file_ascii.
 Qed.
 
-Lemma no_duplicates_map_inj {A B} (f : A -> B) :
+Local Lemma no_duplicates_map_inj {A B} (f : A -> B) :
   (forall x y, f x = f y -> x = y) -> forall l, NoDup l -> NoDup (List.map f l).
 Proof.
   intros Hinj l; induction l as [ | x l' IH ]; simpl; intro Hnd.
@@ -141,19 +137,6 @@ Proof.
     + intro Hin. apply List.in_map_iff in Hin as [ y [Hfy Hy] ].
       apply Hinj in Hfy; subst y; contradiction.
     + apply IH; exact Hnd'.
-Qed.
-
-(* The standard-map [elements] have key-distinct bindings ([elements_3w]), so their key list is [NoDup]. *)
-Lemma no_duplicates_setoid_key_map_fst {A} : forall l : list (FileMap.key * A),
-  NoDupA (@FileMap.eq_key A) l -> NoDup (List.map fst l).
-Proof.
-  induction l as [ | [k v] l' IH ]; simpl; intro H.
-  - constructor.
-  - inversion H as [ | a m Hni Hnd ]; subst. constructor.
-    + intro Hin. apply List.in_map_iff in Hin. destruct Hin as [ [k' v'] [Hk Hin'] ].
-      simpl in Hk; subst k'. apply Hni. apply InA_alt. exists (k, v').
-      split; [ reflexivity | exact Hin' ].
-    + apply IH; exact Hnd.
 Qed.
 
 Lemma image_keys_nodup : forall img,
@@ -165,61 +148,20 @@ Proof.
     = List.map FilePath.text (List.map fst l)).
   { induction l as [ | [k v] l' IH ]; simpl; [ reflexivity | rewrite IH; reflexivity ]. }
   unfold entries. rewrite Hrw.
-  apply Compilable.no_duplicates_map_inj; [ exact FilePath.equal | ].
-  apply no_duplicates_setoid_key_map_fst, FileMap.elements_3w.
+  apply no_duplicates_map_inj; [ exact FilePath.equal | ].
+  apply Collections.file_map_elements_keys_nodup.
 Qed.
-
-Lemma file_map_domain : forall sp p,
-  FileMap.In p (file_map sp) <-> FileMap.In p (Syntax.files (Safe.source sp)).
-Proof. intros sp p. unfold file_map, file_map_of, Syntax.map_file_values. apply FileFacts.map_in_iff. Qed.
 
 Lemma file_map_binding : forall sp p bytes,
   FileMap.MapsTo p bytes (file_map sp)
   <-> exists sf, bytes = Render.file sf /\ FileMap.MapsTo p sf (Syntax.files (Safe.source sp)).
 Proof. intros sp p bytes. unfold file_map, file_map_of, Syntax.map_file_values. apply FileFacts.map_mapsto_iff. Qed.
 
-Lemma file_map_equal : forall fm1 fm2,
+Local Lemma file_map_equal : forall fm1 fm2,
   Syntax.FilesEqual fm1 fm2 -> FileMap.Equal (FileMap.map Render.file fm1) (FileMap.map Render.file fm2).
 Proof. intros fm1 fm2 Heq p. rewrite !FileFacts.map_o. rewrite (Heq p). reflexivity. Qed.
 
-Definition source_layout (img : Image) :=
-  root_layout_of_keys (map fst (FileMap.elements (files img))).
-
-Theorem realizes_fresh_layout : forall sp,
-  source_layout (of_safe sp) = root_layout (Safe.source sp).
-Proof.
-  intro sp. unfold source_layout. rewrite of_safe_files.
-  unfold file_map, file_map_of, Syntax.map_file_values.
-  rewrite Collections.file_map_fst_elements.
-  symmetry. apply root_layout_eq_of_keys.
-Qed.
-
-Theorem files_are_source_paths : forall sp p,
-  FileMap.In p (files (of_safe sp)) <-> FileMap.In p (Syntax.files (Safe.source sp)).
-Proof. intros sp p. rewrite of_safe_files. apply file_map_domain. Qed.
-
-(* The emitted tree realizes the retained layout, so it is the exact object the compile decision read. *)
-Theorem realizes_retained_layout : forall cp sp,
-  Safe.source sp = Compilable.source cp ->
-  source_layout (of_safe sp) = Compilable.facts_root_layout (Compilable.facts cp).
-Proof.
-  intros cp sp Hsp. rewrite realizes_fresh_layout, Hsp.
-  symmetry. apply Compilable.facts_root_layout_ok.
-Qed.
-
-(* The image's output-target classification is the retained plan's, so the collision check read this tree. *)
-Theorem output_target_of_retained_plan : forall cp sp dir ip ex t,
-  Safe.source sp = Compilable.source cp ->
-  Compilable.build_plan (Compilable.facts cp) = Compilable.WriteSingleMain dir ip ex t ->
-  PackageMap.find ex (source_layout (of_safe sp)) = t.
-Proof.
-  intros cp sp dir ip ex t Hsp Hplan.
-  rewrite realizes_fresh_layout, Hsp.
-  rewrite (Compilable.build_plan_ok (Compilable.facts cp)) in Hplan.
-  symmetry. exact (fresh_build_plan_single_target (Compilable.source cp) dir ip ex t Hplan).
-Qed.
-
-Lemma entries_equal : forall img1 img2,
+Local Lemma entries_equal : forall img1 img2,
   FileMap.Equal (files img1) (files img2) -> entries img1 = entries img2.
 Proof.
   intros img1 img2 HEq. unfold entries.
@@ -235,45 +177,4 @@ Proof.
   - rewrite !of_safe_module_bytes. unfold module_file, module_file_of. rewrite Hmod. reflexivity.
   - apply entries_equal. rewrite !of_safe_files.
     unfold file_map, file_map_of, Syntax.map_file_values. apply file_map_equal. exact Hfiles.
-Qed.
-
-(* The accepted path end to end: every step holds by reflexivity, so nothing is reconstructed. *)
-Theorem accepted_path_emits_from_returned_capability : forall p (H : Compilable.Admissible p),
-  exists cp Hcp,
-    Compilable.compile p = Compilable.Compiled cp Hcp
-    /\ Safe.compiled (Safe.certify cp) = cp
-    /\ Safe.core (Safe.certify cp) = Compilable.core (Safe.compiled (Safe.certify cp))
-    /\ Safe.source (Safe.certify cp) = Compilable.source (Safe.compiled (Safe.certify cp))
-    /\ safe (of_safe (Safe.certify cp)) = Safe.certify cp
-    /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
-    /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
-Proof.
-  intros p H. destruct (Compilable.compile_complete p H) as [cp [Hcp Hc]].
-  exists cp, Hcp.
-  split; [ exact Hc | ].
-  split; [ exact (Safe.certify_retains cp) | ].
-  repeat split; reflexivity.
-Qed.
-
-(* The same path on a concrete program, destructing the fixture once so one capability carries throughout. *)
-Theorem deep_nested_emit_fixture :
-  exists cp Hcp,
-    Compilable.compile Compilable.deep_nested_program = Compilable.Compiled cp Hcp
-    /\ Compilable.AcceptedFixture cp Hcp
-    /\ Safe.compiled (Safe.certify cp) = cp
-    (* spelled through [Safe.compiled] because [Safe.core]'s type is indexed by [Safe.source] *)
-    /\ Safe.core (Safe.certify cp) = Compilable.core (Safe.compiled (Safe.certify cp))
-    /\ Safe.source (Safe.certify cp) = Compilable.source cp
-    /\ safe (of_safe (Safe.certify cp)) = Safe.certify cp
-    /\ module_bytes (of_safe (Safe.certify cp)) = module_file (Safe.certify cp)
-    /\ files (of_safe (Safe.certify cp)) = file_map (Safe.certify cp).
-Proof.
-  destruct Compilable.deep_nested_compile_fixture as [cp [Hcp [Hc Hfix]]].
-  exists cp, Hcp.
-  split; [ exact Hc | ].
-  split; [ exact Hfix | ].
-  split; [ exact (Safe.certify_retains cp) | ].
-  split; [ reflexivity | ].
-  split; [ exact (Safe.certify_source cp) | ].
-  repeat split; reflexivity.
 Qed.

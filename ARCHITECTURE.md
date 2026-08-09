@@ -15,9 +15,14 @@ There is **one** program representation. The AST *is* the IR. `Admissible` and `
 facts over that one program, never new trees.
 
 ```text
-Syntax.Program → Typing → Admissible → Safe → Render → Emit.Image → Fido Materialize → pinned go build ./...
-                                                                        → make regenerate publishes the SAME bytes
+                ┌ Typing → Admissible → Safe ┐   static compilation gates admissibility
+Syntax.Program ─┤                            ├─ Emit.Image → Fido Materialize → pinned go build ./...
+                └ Render ────────────────────┘   direct Syntax → canonical bytes
+                                                 → make regenerate publishes the SAME bytes
 ```
+
+`Render` and static compilation are **sibling branches** over the one `Syntax.Program`; they share no import
+and join only at `Emit`, which renders the exact `Safe.source` of a program the compilation branch admitted.
 
 The universe is closed. Imports are **unrepresentable**, not rejected: `Syntax.ImportSpec` has no
 constructors. When imports arrive, `Admissible` must resolve every import to a package owned by the same
@@ -39,7 +44,7 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 | owner | owns | does not own |
 |---|---|---|
 | `Collections` | standard maps and sets, and one tiny nonempty sequence type | a new collection framework |
-| `Names` | lexical identifier validity, ordinary-name refinement, and the complete pinned predeclared spelling identity catalog | scope, binding, semantic type, call rules, or support policy |
+| `Names` | lexical identifier validity, ordinary-name refinement, the complete pinned predeclared spelling identity catalog, and the byte-level ASCII predicate every rendered file is proved to satisfy | scope, binding, semantic type, call rules, or support policy |
 | `Syntax` | source structure and source values | resolution, object identity, semantic type, diagnostics, variable identity, or behaviour |
 | `Index` | exact source-occurrence identity, views, parents, children, and source roles | binding, typing, diagnostics, or semantic facts |
 | `Typing` | type forms, semantic types, exact constants, type-environment input and output, and reflected type decisions | scopes, semantic object identity, source lookup, diagnostics, runtime values, or behaviour |
@@ -125,6 +130,45 @@ name-expression facts consume those exact facts; a short declaration interleaves
 consumption, binder finalization and static-variable creation in a single step. That is a real semantic
 cycle, so splitting them would need a callback, a registry, a duplicate carrier or a forward interface —
 each of which is the routing-around this rule forbids.
+
+### Direct module dependencies are gated
+
+The physical dependency graph is itself a checked artifact. The block below is the **sole** authority for which
+direct `From Fido Require` edges may exist: it names every module in the Dune theory exactly once, with its
+exact current direct Fido dependencies and nothing dormant. The layer gate in the prover build runs pinned
+`rocq dep` over the same module universe Dune builds and requires the actual direct-edge relation to **equal**
+this block. A forbidden edge fails whether or not any declaration from it is used; a listed edge with no
+matching import fails as a dormant authorization; an unknown or unmapped module fails closed.
+
+<!-- FIDO-LAYER-POLICY BEGIN -->
+```text
+Decimal:
+Integer:
+Float:
+Complex: Float
+FilePath:
+ModulePath:
+Version:
+Collections: FilePath
+Names:
+Syntax: Collections Complex FilePath Float Integer ModulePath Names Version
+Index: Collections FilePath Syntax
+Typing: Complex Float Integer Syntax
+Compilable: Collections Complex FilePath Float Index Integer ModulePath Syntax Typing
+Machine:
+Safe: Compilable Syntax
+Render: Complex Decimal Float ModulePath Names Syntax Version
+Emit: Collections FilePath Names Render Safe Syntax
+```
+<!-- FIDO-LAYER-POLICY END -->
+
+The relation shows the sibling structure directly: `Render` lists no `Typing`, `Compilable` or `Safe`, `Emit`
+lists no `Compilable`, and the two branches meet only at `Emit`. The gate's claim is exactly that the direct
+edges `rocq dep` reports equal this relation and that every theory module is covered once. It does **not**
+prove that a listed import is used, that a referenced owner is imported directly, that no forbidden name
+arrives through notation, coercion, hint or transitive visibility, or that a theorem belongs semantically to
+its module — those remain ownership-first review obligations. `Syntax`'s listed `Integer` edge is such an
+unused-but-present import, recorded here as an edge and left for its earliest mandatory retention repair.
 
 ---
 
@@ -443,11 +487,13 @@ A float constant renders by one canonical decimal spelling, paired with an **ind
 the exact rational round trip. A complex constant renders as one canonical `complex(re, im)` with its own
 independent decoder and semantic round trip.
 
-Three denotation theorems tie the authorities together. `const_info_denotes`: a rendered expression denotes
-exactly the constant status `Typing` computes. `const_info_denotes_functional`: a spelling denotes **at most
-one** constant status, because the recognisers are pairwise disjoint. `resolved_expr_denotes`: a resolved
-argument's exact constant analysis yields its resolved typed result, and its rendered spelling denotes that
-constant status — a static theorem with no evaluator or runtime value.
+Rendering is a **sibling branch** of static compilation: `Render` traverses raw `Syntax` and imports no
+`Typing`, `Compilable`, `Safe` or evidence authority. Each canonical spelling carries an **independent
+renderer-local decoder** proving the exact source-value round trip — the integer, string, decimal and complex
+inverses recover the exact lower source value those bytes encode. These are direct source-value inverses, not
+a compiler-semantic denotation: any correspondence between a rendered spelling and the constant status
+`Typing` computes belongs to a later downstream adequacy layer with an exact retained premise and a real
+consumer, and is absent until then.
 
 There is no tokenizer, lexer, parser or round-trip authority, and no formatter is invoked.
 

@@ -1,12 +1,7 @@
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import Decimal Integer Float Complex ModulePath Version Syntax Typing Compilable.
+From Fido Require Import Decimal Float Complex ModulePath Version Names Syntax.
 Import ListNotations.
 Open Scope string_scope.
-
-(* Rendering itself needs no resolver; only the denotation lemmas below reach for one. *)
-Local Notation constant_info        := (Typing.constant_info Compilable.predeclared_type) (only parsing).
-Local Notation resolve_constant := (Typing.resolve_constant Compilable.predeclared_type) (only parsing).
-Local Notation resolve      := (Typing.resolve Compilable.predeclared_type) (only parsing).
 
 Definition nl_c : ascii := ascii_of_nat 10.
 Definition tab_c : ascii := ascii_of_nat 9.
@@ -129,14 +124,8 @@ Definition import_spec (i : Syntax.ImportSpec) : string := match i with end.
 Fixpoint imports (xs : list Syntax.ImportSpec) : string :=
   match xs with [] => "" | i :: rest => import_spec i ++ imports rest end.
 
-Lemma import_list_nil : forall (l : list Syntax.ImportSpec), l = [].
-Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 Lemma imports_nil_bytes : forall xs, imports xs = ""%string.
-Proof. intros xs; rewrite (import_list_nil xs); reflexivity. Qed.
-
-(* Every file's source imports are nil: a permanent category, not a filtered subset. *)
-Lemma source_imports_nil : forall f, Syntax.imports f = [].
-Proof. intro f; apply import_list_nil. Qed.
+Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 
 Definition file (f : Syntax.File) : string :=
   header ++ String nl_c (nl ++ "package " ++ package_clause (Syntax.package f) ++ nl
@@ -163,23 +152,18 @@ Lemma module_file_exact : forall ms,
 Proof. reflexivity. Qed.
 
 
-Definition is_ascii (c : ascii) : bool := Nat.ltb (nat_of_ascii c) 128.
-
-Fixpoint str_ascii (s : string) : bool :=
-  match s with EmptyString => true | String c s' => is_ascii c && str_ascii s' end.
-
-Lemma str_ascii_app : forall a b, str_ascii (a ++ b) = str_ascii a && str_ascii b.
+Lemma str_ascii_app : forall a b, Names.str_ascii (a ++ b) = Names.str_ascii a && Names.str_ascii b.
 Proof.
   induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
 
-Lemma type_expr_ascii : forall ts, str_ascii (type_expr ts) = true.
+Lemma type_expr_ascii : forall ts, Names.str_ascii (type_expr ts) = true.
 Proof. intro ts; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
 
-Lemma str_ascii_cons : forall c s, str_ascii (String c s) = is_ascii c && str_ascii s.
+Lemma str_ascii_cons : forall c s, Names.str_ascii (String c s) = Names.is_ascii_c c && Names.str_ascii s.
 Proof. reflexivity. Qed.
 
-Lemma digit_ascii : forall d, (d < 10)%nat -> is_ascii (Decimal.digit d) = true.
+Lemma digit_ascii : forall d, (d < 10)%nat -> Names.is_ascii_c (Decimal.digit d) = true.
 Proof. intros d Hd. do 10 (destruct d as [ | d ]; [ reflexivity | ]). lia. Qed.
 
 Lemma digits_step : forall dig a ds acc,
@@ -187,24 +171,24 @@ Lemma digits_step : forall dig a ds acc,
 Proof. reflexivity. Qed.
 
 Lemma digits_ascii : forall ds acc,
-  (forall d, In d ds -> is_ascii (Decimal.digit d) = true) ->
-  str_ascii (Decimal.render Decimal.digit ds acc) = str_ascii acc.
+  (forall d, In d ds -> Names.is_ascii_c (Decimal.digit d) = true) ->
+  Names.str_ascii (Decimal.render Decimal.digit ds acc) = Names.str_ascii acc.
 Proof.
   induction ds as [ | a ds' IH ]; intros acc Hall.
   - reflexivity.
   - rewrite digits_step, IH.
-    + cbn [str_ascii]. rewrite (Hall a (or_introl eq_refl)). reflexivity.
+    + cbn [Names.str_ascii]. rewrite (Hall a (or_introl eq_refl)). reflexivity.
     + intros d Hd. apply Hall. right. exact Hd.
 Qed.
 
-Lemma positive_ascii : forall p, str_ascii (Decimal.positive p) = true.
+Lemma positive_ascii : forall p, Names.str_ascii (Decimal.positive p) = true.
 Proof.
   intro p. unfold Decimal.positive. rewrite digits_ascii; [ reflexivity | ].
   intros d Hd. apply digit_ascii.
   pose proof (Decimal.positive_digits_bound 10 p ltac:(lia)) as Hb. rewrite Forall_forall in Hb. apply Hb; exact Hd.
 Qed.
 
-Lemma integer_ascii : forall z, str_ascii (Decimal.integer z) = true.
+Lemma integer_ascii : forall z, Names.str_ascii (Decimal.integer z) = true.
 Proof.
   intros [ | p | p ].
   - reflexivity.
@@ -220,25 +204,25 @@ Proof.
   destruct b0, b1, b2, b3, b4, b5, b6, b7; cbn; lia.
 Qed.
 
-Lemma hex_digit_ascii : forall k, (k < 16)%nat -> is_ascii (hex_digit k) = true.
+Lemma hex_digit_ascii : forall k, (k < 16)%nat -> Names.is_ascii_c (hex_digit k) = true.
 Proof.
-  intros k Hk. unfold hex_digit, is_ascii. destruct (Nat.ltb k 10) eqn:E.
+  intros k Hk. unfold hex_digit, Names.is_ascii_c. destruct (Nat.ltb k 10) eqn:E.
   - apply Nat.ltb_lt in E. rewrite nat_ascii_embedding by lia.
     rewrite (proj2 (Nat.ltb_lt _ _)) by lia; reflexivity.
   - apply Nat.ltb_ge in E. rewrite nat_ascii_embedding by lia.
     rewrite (proj2 (Nat.ltb_lt _ _)) by lia; reflexivity.
 Qed.
 
-Lemma hex_escape_ascii : forall c, str_ascii (hex_escape c) = true.
+Lemma hex_escape_ascii : forall c, Names.str_ascii (hex_escape c) = true.
 Proof.
   intro c. unfold hex_escape.
   assert (Hhi : (Nat.div (nat_of_ascii c) 16 < 16)%nat).
   { pose proof (nat_of_ascii_lt_256 c) as Hb. apply Nat.Div0.div_lt_upper_bound. lia. }
   assert (Hlo : (Nat.modulo (nat_of_ascii c) 16 < 16)%nat) by (apply Nat.mod_upper_bound; lia).
-  cbn [str_ascii]. rewrite (hex_digit_ascii _ Hhi), (hex_digit_ascii _ Hlo). reflexivity.
+  cbn [Names.str_ascii]. rewrite (hex_digit_ascii _ Hhi), (hex_digit_ascii _ Hlo). reflexivity.
 Qed.
 
-Lemma string_byte_ascii : forall c, str_ascii (string_byte c) = true.
+Lemma string_byte_ascii : forall c, Names.str_ascii (string_byte c) = true.
 Proof.
   intro c. unfold string_byte.
   destruct (Nat.eqb (nat_of_ascii c) 34); [ reflexivity | ].
@@ -247,59 +231,59 @@ Proof.
   destruct (Nat.eqb (nat_of_ascii c) 9);  [ reflexivity | ].
   destruct (Nat.eqb (nat_of_ascii c) 13); [ reflexivity | ].
   destruct (andb (Nat.leb 32 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 126)) eqn:Hp.
-  - cbn [str_ascii]. rewrite Bool.andb_true_r.
+  - cbn [Names.str_ascii]. rewrite Bool.andb_true_r.
     apply Bool.andb_true_iff in Hp as [_ Hle]. apply Nat.leb_le in Hle.
-    unfold is_ascii. assert (Hlt : (nat_of_ascii c < 128)%nat) by lia.
+    unfold Names.is_ascii_c. assert (Hlt : (nat_of_ascii c < 128)%nat) by lia.
     rewrite (proj2 (Nat.ltb_lt _ _) Hlt). reflexivity.
   - apply hex_escape_ascii.
 Qed.
 
-Lemma string_body_ascii : forall s, str_ascii (string_body s) = true.
+Lemma string_body_ascii : forall s, Names.str_ascii (string_body s) = true.
 Proof.
   induction s as [ | c s' IH ]; [ reflexivity | ].
   cbn [string_body]. rewrite str_ascii_app, string_byte_ascii, IH. reflexivity.
 Qed.
 
-Lemma string_literal_ascii : forall s, str_ascii (string_literal s) = true.
+Lemma string_literal_ascii : forall s, Names.str_ascii (string_literal s) = true.
 Proof.
-  intro s. unfold string_literal. cbn [str_ascii].
+  intro s. unfold string_literal. cbn [Names.str_ascii].
   rewrite str_ascii_app, string_body_ascii. reflexivity.
 Qed.
 
-Lemma signed_Z_ascii : forall z, str_ascii (signed_Z z) = true.
+Lemma signed_Z_ascii : forall z, Names.str_ascii (signed_Z z) = true.
 Proof.
   intro z; unfold signed_Z; destruct (Z.ltb z 0).
-  - cbn [str_ascii]; rewrite integer_ascii; reflexivity.
+  - cbn [Names.str_ascii]; rewrite integer_ascii; reflexivity.
   - apply integer_ascii.
 Qed.
-Lemma signed_exp_ascii : forall e, str_ascii (signed_exp e) = true.
-Proof. intro e; unfold signed_exp; destruct (Z.ltb e 0); cbn [str_ascii]; rewrite integer_ascii; reflexivity. Qed.
-Lemma decimal_ascii : forall d, str_ascii (decimal d) = true.
+Lemma signed_exp_ascii : forall e, Names.str_ascii (signed_exp e) = true.
+Proof. intro e; unfold signed_exp; destruct (Z.ltb e 0); cbn [Names.str_ascii]; rewrite integer_ascii; reflexivity. Qed.
+Lemma decimal_ascii : forall d, Names.str_ascii (decimal d) = true.
 Proof.
   intro d; unfold decimal; destruct (Z.eqb (Float.coefficient d) 0).
   - reflexivity.
   - rewrite !str_ascii_app, signed_Z_ascii, signed_exp_ascii; reflexivity.
 Qed.
-Lemma complex_literal_ascii : forall dc, str_ascii (complex_literal dc) = true.
+Lemma complex_literal_ascii : forall dc, Names.str_ascii (complex_literal dc) = true.
 Proof.
   intro dc; unfold complex_literal.
   rewrite !str_ascii_app, !decimal_ascii; reflexivity.
 Qed.
 
-Lemma expr_ascii : forall e, str_ascii (expr e) = true.
+Lemma expr_ascii : forall e, Names.str_ascii (expr e) = true.
 Proof.
   induction e as [ [] | n | n | s | d | dc | ts e' IHe' ]; cbn [expr].
   - reflexivity.
   - reflexivity.
   - apply integer_ascii.
-  - cbn [str_ascii]. rewrite integer_ascii. reflexivity.
+  - cbn [Names.str_ascii]. rewrite integer_ascii. reflexivity.
   - apply string_literal_ascii.
   - apply decimal_ascii.
   - apply complex_literal_ascii.
   - rewrite !str_ascii_app, type_expr_ascii, IHe'; reflexivity.
 Qed.
 
-Lemma arguments_ascii : forall es, str_ascii (arguments es) = true.
+Lemma arguments_ascii : forall es, Names.str_ascii (arguments es) = true.
 Proof.
   induction es as [ | e es' IH ]; [ reflexivity | ].
   destruct es' as [ | e2 es'' ].
@@ -309,48 +293,48 @@ Proof.
     rewrite !str_ascii_app, expr_ascii. simpl. exact IH.
 Qed.
 
-Lemma stmt_ascii : forall s, str_ascii (stmt s) = true.
+Lemma stmt_ascii : forall s, Names.str_ascii (stmt s) = true.
 Proof. intros [ args ]. cbn [stmt]. rewrite !str_ascii_app, arguments_ascii. reflexivity. Qed.
 
-Lemma statements_ascii : forall ss, str_ascii (statements ss) = true.
+Lemma statements_ascii : forall ss, Names.str_ascii (statements ss) = true.
 Proof.
   induction ss as [ | s ss' IH ]; [ reflexivity | ].
   cbn [statements]. rewrite str_ascii_app, stmt_ascii, IH. reflexivity.
 Qed.
 
-Lemma decl_ascii : forall d, str_ascii (decl d) = true.
+Lemma decl_ascii : forall d, Names.str_ascii (decl d) = true.
 Proof. intros [ body ]. cbn [decl]. rewrite !str_ascii_app, statements_ascii. reflexivity. Qed.
 
-Lemma declarations_ascii : forall ds, str_ascii (declarations ds) = true.
+Lemma declarations_ascii : forall ds, Names.str_ascii (declarations ds) = true.
 Proof.
   induction ds as [ | d ds' IH ]; [ reflexivity | ].
   cbn [declarations]. rewrite !str_ascii_app, decl_ascii, IH. reflexivity.
 Qed.
 
-Lemma imports_ascii : forall xs, str_ascii (imports xs) = true.
+Lemma imports_ascii : forall xs, Names.str_ascii (imports xs) = true.
 Proof. intros xs; rewrite imports_nil_bytes; reflexivity. Qed.
 
-Theorem file_ascii : forall f, str_ascii (file f) = true.
+Theorem file_ascii : forall f, Names.str_ascii (file f) = true.
 Proof.
-  intros f. unfold file. rewrite str_ascii_app. cbn [str_ascii].
+  intros f. unfold file. rewrite str_ascii_app. cbn [Names.str_ascii].
   rewrite !str_ascii_app, declarations_ascii, imports_ascii.
   destruct (Syntax.package f); reflexivity.
 Qed.
 
 
-Lemma all_path_chars_ascii : forall s, ModulePath.all_path_chars s = true -> str_ascii s = true.
+Lemma all_path_chars_ascii : forall s, ModulePath.all_path_chars s = true -> Names.str_ascii s = true.
 Proof.
   induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
   cbn [ModulePath.all_path_chars] in H; apply Bool.andb_true_iff in H as [Hc Hs].
-  cbn [str_ascii]; unfold is_ascii.
+  cbn [Names.str_ascii]; unfold Names.is_ascii_c.
   rewrite (proj2 (Nat.ltb_lt _ _) (ModulePath.path_char_lt_128 c Hc)); cbn [andb].
   apply IH; exact Hs.
 Qed.
 
-Lemma module_path_text_ascii : forall p, str_ascii (ModulePath.text p) = true.
+Lemma module_path_text_ascii : forall p, Names.str_ascii (ModulePath.text p) = true.
 Proof. intro p. apply all_path_chars_ascii, ModulePath.path_ok_all_chars. exact (ModulePath.valid p). Qed.
 
-Theorem module_file_ascii : forall ms, str_ascii (module_file ms) = true.
+Theorem module_file_ascii : forall ms, Names.str_ascii (module_file ms) = true.
 Proof.
   intro ms. unfold module_file.
   rewrite str_ascii_app, str_ascii_cons, !str_ascii_app, module_path_text_ascii.
@@ -1004,29 +988,6 @@ Proof.
   cbn [Ascii.eqb]. reflexivity.
 Qed.
 
-Inductive ConstantInfoDenotes : string -> Typing.ConstantInfo -> Prop :=
-| BoolDenotes : forall (b : bool),
-    ConstantInfoDenotes (if b then "true"%string else "false"%string) (Typing.UntypedInfo (Typing.BoolConstant b))
-| IntegerDenotes : forall s z,
-    go_int_lit s = true ->
-    read_go_int s = z ->
-    ConstantInfoDenotes s (Typing.UntypedInfo (Typing.IntegerConstant z))
-| StringDenotes : forall s bytes,
-    decode_string_literal s = Some bytes ->
-    ConstantInfoDenotes s (Typing.UntypedInfo (Typing.StringConstant bytes))
-| FloatDenotes : forall s q,
-    decode_decimal s = Some q ->
-    ConstantInfoDenotes s (Typing.UntypedInfo (Typing.FloatConstant q))
-| ComplexDenotes : forall s c,
-    decode_complex_literal s = Some c ->
-    ConstantInfoDenotes s (Typing.UntypedInfo (Typing.ComplexConstant c))
-(* One conversion constructor: the spelling is the source identifier, the target the resolved type. *)
-| ConvertDenotes : forall ts inner ci (tc : Typing.TypedConstant (Compilable.predeclared_type ts)),
-    ConstantInfoDenotes inner ci ->
-    Typing.convert_constant (Compilable.predeclared_type ts) ci = Some tc ->
-    ConstantInfoDenotes (type_expr ts ++ "(" ++ inner ++ ")")
-                             (Typing.TypedInfo (Compilable.predeclared_type ts) tc).
-
 Lemma positive_head_not_minus : forall p,
   match Decimal.positive p with String c _ => Ascii.eqb c "-"%char = false | EmptyString => False end.
 Proof.
@@ -1065,131 +1026,6 @@ Proof.
   rewrite integer_decimal_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
-(* A separate lemma, so the caller's induction hypothesis never abstracts the inner [constant_info]. *)
-Lemma const_info_convert_inner : forall ts e ci,
-  constant_info (Syntax.Convert ts e) = Some ci ->
-  exists ci' (tc : Typing.TypedConstant (Compilable.predeclared_type ts)), constant_info e = Some ci'
-             /\ Typing.convert_constant (Compilable.predeclared_type ts) ci' = Some tc
-             /\ ci = Typing.TypedInfo (Compilable.predeclared_type ts) tc.
-Proof.
-  intros ts e ci H; cbn [Typing.constant_info] in H.
-  destruct (constant_info e) as [ci'|] eqn:Hce'; [| discriminate].
-  destruct (Typing.convert_constant (Compilable.predeclared_type ts) ci') as [tc|] eqn:Hconv;
-    cbn [option_map] in H; [| discriminate].
-  injection H as <-.
-  exists ci', tc. split; [ reflexivity | split; [ exact Hconv | reflexivity ] ].
-Qed.
-
-Theorem const_info_denotes : forall e ci,
-  constant_info e = Some ci -> ConstantInfoDenotes (expr e) ci.
-Proof.
-  induction e as [ b | n | n | s | d | dc | ts e' IHe' ]; intros ci H.
-  - simpl in H; injection H as <-; cbn [expr]; destruct b; [ exact (BoolDenotes true) | exact (BoolDenotes false) ].
-  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_integer_literal | apply read_go_int_integer_literal ].
-  - simpl in H; injection H as <-; cbn [expr]; apply IntegerDenotes; [ apply go_int_lit_negated_integer_literal | apply read_go_int_negated_integer_literal ].
-  - simpl in H; injection H as <-; cbn [expr]; apply StringDenotes, string_roundtrip.
-  - cbn [Typing.constant_info] in H; injection H as <-; cbn [expr]. apply FloatDenotes, decode_render_decimal.
-  - cbn [Typing.constant_info] in H; injection H as <-; cbn [expr]. apply ComplexDenotes, decode_render_complex_literal.
-  - destruct (const_info_convert_inner ts e' ci H) as [ ci' [ tc [ Hce' [ Hconv -> ] ] ] ].
-    cbn [expr]. apply ConvertDenotes with (ci := ci'); [ apply IHe'; exact Hce' | exact Hconv ].
-Qed.
-
-Lemma go_int_lit_cons : forall s, go_int_lit s = true ->
-  exists c s', s = String c s' /\ (c = "-"%char \/ digit_value c <> None).
-Proof.
-  intros [ | c s' ] H; [ discriminate | ].
-  unfold go_int_lit in H. destruct (Ascii.eqb c "-"%char) eqn:E.
-  - apply Ascii.eqb_eq in E. exists c, s'; split; [ reflexivity | left; exact E ].
-  - destruct (digit_value c) as [d|] eqn:Hc; [| discriminate].
-    exists c, s'; split; [ reflexivity | right; rewrite Hc; discriminate ].
-Qed.
-
-Lemma decode_string_literal_head : forall s b,
-  decode_string_literal s = Some b -> exists rest, s = String dquote_c rest.
-Proof.
-  intros [ | c rest ] b H; cbn [decode_string_literal] in H; [ discriminate | ].
-  destruct (Ascii.eqb c dquote_c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; eauto | discriminate ].
-Qed.
-
-Lemma decode_decimal_nonnumeric_head : forall c s',
-  digit_value c = None ->
-  Ascii.eqb c "-"%char = false -> Ascii.eqb c "+"%char = false ->
-  Ascii.eqb c "."%char = false -> Ascii.eqb c "0"%char = false ->
-  decode_decimal (String c s') = None.
-Proof.
-  intros c s' Hnd Hm Hp Hdot Hz.
-  unfold decode_decimal.
-  assert (Hb : decode_decimal_body (String c s') = None).
-  { unfold decode_decimal_body.
-    replace (read_signed_dec (String c s')) with (Some (0%Z, String c s'))
-      by (unfold read_signed_dec; rewrite Hm, Hp; cbn [read_nat]; rewrite Hnd; reflexivity).
-    destruct s' as [ | b [ | c0 r2 ] ]; try reflexivity.
-    rewrite Hdot. reflexivity. }
-  rewrite Hb.
-  destruct (String.eqb (String c s') "0.0") eqn:E; [ | reflexivity ].
-  apply String.eqb_eq in E. injection E as Ec _. rewrite Ec in Hz. discriminate Hz.
-Qed.
-
-(* [vm_compute] cannot close this directly, because only the lead quote is concrete. *)
-Lemma decode_decimal_dquote : forall rest, decode_decimal (String dquote_c rest) = None.
-Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
-
-Lemma go_int_lit_read_signed_dec : forall s, go_int_lit s = true ->
-  exists v, read_signed_dec s = Some (v, ""%string).
-Proof.
-  intros [ | c s' ] H; [ discriminate | ]. unfold go_int_lit in H.
-  destruct (Ascii.eqb c "-"%char) eqn:Em.
-  - apply Ascii.eqb_eq in Em; subst c.
-    destruct s' as [ | c0 s0 ]; [ discriminate | ].
-    eexists. replace (String "-"%char (String c0 s0)) with (String "-"%char (String c0 s0 ++ ""))%string
-      by (rewrite str_app_nil; reflexivity).
-    apply (read_signed_dec_sign "-"%char (String c0 s0) "" (or_introl eq_refl) H I).
-  - destruct (digit_value c) as [d|] eqn:Hc; [| discriminate].
-    assert (Hall : str_all_digits (String c s') = true)
-      by (cbn [str_all_digits]; rewrite Hc; exact H).
-    eexists. replace (String c s') with (String c s' ++ "")%string
-      by (rewrite str_app_nil; reflexivity).
-    apply (read_signed_dec_all_digits (String c s') "" Hall ltac:(discriminate) I).
-Qed.
-
-Lemma go_int_lit_decode_decimal_none : forall s, go_int_lit s = true -> decode_decimal s = None.
-Proof.
-  intros s H. destruct (go_int_lit_read_signed_dec s H) as [v Hrsd].
-  assert (Hb : decode_decimal_body s = None)
-    by (unfold decode_decimal_body; rewrite Hrsd; reflexivity).
-  unfold decode_decimal. rewrite Hb.
-  destruct (String.eqb s "0.0") eqn:Es0; [ | reflexivity ].
-  apply String.eqb_eq in Es0; subst s. vm_compute in H; discriminate H.
-Qed.
-
-Lemma str_snoc_inj : forall (ch : ascii) a b,
-  (a ++ String ch "")%string = (b ++ String ch "")%string -> a = b.
-Proof.
-  intros ch a; induction a as [ | x a' IH ]; intros [ | y b' ] Heq; cbn [append] in Heq.
-  - reflexivity.
-  - injection Heq as _ H2; destruct b'; discriminate.
-  - injection Heq as _ H2; destruct a'; discriminate.
-  - injection Heq as Hxy H2; f_equal; [ exact Hxy | apply IH; exact H2 ].
-Qed.
-
-Lemma decode_complex_literal_head_c : forall s c,
-  decode_complex_literal s = Some c -> exists rest, s = String "c"%char rest.
-Proof.
-  intros [ | c0 s0 ] c H; unfold decode_complex_literal in H.
-  - discriminate H.
-  - cbn [strip_prefix] in H.
-    destruct (Ascii.eqb "c"%char c0) eqn:E; [ apply Ascii.eqb_eq in E; subst c0; eauto | discriminate H ].
-Qed.
-
-Lemma decode_complex_literal_not_c : forall c0 s,
-  Ascii.eqb "c"%char c0 = false -> decode_complex_literal (String c0 s) = None.
-Proof. intros c0 s H; unfold decode_complex_literal; cbn [strip_prefix]; rewrite H; reflexivity. Qed.
-
-Lemma head_c_go_int_lit_false : forall rest, go_int_lit (String "c"%char rest) = false.
-Proof. reflexivity. Qed.
-Lemma head_c_decode_decimal_none : forall rest, decode_decimal (String "c"%char rest) = None.
-Proof. intro rest; apply decode_decimal_nonnumeric_head; reflexivity. Qed.
-
 (* The type name is paren-free, so the leading `(` splits the conversion spelling uniquely. *)
 Lemma conv_spelling_paren_inj : forall ts1 ts2 r1 r2,
   (type_expr ts1 ++ String "("%char r1)%string = (type_expr ts2 ++ String "("%char r2)%string ->
@@ -1203,240 +1039,27 @@ Proof.
                    | reflexivity ] ].
 Qed.
 
-Lemma conv_spelling_go_int_lit_false : forall ts X,
-  go_int_lit (type_expr ts ++ "(" ++ X) = false.
-Proof. intros ts X; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
-Lemma conv_spelling_decode_string_none : forall ts X,
-  decode_string_literal (type_expr ts ++ "(" ++ X) = None.
-Proof. intros ts X; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
-Lemma conv_spelling_decode_complex_none : forall ts X,
-  decode_complex_literal (type_expr ts ++ "(" ++ X) = None.
-Proof. intros ts X; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
-Lemma conv_spelling_decode_decimal_none : forall ts X,
-  decode_decimal (type_expr ts ++ "(" ++ X) = None.
-Proof.
-  intros ts X; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts);
-    cbn [Names.type_name_spelling append]; apply decode_decimal_nonnumeric_head; reflexivity.
-Qed.
-
-(* A rendered spelling denotes at most one constant status; this is functionality, not a bijection. *)
-Theorem const_info_denotes_functional : forall s ci1 ci2,
-  ConstantInfoDenotes s ci1 -> ConstantInfoDenotes s ci2 -> ci1 = ci2.
-Proof.
-  intros s ci1 ci2 H1; revert ci2; induction H1 as
-    [ b
-    | s z Hint Hread
-    | s bytes Hstr
-    | s q Hdec
-    | s c Hdc
-    | ts inner ci tc Hinner IH Hconv ]; intros ci2 H2.
-  -
-    destruct b; inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
-      solve
-        [ destruct b0; cbn in *; congruence
-        | vm_compute in Hint0; discriminate Hint0
-        | vm_compute in Hstr0; discriminate Hstr0
-        | vm_compute in Hdec0; discriminate Hdec0
-        | vm_compute in Hdc0; discriminate Hdc0
-        | rewrite type_expr_spelling in Hs0; destruct (Syntax.type_expr_name ts0);
-            cbn in Hs0; discriminate Hs0 ].
-  -
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
-      solve
-        [ destruct b0; vm_compute in Hint; discriminate Hint
-        | congruence
-        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
-            rewrite Hrs in Hint; vm_compute in Hint; discriminate Hint
-        | rewrite (go_int_lit_decode_decimal_none _ Hint) in Hdec0; discriminate Hdec0
-        | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
-            rewrite Hrs in Hint; rewrite head_c_go_int_lit_false in Hint; discriminate Hint
-        | rewrite conv_spelling_go_int_lit_false in Hint; discriminate Hint ].
-  -
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
-      solve
-        [ destruct b0; vm_compute in Hstr; discriminate Hstr
-        | congruence
-        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
-            rewrite Hrs in Hint0; vm_compute in Hint0; discriminate Hint0
-        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
-            rewrite Hrs in Hdec0; rewrite decode_decimal_dquote in Hdec0; discriminate Hdec0
-        | destruct (decode_string_literal_head _ _ Hstr) as [rest Hrs];
-            rewrite Hrs in Hdc0; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc0;
-            discriminate Hdc0
-        | rewrite conv_spelling_decode_string_none in Hstr; discriminate Hstr ].
-  -
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
-      solve
-        [ destruct b0; vm_compute in Hdec; discriminate Hdec
-        | rewrite (go_int_lit_decode_decimal_none _ Hint0) in Hdec; discriminate Hdec
-        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
-            rewrite Hrs in Hdec; rewrite decode_decimal_dquote in Hdec; discriminate Hdec
-        | congruence
-        | destruct (decode_complex_literal_head_c _ _ Hdc0) as [rest Hrs];
-            rewrite Hrs in Hdec; rewrite head_c_decode_decimal_none in Hdec; discriminate Hdec
-        | rewrite conv_spelling_decode_decimal_none in Hdec; discriminate Hdec ].
-  -
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst;
-      solve
-        [ destruct b0; vm_compute in Hdc; discriminate Hdc
-        | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
-            rewrite Hrs in Hint0; rewrite head_c_go_int_lit_false in Hint0; discriminate Hint0
-        | destruct (decode_string_literal_head _ _ Hstr0) as [rest Hrs];
-            rewrite Hrs in Hdc; rewrite (decode_complex_literal_not_c dquote_c rest ltac:(reflexivity)) in Hdc;
-            discriminate Hdc
-        | destruct (decode_complex_literal_head_c _ _ Hdc) as [rest Hrs];
-            rewrite Hrs in Hdec0; rewrite head_c_decode_decimal_none in Hdec0; discriminate Hdec0
-        | congruence
-        | rewrite conv_spelling_decode_complex_none in Hdc; discriminate Hdc ].
-  - (* the diagonal proves the name and inner equal, then conversion being a function finishes it *)
-    inversion H2 as
-      [ b0 Hs0 | s0 z0 Hint0 Hread0 Hs0 | s0 by0 Hstr0 Hs0
-      | s0 q0 Hdec0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 in0 cc0 tc0 Hin0 Hcv0 Hs0 ]; subst.
-    + destruct b0; rewrite type_expr_spelling in Hs0; destruct (Syntax.type_expr_name ts);
-        cbn in Hs0; discriminate Hs0.
-    + rewrite conv_spelling_go_int_lit_false in Hint0; discriminate Hint0.
-    + rewrite conv_spelling_decode_string_none in Hstr0; discriminate Hstr0.
-    + rewrite conv_spelling_decode_decimal_none in Hdec0; discriminate Hdec0.
-    + rewrite conv_spelling_decode_complex_none in Hdc0; discriminate Hdc0.
-    + destruct (conv_spelling_paren_inj ts0 ts (in0 ++ ")") (inner ++ ")") Hs0) as [Hts Htl];
-        subst ts0; apply str_snoc_inj in Htl; subst in0;
-        specialize (IH cc0 Hin0); subst cc0;
-        assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
-Qed.
-
-(* The static root theorem tying exact constant analysis, its resolved typed result and the rendered spelling. *)
-Theorem resolved_expr_denotes : forall e t,
-  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument e t ->
-  exists ci rc,
-       constant_info e = Some ci
-    /\ Typing.resolve_constant_info ci = Some rc
-    /\ Typing.resolved_constant_type rc = t
-    /\ ConstantInfoDenotes (expr e) ci.
-Proof.
-  intros e t H.
-  apply Typing.resolve_complete in H. unfold Typing.resolve in H.
-  destruct (Typing.resolve_constant Compilable.predeclared_type Typing.PrintlnArgument e) as [rc|] eqn:Hrec;
-    cbn [option_map] in H; [ injection H as Ht | discriminate ].
-  destruct (Typing.resolve_constant_sound Compilable.predeclared_type Typing.PrintlnArgument e rc Hrec)
-    as [ ci [ Hci [ Hri _ ] ] ].
-  exists ci, rc.
-  split; [ exact Hci | ].
-  split; [ exact Hri | ].
-  split; [ exact Ht | apply const_info_denotes; exact Hci ].
-Qed.
-
-Lemma boundary_max :
-  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
-Proof. apply Typing.resolve_sound; reflexivity. Qed.
-
-Lemma boundary_min :
-  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
-Proof. apply Typing.resolve_sound; reflexivity. Qed.
-
 Example int8_127 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = "int8(127)". Proof. reflexivity. Qed.
 Example uint64_big : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
 Example nested : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.IntegerLiteral 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
-
-Lemma string_denotes : forall s,
-  ConstantInfoDenotes (expr (Syntax.StringLiteral s)) (Typing.UntypedInfo (Typing.StringConstant s)).
-Proof. intro s; apply const_info_denotes; reflexivity. Qed.
-
-Lemma resolved_string_denotes : forall s t,
-  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.StringLiteral s) t ->
-  exists ci rc, constant_info (Syntax.StringLiteral s) = Some ci /\ Typing.resolve_constant_info ci = Some rc
-            /\ Typing.resolved_constant_type rc = t
-            /\ ConstantInfoDenotes (expr (Syntax.StringLiteral s)) ci.
-Proof. intros s t H; apply resolved_expr_denotes; exact H. Qed.
 
 (* A bare integer stays untyped however large, which is why `uint64(2^63)` is valid. *)
 Example repair_bare_render : expr (Syntax.IntegerLiteral 9223372036854775808) = "9223372036854775808".
 Proof. reflexivity. Qed.
 
-Example repair_bare_untyped :
-  ConstantInfoDenotes (expr (Syntax.IntegerLiteral 9223372036854775808))
-                           (Typing.UntypedInfo (Typing.IntegerConstant 9223372036854775808)).
-Proof. apply const_info_denotes; reflexivity. Qed.
-
-(* Proved by inversion on a general string, never on the big rendered constant. *)
-Lemma typed_starts_letter : forall s t (tc : Typing.TypedConstant t),
-  ConstantInfoDenotes s (Typing.TypedInfo t tc) ->
-  exists rest, s = String "i"%char rest \/ s = String "u"%char rest
-            \/ s = String "f"%char rest \/ s = String "c"%char rest
-            \/ s = String "b"%char rest \/ s = String "r"%char rest.
-Proof.
-  intros s t tc H;
-    inversion H as [ b Hb | s0 z0 Hi0 Hr0 Hs0 | s0 by0 Hst0 Hs0
-                   | s0 q0 Hd0 Hs0 | s0 c0 Hdc0 Hs0 | ts0 inner0 ci0 tc0 Hin0 Hcv0 Hs0 ]; subst.
-  rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts0); cbn; eexists;
-    first [ left; reflexivity | right; left; reflexivity | right; right; left; reflexivity
-          | right; right; right; left; reflexivity | right; right; right; right; left; reflexivity
-          | right; right; right; right; right; reflexivity ].
-Qed.
-
-Example repair_bare_not_typed : forall t (tc : Typing.TypedConstant t),
-  ~ ConstantInfoDenotes (expr (Syntax.IntegerLiteral 9223372036854775808)) (Typing.TypedInfo t tc).
-Proof.
-  intros t tc H; apply typed_starts_letter in H; rewrite repair_bare_render in H.
-  destruct H as [ rest [ Hi | [ Hu | [ Hf | [ Hc | [ Hb | Hr ] ] ] ] ] ]; discriminate.
-Qed.
-
-Example repair_uint64_typed :
-  ConstantInfoDenotes (expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 9223372036854775808)))
-                           (Typing.TypedInfo (Typing.IntegerType Integer.Uint64) (Typing.TypedInteger Integer.Uint64 9223372036854775808 eq_refl)).
-Proof. apply const_info_denotes; reflexivity. Qed.
-
-Example repair_uint64_max_typed :
-  ConstantInfoDenotes (expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)))
-                           (Typing.TypedInfo (Typing.IntegerType Integer.Uint64) (Typing.TypedInteger Integer.Uint64 18446744073709551615 eq_refl)).
-Proof. apply const_info_denotes; reflexivity. Qed.
-
-Example float_1p5   : expr (Syntax.FloatLiteral Typing.decimal_15em1) = "15.0e-1". Proof. reflexivity. Qed.
+Example float_1p5   : expr (Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl)) = "15.0e-1". Proof. reflexivity. Qed.
 Example float_zero  : expr (Syntax.FloatLiteral (Float.MakeDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
 Example float_1e6   : expr (Syntax.FloatLiteral (Float.MakeDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
 Example float_neg   : expr (Syntax.FloatLiteral (Float.MakeDecimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
-Example conv_f32    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_15em1)) = "float32(15.0e-1)". Proof. reflexivity. Qed.
-Example conv_f64    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral Typing.decimal_3)) = "float64(3.0e+0)". Proof. reflexivity. Qed.
+Example conv_f32    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl))) = "float32(15.0e-1)". Proof. reflexivity. Qed.
+Example conv_f64    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.MakeDecimal 3 0 eq_refl))) = "float64(3.0e+0)". Proof. reflexivity. Qed.
 
-Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal (-25) (-1) eq_refl)))
+Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal (-25) (-1) eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
 Example cplx_zero : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 0 0 eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
   = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
-Example conv_c64  : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal 0 0 eq_refl))))
+Example conv_c64  : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl))))
   = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Example conv_c128 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal Typing.decimal_15em1 (Float.MakeDecimal 0 0 eq_refl))))
+Example conv_c128 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl))))
   = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Lemma cplx_denotes : forall dc,
-  ConstantInfoDenotes (expr (Syntax.ComplexLiteral dc)) (Typing.UntypedInfo (Typing.ComplexConstant (Complex.decimal_value dc))).
-Proof. intro dc; apply const_info_denotes; reflexivity. Qed.
-
-Lemma float_denotes : forall d,
-  ConstantInfoDenotes (expr (Syntax.FloatLiteral d)) (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value d))).
-Proof. intro d; apply const_info_denotes; reflexivity. Qed.
-
-Example float_untyped_denotes :
-  ConstantInfoDenotes (expr (Syntax.FloatLiteral Typing.decimal_15em1)) (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value Typing.decimal_15em1))).
-Proof. apply const_info_denotes; reflexivity. Qed.
-Example conv_f32_typed_denotes :
-  option_map Typing.constant_info_exact (constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral Typing.decimal_single_rounding)))
-    = Some (Typing.FloatConstant (Float.constant_of_Z 2305843284091600896)).
-Proof. vm_compute. reflexivity. Qed.
-
-Example float_untyped_tenth :
-  ConstantInfoDenotes (expr (Syntax.FloatLiteral (Float.MakeDecimal 1 (-1) eq_refl)))
-                           (Typing.UntypedInfo (Typing.FloatConstant (Float.decimal_value (Float.MakeDecimal 1 (-1) eq_refl)))).
-Proof. apply const_info_denotes; reflexivity. Qed.
-Example conv_f64_underflow_zero :
-  option_map Typing.constant_info_exact (constant_info (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.MakeDecimal (-1) (-330) eq_refl))))
-    = Some (Typing.FloatConstant Float.constant_zero).
-Proof. vm_compute. reflexivity. Qed.
 

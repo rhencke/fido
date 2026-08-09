@@ -24,7 +24,7 @@ Module Certificate : CERTIFICATE.
 End Certificate.
 Include Certificate.
 
-(* The certified program, which the renderer and emitter reach only through this projection. *)
+(* The certified source: [Emit] reaches it via this projection, then [Render] traverses that raw [Syntax] directly. *)
 Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled sp).
 
 (* Safety wraps the capability, so a certified program retains the exact core that justified it. *)

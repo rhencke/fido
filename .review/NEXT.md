@@ -26,11 +26,22 @@ classifier and equality. C6 requires ordinary identifiers and the full predeclar
 inventory below refers to those canonical names without restating them.
 
 **Canonical root 2 — static typed constants and pre-runtime erasure** is implemented in `Float`/`Complex`
-(with `Safe`/`Render` consumers): a float or complex typed constant is a purely compile-time carrier retaining
-the exact post-rounding rational and the exact destination-format rounded representation of one rounding, and
-the premature `Float.Value`/`Complex.Value` runtime carriers and the `Safe` evaluator are deleted. C7 creates
-the first runtime values. This root changes no `Syntax.Program` inhabitant, no source meaning, no decision, no
+(consumed on the compilation branch by `Typing`/`Compilable`; `Render` is a sibling branch and consumes no
+typed constant): a float or complex typed constant is a purely compile-time carrier retaining the exact
+post-rounding rational and the exact destination-format rounded representation of one rounding, and the
+premature `Float.Value`/`Complex.Value` runtime carriers and the `Safe` evaluator are deleted. C7 creates the
+first runtime values. This root changes no `Syntax.Program` inhabitant, no source meaning, no decision, no
 diagnostic, and no rendered byte.
+
+**Status — the current candidate.** The accepted Root 1 frontier is `6c13dc0`. `c8ba188` is the public,
+**unaccepted, blocked** Root 2 candidate. The current tip is a single forward child of `c8ba188` — the
+**unaccepted targeted layer-conformance retreat candidate** (named symbolically, never by a guessed self-hash)
+that returns `Render` and `Emit` to their sibling-branch owners: it **deletes** the unconsumed cross-branch
+denotation and compiler/image theorem families outright — **deleted, not relocated**, with no `Evidence`
+placeholder — restates the retained ASCII theorems on `Names`, and adds the direct-edge layer gate. It changes
+no `Syntax.Program` inhabitant, source meaning, decision, diagnostic, rendered byte, generated Go file or
+golden. All later C6 work is frozen pending that candidate's targeted lower-layer review and the normal Root 2
+review; it reopens no historical checkpoint and marks none unaccepted.
 
 ## Ownership and physical modules
 

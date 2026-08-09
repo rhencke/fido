@@ -65,10 +65,13 @@ USER opam
 #    whole-certified-theory assumption audit run against the dune-built .vo, with controls A-E proving the
 #    audit is not fail-open. Those three jointly own the zero-project-axiom claim; none is sufficient alone.
 #    The audit enumerates its own roots, so no hand-written surface list sits beside it to drift.
+#    The layer-dependency gate runs here too: pinned `rocq dep` direct Fido edges must equal the sole
+#    ARCHITECTURE policy block, with its own actual-minus-policy, policy-minus-actual and coverage controls.
 FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam ARCHITECTURE.md ./
 COPY --chown=opam:opam plugin/ plugin/
 # `make prove` is the COMPLETE proof gate: Dune builds the theory AND the audit/transport plugin; then the
 # certified-module coverage check, the WHOLE-certified-theory assumption-closure audit (constants + mutual
@@ -88,6 +91,54 @@ tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
 declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
 [ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked=[$tracked_mods] dune=[$declared_mods]"
 echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
+# (b2) LAYER-DEPENDENCY GATE — the direct Fido import graph must EQUAL the sole ARCHITECTURE policy block.
+#      Pinned `rocq dep` reports Require edges (never .glob origins); edge legality is independent of use.
+[ -f ARCHITECTURE.md ] || fail "layer gate: ARCHITECTURE.md not present in the prover context"
+sed -n '/FIDO-LAYER-POLICY BEGIN/,/FIDO-LAYER-POLICY END/p' ARCHITECTURE.md \
+  | grep -E '^[A-Za-z][A-Za-z0-9_]*:' > /tmp/policy.rows || true
+[ -s /tmp/policy.rows ] || fail "layer gate: empty ARCHITECTURE policy block"
+layer_edges() { # <dir>: normalized 'HEAD DEP' actual direct Fido edges from rocq dep over <dir>/*.v
+  ( cd "$1" && rocq dep -Q . Fido *.v 2>/tmp/dep.err ) \
+    | awk -v mods=" $mods " '
+        /:/ { split($0,a,":"); split(a[1],lhs," "); head=lhs[1];
+              if (head !~ /\.vo$/) next; sub(/\.vo$/,"",head); sub(/.*\//,"",head);
+              m=split(a[2],r," ");
+              for (i=1;i<=m;i++){ t=r[i]; if (t ~ /\.vo$/){ sub(/\.vo$/,"",t); sub(/.*\//,"",t);
+                if (t!=head && index(mods," " t " ")>0) print head" "t } } }' | sort -u
+}
+layer_policy_edges() { awk '{ h=$1; sub(/:$/,"",h); for(i=2;i<=NF;i++) print h" "$i }' "$1" | sort -u; }
+layer_check() { # <src-dir> <rows-file>: coverage + set-equality; nonzero + message on any discrepancy
+  d="$1"; rows="$2"
+  awk '{h=$1; sub(/:$/,"",h); print h}' "$rows" | sort > /tmp/rowmods.lst
+  printf '%s\n' $mods | sort > /tmp/wantmods.lst
+  dupe=$(uniq -d /tmp/rowmods.lst); [ -z "$dupe" ] || { echo "layer gate: duplicate policy row(s): $dupe"; return 1; }
+  miss=$(comm -23 /tmp/wantmods.lst /tmp/rowmods.lst); [ -z "$miss" ] || { echo "layer gate: module with no policy row (fail closed): $miss"; return 1; }
+  unk=$(comm -13 /tmp/wantmods.lst /tmp/rowmods.lst); [ -z "$unk" ] || { echo "layer gate: policy row for unknown module (fail closed): $unk"; return 1; }
+  baddep=$(layer_policy_edges "$rows" | awk -v mods=" $mods " '{ if (index(mods," " $2 " ")==0) print $1" -> "$2 }')
+  [ -z "$baddep" ] || { echo "layer gate: policy names unknown dependency (fail closed): $baddep"; return 1; }
+  layer_edges "$d" > /tmp/actual.edges; layer_policy_edges "$rows" > /tmp/policy.edges
+  forb=$(comm -23 /tmp/actual.edges /tmp/policy.edges); dorm=$(comm -13 /tmp/actual.edges /tmp/policy.edges)
+  crc=0
+  [ -z "$forb" ] || { echo "layer gate: forbidden direct edge (actual-minus-policy):"; echo "$forb" | sed 's/ / -> /; s/^/    /'; crc=1; }
+  [ -z "$dorm" ] || { echo "layer gate: dormant policy edge (policy-minus-actual):"; echo "$dorm" | sed 's/ / -> /; s/^/    /'; crc=1; }
+  return $crc
+}
+layer_check . /tmp/policy.rows || fail "layer-dependency gate — actual direct edges != the sole ARCHITECTURE policy"
+echo "fido: layer-dependency gate OK — for the pinned source view the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy, and every Dune module is covered exactly once (edge legality independent of use; no .glob; notation/coercion/transitive visibility and semantic ownership stay review obligations)"
+# CONTROLS (compiler-native, not the Python harness) — each surviving decision must fail for its exact reason.
+rm -rf /tmp/mut && mkdir -p /tmp/mut && cp *.v /tmp/mut/
+{ printf 'From Fido Require Import Typing.\n'; cat /tmp/mut/Render.v; } > /tmp/mut/Render.v.n && mv /tmp/mut/Render.v.n /tmp/mut/Render.v
+if layer_check /tmp/mut /tmp/policy.rows > /tmp/ctl2.log 2>&1; then cat /tmp/ctl2.log; fail "layer control 2: an UNUSED forbidden Render->Typing import was not caught"; fi
+grep -q 'Render -> Typing' /tmp/ctl2.log || { cat /tmp/ctl2.log; fail "layer control 2: failed, but not for the Render->Typing actual-minus-policy reason"; }
+echo "fido: layer control 2 OK — an unused forbidden direct import fails (actual-minus-policy; use is irrelevant to legality)"
+sed 's/^Machine:$/Machine: Names/' /tmp/policy.rows > /tmp/policy.mut3
+if layer_check . /tmp/policy.mut3 > /tmp/ctl3.log 2>&1; then cat /tmp/ctl3.log; fail "layer control 3: a dormant Machine->Names policy edge was not caught"; fi
+grep -q 'Machine -> Names' /tmp/ctl3.log || { cat /tmp/ctl3.log; fail "layer control 3: failed, but not for the Machine->Names policy-minus-actual reason"; }
+echo "fido: layer control 3 OK — a dormant policy edge with no matching import fails (policy-minus-actual)"
+grep -v '^Emit:' /tmp/policy.rows > /tmp/policy.mut4
+if layer_check . /tmp/policy.mut4 > /tmp/ctl4.log 2>&1; then cat /tmp/ctl4.log; fail "layer control 4: a missing Emit policy row was not caught"; fi
+grep -q 'no policy row' /tmp/ctl4.log || { cat /tmp/ctl4.log; fail "layer control 4: failed, but not for the missing-row coverage reason"; }
+echo "fido: layer control 4 OK — a missing module row fails closed (coverage)"
 # (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi

@@ -28,7 +28,10 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
 - `Admissible` is exact whole-**program** admissibility, aiming at the pinned `go build ./...` acceptance for
   every representable program. A program `go build` accepts but Fido rejects is a **model bug**, not a
   documented limitation.
-- Rendering denotes what typing computes, and a rendered spelling denotes at most one constant status.
+- Rendering maps the one program directly to canonical bytes, and each rendered literal round-trips to the
+  exact source value it encodes. `Render` is a sibling branch over the same `Syntax.Program`, importing no
+  typing or compiler authority; any correspondence between a spelling and the constant status typing computes
+  is a downstream adequacy obligation, not a current theorem.
 - Every emitted image carries proof it came from rendering one certified program, and the transport rejects
   an image whose proof depends on an axiom.
 - **Zero project axioms**, asserted every build by three checks that no one of them could make alone:

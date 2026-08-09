@@ -68,6 +68,21 @@ Proof.
   reflexivity.
 Qed.
 
+(* [elements] has key-distinct bindings ([elements_3w]), so its projected key list is [NoDup]. *)
+Lemma file_map_elements_keys_nodup {A} (m : FileMap.t A) :
+  NoDup (List.map fst (FileMap.elements m)).
+Proof.
+  assert (H : NoDupA (@FileMap.eq_key A) (FileMap.elements m)) by apply FileMap.elements_3w.
+  revert H. generalize (FileMap.elements m). intro l.
+  induction l as [ | [k v] l' IH ]; simpl; intro H.
+  - constructor.
+  - inversion H as [ | a l0 Hni Hnd ]; subst. constructor.
+    + intro Hin. apply List.in_map_iff in Hin. destruct Hin as [ [k' v'] [Hk Hin'] ].
+      simpl in Hk; subst k'. apply Hni. apply InA_alt. exists (k, v').
+      split; [ reflexivity | exact Hin' ].
+    + apply IH; exact Hnd.
+Qed.
+
 Module PackageOrder := FMapFacts.OrdProperties PackageMap.
 
 Lemma equal_list_key_element_eq_str {A} : forall (l1 l2 : list (string * A)),
@@ -118,42 +133,6 @@ Proof.
     apply PackageFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
     split; [ split; reflexivity | exact Hin ].
 Qed.
-
-Lemma sorted_map_fst_file {A B} (f : A -> B) : forall l,
-  Sorted (@FileMap.lt_key A) l ->
-  Sorted (@FileMap.lt_key B) (map (fun kv => (fst kv, f (snd kv))) l).
-Proof.
-  induction l as [|a l IH]; intro Hs; cbn [map]; [constructor|].
-  apply Sorted_inv in Hs. destruct Hs as [Hs Hhd]. constructor; [apply IH; exact Hs|].
-  destruct l as [|b l']; cbn [map]; [constructor|]. apply HdRel_inv in Hhd. constructor. exact Hhd.
-Qed.
-
-Lemma file_map_elements {A B} (f : A -> B) : forall (m : FileMap.t A),
-  FileMap.elements (FileMap.map f m)
-  = map (fun kv => (fst kv, f (snd kv))) (FileMap.elements m).
-Proof.
-  intro m. apply equal_list_key_element_eq.
-  apply FileOrder.sort_equivlistA_eqlistA;
-    [ apply FileMap.elements_3
-    | apply sorted_map_fst_file, FileMap.elements_3 | ].
-  intros [k e].
-  rewrite <- FileFacts.elements_mapsto_iff, FileFacts.map_mapsto_iff, InA_alt.
-  split.
-  - intros [a [He Hmt]]. subst e.
-    apply FileFacts.elements_mapsto_iff in Hmt. rewrite InA_alt in Hmt.
-    destruct Hmt as [[k' a'] [[Hk Ha] Hin]]. cbn in Hk, Ha. subst k' a'.
-    exists (k, f a). split; [ split; reflexivity | ].
-    apply in_map_iff. exists (k, a). split; [reflexivity | exact Hin].
-  - intros [[k' e'] [[Hk He] Hin]]. cbn in Hk, He. subst k' e'.
-    apply in_map_iff in Hin. destruct Hin as [[k'' a] [Heq Hin]]. injection Heq as Hk2 He2. subst k'' e.
-    exists a. split; [reflexivity | ].
-    apply FileFacts.elements_mapsto_iff. rewrite InA_alt. exists (k, a).
-    split; [ split; reflexivity | exact Hin ].
-Qed.
-
-Lemma file_map_fst_elements {A B} (f : A -> B) (m : FileMap.t A) :
-  map fst (FileMap.elements (FileMap.map f m)) = map fst (FileMap.elements m).
-Proof. rewrite file_map_elements, map_map. reflexivity. Qed.
 
 Lemma package_map_fst_elements {A B} (f : A -> B) (m : PackageMap.t A) :
   map fst (PackageMap.elements (PackageMap.map f m)) = map fst (PackageMap.elements m).

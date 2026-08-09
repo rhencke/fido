@@ -7190,32 +7190,10 @@ Definition root_entry_of_file (b : FilePath.T * Syntax.File) : string * FreshRoo
   then (FilePath.text (fst b), SourceFileEntry (fst b))
   else (first_component (FilePath.text (fst b)), DirectoryEntry).
 
-(* the root entry depends only on the path, so it factors through the key alone *)
-Definition root_entry_of_path (fp : FilePath.T) : string * FreshRootEntryKind :=
-  if String.eqb (FilePath.parent fp) ""
-  then (FilePath.text fp, SourceFileEntry fp)
-  else (first_component (FilePath.text fp), DirectoryEntry).
-
-Lemma root_entry_of_file_eq_path : forall b, root_entry_of_file b = root_entry_of_path (fst b).
-Proof. intro b. reflexivity. Qed.
-
 Definition root_layout (p : Syntax.Program) : PackageMap.t FreshRootEntryKind :=
   fold_right (fun b acc => PackageMap.add (fst (root_entry_of_file b)) (snd (root_entry_of_file b)) acc)
              (PackageMap.add "go.mod" GoModuleEntry (PackageMap.empty _))
              (Syntax.file_bindings (Syntax.files p)).
-
-(* the layout over a bare key list, which the image bridge recomputes from the image's own keys *)
-Definition root_layout_of_keys (ks : list FilePath.T) : PackageMap.t FreshRootEntryKind :=
-  fold_right (fun fp acc => PackageMap.add (fst (root_entry_of_path fp)) (snd (root_entry_of_path fp)) acc)
-             (PackageMap.add "go.mod" GoModuleEntry (PackageMap.empty _)) ks.
-
-Lemma root_layout_eq_of_keys : forall p,
-  root_layout p = root_layout_of_keys (map fst (Syntax.file_bindings (Syntax.files p))).
-Proof.
-  intro p. unfold root_layout, root_layout_of_keys.
-  induction (Syntax.file_bindings (Syntax.files p)) as [|b bs IH]; [reflexivity|].
-  cbn [map fold_right]. rewrite IH, root_entry_of_file_eq_path. reflexivity.
-Qed.
 
 Lemma fold_add_find_notin {A} (kv : (FilePath.T * Syntax.File) -> string * A) (init : PackageMap.t A)
     (l : list (FilePath.T * Syntax.File)) (e : string) :
@@ -7469,15 +7447,6 @@ Lemma fresh_build_plan_multiple : forall p d1 d2 rest,
   selected_package_keys p = d1 :: d2 :: rest ->
   fresh_build_plan p = DiscardMultiple (selected_package_count p).
 Proof. intros p d1 d2 rest H. unfold fresh_build_plan, fresh_build_plan_of, selected_package_count. rewrite H. reflexivity. Qed.
-
-(* the plan's stored target is the layout's classification at the default output name *)
-Lemma fresh_build_plan_single_target : forall p dir ip ex t,
-  fresh_build_plan p = WriteSingleMain dir ip ex t -> t = PackageMap.find ex (root_layout p).
-Proof.
-  intros p dir ip ex t Hplan. unfold fresh_build_plan, fresh_build_plan_of in Hplan.
-  destruct (selected_package_keys p) as [|d0 [|d1 r]] eqn:Ek; try discriminate Hplan.
-  injection Hplan as _ _ Hex Ht. rewrite <- Hex. symmetry. exact Ht.
-Qed.
 
 (* the retained buckets' keys are the selected package keys, so the plan needs no second fold *)
 Lemma bucket_keys_eq_selected : forall p (idx : Index.Snapshot.Syntax p),
