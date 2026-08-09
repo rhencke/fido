@@ -333,7 +333,7 @@ Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity
 Lemma constant_info_zero_sign : constant_info (Syntax.IntegerLiteral 0) = constant_info (Syntax.NegatedIntegerLiteral 0).
 Proof. reflexivity. Qed.
 
-(* A nested same-format float conversion is an identity, so evaluation never rounds a typed float twice. *)
+(* A nested same-format float conversion returns the same carrier, so a typed float is never rerounded. *)
 Lemma convert_constant_same_float : forall ft (tc : TypedConstant (FloatType ft)),
   convert_constant (FloatType ft) (TypedInfo (FloatType ft) tc) = Some tc.
 Proof. intros ft tc; destruct ft; reflexivity. Qed.

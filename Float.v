@@ -287,72 +287,9 @@ Example decimal_value_tenth :                                     (* 1 * 10^-1 =
   /\ denominator (decimal_value (MakeDecimal 1 (-1) eq_refl)) = 10%positive.
 Proof. split; reflexivity. Qed.
 
-(* A runtime float is format-canonical for its kind, carrying that canonicality as a proof. *)
-
-Definition ieee_is_finite_or_zero (v : spec_float) : bool :=
-  match v with S754_finite _ _ _ | S754_zero _ => true | _ => false end.
-
-Definition FloatCanonical (ft : Kind) (v : spec_float) : Prop :=
-  (exists q, v = round_ieee ft q) \/ v = S754_nan \/ (exists s, v = S754_infinity s).
-
-Record Value (ft : Kind) : Type := MakeValue {
-  ieee : spec_float ;
-  canonical_value : FloatCanonical ft ieee
-}.
-Arguments MakeValue {ft} _ _.
-Arguments ieee {ft} _.
-
-Lemma round_ieee_zero : forall ft, round_ieee ft constant_zero = S754_zero false.
-Proof. intro ft; destruct ft; reflexivity. Qed.
-
-(* Normalize a zero result to positive zero, since a constant has no signed zero. *)
+(* Zero-sign normalization: a constant has no signed zero, so a zero result normalizes to positive zero. *)
 Definition strip_neg_zero (v : spec_float) : spec_float :=
   match v with S754_zero _ => S754_zero false | x => x end.
-
-(* The canonicality of a constant's runtime value, which only [round_typed_float] ever builds. *)
-Lemma const_runtime_canonical : forall ft q,
-  FloatCanonical ft (strip_neg_zero (round_ieee ft q)).
-Proof.
-  intros ft q; unfold FloatCanonical, strip_neg_zero.
-  destruct (round_ieee ft q) as [sb|sb| |sb m e] eqn:E.
-  - left; exists constant_zero; rewrite round_ieee_zero; reflexivity.
-  - right; right; exists sb; reflexivity.
-  - right; left; reflexivity.
-  - left; exists q; rewrite E; reflexivity.
-Qed.
-
-(* A constant-origin runtime is exactly positive zero or finite, never a signed zero, infinity or NaN. *)
-Definition constant_runtimeb (v : spec_float) : bool :=
-  match v with
-  | S754_zero false   => true
-  | S754_finite _ _ _ => true
-  | _                 => false
-  end.
-
-Record TypedConstant (ft : Kind) : Type := MakeTypedConstant {
-  exact   : Constant ;
-  runtime : Value ft ;
-  coherent     : ieee_to_constant (ieee runtime) = Some exact ;
-  shape   : constant_runtimeb (ieee runtime) = true
-}.
-Arguments MakeTypedConstant {ft} _ _ _ _.
-Arguments exact {ft} _.
-Arguments runtime {ft} _.
-Arguments coherent {ft} _.
-Arguments shape {ft} _.
-
-(* [ieee_to_constant] ignores a zero's sign, so stripping it does not change the read-back constant. *)
-Lemma ieee_to_constant_strip : forall w, ieee_to_constant (strip_neg_zero w) = ieee_to_constant w.
-Proof. intro w; destruct w; reflexivity. Qed.
-
-Lemma const_runtime_shape : forall ft q r,
-  ieee_to_constant (strip_neg_zero (round_ieee ft q)) = Some r ->
-  constant_runtimeb (strip_neg_zero (round_ieee ft q)) = true.
-Proof.
-  intros ft q r H.
-  destruct (round_ieee ft q) as [sb|sb| |sb m e]; cbn [strip_neg_zero] in *;
-    cbn [ieee_to_constant constant_runtimeb] in *; try reflexivity; discriminate.
-Qed.
 
 (* A [sumor] decides the read-back once and carries its proof, so nothing downstream re-abstracts a motive. *)
 Definition ieee_repr_dec (v : spec_float) :
@@ -365,25 +302,32 @@ Definition ieee_repr_dec (v : spec_float) :
   | None   => fun H => inright H
   end eq_refl.
 
-(* Both representations derive from one already-rounded value, so nothing here rounds a second time. *)
-Definition typed_from_canonical (ft : Kind) (v : spec_float)
-    (Hc : FloatCanonical ft v)
-    (Hshape : forall r, ieee_to_constant v = Some r -> constant_runtimeb v = true)
-    : option (TypedConstant ft) :=
-  match ieee_repr_dec v with
-  | inleft (exist _ r Hr) => Some (MakeTypedConstant r (MakeValue v Hc) Hr (Hshape r Hr))
+(* A float typed constant is a purely static carrier of one rounding's exact rational and rounded representation. *)
+Record TypedConstant (ft : Kind) : Type := MakeTypedConstant {
+  exact    : Constant ;
+  rounded  : spec_float ;
+  formed   : exists q : Constant, rounded = strip_neg_zero (round_ieee ft q) ;
+  coherent : ieee_to_constant rounded = Some exact
+}.
+Arguments MakeTypedConstant {ft} _ _ _ _.
+Arguments exact {ft} _.
+Arguments rounded {ft} _.
+Arguments formed {ft} _.
+Arguments coherent {ft} _.
+
+(* The one typed-float formation authority: round once at [ft], normalize zero, derive both from that result. *)
+Definition round_typed_float (ft : Kind) (q : Constant) : option (TypedConstant ft) :=
+  let r0 := strip_neg_zero (round_ieee ft q) in
+  match ieee_repr_dec r0 with
+  | inleft (exist _ r Hr) => Some (MakeTypedConstant r r0 (ex_intro _ q eq_refl) Hr)
   | inright _             => None
   end.
 
-(* The one construction authority: round once at the destination format, then derive both representations. *)
-Definition round_typed_float (ft : Kind) (q : Constant) : option (TypedConstant ft) :=
-  typed_from_canonical ft (strip_neg_zero (round_ieee ft q))
-                     (const_runtime_canonical ft q) (const_runtime_shape ft q).
-
-Lemma round_typed_float_runtime_sf : forall ft q tc,
-  round_typed_float ft q = Some tc -> ieee (runtime tc) = strip_neg_zero (round_ieee ft q).
+(* A successful rounding retains exactly the destination-format rounded value as its representation. *)
+Lemma round_typed_float_rounded : forall ft q tc,
+  round_typed_float ft q = Some tc -> rounded tc = strip_neg_zero (round_ieee ft q).
 Proof.
-  intros ft q tc H. unfold round_typed_float, typed_from_canonical in H.
+  intros ft q tc H. unfold round_typed_float in H.
   destruct (ieee_repr_dec (strip_neg_zero (round_ieee ft q))) as [[r Hr]|Hn];
     [ injection H as <-; reflexivity | discriminate ].
 Qed.
@@ -424,6 +368,27 @@ Proof.
   - intros [tc' HH]; discriminate.
 Qed.
 
+(* The rounded representation is in the image of [round_ieee ft], so the format index [ft] is load-bearing. *)
+Lemma typed_format_image : forall ft (tc : TypedConstant ft),
+  exists q, rounded tc = strip_neg_zero (round_ieee ft q).
+Proof. intros ft tc; exact (formed tc). Qed.
+
+(* Read-back coherence: reading the retained representation yields the retained exact rational. *)
+Lemma typed_readback : forall ft (tc : TypedConstant ft),
+  ieee_to_constant (rounded tc) = Some (exact tc).
+Proof. intros ft tc; exact (coherent tc). Qed.
+
+(* Positive-zero-or-finite shape: negative zero, infinity and NaN are unconstructible as typed constants. *)
+Lemma typed_not_neg_zero : forall ft (tc : TypedConstant ft), rounded tc <> S754_zero true.
+Proof.
+  intros ft tc H. destruct (formed tc) as [q Hq]. rewrite H in Hq.
+  destruct (round_ieee ft q); cbn in Hq; discriminate.
+Qed.
+Lemma typed_not_nan : forall ft (tc : TypedConstant ft), rounded tc <> S754_nan.
+Proof. intros ft tc H; pose proof (coherent tc) as Hc; rewrite H in Hc; discriminate. Qed.
+Lemma typed_not_inf : forall ft (tc : TypedConstant ft) s, rounded tc <> S754_infinity s.
+Proof. intros ft tc s H; pose proof (coherent tc) as Hc; rewrite H in Hc; discriminate. Qed.
+
 Example round_const_single_rounding_direct_f32 :
   round_constant F32 single_rounding_x = Some (constant_of_Z 2305843284091600896).
 Proof. vm_compute. reflexivity. Qed.
@@ -445,33 +410,18 @@ Proof. vm_compute. reflexivity. Qed.
 Example representableb_overflow_f32 : representableb F32 (constant_of_Z (10 ^ 40)) = false.
 Proof. vm_compute. reflexivity. Qed.
 
-Lemma typed_runtime_not_neg_zero : forall ft (tc : TypedConstant ft),
-  ieee (runtime tc) <> S754_zero true.
-Proof. intros ft tc H; pose proof (shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
-Lemma typed_runtime_not_nan : forall ft (tc : TypedConstant ft),
-  ieee (runtime tc) <> S754_nan.
-Proof. intros ft tc H; pose proof (shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
-Lemma typed_runtime_not_inf : forall ft (tc : TypedConstant ft) s,
-  ieee (runtime tc) <> S754_infinity s.
-Proof. intros ft tc s H; pose proof (shape tc) as Hs; rewrite H in Hs; discriminate. Qed.
-
-(* Canonical runtime values that no typed constant can equal: NaN, infinity and negative zero. *)
-Definition value_nan (ft : Kind) : Value ft :=
-  MakeValue S754_nan (or_intror (or_introl eq_refl)).
-Definition value_inf (ft : Kind) (s : bool) : Value ft :=
-  MakeValue (S754_infinity s) (or_intror (or_intror (ex_intro _ s eq_refl))).
-(* proved once by vm_compute, so the Definition below needs no heavy kernel conversion *)
-Lemma neg_zero_f64_canonical : FloatCanonical F64 (S754_zero true).
-Proof. left; exists (reduce_constant (-1) (10 ^ 330)%positive); vm_compute; reflexivity. Qed.
-Definition value_neg_zero_F64 : Value F64 := MakeValue (S754_zero true) neg_zero_f64_canonical.
-
-(* A typed constant whose runtime is a NaN or a negative zero cannot be built: the fields refuse it. *)
-Fail Definition tfc_nan_unrepresentable : TypedConstant F64 := MakeTypedConstant constant_zero (value_nan F64) eq_refl eq_refl.
-Fail Definition tfc_neg_zero_unrepresentable : TypedConstant F64 := MakeTypedConstant constant_zero value_neg_zero_F64 eq_refl eq_refl.
+(* The honest carrier is constructible, and a negative-zero or NaN representation is refused by the fields. *)
+Example tfc_five_f64_ok :
+  match round_typed_float F64 (constant_of_Z 5) with Some _ => True | None => False end.
+Proof. vm_compute; exact I. Qed.
+Fail Definition tfc_neg_zero_unconstructible : TypedConstant F64 :=
+  MakeTypedConstant constant_zero (S754_zero true) (ex_intro _ constant_zero eq_refl) eq_refl.
+Fail Definition tfc_nan_unconstructible : TypedConstant F64 :=
+  MakeTypedConstant constant_zero S754_nan (ex_intro _ constant_zero eq_refl) eq_refl.
 
 Example round_typed_neg_underflow_f64 :
   match round_typed_float F64 (reduce_constant (-1) (10 ^ 330)%positive) with
-  | Some tc => exact tc = constant_zero /\ ieee (runtime tc) = S754_zero false
+  | Some tc => exact tc = constant_zero /\ rounded tc = S754_zero false
   | None => False
   end.
 Proof. vm_compute. split; reflexivity. Qed.

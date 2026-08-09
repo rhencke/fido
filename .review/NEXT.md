@@ -25,6 +25,13 @@ the ordinary (nonblank) identifier subtype, the complete predeclared identity ca
 classifier and equality. C6 requires ordinary identifiers and the full predeclared catalog; the migration
 inventory below refers to those canonical names without restating them.
 
+**Canonical root 2 — static typed constants and pre-runtime erasure** is implemented in `Float`/`Complex`
+(with `Safe`/`Render` consumers): a float or complex typed constant is a purely compile-time carrier retaining
+the exact post-rounding rational and the exact destination-format rounded representation of one rounding, and
+the premature `Float.Value`/`Complex.Value` runtime carriers and the `Safe` evaluator are deleted. C7 creates
+the first runtime values. This root changes no `Syntax.Program` inhabitant, no source meaning, no decision, no
+diagnostic, and no rendered byte.
+
 ## Ownership and physical modules
 
 `ARCHITECTURE.md` owns the ownership law and the physical-structure doctrine, including the `Compilable.*`
@@ -106,15 +113,12 @@ Parameter PackageRef : SyntaxProgram -> Type.
 Parameter package_ref_key : forall {p}, PackageRef p -> string.
 Parameter Identifier : Type.
 Parameter spelling : Identifier -> string.
-(* Integer.Kind, Float.Kind and Complex.Kind are closed today; stub them faithfully. *)
+(* Integer.Kind is closed today; stub it faithfully.  Float.Kind, Complex.Kind and their typed constants are
+   the canonical owners in `Float`/`Complex`, referenced directly below. *)
 Inductive IntegerKind : Type :=
 | IKInt | IKInt8 | IKInt16 | IKInt32 | IKInt64
 | IKUint | IKUint8 | IKUint16 | IKUint32 | IKUint64.
-Inductive FloatKind : Type := FKF32 | FKF64.
-Inductive ComplexKind : Type := CKC64 | CKC128.
 Parameter IntegerRepresentable : IntegerKind -> Z -> Prop.
-Parameter FloatTypedConstant : FloatKind -> Type.
-Parameter ComplexTypedConstant : ComplexKind -> Type.
 Parameter Decimal : Type.
 Parameter coefficient : Decimal -> Z.
 Parameter IndexKey : Type.
@@ -414,8 +418,8 @@ Definition use_refinement {p} (u : ExprUseRef p) : UseRefinement :=
 
 (* ── Typing: named predeclared identities over a form algebra ──────────────── *)
 Inductive BasicType : Type :=
-| BoolBasic | IntegerBasic (k : IntegerKind) | FloatBasic (k : FloatKind)
-| ComplexBasic (k : ComplexKind) | StringBasic.
+| BoolBasic | IntegerBasic (k : IntegerKind) | FloatBasic (k : Float.Kind)
+| ComplexBasic (k : Complex.Kind) | StringBasic.
 
 Inductive PredeclaredBasicType : Type :=
 | TBool
@@ -430,8 +434,8 @@ Definition predeclared_basic_form (t : PredeclaredBasicType) : BasicType :=
   | TInt32 => IntegerBasic IKInt32 | TInt64 => IntegerBasic IKInt64
   | TUint => IntegerBasic IKUint | TUint8 => IntegerBasic IKUint8 | TUint16 => IntegerBasic IKUint16
   | TUint32 => IntegerBasic IKUint32 | TUint64 => IntegerBasic IKUint64
-  | TFloat32 => FloatBasic FKF32 | TFloat64 => FloatBasic FKF64
-  | TComplex64 => ComplexBasic CKC64 | TComplex128 => ComplexBasic CKC128
+  | TFloat32 => FloatBasic F32 | TFloat64 => FloatBasic F64
+  | TComplex64 => ComplexBasic C64 | TComplex128 => ComplexBasic C128
   | TString => StringBasic
   end.
 
@@ -503,10 +507,10 @@ Inductive NumericBasic : BasicType -> Prop :=
 | NBComplex : forall b, ComplexBasicForm b -> NumericBasic b.
 
 (* Float.Kind already owns the two float forms; no second carrier is minted. *)
-Definition float_named_basic (f : FloatKind) : PredeclaredBasicType :=
-  match f with FKF32 => TFloat32 | FKF64 => TFloat64 end.
-Definition complex_named_basic (f : FloatKind) : PredeclaredBasicType :=
-  match f with FKF32 => TComplex64 | FKF64 => TComplex128 end.
+Definition float_named_basic (f : Float.Kind) : PredeclaredBasicType :=
+  match f with F32 => TFloat32 | F64 => TFloat64 end.
+Definition complex_named_basic (f : Float.Kind) : PredeclaredBasicType :=
+  match f with F32 => TComplex64 | F64 => TComplex128 end.
 
 (* Exact constant arithmetic: every rule computes its result rather than being handed one. *)
 Parameter negate_constant : Constant -> option Constant.
@@ -520,8 +524,8 @@ Definition FitsBasic (b : BasicType) (c : Constant) : Prop :=
 Inductive BasicTypedConstant : BasicType -> Type :=
 | TCBool    : bool -> BasicTypedConstant BoolBasic
 | TCInteger : forall k z, IntegerRepresentable k z -> BasicTypedConstant (IntegerBasic k)
-| TCFloat   : forall k, FloatTypedConstant k -> BasicTypedConstant (FloatBasic k)
-| TCComplex : forall k, ComplexTypedConstant k -> BasicTypedConstant (ComplexBasic k)
+| TCFloat   : forall k, Float.TypedConstant k -> BasicTypedConstant (FloatBasic k)
+| TCComplex : forall k, Complex.TypedConstant k -> BasicTypedConstant (ComplexBasic k)
 | TCString  : string -> BasicTypedConstant StringBasic.
 
 Inductive TypeView : Type :=
@@ -548,7 +552,7 @@ Parameter basic_typed_of : forall b : BasicType, Constant -> option (BasicTypedC
 
 (* The one authority for combining two floating values of the same kind into the complex constant of the
    matching kind.  A `complex` rule computes its result through this, never accepting one. *)
-Parameter complex_typed_of : forall f : FloatKind,
+Parameter complex_typed_of : forall f : Float.Kind,
   BasicTypedConstant (predeclared_basic_form (float_named_basic f)) ->
   BasicTypedConstant (predeclared_basic_form (float_named_basic f)) ->
   option (BasicTypedConstant (predeclared_basic_form (complex_named_basic f))).
@@ -1295,20 +1299,20 @@ Definition name_result {p} {i : Input p} {ph : Phase i} {o}
 
 (* Atom builders, so the `complex` cases below read as rules rather than as record plumbing. *)
 Definition float_atom_typed {p} {i : Input p} {ph : Phase i}
- (t : SemanticType p) (f : FloatKind)
+ (t : SemanticType p) (f : Float.Kind)
  (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
  (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
  : ResultAtomAt ph :=
  RATyped ph t (@MakeTypedConstant p i ph t _ hu v).
 
-Definition complex_atom_typed {p} {i : Input p} {ph : Phase i} (f : FloatKind)
+Definition complex_atom_typed {p} {i : Input p} {ph : Phase i} (f : Float.Kind)
  (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f)))
  : ResultAtomAt ph :=
  RATyped ph (PredeclaredType p (complex_named_basic f))
   (@MakeTypedConstant p i ph (PredeclaredType p (complex_named_basic f)) _
    (UnderlyingPredeclared ph (complex_named_basic f)) vr).
 
-Definition complex_atom_value {p} {i : Input p} {ph : Phase i} (f : FloatKind)
+Definition complex_atom_value {p} {i : Input p} {ph : Phase i} (f : Float.Kind)
  : ResultAtomAt ph :=
  RAValue ph (PredeclaredType p (complex_named_basic f)).
 
@@ -1348,7 +1352,7 @@ Inductive ConvRuleCovers {p} {i : Input p} {ph : Phase i}
 
 (* A floating operand of an exact kind, constant or not: what the `complex` combinations quantify over. *)
 Inductive FloatOperand {p} {i : Input p} {ph : Phase i}
- : ResultAtomAt ph -> FloatKind -> Prop :=
+ : ResultAtomAt ph -> Float.Kind -> Prop :=
 | FOTyped : forall t tc f, Underlying ph t (predeclared_basic_form (float_named_basic f)) ->
   FloatOperand (RATyped ph t tc) f
 | FOValue : forall t f, Underlying ph t (predeclared_basic_form (float_named_basic f)) ->
@@ -1515,7 +1519,7 @@ with ComplexRuleF {p} {i : Input p} (ph : Phase i)
   ComplexRuleF ph a (RAUntyped ph c1) (RAUntyped ph c2) [RAUntyped ph cr]
 (* One untyped constant with one typed floating constant: the untyped operand converts to the typed
   operand's exact kind, and the result is a typed complex constant of the matching kind. *)
-| CxUntypedTypedL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind)
+| CxUntypedTypedL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : Float.Kind)
   (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
   (v vc : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
   (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
@@ -1524,7 +1528,7 @@ with ComplexRuleF {p} {i : Input p} (ph : Phase i)
   complex_typed_of f vc v = Some vr ->
   ComplexRuleF ph a (RAUntyped ph c) (float_atom_typed t f hu v)
    [complex_atom_typed f vr]
-| CxUntypedTypedR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind)
+| CxUntypedTypedR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : Float.Kind)
   (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
   (v vc : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
   (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
@@ -1534,16 +1538,16 @@ with ComplexRuleF {p} {i : Input p} (ph : Phase i)
   ComplexRuleF ph a (float_atom_typed t f hu v) (RAUntyped ph c)
    [complex_atom_typed f vr]
 (* One untyped constant with one floating value: the result is a value, not a constant. *)
-| CxUntypedValueL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind),
+| CxUntypedValueL : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : Float.Kind),
   NumericConstantKind (constant_kind c) ->
   Underlying ph t (predeclared_basic_form (float_named_basic f)) ->
   ComplexRuleF ph a (RAUntyped ph c) (RAValue ph t) [complex_atom_value f]
-| CxUntypedValueR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : FloatKind),
+| CxUntypedValueR : forall (a : ApplicationRef p) (c : Constant) (t : SemanticType p) (f : Float.Kind),
   NumericConstantKind (constant_kind c) ->
   Underlying ph t (predeclared_basic_form (float_named_basic f)) ->
   ComplexRuleF ph a (RAValue ph t) (RAUntyped ph c) [complex_atom_value f]
 (* Two typed floating constants of one identical type give a typed complex constant. *)
-| CxTypedTyped : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+| CxTypedTyped : forall (a : ApplicationRef p) (t : SemanticType p) (f : Float.Kind)
   (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
   (v1 v2 : BasicTypedConstant (predeclared_basic_form (float_named_basic f)))
   (vr : BasicTypedConstant (predeclared_basic_form (complex_named_basic f))),
@@ -1551,16 +1555,16 @@ with ComplexRuleF {p} {i : Input p} (ph : Phase i)
   ComplexRuleF ph a (float_atom_typed t f hu v1) (float_atom_typed t f hu v2)
    [complex_atom_typed f vr]
 (* A typed floating constant with a floating value of the same type gives a value. *)
-| CxTypedValueL : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+| CxTypedValueL : forall (a : ApplicationRef p) (t : SemanticType p) (f : Float.Kind)
   (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
   (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f))),
   ComplexRuleF ph a (float_atom_typed t f hu v) (RAValue ph t) [complex_atom_value f]
-| CxTypedValueR : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind)
+| CxTypedValueR : forall (a : ApplicationRef p) (t : SemanticType p) (f : Float.Kind)
   (hu : Underlying ph t (predeclared_basic_form (float_named_basic f)))
   (v : BasicTypedConstant (predeclared_basic_form (float_named_basic f))),
   ComplexRuleF ph a (RAValue ph t) (float_atom_typed t f hu v) [complex_atom_value f]
 (* Two floating values of one identical type give a value. *)
-| CxValues : forall (a : ApplicationRef p) (t : SemanticType p) (f : FloatKind),
+| CxValues : forall (a : ApplicationRef p) (t : SemanticType p) (f : Float.Kind),
   Underlying ph t (predeclared_basic_form (float_named_basic f)) ->
   ComplexRuleF ph a (RAValue ph t) (RAValue ph t) [complex_atom_value f]
 
@@ -2448,7 +2452,15 @@ Proof. Admitted.
 
 ## Implementation review boundaries
 
-**Semantic-root review** stops only when the repository is green, the `Compilable.*` modules exist with no
+**Per-root review rule.**
+
+> C6 advances only at a whole-repository-green exact `HEAD` that closes one named dependency-closed semantic
+> root in its permanent owners, deletes every authority and migration-inventory statement it supersedes, and
+> makes every affected document true. That exact `HEAD` receives the two independent frontier-model reviews
+> and Rob acceptance required by `ARCHITECTURE.md` before any dependent C6 root begins. Acceptance applies
+> only to the named root; it is neither C6 semantic-root closure nor C6 acceptance.
+
+**C6 semantic-root closure review** stops only when the repository is green, the `Compilable.*` modules exist with no
 old path beside a new one, and the tree contains: an ordinary identifier that excludes blank and nothing
 else, with every predeclared spelling shadowable; blank only as a `BindingName`; nonnegative literal
 magnitudes with negation only through `Unary UnaryMinus`; declaration spec groups as lists; one sealed
@@ -2471,8 +2483,10 @@ direct-edge absence; requirements stated over the total descriptor, never over t
 missing; the complete diagnostic migration above; exact core provenance for `Compiled`, `Rejected` and
 `Outside`; nontrivial render predicates; and prior generated bytes unchanged.
 
-**Final C6 review** then completes declaration and shadowing behaviour, boundaries, direct rendering, C6
-fixtures, `LAT-077`, generated-artifact evidence, and current document and ledger truth.
+**Final C6 review** then completes exhaustive differential/e2e evidence, C6 fixtures, `LAT-077`,
+generated-artifact evidence, and final document and ledger truth. It may not introduce or reinterpret
+declaration behaviour, shadowing, boundary topology, application meaning, result consumption, static-variable
+identity, or rendering semantics.
 
 C7 is forbidden until Rob accepts C6.
 

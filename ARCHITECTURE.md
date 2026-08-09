@@ -55,9 +55,10 @@ no `GoTypeTag`, no second width or conversion authority, no typed AST beside the
 source-name table in `Syntax`, `Typing` or `Render`.
 
 One row is the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**, because
-no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). `Safe`
-still holds the runtime value and evaluator path that belongs there; C6 deletes it from `Safe` and C7 rebuilds
-it under `Runtime`. The other rows describe the destination too, not a finished tree: `Names` now owns the
+no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). The
+pre-C7 `Float.Value`, `Complex.Value` and `Safe` evaluator/value route are now deleted: float and complex
+typed constants are purely static and C7 creates the first runtime values. The other rows describe the
+destination too, not a finished tree: `Names` now owns the
 canonical ordinary-name refinement and the complete predeclared identity catalog, but `Index` does not yet own
 the refined references C6 adds, `Typing` does not yet own a program-indexed algebra, and `Compilable` owns no
 scope, object, boundary or three-way decision. Those remain C6 obligations, and the sixteen-name source
@@ -301,6 +302,10 @@ survives that change.
 `IntegerType Int`, float → `FloatType F64`, complex → `ComplexType C128`); a typed constant **packs
 unchanged**, because its validity is intrinsic — not re-defaulted, not re-checked.
 
+A float typed constant is purely static: it retains the exact post-rounding rational and the exact
+destination-format rounded representation from the **same** one rounding as static proof data, and a complex
+typed constant composes two such carriers. Neither projects a runtime value.
+
 `ConstantRepresentable` is derived from successful typing, routing numeric targets through
 `convert_constant`, so representability and conversion can never disagree. There is no second range or
 overflow checker, no placeholder type, and no typed AST.
@@ -409,23 +414,17 @@ base exists to prevent.
 **today** — the fragment contains no unsafe operation. It is the extension point for guarantees beyond
 compiler acceptance, not a circular claim, and it carries no unused panic or control placeholder.
 
-Runtime values are real values carrying the **same** `Typing.SemanticType` authority as the constant
-analysis. A `Float.Value` is a proof-carrying canonical Stdlib `spec_float` — the image of the format
-normalizer, with Flocq unused — so its well-formedness is `True` with canonicality in the type. A runtime
-`Complex.Value` is a pair of such components that **may** be −0, infinity or NaN, while constant evaluation
-produces only finite values and +0.
-
-Evaluation is **derived** from the one constant analysis and is **partial**: a compiler-invalid conversion
-has no value, never a wrap. A resolved expression evaluates to a well-formed value of its resolved semantic
-type. A typed float is rounded once at conversion and never re-rounded.
+Float and complex typed constants are purely static. A `Float.TypedConstant` retains the exact post-rounding
+rational and the exact destination-format rounded `spec_float` from the **same** one rounding as static proof
+data; the format index is load-bearing, and negative zero, infinity and NaN are unconstructible. C6 has no
+runtime value, store or evaluator; **C7** owns runtime representation and execution.
 
 There is no whole-program execution semantics yet; only the witness package is executed against goldens. A
 per-package program semantics arrives when a construct needs it.
 
 **A compound typed constant is composed from already-coherent typed components.** A typed complex constant is
-a pair of typed float components; a runtime complex value a pair of runtime floats. The component authority's
-coherence and denotation proofs are reused, never duplicated at the aggregate layer. The untyped / typed /
-runtime distinction holds at every level.
+a pair of typed float components, reusing each component's coherence rather than duplicating it at the
+aggregate layer. The untyped / typed distinction holds at every level.
 
 ---
 
@@ -447,7 +446,8 @@ independent decoder and semantic round trip.
 Three denotation theorems tie the authorities together. `const_info_denotes`: a rendered expression denotes
 exactly the constant status `Typing` computes. `const_info_denotes_functional`: a spelling denotes **at most
 one** constant status, because the recognisers are pairwise disjoint. `resolved_expr_denotes`: a resolved
-argument evaluates to a well-formed value of its resolved type, whose spelling denotes it.
+argument's exact constant analysis yields its resolved typed result, and its rendered spelling denotes that
+constant status — a static theorem with no evaluator or runtime value.
 
 There is no tokenizer, lexer, parser or round-trip authority, and no formatter is invoked.
 
@@ -630,8 +630,10 @@ final transport type. A second program-AST hierarchy, a copied compiled AST, or 
 raw `Syntax`. A type attached to a raw literal, or a placeholder, unknown, opaque or raw type constructor
 added ahead of the syntax that needs it. A second numeric-width, float-precision, complex, conversion or type
 authority. A type identity that is a string, a numeric `TypeId`, a registry entry or a tag rather than the
-exact source declaration reference. F32 rounded through F64. A float stored as a rounded or decimal-string
-constant. Package or import metadata in raw file values. Raw `string` map keys. A nonemptiness restriction on the program or image. A
+exact source declaration reference. F32 rounded through F64. A source literal or untyped constant stored as a
+rounded or decimal-string value, or a typed exact value reconstructed by rerounding — though a *typed*
+constant may retain its exact destination-format rounded representation beside the exact rational as static
+evidence from the same one rounding. Package or import metadata in raw file values. Raw `string` map keys. A nonemptiness restriction on the program or image. A
 handwritten `go.mod`, or a `go.mod` smuggled into the path map. A central staging directory, nonce, or
 record-driven recovery subsystem. Device or inode ownership records. A foreign file preserved and merged into
 the built tree, or a nested control directory skipped instead of rejected. A checksum posing as proof that a

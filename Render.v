@@ -1,5 +1,5 @@
 From Stdlib Require Import String Ascii NArith ZArith List Bool Lia.
-From Fido Require Import Decimal Integer Float Complex ModulePath Version Syntax Typing Compilable Safe.
+From Fido Require Import Decimal Integer Float Complex ModulePath Version Syntax Typing Compilable.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -1314,47 +1314,34 @@ Proof.
         assert (Heq : tc = tc0) by congruence; rewrite Heq; reflexivity.
 Qed.
 
-(* The root theorem tying constant status, runtime value and rendered spelling over one resolved argument. *)
+(* The static root theorem tying exact constant analysis, its resolved typed result and the rendered spelling. *)
 Theorem resolved_expr_denotes : forall e t,
   Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument e t ->
-  exists ci rc v,
+  exists ci rc,
        constant_info e = Some ci
     /\ Typing.resolve_constant_info ci = Some rc
     /\ Typing.resolved_constant_type rc = t
-    /\ ConstantInfoDenotes (expr e) ci
-    /\ eval_expr e = Some v
-    /\ v = Safe.resolved_constant_value rc
-    /\ value_type v = t
-    /\ Safe.ValueWellFormed v
-    /\ Safe.ValueDenotesConstant v (Typing.resolved_constant_exact rc).
+    /\ ConstantInfoDenotes (expr e) ci.
 Proof.
   intros e t H.
-  destruct (eval_expr_denotes Typing.PrintlnArgument e t H)
-    as [ rc [ v [ Hrec [ Hev [ Hveq [ Hvt [ Hwf Hden ] ] ] ] ] ] ].
-  destruct (Typing.resolve_constant_sound Compilable.predeclared_type Typing.PrintlnArgument e rc Hrec) as [ ci [ Hci [ Hri Hua ] ] ].
-  assert (Hteq : Typing.resolved_constant_type rc = t).
-  { apply Typing.resolve_complete in H; unfold Typing.resolve in H; rewrite Hrec in H;
-    cbn [option_map] in H; injection H as H'; exact H'. }
-  exists ci, rc, v; subst t.
+  apply Typing.resolve_complete in H. unfold Typing.resolve in H.
+  destruct (Typing.resolve_constant Compilable.predeclared_type Typing.PrintlnArgument e) as [rc|] eqn:Hrec;
+    cbn [option_map] in H; [ injection H as Ht | discriminate ].
+  destruct (Typing.resolve_constant_sound Compilable.predeclared_type Typing.PrintlnArgument e rc Hrec)
+    as [ ci [ Hci [ Hri _ ] ] ].
+  exists ci, rc.
   split; [ exact Hci | ].
   split; [ exact Hri | ].
-  split; [ reflexivity | ].
-  split; [ apply const_info_denotes; exact Hci | ].
-  split; [ exact Hev | ].
-  split; [ exact Hveq | ].
-  split; [ exact Hvt | ].
-  split; [ exact Hwf | exact Hden ].
+  split; [ exact Ht | apply const_info_denotes; exact Hci ].
 Qed.
 
 Lemma boundary_max :
-  eval_expr (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) = Some (Safe.IntegerValue Integer.Int Integer.platform_maximum)
-  /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
-Proof. split; [ reflexivity | apply Typing.resolve_sound; reflexivity ]. Qed.
+  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.IntegerLiteral (Z.to_N Integer.platform_maximum)) (Typing.IntegerType Integer.Int).
+Proof. apply Typing.resolve_sound; reflexivity. Qed.
 
 Lemma boundary_min :
-  eval_expr (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) = Some (Safe.IntegerValue Integer.Int Integer.platform_minimum)
-  /\ Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
-Proof. split; [ reflexivity | apply Typing.resolve_sound; reflexivity ]. Qed.
+  Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.NegatedIntegerLiteral (Z.to_N (- Integer.platform_minimum))) (Typing.IntegerType Integer.Int).
+Proof. apply Typing.resolve_sound; reflexivity. Qed.
 
 Example int8_127 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = "int8(127)". Proof. reflexivity. Qed.
 Example uint64_big : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
@@ -1366,12 +1353,9 @@ Proof. intro s; apply const_info_denotes; reflexivity. Qed.
 
 Lemma resolved_string_denotes : forall s t,
   Typing.Resolve Compilable.predeclared_type Typing.PrintlnArgument (Syntax.StringLiteral s) t ->
-  exists ci rc v, constant_info (Syntax.StringLiteral s) = Some ci /\ Typing.resolve_constant_info ci = Some rc
+  exists ci rc, constant_info (Syntax.StringLiteral s) = Some ci /\ Typing.resolve_constant_info ci = Some rc
             /\ Typing.resolved_constant_type rc = t
-            /\ ConstantInfoDenotes (expr (Syntax.StringLiteral s)) ci
-            /\ eval_expr (Syntax.StringLiteral s) = Some v /\ v = Safe.resolved_constant_value rc
-            /\ value_type v = t /\ Safe.ValueWellFormed v
-            /\ Safe.ValueDenotesConstant v (Typing.resolved_constant_exact rc).
+            /\ ConstantInfoDenotes (expr (Syntax.StringLiteral s)) ci.
 Proof. intros s t H; apply resolved_expr_denotes; exact H. Qed.
 
 (* A bare integer stays untyped however large, which is why `uint64(2^63)` is valid. *)

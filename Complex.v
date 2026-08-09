@@ -65,15 +65,6 @@ Proof. reflexivity. Qed.
 Lemma decimal_value_imaginary : forall d, exact_imaginary (decimal_value d) = Float.decimal_value (decimal_imaginary d).
 Proof. reflexivity. Qed.
 
-(* The general runtime domain, so a runtime complex value may carry a signed zero, an infinity or a NaN. *)
-Record Value (ct : Kind) := MakeValue {
-  runtime_real : Float.Value (component_kind ct) ;
-  runtime_imaginary : Float.Value (component_kind ct)
-}.
-Arguments MakeValue {ct} _ _.
-Arguments runtime_real {ct} _.
-Arguments runtime_imaginary {ct} _.
-
 (* The typed complex constant: two already-coherent typed components, so no coherence field is duplicated. *)
 Record TypedConstant (ct : Kind) := MakeTypedConstant {
   typed_real : Float.TypedConstant (component_kind ct) ;
@@ -87,52 +78,10 @@ Arguments typed_imaginary {ct} _.
 Definition typed_exact {ct} (tc : TypedConstant ct) : Constant :=
   MakeConstant (Float.exact (typed_real tc)) (Float.exact (typed_imaginary tc)).
 
-Definition typed_runtime {ct} (tc : TypedConstant ct) : Value ct :=
-  MakeValue (Float.runtime (typed_real tc)) (Float.runtime (typed_imaginary tc)).
-
 Lemma typed_exact_real : forall ct (tc : TypedConstant ct),
   exact_real (typed_exact tc) = Float.exact (typed_real tc). Proof. reflexivity. Qed.
 Lemma typed_exact_imaginary : forall ct (tc : TypedConstant ct),
   exact_imaginary (typed_exact tc) = Float.exact (typed_imaginary tc). Proof. reflexivity. Qed.
-Lemma typed_runtime_real : forall ct (tc : TypedConstant ct),
-  runtime_real (typed_runtime tc) = Float.runtime (typed_real tc). Proof. reflexivity. Qed.
-Lemma typed_runtime_imaginary : forall ct (tc : TypedConstant ct),
-  runtime_imaginary (typed_runtime tc) = Float.runtime (typed_imaginary tc). Proof. reflexivity. Qed.
-
-Lemma typed_runtime_real_coherent : forall ct (tc : TypedConstant ct),
-  Float.ieee_to_constant (Float.ieee (runtime_real (typed_runtime tc)))
-    = Some (exact_real (typed_exact tc)).
-Proof. intros ct tc; apply (Float.coherent (typed_real tc)). Qed.
-Lemma typed_runtime_imaginary_coherent : forall ct (tc : TypedConstant ct),
-  Float.ieee_to_constant (Float.ieee (runtime_imaginary (typed_runtime tc)))
-    = Some (exact_imaginary (typed_exact tc)).
-Proof. intros ct tc; apply (Float.coherent (typed_imaginary tc)). Qed.
-
-Lemma typed_runtime_real_shape : forall ct (tc : TypedConstant ct),
-  Float.constant_runtimeb (Float.ieee (runtime_real (typed_runtime tc))) = true.
-Proof. intros ct tc; apply (Float.shape (typed_real tc)). Qed.
-Lemma typed_runtime_imaginary_shape : forall ct (tc : TypedConstant ct),
-  Float.constant_runtimeb (Float.ieee (runtime_imaginary (typed_runtime tc))) = true.
-Proof. intros ct tc; apply (Float.shape (typed_imaginary tc)). Qed.
-
-Lemma typed_runtime_real_not_neg_zero : forall ct (tc : TypedConstant ct),
-  Float.ieee (runtime_real (typed_runtime tc)) <> S754_zero true.
-Proof. intros ct tc; apply Float.typed_runtime_not_neg_zero. Qed.
-Lemma typed_runtime_imaginary_not_neg_zero : forall ct (tc : TypedConstant ct),
-  Float.ieee (runtime_imaginary (typed_runtime tc)) <> S754_zero true.
-Proof. intros ct tc; apply Float.typed_runtime_not_neg_zero. Qed.
-Lemma typed_runtime_real_not_nan : forall ct (tc : TypedConstant ct),
-  Float.ieee (runtime_real (typed_runtime tc)) <> S754_nan.
-Proof. intros ct tc; apply Float.typed_runtime_not_nan. Qed.
-Lemma typed_runtime_imaginary_not_nan : forall ct (tc : TypedConstant ct),
-  Float.ieee (runtime_imaginary (typed_runtime tc)) <> S754_nan.
-Proof. intros ct tc; apply Float.typed_runtime_not_nan. Qed.
-Lemma typed_runtime_real_not_inf : forall ct (tc : TypedConstant ct) s,
-  Float.ieee (runtime_real (typed_runtime tc)) <> S754_infinity s.
-Proof. intros ct tc s; apply Float.typed_runtime_not_inf. Qed.
-Lemma typed_runtime_imaginary_not_inf : forall ct (tc : TypedConstant ct) s,
-  Float.ieee (runtime_imaginary (typed_runtime tc)) <> S754_infinity s.
-Proof. intros ct tc s; apply Float.typed_runtime_not_inf. Qed.
 
 (* The one construction authority: round each component once at the destination format, or fail. *)
 Definition round_typed (ct : Kind) (c : Constant)

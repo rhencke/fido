@@ -8957,27 +8957,21 @@ Theorem fact_program_outer_arg :
   = Some (Some (Typing.FloatType F64), Some (Typing.FloatType F64), Some (5%Z, 1%positive), true).
 Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
 
+(* One shared static float carrier drives the typed status and resolved result: exact rational 5/1, no value. *)
 Theorem fact_program_outer_fact :
-  Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program)
-  = Some {| const_status :=
-              Typing.TypedInfo (Typing.FloatType F64)
-                (Typing.TypedFloat F64
-                   {| Float.exact := {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |};
-                      Float.runtime := {| Float.ieee := SpecFloat.S754_finite false 5629499534213120 (-50);
-                                        Float.canonical_value := const_runtime_canonical F64 {| Float.numerator := 5; Float.denominator := 1; Float.canonical := gcd_z_1 5 |} |};
-                      Float.coherent := eq_refl;
-                      Float.shape := const_runtime_shape F64 {| Float.numerator := 5; Float.denominator := 1; Float.canonical := gcd_z_1 5 |}
-                                     {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |} eq_refl |}) ;
-            use_resolved :=
-              Some (PackResolved (Typing.FloatType F64)
-                      (Typing.TypedFloat F64
-                         {| Float.exact := {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |};
-                            Float.runtime := {| Float.ieee := SpecFloat.S754_finite false 5629499534213120 (-50);
-                                              Float.canonical_value := const_runtime_canonical F64 {| Float.numerator := 5; Float.denominator := 1; Float.canonical := gcd_z_1 5 |} |};
-                            Float.coherent := eq_refl;
-                            Float.shape := const_runtime_shape F64 {| Float.numerator := 5; Float.denominator := 1; Float.canonical := gcd_z_1 5 |}
-                                           {| Float.numerator := 5; Float.denominator := 1; Float.canonical := Float.reduce_well_formed 5629499534213120 1125899906842624 |} eq_refl |})) |}.
-Proof. rewrite program_expr_facts_source, keyed_visit_source. vm_compute. reflexivity. Qed.
+  exists tc : Float.TypedConstant F64,
+       Index.KeyMap.find (Index.MakeKey (FilePath.Make "main.go" eq_refl) 5%positive) (program_expr_facts fact_program)
+         = Some {| const_status := Typing.TypedInfo (Typing.FloatType F64) (Typing.TypedFloat F64 tc) ;
+                   use_resolved  := Some (PackResolved (Typing.FloatType F64) (Typing.TypedFloat F64 tc)) |}
+    /\ Float.numerator (Float.exact tc) = 5%Z
+    /\ Float.denominator (Float.exact tc) = 1%positive
+    /\ Float.rounded tc = SpecFloat.S754_finite false 5629499534213120 (-50).
+Proof.
+  rewrite program_expr_facts_source, keyed_visit_source.
+  eexists.
+  split; [ vm_compute; reflexivity | ].
+  repeat split; vm_compute; reflexivity.
+Qed.
 
 (* repeated equal literals are not deduplicated, because the table is keyed by occurrence identity *)
 Definition dup_lit_program : Syntax.Program :=
