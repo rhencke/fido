@@ -217,16 +217,34 @@ terminal verification and reported with its question, result and the decision it
 begins to carry load-bearing architecture, it stops: delete it and continue in the canonical owner. There is
 no committed scratch directory and no retained scratch manifest.
 
-**Dependency retreat.** If new evidence shows a load-bearing accepted abstraction at layer `Cn` is wrong — its
-public type or constructor topology, its semantic meaning, its retained provenance or causal identity, its
-public theorem guarantees, its boundaries, or an accepted fact a higher layer's correctness depends on — all
-work above `Cn` freezes. Identify the earliest affected accepted layer, stop everything above it, repair and
-reaccept it, then reopen each dependent layer one at a time in dependency order, revalidating that each is
-still the abstraction that should be chosen on the repaired foundation — not merely that it still compiles —
-and simplifying, deleting or redesigning before reopening the next. Resume the former frontier only when every
-intervening layer is accepted again. A demonstrably internal proof refactor that changes no semantic,
-provenance, public-guarantee or boundary dependency needs no ceremonial retreat; the burden is on the claimant
-to show that non-effect, and uncertainty means freeze and report.
+**Dependency retreat (targeted causal).** If new evidence shows a load-bearing accepted fact is wrong — an
+accepted public type or constructor topology, semantic meaning, retained provenance or causal identity, public
+theorem guarantee, boundary, or an accepted fact a higher layer's correctness depends on — retreat is
+**targeted and causal**, driven by the affected contract and its real dependents, never by Git ancestry or
+milestone number:
+
+1. Historical acceptance stays a historical fact. A repair never rewrites an accepted checkpoint as
+   never-accepted, and invents no earlier checkpoint.
+2. The evidence freezes exactly the work that causally depends on the wrong fact.
+3. The retreat begins from the exact affected accepted contract or guarantee surface, not from ancestry or
+   milestone order.
+4. That earliest affected guarantee is repaired and reviewed on one immutable candidate.
+5. Every later accepted claim with a real causal dependency on the changed guarantee is reopened and
+   revalidated.
+6. Every accepted checkpoint claimed unaffected requires explicit **negative causal closure** — positive
+   theorem-type, constructor, computation, dependency, artifact or contract evidence that its accepted result
+   does not depend on the changed guarantee. Silence is not closure, and absence of a current code consumer
+   is not by itself closure; the burden is on the claimant to establish nondependence.
+7. An unaffected checkpoint is not replayed merely because it is a chronological descendant.
+8. Revalidation judges whether the surviving abstraction is still the correct one on the repaired
+   foundation, not merely that it still compiles — simplifying, deleting or redesigning where warranted.
+9. No invented pre-C0 checkpoint, history rewrite, status-commit ladder, or one-commit-per-old-checkpoint
+   sequence.
+10. Rob alone closes a targeted retreat and later accepts the affected frontier.
+
+This refines dependency retreat, it does not delete it: a genuinely load-bearing downstream dependency still
+reopens. A demonstrably internal proof refactor that changes no semantic, provenance, public-guarantee or
+boundary dependency needs no retreat; uncertainty means freeze and report.
 
 **Review and acceptance.** The active milestone is reviewed against its governing semantic obligations, the
 whole current implementation, proofs, tests, artifacts, gates and live paths, all accepted lower layers, and
@@ -715,7 +733,7 @@ was retired because another row already carried its obligation.
 | ARCH-10 | No vacuous library safety — an empty set of starts does not prove open-world safety. |
 | ARCH-11 | Do-not-do-early: no state, feature or compatibility scaffold lands before its complete vertical feature. Narrowly reopened once, for the `Emit.Image` mint (§6). |
 | ARCH-12 | Rob accepts only the exact reviewed green HEAD. |
-| ARCH-13 | Two authorities, never two formal: governing prose owns meaning, scope and boundaries, canonical Rocq owns exact formal realization, and a mismatch is a defect. The active milestone is formalized directly in its canonical owners with its prose rendition deleted in lockstep; future milestones stay prose-only; shadow implementations and committed scratch are forbidden; a falsified lower layer triggers dependency retreat and ordered relayering. See §1 "Two authorities, never two formal implementations". |
+| ARCH-13 | Two authorities, never two formal: governing prose owns meaning, scope and boundaries, canonical Rocq owns exact formal realization, and a mismatch is a defect. The active milestone is formalized directly in its canonical owners with its prose rendition deleted in lockstep; future milestones stay prose-only; shadow implementations and committed scratch are forbidden; a falsified lower layer triggers targeted causal dependency retreat from the affected accepted contract. See §1 "Two authorities, never two formal implementations" and its "Dependency retreat (targeted causal)" rule. |
 | EVID-01 | Pinned spec and memory-model bytes. |
 | EVID-02 | Reproducible extraction and audit outputs. |
 | EVID-03 | Evaluation-order nondeterminism and deterministic specified-order fixtures. |

@@ -149,6 +149,61 @@ MUTANTS = (
      ('a two-character box-drawing banner', 'a star decoration')),
 )
 
+DOCKERFILE = 'Dockerfile'
+LAYER_BEGIN = 'LAYER-GATE-LIB BEGIN'
+LAYER_END = 'LAYER-GATE-LIB END'
+
+# The layer-dependency gate needs pinned `rocq dep`, so it lives as a POSIX-sh decision block in the Dockerfile
+# prover stage rather than a host Python tool. Its decision logic is awk-free and self-contained, so it is
+# mutation-tested under this same authority: extract the block, neuter one root decision, run its self-test
+# with `sh`, and require the named control(s) among the failures — exactly the shape used for the Python gates.
+LAYER_MUTANTS = (
+    ('the policy-block discovery/decoding',
+     '  if [ "$la_begins" != 1 ] || [ "$la_ends" != 1 ] || [ ! -s "$la_t/rows" ]; then',
+     '  if false; then',
+     ('a duplicated policy block',)),
+    ('the dependency-extractor success premise',
+     '  if [ "$la_status" != 0 ] || [ -n "$la_missing_heads" ] || [ ! -f "$la_edges" ]; then',
+     '  if false; then',
+     ('a forced extractor failure', 'an incomplete or stale extraction')),
+    ('the module-row coverage decision',
+     '  if [ -n "$la_dupes" ] || [ -n "$la_missing_rows" ]; then',
+     '  if false; then',
+     ('a missing module row',)),
+    ('the unknown-module/dependency rejection',
+     '  if [ -n "$la_unknown_mods" ] || [ -s "$la_t/unkdeps" ]; then',
+     '  if false; then',
+     ('an unknown policy module or dependency',)),
+    ('the actual-minus-policy rejection',
+     '  if [ -s "$la_t/forb" ]; then',
+     '  if false; then',
+     ('a forbidden actual edge',)),
+    ('the policy-minus-actual rejection',
+     '  if [ -s "$la_t/dorm" ]; then',
+     '  if false; then',
+     ('a dormant policy edge',)),
+)
+
+
+def extract_layer_block(root: Path):
+    text = (root / DOCKERFILE).read_text(encoding='utf-8')
+    ib, ie = text.find(LAYER_BEGIN), text.find(LAYER_END)
+    if ib < 0 or ie < 0:
+        return None
+    start = text.rfind('\n', 0, ib) + 1
+    end = text.find('\n', ie)
+    return text[start:(end + 1 if end >= 0 else len(text))]
+
+
+def run_layer_mutant(block: str, old: str, new: str):
+    n = block.count(old)
+    if n != 1:
+        return None, f'anchor occurs {n} time(s), expected exactly 1'
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / 'layer.sh'
+        p.write_text(block.replace(old, new, 1), encoding='utf-8')
+        proc = subprocess.run(['sh', str(p), '--self-test'], capture_output=True, text=True)
+        return proc, None
 
 
 def run_mutant(root: Path, tool: str, old: str, new: str, mode: str = '--self-test'):
@@ -207,15 +262,43 @@ def main() -> int:
         else:
             print(f'  detected  {label}  ({tool}) — {len(expected)} named control(s) fired')
 
+    # The layer-dependency gate (a POSIX-sh decision block in the Dockerfile), under the same authority.
+    layer_selected = list(LAYER_MUTANTS)
+    block = extract_layer_block(root)
+    if block is None:
+        failures.append(f'{DOCKERFILE}: LAYER-GATE-LIB block not found')
+    else:
+        base = subprocess.run(['sh', '-c', block + '\nlayer_selftest'], capture_output=True, text=True)
+        if base.returncode != 0:
+            failures.append(f'{DOCKERFILE} layer gate: the unmutated self-test did not pass — '
+                            f'{base.stdout.strip() or base.stderr.strip() or "(no output)"}')
+        for label, old, new, expected in layer_selected:
+            proc, err = run_layer_mutant(block, old, new)
+            if err is not None or proc is None:
+                failures.append(f'{DOCKERFILE} layer gate: {label}: {err}')
+                continue
+            if proc.returncode == 0:
+                failures.append(f'{DOCKERFILE} layer gate: {label}: the self-test still PASSED — '
+                                f'the decision is not load-bearing')
+                continue
+            failed = set(re.findall(r'FAIL  (.+)', proc.stdout))
+            missing = [c for c in expected if not any(c in f for f in failed)]
+            if missing:
+                failures.append(f'{DOCKERFILE} layer gate: {label}: the self-test failed, but not through the '
+                                f'control(s) that depend on this decision: {", ".join(missing)}; what did '
+                                f'fail: {", ".join(sorted(failed)) or "(no control label)"}')
+            else:
+                print(f'  detected  {label}  ({DOCKERFILE} layer gate) — {len(expected)} named control(s) fired')
+
     if failures:
         for f in failures:
             print(f'  FAIL  {f}')
         print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} of {len(selected)} mutants wrong')
         return 1
     group = 'permanent-policy'
-    print(f'fido: gate-mutation test OK — {len(selected)} {group} root helpers, each proved load-bearing by '
-          f'deleting '
-          f'its effect and watching its own named controls fail ✓')
+    print(f'fido: gate-mutation test OK — {len(selected)} {group} root helpers plus {len(layer_selected)} '
+          f'layer-gate root decisions, each proved load-bearing by deleting its effect and watching its own '
+          f'named controls fail ✓')
     return 0
 
 

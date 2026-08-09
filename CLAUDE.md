@@ -73,8 +73,10 @@ grab bags.
 11. The active milestone is formalized directly in its canonical modules, in dependency-closed roots, only
     after every milestone it depends on is accepted; each commit deletes the prose rendition and any
     superseded authority it replaces. Future milestones stay prose-only until their dependencies are accepted.
-12. A falsified load-bearing lower layer freezes all higher work and invokes dependency retreat: repair and
-    reaccept the earliest affected layer, then reopen each dependent layer in dependency order.
+12. A falsified load-bearing accepted fact invokes targeted causal dependency retreat: freeze the work that
+    causally depends on it, repair the earliest affected accepted guarantee, reopen only its real dependents,
+    and give explicit negative causal closure for every checkpoint claimed unaffected — never a chronological
+    replay. `ARCHITECTURE.md` §1 "Dependency retreat (targeted causal)" owns the rule.
 13. Shadow implementations are forbidden. A scratch check answers one isolated question, defines no subsystem
     or public surface, never enters the build or repository, and is deleted before terminal verification and
     reported with the decision it informed.
