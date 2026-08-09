@@ -94,8 +94,167 @@ Proof.
   cbn [str_ascii]. rewrite (identifier_start_ascii c Hst), (identifier_rest_ascii s' Hr). reflexivity.
 Qed.
 
-(* The closed lexical class of the sixteen supported conversion type names. *)
+(* An ordinary identifier is exactly a nonblank one; blank is reserved for a later [Syntax.BindingName]. *)
+Definition is_blank (s : string) : bool := String.eqb s "_".
 
+Lemma is_blank_true : forall s, is_blank s = true <-> s = "_".
+Proof. intro s; unfold is_blank; apply String.eqb_eq. Qed.
+Lemma is_blank_false : forall s, is_blank s = false <-> s <> "_".
+Proof.
+  intro s; unfold is_blank; split.
+  - intros H Heq; subst s; rewrite String.eqb_refl in H; discriminate.
+  - intro H; apply Bool.not_true_is_false; intro Ht; apply H; apply String.eqb_eq; exact Ht.
+Qed.
+
+(* The ordinary object retains the exact [Identifier]; it never copies the spelling and rebuilds one. *)
+Record OrdinaryIdentifier : Type :=
+  MakeOrdinary { ordinary_id : Identifier ; ordinary_ok : is_blank (spelling ordinary_id) = false }.
+
+Definition ordinary_spelling (o : OrdinaryIdentifier) : string := spelling (ordinary_id o).
+Definition render_ordinary (o : OrdinaryIdentifier) : string := render_identifier (ordinary_id o).
+
+(* One total smart constructor: it succeeds on exactly the nonblank identifiers. *)
+Definition ordinary_of (i : Identifier) : option OrdinaryIdentifier :=
+  match Bool.bool_dec (is_blank (spelling i)) false with
+  | left H => Some (MakeOrdinary i H)
+  | right _ => None
+  end.
+
+Lemma ordinary_nonblank : forall o : OrdinaryIdentifier, spelling (ordinary_id o) <> "_".
+Proof. intros [i H]; cbn; apply is_blank_false; exact H. Qed.
+
+Lemma ordinary_of_some_iff : forall i, (exists o, ordinary_of i = Some o) <-> is_blank (spelling i) = false.
+Proof.
+  intro i; unfold ordinary_of; destruct (Bool.bool_dec (is_blank (spelling i)) false) as [H|H].
+  - split; [ intros _; exact H | intros _; eexists; reflexivity ].
+  - split; [ intros [o Ho]; discriminate Ho | intro Hf; exfalso; apply H; exact Hf ].
+Qed.
+
+Lemma ordinary_of_id : forall i o, ordinary_of i = Some o -> ordinary_id o = i.
+Proof.
+  intros i o; unfold ordinary_of; destruct (Bool.bool_dec (is_blank (spelling i)) false) as [H|H].
+  - intro Ho; injection Ho as <-; reflexivity.
+  - discriminate.
+Qed.
+
+Lemma ordinary_of_success : forall i, spelling i <> "_" -> exists o, ordinary_of i = Some o /\ ordinary_id o = i.
+Proof.
+  intros i Hne. assert (Hb : is_blank (spelling i) = false) by (apply is_blank_false; exact Hne).
+  unfold ordinary_of; destruct (Bool.bool_dec (is_blank (spelling i)) false) as [H|H].
+  - eexists; split; reflexivity.
+  - exfalso; apply H; exact Hb.
+Qed.
+
+Lemma ordinary_of_fail : forall i, spelling i = "_" -> ordinary_of i = None.
+Proof.
+  intros i He. assert (Hb : is_blank (spelling i) = true) by (apply is_blank_true; exact He).
+  unfold ordinary_of; destruct (Bool.bool_dec (is_blank (spelling i)) false) as [H|H].
+  - congruence.
+  - reflexivity.
+Qed.
+
+Lemma ordinary_equal : forall a b, ordinary_id a = ordinary_id b -> a = b.
+Proof. intros [ia Ha] [ib Hb] H; cbn in H; subst ib; f_equal; apply (UIP_dec Bool.bool_dec). Qed.
+Lemma ordinary_equal_spelling : forall a b, spelling (ordinary_id a) = spelling (ordinary_id b) -> a = b.
+Proof. intros a b H; apply ordinary_equal, identifier_equal; exact H. Qed.
+
+Definition ordinary_equalb (a b : OrdinaryIdentifier) : bool := equalb (ordinary_id a) (ordinary_id b).
+Lemma ordinary_equalb_spec : forall a b, ordinary_equalb a b = true <-> a = b.
+Proof.
+  intros a b; unfold ordinary_equalb; split.
+  - intro H; apply equalb_spec in H; apply ordinary_equal; exact H.
+  - intro H; subst b; apply equalb_spec; reflexivity.
+Qed.
+
+Lemma render_ordinary_ascii : forall o, str_ascii (render_ordinary o) = true.
+Proof. intro o; apply identifier_ascii. Qed.
+
+
+(* The complete pinned 44-identity predeclared catalog; membership confers identity only, never a meaning. *)
+Inductive PredeclaredName : Type :=
+  | PAny | PBool | PByte | PComparable | PComplex64 | PComplex128 | PError
+  | PFloat32 | PFloat64 | PInt | PInt8 | PInt16 | PInt32 | PInt64 | PRune | PString
+  | PUint | PUint8 | PUint16 | PUint32 | PUint64 | PUintptr
+  | PTrue | PFalse | PIota | PNil
+  | PAppend | PCap | PClear | PClose | PComplex | PCopy | PDelete | PImag | PLen
+  | PMake | PMax | PMin | PNew | PPanic | PPrint | PPrintln | PReal | PRecover.
+
+Definition predeclared_spelling (n : PredeclaredName) : string :=
+  match n with
+  | PAny => "any" | PBool => "bool" | PByte => "byte" | PComparable => "comparable"
+  | PComplex64 => "complex64" | PComplex128 => "complex128" | PError => "error"
+  | PFloat32 => "float32" | PFloat64 => "float64"
+  | PInt => "int" | PInt8 => "int8" | PInt16 => "int16" | PInt32 => "int32" | PInt64 => "int64"
+  | PRune => "rune" | PString => "string"
+  | PUint => "uint" | PUint8 => "uint8" | PUint16 => "uint16" | PUint32 => "uint32"
+  | PUint64 => "uint64" | PUintptr => "uintptr"
+  | PTrue => "true" | PFalse => "false" | PIota => "iota" | PNil => "nil"
+  | PAppend => "append" | PCap => "cap" | PClear => "clear" | PClose => "close"
+  | PComplex => "complex" | PCopy => "copy" | PDelete => "delete" | PImag => "imag"
+  | PLen => "len" | PMake => "make" | PMax => "max" | PMin => "min" | PNew => "new"
+  | PPanic => "panic" | PPrint => "print" | PPrintln => "println" | PReal => "real"
+  | PRecover => "recover"
+  end.
+
+Definition all_predeclared : list PredeclaredName :=
+  [ PAny; PBool; PByte; PComparable; PComplex64; PComplex128; PError;
+    PFloat32; PFloat64; PInt; PInt8; PInt16; PInt32; PInt64; PRune; PString;
+    PUint; PUint8; PUint16; PUint32; PUint64; PUintptr;
+    PTrue; PFalse; PIota; PNil;
+    PAppend; PCap; PClear; PClose; PComplex; PCopy; PDelete; PImag; PLen;
+    PMake; PMax; PMin; PNew; PPanic; PPrint; PPrintln; PReal; PRecover ].
+
+Definition predeclared_eq_dec : forall a b : PredeclaredName, {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition predeclared_eqb (a b : PredeclaredName) : bool :=
+  if predeclared_eq_dec a b then true else false.
+Lemma predeclared_eqb_spec : forall a b, predeclared_eqb a b = true <-> a = b.
+Proof. intros a b; unfold predeclared_eqb; destruct (predeclared_eq_dec a b); split; congruence. Qed.
+
+(* The one classifier from a source spelling to a full predeclared identity. *)
+Definition classify_predeclared (s : string) : option PredeclaredName :=
+  find (fun n => String.eqb s (predeclared_spelling n)) all_predeclared.
+
+Lemma classify_predeclared_roundtrip : forall n, classify_predeclared (predeclared_spelling n) = Some n.
+Proof. intro n; destruct n; reflexivity. Qed.
+Lemma classify_predeclared_sound : forall s n, classify_predeclared s = Some n -> s = predeclared_spelling n.
+Proof.
+  intros s n H; unfold classify_predeclared in H. apply find_some in H. destruct H as [_ Hb].
+  apply String.eqb_eq in Hb; exact Hb.
+Qed.
+
+Lemma predeclared_spelling_inj : forall a b, predeclared_spelling a = predeclared_spelling b -> a = b.
+Proof.
+  intros a b H. pose proof (classify_predeclared_roundtrip a) as Ha.
+  rewrite H in Ha. rewrite classify_predeclared_roundtrip in Ha. injection Ha; auto.
+Qed.
+
+Lemma all_predeclared_complete : forall n, In n all_predeclared.
+Proof. intro n; destruct n; cbn; tauto. Qed.
+Lemma all_predeclared_nodup : NoDup all_predeclared.
+Proof.
+  assert (E : nodup predeclared_eq_dec all_predeclared = all_predeclared) by (vm_compute; reflexivity).
+  rewrite <- E; apply NoDup_nodup.
+Qed.
+
+Lemma predeclared_spelling_ok : forall n, identifier_ok (predeclared_spelling n) = true.
+Proof. intro n; destruct n; reflexivity. Qed.
+Lemma predeclared_nonblank : forall n, is_blank (predeclared_spelling n) = false.
+Proof. intro n; destruct n; reflexivity. Qed.
+
+(* Each identity has exactly one canonical [Identifier] and one canonical ordinary identifier. *)
+Definition predeclared_identifier (n : PredeclaredName) : Identifier :=
+  MakeIdentifier (predeclared_spelling n) (predeclared_spelling_ok n).
+Definition predeclared_ordinary (n : PredeclaredName) : OrdinaryIdentifier :=
+  MakeOrdinary (predeclared_identifier n) (predeclared_nonblank n).
+Lemma predeclared_ordinary_spelling : forall n, ordinary_spelling (predeclared_ordinary n) = predeclared_spelling n.
+Proof. intro n; reflexivity. Qed.
+
+Lemma predeclared_byte_neq_uint8 : PByte <> PUint8.   Proof. discriminate. Qed.
+Lemma predeclared_rune_neq_int32 : PRune <> PInt32.   Proof. discriminate. Qed.
+
+
+(* The sixteen conversion target names: the live C5 subset, each an index into the catalog, until C6 syntax. *)
 Inductive TypeName : Type :=
   | Int | Int8 | Int16 | Int32 | Int64
   | Uint | Uint8 | Uint16 | Uint32 | Uint64
@@ -103,14 +262,43 @@ Inductive TypeName : Type :=
   | Complex64 | Complex128
   | Byte | Rune.
 
-Definition type_name_spelling (t : TypeName) : string :=
+Definition type_name_predeclared (t : TypeName) : PredeclaredName :=
   match t with
-  | Int => "int" | Int8 => "int8" | Int16 => "int16" | Int32 => "int32" | Int64 => "int64"
-  | Uint => "uint" | Uint8 => "uint8" | Uint16 => "uint16" | Uint32 => "uint32" | Uint64 => "uint64"
-  | Float32 => "float32" | Float64 => "float64"
-  | Complex64 => "complex64" | Complex128 => "complex128"
-  | Byte => "byte" | Rune => "rune"
+  | Int => PInt | Int8 => PInt8 | Int16 => PInt16 | Int32 => PInt32 | Int64 => PInt64
+  | Uint => PUint | Uint8 => PUint8 | Uint16 => PUint16 | Uint32 => PUint32 | Uint64 => PUint64
+  | Float32 => PFloat32 | Float64 => PFloat64
+  | Complex64 => PComplex64 | Complex128 => PComplex128
+  | Byte => PByte | Rune => PRune
   end.
+
+(* The subset projection: exactly the sixteen conversion identities map back to a [TypeName]. *)
+Definition predeclared_type_name (n : PredeclaredName) : option TypeName :=
+  match n with
+  | PInt => Some Int | PInt8 => Some Int8 | PInt16 => Some Int16 | PInt32 => Some Int32 | PInt64 => Some Int64
+  | PUint => Some Uint | PUint8 => Some Uint8 | PUint16 => Some Uint16 | PUint32 => Some Uint32
+  | PUint64 => Some Uint64
+  | PFloat32 => Some Float32 | PFloat64 => Some Float64
+  | PComplex64 => Some Complex64 | PComplex128 => Some Complex128
+  | PByte => Some Byte | PRune => Some Rune
+  | _ => None
+  end.
+
+Lemma predeclared_type_name_roundtrip : forall t, predeclared_type_name (type_name_predeclared t) = Some t.
+Proof. intro t; destruct t; reflexivity. Qed.
+Lemma predeclared_type_name_inv : forall n t, predeclared_type_name n = Some t -> type_name_predeclared t = n.
+Proof. intros n t H; destruct n; cbn in H; solve [ discriminate | injection H as <-; reflexivity ]. Qed.
+Lemma type_name_predeclared_inj : forall a b, type_name_predeclared a = type_name_predeclared b -> a = b.
+Proof.
+  intros a b H. pose proof (predeclared_type_name_roundtrip a) as Ha.
+  rewrite H in Ha. rewrite predeclared_type_name_roundtrip in Ha. injection Ha; auto.
+Qed.
+
+(* One spelling authority: a type name spells exactly its catalog identity, never a second literal. *)
+Definition type_name_spelling (t : TypeName) : string := predeclared_spelling (type_name_predeclared t).
+Lemma type_name_spelling_ok : forall t, identifier_ok (type_name_spelling t) = true.
+Proof. intro t; unfold type_name_spelling; apply predeclared_spelling_ok. Qed.
+Lemma type_name_spelling_inj : forall a b, type_name_spelling a = type_name_spelling b -> a = b.
+Proof. intros a b H; apply type_name_predeclared_inj, predeclared_spelling_inj; exact H. Qed.
 
 Definition type_name_eq_dec : forall a b : TypeName, {a = b} + {a <> b}.
 Proof. decide equality. Defined.
@@ -118,97 +306,90 @@ Definition type_name_equalb (a b : TypeName) : bool := if type_name_eq_dec a b t
 Lemma type_name_equalb_spec : forall a b, type_name_equalb a b = true <-> a = b.
 Proof. intros a b; unfold type_name_equalb; destruct (type_name_eq_dec a b); split; congruence. Qed.
 
-Lemma type_name_spelling_ok : forall t, identifier_ok (type_name_spelling t) = true.
-Proof. intro t; destruct t; reflexivity. Qed.
-Definition type_name_identifier (t : TypeName) : Identifier := MakeIdentifier (type_name_spelling t) (type_name_spelling_ok t).
+Definition type_name_identifier (t : TypeName) : Identifier :=
+  MakeIdentifier (type_name_spelling t) (type_name_spelling_ok t).
+Definition type_name_nonblank (t : TypeName) : is_blank (spelling (type_name_identifier t)) = false :=
+  predeclared_nonblank (type_name_predeclared t).
+Definition type_name_ordinary (t : TypeName) : OrdinaryIdentifier :=
+  MakeOrdinary (type_name_identifier t) (type_name_nonblank t).
 
-Definition render_type_name (t : TypeName) : string := type_name_spelling t.
-Lemma render_type_name_identifier : forall t, render_type_name t = render_identifier (type_name_identifier t).
-Proof. intro t; reflexivity. Qed.
-Lemma render_type_name_ascii : forall t, str_ascii (render_type_name t) = true.
-Proof. intro t; destruct t; reflexivity. Qed.
-
-Definition all_type_names : list TypeName :=
-  [ Int; Int8; Int16; Int32; Int64; Uint; Uint8; Uint16; Uint32; Uint64;
-    Float32; Float64; Complex64; Complex128; Byte; Rune ].
-Lemma all_type_names_complete : forall t, In t all_type_names.
-Proof. intro t; destruct t; cbn; tauto. Qed.
-
+(* Source spelling -> full classifier -> current-subset projection: no second search over strings. *)
 Definition classify (s : string) : option TypeName :=
-  find (fun t => String.eqb s (type_name_spelling t)) all_type_names.
-
-Lemma type_name_spelling_inj : forall a b, type_name_spelling a = type_name_spelling b -> a = b.
-Proof. intros a b H; destruct a; destruct b; cbn in H; solve [ reflexivity | discriminate H ]. Qed.
-
+  match classify_predeclared s with Some n => predeclared_type_name n | None => None end.
+Lemma classify_is_projection : forall s,
+  classify s = match classify_predeclared s with Some n => predeclared_type_name n | None => None end.
+Proof. reflexivity. Qed.
 Lemma classify_spelling : forall t, classify (type_name_spelling t) = Some t.
-Proof. intro t; destruct t; reflexivity. Qed.
-
+Proof.
+  intro t; unfold classify, type_name_spelling.
+  rewrite classify_predeclared_roundtrip; apply predeclared_type_name_roundtrip.
+Qed.
 Lemma classify_sound : forall s t, classify s = Some t -> s = type_name_spelling t.
 Proof.
-  intros s t H. unfold classify in H. apply find_some in H. destruct H as [_ Hb].
-  apply String.eqb_eq in Hb. exact Hb.
+  intros s t H; unfold classify in H.
+  destruct (classify_predeclared s) as [n|] eqn:E; [| discriminate].
+  apply classify_predeclared_sound in E. apply predeclared_type_name_inv in H.
+  rewrite E; unfold type_name_spelling; rewrite H; reflexivity.
 Qed.
 
-Lemma type_name_byte_neq_uint8 : Byte <> Uint8.        Proof. discriminate. Qed.
-Lemma render_byte_neq_uint8 : render_type_name Byte <> render_type_name Uint8.
-Proof. discriminate. Qed.
-Lemma type_name_rune_neq_int32 : Rune <> Int32.        Proof. discriminate. Qed.
-Lemma render_rune_neq_int32 : render_type_name Rune <> render_type_name Int32.
-Proof. discriminate. Qed.
+Lemma type_name_byte_neq_uint8 : Byte <> Uint8.   Proof. discriminate. Qed.
+Lemma type_name_rune_neq_int32 : Rune <> Int32.   Proof. discriminate. Qed.
 
-(* A raw conversion target retains its source identifier beside the lexical symbol [classify] maps it to. *)
-Record SupportedType : Type := MakeSupportedType {
-  identifier : Identifier ;
-  symbol     : TypeName ;
-  exact      : classify (render_identifier identifier) = Some symbol
-}.
 
-Lemma classify_type_name_identifier : forall t, classify (render_identifier (type_name_identifier t)) = Some t.
-Proof. intro t. apply classify_spelling. Qed.
+(* A source conversion name is its catalog symbol; the source identifier derives through the one authority. *)
+Record SupportedType : Type := MakeSupportedType { symbol : TypeName }.
 
-(* The smart constructor derives the retained identifier from the one spelling authority. *)
-Definition supported_of (t : TypeName) : SupportedType := MakeSupportedType (type_name_identifier t) t (classify_type_name_identifier t).
-Lemma supported_of_symbol : forall t, symbol (supported_of t) = t.
-Proof. intro t; reflexivity. Qed.
-
-Lemma supported_render : forall s, render_identifier (identifier s) = type_name_spelling (symbol s).
-Proof. intros [id sym Hx]; cbn in *; apply classify_sound in Hx; exact Hx. Qed.
+Definition identifier (s : SupportedType) : Identifier := type_name_identifier (symbol s).
+Definition supported_ordinary (s : SupportedType) : OrdinaryIdentifier := type_name_ordinary (symbol s).
 Definition render_supported (s : SupportedType) : string := render_identifier (identifier s).
+Definition supported_of (t : TypeName) : SupportedType := MakeSupportedType t.
+
+Lemma supported_of_symbol : forall t, symbol (supported_of t) = t.   Proof. reflexivity. Qed.
+Lemma supported_render : forall s, render_identifier (identifier s) = type_name_spelling (symbol s).
+Proof. reflexivity. Qed.
 Lemma render_supported_of : forall t, render_supported (supported_of t) = type_name_spelling t.
-Proof. intro t; reflexivity. Qed.
+Proof. reflexivity. Qed.
 Lemma render_supported_ascii : forall s, str_ascii (render_supported s) = true.
 Proof. intro s; apply identifier_ascii. Qed.
 
-Lemma symbol_in : forall s, In (symbol s) all_type_names.
-Proof. intro s; apply all_type_names_complete. Qed.
-
-Definition option_type_name_eq_dec (x y : option TypeName) : {x = y} + {x <> y}.
-Proof. decide equality. apply type_name_eq_dec. Defined.
-
 Lemma supported_equal : forall a b, identifier a = identifier b -> a = b.
-Proof.
-  intros [ida syma Hxa] [idb symb Hxb] H; cbn in *; subst idb.
-  assert (syma = symb) as -> by (rewrite Hxa in Hxb; injection Hxb as ->; reflexivity).
-  f_equal. apply (UIP_dec option_type_name_eq_dec).
-Qed.
-Definition supported_equalb (a b : SupportedType) : bool := equalb (identifier a) (identifier b).
+Proof. intros [ta] [tb] H; f_equal; apply type_name_spelling_inj; exact (f_equal spelling H). Qed.
+Definition supported_equalb (a b : SupportedType) : bool := type_name_equalb (symbol a) (symbol b).
 Lemma supported_equalb_spec : forall a b, supported_equalb a b = true <-> a = b.
 Proof.
-  intros a b; unfold supported_equalb; split.
-  - intro H; apply equalb_spec in H; apply supported_equal; exact H.
-  - intro H; subst b; apply String.eqb_refl.
+  intros [ta] [tb]; unfold supported_equalb; cbn; rewrite type_name_equalb_spec; split.
+  - intro H; f_equal; exact H.
+  - intro H; injection H as H; exact H.
 Qed.
 
 Lemma supported_byte_neq_uint8 : supported_of Byte <> supported_of Uint8.
-Proof. intro H; assert (Hs := f_equal symbol H); cbn in Hs; discriminate Hs. Qed.
+Proof. intro H; injection H as H; discriminate. Qed.
 Lemma render_supported_byte_neq_uint8 : render_supported (supported_of Byte) <> render_supported (supported_of Uint8).
 Proof. discriminate. Qed.
 Lemma supported_rune_neq_int32 : supported_of Rune <> supported_of Int32.
-Proof. intro H; assert (Hs := f_equal symbol H); cbn in Hs; discriminate Hs. Qed.
+Proof. intro H; injection H as H; discriminate. Qed.
 Lemma render_supported_rune_neq_int32 : render_supported (supported_of Rune) <> render_supported (supported_of Int32).
 Proof. discriminate. Qed.
 
-Example identifier_foo_ok : identifier_ok "foo" = true.                Proof. reflexivity. Qed.
-Example classify_foo_none : classify "foo" = None.                Proof. reflexivity. Qed.
-Example keyword_type_not_ident : identifier_ok "type" = false.    Proof. reflexivity. Qed.
-Example classify_qualified_none : classify "pkg.T" = None.        Proof. reflexivity. Qed.
+
+(* Adversarial controls: blank is an identifier yet never ordinary; the catalog and the subset stay distinct. *)
+Example blank_is_identifier : identifier_ok "_" = true.                Proof. reflexivity. Qed.
+Example blank_not_ordinary : ordinary_of (MakeIdentifier "_" blank_is_identifier) = None.
+Proof. reflexivity. Qed.
+Example keyword_type_not_ident : identifier_ok "type" = false.        Proof. reflexivity. Qed.
+Example foo_not_predeclared : classify_predeclared "foo" = None.      Proof. reflexivity. Qed.
+Example qualified_not_predeclared : classify_predeclared "pkg.T" = None.   Proof. reflexivity. Qed.
+Example bool_in_catalog : classify_predeclared "bool" = Some PBool.        Proof. reflexivity. Qed.
+Example bool_not_conversion : classify "bool" = None.                Proof. reflexivity. Qed.
+Example string_in_catalog : classify_predeclared "string" = Some PString.  Proof. reflexivity. Qed.
+Example string_not_conversion : classify "string" = None.            Proof. reflexivity. Qed.
+Example uintptr_in_catalog : classify_predeclared "uintptr" = Some PUintptr. Proof. reflexivity. Qed.
+Example uintptr_not_conversion : classify "uintptr" = None.          Proof. reflexivity. Qed.
+Example any_in_catalog : classify_predeclared "any" = Some PAny.           Proof. reflexivity. Qed.
+Example any_not_conversion : classify "any" = None.                  Proof. reflexivity. Qed.
+Example error_in_catalog : classify_predeclared "error" = Some PError.     Proof. reflexivity. Qed.
+Example error_not_conversion : classify "error" = None.              Proof. reflexivity. Qed.
+Example comparable_in_catalog : classify_predeclared "comparable" = Some PComparable. Proof. reflexivity. Qed.
+Example comparable_not_conversion : classify "comparable" = None.    Proof. reflexivity. Qed.
+Example foo_not_conversion : classify "foo" = None.                  Proof. reflexivity. Qed.
+Example qualified_not_conversion : classify "pkg.T" = None.          Proof. reflexivity. Qed.

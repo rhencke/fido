@@ -17,6 +17,11 @@ it owns C6's required meaning, scope, boundaries, evidence and stop conditions. 
 (§"Remaining C6 migration inventory" and §"Theorems") are **temporary, non-authoritative migration inventory**,
 not an independently elaborated specification — read their terms before using them.
 
+**Canonical root 1 — the source-name universe** is implemented in `Names.v`: the identifier lexical predicate,
+the ordinary (nonblank) identifier subtype, the complete predeclared identity catalog and its spelling,
+classifier and equality. C6 requires ordinary identifiers and the full predeclared catalog; the migration
+inventory below refers to those canonical names without restating them.
+
 ## Ownership and physical modules
 
 `ARCHITECTURE.md` owns the ownership law and the physical-structure doctrine, including the `Compilable.*`
@@ -119,44 +124,10 @@ Parameter elaborate : forall p, Elaboration p.
 Parameter Admissible : SyntaxProgram -> Prop.
 
 (* ── Names ─────────────────────────────────────────────────────────────────── *)
-Inductive PredeclaredName : Type :=
-| PAny | PBool | PByte | PComparable | PComplex64 | PComplex128 | PError | PFloat32 | PFloat64
-| PInt | PInt8 | PInt16 | PInt32 | PInt64 | PRune | PString | PUint | PUint8 | PUint16 | PUint32
-| PUint64 | PUintptr | PTrue | PFalse | PIota | PNil | PAppend | PCap | PClear | PClose | PComplex
-| PCopy | PDelete | PImag | PLen | PMake | PMax | PMin | PNew | PPanic | PPrint | PPrintln | PReal
-| PRecover.
-
-Definition predeclared_spelling (n : PredeclaredName) : string :=
-  match n with
-  | PAny => "any" | PBool => "bool" | PByte => "byte" | PComparable => "comparable"
-  | PComplex64 => "complex64" | PComplex128 => "complex128" | PError => "error"
-  | PFloat32 => "float32" | PFloat64 => "float64" | PInt => "int" | PInt8 => "int8"
-  | PInt16 => "int16" | PInt32 => "int32" | PInt64 => "int64" | PRune => "rune"
-  | PString => "string" | PUint => "uint" | PUint8 => "uint8" | PUint16 => "uint16"
-  | PUint32 => "uint32" | PUint64 => "uint64" | PUintptr => "uintptr" | PTrue => "true"
-  | PFalse => "false" | PIota => "iota" | PNil => "nil" | PAppend => "append" | PCap => "cap"
-  | PClear => "clear" | PClose => "close" | PComplex => "complex" | PCopy => "copy"
-  | PDelete => "delete" | PImag => "imag" | PLen => "len" | PMake => "make" | PMax => "max"
-  | PMin => "min" | PNew => "new" | PPanic => "panic" | PPrint => "print" | PPrintln => "println"
-  | PReal => "real" | PRecover => "recover"
-  end.
-
-Definition all_predeclared : list PredeclaredName :=
-  [PAny; PBool; PByte; PComparable; PComplex64; PComplex128; PError; PFloat32; PFloat64;
-   PInt; PInt8; PInt16; PInt32; PInt64; PRune; PString; PUint; PUint8; PUint16; PUint32;
-   PUint64; PUintptr; PTrue; PFalse; PIota; PNil; PAppend; PCap; PClear; PClose; PComplex;
-   PCopy; PDelete; PImag; PLen; PMake; PMax; PMin; PNew; PPanic; PPrint; PPrintln; PReal;
-   PRecover].
-
-Parameter classify_spelling : string -> option PredeclaredName.
-Parameter predeclared_eqb : PredeclaredName -> PredeclaredName -> bool.
-
-(* An ordinary identifier excludes blank and nothing else.  Every predeclared spelling is a legal source
-   name and may be shadowed; its meaning comes only from binding. *)
-Record OrdinaryIdentifier : Type := MakeOrdinary {
-  ordinary_identifier : Identifier;
-  ordinary_not_blank : spelling ordinary_identifier <> "_"%string
-}.
+(* Canonicalized in `Names.v`: `PredeclaredName` (the 44-identity catalog), `predeclared_spelling`,
+   `all_predeclared`, `classify_predeclared`, `predeclared_eqb`, and `OrdinaryIdentifier` (the nonblank
+   subtype retaining its exact `Identifier`).  The names below refer to those canonical definitions; this
+   inventory no longer restates them and no longer elaborates standalone. *)
 
 (* Collections owns NonEmpty; Float owns NonNegativeDecimal. *)
 Record NonEmpty (A : Type) : Type := MakeNonEmpty { ne_first : A; ne_rest : list A }.
@@ -1991,7 +1962,7 @@ Definition SiteFact {p} {i : Input p} (ph : Phase i) (s : Site p) : Type :=
   end.
 
 (* ── §10 One outcome per site ──────────────────────────────────────────────── *)
-(* The topology below is the specification of a module-private type.  `Compilable.Report` exports
+(* The topology below is migration inventory for a module-private type.  `Compilable.Report` exports
    `phase_outcome` and the projections; it does not export these constructors, because they are freely
    applicable and a client holding them could fabricate an outcome claiming a site failed. *)
 Inductive SiteOutcome {p} {i : Input p} (ph : Phase i) : Site p -> Type :=
@@ -2292,26 +2263,9 @@ implementation owns their exact statements and proofs.
 ```coq
 (* ── §17 Theorem surface ───────────────────────────────────────────────────── *)
 
-(* §17.1 Names/index/source *)
-Theorem all_predeclared_nodup : NoDup all_predeclared.
-Proof. Admitted.
-Theorem all_predeclared_complete : forall n : PredeclaredName, In n all_predeclared.
-Proof. Admitted.
-Theorem predeclared_spelling_injective : forall a b : PredeclaredName,
-  predeclared_spelling a = predeclared_spelling b -> a = b.
-Proof. Admitted.
-Theorem classify_spelling_roundtrip : forall n : PredeclaredName,
-  classify_spelling (predeclared_spelling n) = Some n.
-Proof. Admitted.
-Theorem classify_spelling_sound : forall (s : string) (n : PredeclaredName),
-  classify_spelling s = Some n -> predeclared_spelling n = s.
-Proof. Admitted.
-Theorem predeclared_eqb_spec : forall a b : PredeclaredName,
-  predeclared_eqb a b = true <-> a = b.
-Proof. Admitted.
-Theorem ordinary_excludes_blank_only : forall x : OrdinaryIdentifier,
-  spelling (ordinary_identifier x) <> "_"%string.
-Proof. Admitted.
+(* §17.1 Names/index/source — canonicalized in `Names.v`, which proves catalog completeness and NoDup,
+   spelling injectivity, classifier round-trip and soundness, reflected equality, and the ordinary-identifier
+   iff (nonblank in both directions).  Not restated here. *)
 
 (* §17.2 Binding *)
 Theorem resolve_name_reflects :

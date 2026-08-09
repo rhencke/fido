@@ -128,9 +128,9 @@ each of which is the routing-around this rule forbids.
 ### Two authorities, never two formal implementations
 
 Two kinds of authority govern every milestone, and there are never two of the same kind. **Governing prose** —
-`ROADMAP.md`, `DECISIONS.md`, `.review/scope.tsv` and the active `.review/NEXT.md` — owns required semantic
-meaning, checkpoint scope, supported and unsupported boundaries, downstream obligations, acceptance and
-evidence gates, and dependency order. The **canonical Rocq implementation**, in its permanent production owner,
+this file, `ROADMAP.md`, `DECISIONS.md`, `.review/scope.tsv` and the active `.review/NEXT.md` — owns required
+semantic meaning, checkpoint scope, supported and unsupported boundaries, downstream obligations, acceptance
+and evidence gates, and dependency order. The **canonical Rocq implementation**, in its permanent production owner,
 owns the exact inductive, record and index topology, the exact constructors, the exact theorem statements, the
 exact definitions and proofs, and the formal object later layers consume.
 

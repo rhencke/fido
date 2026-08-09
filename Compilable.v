@@ -7776,7 +7776,7 @@ Example single_rounding_int32_over_rejected  : resolve Typing.PrintlnArgument (S
 Example single_rounding_nested_byte_uint16 : resolve Typing.PrintlnArgument
   (Syntax.Convert (Syntax.type_expr_of_name Names.Byte) (Syntax.Convert (Syntax.type_expr_of_name Names.Uint16) (Syntax.IntegerLiteral 255))) = Some (Typing.IntegerType Integer.Uint8). Proof. reflexivity. Qed.
 
-(* a conversion target's carried proof forces one of the sixteen closed names, so nothing else is a target *)
+(* a conversion target is one of the sixteen TypeName symbols by construction, so a catalog-only name is none *)
 Example excl_bool       : Names.classify "bool" = None.        Proof. reflexivity. Qed.
 Example excl_string     : Names.classify "string" = None.      Proof. reflexivity. Qed.
 Example excl_uintptr    : Names.classify "uintptr" = None.     Proof. reflexivity. Qed.
@@ -7785,8 +7785,7 @@ Example excl_error      : Names.classify "error" = None.       Proof. reflexivit
 Example excl_comparable : Names.classify "comparable" = None.  Proof. reflexivity. Qed.
 Example excl_foo        : Names.classify "foo" = None.         Proof. reflexivity. Qed.
 Example excl_qualified  : Names.classify "pkg.T" = None.       Proof. reflexivity. Qed.
-Fail Definition excl_bool_target : Syntax.TypeExpr :=
-  Syntax.NamedType (Syntax.Unqualified (Names.MakeSupportedType (Names.MakeIdentifier "bool" eq_refl) Names.Int eq_refl)).
+Fail Definition excl_bool_target : Names.TypeName := Names.PBool.
 
 (* the representative conversion fixtures: one accept and one reject per family, plus the scars *)
 Example representable_int8_127_accept : resolve Typing.PrintlnArgument (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = Some (Typing.IntegerType Integer.Int8). Proof. reflexivity. Qed.
