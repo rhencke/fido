@@ -1,6 +1,6 @@
 From Stdlib Require Import NArith List String.
 From Stdlib Require Import Permutation SetoidList.
-From Fido Require Import FilePath Collections ModulePath Version Integer Float Complex Names.
+From Fido Require Import FilePath Collections ModulePath Version Float Complex Names.
 Import ListNotations.
 
 (* A conversion target names a source type; only an unqualified predeclared name is representable. *)

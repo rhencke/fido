@@ -151,7 +151,7 @@ ModulePath:
 Version:
 Collections: FilePath
 Names:
-Syntax: Collections Complex FilePath Float Integer ModulePath Names Version
+Syntax: Collections Complex FilePath Float ModulePath Names Version
 Index: Collections FilePath Syntax
 Typing: Complex Float Integer Syntax
 Compilable: Collections Complex FilePath Float Index Integer ModulePath Syntax Typing
