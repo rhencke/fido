@@ -250,10 +250,14 @@ boundary dependency needs no retreat; uncertainty means freeze and report.
 whole current implementation, proofs, tests, artifacts, gates and live paths, all accepted lower layers, and
 later-milestone prose as adversarial pressure — public types and constructor topology before proof bodies,
 graded by the weakest load-bearing link on the certified causal path. An A+ means the reviewer found no
-load-bearing defect in the exact reviewed `HEAD`; it is not acceptance by itself. Acceptance requires one
-frontier model to find no load-bearing fault, a different frontier model to independently review the same exact
-`HEAD` and also find none, and Rob to decide. No milestone is accepted without Rob, and no work is manufactured
-after the fault frontier has survived review.
+load-bearing defect in the exact reviewed `HEAD`; it is not acceptance by itself. Acceptance requires two
+whole-system reviews by two different models of the same exact immutable green candidate, followed by Rob's
+decision. For the current Fido workflow, Claude Code's post-implementation whole-system review is one model
+review and the primary ChatGPT whole-system review is the other; Claude Code's implementer role does not
+disqualify its review, because Rob explicitly designates it as one of the two. Each model must review the whole
+current system rather than merely endorse its own implementation report, and where practical the reports are
+written independently before cross-comparison. Neither model accepts; Rob alone accepts, and no work is
+manufactured after the reviewed frontier has survived review.
 
 **Strict checkpoint scope.** Whole-system inspection remains mandatory, but a finding blocks the active
 checkpoint only when it violates that checkpoint's accepted semantic, provenance, public-guarantee, production,

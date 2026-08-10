@@ -33,43 +33,38 @@ premature `Float.Value`/`Complex.Value` runtime carriers and the `Safe` evaluato
 first runtime values. This root changes no `Syntax.Program` inhabitant, no source meaning, no decision, no
 diagnostic, and no rendered byte.
 
-**Status — the targeted layer-conformance retreat is accepted; C6 Root 2 review is active.** Rob accepted the
-exact targeted lower-contract layer-conformance retreat at reviewed candidate
-`3a1b9dcd5c4fd9475bf8a7c8452e81743d85a95c`, disposition token `C6-ROOT2-LAYER-RETREAT-ACCEPT-3A1B9DCD`. The
-acceptance scope is exactly the affected lower guarantees, their ownership repair (`Render`/`Emit` returned to
-their sibling-branch owners; the cross-branch renderer/compiler-denotation and `Emit` compiler/image/layout
-families deleted, not relocated; the retained ASCII theorems restated on the one `Names` predicate), the
-targeted-causal retreat closure, and the direct-edge layer-dependency gate sufficient to leave the dedicated
-repair loop. It does **not** accept the Root 2 numeric carrier, which merely shares that Git tree. Historical
-acceptance stays historical; Git owns the repair sequence.
+**Status — Root 2 accepted; C6 Root 3 is the active frontier.** Rob accepted **C6 Root 2** at exact candidate
+`aaa344121d0478540e0ebf2ce981b98a13044a8c`, disposition `C6-ROOT2-ACCEPT-AAA3441`, on two whole-system reviews
+by two different models (Claude Code's post-implementation review and the primary ChatGPT review) and his
+decision. The acceptance is exact and narrow: `Float.TypedConstant`, `Complex.TypedConstant`, their
+format-indexed static-carrier topology, one destination-format rounding with same-result readback, exact
+component composition, same-format carrier reuse, deletion of the premature runtime/value/evaluator route, and
+the whole-system preservation contract at `aaa3441`. It does **not** accept C6 as a milestone, authorize C7, or
+accept any later C6 root. **Root 1** remains accepted at `6c13dc0` (unchanged).
 
-The accepted **Root 1** frontier is `6c13dc0` (unchanged, accepted). **Root 2** — the static typed-constant
-numeric carrier (`Float`/`Complex`) specified below — is now the **sole active review frontier** and remains
-**unaccepted**. The exact current `HEAD` after this documentation commit is the Root 2 review object,
-identified by Git rather than by a guessed self-hash; it is the whole current system, and the review covers the
-full `6c13dc0..HEAD` effect (Root 1 through that `HEAD`), not a diff.
+**C6 is incomplete and unaccepted; accepting one root never accepts another root or the milestone.** The sole
+active implementation frontier is **C6 Root 3 — the source shape and exact occurrence foundation** (§ below),
+canonicalizing the earliest remaining dependency-closed source/index portion in its permanent owners. Later C6
+roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone accepts. Git owns the repair and
+review narrative — no chronological candidate list lives here.
 
-**Root 2 review protocol.** Two independent whole-system reviews of the **same immutable green `HEAD`**, under
-`ARCHITECTURE.md` §1 "Review and acceptance": one informed primary review that may hold the complete continuity
-record, and one premise-independent review that first receives only the archive, the governing corpus, the
-neutral toolchain/gate evidence, and the Root 2 obligations — its first-pass report frozen before any
-informed-review material is disclosed. Later C6 roots, Final C6, and C7 stay frozen; Rob alone accepts Root 2.
+**Concurrent findings (nonblocking, `STRICT-CHECKPOINT-SCOPE`).** A core semantic, provenance, theorem,
+capability, behavior, or required-dependency defect blocks; a non-foundational gate, tooling, documentation,
+performance, or hygiene defect is mandatory concurrent work with an exact closure point that cannot survive an
+acceptance depending on it. These are assigned to the Root 3 batch, where their closure point has arrived, and
+do not reopen or weaken any accepted root:
 
-**Concurrent findings (nonblocking, `STRICT-CHECKPOINT-SCOPE`).** Whole-system inspection is mandatory, but a
-finding blocks Root 2 only if it breaks Root 2's accepted contract or leaves a prerequisite Root 2 consumes
-unestablished (`ARCHITECTURE.md` §1 "Strict checkpoint scope"). These stand as mandatory concurrent work with a
-named earliest closure point, and none blocks starting the Root 2 review:
-
-- late-stream read-error hardening in the single-AWK layer gate — closes before any acceptance whose evidence
-  relies on the layer gate beyond its current direct-edge guarantee (at the latest, Rob's Root 2 acceptance);
-- explicit policy-marker order/closure hardening in the same gate — same closure point;
-- the flat-module identity boundary — closes before the first qualified `Compilable.*` physical split;
-- explicit classification of actual dependency targets outside the current theory universe — closes before any
-  layer-policy change that would admit an out-of-universe edge;
-- any still-missing Root 2 acceptance evidence (§"Implementation review boundaries" below) — closes before
-  Rob's Root 2 acceptance.
-
-None is a Root 2 semantic defect; discovery alone does not expand the active frontier.
+- `TOOLCHAIN.md` Go-version truth — the immutable image digest owns the executable toolchain identity, the
+  observed version is `go1.23.12`, and the stale `go1.23.2` current-state claim is corrected;
+- Float/Complex "construction authority" wording narrowed to the proved rounding-from-exact formation
+  authority for each carrier;
+- the `Syntax -> Integer` retention resolved before Syntax changes — deleted if it has no retained purpose (and
+  the direct-edge policy updated), or its exact consumed fact recorded;
+- single-AWK layer-gate hardening — late-stream read-error detection, policy-marker order and proper closure,
+  and explicit classification of actual dependency targets outside the Dune theory universe, with one policy,
+  one `rocq dep` producer, and one verdict retained;
+- the flat-module identity boundary — closes only if Root 3 introduces the first qualified `Compilable.*`
+  physical split, otherwise assigned to the first root that does.
 
 ## Ownership and physical modules
 
@@ -2495,8 +2490,9 @@ Proof. Admitted.
 
 > C6 advances only at a whole-repository-green exact `HEAD` that closes one named dependency-closed semantic
 > root in its permanent owners, deletes every authority and migration-inventory statement it supersedes, and
-> makes every affected document true. That exact `HEAD` receives the two independent frontier-model reviews
-> and Rob acceptance required by `ARCHITECTURE.md` before any dependent C6 root begins. Acceptance applies
+> makes every affected document true. That exact `HEAD` receives the two-different-model whole-system reviews
+> and Rob acceptance required by `ARCHITECTURE.md` §1 "Review and acceptance" before any dependent C6 root
+> begins. Acceptance applies
 > only to the named root; it is neither C6 semantic-root closure nor C6 acceptance.
 
 **C6 semantic-root closure review** stops only when the repository is green, the `Compilable.*` modules exist with no

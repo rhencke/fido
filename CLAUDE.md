@@ -105,6 +105,10 @@ never committed as repair documents. Fix the current files directly and ask for 
 The exact reviewed `HEAD` is the candidate; there is no candidate field, no freeze commit, no confirmation
 counter and no override token.
 
+Acceptance needs two whole-system reviews of that exact `HEAD` by two different models — Claude Code's
+post-implementation review counts as one, the primary ChatGPT review as the other — then Rob decides; neither
+model accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule.
+
 ## Commands
 
 Everything runs in pinned containers through Buildx. **Host Rocq is not supported, and project Python runs
