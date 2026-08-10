@@ -33,46 +33,43 @@ premature `Float.Value`/`Complex.Value` runtime carriers and the `Safe` evaluato
 first runtime values. This root changes no `Syntax.Program` inhabitant, no source meaning, no decision, no
 diagnostic, and no rendered byte.
 
-**Status — the current targeted causal retreat.** The accepted Root 1 frontier is `6c13dc0` (unchanged). The
-Root 2 numeric-carrier candidate is `c8ba188` — public, **unaccepted, blocked**. Its layer-conformance child
-`ee99f457` returned `Render` and `Emit` to their sibling-branch owners; Round 1 review **blocked** `ee99f457`
-on two governance/gate faults, so the present repair baseline is `ee99f457` and this repair is one forward
-child of it (named symbolically, never by a guessed self-hash) that closes exactly those two blockers.
+**Status — the targeted layer-conformance retreat is accepted; C6 Root 2 review is active.** Rob accepted the
+exact targeted lower-contract layer-conformance retreat at reviewed candidate
+`3a1b9dcd5c4fd9475bf8a7c8452e81743d85a95c`, disposition token `C6-ROOT2-LAYER-RETREAT-ACCEPT-3A1B9DCD`. The
+acceptance scope is exactly the affected lower guarantees, their ownership repair (`Render`/`Emit` returned to
+their sibling-branch owners; the cross-branch renderer/compiler-denotation and `Emit` compiler/image/layout
+families deleted, not relocated; the retained ASCII theorems restated on the one `Names` predicate), the
+targeted-causal retreat closure, and the direct-edge layer-dependency gate sufficient to leave the dedicated
+repair loop. It does **not** accept the Root 2 numeric carrier, which merely shares that Git tree. Historical
+acceptance stays historical; Git owns the repair sequence.
 
-This repair **does change accepted public proof/ownership guarantees** — it is not internal-only. `ee99f457`
-deleted the unconsumed cross-branch renderer/compiler denotation family and the Emit compiler/image/layout
-family outright (**deleted, not relocated**, no `Evidence` placeholder), restated the retained ASCII theorems
-on the one `Names` predicate, and added the direct-edge layer gate; this child makes that gate fail-closed and
-brings it under the mutation-control doctrine, and states the governing retreat rule. No `.v` byte, source
-meaning, compiler decision, diagnostic, rendered byte, generated Go file or golden changes in this child.
+The accepted **Root 1** frontier is `6c13dc0` (unchanged, accepted). **Root 2** — the static typed-constant
+numeric carrier (`Float`/`Complex`) specified below — is now the **sole active review frontier** and remains
+**unaccepted**. The exact current `HEAD` after this documentation commit is the Root 2 review object,
+identified by Git rather than by a guessed self-hash; it is the whole current system, and the review covers the
+full `6c13dc0..HEAD` effect (Root 1 through that `HEAD`), not a diff.
 
-Under the targeted causal retreat rule (`ARCHITECTURE.md` §1), the affected accepted surfaces are the
-inherited renderer-denotation guarantee adopted into C0, the C3 `Emit` compiler/image/layout guarantee, and
-the C4 ASCII-owner consolidation onto `Names`; every other accepted checkpoint carries explicit negative
-causal closure (in the repair report). Post-repair review order:
+**Root 2 review protocol.** Two independent whole-system reviews of the **same immutable green `HEAD`**, under
+`ARCHITECTURE.md` §1 "Review and acceptance": one informed primary review that may hold the complete continuity
+record, and one premise-independent review that first receives only the archive, the governing corpus, the
+neutral toolchain/gate evidence, and the Root 2 obligations — its first-pass report frozen before any
+informed-review material is disclosed. Later C6 roots, Final C6, and C7 stay frozen; Rob alone accepts Root 2.
 
-1. freeze one exact green forward child of `ee99f457`;
-2. two independent reviews of that same candidate — the affected lower guarantees, the gate repair, and the
-   preservation contract, at least one premise-independent;
-3. Rob's targeted lower-contract decision;
-4. only then, two independent whole-system C6 Root 2 reviews of the same exact final Root 2 `HEAD`; and
-5. Rob's Root 2 decision.
+**Concurrent findings (nonblocking, `STRICT-CHECKPOINT-SCOPE`).** Whole-system inspection is mandatory, but a
+finding blocks Root 2 only if it breaks Root 2's accepted contract or leaves a prerequisite Root 2 consumes
+unestablished (`ARCHITECTURE.md` §1 "Strict checkpoint scope"). These stand as mandatory concurrent work with a
+named earliest closure point, and none blocks starting the Root 2 review:
 
-No later C6 root, Final C6, C7, or history rewrite begins before Rob accepts Root 2.
+- late-stream read-error hardening in the single-AWK layer gate — closes before any acceptance whose evidence
+  relies on the layer gate beyond its current direct-edge guarantee (at the latest, Rob's Root 2 acceptance);
+- explicit policy-marker order/closure hardening in the same gate — same closure point;
+- the flat-module identity boundary — closes before the first qualified `Compilable.*` physical split;
+- explicit classification of actual dependency targets outside the current theory universe — closes before any
+  layer-policy change that would admit an out-of-universe edge;
+- any still-missing Root 2 acceptance evidence (§"Implementation review boundaries" below) — closes before
+  Rob's Root 2 acceptance.
 
-**Ledger closure (targeted retreat).** The four review ledgers were audited against the exact guarantee
-inventory; **no row's current claim, owner, enforcement, disposition or acceptance evidence became false**, so
-none is amended (a fake row to prove inspection is forbidden):
-
-- `.review/scope.tsv` — SR-008 keeps its accepted ASCII source boundary: `Names` owns identifier validity
-  (`is_alpha`, `identifier_ok`, the `Identifier` validity field) and `Render` owns exact bytes. The repair
-  deleted only `Render`'s **duplicate** generic ASCII predicate and restated the retained ASCII theorems over
-  the one `Names` predicate; the boundary itself did not change, so SR-008 is affirmed, not amended.
-- `.review/closure.csv` — every `SPEC-*` row that mentions `Render` assigns it exact/canonical **byte**
-  emission, which is unchanged; no row named a deleted cross-branch theorem as a capability, and the Root 2
-  typed-constant rows (SPEC-013…017) are unchanged (this child changes no `.v` byte).
-- `.review/latitude.tsv` — no LAT row's owner or disposition depends on a changed guarantee.
-- `.review/acceptance.tsv` — no acceptance-evidence row is falsified; this repair accepts nothing.
+None is a Root 2 semantic defect; discovery alone does not expand the active frontier.
 
 ## Ownership and physical modules
 

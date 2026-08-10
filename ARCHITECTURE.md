@@ -255,6 +255,23 @@ frontier model to find no load-bearing fault, a different frontier model to inde
 `HEAD` and also find none, and Rob to decide. No milestone is accepted without Rob, and no work is manufactured
 after the fault frontier has survived review.
 
+**Strict checkpoint scope.** Whole-system inspection remains mandatory, but a finding blocks the active
+checkpoint only when it violates that checkpoint's accepted semantic, provenance, public-guarantee, production,
+artifact, trust-boundary, or required-dependency contract, or when it makes a prerequisite fact on which the
+next work relies unestablished. A tooling, gate-hardening, mutation-coverage, reporting, documentation,
+performance, or repository-hygiene finding that does not undermine that foundation is mandatory concurrent
+work, assigned to the earliest checkpoint that must consume or close it. It must remain visible and must close
+before an acceptance whose evidence depends on it, but discovery alone does not expand the active checkpoint.
+Concurrent treatment is forbidden — the finding is a hard blocker on the active checkpoint — for a wrong public
+type, index, or constructor topology; lost, reconstructed, or ambiguous provenance; a theorem statement weaker
+or stronger than the accepted guarantee; a duplicate semantic authority; an axiom, `Admitted`, unimplemented
+assumption, trusted fallback, fuel, arbitrary bound, or semantic under-approximation presented as correctness;
+changed source meaning, compiler decision, diagnostic, emitted byte, runtime behavior, capability, or trust
+boundary outside the active contract; a gate defect that makes an unestablished semantic prerequisite appear
+established; or any defect in an accepted lower fact that the next semantic root actually consumes. Every
+concurrent finding carries a named earliest mandatory closure point; this is not permission to defer cleanup
+indefinitely.
+
 ---
 
 ## 2. Source and program representation

@@ -81,6 +81,11 @@ grab bags.
     or public surface, never enters the build or repository, and is deleted before terminal verification and
     reported with the decision it informed.
 14. Rob alone changes scope or accepts.
+15. Whole-system review is mandatory, but a finding blocks the active checkpoint only if it breaks that
+    checkpoint's accepted contract or leaves a prerequisite it consumes unestablished; tooling, gate,
+    coverage, documentation, performance and hygiene findings are mandatory concurrent work with a named
+    earliest closure point, never active-scope expansion. `ARCHITECTURE.md` §1 "Strict checkpoint scope" owns
+    the rule and its hard-blocker list.
 
 The detailed process is `ARCHITECTURE.md` §1 "Two authorities, never two formal implementations"; these rules
 index it.
