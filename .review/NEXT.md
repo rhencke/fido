@@ -43,23 +43,49 @@ the whole-system preservation contract at `aaa3441`. It does **not** accept C6 a
 accept any later C6 root. **Root 1** remains accepted at `6c13dc0` (unchanged).
 
 **C6 is incomplete and unaccepted; accepting one root never accepts another root or the milestone.** The sole
-active implementation frontier is **C6 Root 3 — the source shape and exact occurrence foundation** (§ below),
-canonicalizing the earliest remaining dependency-closed source/index portion in its permanent owners. Later C6
-roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone accepts. Git owns the repair and
-review narrative — no chronological candidate list lives here.
+active implementation frontier is **C6 Root 3 — the source, occurrence, binding, and honest-outcome
+foundation** (§ below). Later C6 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone
+accepts. Git owns the repair and review narrative — no chronological candidate list lives here.
 
-**Root 3 scope is under decision.** A whole-system feasibility pass found that Root 3 as a pure source/occurrence
-root cannot give every newly-representable pinned-Go-valid program an honest verdict against the current two-way
-(`Compiled`/`Rejected`) decision: the source-shape expansion is coupled to the three-way `OutsideScope` decision,
-whose boundary is derived from the type-resolution phase — a later root (directive §3.6 `ROOT_BOUNDARY_CONFLICT`;
-`ARCHITECTURE.md` §1 stop conditions). Whether the source-shape work lands as one vertical with the three-way
-decision or under another split is Rob's scope decision; no source root is implemented until then.
+**Root 3 recut (`C6-ROOT3-SOURCE-BINDING-OUTCOME-RECUT-97EA4AE`).** The earlier pure source/occurrence cut was
+not dependency-closed: adding the general source forms makes pinned-Go-valid programs representable that the
+current two-way (`Compiled`/`Rejected`) compiler could only false-reject, and the honest `OutsideScope` verdict
+is a partial-phase fact, not a pure-syntax one (`ROOT_BOUNDARY_CONFLICT`). Rob recut Root 3 to the first honest
+static vertical: source shape, exact occurrence, the scope/object/binding foundation, one retained partial static
+phase, and the permanent three-way outcome form one causal unit. Root 3 lands, together:
+
+- the general source algebra in the one `Syntax.Program` — binding names and blank, magnitude literals with
+  unary-minus, ordinary type uses, `Name`/`Unary`/`Application`, and const/var/type/short/block/declaration
+  shapes — deleting the superseded dedicated `Println`/`Convert` constructors once the replacement is live;
+- exact `Index` occurrence and view identity for every newly live position (binding names/blanks, name uses,
+  type uses, literals, unary, applications with heads and ordered arguments, decl/spec, statement/block, and
+  short-declaration left/right), each refinement projecting its exact parent, no occurrence recovered by
+  rescanning source;
+- the binding foundation: exact lexical scopes and enclosure, object-establishing source sites (blank
+  establishes none), duplicate-safe scope maps, source and predeclared object identity, ordinary-name
+  resolution with shadowing and visibility, and short-declaration new/reuse at the exact left occurrence;
+- one retained partial static phase built from the exact source/index/scope/binding objects, distinguishing
+  established facts, definite invalidity, exact unmet requirements, and causal blocking, retaining the objects
+  that established every outcome (equality to a rerun is not provenance);
+- the permanent three-way `Compiled | Rejected | OutsideScope` public outcome, where an outside boundary is the
+  exact earliest unmet requirement at an exact retained site (missing type/value/application/statement/unary
+  meaning), never a feature flag and never a claim about Go validity; and
+- migration of the accepted `println`/conversion/literal fragment through the binding-based path, byte-identical
+  in branch, diagnostics and emitted output.
+
+Deferred to later roots (not in this recut): complete type-equation solving and acyclicity; alias/defined-type
+meaning; full declaration/initializer consumption; result plans and assignment; compiler-owned `StaticVariable`
+formation; package const/var dependency ordering and initialization cycles; unused-local analysis; application
+families beyond the accepted conversion and `println`; and any runtime value, place, store, environment,
+concrete `Machine.T`, or C7 behavior. Later roots fill exact requirements inside the same sealed retained phase;
+they never replace the outcome/boundary root or reinterpret an established boundary as a diagnostic. A causal
+expansion beyond this recut is a `ROOT_EXPANSION_CONFLICT` stop, not autonomous widening.
 
 **Concurrent findings (nonblocking, `STRICT-CHECKPOINT-SCOPE`).** A core semantic, provenance, theorem,
 capability, behavior, or required-dependency defect blocks; a non-foundational gate, tooling, documentation,
 performance, or hygiene defect is mandatory concurrent work with an exact closure point that cannot survive an
-acceptance depending on it. These remain open, assigned to the source-shape root at the closure points named, and
-do not reopen or weaken any accepted root:
+acceptance depending on it. These remain open, assigned to the Root 3 recut batch at the closure points named,
+and do not reopen or weaken any accepted root:
 
 - `TOOLCHAIN.md` Go-version truth — the immutable image digest owns the executable toolchain identity, the
   observed version is `go1.23.12`, and the stale `go1.23.2` current-state claim is to be corrected;

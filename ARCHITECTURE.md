@@ -428,6 +428,14 @@ build-output-directory. The three diagnostic layers each have an emptiness chara
 preflight takes precedence over the sole package's semantic errors. **An outcome is a structured branch and
 its exact diagnostic list, never a collapsed tag.**
 
+The three-way outcome is not owned exclusively by completed type resolution. An outside boundary is the exact
+earliest unmet requirement at an exact retained site, so it arises from the earliest partial-phase fact that
+establishes it: an established source object with no yet-modelled type, value, application, statement or unary
+meaning is a boundary as much as a type-level one, and the outcome is live as soon as the phase retains scopes,
+objects and bindings. Later semantic roots fill deeper requirements inside the same sealed retained phase; they
+never replace the outcome/boundary root or reinterpret an established boundary as a diagnostic. The fixed
+precedence above and the one-core provenance law below are unchanged.
+
 ### Retained causal objects
 
 The production expression path is one phase built from one retained input, driven by one proof-carrying work
