@@ -83,7 +83,7 @@ Lemma typed_exact_real : forall ct (tc : TypedConstant ct),
 Lemma typed_exact_imaginary : forall ct (tc : TypedConstant ct),
   exact_imaginary (typed_exact tc) = Float.exact (typed_imaginary tc). Proof. reflexivity. Qed.
 
-(* The one construction authority: round each component once at the destination format, or fail. *)
+(* The sole rounding-from-exact formation authority: round each component once at its destination format, or fail. *)
 Definition round_typed (ct : Kind) (c : Constant)
     : option (TypedConstant ct) :=
   match round_typed_float (component_kind ct) (exact_real c),

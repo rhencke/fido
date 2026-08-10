@@ -21,7 +21,7 @@ rather than drifting.
 | Component | Identity |
 |---|---|
 | Go (executor) | `golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f` |
-| Go (reported) | `go version go1.23.2 linux/amd64` |
+| Go (reported by the digest) | `go version go1.23.12 linux/amd64` |
 | Rocq | `rocq-core.9.2.0`, `rocq-stdlib.9.1.0` |
 | Dune | `dune.3.21.1` |
 | OCaml | `ocaml/opam:debian-12-ocaml-5.3@sha256:bbaac53e502f6602013d8967c3a54cfcb898b556f453ab72e8e23966c3c681df` |
@@ -29,7 +29,9 @@ rather than drifting.
 | Python tooling | `python:3.12-slim-bookworm@sha256:d50fb7611f86d04a3b0471b46d7557818d88983fc3136726336b2a4c657aa30b` |
 | Tooling OS packages | `git=1:2.39.5-0+deb12u3`, `editorconfig=0.12.6-0.1` |
 
-The exact compiler binary pin is operational. It is not part of any theorem.
+The digest-pinned image owns the executable toolchain identity; the reported `go1.23.12` is the version that
+immutable image ships — an operational observation, not part of any theorem and not a portability claim. The
+accepted semantic target stays Go 1.23 on `linux/amd64` with `GOAMD64=v1` (see Target above).
 
 ## Closed build environment
 

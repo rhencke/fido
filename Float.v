@@ -315,7 +315,7 @@ Arguments rounded {ft} _.
 Arguments formed {ft} _.
 Arguments coherent {ft} _.
 
-(* The one typed-float formation authority: round once at [ft], normalize zero, derive both from that result. *)
+(* The sole rounding-from-exact typed-float formation authority: round once at [ft], normalize zero, derive both. *)
 Definition round_typed_float (ft : Kind) (q : Constant) : option (TypedConstant ft) :=
   let r0 := strip_neg_zero (round_ieee ft q) in
   match ieee_repr_dec r0 with
