@@ -93,152 +93,169 @@ declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
 echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
 # (b2) LAYER-DEPENDENCY GATE — the direct Fido import graph must EQUAL the sole ARCHITECTURE policy block.
 #      Pinned `rocq dep` reports Require edges (never .glob origins); edge legality is independent of use.
-#      Fail closed across the WHOLE producer-to-verdict path: module universe, extractor exit, actual parse,
-#      extraction coverage, policy discovery/uniqueness, row/edge decode, module-row coverage, unknown-module
-#      and unknown-dependency rejection, and both set comparisons are each an independent premise, checked
-#      before the comparison with a distinct `layer-fail: <code>` reason, so a failed producer is never
-#      relabelled as a graph disagreement and empty/partial/stale/coincidental data cannot reach a green
-#      verdict.  Every decision is mutation-tested: `tools/gate-mutation-test.py` extracts the LAYER-GATE-LIB
-#      block and runs its self-test with one decision neutralized, watching the named control fail.
+#      The decision is a SINGLE awk pass: awk reads the Dune module universe, this run's rocq dep output, and
+#      the sole ARCHITECTURE policy, computes the actual and policy edge relations and compares them, exiting
+#      0 only when every check holds.  The only external operations on the critical path are `rocq dep` and
+#      that one awk — both status-checked — so no shell producer can launder a correct-looking output plus a
+#      nonzero exit into green, and infrastructure failure stays distinct from a graph disagreement.  Every
+#      decision is mutation-tested: `tools/gate-mutation-test.py` extracts the LAYER-GATE-LIB block and runs
+#      its self-test with one decision neutralized, watching the named control fail.
 [ -f ARCHITECTURE.md ] || fail "layer gate: ARCHITECTURE.md not present in the prover context"
-# ===== LAYER-GATE-LIB BEGIN (POSIX sh + awk; full producer-to-verdict path, host-mutation-testable) =====
-# _lg_edges <raw> <modspat>: raw 'HEAD DEP' actual direct Fido edges (unsorted); its exit status is awk's, not
-# a downstream sort's, so a failed parse propagates as a real nonzero rather than being hidden by a pipe.
-_lg_edges() {
-  awk -v mods="$2" '
-    /:/ { split($0,a,":"); split(a[1],lhs," "); head=lhs[1];
-          if (head !~ /\.vo$/) next; sub(/\.vo$/,"",head); sub(/.*\//,"",head);
-          m=split(a[2],r," ");
-          for (i=1;i<=m;i++){ t=r[i]; if (t ~ /\.vo$/){ sub(/\.vo$/,"",t); sub(/.*\//,"",t);
-            if (t!=head && index(mods," " t " ")>0) print head" "t } } }' "$1"
-}
-# _lg_heads <raw> <modspat>: every module that appeared as a rocq dep head (extraction coverage evidence).
-_lg_heads() {
-  awk -v mods="$2" '
-    /:/ { split($0,a,":"); split(a[1],lhs," "); head=lhs[1];
-          if (head !~ /\.vo$/) next; sub(/\.vo$/,"",head); sub(/.*\//,"",head);
-          if (index(mods," " head " ")>0) print head }' "$1"
-}
-# layer_gate <arch> <raw> <status> <modsfile>: the complete direct-edge decision.  It re-derives edges and
-# heads from THIS run's raw into a fresh workspace, and every producer, decode, coverage and comparison stage
-# is an explicit premise checked before the set comparison, each with a distinct 'layer-fail: <code>' reason,
-# so a failed producer is never relabelled as a graph disagreement and empty/partial/stale/coincidental data
-# cannot reach a green verdict.  Prints nothing and returns 0 only when every premise holds.
+# ===== LAYER-GATE-LIB BEGIN (single-pass awk verdict; host-mutation-testable) =====
+# layer_gate <dunef> <rawf> <archf> <status>: the complete direct-edge decision.  The ONLY external operations
+# are the pinned `rocq dep` (its exit <status> is passed in and checked) and ONE awk pass; every parse, decode,
+# coverage and set comparison happens inside that awk pass, so no shell producer (sort/tr/sed/uniq/comm/grep)
+# sits on the critical path where a correct-looking output plus a nonzero exit could be laundered into green.
+# awk reads the Dune module universe, this run's rocq dep output, and the sole ARCHITECTURE policy via getline
+# (its own read failures are premises), and exits 0 only when every check holds; otherwise it prints a distinct
+# `layer-fail: <code>` and exits nonzero.  Infrastructure failure (extractor, verdict-op, read-*) is thus kept
+# distinct from a graph disagreement (forbidden/dormant).
 layer_gate() {
-  la_arch=$1; la_raw=$2; la_status=$3; la_modsfile=$4
-  g=$(mktemp -d) || { echo "layer-fail: workspace"; return 1; }
-  sort -u "$la_modsfile" > "$g/mods" 2>/dev/null
-  # DECISION mods: the intended module universe was obtained.
-  [ -s "$g/mods" ] || { echo "layer-fail: mods"; rm -rf "$g"; return 1; }
-  modspat=" $(tr '\n' ' ' < "$g/mods")"
-  # DECISION extractor: pinned rocq dep exited zero (a nonzero producer cannot be laundered by a later stage).
-  [ "$la_status" = 0 ] || { echo "layer-fail: extractor"; rm -rf "$g"; return 1; }
-  _lg_edges "$la_raw" "$modspat" > "$g/edges.u" 2>/dev/null; pe=$?
-  _lg_heads "$la_raw" "$modspat" > "$g/heads.u" 2>/dev/null; ph=$?
-  # DECISION parse: actual-output parse/normalize of edges and heads both completed successfully (awk's own exit).
-  [ "$pe" = 0 ] && [ "$ph" = 0 ] || { echo "layer-fail: parse"; rm -rf "$g"; return 1; }
-  sort -u "$g/edges.u" > "$g/edges" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  sort -u "$g/heads.u" > "$g/heads" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  comm -23 "$g/mods" "$g/heads" > "$g/missh" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  # DECISION coverage-heads: extraction covered every module (guards the failed-producer-leaves-equal-data case).
-  [ ! -s "$g/missh" ] || { echo "layer-fail: coverage-heads"; echo "  missing head(s): $(tr '\n' ' ' < "$g/missh")"; rm -rf "$g"; return 1; }
-  nb=$(grep -c 'FIDO-LAYER-POLICY BEGIN' "$la_arch" 2>/dev/null || true)
-  ne=$(grep -c 'FIDO-LAYER-POLICY END' "$la_arch" 2>/dev/null || true)
-  # DECISION policy-block: the sole policy block was discovered with the required uniqueness.
-  [ "$nb" = 1 ] && [ "$ne" = 1 ] || { echo "layer-fail: policy-block"; rm -rf "$g"; return 1; }
-  sed -n '/FIDO-LAYER-POLICY BEGIN/,/FIDO-LAYER-POLICY END/p' "$la_arch" 2>/dev/null | sed '/FIDO-LAYER-POLICY END/q' > "$g/blk" 2>/dev/null
-  grep -E '^[A-Za-z][A-Za-z0-9_]*:' "$g/blk" > "$g/rows" 2>/dev/null || true
-  grep -vE '^[[:space:]]*$|FIDO-LAYER-POLICY|^```' "$g/blk" 2>/dev/null | grep -vE '^[A-Za-z][A-Za-z0-9_]*:' > "$g/badrows" 2>/dev/null || true
-  # DECISION policy-rows: every content line of the block decoded as a well-formed row, and there is at least one.
-  [ -s "$g/rows" ] && [ ! -s "$g/badrows" ] || { echo "layer-fail: policy-rows"; rm -rf "$g"; return 1; }
-  : > "$g/pedges"
-  while IFS= read -r ln; do lm=${ln%%:*}; ld=${ln#*:}; for pd in $ld; do printf '%s %s\n' "$lm" "$pd" >> "$g/pedges"; done; done < "$g/rows"
-  sort -u "$g/pedges" -o "$g/pedges" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  sed 's/:.*//' "$g/rows" | sort > "$g/rowmods" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  dup=$(uniq -d "$g/rowmods")
-  comm -23 "$g/mods" "$g/rowmods" > "$g/missr" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  # DECISION modrow: every module has exactly one policy row.
-  [ -z "$dup" ] && [ ! -s "$g/missr" ] || { echo "layer-fail: modrow"; rm -rf "$g"; return 1; }
-  comm -13 "$g/mods" "$g/rowmods" > "$g/unkm" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  # DECISION unknown-mod: no policy row names a module outside the universe.
-  [ ! -s "$g/unkm" ] || { echo "layer-fail: unknown-mod"; rm -rf "$g"; return 1; }
-  : > "$g/unkd"
-  while read -r um ud; do grep -qx "$ud" "$g/mods" || printf '%s -> %s\n' "$um" "$ud" >> "$g/unkd"; done < "$g/pedges"
-  # DECISION unknown-dep: no policy edge names a dependency outside the universe.
-  [ ! -s "$g/unkd" ] || { echo "layer-fail: unknown-dep"; rm -rf "$g"; return 1; }
-  comm -23 "$g/edges" "$g/pedges" > "$g/forb" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  # DECISION forbidden: the actual-minus-policy comparison completed and is empty.
-  [ ! -s "$g/forb" ] || { echo "layer-fail: forbidden"; sed 's/ / -> /; s/^/  /' "$g/forb"; rm -rf "$g"; return 1; }
-  comm -13 "$g/edges" "$g/pedges" > "$g/dorm" 2>/dev/null || { echo "layer-fail: io"; rm -rf "$g"; return 1; }
-  # DECISION dormant: the policy-minus-actual comparison completed and is empty.
-  [ ! -s "$g/dorm" ] || { echo "layer-fail: dormant"; sed 's/ / -> /; s/^/  /' "$g/dorm"; rm -rf "$g"; return 1; }
-  rm -rf "$g"; return 0
+  la_dune=$1; la_raw=$2; la_arch=$3; la_status=$4
+  # DECISION extractor: the pinned dependency extractor exited zero.
+  [ "$la_status" = 0 ] || { echo "layer-fail: extractor"; return 1; }
+  la_out=$(awk -v dunef="$la_dune" -v rawf="$la_raw" -v archf="$la_arch" '
+    BEGIN {
+      nm=0
+      while ((r=(getline line < dunef)) > 0) {
+        if (match(line, /\(modules[^)]*\)/)) {
+          s=substr(line,RSTART,RLENGTH); sub(/\(modules/,"",s); gsub(/\)/,"",s)
+          c=split(s,a," "); for (i=1;i<=c;i++) if (a[i]!="") { mod[a[i]]=1; nm++ }
+        }
+      }
+      close(dunef)
+      # DECISION mods: the module universe was obtained from Dune.
+      if (nm==0) { print "layer-fail: mods"; exit 2 }
+      rr=(getline line < rawf)
+      # DECISION read-raw: this run rocq dep output was opened and read.
+      if (rr<0) { print "layer-fail: read-raw"; exit 3 }
+      while (rr>0) {
+        if (index(line,":")>0) {
+          ci=index(line,":"); lhs=substr(line,1,ci-1); rhs=substr(line,ci+1)
+          split(lhs,hp," "); head=hp[1]
+          if (head ~ /\.vo$/) { sub(/\.vo$/,"",head); sub(/.*\//,"",head)
+            if (head in mod) { heads[head]=1
+              nd=split(rhs,dp," ")
+              for (i=1;i<=nd;i++) { t=dp[i]; if (t ~ /\.vo$/) { sub(/\.vo$/,"",t); sub(/.*\//,"",t)
+                if (t!=head && (t in mod)) actual[head" "t]=1 } } } }
+        }
+        rr=(getline line < rawf)
+      }
+      close(rawf)
+      ra=(getline line < archf)
+      # DECISION read-arch: the ARCHITECTURE policy file was opened and read.
+      if (ra<0) { print "layer-fail: read-arch"; exit 4 }
+      nb=0; ne=0; inblk=0; nrows=0; badrow=0
+      while (ra>0) {
+        if (line ~ /FIDO-LAYER-POLICY BEGIN/) { nb++; inblk=1 }
+        else if (line ~ /FIDO-LAYER-POLICY END/) { ne++; inblk=0 }
+        else if (inblk) {
+          if (line ~ /^[A-Za-z][A-Za-z0-9_]*:/) {
+            ci=index(line,":"); rmod=substr(line,1,ci-1); rdeps=substr(line,ci+1)
+            rowseen[rmod]++; nrows++
+            nd=split(rdeps,dp," ")
+            for (i=1;i<=nd;i++) if (dp[i]!="") { pedge[rmod" "dp[i]]=1; if (!(dp[i] in mod)) unkdep[rmod" "dp[i]]=1 }
+          }
+          else if (line ~ /^[ \t]*$/ || line ~ /^```/) { }
+          else { badrow=1 }
+        }
+        ra=(getline line < archf)
+      }
+      close(archf)
+      # DECISION policy-block: the sole policy block was found with the required uniqueness.
+      if (nb!=1 || ne!=1) { print "layer-fail: policy-block"; exit 5 }
+      # DECISION policy-rows: every block content line decoded as a well-formed row, and there is at least one.
+      if (nrows<1 || badrow) { print "layer-fail: policy-rows"; exit 6 }
+      # DECISION coverage-heads: extraction produced a head for every module.
+      for (m in mod) if (!(m in heads)) { print "layer-fail: coverage-heads " m; exit 7 }
+      # DECISION modrow: every module has exactly one policy row.
+      for (m in mod) if (rowseen[m]!=1) { print "layer-fail: modrow " m; exit 8 }
+      # DECISION unknown-mod: no policy row names a module outside the universe.
+      for (rm in rowseen) if (!(rm in mod)) { print "layer-fail: unknown-mod " rm; exit 9 }
+      # DECISION unknown-dep: no policy edge names a dependency outside the universe.
+      for (e in unkdep) { split(e,ee," "); print "layer-fail: unknown-dep " ee[1] " -> " ee[2]; exit 10 }
+      # DECISION forbidden: no actual direct edge is absent from the policy.
+      for (e in actual) if (!(e in pedge)) { split(e,ee," "); print "layer-fail: forbidden " ee[1] " -> " ee[2]; exit 11 }
+      # DECISION dormant: no policy edge lacks a matching actual import.
+      for (e in pedge) if (!(e in actual)) { split(e,ee," "); print "layer-fail: dormant " ee[1] " -> " ee[2]; exit 12 }
+      exit 0
+    }'); la_ast=$?
+  # DECISION verdict-op: the single verdict pass itself completed; a correct-looking output cannot mask a nonzero exit.
+  [ "$la_ast" = 0 ] || { if [ -n "$la_out" ]; then echo "$la_out"; else echo "layer-fail: verdict-op"; fi; return 1; }
+  return 0
 }
-# layer_selftest: every control feeds an input isolating ONE decision through the REAL layer_gate; it fails if
-# the gate accepts the bad input or rejects it for the wrong reason, so neutralizing any decision fires its
-# control.  Codes asserted: mods, extractor, parse, coverage-heads, policy-block, policy-rows, modrow,
-# unknown-mod, unknown-dep, forbidden, dormant.
+# layer_selftest: each control drives the REAL layer_gate with synthetic dune/raw/arch isolating ONE decision
+# and asserts the exact layer-fail code, so neutralizing any decision (or an op-success check) fires its
+# control.  The verdict-op control puts a stubbed awk (correct-looking empty output, exit 77) on PATH.
 layer_selftest() {
   ls_rc=0; d=$(mktemp -d) || return 1
-  printf 'A\nB\nC\n' > "$d/mods"
+  printf '(rocq.theory (name T) (modules A B C))\n' > "$d/dune"
   { echo '<!-- FIDO-LAYER-POLICY BEGIN -->'; echo 'A:'; echo 'B: A'; echo 'C: A B'; echo '<!-- FIDO-LAYER-POLICY END -->'; } > "$d/arch"
   { echo 'A.vo A.glob: A.v Stdlib.Init.Prelude.vo'; echo 'B.vo B.glob: B.v A.vo Stdlib.Init.Prelude.vo'; echo 'C.vo C.glob: C.v A.vo B.vo'; } > "$d/raw"
-  _lg_expect() { o=$(layer_gate "$3" "$4" "$5" "$6" 2>&1); r=$?; { [ "$r" != 0 ] && printf '%s\n' "$o" | grep -q "^layer-fail: $2$"; } || { echo "FAIL  $1"; ls_rc=1; }; }
-  layer_gate "$d/arch" "$d/raw" 0 "$d/mods" >/dev/null 2>&1 || { echo "FAIL  the repaired graph passes"; ls_rc=1; }
-  : > "$d/mods_empty"
-  _lg_expect 'an empty module universe' mods "$d/arch" "$d/raw" 0 "$d/mods_empty"
-  _lg_expect 'a forced extractor failure' extractor "$d/arch" "$d/raw" 1 "$d/mods"
-  _lg_expect 'a failed actual-output parse' parse "$d/arch" "$d/nonexistent-raw" 0 "$d/mods"
+  _e() { o=$(layer_gate "$3" "$4" "$5" "$6" 2>/dev/null); r=$?; { [ "$r" != 0 ] && printf '%s\n' "$o" | grep -q "^layer-fail: $2"; } || { echo "FAIL  $1"; ls_rc=1; }; }
+  layer_gate "$d/dune" "$d/raw" "$d/arch" 0 >/dev/null 2>&1 || { echo "FAIL  the repaired graph passes"; ls_rc=1; }
+  _e 'a forced extractor failure' extractor "$d/dune" "$d/raw" "$d/arch" 77
+  printf '(rocq.theory (name T) (modules))\n' > "$d/dune_empty"
+  _e 'an empty module universe' mods "$d/dune_empty" "$d/raw" "$d/arch" 0
+  _e 'an unreadable dependency output' read-raw "$d/dune" "$d/nonexistent-raw" "$d/arch" 0
+  _e 'an unreadable policy file' read-arch "$d/dune" "$d/raw" "$d/nonexistent-arch" 0
   { echo 'B.vo B.glob: B.v A.vo'; echo 'C.vo C.glob: C.v A.vo B.vo'; } > "$d/raw_noA"
-  _lg_expect 'an incomplete or stale extraction' coverage-heads "$d/arch" "$d/raw_noA" 0 "$d/mods"
+  _e 'an incomplete extraction' coverage-heads "$d/dune" "$d/raw_noA" "$d/arch" 0
   { cat "$d/arch"; cat "$d/arch"; } > "$d/arch_dup"
-  _lg_expect 'a non-unique policy block' policy-block "$d/arch_dup" "$d/raw" 0 "$d/mods"
+  _e 'a non-unique policy block' policy-block "$d/dune" "$d/raw" "$d/arch_dup" 0
   { echo '<!-- FIDO-LAYER-POLICY BEGIN -->'; echo 'A:'; echo 'B: A'; echo 'C: A B'; echo 'garbage line'; echo '<!-- FIDO-LAYER-POLICY END -->'; } > "$d/arch_bad"
-  _lg_expect 'a malformed policy row' policy-rows "$d/arch_bad" "$d/raw" 0 "$d/mods"
+  _e 'a malformed policy row' policy-rows "$d/dune" "$d/raw" "$d/arch_bad" 0
   { echo '<!-- FIDO-LAYER-POLICY BEGIN -->'; echo 'B: A'; echo 'C: A B'; echo '<!-- FIDO-LAYER-POLICY END -->'; } > "$d/arch_norow"
-  _lg_expect 'a missing module row' modrow "$d/arch_norow" "$d/raw" 0 "$d/mods"
+  _e 'a missing module row' modrow "$d/dune" "$d/raw" "$d/arch_norow" 0
   { echo '<!-- FIDO-LAYER-POLICY BEGIN -->'; echo 'A:'; echo 'B: A'; echo 'C: A B'; echo 'Z:'; echo '<!-- FIDO-LAYER-POLICY END -->'; } > "$d/arch_unkm"
-  _lg_expect 'an unknown policy module' unknown-mod "$d/arch_unkm" "$d/raw" 0 "$d/mods"
+  _e 'an unknown policy module' unknown-mod "$d/dune" "$d/raw" "$d/arch_unkm" 0
   { echo '<!-- FIDO-LAYER-POLICY BEGIN -->'; echo 'A:'; echo 'B: A'; echo 'C: A B Z'; echo '<!-- FIDO-LAYER-POLICY END -->'; } > "$d/arch_unkd"
-  _lg_expect 'an unknown policy dependency' unknown-dep "$d/arch_unkd" "$d/raw" 0 "$d/mods"
-  { echo 'A.vo A.glob: A.v'; echo 'B.vo B.glob: B.v A.vo'; echo 'C.vo C.glob: C.v A.vo B.vo'; echo 'A.vo A.glob: A.v B.vo'; } > "$d/raw_forb"
-  _lg_expect 'a forbidden actual edge' forbidden "$d/arch" "$d/raw_forb" 0 "$d/mods"
+  _e 'an unknown policy dependency' unknown-dep "$d/dune" "$d/raw" "$d/arch_unkd" 0
+  { echo 'A.vo A.glob: A.v B.vo'; echo 'B.vo B.glob: B.v A.vo'; echo 'C.vo C.glob: C.v A.vo B.vo'; } > "$d/raw_forb"
+  _e 'a forbidden actual edge' forbidden "$d/dune" "$d/raw_forb" "$d/arch" 0
   { echo 'A.vo A.glob: A.v'; echo 'B.vo B.glob: B.v A.vo'; echo 'C.vo C.glob: C.v A.vo'; } > "$d/raw_dorm"
-  _lg_expect 'a dormant policy edge' dormant "$d/arch" "$d/raw_dorm" 0 "$d/mods"
+  _e 'a dormant policy edge' dormant "$d/dune" "$d/raw_dorm" "$d/arch" 0
+  mkdir -p "$d/stub"; printf '#!/bin/sh\nexit 77\n' > "$d/stub/awk"; chmod +x "$d/stub/awk"
+  vo=$(PATH="$d/stub:$PATH" layer_gate "$d/dune" "$d/raw" "$d/arch" 0 2>/dev/null); vr=$?
+  { [ "$vr" != 0 ] && printf '%s\n' "$vo" | grep -q '^layer-fail: verdict-op'; } || { echo "FAIL  a verdict operation that emitted pass-looking output then failed"; ls_rc=1; }
   rm -rf "$d"; return $ls_rc
 }
 case "${1:-}" in --self-test) layer_selftest; exit $?;; esac
 # ===== LAYER-GATE-LIB END =====
-# extraction (needs Rocq): capture the pinned rocq dep exit status EXPLICITLY; the block re-derives and verifies
-# edges + heads from THIS run's raw, so every producer stage is a premise of the verdict (no pre-normalized input).
+# extraction (needs Rocq): capture the pinned rocq dep exit status EXPLICITLY; the single awk verdict pass then
+# reads THIS run's raw (plus Dune and the sole policy), and its own exit is the only other checked operation.
 if rocq dep -Q . Fido *.v > /tmp/dep.raw 2>/tmp/dep.err; then depst=0; else depst=$?; fi
 if [ -s /tmp/dep.err ]; then cat /tmp/dep.err; fi
-printf '%s\n' $mods | sort -u > /tmp/mods.lst
 set +e
-layer_gate ARCHITECTURE.md /tmp/dep.raw "$depst" /tmp/mods.lst; lv=$?
+layer_gate dune /tmp/dep.raw ARCHITECTURE.md "$depst"; lv=$?
 layer_selftest; ls_build=$?
 set -e
 [ "$lv" = 0 ] || fail "layer-dependency gate — the direct-edge relation did not pass the complete fail-closed path (see the layer-fail code above)"
 [ "$ls_build" = 0 ] || fail "layer gate self-test failed in the build — a control did not hold"
-# §7.2 integration controls — exercise the REAL rocq dep -> layer_gate path, each rejecting for its exact code.
+# §5.2 required-operation-failure control on the real path: a correct extractor output with a nonzero exit is rejected.
+set +e; icoe=$(layer_gate dune /tmp/dep.raw ARCHITECTURE.md 77); icoerc=$?; set -e
+{ [ "$icoerc" != 0 ] && printf '%s\n' "$icoe" | grep -q '^layer-fail: extractor'; } \
+  || fail "layer op-failure control: a correct rocq dep output with a nonzero exit was not rejected as an incomplete operation (rc=$icoerc)"
+echo "fido: layer op-failure control OK — a correct-looking producer output with a nonzero exit is rejected as an incomplete operation, not green"
+# §5.1 integration controls — exercise the REAL rocq dep -> awk verdict path, each rejecting for its exact code.
 rm -rf /tmp/ic && mkdir /tmp/ic && cp *.v /tmp/ic/
 { printf 'From Fido Require Import Typing.\n'; cat /tmp/ic/Render.v; } > /tmp/ic/Render.v.n && mv /tmp/ic/Render.v.n /tmp/ic/Render.v
 if ( cd /tmp/ic && rocq dep -Q . Fido *.v ) > /tmp/ic.raw 2>/dev/null; then icst=0; else icst=$?; fi
-set +e; ico=$(layer_gate ARCHITECTURE.md /tmp/ic.raw "$icst" /tmp/mods.lst); icrc=$?; set -e
+set +e; ico=$(layer_gate dune /tmp/ic.raw ARCHITECTURE.md "$icst"); icrc=$?; set -e
 { [ "$icrc" != 0 ] && printf '%s\n' "$ico" | grep -q '^layer-fail: forbidden' && printf '%s\n' "$ico" | grep -q 'Render -> Typing'; } \
   || fail "layer integration control 1: real rocq dep + an unused Render->Typing import was not rejected as forbidden naming that edge (rc=$icrc)"
 echo "fido: layer integration control 1 OK — real rocq dep observed an unused Render->Typing direct import; rejected actual-minus-policy naming Render -> Typing"
 sed 's/^Machine:$/Machine: Names/' ARCHITECTURE.md > /tmp/ic.arch2
-set +e; ico2=$(layer_gate /tmp/ic.arch2 /tmp/dep.raw "$depst" /tmp/mods.lst); ic2=$?; set -e
+set +e; ico2=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch2 "$depst"); ic2=$?; set -e
 { [ "$ic2" != 0 ] && printf '%s\n' "$ico2" | grep -q '^layer-fail: dormant' && printf '%s\n' "$ico2" | grep -q 'Machine -> Names'; } \
   || fail "layer integration control 2: a dormant Machine->Names policy edge was not rejected as policy-minus-actual (rc=$ic2)"
 echo "fido: layer integration control 2 OK — a dormant policy-only edge over the real graph rejected as policy-minus-actual"
 grep -v '^Machine:$' ARCHITECTURE.md > /tmp/ic.arch3
-set +e; ico3=$(layer_gate /tmp/ic.arch3 /tmp/dep.raw "$depst" /tmp/mods.lst); ic3=$?; set -e
+set +e; ico3=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch3 "$depst"); ic3=$?; set -e
 { [ "$ic3" != 0 ] && printf '%s\n' "$ico3" | grep -q '^layer-fail: modrow'; } \
   || fail "layer integration control 3: a removed module policy row was not rejected as module-row coverage (rc=$ic3)"
 echo "fido: layer integration control 3 OK — a removed module policy row over the real graph rejected as module-row coverage"
-echo "fido: layer-dependency gate OK — for the pinned source view dependency extraction and every required parse, decode, coverage and comparison stage completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
+echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and the single awk verdict pass both completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy; the gate greens only when every required operation completed (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
 # (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi

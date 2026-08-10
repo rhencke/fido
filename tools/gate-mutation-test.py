@@ -153,32 +153,38 @@ DOCKERFILE = 'Dockerfile'
 LAYER_BEGIN = 'LAYER-GATE-LIB BEGIN'
 LAYER_END = 'LAYER-GATE-LIB END'
 
-# The layer-dependency gate needs pinned `rocq dep`, so it lives as a POSIX-sh decision block in the Dockerfile
-# prover stage rather than a host Python tool. Its decision logic is awk-free and self-contained, so it is
-# mutation-tested under this same authority: extract the block, neuter one root decision, run its self-test
-# with `sh`, and require the named control(s) among the failures — exactly the shape used for the Python gates.
+# The layer-dependency gate needs pinned `rocq dep`, so it lives as a decision block in the Dockerfile prover
+# stage rather than a host Python tool. Its decision is a single AWK pass over the Dune module universe, this
+# run's rocq dep output, and the sole ARCHITECTURE policy, guarded by two shell status checks (the rocq dep
+# extractor and the awk verdict pass). It is mutation-tested under this same authority: extract the block,
+# neuter one root decision (a shell status check or an awk predicate), run its self-test with `sh`, and require
+# the named control(s) among the failures — exactly the shape used for the Python gates.
 LAYER_MUTANTS = (
-    ('the module-universe premise', '[ -s "$g/mods" ]', 'true',
-     ('an empty module universe',)),
-    ('the dependency-extractor success premise', '[ "$la_status" = 0 ]', 'true',
+    ('the dependency-extractor success check', '[ "$la_status" = 0 ]', 'true',
      ('a forced extractor failure',)),
-    ('the actual-output parse/normalize premise', '[ "$pe" = 0 ] && [ "$ph" = 0 ]', 'true',
-     ('a failed actual-output parse',)),
-    ('the extraction-coverage premise', '[ ! -s "$g/missh" ]', 'true',
-     ('an incomplete or stale extraction',)),
-    ('the policy-block discovery/uniqueness', '[ "$nb" = 1 ] && [ "$ne" = 1 ]', 'true',
+    ('the verdict-operation success check', '[ "$la_ast" = 0 ]', 'true',
+     ('a verdict operation that emitted pass-looking output then failed',)),
+    ('the module-universe premise', 'if (nm==0)', 'if (0)',
+     ('an empty module universe',)),
+    ('the dependency-output read premise', 'if (rr<0)', 'if (0)',
+     ('an unreadable dependency output',)),
+    ('the policy-file read premise', 'if (ra<0)', 'if (0)',
+     ('an unreadable policy file',)),
+    ('the policy-block discovery/uniqueness', 'if (nb!=1 || ne!=1)', 'if (0)',
      ('a non-unique policy block',)),
-    ('the policy-row decode premise', '[ -s "$g/rows" ] && [ ! -s "$g/badrows" ]', 'true',
+    ('the policy-row decode premise', 'if (nrows<1 || badrow)', 'if (0)',
      ('a malformed policy row',)),
-    ('the module-row coverage decision', '[ -z "$dup" ] && [ ! -s "$g/missr" ]', 'true',
+    ('the extraction-coverage premise', 'for (m in mod) if (!(m in heads))', 'for (m in mod) if (0)',
+     ('an incomplete extraction',)),
+    ('the module-row coverage decision', 'for (m in mod) if (rowseen[m]!=1)', 'for (m in mod) if (0)',
      ('a missing module row',)),
-    ('the unknown-module rejection', '[ ! -s "$g/unkm" ]', 'true',
+    ('the unknown-module rejection', 'for (rm in rowseen) if (!(rm in mod))', 'for (rm in rowseen) if (0)',
      ('an unknown policy module',)),
-    ('the unknown-dependency rejection', '[ ! -s "$g/unkd" ]', 'true',
+    ('the unknown-dependency rejection', 'for (e in unkdep)', 'for (e in unkdep_x)',
      ('an unknown policy dependency',)),
-    ('the actual-minus-policy rejection', '[ ! -s "$g/forb" ]', 'true',
+    ('the actual-minus-policy rejection', 'for (e in actual) if (!(e in pedge))', 'for (e in actual) if (0)',
      ('a forbidden actual edge',)),
-    ('the policy-minus-actual rejection', '[ ! -s "$g/dorm" ]', 'true',
+    ('the policy-minus-actual rejection', 'for (e in pedge) if (!(e in actual))', 'for (e in pedge) if (0)',
      ('a dormant policy edge',)),
 )
 
