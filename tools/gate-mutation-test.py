@@ -158,29 +158,27 @@ LAYER_END = 'LAYER-GATE-LIB END'
 # mutation-tested under this same authority: extract the block, neuter one root decision, run its self-test
 # with `sh`, and require the named control(s) among the failures — exactly the shape used for the Python gates.
 LAYER_MUTANTS = (
-    ('the policy-block discovery/decoding',
-     '  if [ "$la_begins" != 1 ] || [ "$la_ends" != 1 ] || [ ! -s "$la_t/rows" ]; then',
-     '  if false; then',
-     ('a duplicated policy block',)),
-    ('the dependency-extractor success premise',
-     '  if [ "$la_status" != 0 ] || [ -n "$la_missing_heads" ] || [ ! -f "$la_edges" ]; then',
-     '  if false; then',
-     ('a forced extractor failure', 'an incomplete or stale extraction')),
-    ('the module-row coverage decision',
-     '  if [ -n "$la_dupes" ] || [ -n "$la_missing_rows" ]; then',
-     '  if false; then',
+    ('the module-universe premise', '[ -s "$g/mods" ]', 'true',
+     ('an empty module universe',)),
+    ('the dependency-extractor success premise', '[ "$la_status" = 0 ]', 'true',
+     ('a forced extractor failure',)),
+    ('the actual-output parse/normalize premise', '[ "$pe" = 0 ] && [ "$ph" = 0 ]', 'true',
+     ('a failed actual-output parse',)),
+    ('the extraction-coverage premise', '[ ! -s "$g/missh" ]', 'true',
+     ('an incomplete or stale extraction',)),
+    ('the policy-block discovery/uniqueness', '[ "$nb" = 1 ] && [ "$ne" = 1 ]', 'true',
+     ('a non-unique policy block',)),
+    ('the policy-row decode premise', '[ -s "$g/rows" ] && [ ! -s "$g/badrows" ]', 'true',
+     ('a malformed policy row',)),
+    ('the module-row coverage decision', '[ -z "$dup" ] && [ ! -s "$g/missr" ]', 'true',
      ('a missing module row',)),
-    ('the unknown-module/dependency rejection',
-     '  if [ -n "$la_unknown_mods" ] || [ -s "$la_t/unkdeps" ]; then',
-     '  if false; then',
-     ('an unknown policy module or dependency',)),
-    ('the actual-minus-policy rejection',
-     '  if [ -s "$la_t/forb" ]; then',
-     '  if false; then',
+    ('the unknown-module rejection', '[ ! -s "$g/unkm" ]', 'true',
+     ('an unknown policy module',)),
+    ('the unknown-dependency rejection', '[ ! -s "$g/unkd" ]', 'true',
+     ('an unknown policy dependency',)),
+    ('the actual-minus-policy rejection', '[ ! -s "$g/forb" ]', 'true',
      ('a forbidden actual edge',)),
-    ('the policy-minus-actual rejection',
-     '  if [ -s "$la_t/dorm" ]; then',
-     '  if false; then',
+    ('the policy-minus-actual rejection', '[ ! -s "$g/dorm" ]', 'true',
      ('a dormant policy edge',)),
 )
 
@@ -290,15 +288,16 @@ def main() -> int:
             else:
                 print(f'  detected  {label}  ({DOCKERFILE} layer gate) — {len(expected)} named control(s) fired')
 
+    checked = len(selected) + len(layer_selected)
     if failures:
         for f in failures:
             print(f'  FAIL  {f}')
-        print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} of {len(selected)} mutants wrong')
+        print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} finding(s) across {checked} checked mutants '
+              f'({len(selected)} permanent-policy Python helpers + {len(layer_selected)} layer-gate root decisions)')
         return 1
-    group = 'permanent-policy'
-    print(f'fido: gate-mutation test OK — {len(selected)} {group} root helpers plus {len(layer_selected)} '
-          f'layer-gate root decisions, each proved load-bearing by deleting its effect and watching its own '
-          f'named controls fail ✓')
+    print(f'fido: gate-mutation test OK — {checked} checked mutants ({len(selected)} permanent-policy Python '
+          f'helpers + {len(layer_selected)} layer-gate root decisions), each proved load-bearing by deleting its '
+          f'effect and watching its own named controls fail ✓')
     return 0
 
 
