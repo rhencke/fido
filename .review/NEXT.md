@@ -48,14 +48,21 @@ canonicalizing the earliest remaining dependency-closed source/index portion in 
 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone accepts. Git owns the repair and
 review narrative — no chronological candidate list lives here.
 
+**Root 3 scope is under decision.** A whole-system feasibility pass found that Root 3 as a pure source/occurrence
+root cannot give every newly-representable pinned-Go-valid program an honest verdict against the current two-way
+(`Compiled`/`Rejected`) decision: the source-shape expansion is coupled to the three-way `OutsideScope` decision,
+whose boundary is derived from the type-resolution phase — a later root (directive §3.6 `ROOT_BOUNDARY_CONFLICT`;
+`ARCHITECTURE.md` §1 stop conditions). Whether the source-shape work lands as one vertical with the three-way
+decision or under another split is Rob's scope decision; no source root is implemented until then.
+
 **Concurrent findings (nonblocking, `STRICT-CHECKPOINT-SCOPE`).** A core semantic, provenance, theorem,
 capability, behavior, or required-dependency defect blocks; a non-foundational gate, tooling, documentation,
 performance, or hygiene defect is mandatory concurrent work with an exact closure point that cannot survive an
-acceptance depending on it. These are assigned to the Root 3 batch, where their closure point has arrived, and
+acceptance depending on it. These remain open, assigned to the source-shape root at the closure points named, and
 do not reopen or weaken any accepted root:
 
 - `TOOLCHAIN.md` Go-version truth — the immutable image digest owns the executable toolchain identity, the
-  observed version is `go1.23.12`, and the stale `go1.23.2` current-state claim is corrected;
+  observed version is `go1.23.12`, and the stale `go1.23.2` current-state claim is to be corrected;
 - Float/Complex "construction authority" wording narrowed to the proved rounding-from-exact formation
   authority for each carrier;
 - the `Syntax -> Integer` retention resolved before Syntax changes — deleted if it has no retained purpose (and
