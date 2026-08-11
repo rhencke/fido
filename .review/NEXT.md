@@ -47,6 +47,18 @@ active implementation frontier is **C6 Root 3 — the source, occurrence, bindin
 foundation** (§ below). Later C6 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone
 accepts. Git owns the repair and review narrative — no chronological candidate list lives here.
 
+**Root 3 recut implemented — a semantic-root-review candidate, not an acceptance.** The recut vertical is
+formalized in its canonical modules and passes the full gate (prove axiom-free + whole-tree `go build ./...` vs
+goldens + byte-identical generated output): the general `Syntax` source algebra; `Index` exact source
+occurrences, dependent views, and the program-level reference API; the new top-level `Bindings` module (object
+identity, lexical scopes and enclosure, object-establishing sites, and ordinary-name resolution with
+shadowing); the new top-level `Packages` module (the package rules, fresh-build preflight, and import path);
+and `Compilable`'s site-based static phase with the permanent, sealed three-way `Compiled | Rejected |
+OutsideScope` decision. The dedicated `Println`/`Convert` constructors are deleted and the accepted
+println/conversion/literal fragment travels the binding-based path with byte-identical emitted output. The
+qualified `Compilable.*` physical split is deferred (top-level `Bindings`/`Packages` for now); the §9 evidence
+expansion and the migration-inventory prune below complete the final candidate.
+
 **Root 3 recut (`C6-ROOT3-SOURCE-BINDING-OUTCOME-RECUT-97EA4AE`).** The earlier pure source/occurrence cut was
 not dependency-closed: adding the general source forms makes pinned-Go-valid programs representable that the
 current two-way (`Compiled`/`Rejected`) compiler could only false-reject, and the honest `OutsideScope` verdict

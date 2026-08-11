@@ -268,47 +268,82 @@ Lemma type_untyped_complex_convert : forall ct c,
   type_untyped_constant_at (ComplexType ct) c = convert_constant (ComplexType ct) (UntypedInfo c).
 Proof. reflexivity. Qed.
 
-(* The typing spec takes a source-name resolver as a parameter; the compiler owns the resolver itself. *)
-Section TypingResolver.
-Variable rt : Syntax.TypeExpr -> SemanticType.
-
-Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
-  match e with
-  | Syntax.BoolLiteral b   => Some (UntypedInfo (BoolConstant b))
-  | Syntax.IntegerLiteral n    => Some (UntypedInfo (IntegerConstant (Z.of_N n)))
-  | Syntax.NegatedIntegerLiteral n    => Some (UntypedInfo (IntegerConstant (- Z.of_N n)))
-  | Syntax.StringLiteral s => Some (UntypedInfo (StringConstant s))
-  | Syntax.FloatLiteral d  => Some (UntypedInfo (FloatConstant (Float.decimal_value d)))
-  | Syntax.ComplexLiteral dc => Some (UntypedInfo (ComplexConstant (Complex.decimal_value dc)))
-  | Syntax.Convert ts x =>
-      match constant_info x with
-      | Some ci => option_map (TypedInfo (rt ts)) (convert_constant (rt ts) ci)
-      | None => None
-      end
-  end.
-
-(* One node's constant status, given its child's already-computed status, so nothing recomputes a subtree. *)
-Definition constant_info_step (e : Syntax.Expr) (child : option ConstantInfo) : option ConstantInfo :=
-  match e with
-  | Syntax.BoolLiteral b     => Some (UntypedInfo (BoolConstant b))
-  | Syntax.IntegerLiteral n      => Some (UntypedInfo (IntegerConstant (Z.of_N n)))
-  | Syntax.NegatedIntegerLiteral n      => Some (UntypedInfo (IntegerConstant (- Z.of_N n)))
-  | Syntax.StringLiteral s   => Some (UntypedInfo (StringConstant s))
-  | Syntax.FloatLiteral d    => Some (UntypedInfo (FloatConstant (Float.decimal_value d)))
-  | Syntax.ComplexLiteral dc => Some (UntypedInfo (ComplexConstant (Complex.decimal_value dc)))
-  | Syntax.Convert ts _ =>
-      match child with Some ci => option_map (TypedInfo (rt ts)) (convert_constant (rt ts) ci) | None => None end
-  end.
-
-Definition expression_child (e : Syntax.Expr) : option Syntax.Expr :=
-  match e with
-  | Syntax.Convert _ e' => Some e'
+(* Exact negation of a folded constant; a source magnitude gains its sign from a unary minus. *)
+Lemma float_constant_neg_canonical : forall q : Float.Constant,
+  (Z.gcd (- Float.numerator q) (Zpos (Float.denominator q)) =? 1) = true.
+Proof. intro q. rewrite Z.gcd_opp_l. exact (Float.canonical q). Qed.
+Definition float_constant_neg (q : Float.Constant) : Float.Constant :=
+  Float.MakeConstant (- Float.numerator q) (Float.denominator q) (float_constant_neg_canonical q).
+Definition constant_neg (c : Constant) : option Constant :=
+  match c with
+  | IntegerConstant z => Some (IntegerConstant (- z))
+  | FloatConstant q   => Some (FloatConstant (float_constant_neg q))
   | _ => None
   end.
 
-Lemma constant_info_step_reflect : forall e,
-  constant_info e = constant_info_step e (match expression_child e with Some c => constant_info c | None => None end).
-Proof. intro e; destruct e; reflexivity. Qed.
+(* The exact numeric embedding of a folded constant as a floating component, with no rounding. *)
+Definition constant_to_float (c : Constant) : option Float.Constant :=
+  match c with
+  | IntegerConstant z => Some (Float.constant_of_Z z)
+  | FloatConstant q   => Some q
+  | _ => None
+  end.
+Definition complex_of_constants (re im : Constant) : option Constant :=
+  match constant_to_float re, constant_to_float im with
+  | Some r, Some i => Some (ComplexConstant (Complex.MakeConstant r i))
+  | _, _ => None
+  end.
+
+(* A source name's resolved meaning; the compiler's binding supplies it, never a spelling scan. *)
+Inductive NameMeaning : Type :=
+| NMValueConstant  : Constant -> NameMeaning
+| NMConversionType : SemanticType -> NameMeaning
+| NMComplexBuiltin : NameMeaning
+| NMPrintlnBuiltin : NameMeaning
+| NMUnmodelled     : NameMeaning
+| NMUnresolved     : NameMeaning.
+
+(* The typing spec takes a source-name resolver as a parameter; the compiler owns the binding itself. *)
+Section TypingResolver.
+Variable resolve_name : Names.OrdinaryIdentifier -> NameMeaning.
+
+Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
+  match e with
+  | Syntax.Name n =>
+      match resolve_name n with NMValueConstant c => Some (UntypedInfo c) | _ => None end
+  | Syntax.LiteralExpr (Syntax.IntegerLiteral k) => Some (UntypedInfo (IntegerConstant (Z.of_N k)))
+  | Syntax.LiteralExpr (Syntax.FloatLiteral d)   => Some (UntypedInfo (FloatConstant (Float.nnd_value d)))
+  | Syntax.LiteralExpr (Syntax.StringLiteral s)  => Some (UntypedInfo (StringConstant s))
+  | Syntax.Unary Syntax.UnaryMinus e' =>
+      match constant_info e' with
+      | Some ci => option_map UntypedInfo (constant_neg (constant_info_exact ci))
+      | None => None
+      end
+  | Syntax.Application head args =>
+      match head, args with
+      | Syntax.Name n, x :: nil =>
+          match resolve_name n with
+          | NMConversionType t =>
+              match constant_info x with
+              | Some ci => option_map (TypedInfo t) (convert_constant t ci)
+              | None => None
+              end
+          | _ => None
+          end
+      | Syntax.Name n, re :: im :: nil =>
+          match resolve_name n with
+          | NMComplexBuiltin =>
+              match constant_info re, constant_info im with
+              | Some cre, Some cim =>
+                  option_map UntypedInfo
+                    (complex_of_constants (constant_info_exact cre) (constant_info_exact cim))
+              | _, _ => None
+              end
+          | _ => None
+          end
+      | _, _ => None
+      end
+  end.
 
 (* Defaulting turns an untyped constant into a typed one; an overflowing bare float has no default. *)
 Definition default_constant (c : Constant) : option ResolvedConstant :=
@@ -330,7 +365,9 @@ Lemma constant_info_deterministic : forall e ci1 ci2,
   constant_info e = Some ci1 -> constant_info e = Some ci2 -> ci1 = ci2.
 Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
 
-Lemma constant_info_zero_sign : constant_info (Syntax.IntegerLiteral 0) = constant_info (Syntax.NegatedIntegerLiteral 0).
+Lemma constant_info_zero_sign :
+  constant_info (Syntax.LiteralExpr (Syntax.IntegerLiteral 0))
+  = constant_info (Syntax.Unary Syntax.UnaryMinus (Syntax.LiteralExpr (Syntax.IntegerLiteral 0))).
 Proof. reflexivity. Qed.
 
 (* A nested same-format float conversion returns the same carrier, so a typed float is never rerounded. *)
@@ -396,9 +433,9 @@ Proof.
 Qed.
 
 (* An invalid inner conversion propagates and no outer conversion revives it. *)
-Lemma constant_info_conv_none : forall ts e,
-  constant_info e = None -> constant_info (Syntax.Convert ts e) = None.
-Proof. intros ts e H; simpl; rewrite H; reflexivity. Qed.
+Lemma constant_info_conv_none : forall n x,
+  constant_info x = None -> constant_info (Syntax.Application (Syntax.Name n) [x]) = None.
+Proof. intros n x H; cbn [constant_info]; destruct (resolve_name n); rewrite ?H; reflexivity. Qed.
 
 Inductive Use : Type :=
 | PrintlnArgument.
@@ -492,13 +529,15 @@ Proof.
 Qed.
 
 Inductive Stmt : Syntax.Stmt -> Prop :=
-| TypedPrintln : forall args,
-    Forall (fun e => exists t, Resolve PrintlnArgument e t) args -> Stmt (Syntax.Println args).
+| TypedPrintln : forall n args,
+    resolve_name n = NMPrintlnBuiltin ->
+    Forall (fun e => exists t, Resolve PrintlnArgument e t) args ->
+    Stmt (Syntax.ExprStmt (Syntax.Application (Syntax.Name n) args)).
 
-Inductive Decl : Syntax.Decl -> Prop :=
-| TypedMain : forall body, Forall Stmt body -> Decl (Syntax.Main body).
+Inductive Decl : Syntax.TopLevelDecl -> Prop :=
+| TypedMain : forall stmts, Forall Stmt stmts -> Decl (Syntax.Main (Syntax.MakeBlock stmts)).
 
-Definition File (decls : list Syntax.Decl) : Prop := Forall Decl decls.
+Definition File (decls : list Syntax.TopLevelDecl) : Prop := Forall Decl decls.
 Definition SourceFile (sf : Syntax.File) : Prop := File (Syntax.declarations sf).
 
 (* Whole-program typing quantifies over the map's [MapsTo], never over a construction-order list. *)
@@ -506,10 +545,20 @@ Definition Program (p : Syntax.Program) : Prop :=
   forall path sf, Syntax.maps_to_file path sf (Syntax.files p) -> SourceFile sf.
 
 Definition stmt_typedb (s : Syntax.Stmt) : bool :=
-  match s with Syntax.Println args => forallb (expression_typedb PrintlnArgument) args end.
-Definition decl_typedb (d : Syntax.Decl) : bool :=
-  match d with Syntax.Main body => forallb stmt_typedb body end.
-Definition file_typedb (decls : list Syntax.Decl) : bool := forallb decl_typedb decls.
+  match s with
+  | Syntax.ExprStmt (Syntax.Application (Syntax.Name n) args) =>
+      match resolve_name n with
+      | NMPrintlnBuiltin => forallb (expression_typedb PrintlnArgument) args
+      | _ => false
+      end
+  | _ => false
+  end.
+Definition decl_typedb (d : Syntax.TopLevelDecl) : bool :=
+  match d with
+  | Syntax.Main (Syntax.MakeBlock stmts) => forallb stmt_typedb stmts
+  | Syntax.TopDeclaration _ => false
+  end.
+Definition file_typedb (decls : list Syntax.TopLevelDecl) : bool := forallb decl_typedb decls.
 Definition source_file_typedb (sf : Syntax.File) : bool := file_typedb (Syntax.declarations sf).
 (* The executable checker traverses the map's canonical derived enumeration. *)
 Definition program_typedb (p : Syntax.Program) : bool :=
@@ -527,16 +576,28 @@ Qed.
 
 Lemma stmt_typedb_iff : forall s, stmt_typedb s = true <-> Stmt s.
 Proof.
-  intros [args]; simpl.
-  rewrite (forallb_iff_forall (expression_typedb PrintlnArgument) (fun e => exists t, Resolve PrintlnArgument e t)
-             args (fun e => expression_typedb_iff PrintlnArgument e)).
-  split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
+  intro s; split.
+  - intro H. destruct s as [e|d|names vs]; try discriminate H.
+    destruct e as [n|l|op e'|head args]; try discriminate H.
+    destruct head as [n|l|op e'|h2 a2]; try discriminate H.
+    cbn [stmt_typedb] in H. destruct (resolve_name n) eqn:Hn; try discriminate H.
+    apply TypedPrintln; [ exact Hn | ].
+    apply (forallb_iff_forall (expression_typedb PrintlnArgument)
+             (fun e => exists t, Resolve PrintlnArgument e t) args
+             (fun e => expression_typedb_iff PrintlnArgument e)); exact H.
+  - intro H; destruct H as [n args Hn HF]; cbn [stmt_typedb]; rewrite Hn.
+    apply (forallb_iff_forall (expression_typedb PrintlnArgument)
+             (fun e => exists t, Resolve PrintlnArgument e t) args
+             (fun e => expression_typedb_iff PrintlnArgument e)); exact HF.
 Qed.
 
 Lemma decl_typedb_iff : forall d, decl_typedb d = true <-> Decl d.
 Proof.
-  intros [body]; simpl. rewrite (forallb_iff_forall stmt_typedb Stmt body stmt_typedb_iff).
-  split; [ intro H; constructor; exact H | intro H; inversion H; subst; assumption ].
+  intro d; split.
+  - intro H. destruct d as [dcl|b]; [ discriminate H | ]. destruct b as [stmts]; cbn [decl_typedb] in H.
+    apply TypedMain. apply (forallb_iff_forall stmt_typedb Stmt stmts stmt_typedb_iff); exact H.
+  - intro H; destruct H as [stmts HF]; cbn [decl_typedb].
+    apply (forallb_iff_forall stmt_typedb Stmt stmts stmt_typedb_iff); exact HF.
 Qed.
 
 Lemma file_typedb_iff : forall f, file_typedb f = true <-> File f.
@@ -603,7 +664,8 @@ End TypingResolver.
 
 (* Shared constant fixtures that carry no source type name, so they need no resolver. *)
 Definition integer_literal (z : Z) : Syntax.Expr :=
-  if Z.leb 0 z then Syntax.IntegerLiteral (Z.to_N z) else Syntax.NegatedIntegerLiteral (Z.to_N (- z)).
+  if Z.leb 0 z then Syntax.LiteralExpr (Syntax.IntegerLiteral (Z.to_N z))
+  else Syntax.Unary Syntax.UnaryMinus (Syntax.LiteralExpr (Syntax.IntegerLiteral (Z.to_N (- z)))).
 
 Definition decimal_15em1 : Float.Decimal := Float.MakeDecimal 15 (-1) eq_refl.   (* 1.5 *)
 Definition decimal_3    : Float.Decimal := Float.MakeDecimal 3 0 eq_refl.        (* 3.0 *)

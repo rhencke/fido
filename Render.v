@@ -56,64 +56,143 @@ Definition decimal (d : Float.Decimal) : string :=
   if Z.eqb (Float.coefficient d) 0 then "0.0"
   else signed_Z (Float.coefficient d) ++ ".0e" ++ signed_exp (Float.exponent d).
 
-(* The one canonical complex spelling, `complex(<real>, <imag>)`; this is not a general call renderer. *)
-Definition complex_literal (dc : Complex.Decimal) : string :=
-  "complex(" ++ decimal (Complex.decimal_real dc) ++ ", " ++ decimal (Complex.decimal_imaginary dc) ++ ")".
+(* A type use renders its retained ordinary source identifier. *)
+Definition render_type_expr (t : Syntax.TypeExpr) : string :=
+  Names.render_ordinary (Syntax.type_expr_ident t).
 
-(* A conversion type name renders its retained source identifier, not its resolved semantic type. *)
-Definition type_expr (ts : Syntax.TypeExpr) : string :=
-  Names.render_supported (Syntax.type_expr_supported ts).
+(* A binding name renders its identifier, or the blank underscore. *)
+Definition render_binding_name (b : Syntax.BindingName) : string :=
+  match b with Syntax.BNamed n => Names.render_ordinary n | Syntax.BBlank => "_" end.
 
-Lemma type_expr_spelling : forall ts,
-  type_expr ts = Names.type_name_spelling (Syntax.type_expr_name ts).
-Proof. intro ts; unfold type_expr, Names.render_supported, Syntax.type_expr_name; apply Names.supported_render. Qed.
+(* A source literal renders its magnitude with no sign, or its canonical Go interpreted string. *)
+Definition render_literal (l : Syntax.Literal) : string :=
+  match l with
+  | Syntax.IntegerLiteral n => Decimal.integer (Z.of_N n)
+  | Syntax.FloatLiteral d   => decimal (Float.nnd_decimal d)
+  | Syntax.StringLiteral s  => string_literal s
+  end.
 
-Lemma type_expr_inj : forall ts1 ts2,
-  type_expr ts1 = type_expr ts2 -> ts1 = ts2.
+Definition expr_is_unary (e : Syntax.Expr) : bool :=
+  match e with Syntax.Unary _ _ => true | _ => false end.
+
+(* A unary operand or application head that is itself unary is parenthesized, so the source cannot spell `--`. *)
+Fixpoint render_expr (e : Syntax.Expr) : string :=
+  match e with
+  | Syntax.Name n => Names.render_ordinary n
+  | Syntax.LiteralExpr l => render_literal l
+  | Syntax.Unary UnaryMinus e' =>
+      "-" ++ (if expr_is_unary e' then "(" ++ render_expr e' ++ ")" else render_expr e')
+  | Syntax.Application head args =>
+      (if expr_is_unary head then "(" ++ render_expr head ++ ")" else render_expr head)
+      ++ "("
+      ++ (fix render_arglist (es : list Syntax.Expr) : string :=
+            match es with
+            | []      => ""
+            | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_arglist xs end)
+            end) args
+      ++ ")"
+  end.
+
+(* The argument-list rendering as a top-level function, matching [render_expr]'s inner list rendering. *)
+Fixpoint render_args (es : list Syntax.Expr) : string :=
+  match es with
+  | []      => ""
+  | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_args xs end)
+  end.
+
+Lemma render_app : forall head args,
+  render_expr (Syntax.Application head args)
+  = (if expr_is_unary head then "(" ++ render_expr head ++ ")" else render_expr head)
+    ++ "(" ++ render_args args ++ ")".
 Proof.
-  intros [[s1]] [[s2]] H.
-  unfold type_expr, Syntax.type_expr_supported, Names.render_supported, Names.render_identifier in H; cbn in H.
-  f_equal; f_equal; apply Names.supported_equal, Names.identifier_equal; exact H.
+  intros head args. cbn [render_expr].
+  assert (Haux : forall es,
+    (fix render_arglist (es0 : list Syntax.Expr) : string :=
+       match es0 with
+       | []      => ""
+       | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_arglist xs end)
+       end) es = render_args es).
+  { induction es as [ | x xs IH ]; [ reflexivity | ]. cbn [render_args]. rewrite <- IH. reflexivity. }
+  rewrite Haux. reflexivity.
 Qed.
 
-Lemma conv_byte_neq_uint8 :
-  type_expr (Syntax.type_expr_of_name Names.Byte) <> type_expr (Syntax.type_expr_of_name Names.Uint8).
-Proof. unfold type_expr; rewrite !Syntax.type_expr_supported_of; apply Names.render_supported_byte_neq_uint8. Qed.
-Lemma conv_rune_neq_int32 :
-  type_expr (Syntax.type_expr_of_name Names.Rune) <> type_expr (Syntax.type_expr_of_name Names.Int32).
-Proof. unfold type_expr; rewrite !Syntax.type_expr_supported_of; apply Names.render_supported_rune_neq_int32. Qed.
-
-Fixpoint expr (e : Syntax.Expr) : string :=
-  match e with
-  | Syntax.BoolLiteral true  => "true"
-  | Syntax.BoolLiteral false => "false"
-  | Syntax.IntegerLiteral n => Decimal.integer (Z.of_N n)
-  | Syntax.NegatedIntegerLiteral n => String "-"%char (Decimal.integer (Z.of_N n))
-  | Syntax.StringLiteral s => string_literal s
-  | Syntax.FloatLiteral d => decimal d
-  | Syntax.ComplexLiteral dc => complex_literal dc
-  | Syntax.Convert ts e' => type_expr ts ++ "(" ++ expr e' ++ ")"
-  end.
-
-Fixpoint arguments (es : list Syntax.Expr) : string :=
-  match es with
+Fixpoint render_names (bs : list Syntax.BindingName) : string :=
+  match bs with
   | []       => ""
-  | [e]      => expr e
-  | e :: es' => expr e ++ ", " ++ arguments es'
+  | [b]      => render_binding_name b
+  | b :: bs' => render_binding_name b ++ ", " ++ render_names bs'
+  end.
+Definition render_ne_names (bs : Collections.NonEmpty Syntax.BindingName) : string :=
+  render_names (Collections.ne_to_list bs).
+Definition render_ne_exprs (es : Collections.NonEmpty Syntax.Expr) : string :=
+  render_args (Collections.ne_to_list es).
+Definition render_opt_type (t : option Syntax.TypeExpr) : string :=
+  match t with Some ty => " " ++ render_type_expr ty | None => "" end.
+
+Definition render_const_spec (s : Syntax.ConstSpec) : string :=
+  render_ne_names (Syntax.const_names s) ++
+  match Syntax.const_init s with
+  | Syntax.ExplicitConstInit ty vs => render_opt_type ty ++ " = " ++ render_ne_exprs vs
+  | Syntax.InheritedConstInit => ""
+  end.
+Definition render_var_spec (s : Syntax.VarSpec) : string :=
+  render_ne_names (Syntax.var_names s) ++
+  match Syntax.var_init s with
+  | Syntax.VarTypeOnly ty => " " ++ render_type_expr ty
+  | Syntax.VarValues ty vs => render_opt_type ty ++ " = " ++ render_ne_exprs vs
+  end.
+Definition render_type_spec (s : Syntax.TypeSpec) : string :=
+  match s with
+  | Syntax.AliasSpec nm ty => render_binding_name nm ++ " = " ++ render_type_expr ty
+  | Syntax.DefSpec nm ty   => render_binding_name nm ++ " " ++ render_type_expr ty
   end.
 
-Definition stmt (s : Syntax.Stmt) : string :=
-  match s with Syntax.Println args => tab ++ "println(" ++ arguments args ++ ")" ++ nl end.
+(* One tab per nesting depth; a grouped declaration indents its inner lines by construction. *)
+Fixpoint indent (depth : nat) : string := match depth with O => "" | S d => tab ++ indent d end.
 
-Fixpoint statements (ss : list Syntax.Stmt) : string :=
-  match ss with [] => "" | s :: ss' => stmt s ++ statements ss' end.
+Fixpoint render_spec_lines {A} (render : A -> string) (depth : nat) (specs : list A) : string :=
+  match specs with
+  | [] => ""
+  | s :: rest => indent depth ++ render s ++ nl ++ render_spec_lines render depth rest
+  end.
 
-Definition decl (d : Syntax.Decl) : string :=
-  match d with Syntax.Main body => "func main() {" ++ nl ++ statements body ++ "}" ++ nl end.
+(* One spec renders ungrouped; zero or two-or-more render as a parenthesized group, both valid Go. *)
+Definition render_group {A} (kw : string) (render : A -> string) (depth : nat) (specs : list A) : string :=
+  match specs with
+  | [s] => kw ++ " " ++ render s
+  | _   => kw ++ " (" ++ nl ++ render_spec_lines render (S depth) specs ++ indent depth ++ ")"
+  end.
+
+Definition render_declaration (depth : nat) (d : Syntax.Declaration) : string :=
+  match d with
+  | Syntax.ConstDecl specs => render_group "const" render_const_spec depth specs
+  | Syntax.VarDecl specs   => render_group "var" render_var_spec depth specs
+  | Syntax.TypeDecl specs  => render_group "type" render_type_spec depth specs
+  end.
+
+Definition render_stmt (depth : nat) (s : Syntax.Stmt) : string :=
+  indent depth ++
+  (match s with
+   | Syntax.ExprStmt e => render_expr e
+   | Syntax.DeclarationStmt d => render_declaration depth d
+   | Syntax.ShortVarDecl names vs => render_ne_names names ++ " := " ++ render_ne_exprs vs
+   end) ++ nl.
+
+Fixpoint render_stmts (depth : nat) (ss : list Syntax.Stmt) : string :=
+  match ss with [] => "" | s :: rest => render_stmt depth s ++ render_stmts depth rest end.
+
+Definition render_block (depth : nat) (b : Syntax.Block) : string :=
+  match b with Syntax.MakeBlock ss => render_stmts depth ss end.
+
+Definition render_top_level_decl (t : Syntax.TopLevelDecl) : string :=
+  match t with
+  | Syntax.TopDeclaration d => render_declaration 0 d ++ nl
+  | Syntax.Main body => "func main() {" ++ nl ++ render_block 1 body ++ "}" ++ nl
+  end.
 
 (* Each top-level declaration is preceded by a blank line, matching gofmt spacing. *)
-Fixpoint declarations (ds : list Syntax.Decl) : string :=
-  match ds with [] => "" | d :: ds' => nl ++ decl d ++ declarations ds' end.
+Fixpoint render_top_levels (ts : list Syntax.TopLevelDecl) : string :=
+  match ts with [] => "" | t :: rest => nl ++ render_top_level_decl t ++ render_top_levels rest end.
 
 (* The package clause as rendered bytes, owned by the source rather than derived. *)
 Definition package_clause (pc : Syntax.PackageClause) : string :=
@@ -130,7 +209,7 @@ Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 Definition file (f : Syntax.File) : string :=
   header ++ String nl_c (nl ++ "package " ++ package_clause (Syntax.package f) ++ nl
                             ++ imports (Syntax.imports f)
-                            ++ declarations (Syntax.declarations f)).
+                            ++ render_top_levels (Syntax.declarations f)).
 
 (* The header is exactly the first line, which is strictly stronger than being a prefix. *)
 Lemma file_first_line : forall f, exists rest, file f = header ++ String nl_c rest.
@@ -157,8 +236,11 @@ Proof.
   induction a as [ | c a' IH ]; intro b; simpl; [ reflexivity | rewrite IH, andb_assoc; reflexivity ].
 Qed.
 
-Lemma type_expr_ascii : forall ts, Names.str_ascii (type_expr ts) = true.
-Proof. intro ts; rewrite type_expr_spelling; destruct (Syntax.type_expr_name ts); reflexivity. Qed.
+Lemma render_type_expr_ascii : forall t, Names.str_ascii (render_type_expr t) = true.
+Proof. intro t; unfold render_type_expr; apply Names.render_ordinary_ascii. Qed.
+
+Lemma render_binding_name_ascii : forall b, Names.str_ascii (render_binding_name b) = true.
+Proof. intro b; destruct b as [n|]; [ apply Names.render_ordinary_ascii | reflexivity ]. Qed.
 
 Lemma str_ascii_cons : forall c s, Names.str_ascii (String c s) = Names.is_ascii_c c && Names.str_ascii s.
 Proof. reflexivity. Qed.
@@ -264,51 +346,140 @@ Proof.
   - reflexivity.
   - rewrite !str_ascii_app, signed_Z_ascii, signed_exp_ascii; reflexivity.
 Qed.
-Lemma complex_literal_ascii : forall dc, Names.str_ascii (complex_literal dc) = true.
+Lemma render_literal_ascii : forall l, Names.str_ascii (render_literal l) = true.
 Proof.
-  intro dc; unfold complex_literal.
-  rewrite !str_ascii_app, !decimal_ascii; reflexivity.
-Qed.
-
-Lemma expr_ascii : forall e, Names.str_ascii (expr e) = true.
-Proof.
-  induction e as [ [] | n | n | s | d | dc | ts e' IHe' ]; cbn [expr].
-  - reflexivity.
-  - reflexivity.
+  intro l; destruct l as [n|d|s]; cbn [render_literal].
   - apply integer_ascii.
-  - cbn [Names.str_ascii]. rewrite integer_ascii. reflexivity.
-  - apply string_literal_ascii.
   - apply decimal_ascii.
-  - apply complex_literal_ascii.
-  - rewrite !str_ascii_app, type_expr_ascii, IHe'; reflexivity.
+  - apply string_literal_ascii.
 Qed.
 
-Lemma arguments_ascii : forall es, Names.str_ascii (arguments es) = true.
+Lemma render_args_ascii_of : forall es,
+  List.Forall (fun e => Names.str_ascii (render_expr e) = true) es ->
+  Names.str_ascii (render_args es) = true.
 Proof.
-  induction es as [ | e es' IH ]; [ reflexivity | ].
-  destruct es' as [ | e2 es'' ].
-  - apply expr_ascii.
-  - change (arguments (e :: e2 :: es''))
-      with (expr e ++ ", " ++ arguments (e2 :: es'')).
-    rewrite !str_ascii_app, expr_ascii. simpl. exact IH.
+  induction es as [ | e es' IH ]; intro HF; [ reflexivity | ].
+  inversion HF as [ | x xs Hx Hxs ]; subst.
+  cbn [render_args]. rewrite str_ascii_app, Hx, Bool.andb_true_l.
+  destruct es' as [ | e2 es'' ]; [ reflexivity | ].
+  rewrite str_ascii_app. change (Names.str_ascii ", ") with true. rewrite Bool.andb_true_l.
+  apply IH; exact Hxs.
 Qed.
 
-Lemma stmt_ascii : forall s, Names.str_ascii (stmt s) = true.
-Proof. intros [ args ]. cbn [stmt]. rewrite !str_ascii_app, arguments_ascii. reflexivity. Qed.
-
-Lemma statements_ascii : forall ss, Names.str_ascii (statements ss) = true.
+Lemma render_expr_ascii : forall e, Names.str_ascii (render_expr e) = true.
 Proof.
-  induction ss as [ | s ss' IH ]; [ reflexivity | ].
-  cbn [statements]. rewrite str_ascii_app, stmt_ascii, IH. reflexivity.
+  refine (Syntax.Expr_ind' _ _ _ _ _).
+  - intro n; cbn [render_expr]; apply Names.render_ordinary_ascii.
+  - intro l; cbn [render_expr]; apply render_literal_ascii.
+  - intros op e IH; cbn [render_expr]; destruct op.
+    destruct (expr_is_unary e); rewrite ?str_ascii_app, ?IH; reflexivity.
+  - intros head args IHhead IHargs; rewrite render_app.
+    rewrite !str_ascii_app, (render_args_ascii_of args IHargs).
+    destruct (expr_is_unary head); rewrite ?str_ascii_app, ?IHhead; reflexivity.
 Qed.
 
-Lemma decl_ascii : forall d, Names.str_ascii (decl d) = true.
-Proof. intros [ body ]. cbn [decl]. rewrite !str_ascii_app, statements_ascii. reflexivity. Qed.
+Lemma render_args_ascii : forall es, Names.str_ascii (render_args es) = true.
+Proof. intro es; apply render_args_ascii_of, List.Forall_forall; intros e _; apply render_expr_ascii. Qed.
 
-Lemma declarations_ascii : forall ds, Names.str_ascii (declarations ds) = true.
+Lemma render_names_ascii : forall bs, Names.str_ascii (render_names bs) = true.
 Proof.
-  induction ds as [ | d ds' IH ]; [ reflexivity | ].
-  cbn [declarations]. rewrite !str_ascii_app, decl_ascii, IH. reflexivity.
+  induction bs as [ | b bs' IH ]; [ reflexivity | ].
+  destruct bs' as [ | b2 bs'' ].
+  - apply render_binding_name_ascii.
+  - change (render_names (b :: b2 :: bs''))
+      with (render_binding_name b ++ ", " ++ render_names (b2 :: bs'')).
+    rewrite !str_ascii_app, render_binding_name_ascii. simpl. exact IH.
+Qed.
+
+Lemma render_ne_names_ascii : forall bs, Names.str_ascii (render_ne_names bs) = true.
+Proof. intro bs; unfold render_ne_names; apply render_names_ascii. Qed.
+Lemma render_ne_exprs_ascii : forall es, Names.str_ascii (render_ne_exprs es) = true.
+Proof. intro es; unfold render_ne_exprs; apply render_args_ascii. Qed.
+Lemma render_opt_type_ascii : forall t, Names.str_ascii (render_opt_type t) = true.
+Proof.
+  intro t; destruct t as [ty|]; cbn [render_opt_type];
+    [ rewrite str_ascii_app, render_type_expr_ascii; reflexivity | reflexivity ].
+Qed.
+
+Lemma render_const_spec_ascii : forall s, Names.str_ascii (render_const_spec s) = true.
+Proof.
+  intro s; unfold render_const_spec; rewrite str_ascii_app, render_ne_names_ascii, Bool.andb_true_l.
+  destruct (Syntax.const_init s) as [ty vs|]; [ | reflexivity ].
+  rewrite !str_ascii_app, render_opt_type_ascii, render_ne_exprs_ascii; reflexivity.
+Qed.
+Lemma render_var_spec_ascii : forall s, Names.str_ascii (render_var_spec s) = true.
+Proof.
+  intro s; unfold render_var_spec; rewrite str_ascii_app, render_ne_names_ascii, Bool.andb_true_l.
+  destruct (Syntax.var_init s) as [ty|ty vs].
+  - rewrite str_ascii_app, render_type_expr_ascii; reflexivity.
+  - rewrite !str_ascii_app, render_opt_type_ascii, render_ne_exprs_ascii; reflexivity.
+Qed.
+Lemma render_type_spec_ascii : forall s, Names.str_ascii (render_type_spec s) = true.
+Proof.
+  intro s; destruct s as [nm ty|nm ty]; cbn [render_type_spec];
+    rewrite !str_ascii_app, render_binding_name_ascii, render_type_expr_ascii; reflexivity.
+Qed.
+
+Lemma indent_ascii : forall d, Names.str_ascii (indent d) = true.
+Proof. induction d as [ | d IH ]; [ reflexivity | cbn [indent]; rewrite str_ascii_app, IH; reflexivity ]. Qed.
+
+Lemma render_spec_lines_ascii {A} (render : A -> string) (depth : nat) :
+  (forall s, Names.str_ascii (render s) = true) ->
+  forall specs, Names.str_ascii (render_spec_lines render depth specs) = true.
+Proof.
+  intro Hr; induction specs as [ | s rest IH ]; [ reflexivity | ].
+  cbn [render_spec_lines]; rewrite !str_ascii_app, indent_ascii, Hr, IH; reflexivity.
+Qed.
+
+Lemma render_group_ascii {A} (kw : string) (render : A -> string) (depth : nat) :
+  Names.str_ascii kw = true ->
+  (forall s, Names.str_ascii (render s) = true) ->
+  forall specs, Names.str_ascii (render_group kw render depth specs) = true.
+Proof.
+  intros Hkw Hr specs; unfold render_group; destruct specs as [ | s [ | s2 rest ] ].
+  - rewrite !str_ascii_app, Hkw, (render_spec_lines_ascii render (S depth) Hr), indent_ascii; reflexivity.
+  - rewrite !str_ascii_app, Hkw, Hr; reflexivity.
+  - rewrite !str_ascii_app, Hkw, (render_spec_lines_ascii render (S depth) Hr), indent_ascii; reflexivity.
+Qed.
+
+Lemma render_declaration_ascii : forall depth d, Names.str_ascii (render_declaration depth d) = true.
+Proof.
+  intros depth d; destruct d as [specs|specs|specs]; cbn [render_declaration].
+  - apply render_group_ascii; [ reflexivity | apply render_const_spec_ascii ].
+  - apply render_group_ascii; [ reflexivity | apply render_var_spec_ascii ].
+  - apply render_group_ascii; [ reflexivity | apply render_type_spec_ascii ].
+Qed.
+
+Lemma render_stmt_ascii : forall depth s, Names.str_ascii (render_stmt depth s) = true.
+Proof.
+  intros depth s; unfold render_stmt; rewrite str_ascii_app, indent_ascii, Bool.andb_true_l.
+  rewrite str_ascii_app.
+  destruct s as [e|d|names vs].
+  - rewrite render_expr_ascii; reflexivity.
+  - rewrite render_declaration_ascii; reflexivity.
+  - rewrite !str_ascii_app, render_ne_names_ascii, render_ne_exprs_ascii; reflexivity.
+Qed.
+
+Lemma render_stmts_ascii : forall depth ss, Names.str_ascii (render_stmts depth ss) = true.
+Proof.
+  intros depth ss; induction ss as [ | s ss' IH ]; [ reflexivity | ].
+  cbn [render_stmts]; rewrite str_ascii_app, render_stmt_ascii, IH; reflexivity.
+Qed.
+
+Lemma render_block_ascii : forall depth b, Names.str_ascii (render_block depth b) = true.
+Proof. intros depth [ss]; cbn [render_block]; apply render_stmts_ascii. Qed.
+
+Lemma render_top_level_decl_ascii : forall t, Names.str_ascii (render_top_level_decl t) = true.
+Proof.
+  intro t; destruct t as [d|body]; cbn [render_top_level_decl].
+  - rewrite str_ascii_app, render_declaration_ascii; reflexivity.
+  - rewrite !str_ascii_app, render_block_ascii; reflexivity.
+Qed.
+
+Lemma render_top_levels_ascii : forall ts, Names.str_ascii (render_top_levels ts) = true.
+Proof.
+  induction ts as [ | t ts' IH ]; [ reflexivity | ].
+  cbn [render_top_levels]; rewrite !str_ascii_app, render_top_level_decl_ascii, IH; reflexivity.
 Qed.
 
 Lemma imports_ascii : forall xs, Names.str_ascii (imports xs) = true.
@@ -317,7 +488,7 @@ Proof. intros xs; rewrite imports_nil_bytes; reflexivity. Qed.
 Theorem file_ascii : forall f, Names.str_ascii (file f) = true.
 Proof.
   intros f. unfold file. rewrite str_ascii_app. cbn [Names.str_ascii].
-  rewrite !str_ascii_app, declarations_ascii, imports_ascii.
+  rewrite !str_ascii_app, render_top_levels_ascii, imports_ascii.
   destruct (Syntax.package f); reflexivity.
 Qed.
 
@@ -976,18 +1147,6 @@ Proof. intro s; split; reflexivity. Qed.
 Lemma dec_suffix_ok_rparen : forall s, dec_suffix_ok (String ")"%char s).
 Proof. intro s; split; reflexivity. Qed.
 
-Theorem decode_render_complex_literal : forall dc,
-  decode_complex_literal (complex_literal dc) = Some (Complex.decimal_value dc).
-Proof.
-  intro dc. unfold decode_complex_literal, complex_literal.
-  rewrite (strip_prefix_app "complex(").
-  rewrite (read_decimal_prefix_render (Complex.decimal_real dc)
-             (", " ++ decimal (Complex.decimal_imaginary dc) ++ ")") (dec_suffix_ok_comma _)).
-  rewrite (strip_prefix_app ", ").
-  rewrite (read_decimal_prefix_render (Complex.decimal_imaginary dc) ")" (dec_suffix_ok_rparen _)).
-  cbn [Ascii.eqb]. reflexivity.
-Qed.
-
 Lemma positive_head_not_minus : forall p,
   match Decimal.positive p with String c _ => Ascii.eqb c "-"%char = false | EmptyString => False end.
 Proof.
@@ -1014,52 +1173,59 @@ Proof.
   - exfalso; lia.
 Qed.
 
-Lemma read_go_int_integer_literal : forall n, read_go_int (expr (Syntax.IntegerLiteral n)) = Z.of_N n.
+Lemma read_go_int_integer_literal : forall n,
+  read_go_int (render_expr (Syntax.LiteralExpr (Syntax.IntegerLiteral n))) = Z.of_N n.
 Proof.
-  intro n. cbn [expr]. rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
+  intro n. cbn [render_expr render_literal]. rewrite read_go_int_nonneg by apply N2Z.is_nonneg.
   apply integer_decimal_faithful, N2Z.is_nonneg.
 Qed.
 
-Lemma read_go_int_negated_integer_literal : forall n, read_go_int (expr (Syntax.NegatedIntegerLiteral n)) = - Z.of_N n.
+Lemma read_go_int_negated_integer_literal : forall n,
+  read_go_int (render_expr (Syntax.Unary Syntax.UnaryMinus (Syntax.LiteralExpr (Syntax.IntegerLiteral n))))
+  = - Z.of_N n.
 Proof.
-  intro n. cbn [expr]. unfold read_go_int; cbn [Ascii.eqb].
+  intro n. cbn [render_expr render_literal expr_is_unary].
+  change (read_go_int (String "-"%char (Decimal.integer (Z.of_N n))) = - Z.of_N n).
+  unfold read_go_int; cbn [Ascii.eqb].
   rewrite integer_decimal_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
-(* The type name is paren-free, so the leading `(` splits the conversion spelling uniquely. *)
-Lemma conv_spelling_paren_inj : forall ts1 ts2 r1 r2,
-  (type_expr ts1 ++ String "("%char r1)%string = (type_expr ts2 ++ String "("%char r2)%string ->
-  ts1 = ts2 /\ r1 = r2.
-Proof.
-  intros ts1 ts2 r1 r2 H. rewrite !type_expr_spelling in H.
-  destruct (Syntax.type_expr_name ts1) eqn:E1, (Syntax.type_expr_name ts2) eqn:E2; cbn in H;
-    solve [ discriminate H
-          | injection H; intros; subst;
-            split; [ apply type_expr_inj; rewrite !type_expr_spelling, E1, E2; reflexivity
-                   | reflexivity ] ].
-Qed.
+(* One conversion of the accepted fragment, now an application of the type-name head to its operand. *)
+Definition tconv (t : Names.TypeName) (e : Syntax.Expr) : Syntax.Expr :=
+  Syntax.Application (Syntax.Name (Names.type_name_ordinary t)) [e].
+Definition ilit (n : N) : Syntax.Expr := Syntax.LiteralExpr (Syntax.IntegerLiteral n).
+Definition flit (c e : Z) (w : Float.decimal_wfb c e = true) (nn : (0 <=? c)%Z = true) : Syntax.Expr :=
+  Syntax.LiteralExpr (Syntax.FloatLiteral (Float.MakeNonNegDecimal (Float.MakeDecimal c e w) nn)).
+Definition cplx (re im : Syntax.Expr) : Syntax.Expr :=
+  Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [re; im].
 
-Example int8_127 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.IntegerLiteral 127)) = "int8(127)". Proof. reflexivity. Qed.
-Example uint64_big : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Uint64) (Syntax.IntegerLiteral 18446744073709551615)) = "uint64(18446744073709551615)". Proof. reflexivity. Qed.
-Example nested : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Int8) (Syntax.Convert (Syntax.type_expr_of_name Names.Int16) (Syntax.IntegerLiteral 127))) = "int8(int16(127))". Proof. reflexivity. Qed.
-
-(* A bare integer stays untyped however large, which is why `uint64(2^63)` is valid. *)
-Example repair_bare_render : expr (Syntax.IntegerLiteral 9223372036854775808) = "9223372036854775808".
+Example int8_127 : render_expr (tconv Names.Int8 (ilit 127)) = "int8(127)". Proof. reflexivity. Qed.
+Example uint64_big : render_expr (tconv Names.Uint64 (ilit 18446744073709551615)) = "uint64(18446744073709551615)".
+Proof. reflexivity. Qed.
+Example nested : render_expr (tconv Names.Int8 (tconv Names.Int16 (ilit 127))) = "int8(int16(127))".
 Proof. reflexivity. Qed.
 
-Example float_1p5   : expr (Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl)) = "15.0e-1". Proof. reflexivity. Qed.
-Example float_zero  : expr (Syntax.FloatLiteral (Float.MakeDecimal 0 0 eq_refl)) = "0.0". Proof. reflexivity. Qed.
-Example float_1e6   : expr (Syntax.FloatLiteral (Float.MakeDecimal 1 6 eq_refl)) = "1.0e+6". Proof. reflexivity. Qed.
-Example float_neg   : expr (Syntax.FloatLiteral (Float.MakeDecimal (-15) (-1) eq_refl)) = "-15.0e-1". Proof. reflexivity. Qed.
-Example conv_f32    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float32) (Syntax.FloatLiteral (Float.MakeDecimal 15 (-1) eq_refl))) = "float32(15.0e-1)". Proof. reflexivity. Qed.
-Example conv_f64    : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Float64) (Syntax.FloatLiteral (Float.MakeDecimal 3 0 eq_refl))) = "float64(3.0e+0)". Proof. reflexivity. Qed.
+(* A bare integer stays untyped however large, which is why `uint64(2^63)` is valid. *)
+Example repair_bare_render : render_expr (ilit 9223372036854775808) = "9223372036854775808".
+Proof. reflexivity. Qed.
 
-Example cplx_lit  : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal (-25) (-1) eq_refl)))
+Example float_1p5   : render_expr (flit 15 (-1) eq_refl eq_refl) = "15.0e-1". Proof. reflexivity. Qed.
+Example float_zero  : render_expr (flit 0 0 eq_refl eq_refl) = "0.0". Proof. reflexivity. Qed.
+Example float_1e6   : render_expr (flit 1 6 eq_refl eq_refl) = "1.0e+6". Proof. reflexivity. Qed.
+Example float_neg   : render_expr (Syntax.Unary Syntax.UnaryMinus (flit 15 (-1) eq_refl eq_refl)) = "-15.0e-1".
+Proof. reflexivity. Qed.
+Example conv_f32    : render_expr (tconv Names.Float32 (flit 15 (-1) eq_refl eq_refl)) = "float32(15.0e-1)".
+Proof. reflexivity. Qed.
+Example conv_f64    : render_expr (tconv Names.Float64 (flit 3 0 eq_refl eq_refl)) = "float64(3.0e+0)".
+Proof. reflexivity. Qed.
+
+Example cplx_lit  : render_expr (cplx (flit 15 (-1) eq_refl eq_refl)
+                                      (Syntax.Unary Syntax.UnaryMinus (flit 25 (-1) eq_refl eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
-Example cplx_zero : expr (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 0 0 eq_refl) (Float.MakeDecimal 0 0 eq_refl)))
+Example cplx_zero : render_expr (cplx (flit 0 0 eq_refl eq_refl) (flit 0 0 eq_refl eq_refl))
   = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
-Example conv_c64  : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex64) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl))))
+Example conv_c64  : render_expr (tconv Names.Complex64 (cplx (flit 15 (-1) eq_refl eq_refl) (flit 0 0 eq_refl eq_refl)))
   = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Example conv_c128 : expr (Syntax.Convert (Syntax.type_expr_of_name Names.Complex128) (Syntax.ComplexLiteral (Complex.MakeDecimal (Float.MakeDecimal 15 (-1) eq_refl) (Float.MakeDecimal 0 0 eq_refl))))
+Example conv_c128 : render_expr (tconv Names.Complex128 (cplx (flit 15 (-1) eq_refl eq_refl) (flit 0 0 eq_refl eq_refl)))
   = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
 

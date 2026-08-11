@@ -155,3 +155,22 @@ Proof.
       (apply Hdom; exists b; apply PackageFacts.find_mapsto_iff; exact E2).
     apply PackageFacts.in_find_iff in Hin. rewrite E1 in Hin. exact (Hin eq_refl).
 Qed.
+
+(* A thin one-or-more refinement of [list]: exactly the source positions the Go grammar requires nonempty. *)
+Record NonEmpty (A : Type) : Type := MakeNonEmpty { ne_first : A ; ne_rest : list A }.
+Arguments MakeNonEmpty {A} _ _.
+Arguments ne_first {A} _.
+Arguments ne_rest {A} _.
+
+Definition ne_to_list {A} (ne : NonEmpty A) : list A := ne_first ne :: ne_rest ne.
+Definition ne_length {A} (ne : NonEmpty A) : nat := S (List.length (ne_rest ne)).
+Definition ne_map {A B} (f : A -> B) (ne : NonEmpty A) : NonEmpty B :=
+  MakeNonEmpty (f (ne_first ne)) (List.map f (ne_rest ne)).
+
+Lemma ne_to_list_not_nil {A} (ne : NonEmpty A) : ne_to_list ne <> nil.
+Proof. unfold ne_to_list; discriminate. Qed.
+Lemma ne_to_list_length {A} (ne : NonEmpty A) : List.length (ne_to_list ne) = ne_length ne.
+Proof. reflexivity. Qed.
+Lemma ne_map_to_list {A B} (f : A -> B) (ne : NonEmpty A) :
+  ne_to_list (ne_map f ne) = List.map f (ne_to_list ne).
+Proof. reflexivity. Qed.

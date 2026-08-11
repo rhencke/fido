@@ -1,43 +1,101 @@
 From Stdlib Require Import NArith List String.
 From Stdlib Require Import Permutation SetoidList.
-From Fido Require Import FilePath Collections ModulePath Version Float Complex Names.
+From Fido Require Import FilePath Collections ModulePath Version Float Names.
 Import ListNotations.
 
-(* A conversion target names a source type; only an unqualified predeclared name is representable. *)
-Inductive TypeName : Type := Unqualified : Names.SupportedType -> TypeName.
-Inductive TypeExpr : Type := NamedType : TypeName -> TypeExpr.
+(* A binding position names an ordinary identifier or is blank; blank establishes no object. *)
+Inductive BindingName : Type :=
+| BNamed : Names.OrdinaryIdentifier -> BindingName
+| BBlank : BindingName.
 
-(* The retained source name, its classified symbol and its identifier, all source identity only. *)
-Definition type_expr_supported  (ts : TypeExpr) : Names.SupportedType :=
-  match ts with NamedType (Unqualified stn) => stn end.
-Definition type_expr_name (ts : TypeExpr) : Names.TypeName := Names.symbol (type_expr_supported ts).
-Definition type_expr_identifier (ts : TypeExpr) : Names.Identifier := Names.identifier (type_expr_supported ts).
-Definition type_expr_of_name (t : Names.TypeName) : TypeExpr := NamedType (Unqualified (Names.supported_of t)).
-Lemma type_expr_supported_of  : forall t, type_expr_supported  (type_expr_of_name t) = Names.supported_of t.  Proof. reflexivity. Qed.
-Lemma type_expr_name_of : forall t, type_expr_name (type_expr_of_name t) = t.                 Proof. reflexivity. Qed.
+Inductive UnaryOp : Type := UnaryMinus.
+
+(* Numeric source literals are magnitudes; a negative value is exactly one [Unary UnaryMinus]. *)
+Inductive Literal : Type :=
+| IntegerLiteral : N -> Literal
+| FloatLiteral   : Float.NonNegativeDecimal -> Literal
+| StringLiteral  : string -> Literal.
+
+(* A type use names an ordinary source identifier; predeclared meaning is a later binding fact. *)
+Inductive TypeExpr : Type := NamedType : Names.OrdinaryIdentifier -> TypeExpr.
+Definition type_expr_ident (t : TypeExpr) : Names.OrdinaryIdentifier := match t with NamedType n => n end.
 
 Inductive Expr : Type :=
-| BoolLiteral           : bool -> Expr
-| IntegerLiteral            : N -> Expr
-| NegatedIntegerLiteral            : N -> Expr
-| StringLiteral         : string -> Expr
-| FloatLiteral          : Float.Decimal -> Expr
-| ComplexLiteral        : Complex.Decimal -> Expr
-| Convert        : TypeExpr -> Expr -> Expr.
+| Name        : Names.OrdinaryIdentifier -> Expr
+| LiteralExpr : Literal -> Expr
+| Unary       : UnaryOp -> Expr -> Expr
+| Application : Expr -> list Expr -> Expr.
 
+(* The default [Expr] recursor is too weak under the nested [list]; this carries a [Forall] over arguments. *)
+Fixpoint Expr_ind' (P : Expr -> Prop)
+  (HName  : forall n, P (Name n))
+  (HLit   : forall l, P (LiteralExpr l))
+  (HUnary : forall op e, P e -> P (Unary op e))
+  (HApp   : forall head args, P head -> List.Forall P args -> P (Application head args))
+  (e : Expr) : P e :=
+  match e with
+  | Name n        => HName n
+  | LiteralExpr l => HLit l
+  | Unary op e'   => HUnary op e' (Expr_ind' P HName HLit HUnary HApp e')
+  | Application head args =>
+      HApp head args (Expr_ind' P HName HLit HUnary HApp head)
+        ((fix args_ind (es : list Expr) : List.Forall P es :=
+            match es with
+            | nil => List.Forall_nil P
+            | cons x xs =>
+                List.Forall_cons x (Expr_ind' P HName HLit HUnary HApp x) (args_ind xs)
+            end) args)
+  end.
+
+(* A const spec binds one or more names to an explicit initializer or inherits the preceding one. *)
+Inductive ConstInitializer : Type :=
+| ExplicitConstInit  : option TypeExpr -> Collections.NonEmpty Expr -> ConstInitializer
+| InheritedConstInit : ConstInitializer.
+
+Record ConstSpec : Type := MakeConstSpec {
+  const_names : Collections.NonEmpty BindingName ;
+  const_init  : ConstInitializer
+}.
+
+(* A var spec is a type-only declaration or one or more names bound to initializer values. *)
+Inductive VarInitializer : Type :=
+| VarTypeOnly : TypeExpr -> VarInitializer
+| VarValues   : option TypeExpr -> Collections.NonEmpty Expr -> VarInitializer.
+
+Record VarSpec : Type := MakeVarSpec {
+  var_names : Collections.NonEmpty BindingName ;
+  var_init  : VarInitializer
+}.
+
+(* A type spec is an alias or a defined type over one target type use. *)
+Inductive TypeSpec : Type :=
+| AliasSpec : BindingName -> TypeExpr -> TypeSpec
+| DefSpec   : BindingName -> TypeExpr -> TypeSpec.
+
+(* A declaration groups specs; the group is a list because an empty group is valid Go. *)
+Inductive Declaration : Type :=
+| ConstDecl : list ConstSpec -> Declaration
+| VarDecl   : list VarSpec -> Declaration
+| TypeDecl  : list TypeSpec -> Declaration.
+
+(* A statement is an expression, a local declaration, or a short variable declaration. *)
 Inductive Stmt : Type :=
-| Println : list Expr -> Stmt.
+| ExprStmt        : Expr -> Stmt
+| DeclarationStmt : Declaration -> Stmt
+| ShortVarDecl    : Collections.NonEmpty BindingName -> Collections.NonEmpty Expr -> Stmt.
 
-Inductive Decl : Type :=
-| Main : list Stmt -> Decl.
+Inductive Block : Type := MakeBlock : list Stmt -> Block.
 
-(* The package clause as source syntax; only the canonical `package main` is representable. *)
+(* The package clause as source syntax; only the canonical package main is representable. *)
 Inductive PackageClause : Type := MainPackage.
 
 (* An import spec: the type is empty, so [list ImportSpec] can only be [nil]. *)
 Inductive ImportSpec : Type := .
 
-Definition TopLevelDecl := Decl.
+(* A top-level declaration is a package-level declaration or the main function body. *)
+Inductive TopLevelDecl : Type :=
+| TopDeclaration : Declaration -> TopLevelDecl
+| Main           : Block -> TopLevelDecl.
 
 Record File : Type := MakeFile {
   package : PackageClause;
@@ -255,12 +313,12 @@ Definition program_bindings (p : Program) : list (FilePath.T * File) := file_bin
 Definition program_keys (p : Program) : list FilePath.T := file_paths (files p).
 Definition program_find (path : FilePath.T) (p : Program) : option File := find_file path (files p).
 
-Definition main_source (decls : list Decl) : File := MakeFile MainPackage [] decls.
+Definition main_source (decls : list TopLevelDecl) : File := MakeFile MainPackage [] decls.
 
-Definition main_file_node (path : FilePath.T) (decls : list Decl) : FileNode :=
+Definition main_file_node (path : FilePath.T) (decls : list TopLevelDecl) : FileNode :=
   MakeFileNode path (main_source decls).
 
-Definition singleton_program (ms : ModuleSpec) (path : FilePath.T) (decls : list Decl) : Program :=
+Definition singleton_program (ms : ModuleSpec) (path : FilePath.T) (decls : list TopLevelDecl) : Program :=
   MakeProgram ms (FileMap.add path (main_source decls) empty_files).
 
 (* A module-only program: a valid [ModuleSpec] with NO source files. *)

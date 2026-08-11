@@ -418,19 +418,17 @@ mintfail AD "an image authorized by an equality proof instead of a token" \
 cat > /tmp/sealed_ok.v <<'CLIENT'
 From Fido Require Import Syntax Compilable Safe Emit.
 (* a client can still do EVERYTHING the pipeline needs, using only the sealed public surface. *)
-Definition mint (p : Syntax.Program) (H : Compilable.Admissible p) : Compilable.Program :=
-  Compilable.capability_of_admissible p H.
 Definition outcome_case (p : Syntax.Program) : nat :=
-  match Compilable.compile p with Compilable.Compiled _ _ => 0 | Compilable.Rejected _ => 1 end.
+  match Compilable.compile p with
+  | Compilable.Compiled _ _ => 0 | Compilable.Rejected _ => 1 | Compilable.OutsideScope _ => 2 end.
 (* query the exact ACCEPTED core through the returned capability *)
 Definition accepted_core (cp : Compilable.Program) : Compilable.Core (Compilable.source cp) :=
   Compilable.core cp.
-Definition accepted_layout (cp : Compilable.Program) := Compilable.core_layout (Compilable.core cp).
-Definition accepted_plan (cp : Compilable.Program) := Compilable.core_plan (Compilable.core cp).
 Definition accepted_diags (cp : Compilable.Program) := Compilable.core_diagnostics (Compilable.core cp).
-(* query the exact REJECTED core through the returned failure *)
+Definition accepted_bounds (cp : Compilable.Program) := Compilable.core_boundaries (Compilable.core cp).
+(* query the exact REJECTED and OUTSIDE cores through their returned payloads *)
 Definition rejected_core {p} (f : Compilable.Failure p) : Compilable.Core p := Compilable.failure_core f.
-Definition rejected_diags {p} (f : Compilable.Failure p) := Compilable.failure_diagnostics f.
+Definition outside_of_core {p} (o : Compilable.Outside_ p) : Compilable.Core p := Compilable.outside_core o.
 (* certify and emit through the accepted capability *)
 Definition certify_it (cp : Compilable.Program) : Safe.Program := Safe.certify cp.
 Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
@@ -441,7 +439,7 @@ CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
-echo "fido: sealed positive control — mint, Outcome destruct, accepted/rejected core queries, certify and emit all reachable (as required)"
+echo "fido: sealed positive control — three-way Outcome destruct, accepted diagnostics/boundaries, rejected and outside core queries, certify and emit all reachable (as required)"
 echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 

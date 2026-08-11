@@ -151,10 +151,12 @@ ModulePath:
 Version:
 Collections: FilePath
 Names:
-Syntax: Collections Complex FilePath Float ModulePath Names Version
+Syntax: Collections FilePath Float ModulePath Names Version
 Index: Collections FilePath Syntax
 Typing: Complex Float Integer Syntax
-Compilable: Collections Complex FilePath Float Index Integer ModulePath Syntax Typing
+Bindings: Collections FilePath Index Names Syntax
+Packages: Collections FilePath ModulePath Syntax Version
+Compilable: Bindings Collections Complex FilePath Float Index Integer ModulePath Names Packages Syntax Typing Version
 Machine:
 Safe: Compilable Syntax
 Render: Complex Decimal Float ModulePath Names Syntax Version

@@ -287,6 +287,28 @@ Example decimal_value_tenth :                                     (* 1 * 10^-1 =
   /\ denominator (decimal_value (MakeDecimal 1 (-1) eq_refl)) = 10%positive.
 Proof. split; reflexivity. Qed.
 
+(* A source float magnitude: a canonical [Decimal] with nonnegative coefficient; a source minus is a [Unary]. *)
+Record NonNegativeDecimal : Type := MakeNonNegDecimal {
+  nnd_decimal : Decimal ;
+  nnd_nonnegb : (0 <=? coefficient nnd_decimal)%Z = true
+}.
+
+Definition nnd_value (d : NonNegativeDecimal) : Constant := decimal_value (nnd_decimal d).
+Lemma nnd_nonneg (d : NonNegativeDecimal) : (0 <= coefficient (nnd_decimal d))%Z.
+Proof. apply Z.leb_le, nnd_nonnegb. Qed.
+
+Definition nnd_equalb (a b : NonNegativeDecimal) : bool := decimal_equalb (nnd_decimal a) (nnd_decimal b).
+Lemma nnd_equalb_spec : forall a b, nnd_equalb a b = true <-> a = b.
+Proof.
+  intros a b; unfold nnd_equalb; split.
+  - intro H; apply decimal_equalb_spec in H.
+    destruct a as [da pa], b as [db pb]; cbn in H; subst db.
+    f_equal; apply (UIP_dec Bool.bool_dec).
+  - intro H; subst b; apply decimal_equalb_spec; reflexivity.
+Qed.
+
+Definition nnd_zero : NonNegativeDecimal := MakeNonNegDecimal decimal_zero eq_refl.
+
 (* Zero-sign normalization: a constant has no signed zero, so a zero result normalizes to positive zero. *)
 Definition strip_neg_zero (v : spec_float) : spec_float :=
   match v with S754_zero _ => S754_zero false | x => x end.
