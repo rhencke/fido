@@ -15,10 +15,10 @@ There is **one** program representation. The AST *is* the IR. `Admissible` and `
 facts over that one program, never new trees.
 
 ```text
-                ┌ Typing → Admissible → Safe ┐   static compilation gates admissibility
-Syntax.Program ─┤                            ├─ Emit.Image → Fido Materialize → pinned go build ./...
-                └ Render ────────────────────┘   direct Syntax → canonical bytes
-                                                 → make regenerate publishes the SAME bytes
+                ┌ Compilable.compile → Safe ┐   Compilable is the sole Go static verdict; Safe refines it
+Syntax.Program ─┤                           ├─ Emit.Image → Fido Materialize → pinned go build ./...
+                └ Render ───────────────────┘   direct Syntax → canonical bytes
+                                                → make regenerate publishes the SAME bytes
 ```
 
 `Render` and static compilation are **sibling branches** over the one `Syntax.Program`; they share no import

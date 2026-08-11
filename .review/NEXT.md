@@ -1,6 +1,6 @@
 # C6 — the static semantic foundation
 
-Review: implementation
+Review: none
 
 Goal: ordinary source names acquire meaning only through binding. Every predeclared spelling is a legal
 source identifier and may be shadowed; `_` is a valid lexical `Names.Identifier` but not an
@@ -47,17 +47,24 @@ active implementation frontier is **C6 Root 3 — the source, occurrence, bindin
 foundation** (§ below). Later C6 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone
 accepts. Git owns the repair and review narrative — no chronological candidate list lives here.
 
-**Root 3 recut implemented — a semantic-root-review candidate, not an acceptance.** The recut vertical is
-formalized in its canonical modules and passes the full gate (prove axiom-free + whole-tree `go build ./...` vs
-goldens + byte-identical generated output): the general `Syntax` source algebra; `Index` exact source
-occurrences, dependent views, and the program-level reference API; the new top-level `Bindings` module (object
-identity, lexical scopes and enclosure, object-establishing sites, and ordinary-name resolution with
-shadowing); the new top-level `Packages` module (the package rules, fresh-build preflight, and import path);
-and `Compilable`'s site-based static phase with the permanent, sealed three-way `Compiled | Rejected |
-OutsideScope` decision. The dedicated `Println`/`Convert` constructors are deleted and the accepted
-println/conversion/literal fragment travels the binding-based path with byte-identical emitted output. The
-qualified `Compilable.*` physical split is deferred (top-level `Bindings`/`Packages` for now); the §9 evidence
-expansion and the migration-inventory prune below complete the final candidate.
+**Root 3 blocked — the complete-layer architecture audit.** The exact candidate `7ca98f7` is `REVIEW_BLOCKED`
+(`FIDO_COMPLETE_LAYER_ARCHITECTURE_AUDIT_7CA98F_2026-08-11.md`, superseding the earlier Root 3 repair briefs):
+its `Index`, binding, phase, diagnostic, boundary and capability objects reconstruct rather than retain their
+causes, and `Compilable.compile` could return `Compiled` for `println(-"x")`. The repair is one forward child of
+`7ca98f7`, not a history rewrite. The permanent layer law is `COMPILE-OWNS-GO-STATIC-SEMANTICS` and
+`RUNTIME-OVER-COMPILED-SAFETY-REFINES` (`DECISIONS.md`): `Compilable.compile` is the sole sound Go static
+authority and the only `Compilable.Program` mint; `Typing`, binding and package facts are its physical child
+units, not peer layers; `Safe` is a proof-taking post-compile refinement. Landed on the repair branch, all
+green and byte-identical: the sound three-way verdict — every known-error shape (unary/complex type mismatch,
+wrong arity, no-value/type used as value, non-callable head, illegal expression statement) `Rejected` through
+`compile`, proved by a permanent control; one mint (`capability_of_admissible` deleted, witnesses destruct
+`compile`); the retained O(N) `Index` table projected by every query; idx-indexed intrinsic binding; the
+type-preserving unary and component-checked complex `Typing` rules; deletion of `Typing`'s peer whole-program
+checker; and `Safe`'s proof-taking certificate. Remaining before the next semantic-root stop: the retained
+causal core with restored diagnostic code/anchor/erasure and preflight precedence, no `source_occurrence_at` in
+production, the physical `Compilable.*` recut, lower-foundation dead-surface deletion, and the rest of these
+governing docs (the migration inventory below is being pruned as canonical code lands). `7ca98f7` stays blocked;
+no later C6 root or C7 is authorized.
 
 **Root 3 recut (`C6-ROOT3-SOURCE-BINDING-OUTCOME-RECUT-97EA4AE`).** The earlier pure source/occurrence cut was
 not dependency-closed: adding the general source forms makes pinned-Go-valid programs representable that the

@@ -16,7 +16,9 @@ Bools, the ten integer types, `float32`/`float64`, `complex64`/`complex128` and 
 complete, with exact untyped constants, single-rounding conversions and canonical rendering. `byte` and
 `rune` are distinct source syntax resolving to equal semantic types. The empty module is a valid program.
 
-Anything outside that fragment is **unrepresentable**, not rejected.
+The general source algebra represents invalid Go too, so `Compilable.compile` — the sole static verdict —
+**rejects** a definite Go error and returns **OutsideScope** only when an exact rule has not yet landed; `Safe`
+is proof-taking post-compile safety, never a compiler.
 
 The tracked `main.go` is the canonical witness. It is generated, not written: `make check` and the pre-commit
 hook verify it byte-exact against a pristine build, and its reviewed stdout, stderr and exit status are

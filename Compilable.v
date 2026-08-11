@@ -269,7 +269,8 @@ Definition preflight_diags : list RootCause :=
        | _ => []
        end.
 
-Definition all_diags : list RootCause := (expr_diags ++ package_rule_diags ++ preflight_diags)%list.
+(* preflight precedence: a fresh-build failure precedes package-semantic errors, which precede expression errors *)
+Definition all_diags : list RootCause := (preflight_diags ++ package_rule_diags ++ expr_diags)%list.
 
 End WithProgram.
 
