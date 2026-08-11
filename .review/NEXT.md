@@ -66,22 +66,51 @@ lower-foundation dead-surface deletion — the `decode_complex_literal`/decimal-
 `Integer.platform_*`, the sixteen-name `Names.TypeName`/`SupportedType` conversion subset (the compiler maps
 predeclared names to types directly), the dead `predeclared_resolver`, and stale fixtures.
 
-Remaining before the next semantic-root stop, in dependency order. The physical `Compilable.*` recut is the
-**gating step**: `Compilable.Bindings`/`Compilable.Packages`/`Compilable.Preflight` are the homes for the
-retained causal core, the binding/package rebuild, and the remaining rejections, so the reworks below land
-inside the recut rather than against the current flat layout, which would be redone. The recut's one open
-obstacle is the pinned Dune `include_subdirs qualified` colliding with the plugin build — resolving that Dune
-layout is the first move. Then, inside it: the retained causal core (one retained causal object, not two
-recomputed lists) with restored diagnostic code/anchor/erasure and preflight precedence; `constant_info`'s
-outcome-collapsing `option` replaced by an exact site outcome the phase retains, feeding those diagnostics; the
-`Compilable.Bindings`/`Packages`/`Preflight` rebuild with exact causal objects (not counts/strings) and the
-intrinsic package-directory key, which lands the remaining `Rejected` rules (duplicate declaration, short
-declaration with no new variable, invalid short reuse); the one remaining production `source_occurrence_at`
-(`arg_default_overflow`) removed by having the retained index carry occurrence views; paired negative Fido/Go
-differentials; and the rest of these governing docs (the migration inventory below is being pruned as canonical
-code lands). One boundary: `Render`'s duplicate `render_args` **cannot** be removed — Rocq's guard checker
-rejects the mutual fixpoint, so the `render_args`/`render_app` proven-equal pairing is the forced idiom, a
-spec-vs-Rocq conflict rather than a defect. `7ca98f7` stays blocked; no later C6 root or C7 is authorized.
+Remaining before the next semantic-root stop is the dependency-ordered reconstruction in the 16-pass
+`FINAL_SYNTHESIS_FOR_CLAUDE.md` (dispatched by Rob), whose nine root causes `RC-01`..`RC-09` supersede the
+earlier repair briefs. The physical `Compilable.*` recut is the **gating step**, and its exact permanent child
+set is `ARCHITECTURE.md`'s Ownership list: `Compilable.v` plus `Compilable/{Bindings, TypeResolution,
+Dependencies, Facts, Report, Evidence}.v` — there is no `Compilable.Packages` or `Compilable.Preflight` child;
+package identity and scopes live in `Bindings`, package dependency objects in `Dependencies`, declaration and
+package facts in `Facts`, diagnostics in `Report`, and whole-program preflight/composition in `Compilable.v`.
+The recut's one open obstacle is the pinned Dune `include_subdirs qualified` layout against the plugin build:
+the smallest private pinned-toolchain feasibility experiment runs first, and if the exact child set cannot
+build without a peer, alias or cycle the work stops for Rob. Inside the recut, in order: one retained
+occurrence/view index with no production `source_occurrence_at`; intrinsic duplicate-rejecting
+binding/package/preflight objects, not strings/counts/lists; one dependent per-site causal phase with
+`Compiled`/`Rejected`/`OutsideScope` projected from the single retained core, restored diagnostic
+code/anchor/erasure and preflight precedence; the concrete `RC-06` semantic closures (complex negation, exact
+callability, forbidden statement builtins, and the exact-site outcome that replaces `constant_info`'s collapsed
+`option`); direct `Emit.of_safe` witnesses with `of_safe_at` deleted; one guard-accepted argument renderer
+replacing the duplicate `render_args`/`render_arglist` pair — a combined carrier or worklist encoding, and if no
+single guard-accepted computation exists the work stops for Rob rather than retain the duplicate; the
+`plugin/sink.ml` path-grammar mirror replaced by a certified decoded-path bridge; and paired negative Fido/Go
+differentials with a concrete `OutsideScope` witness. Implementing this is `IMPLEMENTED_NOT_ACCEPTED` at best —
+fresh reviews and Rob's closure of the C4 retreat below remain required; `7ca98f7` and `8b97ec3` stay blocked;
+no later C6 root or C7 is authorized.
+
+**Targeted retreat — the accepted C4 exact-elaboration provenance guarantee (open; Rob alone closes).** Per
+`ARCHITECTURE.md` §1 "Dependency retreat (targeted causal)", the 16-pass review of `8b97ec3` finds the accepted
+C4 guarantee `ARCH-03` — the opaque static capability, its failure and its outside-scope result all **retain the
+exact elaborated object by construction**, and **equality to a rerun is never provenance** — contradicted by the
+retained representation at `Compilable.v:250-341`, which stores two recomputed diagnostic/boundary lists plus
+equality-to-rerun fields. The accepted provenance guarantee is therefore not established, so:
+
+- historical acceptance of C4, C5, Root 1 and Root 2 stays a historical fact — nothing is rewritten as
+  never-accepted and no earlier checkpoint is invented;
+- the retreat origin is C4's exact-elaboration capability/core provenance surface, repaired and reviewed on one
+  immutable forward candidate, not by history rewrite;
+- frozen dependents: C6 Root 3, every later C6 root, Final C6 and C7, until the repaired capability is reviewed
+  and Rob closes the retreat;
+- reopened: the C4 capability's sealed core/branch retention and its public exact-core theorems, revalidated on
+  the repaired foundation rather than merely recompiled;
+- negative causal closure — established by construction, not by silence — for the accepted checkpoints claimed
+  unaffected: **C5 `Machine.T`** names no compiler object and no module imports it (`ROADMAP.md` C5); **Root 1
+  `Names`** is pure name identity the compiler consumes and never the reverse (`Names.v`); **Root 2
+  `Float`/`Complex`** are pure lower numeric carriers the compiler imports, independent of how the capability
+  retains its object (`Float.v`, `Complex.v`);
+- Rob alone closes this retreat and later accepts the affected frontier, after a new immutable-candidate review
+  under the two-model rule.
 
 **Root 3 recut (`C6-ROOT3-SOURCE-BINDING-OUTCOME-RECUT-97EA4AE`).** The earlier pure source/occurrence cut was
 not dependency-closed: adding the general source forms makes pinned-Go-valid programs representable that the
