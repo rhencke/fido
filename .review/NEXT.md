@@ -60,11 +60,28 @@ wrong arity, no-value/type used as value, non-callable head, illegal expression 
 `compile`, proved by a permanent control; one mint (`capability_of_admissible` deleted, witnesses destruct
 `compile`); the retained O(N) `Index` table projected by every query; idx-indexed intrinsic binding; the
 type-preserving unary and component-checked complex `Typing` rules; deletion of `Typing`'s peer whole-program
-checker; and `Safe`'s proof-taking certificate. Remaining before the next semantic-root stop: the retained
-causal core with restored diagnostic code/anchor/erasure and preflight precedence, no `source_occurrence_at` in
-production, the physical `Compilable.*` recut, lower-foundation dead-surface deletion, and the rest of these
-governing docs (the migration inventory below is being pruned as canonical code lands). `7ca98f7` stays blocked;
-no later C6 root or C7 is authorized.
+checker; `Safe`'s proof-taking certificate; the binding verdicts `NMUnresolved`/`NMUnmodelled` moved out of
+`Typing.NameMeaning` into the compiler-owned `Resolution`, so `Typing` carries only semantic meanings; and the
+lower-foundation dead-surface deletion — the `decode_complex_literal`/decimal-prefix forest, `Complex.Decimal`,
+`Integer.platform_*`, the sixteen-name `Names.TypeName`/`SupportedType` conversion subset (the compiler maps
+predeclared names to types directly), the dead `predeclared_resolver`, and stale fixtures.
+
+Remaining before the next semantic-root stop, in dependency order. The physical `Compilable.*` recut is the
+**gating step**: `Compilable.Bindings`/`Compilable.Packages`/`Compilable.Preflight` are the homes for the
+retained causal core, the binding/package rebuild, and the remaining rejections, so the reworks below land
+inside the recut rather than against the current flat layout, which would be redone. The recut's one open
+obstacle is the pinned Dune `include_subdirs qualified` colliding with the plugin build — resolving that Dune
+layout is the first move. Then, inside it: the retained causal core (one retained causal object, not two
+recomputed lists) with restored diagnostic code/anchor/erasure and preflight precedence; `constant_info`'s
+outcome-collapsing `option` replaced by an exact site outcome the phase retains, feeding those diagnostics; the
+`Compilable.Bindings`/`Packages`/`Preflight` rebuild with exact causal objects (not counts/strings) and the
+intrinsic package-directory key, which lands the remaining `Rejected` rules (duplicate declaration, short
+declaration with no new variable, invalid short reuse); the one remaining production `source_occurrence_at`
+(`arg_default_overflow`) removed by having the retained index carry occurrence views; paired negative Fido/Go
+differentials; and the rest of these governing docs (the migration inventory below is being pruned as canonical
+code lands). One boundary: `Render`'s duplicate `render_args` **cannot** be removed — Rocq's guard checker
+rejects the mutual fixpoint, so the `render_args`/`render_app` proven-equal pairing is the forced idiom, a
+spec-vs-Rocq conflict rather than a defect. `7ca98f7` stays blocked; no later C6 root or C7 is authorized.
 
 **Root 3 recut (`C6-ROOT3-SOURCE-BINDING-OUTCOME-RECUT-97EA4AE`).** The earlier pure source/occurrence cut was
 not dependency-closed: adding the general source forms makes pinned-Go-valid programs representable that the
