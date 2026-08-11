@@ -463,42 +463,8 @@ Proof. intros n x H; cbn [constant_info]; destruct (resolve_name n); rewrite ?H;
 
 End TypingResolver.
 
-(* Shared constant fixtures that carry no source type name, so they need no resolver. *)
-Definition integer_literal (z : Z) : Syntax.Expr :=
-  if Z.leb 0 z then Syntax.LiteralExpr (Syntax.IntegerLiteral (Z.to_N z))
-  else Syntax.Unary Syntax.UnaryMinus (Syntax.LiteralExpr (Syntax.IntegerLiteral (Z.to_N (- z)))).
-
-Definition decimal_15em1 : Float.Decimal := Float.MakeDecimal 15 (-1) eq_refl.   (* 1.5 *)
-Definition decimal_3    : Float.Decimal := Float.MakeDecimal 3 0 eq_refl.        (* 3.0 *)
-Definition decimal_35em1 : Float.Decimal := Float.MakeDecimal 35 (-1) eq_refl.   (* 3.5 *)
-Definition decimal_128  : Float.Decimal := Float.MakeDecimal 128 0 eq_refl.      (* 128.0 *)
-Definition decimal_m1   : Float.Decimal := Float.MakeDecimal (-1) 0 eq_refl.     (* -1.0 *)
-Definition decimal_single_rounding : Float.Decimal := Float.MakeDecimal 2305843146652647425 0 eq_refl.
-Definition decimal_m25em1 : Float.Decimal := Float.MakeDecimal (-25) (-1) eq_refl.  (* -2.5 *)
-Definition decimal_127_0  : Float.Decimal := Float.MakeDecimal 127 0 eq_refl.
-Definition decimal_1_0    : Float.Decimal := Float.MakeDecimal 1 0 eq_refl.
-Definition decimal_m1_0   : Float.Decimal := Float.MakeDecimal (-1) 0 eq_refl.
-Definition decimal_0_0    : Float.Decimal := Float.MakeDecimal 0 0 eq_refl.
-Definition decimal_complex_1p5_m2p5 : Complex.Decimal := Complex.MakeDecimal decimal_15em1 decimal_m25em1.
-(* 1e-50: nonzero, and it underflows binary32 to +0 *)
-Definition decimal_tiny_imaginary : Float.Decimal := Float.MakeDecimal 1 (-50) eq_refl.
-
 (* A mismatched or out-of-range typed constant cannot be constructed at all. *)
 Fail Definition mismatch_string_carrying_int : TypedConstant StringType := TypedInteger Integer.Int 3 eq_refl.
 Fail Definition mismatch_int_out_of_range : TypedConstant (IntegerType Integer.Int8) := TypedInteger Integer.Int8 128 eq_refl.
 Fail Definition mismatch_float_carrying_bool : TypedConstant (FloatType F64) := TypedBool true.
-
-Lemma string_representable : forall s, ConstantRepresentable StringType (StringConstant s).
-Proof. intro s; exists (TypedString s); reflexivity. Qed.
-Lemma string_representableb : forall s, constant_representableb StringType (StringConstant s) = true.
-Proof. reflexivity. Qed.
-
-(* index-free [forallb] plumbing for the whole-program typing folds *)
-
-Lemma forallb_ext_in {A} (f g : A -> bool) (l : list A) :
-  (forall x, In x l -> f x = g x) -> forallb f l = forallb g l.
-Proof.
-  induction l as [|a l IH]; simpl; intros H; [reflexivity|].
-  rewrite (H a (or_introl eq_refl)), IH; [reflexivity | intros x Hx; apply H; right; exact Hx].
-Qed.
 

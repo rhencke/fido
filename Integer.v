@@ -92,11 +92,3 @@ Proof. split; reflexivity. Qed.
 
 Lemma int_bits_64  : bits Int  = 64. Proof. reflexivity. Qed.
 Lemma uint_bits_64 : bits Uint = 64. Proof. reflexivity. Qed.
-
-Definition platform_minimum  : Z := minimum Int.
-Definition platform_maximum  : Z := maximum Int.
-Definition platform_unsigned_maximum : Z := maximum Uint.
-
-Lemma platform_minimum_val  : platform_minimum  = -9223372036854775808. Proof. reflexivity. Qed.
-Lemma platform_maximum_val  : platform_maximum  =  9223372036854775807. Proof. reflexivity. Qed.
-Lemma platform_unsigned_maximum_val : platform_unsigned_maximum = 18446744073709551615. Proof. reflexivity. Qed.

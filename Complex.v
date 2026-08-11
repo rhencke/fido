@@ -55,16 +55,6 @@ Proof.
   destruct (constant_imaginary_is_zero c) eqn:E; [ injection H as <-; split; reflexivity | discriminate ].
 Qed.
 
-Record Decimal := MakeDecimal { decimal_real : Float.Decimal ; decimal_imaginary : Float.Decimal }.
-
-Definition decimal_value (d : Decimal) : Constant :=
-  MakeConstant (Float.decimal_value (decimal_real d)) (Float.decimal_value (decimal_imaginary d)).
-
-Lemma decimal_value_real : forall d, exact_real (decimal_value d) = Float.decimal_value (decimal_real d).
-Proof. reflexivity. Qed.
-Lemma decimal_value_imaginary : forall d, exact_imaginary (decimal_value d) = Float.decimal_value (decimal_imaginary d).
-Proof. reflexivity. Qed.
-
 (* The typed complex constant: two already-coherent typed components, so no coherence field is duplicated. *)
 Record TypedConstant (ct : Kind) := MakeTypedConstant {
   typed_real : Float.TypedConstant (component_kind ct) ;
