@@ -299,9 +299,7 @@ Inductive NameMeaning : Type :=
 | NMValueConstant  : Constant -> NameMeaning
 | NMConversionType : SemanticType -> NameMeaning
 | NMComplexBuiltin : NameMeaning
-| NMPrintlnBuiltin : NameMeaning
-| NMUnmodelled     : NameMeaning
-| NMUnresolved     : NameMeaning.
+| NMPrintlnBuiltin : NameMeaning.
 
 (* A complex builtin's components must be floating or untyped numeric; the exact rule classifies a pair. *)
 Inductive ComplexClass : Type := CxOk | CxDefer | CxError.
@@ -319,14 +317,14 @@ Definition complex_class (cre cim : ConstantInfo) : ComplexClass :=
   | _, _ => CxDefer
   end.
 
-(* The typing spec takes a source-name resolver as a parameter; the compiler owns the binding itself. *)
+(* The typing spec takes a source-name resolver; None is the compiler-owned unresolved/unmodelled binding result. *)
 Section TypingResolver.
-Variable resolve_name : Names.OrdinaryIdentifier -> NameMeaning.
+Variable resolve_name : Names.OrdinaryIdentifier -> option NameMeaning.
 
 Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
   match e with
   | Syntax.Name n =>
-      match resolve_name n with NMValueConstant c => Some (UntypedInfo c) | _ => None end
+      match resolve_name n with Some (NMValueConstant c) => Some (UntypedInfo c) | _ => None end
   | Syntax.LiteralExpr (Syntax.IntegerLiteral k) => Some (UntypedInfo (IntegerConstant (Z.of_N k)))
   | Syntax.LiteralExpr (Syntax.FloatLiteral d)   => Some (UntypedInfo (FloatConstant (Float.nnd_value d)))
   | Syntax.LiteralExpr (Syntax.StringLiteral s)  => Some (UntypedInfo (StringConstant s))
@@ -344,7 +342,7 @@ Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
       match head, args with
       | Syntax.Name n, x :: nil =>
           match resolve_name n with
-          | NMConversionType t =>
+          | Some (NMConversionType t) =>
               match constant_info x with
               | Some ci => option_map (TypedInfo t) (convert_constant t ci)
               | None => None
@@ -353,7 +351,7 @@ Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
           end
       | Syntax.Name n, re :: im :: nil =>
           match resolve_name n with
-          | NMComplexBuiltin =>
+          | Some NMComplexBuiltin =>
               match constant_info re, constant_info im with
               | Some cre, Some cim =>
                   match complex_class cre cim with
@@ -459,7 +457,7 @@ Qed.
 (* An invalid inner conversion propagates and no outer conversion revives it. *)
 Lemma constant_info_conv_none : forall n x,
   constant_info x = None -> constant_info (Syntax.Application (Syntax.Name n) [x]) = None.
-Proof. intros n x H; cbn [constant_info]; destruct (resolve_name n); rewrite ?H; reflexivity. Qed.
+Proof. intros n x H; cbn [constant_info]; destruct (resolve_name n) as [[c|t| |]|]; rewrite ?H; reflexivity. Qed.
 
 End TypingResolver.
 

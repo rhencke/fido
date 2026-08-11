@@ -18,30 +18,33 @@ Definition predeclared_type_of_name (n : Names.TypeName) : Typing.SemanticType :
   | Names.Byte => Typing.IntegerType Integer.Uint8 | Names.Rune => Typing.IntegerType Integer.Int32
   end.
 
-Definition predeclared_meaning (n : Names.PredeclaredName) : Typing.NameMeaning :=
+(* The compiler owns the binding result of resolving a name: a semantic meaning, or unresolved/unmodelled. *)
+Inductive Resolution : Type :=
+| ResMeaning    : Typing.NameMeaning -> Resolution
+| ResUnresolved : Resolution
+| ResUnmodelled : Resolution.
+
+(* The local typing spec needs a meaning or nothing; the compiler-owned failure kind stays behind. *)
+Definition resolution_meaning (r : Resolution) : option Typing.NameMeaning :=
+  match r with ResMeaning m => Some m | _ => None end.
+
+Definition predeclared_meaning (n : Names.PredeclaredName) : Resolution :=
   match Names.predeclared_type_name n with
-  | Some tn => Typing.NMConversionType (predeclared_type_of_name tn)
+  | Some tn => ResMeaning (Typing.NMConversionType (predeclared_type_of_name tn))
   | None =>
       match n with
-      | Names.PTrue    => Typing.NMValueConstant (Typing.BoolConstant true)
-      | Names.PFalse   => Typing.NMValueConstant (Typing.BoolConstant false)
-      | Names.PComplex => Typing.NMComplexBuiltin
-      | Names.PPrintln => Typing.NMPrintlnBuiltin
-      | _ => Typing.NMUnmodelled
+      | Names.PTrue    => ResMeaning (Typing.NMValueConstant (Typing.BoolConstant true))
+      | Names.PFalse   => ResMeaning (Typing.NMValueConstant (Typing.BoolConstant false))
+      | Names.PComplex => ResMeaning Typing.NMComplexBuiltin
+      | Names.PPrintln => ResMeaning Typing.NMPrintlnBuiltin
+      | _ => ResUnmodelled
       end
   end.
 
-Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Bindings.ObjectRef idx) : Typing.NameMeaning :=
+Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Bindings.ObjectRef idx) : Resolution :=
   match o with
   | Bindings.PredeclaredObject n => predeclared_meaning n
-  | Bindings.SourceObject _      => Typing.NMUnmodelled   (* type/value/callable meaning is a later root *)
-  end.
-
-(* The predeclared spelling resolver — used only where no source binder shadows (a Compiled program). *)
-Definition predeclared_resolver (n : Names.OrdinaryIdentifier) : Typing.NameMeaning :=
-  match Names.classify_predeclared (Names.ordinary_spelling n) with
-  | Some pn => predeclared_meaning pn
-  | None    => Typing.NMUnresolved
+  | Bindings.SourceObject _      => ResUnmodelled   (* type/value/callable meaning is a later root *)
   end.
 
 (* Diagnostics (definite errors) and requirements (outside boundaries); each retains its exact site key. *)
@@ -80,11 +83,16 @@ Variable p : Syntax.Program.
 
 (* the resolver at a use, over the retained index and the once-gathered establishers *)
 Definition resolver_at (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
-    (use_path : FilePath.T) (use_id : positive) (n : Names.OrdinaryIdentifier) : Typing.NameMeaning :=
+    (use_path : FilePath.T) (use_id : positive) (n : Names.OrdinaryIdentifier) : Resolution :=
   match Bindings.resolve p idx es use_path use_id (Names.ordinary_spelling n) with
   | Some o => object_meaning o
-  | None   => Typing.NMUnresolved
+  | None   => ResUnresolved
   end.
+
+(* The local typing spec's view of the resolver: a meaning where one exists, None for unresolved/unmodelled. *)
+Definition nm_at (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+    (use_path : FilePath.T) (use_id : positive) : Names.OrdinaryIdentifier -> option Typing.NameMeaning :=
+  fun n => resolution_meaning (resolver_at idx es use_path use_id n).
 
 (* whether an occurrence is a println argument whose default type cannot hold it — the exact overflow site *)
 Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
@@ -99,10 +107,10 @@ Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Binding
               match Index.view_expr pocc with
               | Some (Syntax.Application (Syntax.Name h) _) =>
                   match resolver_at idx es path pid h with
-                  | Typing.NMPrintlnBuiltin =>
+                  | ResMeaning Typing.NMPrintlnBuiltin =>
                       match Index.view_expr occ with
                       | Some e =>
-                          match Typing.constant_info (resolver_at idx es path id) e with
+                          match Typing.constant_info (nm_at idx es path id) e with
                           | Some ci =>
                               match Typing.resolve_constant_info ci with
                               | None    => Some (Typing.constant_info_exact ci)
@@ -135,8 +143,8 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) (x :: nil)) =>
        match resolver_at idx es path id h with
-       | Typing.NMConversionType t =>
-           match Typing.constant_info (resolver_at idx es path id) x with
+       | ResMeaning (Typing.NMConversionType t) =>
+           match Typing.constant_info (nm_at idx es path id) x with
            | Some ci => match Typing.convert_constant t ci with Some _ => [] | None => [RCInvalidConversion k t x] end
            | None => []
            end
@@ -146,9 +154,9 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   ++
   (match Index.view_expr occ with
    | Some (Syntax.Unary Syntax.UnaryMinus e') =>
-       match Typing.constant_info (resolver_at idx es path id) e' with
+       match Typing.constant_info (nm_at idx es path id) e' with
        | Some _ =>
-           match Typing.constant_info (resolver_at idx es path id) (Syntax.Unary Syntax.UnaryMinus e') with
+           match Typing.constant_info (nm_at idx es path id) (Syntax.Unary Syntax.UnaryMinus e') with
            | Some _ => [] | None => [RCUnaryTypeMismatch k e']
            end
        | None => []
@@ -158,12 +166,12 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) args) =>
        match resolver_at idx es path id h with
-       | Typing.NMConversionType _ => match args with _ :: nil => [] | _ => [RCConversionArity k] end
-       | Typing.NMComplexBuiltin   => match args with _ :: _ :: nil => [] | _ => [RCComplexArity k] end
-       | Typing.NMPrintlnBuiltin   => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [RCNoValueUsed k]
-       | Typing.NMValueConstant _  => [RCNotCallable k]
-       | Typing.NMUnresolved       => []
-       | Typing.NMUnmodelled       => []
+       | ResMeaning (Typing.NMConversionType _) => match args with _ :: nil => [] | _ => [RCConversionArity k] end
+       | ResMeaning Typing.NMComplexBuiltin     => match args with _ :: _ :: nil => [] | _ => [RCComplexArity k] end
+       | ResMeaning Typing.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [RCNoValueUsed k]
+       | ResMeaning (Typing.NMValueConstant _)  => [RCNotCallable k]
+       | ResUnresolved => []
+       | ResUnmodelled => []
        end
    | Some (Syntax.Application (Syntax.LiteralExpr _) _) => [RCNotCallable k]
    | _ => [] end)
@@ -171,8 +179,8 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) (re :: im :: nil)) =>
        match resolver_at idx es path id h with
-       | Typing.NMComplexBuiltin =>
-           match Typing.constant_info (resolver_at idx es path id) re, Typing.constant_info (resolver_at idx es path id) im with
+       | ResMeaning Typing.NMComplexBuiltin =>
+           match Typing.constant_info (nm_at idx es path id) re, Typing.constant_info (nm_at idx es path id) im with
            | Some cre, Some cim => match Typing.complex_class cre cim with Typing.CxError => [RCComplexTypeMismatch k] | _ => [] end
            | _, _ => []
            end
@@ -184,7 +192,7 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
    | Some (Syntax.Name n) =>
        if is_value_role (Index.occurrence_role occ) then
          match resolver_at idx es path id n with
-         | Typing.NMConversionType _ | Typing.NMComplexBuiltin | Typing.NMPrintlnBuiltin => [RCTypeAsValue k]
+         | ResMeaning (Typing.NMConversionType _) | ResMeaning Typing.NMComplexBuiltin | ResMeaning Typing.NMPrintlnBuiltin => [RCTypeAsValue k]
          | _ => []
          end
        else []
@@ -193,8 +201,8 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   (match Index.view_stmt occ with
    | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
        match resolver_at idx es path id h with
-       | Typing.NMPrintlnBuiltin => []
-       | Typing.NMUnmodelled | Typing.NMUnresolved => []
+       | ResMeaning Typing.NMPrintlnBuiltin => []
+       | ResUnmodelled | ResUnresolved => []
        | _ => [RCIllegalStatement k]
        end
    | Some (Syntax.ExprStmt _) => [RCIllegalStatement k]
@@ -210,7 +218,7 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establ
    | Some (Syntax.Name n) =>
        if is_value_role (Index.occurrence_role occ) then
          match Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
-         | Some o => match object_meaning o with Typing.NMValueConstant _ => [] | _ => [MakeBoundary k (ReqValueMeaning (Bindings.object_key o))] end
+         | Some o => match object_meaning o with ResMeaning (Typing.NMValueConstant _) => [] | _ => [MakeBoundary k (ReqValueMeaning (Bindings.object_key o))] end
          | None   => []
          end
        else []
@@ -219,10 +227,10 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establ
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) args) =>
        match resolver_at idx es path id h with
-       | Typing.NMConversionType _ => match args with _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
-       | Typing.NMComplexBuiltin   => match args with _ :: _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
-       | Typing.NMPrintlnBuiltin   => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [MakeBoundary k ReqApplication]
-       | Typing.NMUnresolved       => []
+       | ResMeaning (Typing.NMConversionType _) => match args with _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
+       | ResMeaning Typing.NMComplexBuiltin     => match args with _ :: _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
+       | ResMeaning Typing.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [MakeBoundary k ReqApplication]
+       | ResUnresolved => []
        | _ => [MakeBoundary k ReqApplication]
        end
    | Some (Syntax.Application _ _) => [MakeBoundary k ReqApplication]
@@ -230,7 +238,7 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establ
   ++
   (match Index.view_stmt occ with
    | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
-       match resolver_at idx es path id h with Typing.NMPrintlnBuiltin => [] | _ => [MakeBoundary k ReqStatement] end
+       match resolver_at idx es path id h with ResMeaning Typing.NMPrintlnBuiltin => [] | _ => [MakeBoundary k ReqStatement] end
    | Some _ => [MakeBoundary k ReqStatement]
    | None => [] end)
   ++
