@@ -153,10 +153,10 @@ Collections: FilePath
 Names:
 Syntax: Collections FilePath Float ModulePath Names Version
 Index: Collections FilePath Syntax
-Typing: Complex Float Integer Syntax
+Compilable.TypeResolution: Complex Float Integer Syntax
 Compilable.Bindings: Collections FilePath Index Names Syntax
 Packages: Collections FilePath ModulePath Syntax Version
-Compilable: Collections Compilable.Bindings Complex FilePath Float Index Integer ModulePath Names Packages Syntax Typing Version
+Compilable: Collections Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Integer ModulePath Names Packages Syntax Version
 Machine:
 Safe: Compilable Syntax
 Render: Complex Decimal Float ModulePath Names Syntax Version

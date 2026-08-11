@@ -240,12 +240,12 @@ set +e; icoe=$(layer_gate dune /tmp/dep.raw ARCHITECTURE.md 77); icoerc=$?; set 
 echo "fido: layer op-failure control OK — a correct-looking producer output with a nonzero exit is rejected as an incomplete operation, not green"
 # §5.1 integration controls — exercise the REAL rocq dep -> awk verdict path, each rejecting for its exact code.
 rm -rf /tmp/ic && mkdir /tmp/ic && cp *.v /tmp/ic/ && mkdir -p /tmp/ic/Compilable && cp Compilable/*.v /tmp/ic/Compilable/
-{ printf 'From Fido Require Import Typing.\n'; cat /tmp/ic/Render.v; } > /tmp/ic/Render.v.n && mv /tmp/ic/Render.v.n /tmp/ic/Render.v
+{ printf 'From Fido Require Import Index.\n'; cat /tmp/ic/Render.v; } > /tmp/ic/Render.v.n && mv /tmp/ic/Render.v.n /tmp/ic/Render.v
 if ( cd /tmp/ic && rocq dep -Q . Fido *.v Compilable/*.v ) > /tmp/ic.raw 2>/dev/null; then icst=0; else icst=$?; fi
 set +e; ico=$(layer_gate dune /tmp/ic.raw ARCHITECTURE.md "$icst"); icrc=$?; set -e
-{ [ "$icrc" != 0 ] && printf '%s\n' "$ico" | grep -q '^layer-fail: forbidden' && printf '%s\n' "$ico" | grep -q 'Render -> Typing'; } \
-  || fail "layer integration control 1: real rocq dep + an unused Render->Typing import was not rejected as forbidden naming that edge (rc=$icrc)"
-echo "fido: layer integration control 1 OK — real rocq dep observed an unused Render->Typing direct import; rejected actual-minus-policy naming Render -> Typing"
+{ [ "$icrc" != 0 ] && printf '%s\n' "$ico" | grep -q '^layer-fail: forbidden' && printf '%s\n' "$ico" | grep -q 'Render -> Index'; } \
+  || fail "layer integration control 1: real rocq dep + an unused Render->Index import was not rejected as forbidden naming that edge (rc=$icrc)"
+echo "fido: layer integration control 1 OK — real rocq dep observed an unused Render->Index direct import; rejected actual-minus-policy naming Render -> Index"
 sed 's/^Machine:$/Machine: Names/' ARCHITECTURE.md > /tmp/ic.arch2
 set +e; ico2=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch2 "$depst"); ic2=$?; set -e
 { [ "$ic2" != 0 ] && printf '%s\n' "$ico2" | grep -q '^layer-fail: dormant' && printf '%s\n' "$ico2" | grep -q 'Machine -> Names'; } \
