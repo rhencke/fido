@@ -71,6 +71,7 @@ FROM rocq-base AS prover
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam ARCHITECTURE.md ./
 COPY --chown=opam:opam plugin/ plugin/
 # `make prove` is the COMPLETE proof gate: Dune builds the theory AND the audit/transport plugin; then the
@@ -87,7 +88,7 @@ cat /tmp/build.log
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # (b) certified-module coverage: tracked root .v == dune (modules ...) (test/e2e .v are outside)
 mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune); [ -n "$mods" ] || fail "no (modules ...) in dune"
-tracked_mods=$(ls *.v | sed 's/\.v$//' | sort | tr '\n' ' ')
+tracked_mods=$( { ls *.v | sed 's/\.v$//'; ls Compilable/*.v 2>/dev/null | sed 's|Compilable/\(.*\)\.v$|Compilable.\1|'; } | sort | tr '\n' ' ')
 declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
 [ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked=[$tracked_mods] dune=[$declared_mods]"
 echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
@@ -133,10 +134,10 @@ layer_gate() {
         if (index(line,":")>0) {
           ci=index(line,":"); lhs=substr(line,1,ci-1); rhs=substr(line,ci+1)
           split(lhs,hp," "); head=hp[1]
-          if (head ~ /\.vo$/) { sub(/\.vo$/,"",head); sub(/.*\//,"",head)
+          if (head ~ /\.vo$/) { sub(/\.vo$/,"",head); sub(/^\.\//,"",head); gsub(/\//,".",head)
             if (head in mod) { heads[head]=1
               nd=split(rhs,dp," ")
-              for (i=1;i<=nd;i++) { t=dp[i]; if (t ~ /\.vo$/) { sub(/\.vo$/,"",t); sub(/.*\//,"",t)
+              for (i=1;i<=nd;i++) { t=dp[i]; if (t ~ /\.vo$/) { sub(/\.vo$/,"",t); sub(/^\.\//,"",t); gsub(/\//,".",t)
                 if (t!=head && (t in mod)) actual[head" "t]=1 } } } }
         }
         rr=(getline line < rawf)
@@ -150,7 +151,7 @@ layer_gate() {
         if (line ~ /FIDO-LAYER-POLICY BEGIN/) { nb++; inblk=1 }
         else if (line ~ /FIDO-LAYER-POLICY END/) { ne++; inblk=0 }
         else if (inblk) {
-          if (line ~ /^[A-Za-z][A-Za-z0-9_]*:/) {
+          if (line ~ /^[A-Za-z][A-Za-z0-9_.]*:/) {
             ci=index(line,":"); rmod=substr(line,1,ci-1); rdeps=substr(line,ci+1)
             rowseen[rmod]++; nrows++
             nd=split(rdeps,dp," ")
@@ -224,7 +225,7 @@ case "${1:-}" in --self-test) layer_selftest; exit $?;; esac
 # ===== LAYER-GATE-LIB END =====
 # extraction (needs Rocq): capture the pinned rocq dep exit status EXPLICITLY; the single awk verdict pass then
 # reads THIS run's raw (plus Dune and the sole policy), and its own exit is the only other checked operation.
-if rocq dep -Q . Fido *.v > /tmp/dep.raw 2>/tmp/dep.err; then depst=0; else depst=$?; fi
+if rocq dep -Q . Fido *.v Compilable/*.v > /tmp/dep.raw 2>/tmp/dep.err; then depst=0; else depst=$?; fi
 if [ -s /tmp/dep.err ]; then cat /tmp/dep.err; fi
 set +e
 layer_gate dune /tmp/dep.raw ARCHITECTURE.md "$depst"; lv=$?
@@ -238,9 +239,9 @@ set +e; icoe=$(layer_gate dune /tmp/dep.raw ARCHITECTURE.md 77); icoerc=$?; set 
   || fail "layer op-failure control: a correct rocq dep output with a nonzero exit was not rejected as an incomplete operation (rc=$icoerc)"
 echo "fido: layer op-failure control OK — a correct-looking producer output with a nonzero exit is rejected as an incomplete operation, not green"
 # §5.1 integration controls — exercise the REAL rocq dep -> awk verdict path, each rejecting for its exact code.
-rm -rf /tmp/ic && mkdir /tmp/ic && cp *.v /tmp/ic/
+rm -rf /tmp/ic && mkdir /tmp/ic && cp *.v /tmp/ic/ && mkdir -p /tmp/ic/Compilable && cp Compilable/*.v /tmp/ic/Compilable/
 { printf 'From Fido Require Import Typing.\n'; cat /tmp/ic/Render.v; } > /tmp/ic/Render.v.n && mv /tmp/ic/Render.v.n /tmp/ic/Render.v
-if ( cd /tmp/ic && rocq dep -Q . Fido *.v ) > /tmp/ic.raw 2>/dev/null; then icst=0; else icst=$?; fi
+if ( cd /tmp/ic && rocq dep -Q . Fido *.v Compilable/*.v ) > /tmp/ic.raw 2>/dev/null; then icst=0; else icst=$?; fi
 set +e; ico=$(layer_gate dune /tmp/ic.raw ARCHITECTURE.md "$icst"); icrc=$?; set -e
 { [ "$icrc" != 0 ] && printf '%s\n' "$ico" | grep -q '^layer-fail: forbidden' && printf '%s\n' "$ico" | grep -q 'Render -> Typing'; } \
   || fail "layer integration control 1: real rocq dep + an unused Render->Typing import was not rejected as forbidden naming that edge (rc=$icrc)"
@@ -454,6 +455,7 @@ ARG PROFILE_FILE=Compilable.v
 RUN mkdir -p /workspace/profile
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam plugin/ plugin/
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
@@ -485,6 +487,7 @@ FROM rocq-base AS emit
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
+COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
 # pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below

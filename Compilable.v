@@ -1,7 +1,7 @@
 (* Compilable — the static semantic phase and the permanent three-way Compiled/Rejected/OutsideScope decision. *)
 
 From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
-From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Typing Bindings Packages.
+From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Typing Compilable.Bindings Packages.
 Import ListNotations.
 
 (* The semantic type a predeclared type-name denotes, or None when the name is not one of the sixteen types. *)
@@ -42,10 +42,10 @@ Definition predeclared_meaning (n : Names.PredeclaredName) : Resolution :=
       end
   end.
 
-Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Bindings.ObjectRef idx) : Resolution :=
+Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Compilable.Bindings.ObjectRef idx) : Resolution :=
   match o with
-  | Bindings.PredeclaredObject n => predeclared_meaning n
-  | Bindings.SourceObject _      => ResUnmodelled   (* type/value/callable meaning is a later root *)
+  | Compilable.Bindings.PredeclaredObject n => predeclared_meaning n
+  | Compilable.Bindings.SourceObject _      => ResUnmodelled   (* type/value/callable meaning is a later root *)
   end.
 
 (* Diagnostics (definite errors) and requirements (outside boundaries); each retains its exact site key. *)
@@ -83,20 +83,20 @@ Section WithProgram.
 Variable p : Syntax.Program.
 
 (* the resolver at a use, over the retained index and the once-gathered establishers *)
-Definition resolver_at (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+Definition resolver_at (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
     (use_path : FilePath.T) (use_id : positive) (n : Names.OrdinaryIdentifier) : Resolution :=
-  match Bindings.resolve p idx es use_path use_id (Names.ordinary_spelling n) with
+  match Compilable.Bindings.resolve p idx es use_path use_id (Names.ordinary_spelling n) with
   | Some o => object_meaning o
   | None   => ResUnresolved
   end.
 
 (* The local typing spec's view of the resolver: a meaning where one exists, None for unresolved/unmodelled. *)
-Definition nm_at (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+Definition nm_at (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
     (use_path : FilePath.T) (use_id : positive) : Names.OrdinaryIdentifier -> option Typing.NameMeaning :=
   fun n => resolution_meaning (resolver_at idx es use_path use_id n).
 
 (* whether an occurrence is a println argument whose default type cannot hold it — the exact overflow site *)
-Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
     (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
   : option Typing.Constant :=
   match Index.occurrence_role occ with
@@ -132,13 +132,13 @@ Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Binding
   | _ => None
   end.
 
-Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
     (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
   : list RootCause :=
   let k  := Index.MakeKey path id in
   (match Index.view_expr occ with
    | Some (Syntax.Name n) =>
-       match Bindings.resolve p idx es path id (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
+       match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
    | _ => [] end)
   ++
   (match Index.view_expr occ with
@@ -211,15 +211,15 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establishe
   ++
   (match arg_default_overflow idx es path f id occ with Some c => [RCDefaultNotRepresentable k c] | None => [] end).
 
-Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
     (path : FilePath.T) (id : positive) (occ : Index.Occurrence)
   : list Boundary :=
   let k  := Index.MakeKey path id in
   (match Index.view_expr occ with
    | Some (Syntax.Name n) =>
        if is_value_role (Index.occurrence_role occ) then
-         match Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
-         | Some o => match object_meaning o with ResMeaning (Typing.NMValueConstant _) => [] | _ => [MakeBoundary k (ReqValueMeaning (Bindings.object_key o))] end
+         match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
+         | Some o => match object_meaning o with ResMeaning (Typing.NMValueConstant _) => [] | _ => [MakeBoundary k (ReqValueMeaning (Compilable.Bindings.object_key o))] end
          | None   => []
          end
        else []
@@ -247,20 +247,20 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establ
    | Some (Syntax.TopDeclaration _) => [MakeBoundary k ReqDeclaration]
    | _ => [] end).
 
-Definition file_diags (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+Definition file_diags (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
   : list RootCause :=
   flat_map (fun idocc => occ_diag idx es (fst b) (snd b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
 Definition expr_diags : list RootCause :=
   let idx := Index.index_program p in
-  let es := Bindings.establishers p idx in
+  let es := Compilable.Bindings.establishers p idx in
   flat_map (file_diags idx es) (Syntax.file_bindings (Syntax.files p)).
 
-Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
   : list Boundary :=
   flat_map (fun idocc => occ_boundary idx es (fst b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
 Definition all_boundaries : list Boundary :=
   let idx := Index.index_program p in
-  let es := Bindings.establishers p idx in
+  let es := Compilable.Bindings.establishers p idx in
   flat_map (file_boundaries idx es) (Syntax.file_bindings (Syntax.files p)).
 
 (* Package-level diagnostics: the current grammar requires exactly one `main` per package. *)

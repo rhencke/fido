@@ -1,3 +1,5 @@
+(include_subdirs no)
+
 ; The ONE handwritten OCaml boundary: the Fido transport plugin.  The library bundles the generic
 ; dirty-directory filesystem sink (sink.ml) and the transport bridge + vernac (materialize.mlg).  The bridge's
 ; boundary is four steps — typecheck the image, reject a non-empty assumption closure (a kernel provenance
