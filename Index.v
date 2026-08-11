@@ -1809,18 +1809,6 @@ Lemma occurrences_file_exact : forall f id o,
   In (id, o) (occurrences_file f) <-> source_occurrence_at f id = Some o.
 Proof. intros; split; [apply occurrences_file_sound | apply occurrences_file_complete]. Qed.
 
-(* a local id is valid in a file exactly when the point spec places an occurrence there *)
-Definition valid_localb (f : Syntax.File) (local : positive) : bool :=
-  match source_occurrence_at f local with Some _ => true | None => false end.
-
-Lemma valid_localb_some : forall f local,
-  valid_localb f local = true -> source_occurrence_at f local <> None.
-Proof. intros f local H. unfold valid_localb in H. destruct (source_occurrence_at f local); [discriminate | discriminate H]. Qed.
-
-Lemma valid_localb_true : forall f local o,
-  source_occurrence_at f local = Some o -> valid_localb f local = true.
-Proof. intros f local o H. unfold valid_localb. rewrite H. reflexivity. Qed.
-
 (* A program-global occurrence identity: the file path and the file-local id. *)
 Lemma file_path_eq_dec (a b : FilePath.T) : {a = b} + {a <> b}.
 Proof.
@@ -1848,7 +1836,38 @@ Proof.
   - intros ->. split; [apply FilePath.equalb_spec; reflexivity | apply Pos.eqb_eq; reflexivity].
 Qed.
 
-(* The program-level reference API: a validated (path, local) pair, its validity carried as a proof field. *)
+(* the retained program-indexed metadata object: one single-pass per-file table, built once from the program *)
+Record ProgramIndex (p : Syntax.Program) : Type := MakeIndex {
+  idx_files : Collections.FileMap.t File ;
+  idx_built : idx_files = Collections.FileMap.map build_file (Syntax.files p)
+}.
+Arguments MakeIndex {p}. Arguments idx_files {p}. Arguments idx_built {p}.
+
+Definition index_program (p : Syntax.Program) : ProgramIndex p :=
+  MakeIndex (Collections.FileMap.map build_file (Syntax.files p)) eq_refl.
+
+(* a metadata query is a lookup in the retained single-pass table, never a fresh source traversal *)
+Definition meta_of {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : option Meta :=
+  match Collections.FileMap.find path (idx_files idx) with Some fl => Table.get local (table fl) | None => None end.
+
+Lemma meta_of_source : forall p path local,
+  meta_of (index_program p) path local
+  = match Syntax.find_file path (Syntax.files p) with
+    | Some f => option_map occurrence_meta (source_occurrence_at f local) | None => None end.
+Proof.
+  intros p path local. unfold meta_of, index_program, Syntax.find_file. cbn [idx_files].
+  rewrite Collections.FileFacts.map_o.
+  destruct (Collections.FileMap.find path (Syntax.files p)) as [f|]; cbn [option_map]; [|reflexivity].
+  apply build_file_source_exact.
+Qed.
+
+Definition occ_ofb {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : bool :=
+  match meta_of idx path local with Some _ => true | None => false end.
+
+Lemma occ_ofb_some : forall p (idx : ProgramIndex p) path local,
+  occ_ofb idx path local = true -> meta_of idx path local <> None.
+Proof. intros p idx path local H. unfold occ_ofb in H. destruct (meta_of idx path local); [discriminate | discriminate H]. Qed.
+
 Module Snapshot.
 
 (* A file handle: a path with a boolean membership proof; its source is read from the program map. *)
@@ -1881,55 +1900,46 @@ Proof.
   f_equal. apply Eqdep_dec.UIP_dec, Bool.bool_dec.
 Qed.
 
-Record NodeRef (p : Syntax.Program) : Type := MakeNodeRef {
+Record NodeRef {p : Syntax.Program} (idx : ProgramIndex p) : Type := MakeNodeRef {
   nr_file  : FileRef p;
   nr_local : positive;
-  nr_valid : valid_localb (fr_source nr_file) nr_local = true
+  nr_valid : occ_ofb idx (fr_path nr_file) nr_local = true
 }.
-Arguments MakeNodeRef {p}. Arguments nr_file {p}. Arguments nr_local {p}. Arguments nr_valid {p}.
+Arguments MakeNodeRef {p idx}. Arguments nr_file {p idx}. Arguments nr_local {p idx}. Arguments nr_valid {p idx}.
 
-(* The index carries no stored table: every fact is read from the source the reference already retains. *)
-Definition Syntax (p : Syntax.Program) : Type := unit.
-Definition index_program (p : Syntax.Program) : Syntax p := tt.
+Definition node_ref_file {p} {idx : ProgramIndex p} (r : NodeRef idx) : FileRef p := nr_file r.
+Definition node_ref_local {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := nr_local r.
+Definition node_ref_key {p} {idx : ProgramIndex p} (r : NodeRef idx) : Key := MakeKey (fr_path (nr_file r)) (nr_local r).
 
-Definition node_ref_file {p} (r : NodeRef p) : FileRef p := nr_file r.
-Definition node_ref_local {p} (r : NodeRef p) : positive := nr_local r.
-Definition node_ref_source {p} (r : NodeRef p) : Syntax.File := fr_source (nr_file r).
-Definition node_ref_key {p} (r : NodeRef p) : Key := MakeKey (fr_path (nr_file r)) (nr_local r).
-
-Lemma node_ref_valid {p} (r : NodeRef p) :
-  valid_localb (node_ref_source r) (node_ref_local r) = true.
+Lemma node_ref_valid {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  occ_ofb idx (fr_path (nr_file r)) (nr_local r) = true.
 Proof. destruct r as [fr l v]; exact v. Qed.
 
-(* The one retained occurrence a reference designates, total by its validity proof. *)
-Definition source_occurrence_of_ref {p} (r : NodeRef p) : Occurrence :=
-  option_get (source_occurrence_at (node_ref_source r) (node_ref_local r))
-             (valid_localb_some _ _ (node_ref_valid r)).
+(* the retained metadata a reference designates: read from the index table, total by its validity proof *)
+Definition node_meta {p} {idx : ProgramIndex p} (r : NodeRef idx) : Meta :=
+  option_get (meta_of idx (fr_path (nr_file r)) (nr_local r)) (occ_ofb_some p idx _ _ (nr_valid r)).
 
-Lemma source_occ_of_ref_eq {p} (r : NodeRef p) :
-  source_occurrence_at (node_ref_source r) (node_ref_local r) = Some (source_occurrence_of_ref r).
-Proof. unfold source_occurrence_of_ref. apply option_get_some. Qed.
+Lemma node_meta_eq {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  meta_of idx (fr_path (nr_file r)) (nr_local r) = Some (node_meta r).
+Proof. unfold node_meta. apply option_get_some. Qed.
 
-Definition ref_meta {p} (r : NodeRef p) : Meta := occurrence_meta (source_occurrence_of_ref r).
-Definition node_kind {p} (r : NodeRef p) : Kind := occurrence_kind (source_occurrence_of_ref r).
-Definition node_role {p} (r : NodeRef p) : Role := occurrence_role (source_occurrence_of_ref r).
-Definition node_subtree_end {p} (r : NodeRef p) : positive := occurrence_subtree_end (source_occurrence_of_ref r).
-Definition node_at {p} (r : NodeRef p) : option Syntax.Expr := view_expr (source_occurrence_of_ref r).
-Definition type_name_ref_syntax {p} (r : NodeRef p) : option Syntax.TypeExpr := view_typename (source_occurrence_of_ref r).
+Definition node_kind {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind := kind (node_meta r).
+Definition node_role {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role := role (node_meta r).
+Definition node_subtree_end {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := subtree_end (node_meta r).
 
-Lemma node_ref_key_eq {p} (r : NodeRef p) :
+Lemma node_ref_key_eq {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   node_ref_key r = MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 Proof. reflexivity. Qed.
 
-(* Two references with equal file and equal local id are equal (validity is proof-irrelevant here). *)
-Lemma node_ref_ext {p} (r1 r2 : NodeRef p) :
+(* two references with equal file and equal local id are equal (validity is proof-irrelevant here) *)
+Lemma node_ref_ext {p} {idx : ProgramIndex p} (r1 r2 : NodeRef idx) :
   nr_file r1 = nr_file r2 -> nr_local r1 = nr_local r2 -> r1 = r2.
 Proof.
   destruct r1 as [f1 l1 v1], r2 as [f2 l2 v2]; cbn; intros Hf Hl; subst f2 l2.
   f_equal. apply Eqdep_dec.UIP_dec, Bool.bool_dec.
 Qed.
 
-Lemma node_ref_key_inj {p} (r1 r2 : NodeRef p) : node_ref_key r1 = node_ref_key r2 -> r1 = r2.
+Lemma node_ref_key_inj {p} {idx : ProgramIndex p} (r1 r2 : NodeRef idx) : node_ref_key r1 = node_ref_key r2 -> r1 = r2.
 Proof.
   unfold node_ref_key. intros H. injection H as Hp Hl.
   apply node_ref_ext; [ apply file_ref_ext; exact Hp | exact Hl ].
@@ -1969,34 +1979,34 @@ Proof.
   unfold file_ref_path in Hp. unfold file_ref_source. rewrite <- Hp. apply file_ref_find.
 Qed.
 
-(* Resolve a key to the reference it names, when both its file and local id are real. *)
-Definition ref_of_key (p : Syntax.Program) (k : Key) : option (NodeRef p) :=
+(* resolve a key to the reference it names in the retained index, when both its file and local id are real *)
+Definition ref_of_key {p : Syntax.Program} (idx : ProgramIndex p) (k : Key) : option (NodeRef idx) :=
   match file_of_path p (key_path k) with
   | Some fr =>
-      match valid_localb (fr_source fr) (key_local k) as b
-            return valid_localb (fr_source fr) (key_local k) = b -> option (NodeRef p) with
+      match occ_ofb idx (fr_path fr) (key_local k) as b
+            return occ_ofb idx (fr_path fr) (key_local k) = b -> option (NodeRef idx) with
       | true  => fun H => Some (MakeNodeRef fr (key_local k) H)
       | false => fun _ => None
       end eq_refl
   | None => None
   end.
 
-Lemma ref_of_key_sound : forall p k r, ref_of_key p k = Some r -> node_ref_key r = k.
+Lemma ref_of_key_sound : forall p (idx : ProgramIndex p) k r, ref_of_key idx k = Some r -> node_ref_key r = k.
 Proof.
-  intros p k r. unfold ref_of_key. destruct (file_of_path p (key_path k)) as [fr|] eqn:Efr; [|discriminate].
-  generalize (@eq_refl bool (valid_localb (fr_source fr) (key_local k))).
-  destruct (valid_localb (fr_source fr) (key_local k)) at 2 3; intros e H; [|discriminate H].
+  intros p idx k r. unfold ref_of_key. destruct (file_of_path p (key_path k)) as [fr|] eqn:Efr; [|discriminate].
+  generalize (@eq_refl bool (occ_ofb idx (fr_path fr) (key_local k))).
+  destruct (occ_ofb idx (fr_path fr) (key_local k)) at 2 3; intros e H; [|discriminate H].
   injection H as <-. unfold node_ref_key. cbn.
   apply file_of_path_sound in Efr. unfold file_ref_path in Efr.
   destruct k as [kp kl]; cbn in *. rewrite Efr. reflexivity.
 Qed.
 
-Lemma ref_of_key_complete : forall p r, ref_of_key p (node_ref_key r) = Some r.
+Lemma ref_of_key_complete : forall p (idx : ProgramIndex p) r, ref_of_key idx (node_ref_key r) = Some r.
 Proof.
-  intros p r. unfold ref_of_key, node_ref_key. cbn [key_path key_local].
+  intros p idx r. unfold ref_of_key, node_ref_key. cbn [key_path key_local].
   rewrite (file_of_path_complete p (nr_file r)).
-  generalize (@eq_refl bool (valid_localb (fr_source (nr_file r)) (nr_local r))).
-  destruct (valid_localb (fr_source (nr_file r)) (nr_local r)) at 2 3; intros e.
+  generalize (@eq_refl bool (occ_ofb idx (fr_path (nr_file r)) (nr_local r))).
+  destruct (occ_ofb idx (fr_path (nr_file r)) (nr_local r)) at 2 3; intros e.
   - f_equal. apply node_ref_ext; reflexivity.
   - exfalso. rewrite (nr_valid r) in e. discriminate e.
 Qed.

@@ -19,11 +19,11 @@ Definition bytes_valid : Compilable.Admissible bytes_program.
 Proof. split; vm_compute; reflexivity. Qed.
 
 Definition bytes_compiled : Compilable.Program :=
-  Compilable.capability_of_admissible bytes_program bytes_valid.
+  Compilable.program_of bytes_program bytes_valid.
 Definition bytes_safe : Safe.Program := certify bytes_compiled.
 Definition bytes_image : Emit.Image :=
   Emit.of_safe_at bytes_safe bytes_program
-    (eq_trans (Safe.certify_source bytes_compiled) (Compilable.capability_source bytes_program bytes_valid)).
+    (eq_trans (Safe.certify_source bytes_compiled) (Compilable.program_of_source bytes_program bytes_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize bytes_image To "/workspace/generated-bytes".

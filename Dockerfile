@@ -557,6 +557,12 @@ echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
 
+# static soundness: Compilable.compile returns Rejected for every representable pinned-Go-invalid shape in the
+# §8.3 matrix (unary/complex type mismatch, wrong arity, no-value/type-as-value, non-callable, illegal statement)
+# and Compiled for the paired positive cases — proved through compile itself, never a second mint.
+if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
+echo "fido: static rejection controls OK — the §8.3 matrix lands in Rejected through compile; positive unary cases Compiled"
+
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
 # transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
 # are GENERATED TRANSIENTLY (never tracked): a DIRECT axiom, an axiom behind an opaque Qed, a DIRECT section

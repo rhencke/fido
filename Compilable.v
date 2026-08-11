@@ -31,7 +31,7 @@ Definition predeclared_meaning (n : Names.PredeclaredName) : Typing.NameMeaning 
       end
   end.
 
-Definition object_meaning (o : Bindings.ObjectRef) : Typing.NameMeaning :=
+Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Bindings.ObjectRef idx) : Typing.NameMeaning :=
   match o with
   | Bindings.PredeclaredObject n => predeclared_meaning n
   | Bindings.SourceObject _      => Typing.NMUnmodelled   (* type/value/callable meaning is a later root *)
@@ -49,12 +49,20 @@ Inductive RootCause : Type :=
 | RCUnresolvedName        : Index.Key -> RootCause
 | RCInvalidConversion     : Index.Key -> Typing.SemanticType -> Syntax.Expr -> RootCause
 | RCDefaultNotRepresentable : Index.Key -> Typing.Constant -> RootCause
+| RCUnaryTypeMismatch     : Index.Key -> Syntax.Expr -> RootCause
+| RCComplexTypeMismatch   : Index.Key -> RootCause
+| RCConversionArity       : Index.Key -> RootCause
+| RCComplexArity          : Index.Key -> RootCause
+| RCNotCallable           : Index.Key -> RootCause
+| RCTypeAsValue           : Index.Key -> RootCause
+| RCNoValueUsed           : Index.Key -> RootCause
+| RCIllegalStatement      : Index.Key -> RootCause
 | RCMainRedeclared        : string -> RootCause
 | RCMissingMain           : string -> RootCause
 | RCBuildOutputDir        : string -> string -> RootCause.
 
 Inductive Requirement : Type :=
-| ReqValueMeaning : Bindings.ObjectRef -> Requirement
+| ReqValueMeaning : option Index.Key -> Requirement
 | ReqApplication  : Requirement
 | ReqStatement    : Requirement
 | ReqDeclaration  : Requirement
@@ -70,15 +78,17 @@ Definition is_stmt_expr_role (r : Index.Role) : bool :=
 Section WithProgram.
 Variable p : Syntax.Program.
 
-(* The binding-derived resolver at a scope: shadowing through binding, occurrence-honest within one expression. *)
-Definition resolver_at (sc : Bindings.ScopeId) (n : Names.OrdinaryIdentifier) : Typing.NameMeaning :=
-  match Bindings.resolve p sc (Names.ordinary_spelling n) with
+(* the resolver at a use, over the retained index and the once-gathered establishers *)
+Definition resolver_at (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+    (use_path : FilePath.T) (use_id : positive) (n : Names.OrdinaryIdentifier) : Typing.NameMeaning :=
+  match Bindings.resolve p idx es use_path use_id (Names.ordinary_spelling n) with
   | Some o => object_meaning o
   | None   => Typing.NMUnresolved
   end.
 
-(* Whether an occurrence is a println argument whose default type cannot hold it — the exact overflow site. *)
-Definition arg_default_overflow (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
+(* whether an occurrence is a println argument whose default type cannot hold it — the exact overflow site *)
+Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+    (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
   : option Typing.Constant :=
   match Index.occurrence_role occ with
   | Index.ApplicationArgument _ =>
@@ -88,11 +98,11 @@ Definition arg_default_overflow (path : FilePath.T) (f : Syntax.File) (id : posi
           | Some pocc =>
               match Index.view_expr pocc with
               | Some (Syntax.Application (Syntax.Name h) _) =>
-                  match resolver_at (Bindings.scope_of_id path f pid) h with
+                  match resolver_at idx es path pid h with
                   | Typing.NMPrintlnBuiltin =>
                       match Index.view_expr occ with
                       | Some e =>
-                          match Typing.constant_info (resolver_at (Bindings.scope_of_id path f id)) e with
+                          match Typing.constant_info (resolver_at idx es path id) e with
                           | Some ci =>
                               match Typing.resolve_constant_info ci with
                               | None    => Some (Typing.constant_info_exact ci)
@@ -113,20 +123,20 @@ Definition arg_default_overflow (path : FilePath.T) (f : Syntax.File) (id : posi
   | _ => None
   end.
 
-Definition occ_diag (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
+Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+    (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
   : list RootCause :=
-  let sc := Bindings.scope_of_id path f id in
   let k  := Index.MakeKey path id in
   (match Index.view_expr occ with
    | Some (Syntax.Name n) =>
-       match Bindings.resolve p sc (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
+       match Bindings.resolve p idx es path id (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
    | _ => [] end)
   ++
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) (x :: nil)) =>
-       match resolver_at sc h with
+       match resolver_at idx es path id h with
        | Typing.NMConversionType t =>
-           match Typing.constant_info (resolver_at sc) x with
+           match Typing.constant_info (resolver_at idx es path id) x with
            | Some ci => match Typing.convert_constant t ci with Some _ => [] | None => [RCInvalidConversion k t x] end
            | None => []
            end
@@ -134,17 +144,73 @@ Definition occ_diag (path : FilePath.T) (f : Syntax.File) (id : positive) (occ :
        end
    | _ => [] end)
   ++
-  (match arg_default_overflow path f id occ with Some c => [RCDefaultNotRepresentable k c] | None => [] end).
+  (match Index.view_expr occ with
+   | Some (Syntax.Unary Syntax.UnaryMinus e') =>
+       match Typing.constant_info (resolver_at idx es path id) e' with
+       | Some _ =>
+           match Typing.constant_info (resolver_at idx es path id) (Syntax.Unary Syntax.UnaryMinus e') with
+           | Some _ => [] | None => [RCUnaryTypeMismatch k e']
+           end
+       | None => []
+       end
+   | _ => [] end)
+  ++
+  (match Index.view_expr occ with
+   | Some (Syntax.Application (Syntax.Name h) args) =>
+       match resolver_at idx es path id h with
+       | Typing.NMConversionType _ => match args with _ :: nil => [] | _ => [RCConversionArity k] end
+       | Typing.NMComplexBuiltin   => match args with _ :: _ :: nil => [] | _ => [RCComplexArity k] end
+       | Typing.NMPrintlnBuiltin   => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [RCNoValueUsed k]
+       | Typing.NMValueConstant _  => [RCNotCallable k]
+       | Typing.NMUnresolved       => []
+       | Typing.NMUnmodelled       => []
+       end
+   | Some (Syntax.Application (Syntax.LiteralExpr _) _) => [RCNotCallable k]
+   | _ => [] end)
+  ++
+  (match Index.view_expr occ with
+   | Some (Syntax.Application (Syntax.Name h) (re :: im :: nil)) =>
+       match resolver_at idx es path id h with
+       | Typing.NMComplexBuiltin =>
+           match Typing.constant_info (resolver_at idx es path id) re, Typing.constant_info (resolver_at idx es path id) im with
+           | Some cre, Some cim => match Typing.complex_class cre cim with Typing.CxError => [RCComplexTypeMismatch k] | _ => [] end
+           | _, _ => []
+           end
+       | _ => []
+       end
+   | _ => [] end)
+  ++
+  (match Index.view_expr occ with
+   | Some (Syntax.Name n) =>
+       if is_value_role (Index.occurrence_role occ) then
+         match resolver_at idx es path id n with
+         | Typing.NMConversionType _ | Typing.NMComplexBuiltin | Typing.NMPrintlnBuiltin => [RCTypeAsValue k]
+         | _ => []
+         end
+       else []
+   | _ => [] end)
+  ++
+  (match Index.view_stmt occ with
+   | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
+       match resolver_at idx es path id h with
+       | Typing.NMPrintlnBuiltin => []
+       | Typing.NMUnmodelled | Typing.NMUnresolved => []
+       | _ => [RCIllegalStatement k]
+       end
+   | Some (Syntax.ExprStmt _) => [RCIllegalStatement k]
+   | _ => [] end)
+  ++
+  (match arg_default_overflow idx es path f id occ with Some c => [RCDefaultNotRepresentable k c] | None => [] end).
 
-Definition occ_boundary (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
+Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx))
+    (path : FilePath.T) (id : positive) (occ : Index.Occurrence)
   : list Boundary :=
-  let sc := Bindings.scope_of_id path f id in
   let k  := Index.MakeKey path id in
   (match Index.view_expr occ with
    | Some (Syntax.Name n) =>
        if is_value_role (Index.occurrence_role occ) then
-         match Bindings.resolve p sc (Names.ordinary_spelling n) with
-         | Some o => match object_meaning o with Typing.NMValueConstant _ => [] | _ => [MakeBoundary k (ReqValueMeaning o)] end
+         match Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
+         | Some o => match object_meaning o with Typing.NMValueConstant _ => [] | _ => [MakeBoundary k (ReqValueMeaning (Bindings.object_key o))] end
          | None   => []
          end
        else []
@@ -152,7 +218,7 @@ Definition occ_boundary (path : FilePath.T) (f : Syntax.File) (id : positive) (o
   ++
   (match Index.view_expr occ with
    | Some (Syntax.Application (Syntax.Name h) args) =>
-       match resolver_at sc h with
+       match resolver_at idx es path id h with
        | Typing.NMConversionType _ => match args with _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
        | Typing.NMComplexBuiltin   => match args with _ :: _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
        | Typing.NMPrintlnBuiltin   => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [MakeBoundary k ReqApplication]
@@ -164,7 +230,7 @@ Definition occ_boundary (path : FilePath.T) (f : Syntax.File) (id : positive) (o
   ++
   (match Index.view_stmt occ with
    | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
-       match resolver_at sc h with Typing.NMPrintlnBuiltin => [] | _ => [MakeBoundary k ReqStatement] end
+       match resolver_at idx es path id h with Typing.NMPrintlnBuiltin => [] | _ => [MakeBoundary k ReqStatement] end
    | Some _ => [MakeBoundary k ReqStatement]
    | None => [] end)
   ++
@@ -172,15 +238,21 @@ Definition occ_boundary (path : FilePath.T) (f : Syntax.File) (id : positive) (o
    | Some (Syntax.TopDeclaration _) => [MakeBoundary k ReqDeclaration]
    | _ => [] end).
 
-Definition file_diags (b : FilePath.T * Syntax.File) : list RootCause :=
-  flat_map (fun idocc => occ_diag (fst b) (snd b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
+Definition file_diags (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+  : list RootCause :=
+  flat_map (fun idocc => occ_diag idx es (fst b) (snd b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
 Definition expr_diags : list RootCause :=
-  flat_map file_diags (Syntax.file_bindings (Syntax.files p)).
+  let idx := Index.index_program p in
+  let es := Bindings.establishers p idx in
+  flat_map (file_diags idx es) (Syntax.file_bindings (Syntax.files p)).
 
-Definition file_boundaries (b : FilePath.T * Syntax.File) : list Boundary :=
-  flat_map (fun idocc => occ_boundary (fst b) (snd b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
+Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+  : list Boundary :=
+  flat_map (fun idocc => occ_boundary idx es (fst b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
 Definition all_boundaries : list Boundary :=
-  flat_map file_boundaries (Syntax.file_bindings (Syntax.files p)).
+  let idx := Index.index_program p in
+  let es := Bindings.establishers p idx in
+  flat_map (file_boundaries idx es) (Syntax.file_bindings (Syntax.files p)).
 
 (* Package-level diagnostics: the current grammar requires exactly one `main` per package. *)
 Definition package_rule_diags : list RootCause :=
@@ -203,6 +275,9 @@ End WithProgram.
 
 (* The core and the three verdict payloads are sealed behind CAPABILITY; the only way to one is compile. *)
 Definition Admissible (p : Syntax.Program) : Prop := all_diags p = [] /\ all_boundaries p = [].
+
+Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
+Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
 Module Type CAPABILITY.
   Parameter Core : Syntax.Program -> Type.
@@ -233,8 +308,12 @@ Module Type CAPABILITY.
   | OutsideScope (o : Outside_ p).
 
   Parameter compile : forall p : Syntax.Program, Outcome p.
-  Parameter capability_of_admissible : forall p, Admissible p -> Program.
-  Parameter capability_source : forall p (H : Admissible p), source (capability_of_admissible p H) = p.
+  (* branch bridges: a client reads compile's verdict from the transparent reports, never the sealed capability *)
+  Parameter compiled_diagnostics : forall p cp H, compile p = Compiled p cp H -> all_diags p = [].
+  Parameter compiled_boundaries  : forall p cp H, compile p = Compiled p cp H -> all_boundaries p = [].
+  Parameter rejected_diagnostics : forall p f, compile p = Rejected p f -> all_diags p <> [].
+  Parameter outside_diagnostics  : forall p o, compile p = OutsideScope p o -> all_diags p = [].
+  Parameter outside_boundaries   : forall p o, compile p = OutsideScope p o -> all_boundaries p <> [].
 End CAPABILITY.
 
 Module Capability : CAPABILITY.
@@ -279,20 +358,67 @@ Module Capability : CAPABILITY.
   | Rejected (f : Failure p)
   | OutsideScope (o : Outside_ p).
 
-  Definition compile (p : Syntax.Program) : Outcome p.
-    destruct (all_diags p) as [|d ds] eqn:Hd.
-    - destruct (all_boundaries p) as [|b bs] eqn:Hb.
-      + exact (Compiled p (MkProg p (elaborate p) Hd Hb) eq_refl).
-      + refine (OutsideScope p (MkOut p (elaborate p) Hd _)).
-        change (all_boundaries p <> []); rewrite Hb; discriminate.
-    - refine (Rejected p (MkFail p (elaborate p) _)).
-      change (all_diags p <> []); rewrite Hd; discriminate.
-  Defined.
+  Definition compile (p : Syntax.Program) : Outcome p :=
+    match nil_dec (all_diags p) with
+    | left Hd =>
+        match nil_dec (all_boundaries p) with
+        | left Hb  => Compiled p (MkProg p (elaborate p) Hd Hb) eq_refl
+        | right Hb => OutsideScope p (MkOut p (elaborate p) Hd Hb)
+        end
+    | right Hd => Rejected p (MkFail p (elaborate p) Hd)
+    end.
 
-  Definition capability_of_admissible (p : Syntax.Program) (H : Admissible p) : Program :=
-    MkProg p (elaborate p) (proj1 H) (proj2 H).
-  Lemma capability_source : forall p (H : Admissible p), source (capability_of_admissible p H) = p.
-  Proof. reflexivity. Qed.
+  Lemma compiled_diagnostics : forall p cp H, compile p = Compiled p cp H -> all_diags p = [].
+  Proof.
+    intros p cp H Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [exact Hd|discriminate Hc].
+  Qed.
+  Lemma compiled_boundaries : forall p cp H, compile p = Compiled p cp H -> all_boundaries p = [].
+  Proof.
+    intros p cp H Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|discriminate Hc].
+    destruct (nil_dec (all_boundaries p)) as [Hb|Hb]; [exact Hb | discriminate Hc].
+  Qed.
+  Lemma rejected_diagnostics : forall p f, compile p = Rejected p f -> all_diags p <> [].
+  Proof.
+    intros p f Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|exact Hd].
+    destruct (nil_dec (all_boundaries p)); discriminate Hc.
+  Qed.
+  Lemma outside_diagnostics : forall p o, compile p = OutsideScope p o -> all_diags p = [].
+  Proof.
+    intros p o Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [exact Hd|discriminate Hc].
+  Qed.
+  Lemma outside_boundaries : forall p o, compile p = OutsideScope p o -> all_boundaries p <> [].
+  Proof.
+    intros p o Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|discriminate Hc].
+    destruct (nil_dec (all_boundaries p)) as [Hb|Hb]; [discriminate Hc | exact Hb].
+  Qed.
 End Capability.
 Include Capability.
 Arguments Compiled {p} _ _. Arguments Rejected {p} _. Arguments OutsideScope {p} _.
+
+(* extract the exact compiled program and its source identity from admissibility — through compile, no 2nd mint *)
+Definition compiled_of (p : Syntax.Program) (H : Admissible p) : { cp : Program | source cp = p } :=
+  match compile p as o return (compile p = o -> { cp : Program | source cp = p }) with
+  | Compiled cp Hcp => fun _  => exist _ cp Hcp
+  | Rejected f      => fun Hc => False_rect _ (rejected_diagnostics p f Hc (proj1 H))
+  | OutsideScope o  => fun Hc => False_rect _ (outside_boundaries p o Hc (proj2 H))
+  end eq_refl.
+Definition program_of (p : Syntax.Program) (H : Admissible p) : Program := proj1_sig (compiled_of p H).
+Definition program_of_source (p : Syntax.Program) (H : Admissible p) : source (program_of p H) = p :=
+  proj2_sig (compiled_of p H).
+
+(* the two exact verdict predicates a control asserts, decided through compile from the transparent reports *)
+Definition compiles (p : Syntax.Program) : Prop := exists cp H, compile p = Compiled cp H.
+Definition rejects  (p : Syntax.Program) : Prop := exists f, compile p = Rejected f.
+
+Definition compiles_of_admissible (p : Syntax.Program) (H : Admissible p) : compiles p :=
+  match compile p as o return (compile p = o -> compiles p) with
+  | Compiled cp Hcp => fun Hc => ex_intro _ cp (ex_intro _ Hcp Hc)
+  | Rejected f      => fun Hc => False_rect _ (rejected_diagnostics p f Hc (proj1 H))
+  | OutsideScope o  => fun Hc => False_rect _ (outside_boundaries p o Hc (proj2 H))
+  end eq_refl.
+Definition rejects_of_diags (p : Syntax.Program) (Hd : all_diags p <> []) : rejects p :=
+  match compile p as o return (compile p = o -> rejects p) with
+  | Compiled cp Hcp => fun Hc => False_rect _ (Hd (compiled_diagnostics p cp Hcp Hc))
+  | Rejected f      => fun Hc => ex_intro _ f Hc
+  | OutsideScope o  => fun Hc => False_rect _ (Hd (outside_diagnostics p o Hc))
+  end eq_refl.

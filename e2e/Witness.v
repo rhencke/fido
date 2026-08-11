@@ -75,11 +75,11 @@ Definition demo_valid : Compilable.Admissible demo_program.
 Proof. split; vm_compute; reflexivity. Qed.
 
 Definition demo_compiled : Compilable.Program :=
-  Compilable.capability_of_admissible demo_program demo_valid.
+  Compilable.program_of demo_program demo_valid.
 Definition demo_safe : Safe.Program := certify demo_compiled.
 Definition demo_image : Emit.Image :=
   Emit.of_safe_at demo_safe demo_program
-    (eq_trans (Safe.certify_source demo_compiled) (Compilable.capability_source demo_program demo_valid)).
+    (eq_trans (Safe.certify_source demo_compiled) (Compilable.program_of_source demo_program demo_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize demo_image To "/workspace/generated".

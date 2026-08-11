@@ -303,6 +303,22 @@ Inductive NameMeaning : Type :=
 | NMUnmodelled     : NameMeaning
 | NMUnresolved     : NameMeaning.
 
+(* A complex builtin's components must be floating or untyped numeric; the exact rule classifies a pair. *)
+Inductive ComplexClass : Type := CxOk | CxDefer | CxError.
+Definition complex_comp (ci : ConstantInfo) : option (option Float.Kind) :=
+  match ci with
+  | UntypedInfo (IntegerConstant _) | UntypedInfo (FloatConstant _) => Some None
+  | TypedInfo (FloatType ft) _ => Some (Some ft)
+  | _ => None
+  end.
+Definition complex_class (cre cim : ConstantInfo) : ComplexClass :=
+  match complex_comp cre, complex_comp cim with
+  | None, _ | _, None => CxError
+  | Some None, Some None => CxOk
+  | Some (Some a), Some (Some b) => if Float.kind_equalb a b then CxDefer else CxError
+  | _, _ => CxDefer
+  end.
+
 (* The typing spec takes a source-name resolver as a parameter; the compiler owns the binding itself. *)
 Section TypingResolver.
 Variable resolve_name : Names.OrdinaryIdentifier -> NameMeaning.
@@ -316,7 +332,12 @@ Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
   | Syntax.LiteralExpr (Syntax.StringLiteral s)  => Some (UntypedInfo (StringConstant s))
   | Syntax.Unary Syntax.UnaryMinus e' =>
       match constant_info e' with
-      | Some ci => option_map UntypedInfo (constant_neg (constant_info_exact ci))
+      | Some (UntypedInfo c)  => option_map UntypedInfo (constant_neg c)
+      | Some (TypedInfo t tc) =>
+          match constant_neg (constant_info_exact (TypedInfo t tc)) with
+          | Some c => option_map (TypedInfo t) (convert_constant t (UntypedInfo c))
+          | None   => None
+          end
       | None => None
       end
   | Syntax.Application head args =>
@@ -335,8 +356,11 @@ Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
           | NMComplexBuiltin =>
               match constant_info re, constant_info im with
               | Some cre, Some cim =>
-                  option_map UntypedInfo
-                    (complex_of_constants (constant_info_exact cre) (constant_info_exact cim))
+                  match complex_class cre cim with
+                  | CxOk => option_map UntypedInfo
+                              (complex_of_constants (constant_info_exact cre) (constant_info_exact cim))
+                  | _ => None
+                  end
               | _, _ => None
               end
           | _ => None
