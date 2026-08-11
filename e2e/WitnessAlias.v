@@ -25,10 +25,10 @@ Proof. split; vm_compute; reflexivity. Qed.
 
 Definition alias_compiled : Compilable.Program :=
   Compilable.program_of alias_program alias_valid.
-Definition alias_safe : Safe.Program := certify alias_compiled.
+Definition alias_safe : Safe.Program := certify alias_compiled I.
 Definition alias_image : Emit.Image :=
   Emit.of_safe_at alias_safe alias_program
-    (eq_trans (Safe.certify_source alias_compiled) (Compilable.program_of_source alias_program alias_valid)).
+    (eq_trans (Safe.certify_source alias_compiled I) (Compilable.program_of_source alias_program alias_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize alias_image To "/workspace/generated-alias".

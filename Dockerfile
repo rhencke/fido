@@ -429,12 +429,12 @@ Definition accepted_bounds (cp : Compilable.Program) := Compilable.core_boundari
 (* query the exact REJECTED and OUTSIDE cores through their returned payloads *)
 Definition rejected_core {p} (f : Compilable.Failure p) : Compilable.Core p := Compilable.failure_core f.
 Definition outside_of_core {p} (o : Compilable.Outside_ p) : Compilable.Core p := Compilable.outside_core o.
-(* certify and emit through the accepted capability *)
-Definition certify_it (cp : Compilable.Program) : Safe.Program := Safe.certify cp.
+(* certify (proof-taking) and emit through the accepted capability *)
+Definition certify_it (cp : Compilable.Program) (H : Safe.Property cp) : Safe.Program := Safe.certify cp H.
 Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
 (* the canonical end-to-end client mint: compile -> certify -> of_safe *)
-Definition emit_from_capability (cp : Compilable.Program) : Emit.Image := Emit.of_safe (Safe.certify cp).
-Definition emitted_bytes (cp : Compilable.Program) := Emit.transport (emit_from_capability cp).
+Definition emit_from_capability (cp : Compilable.Program) (H : Safe.Property cp) : Emit.Image := Emit.of_safe (Safe.certify cp H).
+Definition emitted_bytes (cp : Compilable.Program) (H : Safe.Property cp) := Emit.transport (emit_from_capability cp H).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"

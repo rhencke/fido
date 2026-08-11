@@ -7,8 +7,8 @@ Definition Property (cp : Compilable.Program) : Prop := True.
 Module Type CERTIFICATE.
   Parameter Program : Type.
   Parameter compiled : Program -> Compilable.Program.
-  Parameter certify : Compilable.Program -> Program.
-  Parameter certify_retains : forall cp, compiled (certify cp) = cp.
+  Parameter certify : forall cp : Compilable.Program, Property cp -> Program.
+  Parameter certify_retains : forall cp (H : Property cp), compiled (certify cp H) = cp.
 End CERTIFICATE.
 
 Module Certificate : CERTIFICATE.
@@ -17,9 +17,9 @@ Module Certificate : CERTIFICATE.
     proof     : Property compiled
   }.
   Definition Program : Type := ProgramRepresentation.
-  (* [compiled] carries the genuine whole-program compile proof, so nothing uncompilable is certified. *)
-  Definition certify (cp : Compilable.Program) : Program := Make cp I.
-  Lemma certify_retains : forall cp, compiled (certify cp) = cp.
+  (* certify is proof-taking: a certificate carries the exact compiled program AND the proof of its safety property *)
+  Definition certify (cp : Compilable.Program) (H : Property cp) : Program := Make cp H.
+  Lemma certify_retains : forall cp (H : Property cp), compiled (certify cp H) = cp.
   Proof. reflexivity. Qed.
 End Certificate.
 Include Certificate.
@@ -31,10 +31,10 @@ Definition source (sp : Program) : Syntax.Program := Compilable.source (compiled
 Definition core (sp : Program) : Compilable.Core (source sp) := Compilable.core (compiled sp).
 
 (* The certified program's source is the capability's, propositionally since [certify] is opaque. *)
-Theorem certify_source : forall cp, source (certify cp) = Compilable.source cp.
-Proof. intro cp. unfold source. rewrite certify_retains. reflexivity. Qed.
+Theorem certify_source : forall cp (H : Property cp), source (certify cp H) = Compilable.source cp.
+Proof. intros cp H. unfold source. rewrite certify_retains. reflexivity. Qed.
 
-Theorem certify_retains_capability : forall cp, compiled (certify cp) = cp.
+Theorem certify_retains_capability : forall cp (H : Property cp), compiled (certify cp H) = cp.
 Proof. exact certify_retains. Qed.
 
 (* Retention over any certificate, not only a freshly certified one, and so strictly stronger. *)

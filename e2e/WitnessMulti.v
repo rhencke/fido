@@ -37,10 +37,10 @@ Proof. split; vm_compute; reflexivity. Qed.
 
 Definition multi_compiled : Compilable.Program :=
   Compilable.program_of multi_program multi_valid.
-Definition multi_safe : Safe.Program := certify multi_compiled.
+Definition multi_safe : Safe.Program := certify multi_compiled I.
 Definition multi_image : Emit.Image :=
   Emit.of_safe_at multi_safe multi_program
-    (eq_trans (Safe.certify_source multi_compiled) (Compilable.program_of_source multi_program multi_valid)).
+    (eq_trans (Safe.certify_source multi_compiled I) (Compilable.program_of_source multi_program multi_valid)).
 
 Declare ML Module "fido.emit".
 Fido Materialize multi_image To "/workspace/generated-multi".
