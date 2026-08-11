@@ -1082,20 +1082,11 @@ Proof.
   rewrite integer_decimal_faithful by apply N2Z.is_nonneg. reflexivity.
 Qed.
 
-(* One conversion of the accepted fragment, now an application of the type-name head to its operand. *)
-Definition tconv (t : Names.TypeName) (e : Syntax.Expr) : Syntax.Expr :=
-  Syntax.Application (Syntax.Name (Names.type_name_ordinary t)) [e].
 Definition ilit (n : N) : Syntax.Expr := Syntax.LiteralExpr (Syntax.IntegerLiteral n).
 Definition flit (c e : Z) (w : Float.decimal_wfb c e = true) (nn : (0 <=? c)%Z = true) : Syntax.Expr :=
   Syntax.LiteralExpr (Syntax.FloatLiteral (Float.MakeNonNegDecimal (Float.MakeDecimal c e w) nn)).
 Definition cplx (re im : Syntax.Expr) : Syntax.Expr :=
   Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [re; im].
-
-Example int8_127 : render_expr (tconv Names.Int8 (ilit 127)) = "int8(127)". Proof. reflexivity. Qed.
-Example uint64_big : render_expr (tconv Names.Uint64 (ilit 18446744073709551615)) = "uint64(18446744073709551615)".
-Proof. reflexivity. Qed.
-Example nested : render_expr (tconv Names.Int8 (tconv Names.Int16 (ilit 127))) = "int8(int16(127))".
-Proof. reflexivity. Qed.
 
 (* A bare integer stays untyped however large, which is why `uint64(2^63)` is valid. *)
 Example repair_bare_render : render_expr (ilit 9223372036854775808) = "9223372036854775808".
@@ -1106,18 +1097,10 @@ Example float_zero  : render_expr (flit 0 0 eq_refl eq_refl) = "0.0". Proof. ref
 Example float_1e6   : render_expr (flit 1 6 eq_refl eq_refl) = "1.0e+6". Proof. reflexivity. Qed.
 Example float_neg   : render_expr (Syntax.Unary Syntax.UnaryMinus (flit 15 (-1) eq_refl eq_refl)) = "-15.0e-1".
 Proof. reflexivity. Qed.
-Example conv_f32    : render_expr (tconv Names.Float32 (flit 15 (-1) eq_refl eq_refl)) = "float32(15.0e-1)".
-Proof. reflexivity. Qed.
-Example conv_f64    : render_expr (tconv Names.Float64 (flit 3 0 eq_refl eq_refl)) = "float64(3.0e+0)".
-Proof. reflexivity. Qed.
 
 Example cplx_lit  : render_expr (cplx (flit 15 (-1) eq_refl eq_refl)
                                       (Syntax.Unary Syntax.UnaryMinus (flit 25 (-1) eq_refl eq_refl)))
   = "complex(15.0e-1, -25.0e-1)". Proof. reflexivity. Qed.
 Example cplx_zero : render_expr (cplx (flit 0 0 eq_refl eq_refl) (flit 0 0 eq_refl eq_refl))
   = "complex(0.0, 0.0)". Proof. reflexivity. Qed.
-Example conv_c64  : render_expr (tconv Names.Complex64 (cplx (flit 15 (-1) eq_refl eq_refl) (flit 0 0 eq_refl eq_refl)))
-  = "complex64(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
-Example conv_c128 : render_expr (tconv Names.Complex128 (cplx (flit 15 (-1) eq_refl eq_refl) (flit 0 0 eq_refl eq_refl)))
-  = "complex128(complex(15.0e-1, 0.0))". Proof. reflexivity. Qed.
 

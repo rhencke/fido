@@ -4,19 +4,19 @@ From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Saf
 Import ListNotations.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
-Local Notation CONV t e := (Syntax.Application (Syntax.Name (Names.type_name_ordinary t)) [e]).
+Local Notation CONV t e := (Syntax.Application (Syntax.Name (Names.predeclared_ordinary t)) [e]).
 Local Notation ILIT n := (Syntax.LiteralExpr (Syntax.IntegerLiteral n)).
 Local Notation NEG e := (Syntax.Unary Syntax.UnaryMinus e).
 
 Definition alias_file : list Syntax.TopLevelDecl :=
   [ Syntax.Main (Syntax.MakeBlock
-    [ PL [ CONV Names.Byte  (ILIT 0)
-         ; CONV Names.Byte  (ILIT 255)
-         ; CONV Names.Uint8 (ILIT 255)
-         ; CONV Names.Rune  (NEG (ILIT 2147483648))
-         ; CONV Names.Rune  (ILIT 2147483647)
-         ; CONV Names.Int32 (NEG (ILIT 2147483648))
-         ; CONV Names.Int32 (ILIT 2147483647) ] ]) ].
+    [ PL [ CONV Names.PByte  (ILIT 0)
+         ; CONV Names.PByte  (ILIT 255)
+         ; CONV Names.PUint8 (ILIT 255)
+         ; CONV Names.PRune  (NEG (ILIT 2147483648))
+         ; CONV Names.PRune  (ILIT 2147483647)
+         ; CONV Names.PInt32 (NEG (ILIT 2147483648))
+         ; CONV Names.PInt32 (ILIT 2147483647) ] ]) ].
 Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 

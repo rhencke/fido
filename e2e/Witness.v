@@ -18,7 +18,7 @@ Definition nnd_tiny : Float.NonNegativeDecimal := Float.MakeNonNegDecimal (Float
 Definition nnd_0    : Float.NonNegativeDecimal := Float.MakeNonNegDecimal (Float.MakeDecimal 0 0 eq_refl) eq_refl.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
-Local Notation CONV t e := (Syntax.Application (Syntax.Name (Names.type_name_ordinary t)) [e]).
+Local Notation CONV t e := (Syntax.Application (Syntax.Name (Names.predeclared_ordinary t)) [e]).
 Local Notation ILIT n := (Syntax.LiteralExpr (Syntax.IntegerLiteral n)).
 Local Notation NEG e := (Syntax.Unary Syntax.UnaryMinus e).
 Local Notation SLIT s := (Syntax.LiteralExpr (Syntax.StringLiteral s)).
@@ -40,32 +40,32 @@ Definition demo_file : list Syntax.TopLevelDecl :=
     ; PL [ SLIT s_tab ]
     ; PL [ SLIT s_cr ]
     ; PL [ SLIT s_nl ]
-    ; PL [ CONV Names.Int8  (NEG (ILIT 128)); CONV Names.Int8  (ILIT 127) ]
-    ; PL [ CONV Names.Int16 (NEG (ILIT 32768)); CONV Names.Int16 (ILIT 32767) ]
-    ; PL [ CONV Names.Int32 (NEG (ILIT 2147483648)); CONV Names.Int32 (ILIT 2147483647) ]
-    ; PL [ CONV Names.Int64 (NEG (ILIT ((2 ^ 63)%N))); CONV Names.Int64 (ILIT ((2 ^ 63 - 1)%N)) ]
-    ; PL [ CONV Names.Int   (NEG (ILIT ((2 ^ 63)%N))); CONV Names.Int   (ILIT ((2 ^ 63 - 1)%N)) ]
-    ; PL [ CONV Names.Uint8 (ILIT 255); CONV Names.Uint16 (ILIT 65535); CONV Names.Uint32 (ILIT 4294967295) ]
-    ; PL [ CONV Names.Uint64 (ILIT ((2 ^ 63)%N)); CONV Names.Uint64 (ILIT 18446744073709551615) ]
-    ; PL [ CONV Names.Uint (ILIT 18446744073709551615) ]
-    ; PL [ CONV Names.Int8 (CONV Names.Int16 (ILIT 127)) ]
-    ; PL [ FLIT nnd_1p5; CONV Names.Float32 (FLIT nnd_1p5) ]
-    ; PL [ CONV Names.Float64 (FLIT nnd_0p5) ]
-    ; PL [ CONV Names.Int (FLIT nnd_3) ]
-    ; PL [ CONV Names.Float64 (ILIT 7) ]
-    ; PL [ CONV Names.Uint64 (CONV Names.Float32 (FLIT nnd_scar)) ]
-    ; PL [ CONV Names.Uint64 (CONV Names.Float32 (CONV Names.Float64 (FLIT nnd_scar))) ]
-    ; PL [ CONV Names.Float64 (FLIT nnd_tiny) ]
+    ; PL [ CONV Names.PInt8  (NEG (ILIT 128)); CONV Names.PInt8  (ILIT 127) ]
+    ; PL [ CONV Names.PInt16 (NEG (ILIT 32768)); CONV Names.PInt16 (ILIT 32767) ]
+    ; PL [ CONV Names.PInt32 (NEG (ILIT 2147483648)); CONV Names.PInt32 (ILIT 2147483647) ]
+    ; PL [ CONV Names.PInt64 (NEG (ILIT ((2 ^ 63)%N))); CONV Names.PInt64 (ILIT ((2 ^ 63 - 1)%N)) ]
+    ; PL [ CONV Names.PInt   (NEG (ILIT ((2 ^ 63)%N))); CONV Names.PInt   (ILIT ((2 ^ 63 - 1)%N)) ]
+    ; PL [ CONV Names.PUint8 (ILIT 255); CONV Names.PUint16 (ILIT 65535); CONV Names.PUint32 (ILIT 4294967295) ]
+    ; PL [ CONV Names.PUint64 (ILIT ((2 ^ 63)%N)); CONV Names.PUint64 (ILIT 18446744073709551615) ]
+    ; PL [ CONV Names.PUint (ILIT 18446744073709551615) ]
+    ; PL [ CONV Names.PInt8 (CONV Names.PInt16 (ILIT 127)) ]
+    ; PL [ FLIT nnd_1p5; CONV Names.PFloat32 (FLIT nnd_1p5) ]
+    ; PL [ CONV Names.PFloat64 (FLIT nnd_0p5) ]
+    ; PL [ CONV Names.PInt (FLIT nnd_3) ]
+    ; PL [ CONV Names.PFloat64 (ILIT 7) ]
+    ; PL [ CONV Names.PUint64 (CONV Names.PFloat32 (FLIT nnd_scar)) ]
+    ; PL [ CONV Names.PUint64 (CONV Names.PFloat32 (CONV Names.PFloat64 (FLIT nnd_scar))) ]
+    ; PL [ CONV Names.PFloat64 (FLIT nnd_tiny) ]
     ; PL [ CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5)) ]
-    ; PL [ CONV Names.Complex64  (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5))) ]
-    ; PL [ CONV Names.Complex128 (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5))) ]
-    ; PL [ CONV Names.Int (CPLX (FLIT nnd_3) (FLIT nnd_0)) ]
-    ; PL [ CONV Names.Float32 (CPLX (FLIT nnd_1p5) (FLIT nnd_0)) ]
-    ; PL [ CONV Names.Uint64 (CONV Names.Complex64 (CPLX (FLIT nnd_scar) (FLIT nnd_0))) ]
-    ; PL [ CONV Names.Uint64 (CONV Names.Complex64 (CONV Names.Complex128 (CPLX (FLIT nnd_scar) (FLIT nnd_0)))) ]
-    ; PL [ CONV Names.Complex64 (ILIT 1); CONV Names.Complex128 (ILIT 1) ]
-    ; PL [ CONV Names.Complex64 (FLIT nnd_1p5); CONV Names.Complex128 (FLIT nnd_1p5) ]
-    ; PL [ CONV Names.Complex64 (CONV Names.Complex64 (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5)))) ] ]) ].
+    ; PL [ CONV Names.PComplex64  (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5))) ]
+    ; PL [ CONV Names.PComplex128 (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5))) ]
+    ; PL [ CONV Names.PInt (CPLX (FLIT nnd_3) (FLIT nnd_0)) ]
+    ; PL [ CONV Names.PFloat32 (CPLX (FLIT nnd_1p5) (FLIT nnd_0)) ]
+    ; PL [ CONV Names.PUint64 (CONV Names.PComplex64 (CPLX (FLIT nnd_scar) (FLIT nnd_0))) ]
+    ; PL [ CONV Names.PUint64 (CONV Names.PComplex64 (CONV Names.PComplex128 (CPLX (FLIT nnd_scar) (FLIT nnd_0)))) ]
+    ; PL [ CONV Names.PComplex64 (ILIT 1); CONV Names.PComplex128 (ILIT 1) ]
+    ; PL [ CONV Names.PComplex64 (FLIT nnd_1p5); CONV Names.PComplex128 (FLIT nnd_1p5) ]
+    ; PL [ CONV Names.PComplex64 (CONV Names.PComplex64 (CPLX (FLIT nnd_1p5) (NEG (FLIT nnd_2p5)))) ] ]) ].
 
 Definition demo_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition main_go : FilePath.T := FilePath.Make "main.go" eq_refl.

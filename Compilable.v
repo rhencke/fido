@@ -4,18 +4,19 @@ From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
 From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Typing Bindings Packages.
 Import ListNotations.
 
-(* Predeclared object meaning: what a predeclared name denotes (type / value const / builtin) in the fragment. *)
-Definition predeclared_type_of_name (n : Names.TypeName) : Typing.SemanticType :=
+(* The semantic type a predeclared type-name denotes, or None when the name is not one of the sixteen types. *)
+Definition predeclared_type_of_name (n : Names.PredeclaredName) : option Typing.SemanticType :=
   match n with
-  | Names.Int    => Typing.IntegerType Integer.Int    | Names.Int8  => Typing.IntegerType Integer.Int8
-  | Names.Int16  => Typing.IntegerType Integer.Int16  | Names.Int32 => Typing.IntegerType Integer.Int32
-  | Names.Int64  => Typing.IntegerType Integer.Int64
-  | Names.Uint   => Typing.IntegerType Integer.Uint   | Names.Uint8  => Typing.IntegerType Integer.Uint8
-  | Names.Uint16 => Typing.IntegerType Integer.Uint16 | Names.Uint32 => Typing.IntegerType Integer.Uint32
-  | Names.Uint64 => Typing.IntegerType Integer.Uint64
-  | Names.Float32 => Typing.FloatType Float.F32 | Names.Float64 => Typing.FloatType Float.F64
-  | Names.Complex64 => Typing.ComplexType Complex.C64 | Names.Complex128 => Typing.ComplexType Complex.C128
-  | Names.Byte => Typing.IntegerType Integer.Uint8 | Names.Rune => Typing.IntegerType Integer.Int32
+  | Names.PInt    => Some (Typing.IntegerType Integer.Int)    | Names.PInt8  => Some (Typing.IntegerType Integer.Int8)
+  | Names.PInt16  => Some (Typing.IntegerType Integer.Int16)  | Names.PInt32 => Some (Typing.IntegerType Integer.Int32)
+  | Names.PInt64  => Some (Typing.IntegerType Integer.Int64)
+  | Names.PUint   => Some (Typing.IntegerType Integer.Uint)   | Names.PUint8  => Some (Typing.IntegerType Integer.Uint8)
+  | Names.PUint16 => Some (Typing.IntegerType Integer.Uint16) | Names.PUint32 => Some (Typing.IntegerType Integer.Uint32)
+  | Names.PUint64 => Some (Typing.IntegerType Integer.Uint64)
+  | Names.PFloat32 => Some (Typing.FloatType Float.F32) | Names.PFloat64 => Some (Typing.FloatType Float.F64)
+  | Names.PComplex64 => Some (Typing.ComplexType Complex.C64) | Names.PComplex128 => Some (Typing.ComplexType Complex.C128)
+  | Names.PByte => Some (Typing.IntegerType Integer.Uint8) | Names.PRune => Some (Typing.IntegerType Integer.Int32)
+  | _ => None
   end.
 
 (* The compiler owns the binding result of resolving a name: a semantic meaning, or unresolved/unmodelled. *)
@@ -29,8 +30,8 @@ Definition resolution_meaning (r : Resolution) : option Typing.NameMeaning :=
   match r with ResMeaning m => Some m | _ => None end.
 
 Definition predeclared_meaning (n : Names.PredeclaredName) : Resolution :=
-  match Names.predeclared_type_name n with
-  | Some tn => ResMeaning (Typing.NMConversionType (predeclared_type_of_name tn))
+  match predeclared_type_of_name n with
+  | Some t => ResMeaning (Typing.NMConversionType t)
   | None =>
       match n with
       | Names.PTrue    => ResMeaning (Typing.NMValueConstant (Typing.BoolConstant true))
