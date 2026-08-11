@@ -1,6 +1,6 @@
 (* Facts — resolution meanings, site roles, and the per-site diagnostics and boundaries the phase composes. *)
 From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
-From Fido Require Import Names Integer Float Complex FilePath Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Packages.
+From Fido Require Import Names Integer Float Complex FilePath Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Compilable.Packages.
 Import ListNotations.
 
 (* The semantic type a predeclared type-name denotes, or None when the name is not one of the sixteen types. *)
@@ -239,15 +239,15 @@ Definition all_boundaries : list Boundary :=
 (* Package-level diagnostics: the current grammar requires exactly one `main` per package. *)
 Definition package_rule_diags : list RootCause :=
   flat_map (fun ds =>
-     let dir := fst ds in let cnt := Packages.summary_main_count (snd ds) in
+     let dir := fst ds in let cnt := Compilable.Packages.summary_main_count (snd ds) in
      ((if Nat.ltb 1 cnt then [RCMainRedeclared dir] else [])
       ++ (if Nat.eqb cnt 0 then [RCMissingMain dir] else []))%list)
-   (Packages.PackageMap.elements (Packages.package_summaries (Syntax.files p))).
+   (Compilable.Packages.PackageMap.elements (Compilable.Packages.package_summaries (Syntax.files p))).
 
 Definition preflight_diags : list RootCause :=
-  if Packages.fresh_build_disposition_ok (Packages.fresh_build_plan p) then []
-  else match Packages.selected_package_keys p with
-       | dir :: nil => [RCBuildOutputDir dir (Packages.default_exec_name (Syntax.module_spec p) dir)]
+  if Compilable.Packages.fresh_build_disposition_ok (Compilable.Packages.fresh_build_plan p) then []
+  else match Compilable.Packages.selected_package_keys p with
+       | dir :: nil => [RCBuildOutputDir dir (Compilable.Packages.default_exec_name (Syntax.module_spec p) dir)]
        | _ => []
        end.
 

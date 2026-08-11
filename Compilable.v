@@ -1,7 +1,7 @@
 (* Compilable — the static semantic phase and the permanent three-way Compiled/Rejected/OutsideScope decision. *)
 
 From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
-From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Compilable.Facts Packages.
+From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Compilable.Facts.
 Import ListNotations.
 
 (* The core and the three verdict payloads are sealed behind CAPABILITY; the only way to one is compile. *)
