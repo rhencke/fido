@@ -1,7 +1,7 @@
 (* Compilable — the static semantic phase and the permanent three-way Compiled/Rejected/OutsideScope decision. *)
 
 From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
-From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings Packages.
+From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Packages.
 Import ListNotations.
 
 (* The semantic type a predeclared type-name denotes, or None when the name is not one of the sixteen types. *)
@@ -47,32 +47,6 @@ Definition object_meaning {p} {idx : Index.ProgramIndex p} (o : Compilable.Bindi
   | Compilable.Bindings.PredeclaredObject n => predeclared_meaning n
   | Compilable.Bindings.SourceObject _      => ResUnmodelled   (* type/value/callable meaning is a later root *)
   end.
-
-(* Diagnostics (definite errors) and requirements (outside boundaries); each retains its exact site key. *)
-Inductive RootCause : Type :=
-| RCUnresolvedName        : Index.Key -> RootCause
-| RCInvalidConversion     : Index.Key -> Compilable.TypeResolution.SemanticType -> Syntax.Expr -> RootCause
-| RCDefaultNotRepresentable : Index.Key -> Compilable.TypeResolution.Constant -> RootCause
-| RCUnaryTypeMismatch     : Index.Key -> Syntax.Expr -> RootCause
-| RCComplexTypeMismatch   : Index.Key -> RootCause
-| RCConversionArity       : Index.Key -> RootCause
-| RCComplexArity          : Index.Key -> RootCause
-| RCNotCallable           : Index.Key -> RootCause
-| RCTypeAsValue           : Index.Key -> RootCause
-| RCNoValueUsed           : Index.Key -> RootCause
-| RCIllegalStatement      : Index.Key -> RootCause
-| RCMainRedeclared        : string -> RootCause
-| RCMissingMain           : string -> RootCause
-| RCBuildOutputDir        : string -> string -> RootCause.
-
-Inductive Requirement : Type :=
-| ReqValueMeaning : option Index.Key -> Requirement
-| ReqApplication  : Requirement
-| ReqStatement    : Requirement
-| ReqDeclaration  : Requirement
-| ReqUnary        : Requirement.
-
-Record Boundary : Type := MakeBoundary { boundary_site : Index.Key ; boundary_req : Requirement }.
 
 Definition is_value_role (r : Index.Role) : bool :=
   match r with Index.ApplicationHead => false | _ => true end.
