@@ -1,6 +1,6 @@
 # C6 — the static semantic foundation
 
-Review: none
+Review: implementation
 
 Goal: ordinary source names acquire meaning only through binding. Every predeclared spelling is a legal
 source identifier and may be shadowed; `_` is a valid lexical `Names.Identifier` but not an
@@ -46,6 +46,67 @@ accept any later C6 root. **Root 1** remains accepted at `6c13dc0` (unchanged).
 active implementation frontier is **C6 Root 3 — the source, occurrence, binding, and honest-outcome
 foundation** (§ below). Later C6 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone
 accepts. Git owns the repair and review narrative — no chronological candidate list lives here.
+
+## Implementation progress and the two open blockers (for review)
+
+Three of the audit repairs below landed on `main` this session, each green through the full gate (`make check`).
+Git holds the exact diffs; this records the current state and the two places the implementation is blocked, so
+the reviewer can weigh the diagnoses and Rob can decide.
+
+**Landed.**
+
+- **Physical recut** (through `e65d9ae`): the `Compilable.{TypeResolution,Bindings,Report,Facts,Packages}` cut;
+  no top-level static peer remains, and `Bindings`/`Packages` are imported only from within `Compilable`.
+- **Retained causal core** (`4365034`) — the C4-retreat origin. `compile` had elaborated the program, discarded
+  the object, then re-run `nil_dec (all_diags p)` / `nil_dec (all_boundaries p)` to choose the branch, keeping
+  two record fields asserting the stored lists equalled that rerun. It now binds one `c := elaborate p` and
+  projects `Compiled`/`Rejected`/`OutsideScope` from `core_diagnostics c` / `core_boundaries c`; the two
+  equality-to-a-rerun fields are deleted. Verdict and emitted bytes are unchanged. The capability, its failure,
+  and its outside-scope result now retain the exact elaborated object by construction with no equality to a
+  rerun — the ARCH-03 contradiction that opened the retreat is repaired here. `IMPLEMENTED_NOT_ACCEPTED`: Rob
+  alone closes the retreat.
+- **Local complex/unary rule** (`720031f`, partial §5): `constant_neg` returned `None` for a complex constant,
+  so `-complex(a, b)` — Go-legal, folding to `complex(-a, -b)` — was rejected `RCUnaryTypeMismatch`. It now
+  negates both components; byte-safe (no accepted program carried the form); positive control `c_neg_complex`
+  added beside the existing `-int8`/`-untyped` controls.
+
+**Blocker 1 — remove production `source_occurrence_at`: a `vm_compute` cliff.** The audit requires the diagnostic
+phase to read each file's retained `Index` occurrence table rather than re-walk the source per id
+(`source_occurrence_at`). Every table-read design was tried across five fresh `make audit-fresh` cycles —
+`meta_of` via the `index_program` projection, a freshly-built `table (build_file f)`, a `file_table_of`
+projection of `index_program`'s already-built table, and a single-traversal `Table.elements` (added to the
+`TABLE` signature with its `elements_get` correspondence). **All OOM-kill the demo witness under `vm_compute`**
+(the `Admissible demo_program` proof), running 395–771 s before `Killed` versus ~11 s green with the oracle — a
+35–70× blow-up. It is **not** the enumeration mechanism: `Table.elements` (one traversal) was *slower* than
+per-id `get`. `build_file` is O(N) (it threads `subtree_end` from the recursive build), and the occurrences it
+stores are provably equal to the oracle's (`build_file_source_exact`), so the cost is a heap-sharing / term-size
+difference under strict reduction when the phase processes table-sourced occurrences instead of the lazily-built
+oracle ones — which I could not localize further under the make-only / no-host-Rocq boundary. **What would
+unblock it:** a heap / term-size profile of the two occurrence forms; or `native_compute` for the witness
+`Admissible` proofs; or restructuring the diagnostic phase as one fused source fold that never materialises all
+occurrence-views at once. Two WIP patches are held out-of-tree.
+
+**Blocker 2 — dedup `render_args`: a guard / abstraction trade-off.** `Render` carries the argument renderer
+twice — the inline `fix render_arglist` inside `render_expr` and the standalone `render_args`, bridged by
+`render_app` — because a direct call is not guard-accepted. The natural single form, a mutual `Fixpoint
+render_expr with render_args`, is **empirically guard-rejected**: `render_args`'s call `render_expr x` has
+principal argument `x` (a `list Expr` element) that Rocq does not accept as a subterm across the mutual boundary
+— `list Expr` is a non-recursive container of `Expr`, not mutually inductive with it, and the inline nested
+`fix` is exactly Rocq's accepted shape for that container. The remaining single-computation options each carry a
+real cost: (a) make the argument list a **mutual-inductive type inside `Syntax.Expr`** — a Syntax change well
+outside a `Render` dedup; (b) **well-founded `Fix` on `expr_size`** — it compiles and `vm_compute`s, but
+destroys `render_expr`'s definitional reduction, so every `cbn [render_expr]` / `reflexivity` proof across
+`Render.v` (the `read_go_int` lemmas, `render_expr_ascii`, `render_app`, …) must be re-proved through `Fix_eq`,
+a heavier abstraction arguably worse than the reducing duplicate; (c) `Equations`, a new dependency needing
+approval. The choice among a Syntax change, a reduction-breaking rewrite, and keeping the reducing duplicate is
+an architecture/approval call, so — per the audit's own instruction to stop for Rob rather than force a bad
+encoding — I stopped.
+
+**Remaining, gated on the above or on Rob.** The rest of §5 (an exact-site outcome replacing `constant_info`'s
+collapsed `option`) is a representation redesign; `Bindings`/`Packages` formal sealing plus typed refs is Root-3
+judgement (they already do not leak); dropping `of_safe_at` needs a computable byte-projection from the retained
+core that RC-05 did not add (`of_safe`'s bytes are stuck on the opaque sealed `Safe.source`); the Fido/Go
+differential pairing needs a golden regeneration or new gate infrastructure. All stay frozen behind the retreat.
 
 **Root 3 blocked — the complete-layer architecture audit.** The exact candidate `7ca98f7` is `REVIEW_BLOCKED`
 (`FIDO_COMPLETE_LAYER_ARCHITECTURE_AUDIT_7CA98F_2026-08-11.md`, superseding the earlier Root 3 repair briefs):
