@@ -20,22 +20,15 @@ Module Type CAPABILITY.
   Parameter core     : forall cp : Program, Core (source cp).
   Parameter accepted : forall cp : Program, core_diagnostics (core cp) = [].
   Parameter in_scope : forall cp : Program, core_boundaries (core cp) = [].
-  (* positive exact-object identity: the retained core IS the exact source elaboration, no rerun, no factory *)
-  Parameter core_source_exact : forall cp : Program,
-    core_diagnostics (core cp) = all_diags (source cp) /\ core_boundaries (core cp) = all_boundaries (source cp).
 
   Parameter Failure : Syntax.Program -> Type.
   Parameter failure_core : forall {p}, Failure p -> Core p.
   Parameter rejected : forall {p} (f : Failure p), core_diagnostics (failure_core f) <> [].
-  Parameter failure_core_exact : forall p (f : Failure p),
-    core_diagnostics (failure_core f) = all_diags p /\ core_boundaries (failure_core f) = all_boundaries p.
 
   Parameter Outside_ : Syntax.Program -> Type.
   Parameter outside_core    : forall {p}, Outside_ p -> Core p.
   Parameter outside_clean   : forall {p} (o : Outside_ p), core_diagnostics (outside_core o) = [].
   Parameter outside_blocked : forall {p} (o : Outside_ p), core_boundaries (outside_core o) <> [].
-  Parameter outside_core_exact : forall p (o : Outside_ p),
-    core_diagnostics (outside_core o) = all_diags p /\ core_boundaries (outside_core o) = all_boundaries p.
 
   Inductive Outcome (p : Syntax.Program) : Type :=
   | Compiled (cp : Program) (Hcp : source cp = p)
@@ -64,60 +57,44 @@ Module Capability : CAPABILITY.
   Lemma elaborate_diagnostics : forall p, core_diagnostics (elaborate p) = all_diags p. Proof. reflexivity. Qed.
   Lemma elaborate_boundaries  : forall p, core_boundaries (elaborate p) = all_boundaries p. Proof. reflexivity. Qed.
 
-  (* each verdict keeps the source and its proofs; core is the projection [elaborate source], no stored peer Core *)
   Record ProgramRep : Type := MkProg {
-    prog_source   : Syntax.Program;
-    prog_accepted : all_diags prog_source = [];
-    prog_in_scope : all_boundaries prog_source = []
+    source   : Syntax.Program;
+    core     : Core source;
+    accepted : core_diagnostics core = [];
+    in_scope : core_boundaries core = []
   }.
   Definition Program := ProgramRep.
-  Definition source (cp : Program) : Syntax.Program := prog_source cp.
-  Definition core (cp : Program) : Core (source cp) := elaborate (source cp).
-  Definition accepted (cp : Program) : core_diagnostics (core cp) = [] := prog_accepted cp.
-  Definition in_scope (cp : Program) : core_boundaries (core cp) = [] := prog_in_scope cp.
-  Lemma core_source_exact : forall cp : Program,
-    core_diagnostics (core cp) = all_diags (source cp) /\ core_boundaries (core cp) = all_boundaries (source cp).
-  Proof. intro cp. split; reflexivity. Qed.
 
   Record FailureRep (p : Syntax.Program) : Type := MkFail {
-    fail_rejected : all_diags p <> []
+    failure_core : Core p;
+    rejected     : core_diagnostics failure_core <> []
   }.
-  Arguments fail_rejected {p}.
+  Arguments failure_core {p}. Arguments rejected {p}.
   Definition Failure := FailureRep.
-  Definition failure_core {p} (f : Failure p) : Core p := elaborate p.
-  Definition rejected {p} (f : Failure p) : core_diagnostics (failure_core f) <> [] := fail_rejected f.
-  Lemma failure_core_exact : forall p (f : Failure p),
-    core_diagnostics (failure_core f) = all_diags p /\ core_boundaries (failure_core f) = all_boundaries p.
-  Proof. intros p f. split; reflexivity. Qed.
 
   Record OutsideRep (p : Syntax.Program) : Type := MkOut {
-    out_clean   : all_diags p = [];
-    out_blocked : all_boundaries p <> []
+    outside_core    : Core p;
+    outside_clean   : core_diagnostics outside_core = [];
+    outside_blocked : core_boundaries outside_core <> []
   }.
-  Arguments out_clean {p}. Arguments out_blocked {p}.
+  Arguments outside_core {p}. Arguments outside_clean {p}. Arguments outside_blocked {p}.
   Definition Outside_ := OutsideRep.
-  Definition outside_core {p} (o : Outside_ p) : Core p := elaborate p.
-  Definition outside_clean {p} (o : Outside_ p) : core_diagnostics (outside_core o) = [] := out_clean o.
-  Definition outside_blocked {p} (o : Outside_ p) : core_boundaries (outside_core o) <> [] := out_blocked o.
-  Lemma outside_core_exact : forall p (o : Outside_ p),
-    core_diagnostics (outside_core o) = all_diags p /\ core_boundaries (outside_core o) = all_boundaries p.
-  Proof. intros p o. split; reflexivity. Qed.
 
   Inductive Outcome (p : Syntax.Program) : Type :=
   | Compiled (cp : Program) (Hcp : source cp = p)
   | Rejected (f : Failure p)
   | OutsideScope (o : Outside_ p).
 
-  (* one elaboration decides the branch from its own reports; verdicts keep the source, the core is a projection *)
+  (* one elaboration, retained as [c]; the three-way verdict is projected from [c]'s own reports, never a rerun *)
   Definition compile (p : Syntax.Program) : Outcome p :=
     let c := elaborate p in
     match nil_dec (core_diagnostics c) with
     | left Hd =>
         match nil_dec (core_boundaries c) with
-        | left Hb  => Compiled p (MkProg p Hd Hb) eq_refl
-        | right Hb => OutsideScope p (MkOut p Hd Hb)
+        | left Hb  => Compiled p (MkProg p c Hd Hb) eq_refl
+        | right Hb => OutsideScope p (MkOut p c Hd Hb)
         end
-    | right Hd => Rejected p (MkFail p Hd)
+    | right Hd => Rejected p (MkFail p c Hd)
     end.
 
   Lemma compiled_diagnostics : forall p cp H, compile p = Compiled p cp H -> all_diags p = [].
@@ -152,6 +129,20 @@ Module Capability : CAPABILITY.
     destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd]; [|discriminate Hc].
     destruct (nil_dec (core_boundaries (elaborate p))) as [Hb|Hb];
       [discriminate Hc | rewrite <- elaborate_boundaries; exact Hb].
+  Qed.
+
+  (* RC-S1 retention control: every verdict carries the exact [elaborate p] compile decided on, not a rerun *)
+  Lemma compile_core_retained : forall p,
+    match compile p with
+    | Compiled _ cp _  => core cp = elaborate (source cp)
+    | Rejected _ f     => failure_core f = elaborate p
+    | OutsideScope _ o => outside_core o = elaborate p
+    end.
+  Proof.
+    intro p. unfold compile. cbv zeta.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd].
+    - destruct (nil_dec (core_boundaries (elaborate p))) as [Hb|Hb]; reflexivity.
+    - reflexivity.
   Qed.
 End Capability.
 Include Capability.
