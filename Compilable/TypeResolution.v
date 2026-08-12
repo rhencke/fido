@@ -278,6 +278,8 @@ Definition constant_neg (c : Constant) : option Constant :=
   match c with
   | IntegerConstant z => Some (IntegerConstant (- z))
   | FloatConstant q   => Some (FloatConstant (float_constant_neg q))
+  | ComplexConstant cc => Some (ComplexConstant (Complex.MakeConstant
+      (float_constant_neg (Complex.exact_real cc)) (float_constant_neg (Complex.exact_imaginary cc))))
   | _ => None
   end.
 
