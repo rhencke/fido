@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants audit-fresh profile perf pytools hostpython go-probe
+        diet mutants audit-fresh profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -217,3 +217,16 @@ builder:
 
 install-hooks:
 	git config core.hooksPath .githooks
+
+# RC-11 / CR-03 option 1: build the full Rocq/OCaml/Dune closure ONCE from toolchain.Dockerfile and push it to
+# GHCR, so the main Dockerfile consumes it only by immutable @sha256 digest (no live apt/opam at build time).
+# One-time operator setup first (not a build dependency, keeps the host boundary at shell/Make/Git/Docker/Buildx):
+#   gh auth token | docker login ghcr.io -u fidocancode --password-stdin
+# Then `make toolchain`, and pin the printed reference in Dockerfile + TOOLCHAIN.md.
+TOOLCHAIN_IMAGE := ghcr.io/fidocancode/fido-toolchain
+TOOLCHAIN_TAG   := rocq-9.2.0-ocaml-5.3-$(shell sha256sum toolchain.Dockerfile | cut -c1-12)
+toolchain: builder
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) -f toolchain.Dockerfile \
+	  --target rocq-base --push -t $(TOOLCHAIN_IMAGE):$(TOOLCHAIN_TAG) .
+	@echo "fido: toolchain pushed — pin this immutable reference in Dockerfile + TOOLCHAIN.md:"
+	@echo "$(TOOLCHAIN_IMAGE)@$$(docker buildx imagetools inspect $(TOOLCHAIN_IMAGE):$(TOOLCHAIN_TAG) | awk '/^Digest:/{print $$2; exit}')"
