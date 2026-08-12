@@ -48,16 +48,15 @@ Module Type CAPABILITY.
 End CAPABILITY.
 
 Module Capability : CAPABILITY.
+  (* the retained elaborated object: one static pass's diagnostics and boundaries; every verdict reads it, no rerun *)
   Record CoreRep (p : Syntax.Program) : Type := MkCore {
     core_diagnostics : list RootCause;
-    core_boundaries  : list Boundary;
-    core_diags_pf    : core_diagnostics = all_diags p;
-    core_bounds_pf   : core_boundaries = all_boundaries p
+    core_boundaries  : list Boundary
   }.
   Arguments core_diagnostics {p}. Arguments core_boundaries {p}.
   Definition Core := CoreRep.
   Definition elaborate (p : Syntax.Program) : Core p :=
-    MkCore p (all_diags p) (all_boundaries p) eq_refl eq_refl.
+    MkCore p (all_diags p) (all_boundaries p).
   Lemma elaborate_diagnostics : forall p, core_diagnostics (elaborate p) = all_diags p. Proof. reflexivity. Qed.
   Lemma elaborate_boundaries  : forall p, core_boundaries (elaborate p) = all_boundaries p. Proof. reflexivity. Qed.
 
@@ -89,38 +88,50 @@ Module Capability : CAPABILITY.
   | Rejected (f : Failure p)
   | OutsideScope (o : Outside_ p).
 
+  (* one elaboration, retained as [c]; the three-way verdict is projected from [c]'s own reports, never a rerun *)
   Definition compile (p : Syntax.Program) : Outcome p :=
-    match nil_dec (all_diags p) with
+    let c := elaborate p in
+    match nil_dec (core_diagnostics c) with
     | left Hd =>
-        match nil_dec (all_boundaries p) with
-        | left Hb  => Compiled p (MkProg p (elaborate p) Hd Hb) eq_refl
-        | right Hb => OutsideScope p (MkOut p (elaborate p) Hd Hb)
+        match nil_dec (core_boundaries c) with
+        | left Hb  => Compiled p (MkProg p c Hd Hb) eq_refl
+        | right Hb => OutsideScope p (MkOut p c Hd Hb)
         end
-    | right Hd => Rejected p (MkFail p (elaborate p) Hd)
+    | right Hd => Rejected p (MkFail p c Hd)
     end.
 
   Lemma compiled_diagnostics : forall p cp H, compile p = Compiled p cp H -> all_diags p = [].
   Proof.
-    intros p cp H Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [exact Hd|discriminate Hc].
+    intros p cp H Hc. unfold compile in Hc. cbv zeta in Hc.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd];
+      [rewrite <- elaborate_diagnostics; exact Hd | discriminate Hc].
   Qed.
   Lemma compiled_boundaries : forall p cp H, compile p = Compiled p cp H -> all_boundaries p = [].
   Proof.
-    intros p cp H Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|discriminate Hc].
-    destruct (nil_dec (all_boundaries p)) as [Hb|Hb]; [exact Hb | discriminate Hc].
+    intros p cp H Hc. unfold compile in Hc. cbv zeta in Hc.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd]; [|discriminate Hc].
+    destruct (nil_dec (core_boundaries (elaborate p))) as [Hb|Hb];
+      [rewrite <- elaborate_boundaries; exact Hb | discriminate Hc].
   Qed.
   Lemma rejected_diagnostics : forall p f, compile p = Rejected p f -> all_diags p <> [].
   Proof.
-    intros p f Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|exact Hd].
-    destruct (nil_dec (all_boundaries p)); discriminate Hc.
+    intros p f Hc. unfold compile in Hc. cbv zeta in Hc.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd];
+      [destruct (nil_dec (core_boundaries (elaborate p))); discriminate Hc
+      | rewrite <- elaborate_diagnostics; exact Hd].
   Qed.
   Lemma outside_diagnostics : forall p o, compile p = OutsideScope p o -> all_diags p = [].
   Proof.
-    intros p o Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [exact Hd|discriminate Hc].
+    intros p o Hc. unfold compile in Hc. cbv zeta in Hc.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd];
+      [rewrite <- elaborate_diagnostics; exact Hd | discriminate Hc].
   Qed.
   Lemma outside_boundaries : forall p o, compile p = OutsideScope p o -> all_boundaries p <> [].
   Proof.
-    intros p o Hc. unfold compile in Hc. destruct (nil_dec (all_diags p)) as [Hd|Hd]; [|discriminate Hc].
-    destruct (nil_dec (all_boundaries p)) as [Hb|Hb]; [discriminate Hc | exact Hb].
+    intros p o Hc. unfold compile in Hc. cbv zeta in Hc.
+    destruct (nil_dec (core_diagnostics (elaborate p))) as [Hd|Hd]; [|discriminate Hc].
+    destruct (nil_dec (core_boundaries (elaborate p))) as [Hb|Hb];
+      [discriminate Hc | rewrite <- elaborate_boundaries; exact Hb].
   Qed.
 End Capability.
 Include Capability.
