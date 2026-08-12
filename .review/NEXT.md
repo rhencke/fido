@@ -47,30 +47,37 @@ active implementation frontier is **C6 Root 3 — the source, occurrence, bindin
 foundation** (§ below). Later C6 roots, Final C6, and C7 stay frozen until Rob accepts each in turn; Rob alone
 accepts. Git owns the repair and review narrative — no chronological candidate list lives here.
 
-## Implementation progress and the two open blockers (for review)
+## Implementation progress — C4 repair ready for review (for review)
 
-Three of the audit repairs below landed on `main` this session, each green through the full gate (`make check`).
-Git holds the exact diffs; this records the current state and the two places the implementation is blocked, so
-the reviewer can weigh the diagnoses and Rob can decide.
+Rob resolved the 16-pass decision-memo choices: **CR-01=1** (defer the `Safe` wrapper), **CR-02=1** (bounded
+worklist renderer spike), **CR-03=1** (one prebuilt digest-pinned toolchain image). RC numbers below follow that
+synthesis (candidate `bb352d9`). Per its mandated order — RC-11 → RC-01 alone → hard stop — the C4 retreat
+origin is now repaired and awaits Rob's closure; Root 3 (RC-02…RC-10, RC-12) stays frozen. Git holds the diffs.
 
-**Landed.**
+**Landed this session, each green through the full gate.**
 
-- **Physical recut** (through `e65d9ae`): the `Compilable.{TypeResolution,Bindings,Report,Facts,Packages}` cut;
-  no top-level static peer remains, and `Bindings`/`Packages` are imported only from within `Compilable`.
-- **Retained causal core** (`4365034`) — the C4-retreat origin. `compile` had elaborated the program, discarded
-  the object, then re-run `nil_dec (all_diags p)` / `nil_dec (all_boundaries p)` to choose the branch, keeping
-  two record fields asserting the stored lists equalled that rerun. It now binds one `c := elaborate p` and
-  projects `Compiled`/`Rejected`/`OutsideScope` from `core_diagnostics c` / `core_boundaries c`; the two
-  equality-to-a-rerun fields are deleted. Verdict and emitted bytes are unchanged. The capability, its failure,
-  and its outside-scope result now retain the exact elaborated object by construction with no equality to a
-  rerun — the ARCH-03 contradiction that opened the retreat is repaired here. `IMPLEMENTED_NOT_ACCEPTED`: Rob
-  alone closes the retreat.
-- **Local complex/unary rule** (`720031f`, partial §5): `constant_neg` returned `None` for a complex constant,
-  so `-complex(a, b)` — Go-legal, folding to `complex(-a, -b)` — was rejected `RCUnaryTypeMismatch`. It now
-  negates both components; byte-safe (no accepted program carried the form); positive control `c_neg_complex`
-  added beside the existing `-int8`/`-untyped` controls.
+- **RC-11 — one content-identified producer** (`e69d741`): the Rocq/OCaml/Dune/plugin closure is a prebuilt
+  image consumed only by immutable digest (`ghcr.io/fidocancode/fido-toolchain@sha256:3e43c4…`); no live
+  apt/opam solver runs during prove / emit / sync. `toolchain.Dockerfile` + `make toolchain` record the rebuild
+  path. Its EVIDENCE_BLOCKER half — an official candidate-bound run — remains for acceptance. Open: make the
+  GHCR package public for credential-free cold pulls (Rob's one-click toggle).
+- **RC-01 — the sealed source-indexed exact core** (this candidate): the C4 retreat origin. The verdict records
+  now retain only the source and its emptiness/non-emptiness proofs; the core is the projection
+  `elaborate source`, so `core cp = elaborate (source cp)` and `core_diagnostics (core cp) = all_diags (source cp)`
+  hold by construction — `core_source_exact` / `failure_core_exact` / `outside_core_exact` are positive exact
+  identity, no rerun. The public `elaborate` core factory is removed; the equality-to-rerun fields are gone (first
+  step at `4365034`); the sealed-capability probes now test the LIVE constructors
+  (`MkProg`/`MkFail`/`MkOut`/`MkCore`/`CoreRep`/`elaborate`, both qualified forms). Verdict and emitted bytes are
+  unchanged. **`IMPLEMENTED_NOT_ACCEPTED` — Rob alone closes the retreat, after the independent review.** The
+  `of_safe_at` direct-image migration stays frozen until closure (RC-01 downstream, step 14).
+- **§5-adjacent local complex/unary rule** (`720031f`): `constant_neg` false-rejected `-complex(a, b)` — Go-legal,
+  folding to `complex(-a, -b)`; it now negates both components, byte-safe, with a positive control. A slice of the
+  frozen semantics work, landed opportunistically before the memo's order was known.
 
-**Blocker 1 — remove production `source_occurrence_at`: a `vm_compute` cliff.** The audit requires the diagnostic
+Everything below is **frozen behind the retreat** until Rob closes it; recorded so the reviewer has the known
+approaches and the two genuine walls.
+
+**Frozen wall — remove production `source_occurrence_at` (synthesis RC-02): a `vm_compute` cliff.** The audit requires the diagnostic
 phase to read each file's retained `Index` occurrence table rather than re-walk the source per id
 (`source_occurrence_at`). Every table-read design was tried across five fresh `make audit-fresh` cycles —
 `meta_of` via the `index_program` projection, a freshly-built `table (build_file f)`, a `file_table_of`
@@ -86,8 +93,10 @@ unblock it:** a heap / term-size profile of the two occurrence forms; or `native
 `Admissible` proofs; or restructuring the diagnostic phase as one fused source fold that never materialises all
 occurrence-views at once. Two WIP patches are held out-of-tree.
 
-**Blocker 2 — dedup `render_args`: a guard / abstraction trade-off.** `Render` carries the argument renderer
-twice — the inline `fix render_arglist` inside `render_expr` and the standalone `render_args`, bridged by
+**Frozen wall — dedup `render_args` (synthesis RC-08): the guarded renderer.** CR-02=1 authorizes a bounded
+combined-carrier/worklist feasibility spike when RC-08's turn comes; the trade-off below is why. `Render` carries
+the argument renderer twice — the inline `fix render_arglist` inside `render_expr` and the standalone
+`render_args`, bridged by
 `render_app` — because a direct call is not guard-accepted. The natural single form, a mutual `Fixpoint
 render_expr with render_args`, is **empirically guard-rejected**: `render_args`'s call `render_expr x` has
 principal argument `x` (a `list Expr` element) that Rocq does not accept as a subterm across the mutual boundary

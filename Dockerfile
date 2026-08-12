@@ -313,30 +313,23 @@ sealed() { # <label> <public sentinel in the module under test> <qualified term 
   grep -qF "$3" /tmp/sealed.log \
     || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
   echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
-sealed F Compilable.compile Compilable.MakeProgram
-sealed G Compilable.compile Compilable.MakeFailure
-sealed H Compilable.compile Compilable.MakeFacts
-sealed I Compilable.compile Compilable.Capability.MakeProgram
-sealed J Compilable.compile Compilable.Capability.MakeFailure
-sealed K Compilable.compile Compilable.AcceptedFacts.MakeFacts
-# the internal mint itself: it takes an Elaboration, and both it and that constructor are sealed, so
-# exporting it would reopen a path that constructs an equal core.  `compile` is the only way in.
-sealed L Compilable.compile Compilable.minted
-sealed M Compilable.compile Compilable.outcome_of_elaboration
-sealed N Compilable.compile Compilable.Capability.minted
-# the WHOLE-ELABORATION representation and its production builder.  A client that can assemble a peer Core —
-# even a well-formed one — has the topology A001 exists to prevent, so the raw record, its constructor, the
-# builder, and every helper that would take a core and hand back a capability must all be absent.
-sealed O Compilable.compile Compilable.MakeCore
-sealed P Compilable.compile Compilable.CoreRepresentation
-sealed Q Compilable.compile Compilable.build_elaboration_core
-sealed R Compilable.compile Compilable.Elaborations.MakeCore
-sealed S Compilable.compile Compilable.Elaborations.CoreRepresentation
-sealed T Compilable.compile Compilable.Elaborations.build_elaboration_core
-sealed U Compilable.compile Compilable.elaborate_at
-sealed V Compilable.compile Compilable.decision_of_core
-sealed W Compilable.compile Compilable.MakeElaboration
-sealed X Compilable.compile Compilable.Elaborations.MakeElaboration
+# the three verdict-payload record constructors are sealed behind CAPABILITY: a client cannot forge an
+# accepted program, a failure, or an outside-scope result — `compile` is the only way to one.  These are the
+# LIVE constructors (RC-01 recut), not the historical Make* names, so the probes prove the real seal.
+sealed F Compilable.compile Compilable.MkProg
+sealed G Compilable.compile Compilable.Capability.MkProg
+sealed H Compilable.compile Compilable.MkFail
+sealed I Compilable.compile Compilable.Capability.MkFail
+sealed J Compilable.compile Compilable.MkOut
+sealed K Compilable.compile Compilable.Capability.MkOut
+# the raw core record, its constructor, and the now-private elaboration that builds it are all sealed, so no
+# client can assemble a peer Core or mint one outside compile — the C4 exact-core-path repair (RC-01).
+sealed L Compilable.compile Compilable.MkCore
+sealed M Compilable.compile Compilable.Capability.MkCore
+sealed N Compilable.compile Compilable.CoreRep
+sealed O Compilable.compile Compilable.Capability.CoreRep
+sealed P Compilable.compile Compilable.elaborate
+sealed Q Compilable.compile Compilable.Capability.elaborate
 # the MINT authority: the raw token constructor and its representation are private.  The carrier pack
 # constructor is deliberately NOT in this list — it is a reducible carrier rather than a mint, and cannot
 # be applied without an inhabitant of the indexed token type.
@@ -413,7 +406,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — three-way Outcome destruct, accepted diagnostics/boundaries, rejected and outside core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-Q/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
