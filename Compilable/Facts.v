@@ -236,13 +236,15 @@ Definition all_boundaries : list Boundary :=
   let es := Compilable.Bindings.establishers p idx in
   flat_map (file_boundaries idx es) (Syntax.file_bindings (Syntax.files p)).
 
-(* Package-level diagnostics: the current grammar requires exactly one `main` per package. *)
+(* Package-level diagnostics: attach the exact RootCause to Packages' one canonical per-package rule status. *)
 Definition package_rule_diags : list RootCause :=
   flat_map (fun ds =>
-     let dir := fst ds in let cnt := Compilable.Packages.summary_main_count (snd ds) in
-     ((if Nat.ltb 1 cnt then [RCMainRedeclared dir] else [])
-      ++ (if Nat.eqb cnt 0 then [RCMissingMain dir] else []))%list)
-   (Compilable.Packages.PackageMap.elements (Compilable.Packages.package_summaries (Syntax.files p))).
+     (match snd ds with
+      | Compilable.Packages.PackageMainRedeclared => [RCMainRedeclared (fst ds)]
+      | Compilable.Packages.PackageMissingMain => [RCMissingMain (fst ds)]
+      | Compilable.Packages.PackageOneMain => []
+      end)%list)
+   (Compilable.Packages.package_rule_result p).
 
 Definition preflight_diags : list RootCause :=
   if Compilable.Packages.fresh_build_disposition_ok (Compilable.Packages.fresh_build_plan p) then []

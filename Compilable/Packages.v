@@ -3,17 +3,6 @@ From Stdlib Require Import RelationClasses Morphisms.
 From Fido Require Import Collections FilePath ModulePath Version Syntax.
 Import ListNotations.
 
-(* A generic reflection bridge between a boolean [forallb] and a [Forall] predicate. *)
-Lemma forallb_iff_forall {X} : forall (f : X -> bool) (P : X -> Prop) (l : list X),
-  (forall x, f x = true <-> P x) -> (forallb f l = true <-> Forall P l).
-Proof.
-  intros f P l Hpt; induction l as [ | x l' IH ]; simpl.
-  - split; [ constructor | reflexivity ].
-  - rewrite Bool.andb_true_iff, Hpt, IH.
-    split; [ intros [Hx Hl]; constructor; assumption
-           | intro H; inversion H; subst; split; assumption ].
-Qed.
-
 Definition decl_is_main (d : Syntax.TopLevelDecl) : bool :=
   match d with Syntax.Main _ => true | Syntax.TopDeclaration _ => false end.
 Definition file_main_count (decls : list Syntax.TopLevelDecl) : nat := List.length (List.filter decl_is_main decls).
@@ -35,260 +24,45 @@ Definition package_step (path : FilePath.T) (sf : Syntax.File) (acc : PackageMap
 Definition package_summaries (fm : Syntax.Files) : PackageMap.t PackageSummary :=
   Syntax.FileMap.fold package_step fm (PackageMap.empty PackageSummary).
 
-(* The one-main reading is a consequence of the current grammar, never a source root of its own. *)
-Definition current_grammar_one_main (p : Syntax.Program) : Prop :=
-  forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p)) -> summary_main_count s = 1%nat.
+(* one canonical per-package main-count status: exactly-one, missing, or redeclared main. *)
+Inductive PackageRuleStatus : Type := PackageOneMain | PackageMissingMain | PackageMainRedeclared.
+Definition package_rule_status (cnt : nat) : PackageRuleStatus :=
+  match cnt with O => PackageMissingMain | S O => PackageOneMain | S (S _) => PackageMainRedeclared end.
+Definition package_rule_result (p : Syntax.Program) : list (string * PackageRuleStatus) :=
+  List.map (fun ds => (fst ds, package_rule_status (summary_main_count (snd ds))))
+           (PackageMap.elements (package_summaries (Syntax.files p))).
 
-(* The readable index-free specification decision: the two factored package rules as separate roots. *)
-Definition package_decls_unique_b (p : Syntax.Program) : bool :=
-  forallb (fun b => Nat.leb (summary_main_count (snd b)) 1) (PackageMap.elements (package_summaries (Syntax.files p))).
-Definition main_pkgs_have_entry_b (p : Syntax.Program) : bool :=
-  forallb (fun b => Nat.leb 1 (summary_main_count (snd b))) (PackageMap.elements (package_summaries (Syntax.files p))).
-Definition source_spec_package_rules_b (p : Syntax.Program) : bool := package_decls_unique_b p && main_pkgs_have_entry_b p.
-
-
-
-Definition PackageDeclsUnique (p : Syntax.Program) : Prop :=
-  forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p)) -> (summary_main_count s <= 1)%nat.
-Definition MainPackagesHaveEntry (p : Syntax.Program) : Prop :=
-  forall dir s, PackageMap.MapsTo dir s (package_summaries (Syntax.files p)) -> (1 <= summary_main_count s)%nat.
-Definition PackageRulesValid (p : Syntax.Program) : Prop := PackageDeclsUnique p /\ MainPackagesHaveEntry p.
-
-Lemma package_decls_unique_b_iff : forall p, package_decls_unique_b p = true <-> PackageDeclsUnique p.
-Proof.
-  intro p. unfold package_decls_unique_b, PackageDeclsUnique.
-  rewrite (forallb_iff_forall (fun b => Nat.leb (summary_main_count (snd b)) 1%nat) (fun b => (summary_main_count (snd b) <= 1)%nat)
-             (PackageMap.elements (package_summaries (Syntax.files p))) (fun b => Nat.leb_le (summary_main_count (snd b)) 1%nat)).
-  split.
-  - intros Hf dir s Hmt.
-    apply PackageFacts.elements_mapsto_iff, SetoidList.InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
-    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
-    cbn in Hf. rewrite Hs. exact Hf.
-  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
-    apply (Hall dir s), PackageFacts.elements_mapsto_iff, SetoidList.InA_alt.
-    exists (dir, s). split; [ split; reflexivity | exact Hin ].
-Qed.
-
-Lemma main_pkgs_have_entry_b_iff : forall p, main_pkgs_have_entry_b p = true <-> MainPackagesHaveEntry p.
-Proof.
-  intro p. unfold main_pkgs_have_entry_b, MainPackagesHaveEntry.
-  rewrite (forallb_iff_forall (fun b => Nat.leb 1%nat (summary_main_count (snd b))) (fun b => (1 <= summary_main_count (snd b))%nat)
-             (PackageMap.elements (package_summaries (Syntax.files p))) (fun b => Nat.leb_le 1%nat (summary_main_count (snd b)))).
-  split.
-  - intros Hf dir s Hmt.
-    apply PackageFacts.elements_mapsto_iff, SetoidList.InA_alt in Hmt. destruct Hmt as [[k' s'] [Heq Hin]].
-    destruct Heq as [_ Hs]. cbn in *. rewrite Forall_forall in Hf. specialize (Hf (k', s') Hin).
-    cbn in Hf. rewrite Hs. exact Hf.
-  - intros Hall. apply Forall_forall. intros [dir s] Hin. cbn.
-    apply (Hall dir s), PackageFacts.elements_mapsto_iff, SetoidList.InA_alt.
-    exists (dir, s). split; [ split; reflexivity | exact Hin ].
-Qed.
-
-Lemma source_spec_package_rules_b_package_rules_valid : forall p, source_spec_package_rules_b p = true <-> PackageRulesValid p.
-Proof.
-  intro p. unfold source_spec_package_rules_b, PackageRulesValid.
-  rewrite Bool.andb_true_iff, package_decls_unique_b_iff, main_pkgs_have_entry_b_iff. reflexivity.
-Qed.
-
-Fixpoint list_dir_count (dir : string) (l : list (FilePath.T * Syntax.File)) : nat :=
-  match l with
-  | [] => 0
-  | b :: rest =>
-      (if String.eqb (FilePath.parent (fst b)) dir then file_main_count (Syntax.declarations (snd b)) else 0)
-      + list_dir_count dir rest
-  end.
-Definition list_dir_mem (dir : string) (l : list (FilePath.T * Syntax.File)) : bool :=
-  existsb (fun b => String.eqb (FilePath.parent (fst b)) dir) l.
-
-Lemma list_dir_count_0 : forall dir l, list_dir_mem dir l = false -> list_dir_count dir l = 0%nat.
-Proof.
-  intros dir l; induction l as [|b rest IH]; simpl; [ reflexivity | ].
-  unfold list_dir_mem in *; simpl; intro H. apply Bool.orb_false_iff in H as [Hb Hr].
-  rewrite Hb; simpl; apply IH; exact Hr.
-Qed.
-
-Lemma list_dir_mem_perm : forall dir l1 l2, Permutation l1 l2 -> list_dir_mem dir l1 = list_dir_mem dir l2.
-Proof.
-  intros dir l1 l2 H; unfold list_dir_mem; induction H; simpl; try reflexivity.
-  - rewrite IHPermutation; reflexivity.
-  - destruct (String.eqb (FilePath.parent (fst y)) dir), (String.eqb (FilePath.parent (fst x)) dir); reflexivity.
-  - rewrite IHPermutation1; exact IHPermutation2.
-Qed.
-Lemma list_dir_count_perm : forall dir l1 l2, Permutation l1 l2 -> list_dir_count dir l1 = list_dir_count dir l2.
-Proof.
-  intros dir l1 l2 H; induction H; simpl; lia.
-Qed.
-
-Definition package_foldl (l : list (FilePath.T * Syntax.File)) (acc : PackageMap.t PackageSummary) : PackageMap.t PackageSummary :=
-  fold_left (fun a p => package_step (fst p) (snd p) a) l acc.
-Lemma package_foldl_cons : forall k e rest acc,
-  package_foldl ((k, e) :: rest) acc = package_foldl rest (package_step k e acc).
-Proof. reflexivity. Qed.
-Lemma package_summaries_foldl : forall fm,
-  package_summaries fm = package_foldl (Syntax.file_bindings fm) (PackageMap.empty PackageSummary).
-Proof. intro fm. unfold package_summaries, package_foldl. rewrite Syntax.FileMap.fold_1. reflexivity. Qed.
-
-Lemma package_foldl_find : forall l acc dir,
-  PackageMap.find dir (package_foldl l acc)
-  = (if list_dir_mem dir l
-     then Some (MakePackageSummary (list_dir_count dir l + summary_count (PackageMap.find dir acc)))
-     else PackageMap.find dir acc).
-Proof.
-  induction l as [|[k e] rest IH]; intros acc dir; [ reflexivity | ].
-  rewrite package_foldl_cons, (IH (package_step k e acc) dir).
-  unfold list_dir_mem; simpl existsb; simpl list_dir_count; cbn [fst snd].
-  destruct (String.eqb (FilePath.parent k) dir) eqn:Edir; cbn [orb].
-  - apply String.eqb_eq in Edir.
-    unfold package_step, package_map_add_main. rewrite !PackageFacts.add_eq_o by exact Edir.
-    cbn [summary_count summary_main_count]. rewrite !Edir.
-    destruct (existsb (fun b => String.eqb (FilePath.parent (fst b)) dir) rest) eqn:Erest;
-      [ | rewrite (list_dir_count_0 dir rest Erest) ]; f_equal; f_equal; lia.
-  - apply String.eqb_neq in Edir.
-    unfold package_step, package_map_add_main. rewrite !PackageFacts.add_neq_o by exact Edir. reflexivity.
-Qed.
-
-Definition package_main_count (dir : string) (fm : Syntax.Files) : nat := list_dir_count dir (Syntax.file_bindings fm).
-
-Lemma package_summaries_find : forall fm dir,
-  PackageMap.find dir (package_summaries fm)
-  = (if list_dir_mem dir (Syntax.file_bindings fm)
-     then Some (MakePackageSummary (package_main_count dir fm)) else None).
-Proof.
-  intros fm dir. rewrite package_summaries_foldl, package_foldl_find. unfold package_main_count.
-  rewrite PackageFacts.empty_o. cbn [summary_count].
-  destruct (list_dir_mem dir (Syntax.file_bindings fm)); [ f_equal; f_equal; lia | reflexivity ].
-Qed.
-
-Theorem file_in_package : forall fm path sf,
-  Syntax.maps_to_file path sf fm -> PackageMap.In (FilePath.parent path) (package_summaries fm).
-Proof.
-  intros fm path sf Hmt.
-  assert (Hin : In (path, sf) (Syntax.file_bindings fm)).
-  { unfold Syntax.file_bindings. apply Syntax.FileFacts.elements_mapsto_iff in Hmt. apply SetoidList.InA_alt in Hmt.
-    destruct Hmt as [[k' e'] [[Hk He] Hin']]. cbn in Hk, He. subst. exact Hin'. }
-  exists (MakePackageSummary (package_main_count (FilePath.parent path) fm)).
-  apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find.
-  assert (Hmem : list_dir_mem (FilePath.parent path) (Syntax.file_bindings fm) = true).
-  { unfold list_dir_mem. apply existsb_exists. exists (path, sf).
-    split; [ exact Hin | cbn [fst]; apply String.eqb_refl ]. }
-  rewrite Hmem. reflexivity.
-Qed.
-
+(* every package key in the one-pass summaries is some file binding's parent, proved over the fold, no list-scan. *)
 Theorem package_no_empty : forall fm dir,
   PackageMap.In dir (package_summaries fm) ->
   exists b, In b (Syntax.file_bindings fm) /\ FilePath.parent (fst b) = dir.
 Proof.
-  intros fm dir [s Hmt]. apply PackageFacts.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
-  destruct (list_dir_mem dir (Syntax.file_bindings fm)) eqn:Emem; [ | discriminate ].
-  unfold list_dir_mem in Emem. apply existsb_exists in Emem. destruct Emem as [b [Hin Heq]].
-  apply String.eqb_eq in Heq. exists b. split; [ exact Hin | exact Heq ].
+  intros fm dir Hin.
+  assert (Hgen : exists k e, Syntax.FileMap.MapsTo k e fm /\ FilePath.parent k = dir).
+  { revert Hin. unfold package_summaries.
+    apply (Collections.FileProperties.fold_rec_bis
+             (P := fun m acc =>
+                   PackageMap.In dir acc ->
+                   exists k e, Syntax.FileMap.MapsTo k e m /\ FilePath.parent k = dir)).
+    - intros m1 m2 acc Heq IH Hacc. destruct (IH Hacc) as [k [e [Hmt Hpar]]].
+      apply Syntax.FileFacts.find_mapsto_iff in Hmt. rewrite (Heq k) in Hmt.
+      apply Syntax.FileFacts.find_mapsto_iff in Hmt.
+      exists k, e. split; [ exact Hmt | exact Hpar ].
+    - intro Hacc. apply PackageFacts.empty_in_iff in Hacc. destruct Hacc.
+    - intros k e acc m' _ Hnin IH Hacc.
+      unfold package_step, package_map_add_main in Hacc.
+      apply PackageFacts.add_in_iff in Hacc. destruct Hacc as [Hd | Hacc].
+      + exists k, e. split; [ apply Syntax.FileMap.add_1; reflexivity | exact Hd ].
+      + destruct (IH Hacc) as [k' [e' [Hmt' Hpar']]].
+        exists k', e'. split; [ | exact Hpar' ].
+        apply Syntax.FileMap.add_2; [ | exact Hmt' ].
+        intro Heqk. assert (Hkk : k = k') by exact Heqk. subst k'.
+        apply Hnin. exists e'. exact Hmt'. }
+  destruct Hgen as [k [e [Hmt Hpar]]]. exists (k, e). split; [ | cbn [fst]; exact Hpar ].
+  unfold Syntax.file_bindings. apply Syntax.FileFacts.elements_mapsto_iff in Hmt.
+  apply SetoidList.InA_alt in Hmt. destruct Hmt as [[k2 e2] [[Hk He] Hin2]].
+  cbn in Hk, He. subst. exact Hin2.
 Qed.
-
-Theorem package_summary_main_count : forall fm dir s,
-  PackageMap.MapsTo dir s (package_summaries fm) -> summary_main_count s = package_main_count dir fm.
-Proof.
-  intros fm dir s Hmt. apply PackageFacts.find_mapsto_iff in Hmt. rewrite package_summaries_find in Hmt.
-  destruct (list_dir_mem dir (Syntax.file_bindings fm)); [ | discriminate ].
-  injection Hmt as <-. reflexivity.
-Qed.
-
-Theorem package_summaries_empty : forall dir,
-  PackageMap.find dir (package_summaries empty_files) = None.
-Proof.
-  intro dir. rewrite package_summaries_find.
-  replace (Syntax.file_bindings empty_files) with (@nil (FilePath.T * Syntax.File)); [ reflexivity | ].
-  unfold Syntax.file_bindings, empty_files. symmetry. apply Collections.FileProperties.elements_empty.
-Qed.
-
-(* map-equal file collections yield map-equal package summaries, so the backing tree never leaks *)
-Instance package_map_equal_equivalence : Equivalence (@PackageMap.Equal PackageSummary).
-Proof.
-  constructor.
-  - intros m k; reflexivity.
-  - intros m1 m2 H k; symmetry; apply H.
-  - intros m1 m2 m3 H1 H2 k; transitivity (PackageMap.find k m2); [ apply H1 | apply H2 ].
-Qed.
-Lemma package_step_proper : Proper (Syntax.FileMap.E.eq ==> eq ==> PackageMap.Equal ==> PackageMap.Equal) package_step.
-Proof.
-  intros k1 k2 Hk e1 e2 He a1 a2 Ha dk.
-  assert (Hkk : k1 = k2) by exact Hk. subst k2. subst e2.
-  unfold package_step, package_map_add_main.
-  destruct (String.eqb (FilePath.parent k1) dk) eqn:E.
-  - apply String.eqb_eq in E. rewrite !PackageFacts.add_eq_o by exact E. rewrite (Ha (FilePath.parent k1)); reflexivity.
-  - apply String.eqb_neq in E. rewrite !PackageFacts.add_neq_o by exact E. apply Ha.
-Qed.
-Lemma package_foldl_permutation : forall l1 l2 acc,
-  Permutation l1 l2 -> PackageMap.Equal (package_foldl l1 acc) (package_foldl l2 acc).
-Proof.
-  intros l1 l2 acc Hperm dir. rewrite !package_foldl_find.
-  rewrite (list_dir_mem_perm dir l1 l2 Hperm), (list_dir_count_perm dir l1 l2 Hperm). reflexivity.
-Qed.
-Lemma package_step_transpose : Collections.FileProperties.transpose_neqkey PackageMap.Equal package_step.
-Proof.
-  intros k1 k2 e1 e2 a _.
-  change (package_step k1 e1 (package_step k2 e2 a)) with (package_foldl ((k2, e2) :: (k1, e1) :: nil) a).
-  change (package_step k2 e2 (package_step k1 e1 a)) with (package_foldl ((k1, e1) :: (k2, e2) :: nil) a).
-  apply package_foldl_permutation. apply perm_swap.
-Qed.
-Theorem package_summaries_equal : forall fm1 fm2,
-  Syntax.FilesEqual fm1 fm2 -> PackageMap.Equal (package_summaries fm1) (package_summaries fm2).
-Proof.
-  intros fm1 fm2 Heq. unfold package_summaries.
-  apply (Collections.FileProperties.fold_Equal package_map_equal_equivalence package_step_proper package_step_transpose). exact Heq.
-Qed.
-
-Theorem package_summaries_build_permutation : forall ms nodes1 nodes2 p1 p2,
-  Permutation nodes1 nodes2 ->
-  build_program ms nodes1 = Some p1 -> build_program ms nodes2 = Some p2 ->
-  PackageMap.Equal (package_summaries (Syntax.files p1)) (package_summaries (Syntax.files p2)).
-Proof.
-  intros ms nodes1 nodes2 p1 p2 Hperm Hb1 Hb2. apply package_summaries_equal.
-  unfold build_program in *.
-  destruct (Syntax.files_of_nodes nodes1) as [fm1|] eqn:F1; [ | discriminate ].
-  destruct (Syntax.files_of_nodes nodes2) as [fm2|] eqn:F2; [ | discriminate ].
-  injection Hb1 as <-. injection Hb2 as <-. cbn [Syntax.files].
-  exact (Syntax.files_of_nodes_permutation nodes1 nodes2 fm1 fm2 Hperm F1 F2).
-Qed.
-
-Definition package_present_b (p : Syntax.Program) (key : string) : bool :=
-  list_dir_mem key (Syntax.file_bindings (Syntax.files p)).
-
-Record PackageRef (p : Syntax.Program) : Type := MakePackageRef {
-  package_ref_key : string ;
-  package_ref_ok  : package_present_b p package_ref_key = true
-}.
-Arguments package_ref_key {p} _.
-Arguments package_ref_ok {p} _.
-
-Lemma package_ref_present : forall p (r : PackageRef p),
-  exists path sf, Syntax.maps_to_file path sf (Syntax.files p) /\ FilePath.parent path = package_ref_key r.
-Proof.
-  intros p [k ok]; cbn. unfold package_present_b, list_dir_mem in ok.
-  apply existsb_exists in ok. destruct ok as [b [Hin Heqb]]. apply String.eqb_eq in Heqb.
-  exists (fst b), (snd b). split; [ | exact Heqb ].
-  unfold Syntax.maps_to_file. apply Syntax.FileFacts.find_mapsto_iff.
-  exact (Syntax.file_bindings_find (Syntax.files p) b Hin).
-Qed.
-
-(* identity IS key identity (the boolean proof field is irrelevant by UIP over bool — no axiom). *)
-Lemma package_ref_key_inj : forall p (r1 r2 : PackageRef p),
-  package_ref_key r1 = package_ref_key r2 -> r1 = r2.
-Proof.
-  intros p [k1 ok1] [k2 ok2] Heq; cbn in Heq; subst k2.
-  f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec).
-Qed.
-
-Definition package_ref_of_binding (p : Syntax.Program) (b : FilePath.T * Syntax.File)
-  (Hin : In b (Syntax.file_bindings (Syntax.files p))) : PackageRef p.
-Proof.
-  refine (MakePackageRef p (FilePath.parent (fst b)) _).
-  unfold package_present_b, list_dir_mem. apply existsb_exists.
-  exists b. split; [ exact Hin | apply String.eqb_refl ].
-Defined.
-
-Lemma package_ref_of_binding_key : forall p b Hin,
-  package_ref_key (package_ref_of_binding p b Hin) = FilePath.parent (fst b).
-Proof. reflexivity. Qed.
 
 Local Open Scope string_scope.
 
@@ -494,36 +268,6 @@ Proof. intros ms1 ms2 dir1 dir2 Hm Hd; subst; reflexivity. Qed.
 Definition selected_packages (p : Syntax.Program) : PackageMap.t PackageSummary := package_summaries (Syntax.files p).
 Definition selected_package_keys (p : Syntax.Program) : list string := map fst (PackageMap.elements (selected_packages p)).
 Definition selected_package_count (p : Syntax.Program) : nat := List.length (selected_package_keys p).
-
-Lemma selected_iff_file : forall p dir,
-  PackageMap.In dir (selected_packages p) <->
-  (exists b, In b (Syntax.file_bindings (Syntax.files p)) /\ FilePath.parent (fst b) = dir).
-Proof.
-  intros p dir. unfold selected_packages. split.
-  - apply package_no_empty.
-  - intros [b [Hin Heq]].
-    assert (Hmem : list_dir_mem dir (Syntax.file_bindings (Syntax.files p)) = true).
-    { unfold list_dir_mem. apply existsb_exists. exists b. split; [ exact Hin | rewrite Heq; apply String.eqb_refl ]. }
-    exists (MakePackageSummary (package_main_count dir (Syntax.files p))).
-    apply PackageFacts.find_mapsto_iff. rewrite package_summaries_find, Hmem. reflexivity.
-Qed.
-
-Lemma selected_count_empty : forall ms, selected_package_count (empty_program ms) = 0%nat.
-Proof.
-  intro ms. unfold selected_package_count, selected_package_keys, selected_packages.
-  assert (He : PackageMap.Empty (package_summaries (Syntax.files (empty_program ms)))).
-  { intros k e Hmt. apply PackageFacts.find_mapsto_iff in Hmt.
-    cbn [Syntax.files empty_program] in Hmt. rewrite (package_summaries_empty k) in Hmt. discriminate. }
-  rewrite (proj1 (PackageProperties.elements_Empty _) He). reflexivity.
-Qed.
-
-Lemma selected_one_dir : forall p b1 b2,
-  In b1 (Syntax.file_bindings (Syntax.files p)) -> In b2 (Syntax.file_bindings (Syntax.files p)) ->
-  FilePath.parent (fst b1) = FilePath.parent (fst b2) ->
-  PackageMap.In (FilePath.parent (fst b1)) (selected_packages p).
-Proof.
-  intros p b1 b2 Hin1 _ _. apply selected_iff_file. exists b1. split; [ exact Hin1 | reflexivity ].
-Qed.
 
 (* the fresh root layout: the go.mod, each root-level file, and one directory per nested first component *)
 
@@ -913,7 +657,7 @@ Proof.
   assert (Hmt : PackageMap.MapsTo dir s (selected_packages p))
     by (apply PackageFacts.elements_mapsto_iff, SetoidList.InA_alt; exists (dir, s); split; [ split; reflexivity | exact Hinel ]).
   assert (Hex : exists b, In b (Syntax.file_bindings (Syntax.files p)) /\ FilePath.parent (fst b) = dir).
-  { apply selected_iff_file. exists s. exact Hmt. }
+  { apply (package_no_empty (Syntax.files p) dir). exists s. exact Hmt. }
   destruct Hex as [b [_ Hpar]]. right. exists (fst b). exact Hpar.
 Qed.
 
