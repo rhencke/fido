@@ -726,17 +726,19 @@ if ./sink_test adv-nfr; then fail "nfr: a nested .fido regular file was not reje
 
 # ============================ Reserved temp suffix ============================
 # an abandoned REGULAR reserved-suffix temp (root and nested) is removed after a complete successful scan.
-mkdir -p adv-t1; ./sink_test adv-t1 || fail "t1: init"
+# temps map iff the suffix-stripped path is the root go.mod or a `.go` in THIS emission's manifest; the multi
+# emission (main.go + sub/main.go) certifies both a root and a nested target.
+mkdir -p adv-t1; ./sink_test adv-t1 multi || fail "t1: init"
 printf 'junk\n' > adv-t1/go.mod.fido-tmp-v1
-mkdir -p adv-t1/sub; printf 'junk\n' > adv-t1/sub/leftover.go.fido-tmp-v1
-./sink_test adv-t1 || fail "t1: sync failed with abandoned temps present"
+printf 'junk\n' > adv-t1/sub/main.go.fido-tmp-v1
+./sink_test adv-t1 multi || fail "t1: sync failed with abandoned temps present"
 [ -z "$(temps adv-t1)" ] || fail "t1: abandoned regular temps were not removed"
 # MULTIPLE temps are collected before deletion: an INVALID path elsewhere refuses BEFORE any temp is deleted.
-mkdir -p adv-t2; ./sink_test adv-t2 || fail "t2: init"
-printf 'a\n' > adv-t2/x.go.fido-tmp-v1; printf 'b\n' > adv-t2/y.go.fido-tmp-v1
+mkdir -p adv-t2; ./sink_test adv-t2 multi || fail "t2: init"
+printf 'a\n' > adv-t2/main.go.fido-tmp-v1; printf 'b\n' > adv-t2/sub/main.go.fido-tmp-v1
 printf 'package foreign\n' > adv-t2/foreign.go            # invalid (foreign .go) elsewhere in the tree
-if ./sink_test adv-t2; then fail "t2: a foreign .go did not refuse the run"; fi
-{ [ -f adv-t2/x.go.fido-tmp-v1 ] && [ -f adv-t2/y.go.fido-tmp-v1 ]; } || fail "t2: a collected temp was deleted before the complete scan succeeded (two-phase violated)"
+if ./sink_test adv-t2 multi; then fail "t2: a foreign .go did not refuse the run"; fi
+{ [ -f adv-t2/main.go.fido-tmp-v1 ] && [ -f adv-t2/sub/main.go.fido-tmp-v1 ]; } || fail "t2: a collected temp was deleted before the complete scan succeeded (two-phase violated)"
 rm -f adv-t2/foreign.go
 # a temp that is a SYMLINK / DIRECTORY / special is NOT owned → refuse + preserve.
 mkdir -p adv-tsl; ./sink_test adv-tsl || fail "tsl: init"; ln -s /etc/hostname adv-tsl/main.go.fido-tmp-v1
@@ -749,11 +751,12 @@ mkdir -p adv-tsp; ./sink_test adv-tsp || fail "tsp: init"; mkfifo adv-tsp/main.g
 if ./sink_test adv-tsp; then fail "tsp: a reserved-suffix special (fifo) was not rejected"; fi
 [ -p adv-tsp/main.go.fido-tmp-v1 ] || fail "tsp: the reserved-suffix fifo was removed"
 # a REGULAR reserved-suffix file whose suffix-stripped path MAPS to a Fido final path (root go.mod or a
-# filepath_ok .go) is Fido-owned (forgeable convention) and removed; a NON-MAPPABLE one is PRESERVED, refused clearly.
-mkdir -p adv-town; ./sink_test adv-town || fail "town: init"
-printf 'x\n' > adv-town/notused.go.fido-tmp-v1                 # notused.go is filepath_ok → mappable → owned
-mkdir -p adv-town/sub; printf 'x\n' > adv-town/sub/leftover.go.fido-tmp-v1
-./sink_test adv-town || fail "town: sync failed with mappable abandoned temps present"
+# `.go` in THIS emission's certified manifest) is Fido-owned (forgeable convention) and removed; a
+# NON-CERTIFIED one is PRESERVED, refused clearly.  The multi emission certifies main.go + sub/main.go.
+mkdir -p adv-town; ./sink_test adv-town multi || fail "town: init"
+printf 'x\n' > adv-town/main.go.fido-tmp-v1                    # main.go is in the multi manifest → mappable → owned
+printf 'x\n' > adv-town/sub/main.go.fido-tmp-v1               # sub/main.go is in the manifest → mappable → owned
+./sink_test adv-town multi || fail "town: sync failed with mappable abandoned temps present"
 [ -z "$(temps adv-town)" ] || fail "town: mappable reserved-suffix temps were not collected+removed"
 for bad in notes.fido-tmp-v1 hand-written.fido-tmp-v1 UPPER.go.fido-tmp-v1 a_b.go.fido-tmp-v1; do
   d=/workspace/adv-tng-$(echo "$bad" | tr './' '__'); mkdir -p "$d"; ./sink_test "$d" || fail "tng: init $bad"
@@ -816,14 +819,16 @@ if ./sink_test /workspace/adv-resv reserved; then fail "a desired path inside .f
 mkdir -p /workspace/sreal; printf 'x\n' > /workspace/sreal/keep; ln -s /workspace/sreal /workspace/slink
 if ./sink_test /workspace/slink/child; then fail "wrote through a prefix symlink"; fi
 [ ! -e /workspace/sreal/child ] || fail "a prefix symlink created a child in the referent"
-# every path OUTSIDE the intrinsic FilePath.T `.go` domain (mirrors FilePath.path_ok) rejects BEFORE any
-# effect, materializing nothing — no file, no parent dir, and CRUCIALLY no nested .fido from ensure_dir_chain.
+# every path the certified source would never emit rejects BEFORE any effect, materializing nothing — no file,
+# no parent dir, and CRUCIALLY no nested .fido from ensure_dir_chain.  The `.fido`/nested-`.fido`/`..` shapes
+# are refused by [path_safe] (filesystem safety); the vendor/testdata/upper/underscore/non-`.go` shapes are
+# refused by certified-manifest membership (the FilePath.T grammar is owned by Rocq, not re-decided here).
 for pm in p-nestedfido p-vendor p-testdata p-upper p-underscore p-dotdot p-nongo; do
   d=/workspace/adv-$pm; rm -rf "$d"; mkdir -p "$d"
-  if ./sink_test "$d" "$pm"; then fail "$pm: a path outside the intrinsic FilePath.T domain was NOT rejected"; fi
-  [ -z "$(find "$d" -mindepth 1)" ] || { find "$d"; fail "$pm: a rejected out-of-domain path materialized something under the root"; }
+  if ./sink_test "$d" "$pm"; then fail "$pm: an unsafe/uncertified path was NOT rejected"; fi
+  [ -z "$(find "$d" -mindepth 1)" ] || { find "$d"; fail "$pm: a rejected path materialized something under the root"; }
 done
-echo "fido: out-of-domain path rejection OK — nested/first .fido, vendor/testdata, upper/underscore/dotdot/non-.go"
+echo "fido: unsafe/uncertified path rejection OK — .fido/nested-.fido/.. via path-safety; vendor/testdata/upper/underscore/non-.go via manifest membership"
 # ARBITRARY-LENGTH PATH: a very long canonical `.go` path is IN the domain (no magic length cap) — it must be
 # ACCEPTED and materialized like any other path (a numeric bound is not a correctness invariant).
 d=/workspace/adv-long; rm -rf "$d"; mkdir -p "$d"
@@ -1401,4 +1406,7 @@ RUN cp /workspace/plugin/sink.ml /workspace/e2e/apply.ml /tmp/ \
     && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg sink.ml apply.ml -o /workspace/fido-apply ) \
     && chmod 0755 /workspace/fido-apply
 COPY --from=generated-module /generated/ /generated/
+# the certified path manifest beside the pristine tree — apply compares the discovered .go set against it and
+# passes it to the sink, which checks membership rather than re-deciding the FilePath.T grammar.
+COPY --from=emit /workspace/generated.manifest /generated.manifest
 ENTRYPOINT ["/workspace/fido-apply", "/dest"]

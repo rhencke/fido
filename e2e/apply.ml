@@ -6,6 +6,7 @@
    depends on a successful go-e2e), not by this adapter. *)
 
 let src = "/generated"
+let manifest_path = src ^ ".manifest"   (* the certified `.go` path set, a SIBLING of the pristine tree *)
 
 let read_whole p =
   let ic = open_in_bin p in
@@ -24,10 +25,21 @@ let rec go_files rel acc =
     | _ -> acc)
     acc (Sys.readdir dir)
 
+(* the certified relative-path set the materializer emitted beside the tree (one path per line). *)
+let read_manifest p =
+  List.fold_left (fun set line -> if line = "" then set else Sink.SSet.add line set)
+    Sink.SSet.empty (String.split_on_char '\n' (read_whole p))
+
 let () =
   let dst = if Array.length Sys.argv >= 2 then Sys.argv.(1) else "/dest" in
   let go_mod = read_whole (Filename.concat src "go.mod") in
   let entries = List.rev (go_files "" []) in
-  match (try `Ok (Sink.sync dst go_mod entries) with Sink.Fail m -> `Fail m) with
+  let certified = read_manifest manifest_path in
+  (* compare the DISCOVERED pristine .go path set against the certified manifest BEFORE any effect: the sink
+     then checks membership rather than re-deciding the FilePath.T grammar. *)
+  let discovered = List.fold_left (fun s (rel, _) -> Sink.SSet.add rel s) Sink.SSet.empty entries in
+  if not (Sink.SSet.equal discovered certified) then
+    (prerr_endline "fido apply: refused: the discovered pristine .go set does not match the certified manifest"; exit 1);
+  match (try `Ok (Sink.sync dst go_mod entries certified) with Sink.Fail m -> `Fail m) with
   | `Ok n -> Printf.printf "fido apply: synced %d file(s) into %s\n" n dst
   | `Fail m -> prerr_endline ("fido apply: refused: " ^ m); exit 1

@@ -63,6 +63,7 @@ let marker_bytes = "fido-control-directory.  do not edit.\n"
 let lock_name    = "index.lock"                (* git-style: created O_EXCL, removed at end *)
 let gomod_name   = "go.mod"
 let temp_suffix  = ".fido-tmp-v1"              (* reserved sibling temp; the lock serializes, so no nonce *)
+let manifest_suffix = ".manifest"             (* the certified `.go` path set, written BESIDE the tree (never inside it) *)
 
 exception Fail of string
 let fail fmt = Printf.ksprintf (fun s -> raise (Fail s)) fmt
@@ -116,30 +117,18 @@ let write_new p bytes =
      let base = match e with Fail m -> m | _ -> Printexc.to_string e in
      fail "cannot write %s: %s%s" p base (match close_msg with Some c -> " | fd close failed: " ^ c | None -> ""))
 
-(* ---- the formal output domain: the sink's defensive path validator accepts EXACTLY the canonical strings
-   emitted from the intrinsic [FilePath.T] for a `.go` file (it does not broaden the domain, and it faithfully
-   MIRRORS `FilePath.path_ok` — a weaker check would let a noncanonical path, a `go build`-ignored dir, or a
-   nested control name through, and `ensure_dir_chain` would then materialize it).  Kept in exact
-   correspondence with `FilePath.v`: `is_lower`/`is_lower_digit`/`component_ok`/`reserved_dir`/
-   `dir_component_ok`/`filename_ok`/`path_ok`. ---- *)
-let is_lower c = c >= 'a' && c <= 'z'
-let is_lower_digit c = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-let component_ok s =
-  String.length s > 0 && is_lower s.[0]
-  && (let ok = ref true in String.iteri (fun i c -> if i > 0 && not (is_lower_digit c) then ok := false) s; !ok)
-let reserved_dir s = s = "testdata" || s = "vendor"            (* dirs `go build ./...` IGNORES *)
-let dir_component_ok s = component_ok s && not (reserved_dir s)
-let filename_ok s =
-  let n = String.length s in
-  n >= 3 && String.sub s (n - 3) 3 = ".go" && component_ok (String.sub s 0 (n - 3))
-(* the whole `.go` path: ARBITRARY LENGTH (no cap — mirrors `FilePath.path_ok`, which has none; a numeric
-   bound is not a correctness invariant); every directory component admissible and not `go build`-ignored;
-   the last segment an admissible `.go` filename.  A leading dot (`.fido`), `..`, `_`, upper-case, `vendor`/
-   `testdata`, a NUL, an empty/absolute/repeated-slash segment, or a non-`.go` basename all FAIL here. *)
-let filepath_ok rel =
-  match List.rev (String.split_on_char '/' rel) with
-  | last :: rdirs -> List.for_all dir_component_ok rdirs && filename_ok last
-  | [] -> false
+(* ---- the DISTINCT filesystem-safety predicate.  The intrinsic `.go` output GRAMMAR (lowercase canonical
+   components, no `vendor`/`testdata`, a `.go` basename) is owned SOLELY by `FilePath.path_ok` in Rocq and
+   carried here as the certified manifest — the sink no longer re-decides it.  This predicate enforces only
+   the effect-boundary facts a filesystem needs: a path must be RELATIVE, contain no empty / `.` / `..`
+   (traversal / non-canonical) component, no `.fido` control-namespace component, and no NUL — so
+   `ensure_dir_chain` can never escape the root or collide with the control dir regardless of the manifest.
+   It deliberately does NOT enforce case / reserved-dir / `.go`-suffix grammar; a safe-but-uncertified path
+   is rejected by manifest membership, not here. ---- *)
+let path_safe rel =
+  rel <> "" && rel.[0] <> '/' && not (String.contains rel '\000')
+  && List.for_all (fun c -> c <> "" && c <> "." && c <> ".." && c <> control_dir)
+       (String.split_on_char '/' rel)
 
 let split_parent parts =
   match List.rev parts with
@@ -186,15 +175,15 @@ let go_ignored_name name = name <> "" && (name.[0] = '.' || name.[0] = '_')
 let go_ignored_dir name = go_ignored_name name || name = "testdata" || name = "vendor"
 
 (* a reserved-suffix regular file is Fido-owned as an abandoned temp ONLY if removing the suffix yields a
-   path Fido could actually have STAGED: exactly the root `go.mod`, or a `.go` path in the intrinsic FilePath.T
-   output domain (the SAME [filepath_ok]).  A suffix entry that maps to neither is NOT Fido state — it is
-   preserved and makes the run refuse clearly rather than being silently adopted or deleted. *)
-let temp_maps_to_final final = final = gomod_name || filepath_ok final
+   path Fido is STAGING now: exactly the root `go.mod`, or a `.go` path in the certified manifest for this
+   emission.  A suffix entry that maps to neither is NOT Fido state — it is preserved and makes the run refuse
+   clearly rather than being silently adopted or deleted. *)
+let temp_maps_to_final certified final = final = gomod_name || SSet.mem final certified
 
 (* ---- PHASE 1: ONE fail-closed inspection of the Go-discovered namespace.  Validate foreign-Go/module/
    control rules and COLLECT (never delete) every VALID abandoned Fido temp; any invalid/uninspectable path
    rejects the whole run before any generated-file mutation.  Opaque Go-ignored trees are not entered. ---- *)
-let rec inspect root header rel temps =
+let rec inspect certified root header rel temps =
   let dir = if rel = "" then root else Filename.concat root rel in
   let names =
     try Sys.readdir dir
@@ -224,8 +213,8 @@ let rec inspect root header rel temps =
              a possible Fido final path; Fido's own final paths are never dot/underscore, so a dot/underscore
              suffix entry is never mappable → refuses. *)
           let final = String.sub child_rel 0 (String.length child_rel - String.length temp_suffix) in
-          if not (temp_maps_to_final final) then
-            fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or an intrinsic FilePath.T .go) — refusing (preserved)" child_rel
+          if not (temp_maps_to_final certified final) then
+            fail "a reserved-suffix entry %s does not map to a Fido final path (root go.mod or a certified-manifest .go) — refusing (preserved)" child_rel
           else if k = Unix.S_REG then temps := SSet.add p !temps
           else fail "a reserved-suffix entry %s is a symlink/directory/special, not a regular temp — refusing" child_rel
         end
@@ -247,7 +236,7 @@ let rec inspect root header rel temps =
           (* a remaining Go-ignored dot/underscore NON-directory name that is NOT a reserved-suffix / go.mod /
              `.go` (e.g. `.gitignore`, a dot/underscore `.go` file): `go build ./...` ignores it, so it is
              opaque foreign state — preserved. *)
-        else if k = Unix.S_DIR then inspect root header child_rel temps
+        else if k = Unix.S_DIR then inspect certified root header child_rel temps
           (* a visible directory NOT named `go.mod` or `*.go`: recurse into the Go-discovered namespace *)
         (* other foreign non-Go files/symlinks/specials: preserved *))
     names
@@ -361,20 +350,27 @@ let materialize dir go_mod entries =
     let (parent_rel, _base) = split_parent (String.split_on_char '/' rel) in
     ensure_dir_chain dir parent_rel (ref []);
     write_new (Filename.concat dir rel) bytes) entries;
+  (* emit the certified `.go` path manifest BESIDE the tree (a sibling, never inside it — so it never enters
+     the go-built / byte-compared module), sorted for a canonical byte image: this is the certified identity
+     the publication sink checks membership against, carried from the FilePath.T-typed transport. *)
+  write_new (dir ^ manifest_suffix)
+    (String.concat "" (List.map (fun (rel, _) -> rel ^ "\n")
+                         (List.sort (fun (a, _) (b, _) -> compare a b) entries)));
   1 + List.length entries
 
 let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.rename)
          ?(before_install = fun _ -> ()) ?(before_write = fun _ -> ()) ?(before_delete = fun _ -> ())
-         dir go_mod entries =
+         dir go_mod entries certified =
   let header = first_line_of_string go_mod in
   let control_abs = Filename.concat dir control_dir in
   let lock_abs    = Filename.concat control_abs lock_name in
   (* A. validate the root chain (prefix symlinks) — before any effect *)
   validate_root_chain dir;
-  (* B. compute the desired outputs (go.mod at root + every .go); [filepath_ok] enforces the EXACT intrinsic
-        FilePath.T `.go` domain (lowercase canonical components, no `.fido`/`..`/`_`/upper, no `vendor`/
-        `testdata` dir, `.go` basename, arbitrary length) — so a noncanonical path or a nested control name is
-        rejected BEFORE any effect and can never be materialized by [ensure_dir_chain] *)
+  (* B. compute the desired outputs (go.mod at root + every .go); [path_safe] rejects an unsafe path
+        (absolute/traversal/control-namespace/NUL) and [certified] membership rejects any path not in the
+        FilePath.T-derived manifest — the intrinsic `.go` grammar itself is owned by `FilePath.path_ok` in
+        Rocq and carried here, never re-decided — so an unsafe or uncertified path is rejected BEFORE any
+        effect and can never be materialized by [ensure_dir_chain] *)
   (* immediately validate the transport entries into a desired-output MAP keyed by relative path — REJECTING
      a duplicate relative path BEFORE any filesystem effect (a standard map's [add] would silently overwrite),
      and deriving a CANONICAL path-sorted iteration ([SMap.bindings]) that does NOT depend on transport order:
@@ -386,7 +382,8 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
       SMap.add rel v m in
     let m0 = add SMap.empty gomod_name (Filename.concat dir gomod_name, "", gomod_name, go_mod) in
     List.fold_left (fun m (rel, bytes) ->
-      if not (filepath_ok rel) then fail "refusing a path outside the intrinsic FilePath.T `.go` domain: %s" rel;
+      if not (path_safe rel) then fail "refusing an unsafe output path (absolute / traversal / control-namespace / NUL): %s" rel;
+      if not (SSet.mem rel certified) then fail "refusing a path not in the certified manifest: %s" rel;
       let (parent_rel, base) = split_parent (String.split_on_char '/' rel) in
       add m rel (Filename.concat dir rel, parent_rel, base, bytes)) m0 entries in
   let desired = List.map snd (SMap.bindings desired_map) in
@@ -406,7 +403,7 @@ let sync ?(checkpoint = fun _ -> ()) ?(unlink = Unix.unlink) ?(rename = Unix.ren
     (* E. PHASE 1 — inspect the Go-discovered namespace fail-closed, collecting VALID mapped abandoned temps
           into an unordered-unique SET (no deletion) *)
     let temps = ref SSet.empty in
-    inspect dir header "" temps;
+    inspect certified dir header "" temps;
     (* F. PHASE 2 — delete the validated abandoned temps *)
     delete_temps unlink !temps;
     (* G. preflight the complete desired image: every final target absent or Fido-owned, every sibling temp

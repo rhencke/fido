@@ -53,8 +53,9 @@ let () =
     let es1 = [ ("main.go", mk "ROOT"); ("sub/main.go", mk "SUB"); ("a/x.go", mk "AX") ] in
     let es2 = [ ("a/x.go", mk "AX"); ("sub/main.go", mk "SUB"); ("main.go", mk "ROOT") ] in
     let dir_a = root and dir_b = root ^ "-perm-b" in
-    let _ = Sink.sync dir_a go_mod es1 in
-    let _ = Sink.sync dir_b go_mod es2 in
+    let cert es = List.fold_left (fun s (rel, _) -> Sink.SSet.add rel s) Sink.SSet.empty es in
+    let _ = Sink.sync dir_a go_mod es1 (cert es1) in
+    let _ = Sink.sync dir_b go_mod es2 (cert es2) in
     List.iter (fun (rel, _) ->
       let a = read_all (Filename.concat dir_a rel) and b = read_all (Filename.concat dir_b rel) in
       if a <> b then (Printf.eprintf "sink_test: perm mismatch at %s\n" rel; exit 1))
@@ -83,6 +84,16 @@ let () =
     | "p-nongo"      -> [ ("main.txt", mk "N") ]           (* non-`.go` basename *)
     | "p-long"       -> [ ((String.make 205 'a') ^ ".go", mk "L") ]  (* arbitrary length: ACCEPTED (no cap) *)
     | _              -> [ ("main.go", mk "ROOT") ] in
+  (* the certified manifest for this emission: the grammar-domain adversarial images (reserved-dir / case /
+     underscore / non-`.go`) carry a path that a real FilePath.T-derived manifest would NEVER contain, so
+     their certified set is EMPTY and the sink refuses by membership; the filesystem-unsafe images
+     (`.fido`/nested-`.fido`/`..`) are refused by [path_safe] regardless.  Legit images certify their paths. *)
+  let legit = match image with
+    | "reserved" | "p-nestedfido" | "p-vendor" | "p-testdata" | "p-upper" | "p-underscore" | "p-dotdot" | "p-nongo" -> false
+    | _ -> true in
+  let certified =
+    if legit then List.fold_left (fun s (rel, _) -> Sink.SSet.add rel s) Sink.SSet.empty entries
+    else Sink.SSet.empty in
   let checkpoint label =
     if has ("crash-" ^ label) then
       (Printf.eprintf "sink_test: crashing at %s\n%!" label; Unix._exit 137)
@@ -104,7 +115,7 @@ let () =
   let before_delete p =
     if has "foreign-before-delete" && has_sub p then make_foreign p in
   match (try `Ok (Sink.sync ~checkpoint ~unlink ~rename ~before_install ~before_write
-                    ~before_delete root go_mod entries)
+                    ~before_delete root go_mod entries certified)
          with Sink.Fail m -> `Fail m) with
   | `Ok n ->
     let check rel bytes =
