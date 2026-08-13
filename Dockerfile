@@ -313,23 +313,26 @@ sealed() { # <label> <public sentinel in the module under test> <qualified term 
   grep -qF "$3" /tmp/sealed.log \
     || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
   echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
-# the three verdict-payload record constructors are sealed behind CAPABILITY: a client cannot forge an
-# accepted program, a failure, or an outside-scope result — `compile` is the only way to one.  These are the
-# LIVE constructors (RC-01 recut), not the historical Make* names, so the probes prove the real seal.
-sealed F Compilable.compile Compilable.MkProg
-sealed G Compilable.compile Compilable.Capability.MkProg
-sealed H Compilable.compile Compilable.MkFail
-sealed I Compilable.compile Compilable.Capability.MkFail
-sealed J Compilable.compile Compilable.MkOut
-sealed K Compilable.compile Compilable.Capability.MkOut
+# the decision, its verdict payloads, and the retained program payload are sealed behind CAPABILITY: a client
+# cannot forge a decision, an accepted/rejected/outside payload, or a program — `compile` is the only way to one.
+sealed F Compilable.compile Compilable.MkDecision
+sealed G Compilable.compile Compilable.Capability.MkDecision
+sealed H Compilable.compile Compilable.MkProgram
+sealed I Compilable.compile Compilable.Capability.MkProgram
+sealed J Compilable.compile Compilable.MkCompiled
+sealed K Compilable.compile Compilable.Capability.MkCompiled
+sealed L Compilable.compile Compilable.MkRejected
+sealed M Compilable.compile Compilable.Capability.MkRejected
+sealed N Compilable.compile Compilable.MkOutside
+sealed O Compilable.compile Compilable.Capability.MkOutside
 # the raw core record, its constructor, and the now-private elaboration that builds it are all sealed, so no
-# client can assemble a peer Core or mint one outside compile — the C4 exact-core-path repair (RC-01).
-sealed L Compilable.compile Compilable.MkCore
-sealed M Compilable.compile Compilable.Capability.MkCore
-sealed N Compilable.compile Compilable.CoreRep
-sealed O Compilable.compile Compilable.Capability.CoreRep
-sealed P Compilable.compile Compilable.elaborate
-sealed Q Compilable.compile Compilable.Capability.elaborate
+# client can assemble a peer Core or mint one outside compile — the exact-core-path repair.
+sealed P Compilable.compile Compilable.MkCore
+sealed Q Compilable.compile Compilable.Capability.MkCore
+sealed R Compilable.compile Compilable.CoreRep
+sealed S Compilable.compile Compilable.Capability.CoreRep
+sealed T Compilable.compile Compilable.elaborate
+sealed U Compilable.compile Compilable.Capability.elaborate
 # the MINT authority: the raw token constructor and its representation are private.  The carrier pack
 # constructor is deliberately NOT in this list — it is a reducible carrier rather than a mint, and cannot
 # be applied without an inhabitant of the indexed token type.
@@ -383,30 +386,44 @@ mintfail AD "an image authorized by an equality proof instead of a token" \
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
 From Fido Require Import Syntax Compilable Safe Emit.
-(* a client can still do EVERYTHING the pipeline needs, using only the sealed public surface. *)
-Definition outcome_case (p : Syntax.Program) : nat :=
-  match Compilable.compile p with
-  | Compilable.Compiled _ _ => 0 | Compilable.Rejected _ => 1 | Compilable.OutsideScope _ => 2 end.
-(* query the exact ACCEPTED core through the returned capability *)
+(* a client can do EVERYTHING the pipeline needs over the ONE decided core, using only the sealed public surface. *)
+Definition the_core (p : Syntax.Program) : Compilable.Core p := Compilable.decided_core (Compilable.compile p).
+Definition decision_case (p : Syntax.Program) : nat :=
+  match Compilable.verdict (Compilable.compile p) with
+  | Compilable.Compiled _ => 0 | Compilable.Rejected _ => 1 | Compilable.OutsideScope _ => 2 end.
+(* SYN-E01: the client obtains the one decided core and reads EACH branch's fact over that very core, by type. *)
+Definition branch_fact (p : Syntax.Program) :
+  match Compilable.verdict (Compilable.compile p) with
+  | Compilable.Compiled _     => Compilable.core_diagnostics (the_core p) = nil
+  | Compilable.Rejected _     => Compilable.core_diagnostics (the_core p) <> nil
+  | Compilable.OutsideScope _ => Compilable.core_boundaries  (the_core p) <> nil
+  end :=
+  match Compilable.verdict (Compilable.compile p) as v return
+    (match v with
+     | Compilable.Compiled _     => Compilable.core_diagnostics (the_core p) = nil
+     | Compilable.Rejected _     => Compilable.core_diagnostics (the_core p) <> nil
+     | Compilable.OutsideScope _ => Compilable.core_boundaries  (the_core p) <> nil end) with
+  | Compilable.Compiled pl     => Compilable.c_accepted pl
+  | Compilable.Rejected pl     => Compilable.r_rejected pl
+  | Compilable.OutsideScope pl => Compilable.o_blocked pl
+  end.
+(* query the exact ACCEPTED core through the retained program payload Safe keeps *)
 Definition accepted_core (cp : Compilable.Program) : Compilable.Core (Compilable.source cp) :=
   Compilable.core cp.
 Definition accepted_diags (cp : Compilable.Program) := Compilable.core_diagnostics (Compilable.core cp).
 Definition accepted_bounds (cp : Compilable.Program) := Compilable.core_boundaries (Compilable.core cp).
-(* query the exact REJECTED and OUTSIDE cores through their returned payloads *)
-Definition rejected_core {p} (f : Compilable.Failure p) : Compilable.Core p := Compilable.failure_core f.
-Definition outside_of_core {p} (o : Compilable.Outside_ p) : Compilable.Core p := Compilable.outside_core o.
-(* certify (proof-taking) and emit through the accepted capability *)
+(* certify (proof-taking) and emit through the accepted program *)
 Definition certify_it (cp : Compilable.Program) (H : Safe.Property cp) : Safe.Program := Safe.certify cp H.
 Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
-(* the canonical end-to-end client mint: compile -> certify -> of_safe *)
+(* the canonical end-to-end client mint: compile -> program -> certify -> of_safe *)
 Definition emit_from_capability (cp : Compilable.Program) (H : Safe.Property cp) : Emit.Image := Emit.of_safe (Safe.certify cp H).
 Definition emitted_bytes (cp : Compilable.Program) (H : Safe.Property cp) := Emit.transport (emit_from_capability cp H).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
-echo "fido: sealed positive control — three-way Outcome destruct, accepted diagnostics/boundaries, rejected and outside core queries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-Q/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
+echo "fido: sealed positive control — one decided core projected, three-way verdict matched, each branch fact read over that same core, accepted diagnostics/boundaries, certify and emit all reachable (as required)"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-U/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
