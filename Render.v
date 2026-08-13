@@ -75,6 +75,13 @@ Definition render_literal (l : Syntax.Literal) : string :=
 Definition expr_is_unary (e : Syntax.Expr) : bool :=
   match e with Syntax.Unary _ _ => true | _ => false end.
 
+(* One comma-joined argument list, parameterized by the element renderer, so there is a single traversal. *)
+Fixpoint render_arglist (render_elem : Syntax.Expr -> string) (es : list Syntax.Expr) : string :=
+  match es with
+  | []      => ""
+  | x :: xs => render_elem x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_arglist render_elem xs end)
+  end.
+
 (* A unary operand or application head that is itself unary is parenthesized, so the source cannot spell `--`. *)
 Fixpoint render_expr (e : Syntax.Expr) : string :=
   match e with
@@ -84,37 +91,17 @@ Fixpoint render_expr (e : Syntax.Expr) : string :=
       "-" ++ (if expr_is_unary e' then "(" ++ render_expr e' ++ ")" else render_expr e')
   | Syntax.Application head args =>
       (if expr_is_unary head then "(" ++ render_expr head ++ ")" else render_expr head)
-      ++ "("
-      ++ (fix render_arglist (es : list Syntax.Expr) : string :=
-            match es with
-            | []      => ""
-            | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_arglist xs end)
-            end) args
-      ++ ")"
+      ++ "(" ++ render_arglist render_expr args ++ ")"
   end.
 
-(* The argument-list rendering as a top-level function, matching [render_expr]'s inner list rendering. *)
-Fixpoint render_args (es : list Syntax.Expr) : string :=
-  match es with
-  | []      => ""
-  | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_args xs end)
-  end.
+(* The one argument renderer both the application case and declaration rendering call. *)
+Definition render_args (es : list Syntax.Expr) : string := render_arglist render_expr es.
 
 Lemma render_app : forall head args,
   render_expr (Syntax.Application head args)
   = (if expr_is_unary head then "(" ++ render_expr head ++ ")" else render_expr head)
     ++ "(" ++ render_args args ++ ")".
-Proof.
-  intros head args. cbn [render_expr].
-  assert (Haux : forall es,
-    (fix render_arglist (es0 : list Syntax.Expr) : string :=
-       match es0 with
-       | []      => ""
-       | x :: xs => render_expr x ++ (match xs with [] => "" | _ :: _ => ", " ++ render_arglist xs end)
-       end) es = render_args es).
-  { induction es as [ | x xs IH ]; [ reflexivity | ]. cbn [render_args]. rewrite <- IH. reflexivity. }
-  rewrite Haux. reflexivity.
-Qed.
+Proof. intros head args. reflexivity. Qed.
 
 Fixpoint render_names (bs : list Syntax.BindingName) : string :=
   match bs with
@@ -358,9 +345,10 @@ Lemma render_args_ascii_of : forall es,
   List.Forall (fun e => Names.str_ascii (render_expr e) = true) es ->
   Names.str_ascii (render_args es) = true.
 Proof.
+  unfold render_args.
   induction es as [ | e es' IH ]; intro HF; [ reflexivity | ].
   inversion HF as [ | x xs Hx Hxs ]; subst.
-  cbn [render_args]. rewrite str_ascii_app, Hx, Bool.andb_true_l.
+  cbn [render_arglist]. rewrite str_ascii_app, Hx, Bool.andb_true_l.
   destruct es' as [ | e2 es'' ]; [ reflexivity | ].
   rewrite str_ascii_app. change (Names.str_ascii ", ") with true. rewrite Bool.andb_true_l.
   apply IH; exact Hxs.
