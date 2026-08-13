@@ -34,7 +34,9 @@ empirically:
 - Compilable/Safe/Emit seal cleanly because none of them is `vm_compute`-reduced in a proof; the occurrence
   layer is different — it is computed.
 
-This is a foundational fork, so it is Rob's call, not an autonomous route-around:
+The full write-up for the reviewer — mechanism, the empirical scratch, and the options — is
+`.review/RC01_SEALING_CONFLICT.md`. This is a foundational fork, so it is Rob's call and the reviewer's to
+adjudicate, not an autonomous route-around:
 
 - **A (cheap):** do not opaque-seal the occurrence/index/ref layer; keep it constructor-transparent because the
   `vm_compute` witness needs it. RC-01.5's constructor-hiding stays unmet for these types (documented reason);
