@@ -76,7 +76,7 @@ Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Compila
   | Index.ApplicationArgument _ =>
       match Index.occurrence_parent occ with
       | Some pid =>
-          match Index.source_occurrence_at f pid with
+          match Index.member_of idx path pid with
           | Some pocc =>
               match Index.view_expr pocc with
               | Some (Syntax.Application (Syntax.Name h) _) =>
