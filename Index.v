@@ -57,28 +57,12 @@ Inductive Role :=
 | ApplicationHead
 | ApplicationArgument (n : nat).
 
-(* small structural metadata, with no copy of the recursive subtree *)
-Record Meta := MakeMeta {
-  kind        : Kind;
-  parent      : option positive;
-  role        : Role;
-  subtree_end : positive
-}.
-
-Definition root_id : positive := 1.
-Definition package_id  : positive := 2.
 
 (* total extraction from a provably-present option, the basis for the total reference API *)
 Definition option_get {A} (o : option A) : o <> None -> A :=
   match o with Some a => fun _ => a | None => fun H => False_rect A (H eq_refl) end.
-Lemma option_get_eq {A} (o : option A) (H : o <> None) (a : A) : o = Some a -> option_get o H = a.
-Proof. intros Heq. subst o. reflexivity. Qed.
 Lemma option_get_some {A} (o : option A) : forall (H : o <> None), o = Some (option_get o H).
 Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. Qed.
-
-(* the import list is intrinsically nil, and consuming it structurally makes a future constructor break here *)
-Lemma import_list_nil : forall (l : list Syntax.ImportSpec), l = [].
-Proof. intros [|i rest]; [ reflexivity | destruct i ]. Qed.
 
 (* the three spec shapes share one occurrence kind; this is the retained spec payload *)
 Inductive AnySpec : Type :=
@@ -86,246 +70,478 @@ Inductive AnySpec : Type :=
 | ASVar   : Syntax.VarSpec  -> AnySpec
 | ASType  : Syntax.TypeSpec -> AnySpec.
 
-Inductive View : Kind -> Type :=
-| FileView          : Syntax.File         -> View FileKind
-| PackageClauseView : Syntax.PackageClause -> View PackageClauseKind
-| TopLevelView      : Syntax.TopLevelDecl -> View TopLevelKind
-| DeclarationView   : Syntax.Declaration  -> View DeclarationKind
-| SpecView          : AnySpec             -> View SpecKind
-| BindingNameView   : Syntax.BindingName  -> View BindingNameKind
-| TypeNameView      : Syntax.TypeExpr     -> View TypeNameKind
-| StatementView     : Syntax.Stmt         -> View StatementKind
-| BlockView         : Syntax.Block        -> View BlockKind
-| ExpressionView    : Syntax.Expr         -> View ExpressionKind.
+(* Intrinsic cursors: a transparent selector into the source tree; each inhabitant denotes one real node. *)
+Inductive CList {A} {C : A -> Type} : list A -> Type :=
+| CL_head : forall (x : A) (xs : list A), C x -> CList (x :: xs)
+| CL_tail : forall (x : A) (xs : list A), CList xs -> CList (x :: xs).
 
-Record Occurrence := MakeOccurrence {
-  occurrence_kind        : Kind;
-  occurrence_view        : View occurrence_kind;
-  occurrence_parent      : option positive;
-  occurrence_role        : Role;
-  occurrence_subtree_end : positive
-}.
+Inductive CExpr : Syntax.Expr -> Type :=
+| CE_here  : forall e, CExpr e
+| CE_unary : forall op e, CExpr e -> CExpr (Syntax.Unary op e)
+| CE_head  : forall h a, CExpr h -> CExpr (Syntax.Application h a)
+| CE_arg   : forall h a, @CList _ CExpr a -> CExpr (Syntax.Application h a).
 
-Definition occurrence_meta (o : Occurrence) : Meta :=
-  MakeMeta (occurrence_kind o) (occurrence_parent o) (occurrence_role o) (occurrence_subtree_end o).
-
-Definition view_expr (o : Occurrence) : option Syntax.Expr :=
-  match occurrence_view o with ExpressionView e => Some e | _ => None end.
-
-(* [view_expr] is [Some] EXACTLY for an [ExpressionKind] occurrence (the dependent [View] forces the kind). *)
-Lemma view_expr_kind : forall o e, view_expr o = Some e -> occurrence_kind o = ExpressionKind.
-Proof.
-  intros [k v par role sub] e H. cbn [view_expr occurrence_view occurrence_kind] in *.
-  destruct v; try discriminate H. reflexivity.
-Qed.
-Lemma kind_view_expr : forall o, occurrence_kind o = ExpressionKind -> exists e, view_expr o = Some e.
-Proof.
-  intros [k v par role sub] H. cbn [occurrence_kind] in H. subst k.
-  cbn [view_expr occurrence_view].
-  refine (match v as v0 in View k0
-          return (match k0 return Prop with
-                  | ExpressionKind => exists ex, (match v0 with ExpressionView e => Some e | _ => None end) = Some ex
-                  | _ => True end)
-          with
-          | ExpressionView e => ex_intro _ e eq_refl
-          | FileView _ => I | PackageClauseView _ => I | TopLevelView _ => I | DeclarationView _ => I
-          | SpecView _ => I | BindingNameView _ => I | TypeNameView _ => I | StatementView _ => I | BlockView _ => I
-          end).
-Qed.
-
-Definition view_typename (o : Occurrence) : option Syntax.TypeExpr :=
-  match occurrence_view o with TypeNameView ts => Some ts | _ => None end.
-Lemma view_typename_kind : forall o ts, view_typename o = Some ts -> occurrence_kind o = TypeNameKind.
-Proof.
-  intros [k v par role sub] ts H. cbn [view_typename occurrence_view occurrence_kind] in *.
-  destruct v; try discriminate H. reflexivity.
-Qed.
-Lemma kind_view_typename : forall o, occurrence_kind o = TypeNameKind -> exists ts, view_typename o = Some ts.
-Proof.
-  intros [k v par role sub] H. cbn [occurrence_kind] in H. subst k.
-  cbn [view_typename occurrence_view].
-  refine (match v as v0 in View k0
-          return (match k0 return Prop with
-                  | TypeNameKind => exists tx, (match v0 with TypeNameView ts => Some ts | _ => None end) = Some tx
-                  | _ => True end)
-          with
-          | TypeNameView ts => ex_intro _ ts eq_refl
-          | FileView _ => I | PackageClauseView _ => I | TopLevelView _ => I | DeclarationView _ => I
-          | SpecView _ => I | BindingNameView _ => I | ExpressionView _ => I | StatementView _ => I | BlockView _ => I
-          end).
-Qed.
-
-Definition view_binding_name (o : Occurrence) : option Syntax.BindingName :=
-  match occurrence_view o with BindingNameView b => Some b | _ => None end.
-Lemma view_binding_name_kind : forall o b, view_binding_name o = Some b -> occurrence_kind o = BindingNameKind.
-Proof.
-  intros [k v par role sub] b H. cbn [view_binding_name occurrence_view occurrence_kind] in *.
-  destruct v; try discriminate H. reflexivity.
-Qed.
-
-Definition view_toplevel (o : Occurrence) : option Syntax.TopLevelDecl :=
-  match occurrence_view o with TopLevelView d => Some d | _ => None end.
-Lemma view_toplevel_kind : forall o d, view_toplevel o = Some d -> occurrence_kind o = TopLevelKind.
-Proof.
-  intros [k v par role sub] d H. cbn [view_toplevel occurrence_view occurrence_kind] in *.
-  destruct v; try discriminate H. reflexivity.
-Qed.
-
-Definition view_stmt (o : Occurrence) : option Syntax.Stmt :=
-  match occurrence_view o with StatementView s => Some s | _ => None end.
-Lemma view_stmt_kind : forall o s, view_stmt o = Some s -> occurrence_kind o = StatementKind.
-Proof.
-  intros [k v par role sub] s H. cbn [view_stmt occurrence_view occurrence_kind] in *.
-  destruct v; try discriminate H. reflexivity.
-Qed.
-
-(* One-pass occurrence fold: each node yields its member before its children, so the list is in ascending id order. *)
-Fixpoint occ_expr (parent : positive) (role : Role) (me : positive) (e : Syntax.Expr)
-  : list (positive * Occurrence) * positive :=
-  match e with
-  | Syntax.Name _ | Syntax.LiteralExpr _ =>
-      ([(me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role me)], me)
-  | Syntax.Unary _ e' =>
-      let '(os, e1) := occ_expr me UnaryOperand (Pos.succ me) e' in
-      ((me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role e1) :: os, e1)
-  | Syntax.Application head args =>
-      let '(oh, eh) := occ_expr me ApplicationHead (Pos.succ me) head in
-      let '(oa, nx) := (fix oa (i : nat) (mi : positive) (xs : list Syntax.Expr)
-                          : list (positive * Occurrence) * positive :=
-                          match xs with
-                          | []        => ([], mi)
-                          | x :: rest =>
-                              let '(o1, se) := occ_expr me (ApplicationArgument i) mi x in
-                              let '(o2, r)  := oa (S i) (Pos.succ se) rest in
-                              (o1 ++ o2, r)
-                          end) 0%nat (Pos.succ eh) args in
-      ((me, MakeOccurrence ExpressionKind (ExpressionView e) (Some parent) role (Pos.pred nx)) :: oh ++ oa, Pos.pred nx)
+(* the exact source expression the cursor selects *)
+Fixpoint cexpr_view {e : Syntax.Expr} (c : CExpr e) {struct c} : Syntax.Expr :=
+  match c with
+  | CE_here e0 => e0
+  | CE_unary _ _ c' => cexpr_view c'
+  | CE_head _ _ c' => cexpr_view c'
+  | CE_arg _ a cl =>
+      (fix clv (xs : list Syntax.Expr) (cl0 : @CList _ CExpr xs) {struct cl0} : Syntax.Expr :=
+         match cl0 with
+         | CL_head _ _ c0 => cexpr_view c0
+         | CL_tail _ _ cl1 => clv _ cl1
+         end) a cl
   end.
 
-Fixpoint occ_seq {X}
-  (ox : positive -> nat -> positive -> X -> list (positive * Occurrence) * positive)
-  (parent : positive) (i0 : nat) (me0 : positive) (xs : list X)
-  : list (positive * Occurrence) * positive :=
-  match xs with
-  | []        => ([], me0)
-  | x :: rest =>
-      let '(o1, se) := ox parent i0 me0 x in
-      let '(o2, nf) := occ_seq ox parent (S i0) (Pos.succ se) rest in
-      (o1 ++ o2, nf)
+(* every expression cursor: the node itself before its children, in source order *)
+Fixpoint cexpr_cursors (e : Syntax.Expr) {struct e} : list (CExpr e) :=
+  match e as e0 return list (CExpr e0) with
+  | Syntax.Name _ | Syntax.LiteralExpr _ => [CE_here _]
+  | Syntax.Unary op e' => CE_here _ :: List.map (CE_unary op e') (cexpr_cursors e')
+  | Syntax.Application h a =>
+      let argcs :=
+        (fix argc (xs : list Syntax.Expr) {struct xs} : list (@CList _ CExpr xs) :=
+           match xs as xs0 return list (@CList _ CExpr xs0) with
+           | [] => []
+           | x :: rest =>
+               List.map (fun c0 => CL_head x rest c0) (cexpr_cursors x)
+               ++ List.map (fun cl0 => CL_tail x rest cl0) (argc rest)
+           end) a in
+      CE_here _ :: (List.map (CE_head h a) (cexpr_cursors h) ++ List.map (CE_arg h a) argcs)
   end.
 
-Definition occ_type_expr (parent : positive) (role : Role) (me : positive) (ty : Syntax.TypeExpr)
-  : list (positive * Occurrence) * positive :=
-  ([(me, MakeOccurrence TypeNameKind (TypeNameView ty) (Some parent) role me)], me).
-Definition occ_binding_name (parent : positive) (role : Role) (me : positive) (b : Syntax.BindingName)
-  : list (positive * Occurrence) * positive :=
-  ([(me, MakeOccurrence BindingNameKind (BindingNameView b) (Some parent) role me)], me).
+(* R1 (chunk 2): the rest of the cursor family, one inductive per grammar node, each inhabitant one real node. *)
+Inductive CTypeExpr : Syntax.TypeExpr -> Type := CT_here : forall t, CTypeExpr t.
+Inductive CBindingName : Syntax.BindingName -> Type := CBN_here : forall b, CBindingName b.
 
-Definition occ_opt_type (parent : positive) (me : positive) (oty : option Syntax.TypeExpr)
-  : list (positive * Occurrence) * positive :=
-  match oty with
-  | Some ty => let '(o1, e1) := occ_type_expr parent SpecTypeUse me ty in (o1, Pos.succ e1)
-  | None    => ([], me)
+Inductive CConstSpec : Syntax.ConstSpec -> Type :=
+| CCS_here : forall s, CConstSpec s
+| CCS_name : forall names init, @CList _ CBindingName (Collections.ne_to_list names) ->
+    CConstSpec (Syntax.MakeConstSpec names init)
+| CCS_type : forall names oty vals, CTypeExpr oty ->
+    CConstSpec (Syntax.MakeConstSpec names (Syntax.ExplicitConstInit (Some oty) vals))
+| CCS_val  : forall names oty vals, @CList _ CExpr (Collections.ne_to_list vals) ->
+    CConstSpec (Syntax.MakeConstSpec names (Syntax.ExplicitConstInit oty vals)).
+
+Inductive CVarSpec : Syntax.VarSpec -> Type :=
+| CVS_here : forall s, CVarSpec s
+| CVS_name : forall names init, @CList _ CBindingName (Collections.ne_to_list names) ->
+    CVarSpec (Syntax.MakeVarSpec names init)
+| CVS_type_only : forall names ty, CTypeExpr ty ->
+    CVarSpec (Syntax.MakeVarSpec names (Syntax.VarTypeOnly ty))
+| CVS_type_vals : forall names ty vals, CTypeExpr ty ->
+    CVarSpec (Syntax.MakeVarSpec names (Syntax.VarValues (Some ty) vals))
+| CVS_val  : forall names oty vals, @CList _ CExpr (Collections.ne_to_list vals) ->
+    CVarSpec (Syntax.MakeVarSpec names (Syntax.VarValues oty vals)).
+
+Inductive CTypeSpec : Syntax.TypeSpec -> Type :=
+| CTS_here : forall s, CTypeSpec s
+| CTS_alias_name : forall nm ty, CBindingName nm -> CTypeSpec (Syntax.AliasSpec nm ty)
+| CTS_alias_type : forall nm ty, CTypeExpr ty -> CTypeSpec (Syntax.AliasSpec nm ty)
+| CTS_def_name : forall nm ty, CBindingName nm -> CTypeSpec (Syntax.DefSpec nm ty)
+| CTS_def_type : forall nm ty, CTypeExpr ty -> CTypeSpec (Syntax.DefSpec nm ty).
+
+Inductive CDecl : Syntax.Declaration -> Type :=
+| CD_here : forall d, CDecl d
+| CD_const : forall specs, @CList _ CConstSpec specs -> CDecl (Syntax.ConstDecl specs)
+| CD_var   : forall specs, @CList _ CVarSpec specs -> CDecl (Syntax.VarDecl specs)
+| CD_type  : forall specs, @CList _ CTypeSpec specs -> CDecl (Syntax.TypeDecl specs).
+
+Inductive CStmt : Syntax.Stmt -> Type :=
+| CST_here : forall s, CStmt s
+| CST_expr : forall e, CExpr e -> CStmt (Syntax.ExprStmt e)
+| CST_decl : forall d, CDecl d -> CStmt (Syntax.DeclarationStmt d)
+| CST_lhs  : forall names vals, @CList _ CBindingName (Collections.ne_to_list names) ->
+    CStmt (Syntax.ShortVarDecl names vals)
+| CST_rhs  : forall names vals, @CList _ CExpr (Collections.ne_to_list vals) ->
+    CStmt (Syntax.ShortVarDecl names vals).
+
+Inductive CBlock : Syntax.Block -> Type :=
+| CBL_here : forall b, CBlock b
+| CBL_stmt : forall stmts, @CList _ CStmt stmts -> CBlock (Syntax.MakeBlock stmts).
+
+Inductive CTop : Syntax.TopLevelDecl -> Type :=
+| CTP_here : forall d, CTop d
+| CTP_decl : forall dcl, CDecl dcl -> CTop (Syntax.TopDeclaration dcl)
+| CTP_main : forall body, CBlock body -> CTop (Syntax.Main body).
+
+Inductive CFile : Syntax.File -> Type :=
+| CF_here    : forall f, CFile f
+| CF_package : forall f, CFile f
+| CF_decl    : forall f, @CList _ CTop (Syntax.declarations f) -> CFile f.
+
+(* R1 (chunk 3): the node the cursor selects, as a tagged source view, and the kind/view accessors over it. *)
+Fixpoint clist_proj {A} {C : A -> Type} {R} (proj : forall x, C x -> R) {xs} (cl : @CList A C xs) {struct cl} : R :=
+  match cl with CL_head _ _ c => proj _ c | CL_tail _ _ cl' => clist_proj proj cl' end.
+
+Definition ctypeexpr_view {t} (c : CTypeExpr t) : Syntax.TypeExpr := match c with CT_here t0 => t0 end.
+Definition cbindingname_view {b} (c : CBindingName b) : Syntax.BindingName := match c with CBN_here b0 => b0 end.
+
+Inductive NodeView : Type :=
+| VFile        : Syntax.File          -> NodeView
+| VPackage     : Syntax.PackageClause -> NodeView
+| VTop         : Syntax.TopLevelDecl  -> NodeView
+| VDecl        : Syntax.Declaration   -> NodeView
+| VSpec        : AnySpec              -> NodeView
+| VBindingName : Syntax.BindingName   -> NodeView
+| VTypeExpr    : Syntax.TypeExpr      -> NodeView
+| VStmt        : Syntax.Stmt          -> NodeView
+| VBlock       : Syntax.Block         -> NodeView
+| VExpr        : Syntax.Expr          -> NodeView.
+
+Definition cexpr_nodeview {e} (c : CExpr e) : NodeView := VExpr (cexpr_view c).
+Definition ctypeexpr_nodeview {t} (c : CTypeExpr t) : NodeView := VTypeExpr (ctypeexpr_view c).
+Definition cbindingname_nodeview {b} (c : CBindingName b) : NodeView := VBindingName (cbindingname_view c).
+
+Definition cconstspec_nodeview {s} (c : CConstSpec s) : NodeView :=
+  match c with
+  | CCS_here s0 => VSpec (ASConst s0)
+  | CCS_name _ _ cl => clist_proj (fun _ sc => cbindingname_nodeview sc) cl
+  | CCS_type _ _ _ tc => ctypeexpr_nodeview tc
+  | CCS_val _ _ _ cl => clist_proj (fun _ sc => cexpr_nodeview sc) cl
+  end.
+Definition cvarspec_nodeview {s} (c : CVarSpec s) : NodeView :=
+  match c with
+  | CVS_here s0 => VSpec (ASVar s0)
+  | CVS_name _ _ cl => clist_proj (fun _ sc => cbindingname_nodeview sc) cl
+  | CVS_type_only _ _ tc => ctypeexpr_nodeview tc
+  | CVS_type_vals _ _ _ tc => ctypeexpr_nodeview tc
+  | CVS_val _ _ _ cl => clist_proj (fun _ sc => cexpr_nodeview sc) cl
+  end.
+Definition ctypespec_nodeview {s} (c : CTypeSpec s) : NodeView :=
+  match c with
+  | CTS_here s0 => VSpec (ASType s0)
+  | CTS_alias_name _ _ bc => cbindingname_nodeview bc
+  | CTS_alias_type _ _ tc => ctypeexpr_nodeview tc
+  | CTS_def_name _ _ bc => cbindingname_nodeview bc
+  | CTS_def_type _ _ tc => ctypeexpr_nodeview tc
+  end.
+Definition cdecl_nodeview {d} (c : CDecl d) : NodeView :=
+  match c with
+  | CD_here d0 => VDecl d0
+  | CD_const _ cl => clist_proj (fun _ sc => cconstspec_nodeview sc) cl
+  | CD_var _ cl => clist_proj (fun _ sc => cvarspec_nodeview sc) cl
+  | CD_type _ cl => clist_proj (fun _ sc => ctypespec_nodeview sc) cl
+  end.
+Definition cstmt_nodeview {s} (c : CStmt s) : NodeView :=
+  match c with
+  | CST_here s0 => VStmt s0
+  | CST_expr _ ec => cexpr_nodeview ec
+  | CST_decl _ dc => cdecl_nodeview dc
+  | CST_lhs _ _ cl => clist_proj (fun _ sc => cbindingname_nodeview sc) cl
+  | CST_rhs _ _ cl => clist_proj (fun _ sc => cexpr_nodeview sc) cl
+  end.
+Definition cblock_nodeview {b} (c : CBlock b) : NodeView :=
+  match c with
+  | CBL_here b0 => VBlock b0
+  | CBL_stmt _ cl => clist_proj (fun _ sc => cstmt_nodeview sc) cl
+  end.
+Definition ctop_nodeview {d} (c : CTop d) : NodeView :=
+  match c with
+  | CTP_here d0 => VTop d0
+  | CTP_decl _ dc => cdecl_nodeview dc
+  | CTP_main _ bc => cblock_nodeview bc
+  end.
+Definition cfile_nodeview {f} (c : CFile f) : NodeView :=
+  match c with
+  | CF_here f0 => VFile f0
+  | CF_package f0 => VPackage (Syntax.package f0)
+  | CF_decl f0 cl => clist_proj (fun _ tc => ctop_nodeview tc) cl
   end.
 
-Definition occ_names (parent : positive) (me : positive) (ns : Collections.NonEmpty Syntax.BindingName)
-  : list (positive * Occurrence) * positive :=
-  occ_seq (fun p i m x => occ_binding_name p (SpecName i) m x) parent 0 me (Collections.ne_to_list ns).
-Definition occ_values (parent : positive) (me : positive) (vs : Collections.NonEmpty Syntax.Expr)
-  : list (positive * Occurrence) * positive :=
-  occ_seq (fun p i m x => occ_expr p (SpecValue i) m x) parent 0 me (Collections.ne_to_list vs).
+Definition node_kind (nv : NodeView) : Kind :=
+  match nv with
+  | VFile _ => FileKind | VPackage _ => PackageClauseKind | VTop _ => TopLevelKind
+  | VDecl _ => DeclarationKind | VSpec _ => SpecKind | VBindingName _ => BindingNameKind
+  | VTypeExpr _ => TypeNameKind | VStmt _ => StatementKind | VBlock _ => BlockKind | VExpr _ => ExpressionKind
+  end.
+Definition node_view_expr (nv : NodeView) : option Syntax.Expr := match nv with VExpr e => Some e | _ => None end.
+Definition node_view_stmt (nv : NodeView) : option Syntax.Stmt := match nv with VStmt s => Some s | _ => None end.
+Definition node_view_toplevel (nv : NodeView) : option Syntax.TopLevelDecl := match nv with VTop t => Some t | _ => None end.
 
-Definition occ_const_spec (parent : positive) (didx : nat) (me : positive) (s : Syntax.ConstSpec)
-  : list (positive * Occurrence) * positive :=
-  let '(on, m1) := occ_names me (Pos.succ me) (Syntax.const_names s) in
-  let '(ov, nx) :=
-    match Syntax.const_init s with
-    | Syntax.ExplicitConstInit oty vals =>
-        let '(o1, m2) := occ_opt_type me m1 oty in let '(o2, r) := occ_values me m2 vals in (o1 ++ o2, r)
-    | Syntax.InheritedConstInit => ([], m1)
-    end in
-  ((me, MakeOccurrence SpecKind (SpecView (ASConst s)) (Some parent) (DeclSpec didx) (Pos.pred nx)) :: on ++ ov, Pos.pred nx).
+Definition cfile_kind {f} (c : CFile f) : Kind := node_kind (cfile_nodeview c).
+Definition cfile_view_expr {f} (c : CFile f) : option Syntax.Expr := node_view_expr (cfile_nodeview c).
+Definition cfile_view_stmt {f} (c : CFile f) : option Syntax.Stmt := node_view_stmt (cfile_nodeview c).
+Definition cfile_view_toplevel {f} (c : CFile f) : option Syntax.TopLevelDecl := node_view_toplevel (cfile_nodeview c).
 
-Definition occ_var_spec (parent : positive) (didx : nat) (me : positive) (s : Syntax.VarSpec)
-  : list (positive * Occurrence) * positive :=
-  let '(on, m1) := occ_names me (Pos.succ me) (Syntax.var_names s) in
-  let '(ov, nx) :=
-    match Syntax.var_init s with
-    | Syntax.VarTypeOnly ty => occ_opt_type me m1 (Some ty)
-    | Syntax.VarValues oty vals =>
-        let '(o1, m2) := occ_opt_type me m1 oty in let '(o2, r) := occ_values me m2 vals in (o1 ++ o2, r)
-    end in
-  ((me, MakeOccurrence SpecKind (SpecView (ASVar s)) (Some parent) (DeclSpec didx) (Pos.pred nx)) :: on ++ ov, Pos.pred nx).
+(* The role the selected node plays in its parent, threaded down the path; list depth gives the position. *)
+Fixpoint clist_proj_i {A} {C : A -> Type} {R} (proj : nat -> forall x, C x -> R) (base : nat) {xs}
+                      (cl : @CList A C xs) {struct cl} : R :=
+  match cl with CL_head _ _ c => proj base _ c | CL_tail _ _ cl' => clist_proj_i proj (S base) cl' end.
 
-Definition occ_type_spec (parent : positive) (didx : nat) (me : positive) (s : Syntax.TypeSpec)
-  : list (positive * Occurrence) * positive :=
-  let '(on, target) := match s with Syntax.AliasSpec nm ty | Syntax.DefSpec nm ty =>
-    let '(o1, e1) := occ_binding_name me (SpecName 0) (Pos.succ me) nm in
-    let '(o2, e2) := occ_type_expr me SpecTypeUse (Pos.succ e1) ty in (o1 ++ o2, e2) end in
-  ((me, MakeOccurrence SpecKind (SpecView (ASType s)) (Some parent) (DeclSpec didx) target) :: on, target).
+Fixpoint cexpr_role (incoming : Role) {e} (c : CExpr e) {struct c} : Role :=
+  match c with
+  | CE_here _ => incoming
+  | CE_unary _ _ c' => cexpr_role UnaryOperand c'
+  | CE_head _ _ c' => cexpr_role ApplicationHead c'
+  | CE_arg _ a cl =>
+      (fix argr (i : nat) (xs : list Syntax.Expr) (cl0 : @CList _ CExpr xs) {struct cl0} : Role :=
+         match cl0 with
+         | CL_head _ _ c0 => cexpr_role (ApplicationArgument i) c0
+         | CL_tail _ _ cl1 => argr (S i) _ cl1
+         end) 0%nat a cl
+  end.
 
-Definition occ_declaration (parent : positive) (role : Role) (me : positive) (d : Syntax.Declaration)
-  : list (positive * Occurrence) * positive :=
-  let '(od, nx) :=
-    match d with
-    | Syntax.ConstDecl specs => occ_seq occ_const_spec me 0 (Pos.succ me) specs
-    | Syntax.VarDecl specs   => occ_seq occ_var_spec me 0 (Pos.succ me) specs
-    | Syntax.TypeDecl specs  => occ_seq occ_type_spec me 0 (Pos.succ me) specs
-    end in
-  ((me, MakeOccurrence DeclarationKind (DeclarationView d) (Some parent) role (Pos.pred nx)) :: od, Pos.pred nx).
+Definition ctypeexpr_role (incoming : Role) {t} (_ : CTypeExpr t) : Role := incoming.
+Definition cbindingname_role (incoming : Role) {b} (_ : CBindingName b) : Role := incoming.
 
-Definition occ_stmt (parent : positive) (sidx : nat) (me : positive) (s : Syntax.Stmt)
-  : list (positive * Occurrence) * positive :=
-  match s with
-  | Syntax.ExprStmt e =>
-      let '(o1, e1) := occ_expr me ExprStatementExpr (Pos.succ me) e in
-      ((me, MakeOccurrence StatementKind (StatementView s) (Some parent) (BlockStatement sidx) e1) :: o1, e1)
-  | Syntax.DeclarationStmt d =>
-      let '(o1, e1) := occ_declaration me DeclStatementDecl (Pos.succ me) d in
-      ((me, MakeOccurrence StatementKind (StatementView s) (Some parent) (BlockStatement sidx) e1) :: o1, e1)
+Definition cconstspec_role (incoming : Role) {s} (c : CConstSpec s) : Role :=
+  match c with
+  | CCS_here _ => incoming
+  | CCS_name _ _ cl => clist_proj_i (fun i _ sc => cbindingname_role (SpecName i) sc) 0 cl
+  | CCS_type _ _ _ tc => ctypeexpr_role SpecTypeUse tc
+  | CCS_val _ _ _ cl => clist_proj_i (fun i _ sc => cexpr_role (SpecValue i) sc) 0 cl
+  end.
+Definition cvarspec_role (incoming : Role) {s} (c : CVarSpec s) : Role :=
+  match c with
+  | CVS_here _ => incoming
+  | CVS_name _ _ cl => clist_proj_i (fun i _ sc => cbindingname_role (SpecName i) sc) 0 cl
+  | CVS_type_only _ _ tc => ctypeexpr_role SpecTypeUse tc
+  | CVS_type_vals _ _ _ tc => ctypeexpr_role SpecTypeUse tc
+  | CVS_val _ _ _ cl => clist_proj_i (fun i _ sc => cexpr_role (SpecValue i) sc) 0 cl
+  end.
+Definition ctypespec_role (incoming : Role) {s} (c : CTypeSpec s) : Role :=
+  match c with
+  | CTS_here _ => incoming
+  | CTS_alias_name _ _ bc => cbindingname_role (SpecName 0) bc
+  | CTS_alias_type _ _ tc => ctypeexpr_role SpecTypeUse tc
+  | CTS_def_name _ _ bc => cbindingname_role (SpecName 0) bc
+  | CTS_def_type _ _ tc => ctypeexpr_role SpecTypeUse tc
+  end.
+Definition cdecl_role (incoming : Role) {d} (c : CDecl d) : Role :=
+  match c with
+  | CD_here _ => incoming
+  | CD_const _ cl => clist_proj_i (fun i _ sc => cconstspec_role (DeclSpec i) sc) 0 cl
+  | CD_var _ cl => clist_proj_i (fun i _ sc => cvarspec_role (DeclSpec i) sc) 0 cl
+  | CD_type _ cl => clist_proj_i (fun i _ sc => ctypespec_role (DeclSpec i) sc) 0 cl
+  end.
+Definition cstmt_role (incoming : Role) {s} (c : CStmt s) : Role :=
+  match c with
+  | CST_here _ => incoming
+  | CST_expr _ ec => cexpr_role ExprStatementExpr ec
+  | CST_decl _ dc => cdecl_role DeclStatementDecl dc
+  | CST_lhs _ _ cl => clist_proj_i (fun i _ sc => cbindingname_role (ShortLhs i) sc) 0 cl
+  | CST_rhs _ _ cl => clist_proj_i (fun i _ sc => cexpr_role (ShortRhs i) sc) 0 cl
+  end.
+Definition cblock_role (incoming : Role) {b} (c : CBlock b) : Role :=
+  match c with
+  | CBL_here _ => incoming
+  | CBL_stmt _ cl => clist_proj_i (fun i _ sc => cstmt_role (BlockStatement i) sc) 0 cl
+  end.
+Definition ctop_role (incoming : Role) {d} (c : CTop d) : Role :=
+  match c with
+  | CTP_here _ => incoming
+  | CTP_decl _ dc => cdecl_role incoming dc
+  | CTP_main _ bc => cblock_role MainBlock bc
+  end.
+Definition cfile_role {f} (c : CFile f) : Role :=
+  match c with
+  | CF_here _ => FileRoot
+  | CF_package _ => FilePackage
+  | CF_decl _ cl => clist_proj_i (fun i _ tc => ctop_role (FileDeclaration i) tc) 0 cl
+  end.
+
+(* The parent node as a projection: each descend carries the current node down as its children's parent. *)
+Fixpoint cexpr_parentview (parent : option NodeView) {e} (c : CExpr e) {struct c} : option NodeView :=
+  match c with
+  | CE_here _ => parent
+  | CE_unary op e0 c' => cexpr_parentview (Some (VExpr (Syntax.Unary op e0))) c'
+  | CE_head h a c' => cexpr_parentview (Some (VExpr (Syntax.Application h a))) c'
+  | CE_arg h a cl =>
+      (fix argp (xs : list Syntax.Expr) (cl0 : @CList _ CExpr xs) {struct cl0} : option NodeView :=
+         match cl0 with
+         | CL_head _ _ c0 => cexpr_parentview (Some (VExpr (Syntax.Application h a))) c0
+         | CL_tail _ _ cl1 => argp _ cl1
+         end) a cl
+  end.
+
+Definition ctypeexpr_parentview (parent : option NodeView) {t} (_ : CTypeExpr t) : option NodeView := parent.
+Definition cbindingname_parentview (parent : option NodeView) {b} (_ : CBindingName b) : option NodeView := parent.
+
+Definition cconstspec_parentview (parent : option NodeView) {s} (c : CConstSpec s) : option NodeView :=
+  match c with
+  | CCS_here _ => parent
+  | CCS_name _ _ cl => clist_proj (fun _ sc => cbindingname_parentview (Some (VSpec (ASConst s))) sc) cl
+  | CCS_type _ _ _ tc => ctypeexpr_parentview (Some (VSpec (ASConst s))) tc
+  | CCS_val _ _ _ cl => clist_proj (fun _ sc => cexpr_parentview (Some (VSpec (ASConst s))) sc) cl
+  end.
+Definition cvarspec_parentview (parent : option NodeView) {s} (c : CVarSpec s) : option NodeView :=
+  match c with
+  | CVS_here _ => parent
+  | CVS_name _ _ cl => clist_proj (fun _ sc => cbindingname_parentview (Some (VSpec (ASVar s))) sc) cl
+  | CVS_type_only _ _ tc => ctypeexpr_parentview (Some (VSpec (ASVar s))) tc
+  | CVS_type_vals _ _ _ tc => ctypeexpr_parentview (Some (VSpec (ASVar s))) tc
+  | CVS_val _ _ _ cl => clist_proj (fun _ sc => cexpr_parentview (Some (VSpec (ASVar s))) sc) cl
+  end.
+Definition ctypespec_parentview (parent : option NodeView) {s} (c : CTypeSpec s) : option NodeView :=
+  match c with
+  | CTS_here _ => parent
+  | CTS_alias_name _ _ bc => cbindingname_parentview (Some (VSpec (ASType s))) bc
+  | CTS_alias_type _ _ tc => ctypeexpr_parentview (Some (VSpec (ASType s))) tc
+  | CTS_def_name _ _ bc => cbindingname_parentview (Some (VSpec (ASType s))) bc
+  | CTS_def_type _ _ tc => ctypeexpr_parentview (Some (VSpec (ASType s))) tc
+  end.
+Definition cdecl_parentview (parent : option NodeView) {d} (c : CDecl d) : option NodeView :=
+  match c with
+  | CD_here _ => parent
+  | CD_const _ cl => clist_proj (fun _ sc => cconstspec_parentview (Some (VDecl d)) sc) cl
+  | CD_var _ cl => clist_proj (fun _ sc => cvarspec_parentview (Some (VDecl d)) sc) cl
+  | CD_type _ cl => clist_proj (fun _ sc => ctypespec_parentview (Some (VDecl d)) sc) cl
+  end.
+Definition cstmt_parentview (parent : option NodeView) {s} (c : CStmt s) : option NodeView :=
+  match c with
+  | CST_here _ => parent
+  | CST_expr _ ec => cexpr_parentview (Some (VStmt s)) ec
+  | CST_decl _ dc => cdecl_parentview (Some (VStmt s)) dc
+  | CST_lhs _ _ cl => clist_proj (fun _ sc => cbindingname_parentview (Some (VStmt s)) sc) cl
+  | CST_rhs _ _ cl => clist_proj (fun _ sc => cexpr_parentview (Some (VStmt s)) sc) cl
+  end.
+Definition cblock_parentview (parent : option NodeView) {b} (c : CBlock b) : option NodeView :=
+  match c with
+  | CBL_here _ => parent
+  | CBL_stmt _ cl => clist_proj (fun _ sc => cstmt_parentview (Some (VBlock b)) sc) cl
+  end.
+Definition ctop_parentview (parent : option NodeView) {d} (c : CTop d) : option NodeView :=
+  match c with
+  | CTP_here _ => parent
+  | CTP_decl _ dc => cdecl_parentview (Some (VTop d)) dc
+  | CTP_main _ bc => cblock_parentview (Some (VTop d)) bc
+  end.
+Definition cfile_parentview {f} (c : CFile f) : option NodeView :=
+  match c with
+  | CF_here _ => None
+  | CF_package f0 => Some (VFile f0)
+  | CF_decl f0 cl => clist_proj (fun _ tc => ctop_parentview (Some (VFile f0)) tc) cl
+  end.
+
+(* Ordered enumeration of every cursor, preorder, matching the old fold so the generated bytes are unchanged. *)
+Fixpoint clist_cursors {A} {C : A -> Type} (all : forall x, list (C x)) (xs : list A) {struct xs}
+  : list (@CList A C xs) :=
+  match xs as xs0 return list (@CList A C xs0) with
+  | [] => []
+  | x :: rest => List.map (fun c => CL_head x rest c) (all x)
+                 ++ List.map (fun cl => CL_tail x rest cl) (clist_cursors all rest)
+  end.
+
+Definition ctypeexpr_cursors (t : Syntax.TypeExpr) : list (CTypeExpr t) := [CT_here t].
+Definition cbindingname_cursors (b : Syntax.BindingName) : list (CBindingName b) := [CBN_here b].
+
+Definition cconstspec_cursors (s : Syntax.ConstSpec) : list (CConstSpec s) :=
+  match s as s0 return list (CConstSpec s0) with
+  | Syntax.MakeConstSpec names init =>
+      CCS_here (Syntax.MakeConstSpec names init)
+      :: (List.map (CCS_name names init) (clist_cursors cbindingname_cursors (Collections.ne_to_list names))
+          ++ (match init as init0 return list (CConstSpec (Syntax.MakeConstSpec names init0)) with
+              | Syntax.ExplicitConstInit oty vals =>
+                  (match oty as oty0
+                         return list (CConstSpec (Syntax.MakeConstSpec names (Syntax.ExplicitConstInit oty0 vals))) with
+                   | Some ty => List.map (CCS_type names ty vals) (ctypeexpr_cursors ty)
+                   | None => []
+                   end)
+                  ++ List.map (CCS_val names oty vals) (clist_cursors cexpr_cursors (Collections.ne_to_list vals))
+              | Syntax.InheritedConstInit => []
+              end))
+  end.
+
+Definition cvarspec_cursors (s : Syntax.VarSpec) : list (CVarSpec s) :=
+  match s as s0 return list (CVarSpec s0) with
+  | Syntax.MakeVarSpec names init =>
+      CVS_here (Syntax.MakeVarSpec names init)
+      :: (List.map (CVS_name names init) (clist_cursors cbindingname_cursors (Collections.ne_to_list names))
+          ++ (match init as init0 return list (CVarSpec (Syntax.MakeVarSpec names init0)) with
+              | Syntax.VarTypeOnly ty => List.map (CVS_type_only names ty) (ctypeexpr_cursors ty)
+              | Syntax.VarValues oty vals =>
+                  (match oty as oty0
+                         return list (CVarSpec (Syntax.MakeVarSpec names (Syntax.VarValues oty0 vals))) with
+                   | Some ty => List.map (CVS_type_vals names ty vals) (ctypeexpr_cursors ty)
+                   | None => []
+                   end)
+                  ++ List.map (CVS_val names oty vals) (clist_cursors cexpr_cursors (Collections.ne_to_list vals))
+              end))
+  end.
+
+Definition ctypespec_cursors (s : Syntax.TypeSpec) : list (CTypeSpec s) :=
+  match s as s0 return list (CTypeSpec s0) with
+  | Syntax.AliasSpec nm ty =>
+      CTS_here (Syntax.AliasSpec nm ty)
+      :: (List.map (CTS_alias_name nm ty) (cbindingname_cursors nm)
+          ++ List.map (CTS_alias_type nm ty) (ctypeexpr_cursors ty))
+  | Syntax.DefSpec nm ty =>
+      CTS_here (Syntax.DefSpec nm ty)
+      :: (List.map (CTS_def_name nm ty) (cbindingname_cursors nm)
+          ++ List.map (CTS_def_type nm ty) (ctypeexpr_cursors ty))
+  end.
+
+(* R1 (chunk 5b): the remaining enumeration levels up to the composite per-file cursor list. *)
+Definition cdecl_cursors (d : Syntax.Declaration) : list (CDecl d) :=
+  match d as d0 return list (CDecl d0) with
+  | Syntax.ConstDecl specs =>
+      CD_here (Syntax.ConstDecl specs) :: List.map (CD_const specs) (clist_cursors cconstspec_cursors specs)
+  | Syntax.VarDecl specs =>
+      CD_here (Syntax.VarDecl specs) :: List.map (CD_var specs) (clist_cursors cvarspec_cursors specs)
+  | Syntax.TypeDecl specs =>
+      CD_here (Syntax.TypeDecl specs) :: List.map (CD_type specs) (clist_cursors ctypespec_cursors specs)
+  end.
+
+Definition cstmt_cursors (s : Syntax.Stmt) : list (CStmt s) :=
+  match s as s0 return list (CStmt s0) with
+  | Syntax.ExprStmt e => CST_here (Syntax.ExprStmt e) :: List.map (CST_expr e) (cexpr_cursors e)
+  | Syntax.DeclarationStmt d => CST_here (Syntax.DeclarationStmt d) :: List.map (CST_decl d) (cdecl_cursors d)
   | Syntax.ShortVarDecl names vals =>
-      let '(on, m1) := occ_seq (fun p i m x => occ_binding_name p (ShortLhs i) m x) me 0 (Pos.succ me) (Collections.ne_to_list names) in
-      let '(ov, nx) := occ_seq (fun p i m x => occ_expr p (ShortRhs i) m x) me 0 m1 (Collections.ne_to_list vals) in
-      ((me, MakeOccurrence StatementKind (StatementView s) (Some parent) (BlockStatement sidx) (Pos.pred nx)) :: on ++ ov, Pos.pred nx)
+      CST_here (Syntax.ShortVarDecl names vals)
+      :: (List.map (CST_lhs names vals) (clist_cursors cbindingname_cursors (Collections.ne_to_list names))
+          ++ List.map (CST_rhs names vals) (clist_cursors cexpr_cursors (Collections.ne_to_list vals)))
   end.
 
-Definition occ_block (parent : positive) (role : Role) (me : positive) (b : Syntax.Block)
-  : list (positive * Occurrence) * positive :=
-  match b with
+Definition cblock_cursors (b : Syntax.Block) : list (CBlock b) :=
+  match b as b0 return list (CBlock b0) with
   | Syntax.MakeBlock stmts =>
-      let '(o1, nx) := occ_seq occ_stmt me 0 (Pos.succ me) stmts in
-      ((me, MakeOccurrence BlockKind (BlockView b) (Some parent) role (Pos.pred nx)) :: o1, Pos.pred nx)
+      CBL_here (Syntax.MakeBlock stmts) :: List.map (CBL_stmt stmts) (clist_cursors cstmt_cursors stmts)
   end.
 
-Definition occ_decl (parent : positive) (didx : nat) (me : positive) (d : Syntax.TopLevelDecl)
-  : list (positive * Occurrence) * positive :=
-  match d with
-  | Syntax.TopDeclaration dcl =>
-      let '(o1, e1) := occ_declaration me (FileDeclaration didx) (Pos.succ me) dcl in
-      ((me, MakeOccurrence TopLevelKind (TopLevelView d) (Some parent) (FileDeclaration didx) e1) :: o1, e1)
-  | Syntax.Main body =>
-      let '(o1, e1) := occ_block me MainBlock (Pos.succ me) body in
-      ((me, MakeOccurrence TopLevelKind (TopLevelView d) (Some parent) (FileDeclaration didx) e1) :: o1, e1)
+Definition ctop_cursors (d : Syntax.TopLevelDecl) : list (CTop d) :=
+  match d as d0 return list (CTop d0) with
+  | Syntax.TopDeclaration dcl => CTP_here (Syntax.TopDeclaration dcl) :: List.map (CTP_decl dcl) (cdecl_cursors dcl)
+  | Syntax.Main body => CTP_here (Syntax.Main body) :: List.map (CTP_main body) (cblock_cursors body)
   end.
 
-Definition occ_file (f : Syntax.File) : list (positive * Occurrence) :=
-  match Syntax.imports f with
-  | i :: _ => match i with end
-  | [] =>
-      let '(ds, nx) := occ_seq occ_decl root_id 0 (Pos.succ package_id) (Syntax.declarations f) in
-      (root_id, MakeOccurrence FileKind (FileView f) None FileRoot (Pos.pred nx))
-      :: (package_id, MakeOccurrence PackageClauseKind (PackageClauseView (Syntax.package f)) (Some root_id) FilePackage package_id)
-      :: ds
+Definition cfile_cursors (f : Syntax.File) : list (CFile f) :=
+  CF_here f :: CF_package f :: List.map (CF_decl f) (clist_cursors ctop_cursors (Syntax.declarations f)).
+
+(* Consumer bridge: binding-name view, subtree size, and the indexed enumeration (id/subtree_end erased views). *)
+Definition node_view_binding_name (nv : NodeView) : option Syntax.BindingName :=
+  match nv with VBindingName b => Some b | _ => None end.
+Definition cfile_view_binding_name {f} (c : CFile f) : option Syntax.BindingName := node_view_binding_name (cfile_nodeview c).
+
+Definition cfile_subtree_size {f} (c : CFile f) : nat :=
+  match cfile_nodeview c with
+  | VFile f0 => List.length (cfile_cursors f0)
+  | VPackage _ => 1
+  | VTop t => List.length (ctop_cursors t)
+  | VDecl d => List.length (cdecl_cursors d)
+  | VSpec (ASConst s) => List.length (cconstspec_cursors s)
+  | VSpec (ASVar s) => List.length (cvarspec_cursors s)
+  | VSpec (ASType s) => List.length (ctypespec_cursors s)
+  | VBindingName b => List.length (cbindingname_cursors b)
+  | VTypeExpr t => List.length (ctypeexpr_cursors t)
+  | VStmt s => List.length (cstmt_cursors s)
+  | VBlock b => List.length (cblock_cursors b)
+  | VExpr e => List.length (cexpr_cursors e)
   end.
 
-(* The retained per-file result: the fold's members, and a cheap viewless Meta index derived from them. *)
-Record File := MakeFile { file_members : list (positive * Occurrence) ; file_metas : Table.table Meta }.
-Definition occ_meta_table (os : list (positive * Occurrence)) : Table.table Meta :=
-  fold_left (fun t io => Table.set (fst io) (occurrence_meta (snd io)) t) os Table.empty.
-Definition index_file (f : Syntax.File) : File := let os := occ_file f in MakeFile os (occ_meta_table os).
+Fixpoint occ_index_aux {f} (i : nat) (cs : list (CFile f)) : list (positive * positive * CFile f) :=
+  match cs with
+  | [] => []
+  | c :: rest =>
+      (Pos.of_succ_nat i, Pos.of_succ_nat (i + cfile_subtree_size c - 1), c) :: occ_index_aux (S i) rest
+  end.
+Definition occ_index (f : Syntax.File) : list (positive * positive * CFile f) := occ_index_aux 0 (cfile_cursors f).
 
-(* the ordered occurrence enumeration for a file is exactly the retained fold — one authority *)
-Definition occurrences_file (f : Syntax.File) : list (positive * Occurrence) := occ_file f.
+(* The retained per-file result: the source and its ordered cursor index, built once from the one fold. *)
+Record File := MakeFile { fi_source : Syntax.File ; fi_index : list (positive * positive * CFile fi_source) }.
+Definition index_file (f : Syntax.File) : File := MakeFile f (occ_index f).
 
 (* A program-global occurrence identity: the file path and the file-local id. *)
 Lemma file_path_eq_dec (a b : FilePath.T) : {a = b} + {a <> b}.
@@ -364,22 +580,12 @@ Arguments MakeIndex {p}. Arguments idx_files {p}. Arguments idx_built {p}.
 Definition index_program (p : Syntax.Program) : ProgramIndex p :=
   MakeIndex (Collections.FileMap.map index_file (Syntax.files p)) eq_refl.
 
-(* a metadata query is a lookup in the retained derived Meta index, never a fresh source traversal *)
-Definition meta_of {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : option Meta :=
-  match Collections.FileMap.find path (idx_files idx) with Some fl => Table.get local (file_metas fl) | None => None end.
-
-(* the retained members for a file, and the exact retained member at a local id — the one occurrence authority *)
-Definition members_of {p} (idx : ProgramIndex p) (path : FilePath.T) : list (positive * Occurrence) :=
-  match Collections.FileMap.find path (idx_files idx) with Some fl => file_members fl | None => [] end.
-Definition member_of {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : option Occurrence :=
-  option_map snd (find (fun io => Pos.eqb (fst io) local) (members_of idx path)).
-
+(* a reference's validity: the local id names a real node in the retained cursor index — a lookup, not a mint *)
 Definition occ_ofb {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : bool :=
-  match meta_of idx path local with Some _ => true | None => false end.
-
-Lemma occ_ofb_some : forall p (idx : ProgramIndex p) path local,
-  occ_ofb idx path local = true -> meta_of idx path local <> None.
-Proof. intros p idx path local H. unfold occ_ofb in H. destruct (meta_of idx path local); [discriminate | discriminate H]. Qed.
+  match Collections.FileMap.find path (idx_files idx) with
+  | Some fl => existsb (fun t => Pos.eqb (fst (fst t)) local) (fi_index fl)
+  | None => false
+  end.
 
 Module Snapshot.
 
@@ -427,18 +633,6 @@ Definition node_ref_key {p} {idx : ProgramIndex p} (r : NodeRef idx) : Key := Ma
 Lemma node_ref_valid {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   occ_ofb idx (fr_path (nr_file r)) (nr_local r) = true.
 Proof. destruct r as [fr l v]; exact v. Qed.
-
-(* the retained metadata a reference designates: read from the index table, total by its validity proof *)
-Definition node_meta {p} {idx : ProgramIndex p} (r : NodeRef idx) : Meta :=
-  option_get (meta_of idx (fr_path (nr_file r)) (nr_local r)) (occ_ofb_some p idx _ _ (nr_valid r)).
-
-Lemma node_meta_eq {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  meta_of idx (fr_path (nr_file r)) (nr_local r) = Some (node_meta r).
-Proof. unfold node_meta. apply option_get_some. Qed.
-
-Definition node_kind {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind := kind (node_meta r).
-Definition node_role {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role := role (node_meta r).
-Definition node_subtree_end {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := subtree_end (node_meta r).
 
 Lemma node_ref_key_eq {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   node_ref_key r = MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).

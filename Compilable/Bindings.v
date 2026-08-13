@@ -97,16 +97,16 @@ Definition ref_at (path : FilePath.T) (id : positive) : option (Index.Snapshot.N
   Index.Snapshot.ref_of_key idx (Index.MakeKey path id).
 
 (* the func-body block windows [id, subtree_end] and direct block-statement windows, over a computed occ list *)
-Definition block_windows (occs : list (positive * Index.Occurrence)) : list (positive * positive) :=
-  fold_right (fun idocc acc =>
-     match Index.occurrence_kind (snd idocc) with
-     | Index.BlockKind => (fst idocc, Index.occurrence_subtree_end (snd idocc)) :: acc
+Definition block_windows {f} (occs : list (positive * positive * Index.CFile f)) : list (positive * positive) :=
+  fold_right (fun t acc =>
+     match Index.cfile_kind (snd t) with
+     | Index.BlockKind => (fst (fst t), snd (fst t)) :: acc
      | _ => acc end) [] occs.
 
-Definition stmt_windows (occs : list (positive * Index.Occurrence)) : list (positive * positive) :=
-  fold_right (fun idocc acc =>
-     match Index.occurrence_role (snd idocc) with
-     | Index.BlockStatement _ => (fst idocc, Index.occurrence_subtree_end (snd idocc)) :: acc
+Definition stmt_windows {f} (occs : list (positive * positive * Index.CFile f)) : list (positive * positive) :=
+  fold_right (fun t acc =>
+     match Index.cfile_role (snd t) with
+     | Index.BlockStatement _ => (fst (fst t), snd (fst t)) :: acc
      | _ => acc end) [] occs.
 
 (* the innermost block window strictly containing [id]; ties resolved to the latest-starting (nearest) block *)
@@ -131,10 +131,10 @@ Definition stmt_end_of (sw : list (positive * positive)) (id : positive) : posit
    id sw.
 
 (* an object-establisher: a BNamed binder in a spec-name or short-lhs position; a blank establishes nothing *)
-Definition binder_spelling (occ : Index.Occurrence) : option (string * bool) :=
-  match Index.view_binding_name occ with
+Definition binder_spelling {f} (c : Index.CFile f) : option (string * bool) :=
+  match Index.cfile_view_binding_name c with
   | Some (Syntax.BNamed n) =>
-      match Index.occurrence_role occ with
+      match Index.cfile_role c with
       | Index.SpecName _ => Some (Names.ordinary_spelling n, false)
       | Index.ShortLhs _ => Some (Names.ordinary_spelling n, true)
       | _ => None
@@ -154,15 +154,15 @@ Record Establisher := MkEst {
 Definition est_key (e : Establisher) : Index.Key := Index.Snapshot.node_ref_key (est_ref e).
 
 Definition file_establishers (b : FilePath.T * Syntax.File) : list Establisher :=
-  let occs := Index.occurrences_file (snd b) in
+  let occs := Index.occ_index (snd b) in
   let bw   := block_windows occs in
   let sw   := stmt_windows occs in
-  fold_right (fun idocc acc =>
-     match binder_spelling (snd idocc) with
+  fold_right (fun t acc =>
+     match binder_spelling (snd t) with
      | Some (sp, sh) =>
-         match ref_at (fst b) (fst idocc) with
-         | Some r => MkEst r sp (scope_of_id bw (fst b) (fst idocc)) sh (stmt_end_of sw (fst idocc))
-                          (nearest_block bw (fst idocc)) :: acc
+         match ref_at (fst b) (fst (fst t)) with
+         | Some r => MkEst r sp (scope_of_id bw (fst b) (fst (fst t))) sh (stmt_end_of sw (fst (fst t)))
+                          (nearest_block bw (fst (fst t))) :: acc
          | None => acc
          end
      | None => acc end)
@@ -213,13 +213,6 @@ Definition resolve (es : list Establisher) (use_path : FilePath.T) (use_id : pos
           | None    => None
           end
       end
-  end.
-
-(* the spelling a name use denotes (only a bare [Name] use has one) *)
-Definition use_spelling (occ : Index.Occurrence) : option string :=
-  match Index.view_expr occ with
-  | Some (Syntax.Name n) => Some (Names.ordinary_spelling n)
-  | _ => None
   end.
 
 (* the short-declaration disposition of a left occurrence: a blank, a new object, or a reuse of an earlier one *)

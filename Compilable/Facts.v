@@ -68,21 +68,17 @@ Definition nm_at (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Es
     (use_path : FilePath.T) (use_id : positive) : Names.OrdinaryIdentifier -> option Compilable.TypeResolution.NameMeaning :=
   fun n => resolution_meaning (resolver_at idx es use_path use_id n).
 
-(* whether an occurrence is a println argument whose default type cannot hold it — the exact overflow site *)
+(* a println argument whose default type cannot hold it — the head resolves at the arg's id (same statement) *)
 Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
-    (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
+    (path : FilePath.T) (f : Syntax.File) (id : positive) (c : Index.CFile f)
   : option Compilable.TypeResolution.Constant :=
-  match Index.occurrence_role occ with
+  match Index.cfile_role c with
   | Index.ApplicationArgument _ =>
-      match Index.occurrence_parent occ with
-      | Some pid =>
-          match Index.member_of idx path pid with
-          | Some pocc =>
-              match Index.view_expr pocc with
-              | Some (Syntax.Application (Syntax.Name h) _) =>
-                  match resolver_at idx es path pid h with
+      match Index.cfile_parentview c with
+      | Some (Index.VExpr (Syntax.Application (Syntax.Name h) _)) =>
+                  match resolver_at idx es path id h with
                   | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin =>
-                      match Index.view_expr occ with
+                      match Index.cfile_view_expr c with
                       | Some e =>
                           match Compilable.TypeResolution.constant_info (nm_at idx es path id) e with
                           | Some ci =>
@@ -96,25 +92,21 @@ Definition arg_default_overflow (idx : Index.ProgramIndex p) (es : list (Compila
                       end
                   | _ => None
                   end
-              | _ => None
-              end
-          | None => None
-          end
-      | None => None
+      | _ => None
       end
   | _ => None
   end.
 
 Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
-    (path : FilePath.T) (f : Syntax.File) (id : positive) (occ : Index.Occurrence)
+    (path : FilePath.T) (f : Syntax.File) (id : positive) (c : Index.CFile f)
   : list RootCause :=
   let k  := Index.MakeKey path id in
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Name n) =>
        match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Application (Syntax.Name h) (x :: nil)) =>
        match resolver_at idx es path id h with
        | ResMeaning (Compilable.TypeResolution.NMConversionType t) =>
@@ -126,7 +118,7 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
        end
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Unary Syntax.UnaryMinus e') =>
        match Compilable.TypeResolution.constant_info (nm_at idx es path id) e' with
        | Some _ =>
@@ -137,12 +129,12 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
        end
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Application (Syntax.Name h) args) =>
        match resolver_at idx es path id h with
        | ResMeaning (Compilable.TypeResolution.NMConversionType _) => match args with _ :: nil => [] | _ => [RCConversionArity k] end
        | ResMeaning Compilable.TypeResolution.NMComplexBuiltin     => match args with _ :: _ :: nil => [] | _ => [RCComplexArity k] end
-       | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [RCNoValueUsed k]
+       | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.cfile_role c) then [] else [RCNoValueUsed k]
        | ResMeaning (Compilable.TypeResolution.NMValueConstant _)  => [RCNotCallable k]
        | ResUnresolved => []
        | ResUnmodelled => []
@@ -150,7 +142,7 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
    | Some (Syntax.Application (Syntax.LiteralExpr _) _) => [RCNotCallable k]
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Application (Syntax.Name h) (re :: im :: nil)) =>
        match resolver_at idx es path id h with
        | ResMeaning Compilable.TypeResolution.NMComplexBuiltin =>
@@ -162,9 +154,9 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
        end
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Name n) =>
-       if is_value_role (Index.occurrence_role occ) then
+       if is_value_role (Index.cfile_role c) then
          match resolver_at idx es path id n with
          | ResMeaning (Compilable.TypeResolution.NMConversionType _) | ResMeaning Compilable.TypeResolution.NMComplexBuiltin | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin => [RCTypeAsValue k]
          | _ => []
@@ -172,7 +164,7 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
        else []
    | _ => [] end)
   ++
-  (match Index.view_stmt occ with
+  (match Index.cfile_view_stmt c with
    | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
        match resolver_at idx es path id h with
        | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin => []
@@ -182,15 +174,15 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
    | Some (Syntax.ExprStmt _) => [RCIllegalStatement k]
    | _ => [] end)
   ++
-  (match arg_default_overflow idx es path f id occ with Some c => [RCDefaultNotRepresentable k c] | None => [] end).
+  (match arg_default_overflow idx es path f id c with Some cst => [RCDefaultNotRepresentable k cst] | None => [] end).
 
 Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx))
-    (path : FilePath.T) (id : positive) (occ : Index.Occurrence)
+    (path : FilePath.T) (f : Syntax.File) (id : positive) (c : Index.CFile f)
   : list Boundary :=
   let k  := Index.MakeKey path id in
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Name n) =>
-       if is_value_role (Index.occurrence_role occ) then
+       if is_value_role (Index.cfile_role c) then
          match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
          | Some o => match object_meaning o with ResMeaning (Compilable.TypeResolution.NMValueConstant _) => [] | _ => [MakeBoundary k (ReqValueMeaning (Compilable.Bindings.object_key o))] end
          | None   => []
@@ -198,31 +190,31 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bind
        else []
    | _ => [] end)
   ++
-  (match Index.view_expr occ with
+  (match Index.cfile_view_expr c with
    | Some (Syntax.Application (Syntax.Name h) args) =>
        match resolver_at idx es path id h with
        | ResMeaning (Compilable.TypeResolution.NMConversionType _) => match args with _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
        | ResMeaning Compilable.TypeResolution.NMComplexBuiltin     => match args with _ :: _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
-       | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.occurrence_role occ) then [] else [MakeBoundary k ReqApplication]
+       | ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin     => if is_stmt_expr_role (Index.cfile_role c) then [] else [MakeBoundary k ReqApplication]
        | ResUnresolved => []
        | _ => [MakeBoundary k ReqApplication]
        end
    | Some (Syntax.Application _ _) => [MakeBoundary k ReqApplication]
    | _ => [] end)
   ++
-  (match Index.view_stmt occ with
+  (match Index.cfile_view_stmt c with
    | Some (Syntax.ExprStmt (Syntax.Application (Syntax.Name h) _)) =>
        match resolver_at idx es path id h with ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin => [] | _ => [MakeBoundary k ReqStatement] end
    | Some _ => [MakeBoundary k ReqStatement]
    | None => [] end)
   ++
-  (match Index.view_toplevel occ with
+  (match Index.cfile_view_toplevel c with
    | Some (Syntax.TopDeclaration _) => [MakeBoundary k ReqDeclaration]
    | _ => [] end).
 
 Definition file_diags (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
   : list RootCause :=
-  flat_map (fun idocc => occ_diag idx es (fst b) (snd b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
+  flat_map (fun t => occ_diag idx es (fst b) (snd b) (fst (fst t)) (snd t)) (Index.occ_index (snd b)).
 Definition expr_diags : list RootCause :=
   let idx := Index.index_program p in
   let es := Compilable.Bindings.establishers p idx in
@@ -230,7 +222,7 @@ Definition expr_diags : list RootCause :=
 
 Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
   : list Boundary :=
-  flat_map (fun idocc => occ_boundary idx es (fst b) (fst idocc) (snd idocc)) (Index.occurrences_file (snd b)).
+  flat_map (fun t => occ_boundary idx es (fst b) (snd b) (fst (fst t)) (snd t)) (Index.occ_index (snd b)).
 Definition all_boundaries : list Boundary :=
   let idx := Index.index_program p in
   let es := Compilable.Bindings.establishers p idx in
