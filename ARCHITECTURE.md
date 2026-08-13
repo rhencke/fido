@@ -254,9 +254,10 @@ boundary dependency needs no retreat; uncertainty means freeze and report.
 whole current implementation, proofs, tests, artifacts, gates and live paths, all accepted lower layers, and
 later-milestone prose as adversarial pressure — public types and constructor topology before proof bodies,
 graded by the weakest load-bearing link on the certified causal path. An A+ means the reviewer found no
-load-bearing defect in the exact reviewed `HEAD`; it is not acceptance by itself. Acceptance requires two
-whole-system reviews by two different models of the same exact immutable green candidate, followed by Rob's
-decision. For the current Fido workflow, Claude Code's post-implementation whole-system review is one model
+load-bearing defect in the exact reviewed immutable candidate — a frozen source archive identified by its
+ZIP-comment commit and archive SHA-256, not the live `HEAD`; it is not acceptance by itself. Acceptance requires
+two whole-system reviews by two different models of the same exact immutable candidate archive, followed by
+Rob's decision. For the current Fido workflow, Claude Code's post-implementation whole-system review is one model
 review and the primary ChatGPT whole-system review is the other; Claude Code's implementer role does not
 disqualify its review, because Rob explicitly designates it as one of the two. Each model must review the whole
 current system rather than merely endorse its own implementation report, and where practical the reports are
@@ -320,6 +321,12 @@ conversion naming a **source** type. Anything else is unrepresentable, not rejec
 ---
 
 ## 3. Static elaboration and retained facts
+
+> **Active repair (C4 exact-elaboration retreat, R1–R7).** This section states the **required accepted
+> outcome**. The current candidate is weaker — the occurrence/reference layer is not yet intrinsically
+> addressable, the static phase is not yet one retained object, and the decision is not yet carried by the
+> capability. `.review/NEXT.md` owns the exact current-candidate-versus-required-outcome gap and the dispatched
+> R1–R7 order until each increment lands. Read this section as the target, not as a claim about `HEAD`.
 
 ### Index — structural identity
 

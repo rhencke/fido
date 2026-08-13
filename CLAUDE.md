@@ -102,10 +102,10 @@ Review: implementation  review the exact canonical formal implementation and the
 
 A blocking review returns every finding in one pass. Findings live in the review conversation — they are
 never committed as repair documents. Fix the current files directly and ask for implementation review again.
-The exact reviewed `HEAD` is the candidate; there is no candidate field, no freeze commit, no confirmation
-counter and no override token.
+The candidate is an immutable frozen source archive, identified by its ZIP-comment
+commit and archive SHA-256, not the live `HEAD`; there is no confirmation counter and no override token.
 
-Acceptance needs two whole-system reviews of that exact `HEAD` by two different models — Claude Code's
+Acceptance needs two whole-system reviews of that exact immutable candidate archive by two different models — Claude Code's
 post-implementation review counts as one, the primary ChatGPT review as the other — then Rob decides; neither
 model accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule.
 
