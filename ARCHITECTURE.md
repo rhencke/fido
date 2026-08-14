@@ -115,21 +115,20 @@ Compilable.v            phase composition, Core, Elaboration, Decision, Program/
 Compilable/Bindings.v          package identity, scopes, object-establishing binders, duplicate-safe maps, name binding
 Compilable/TypeResolution.v    type equations, graph decision, retained result and environment
 Compilable/Dependencies.v      package const/var dependency nodes, order, runtime projection
-Compilable/Facts.v             declaration, expression, role-indexed use, unary, application and statement
-                               facts; result consumption; binder finalization; static variables
-Compilable/Report.v            failure causes, diagnostics, requirements, boundaries, canonical lists
+Compilable/Facts.v             predeclared and object resolution meanings, site roles, the resolver at a use,
+                               and the println default-overflow fact
+Compilable/Report.v            failure causes, requirements, boundaries, and the per-site diagnostics and canonical lists
 Compilable/Evidence.v          certified fixtures and controls; no production module imports it
 ```
 
 Bindings precedes TypeResolution and Dependencies; those three precede Facts; Facts precedes Report; Report
 precedes `Compilable.v`; `Compilable.v` precedes Evidence. No child imports `Compilable.v`.
 
-Expression facts and result consumption are one module because the dependency between them runs both ways.
-An initializer's expression facts establish the variable and constant facts of its declaration, and later
-name-expression facts consume those exact facts; a short declaration interleaves expression analysis, result
-consumption, binder finalization and static-variable creation in a single step. That is a real semantic
-cycle, so splitting them would need a callback, a registry, a duplicate carrier or a forward interface —
-each of which is the routing-around this rule forbids.
+`Compilable.Facts` owns the resolution facts: the name-resolution meanings and the resolver over the retained
+index and the once-gathered establishers, whose gathering already fixes the declare-then-use order a short or
+grouped declaration needs. `Compilable.Report` consumes those facts and owns their projection into diagnostics,
+requirements, boundaries and the canonical report lists. The dependency runs one way — Report onto Facts — and
+the layer gate confirms no cycle.
 
 ### Direct module dependencies are gated
 
@@ -155,8 +154,8 @@ Syntax: Collections FilePath Float ModulePath Names Version
 Index: Collections FilePath Syntax
 Compilable.TypeResolution: Complex Float Integer Syntax
 Compilable.Bindings: Collections FilePath Index Names Syntax
-Compilable.Report: Compilable.TypeResolution Index Syntax
-Compilable.Facts: Compilable.Bindings Compilable.Packages Compilable.Report Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
+Compilable.Report: Compilable.Bindings Compilable.Facts Compilable.Packages Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
+Compilable.Facts: Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
 Compilable.Packages: Collections FilePath ModulePath Syntax Version
 Compilable: Collections Compilable.Bindings Compilable.Facts Compilable.Report Compilable.TypeResolution Complex FilePath Float Index Integer ModulePath Names Syntax Version
 Machine:
