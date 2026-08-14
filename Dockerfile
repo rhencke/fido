@@ -341,6 +341,11 @@ sealed Z Emit.Mint.issue Emit.Mint.TokenRepresentation
 sealed AA Emit.of_safe Emit.MakeImage
 # the SAFETY certificate is a transparent carrier too — its retained source must compute for `of_safe` — and is
 # unforgeable intrinsically because its payload is the sealed Compilable.Program (typing control AK below).
+# R5 removed-route controls: the predicate-backed Program mint and the source-transporting image constructor are
+# DELETED, not merely sealed — a client that names any of them cannot compile (the same absence probe as the seals).
+sealed AL Compilable.compile Compilable.program_of
+sealed AM Compilable.compile Compilable.program_of_source
+sealed AN Emit.of_safe Emit.of_safe_at
 # ADVERSARIAL CONTROLS ON THE HELPER ITSELF.  A sealed-constructor test is only evidence if it could have
 # failed for the right reason, so the helper must reject its own bad evidence.  Each runs in a subshell,
 # because `fail` exits.
@@ -432,7 +437,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — one decided core projected, three-way verdict matched, each branch fact read over that same core, accepted diagnostics/boundaries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-G/J-U/Y-AA (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + typing controls AB-AD (image) / AH-AI (reference) / AJ-AK (transparent program+certificate carriers) + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-G/J-U/Y-AA + AL-AN (removed-route absence) (the load check is proved once per distinct prelude+sentinel and reused; every probe runs) + helper meta-controls + typing controls AB-AD (image) / AH-AI (reference) / AJ-AK (transparent program+certificate carriers) + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
@@ -556,6 +561,20 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 # and Compiled for the paired positive cases — proved through compile itself, never a second mint.
 if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
 echo "fido: static rejection controls OK — the §8.3 matrix lands in Rejected through compile; positive unary cases Compiled"
+
+# R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They compile outside the Fido
+# path, so the audit's Fido-modpath seed cannot reach them here; recompile each under the Fido path (the Fido
+# Materialize lines stripped, since the pristine trees already exist and the materializer refuses an occupied
+# destination), require them all, and audit — an axiom or admit in ANY fixture proof is rejected as in the theory.
+mkdir -p /tmp/e2eaudit
+for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject; do
+  grep -v '^Fido Materialize' e2e/$m.v > /tmp/e2eaudit/$m.v
+  if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1; then cat /tmp/e2eaudit/$m.log; fail "e2e audit: $m did not recompile under the Fido path"; fi
+done
+printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
+if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
+grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
+echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
 # transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
