@@ -20,6 +20,7 @@ Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
 
 Ltac reject    := apply Compilable.rejects_of_diags; vm_compute; discriminate.
 Ltac compileok := apply Compilable.compiles_of_admissible; split; vm_compute; reflexivity.
+Ltac outside   := apply Compilable.outsides_of_boundaries; [ vm_compute; reflexivity | vm_compute; discriminate ].
 
 (* known type mismatches: unary minus over a nonnumeric or overflowing typed constant *)
 Definition r_neg_string  : Compilable.rejects (prog [ PL [ NEG (SLIT "x") ] ]).                         Proof. reject. Qed.
@@ -53,3 +54,6 @@ Definition r_stmt_lit  : Compilable.rejects (prog [ Syntax.ExprStmt (ILIT 1) ]).
 Definition c_neg_int8    : Compilable.compiles (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]). Proof. compileok. Qed.
 Definition c_neg_untyped : Compilable.compiles (prog [ PL [ NEG (ILIT 1) ] ]).                   Proof. compileok. Qed.
 Definition c_neg_complex : Compilable.compiles (prog [ PL [ NEG (CPLX (ILIT 1) (ILIT 2)) ] ]).    Proof. compileok. Qed.
+
+(* a typed complex is valid Go but outside the implemented scope: not Compiled, not Rejected, but OutsideScope *)
+Definition o_cx_typed : Compilable.outsides (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]). Proof. outside. Qed.

@@ -147,6 +147,8 @@ Definition compiles (p : Syntax.Program) : Prop :=
   match verdict (compile p) with Compiled _ => True | _ => False end.
 Definition rejects (p : Syntax.Program) : Prop :=
   match verdict (compile p) with Rejected _ => True | _ => False end.
+Definition outsides (p : Syntax.Program) : Prop :=
+  match verdict (compile p) with OutsideScope _ => True | _ => False end.
 
 Definition compiles_of_admissible (p : Syntax.Program) (H : Admissible p) : compiles p :=
   match verdict (compile p) as v return (match v with Compiled _ => True | _ => False end) with
@@ -159,4 +161,10 @@ Definition rejects_of_diags (p : Syntax.Program) (Hd : all_diags p <> []) : reje
   | Compiled payload => False_rect _ (Hd (eq_trans (eq_sym (decided_diagnostics p)) (c_accepted payload)))
   | Rejected _ => I
   | OutsideScope payload => False_rect _ (Hd (eq_trans (eq_sym (decided_diagnostics p)) (o_clean payload)))
+  end.
+Definition outsides_of_boundaries (p : Syntax.Program) (Hd : all_diags p = []) (Hb : all_boundaries p <> []) : outsides p :=
+  match verdict (compile p) as v return (match v with OutsideScope _ => True | _ => False end) with
+  | Compiled payload => False_rect _ (Hb (eq_trans (eq_sym (decided_boundaries p)) (c_in_scope payload)))
+  | Rejected payload => False_rect _ (r_rejected payload (eq_trans (decided_diagnostics p) Hd))
+  | OutsideScope _ => I
   end.

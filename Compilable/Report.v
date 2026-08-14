@@ -24,6 +24,7 @@ Inductive Requirement : Type :=
 | ReqApplication  : Requirement
 | ReqStatement    : Requirement
 | ReqDeclaration  : Requirement
+| ReqComplexType  : Requirement   (* a typed complex is valid Go but not in the implemented scope — an exact boundary *)
 | ReqUnary        : Requirement.
 
 Record Boundary : Type := MakeBoundary { boundary_site : Index.Key ; boundary_req : Requirement }.
@@ -128,7 +129,17 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bind
    | Some (Syntax.Application (Syntax.Name h) args) =>
        match Compilable.Facts.resolver_at p idx es path id h with
        | Compilable.Facts.ResMeaning (Compilable.TypeResolution.NMConversionType _) => match args with _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
-       | Compilable.Facts.ResMeaning Compilable.TypeResolution.NMComplexBuiltin     => match args with _ :: _ :: nil => [] | _ => [MakeBoundary k ReqApplication] end
+       | Compilable.Facts.ResMeaning Compilable.TypeResolution.NMComplexBuiltin     =>
+           match args with
+           | re :: im :: nil =>
+               match Compilable.TypeResolution.constant_info (Compilable.Facts.nm_at p idx es path id) re,
+                     Compilable.TypeResolution.constant_info (Compilable.Facts.nm_at p idx es path id) im with
+               | Some cre, Some cim =>
+                   match Compilable.TypeResolution.complex_class cre cim with
+                   | Compilable.TypeResolution.CxDefer => [MakeBoundary k ReqComplexType]
+                   | _ => [] end
+               | _, _ => [] end
+           | _ => [MakeBoundary k ReqApplication] end
        | Compilable.Facts.ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin     => if Compilable.Facts.is_stmt_expr_role (Index.cfile_role c) then [] else [MakeBoundary k ReqApplication]
        | Compilable.Facts.ResUnresolved => []
        | _ => [MakeBoundary k ReqApplication]
