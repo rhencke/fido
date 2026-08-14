@@ -89,6 +89,13 @@ Proof.
   - apply IH.
 Qed.
 
+(* map over a list with each element's membership proof in hand — builds handles with no None fallback *)
+Fixpoint map_in {A B} (l : list A) : (forall x, In x l -> B) -> list B :=
+  match l with
+  | [] => fun _ => []
+  | x :: xs => fun f => f x (or_introl eq_refl) :: map_in xs (fun y Hy => f y (or_intror Hy))
+  end.
+
 (* the three spec shapes share one occurrence kind; this is the retained spec payload *)
 Inductive AnySpec : Type :=
 | ASConst : Syntax.ConstSpec -> AnySpec
@@ -681,6 +688,9 @@ Qed.
 Definition local_entry {p} (idx : ProgramIndex p) (fr : FileRef p) : File :=
   option_get (Collections.FileMap.find (fr_path fr) (idx_files idx)) (local_find_some idx fr).
 
+(* the retained source this handle names — read from the built entry, not recomputed from the program *)
+Definition local_source {p} (idx : ProgramIndex p) (fr : FileRef p) : Syntax.File := fi_source (local_entry idx fr).
+
 Definition local_index {p} (idx : ProgramIndex p) (fr : FileRef p)
   : list (positive * positive * CFile (fi_source (local_entry idx fr))) := fi_index (local_entry idx fr).
 
@@ -756,6 +766,19 @@ Proof.
   intros p fp fr H. pose proof (file_of_path_sound p fp fr H) as Hp.
   unfold file_ref_path in Hp. unfold file_ref_source. rewrite <- Hp. apply file_ref_find.
 Qed.
+
+(* a listed file binding is a real file, so its path is a member — the basis for a fallback-free handle list *)
+Lemma binding_mem (p : Syntax.Program) (b : FilePath.T * Syntax.File) :
+  In b (Syntax.file_bindings (Syntax.files p)) -> Syntax.file_mem (fst b) (Syntax.files p) = true.
+Proof.
+  intros Hin. apply Syntax.file_bindings_find in Hin. unfold Syntax.find_file in Hin.
+  apply Collections.FileFacts.mem_in_iff. apply Collections.FileFacts.in_find_iff.
+  rewrite Hin. discriminate.
+Qed.
+
+(* the retained files as handles: every file, once, with its membership — the enumeration consumers read *)
+Definition file_refs (p : Syntax.Program) : list (FileRef p) :=
+  map_in (Syntax.file_bindings (Syntax.files p)) (fun b Hin => MakeFileRef (fst b) (binding_mem p b Hin)).
 
 (* q >= 1 for a positive q, so encoding a position as of_succ_nat and decoding by pred . to_nat round-trips *)
 Lemma of_succ_pred_to_nat (q : positive) : Pos.of_succ_nat (Nat.pred (Pos.to_nat q)) = q.

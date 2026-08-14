@@ -212,21 +212,23 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bind
    | Some (Syntax.TopDeclaration _) => [MakeBoundary k ReqDeclaration]
    | _ => [] end).
 
-Definition file_diags (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+Definition file_diags (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (fr : Index.Snapshot.FileRef p)
   : list RootCause :=
-  flat_map (fun t => occ_diag idx es (fst b) (snd b) (fst (fst t)) (snd t)) (Index.occ_index (snd b)).
+  flat_map (fun t => occ_diag idx es (Index.Snapshot.file_ref_path fr) (Index.Snapshot.local_source idx fr) (fst (fst t)) (snd t))
+           (Index.Snapshot.local_index idx fr).
 Definition expr_diags : list RootCause :=
   let idx := Index.index_program p in
   let es := Compilable.Bindings.establishers p idx in
-  flat_map (file_diags idx es) (Syntax.file_bindings (Syntax.files p)).
+  flat_map (file_diags idx es) (Index.Snapshot.file_refs p).
 
-Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (b : FilePath.T * Syntax.File)
+Definition file_boundaries (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings.Establisher idx)) (fr : Index.Snapshot.FileRef p)
   : list Boundary :=
-  flat_map (fun t => occ_boundary idx es (fst b) (snd b) (fst (fst t)) (snd t)) (Index.occ_index (snd b)).
+  flat_map (fun t => occ_boundary idx es (Index.Snapshot.file_ref_path fr) (Index.Snapshot.local_source idx fr) (fst (fst t)) (snd t))
+           (Index.Snapshot.local_index idx fr).
 Definition all_boundaries : list Boundary :=
   let idx := Index.index_program p in
   let es := Compilable.Bindings.establishers p idx in
-  flat_map (file_boundaries idx es) (Syntax.file_bindings (Syntax.files p)).
+  flat_map (file_boundaries idx es) (Index.Snapshot.file_refs p).
 
 (* Package-level diagnostics: attach the exact RootCause to Packages' one canonical per-package rule status. *)
 Definition package_rule_diags : list RootCause :=

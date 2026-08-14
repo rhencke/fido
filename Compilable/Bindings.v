@@ -153,15 +153,16 @@ Record Establisher := MkEst {
 
 Definition est_key (e : Establisher) : Index.Key := Index.Snapshot.node_ref_key (est_ref e).
 
-Definition file_establishers (b : FilePath.T * Syntax.File) : list Establisher :=
-  let occs := Index.occ_index (snd b) in
+Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher :=
+  let path := Index.Snapshot.file_ref_path fr in
+  let occs := Index.Snapshot.local_index idx fr in
   let bw   := block_windows occs in
   let sw   := stmt_windows occs in
   fold_right (fun t acc =>
      match binder_spelling (snd t) with
      | Some (sp, sh) =>
-         match ref_at (fst b) (fst (fst t)) with
-         | Some r => MkEst r sp (scope_of_id bw (fst b) (fst (fst t))) sh (stmt_end_of sw (fst (fst t)))
+         match ref_at path (fst (fst t)) with
+         | Some r => MkEst r sp (scope_of_id bw path (fst (fst t))) sh (stmt_end_of sw (fst (fst t)))
                           (nearest_block bw (fst (fst t))) :: acc
          | None => acc
          end
@@ -169,7 +170,7 @@ Definition file_establishers (b : FilePath.T * Syntax.File) : list Establisher :
    [] occs.
 
 Definition establishers : list Establisher :=
-  flat_map file_establishers (Syntax.file_bindings (Syntax.files p)).
+  flat_map file_establishers (Index.Snapshot.file_refs p).
 
 (* an establisher is visible to a use only after its declaring statement finishes (block scopes only) *)
 Definition visible_to (e : Establisher) (use_id : positive) : bool :=
