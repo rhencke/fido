@@ -157,3 +157,76 @@ Definition outsides_of_boundaries (p : Syntax.Program) (Hd : all_diags p = []) (
   | Rejected payload => False_rect _ (r_rejected payload (eq_trans (decided_diagnostics p) Hd))
   | OutsideScope _ => I
   end.
+
+(* compiled soundness: a program that compiles has empty source-level diagnostics and boundaries *)
+Definition admissible_of_compiles (p : Syntax.Program) (H : compiles p) : Admissible p :=
+  match verdict (compile p) as v
+    return (match v with Compiled _ => True | _ => False end) -> Admissible p with
+  | Compiled payload => fun _ =>
+      conj (eq_trans (eq_sym (decided_diagnostics p)) (c_accepted payload))
+           (eq_trans (eq_sym (decided_boundaries p)) (c_in_scope payload))
+  | Rejected _ => fun H0 => False_rect _ H0
+  | OutsideScope _ => fun H0 => False_rect _ H0
+  end H.
+(* soundness and completeness together: a program compiles exactly when it is admissible *)
+Definition accepted_iff_admissible (p : Syntax.Program) : compiles p <-> Admissible p :=
+  conj (admissible_of_compiles p) (compiles_of_admissible p).
+
+(* exact rejected characterization: a program is Rejected exactly when it has a diagnostic *)
+Definition diags_of_rejects (p : Syntax.Program) (H : rejects p) : all_diags p <> [] :=
+  match verdict (compile p) as v
+    return (match v with Rejected _ => True | _ => False end) -> all_diags p <> [] with
+  | Rejected payload => fun _ Hb => r_rejected payload (eq_trans (decided_diagnostics p) Hb)
+  | Compiled _ => fun H0 => False_rect _ H0
+  | OutsideScope _ => fun H0 => False_rect _ H0
+  end H.
+Definition rejects_iff_diags (p : Syntax.Program) : rejects p <-> all_diags p <> [] :=
+  conj (diags_of_rejects p) (rejects_of_diags p).
+
+(* exact outside characterization: Outside exactly when clean of diagnostics but blocked by a boundary *)
+Definition outside_char_of_outsides (p : Syntax.Program) (H : outsides p)
+  : all_diags p = [] /\ all_boundaries p <> [] :=
+  match verdict (compile p) as v
+    return (match v with OutsideScope _ => True | _ => False end) -> (all_diags p = [] /\ all_boundaries p <> []) with
+  | OutsideScope payload => fun _ =>
+      conj (eq_trans (eq_sym (decided_diagnostics p)) (o_clean payload))
+           (fun Hb => o_blocked payload (eq_trans (decided_boundaries p) Hb))
+  | Compiled _ => fun H0 => False_rect _ H0
+  | Rejected _ => fun H0 => False_rect _ H0
+  end H.
+Definition outsides_iff (p : Syntax.Program)
+  : outsides p <-> (all_diags p = [] /\ all_boundaries p <> []) :=
+  conj (outside_char_of_outsides p)
+       (fun H => outsides_of_boundaries p (proj1 H) (proj2 H)).
+
+(* branch exhaustiveness: every program is compiled, rejected, or outside scope *)
+Definition decision_total (p : Syntax.Program) : compiles p \/ rejects p \/ outsides p :=
+  match verdict (compile p) as v
+    return (match v with Compiled _ => True | _ => False end)
+        \/ (match v with Rejected _ => True | _ => False end)
+        \/ (match v with OutsideScope _ => True | _ => False end) with
+  | Compiled _ => or_introl I
+  | Rejected _ => or_intror (or_introl I)
+  | OutsideScope _ => or_intror (or_intror I)
+  end.
+
+(* branch exclusivity: the three verdicts are pairwise incompatible *)
+Definition compiles_not_rejects (p : Syntax.Program) (Hc : compiles p) : ~ rejects p :=
+  match verdict (compile p) as v
+    return (match v with Compiled _ => True | _ => False end) -> (match v with Rejected _ => True | _ => False end) -> False with
+  | Compiled _ => fun _ Hx => Hx | Rejected _ => fun Hx _ => Hx | OutsideScope _ => fun Hx _ => Hx
+  end Hc.
+Definition compiles_not_outsides (p : Syntax.Program) (Hc : compiles p) : ~ outsides p :=
+  match verdict (compile p) as v
+    return (match v with Compiled _ => True | _ => False end) -> (match v with OutsideScope _ => True | _ => False end) -> False with
+  | Compiled _ => fun _ Hx => Hx | Rejected _ => fun Hx _ => Hx | OutsideScope _ => fun Hx _ => Hx
+  end Hc.
+Definition rejects_not_outsides (p : Syntax.Program) (Hr : rejects p) : ~ outsides p :=
+  match verdict (compile p) as v
+    return (match v with Rejected _ => True | _ => False end) -> (match v with OutsideScope _ => True | _ => False end) -> False with
+  | Compiled _ => fun Hx _ => Hx | Rejected _ => fun _ Hx => Hx | OutsideScope _ => fun Hx _ => Hx
+  end Hr.
+
+(* exact program identity: the minted program's source and retained core ARE the decision's, by computation *)
+Definition program_source (p : Syntax.Program) (H : compiles p) : source (program_of_compiled p H) = p := eq_refl.
+Definition program_core (p : Syntax.Program) (H : compiles p) : core (program_of_compiled p H) = decided_core (compile p) := eq_refl.
