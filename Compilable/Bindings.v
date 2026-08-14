@@ -152,6 +152,13 @@ Definition stmt_windows {f} (occs : list (positive * positive * Index.CFile f)) 
      | Index.BlockStatement _ => (fst (fst t), snd (fst t)) :: acc
      | _ => acc end) [] occs.
 
+(* the const/var/type spec windows [id, subtree_end] — a spec-name's Go scope starts at the end of its own spec *)
+Definition spec_windows {f} (occs : list (positive * positive * Index.CFile f)) : list (positive * positive) :=
+  fold_right (fun t acc =>
+     match Index.cfile_kind (snd t) with
+     | Index.SpecKind => (fst (fst t), snd (fst t)) :: acc
+     | _ => acc end) [] occs.
+
 (* the innermost block window strictly containing [id], with its reference; ties to the latest-starting block *)
 Definition nearest_block (bw : list (positive * positive * BlockRef idx)) (id : positive)
   : option (positive * positive * BlockRef idx) :=
@@ -200,7 +207,7 @@ Record Establisher := MkEst {
   est_spelling : string;
   est_scope    : ScopeId idx;
   est_short    : bool;
-  est_stmt_end : positive;
+  est_vis_start : positive;   (* decl-kind-specific: a block-scoped binder is visible only after this position *)
   est_block    : option (positive * positive)   (* the containing block window, for O(1) use-containment *)
 }.
 
@@ -210,13 +217,15 @@ Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher 
   let occs := Index.Snapshot.local_index idx fr in
   let bw   := block_windows fr in
   let sw   := stmt_windows occs in
+  let spw  := spec_windows occs in
   fold_right (fun s acc =>
      let t := Index.nth_lt occs (proj1_sig s) (proj2_sig s) in
      match binder_spelling (snd t) as bo return binder_spelling (snd t) = bo -> list Establisher with
      | Some x => fun Heq =>
          MkEst (MkBinderRef (Index.Snapshot.MakeNodeRef fr (proj1_sig s) (proj2_sig s))
                             (binder_spelling_role (snd t) x Heq))
-               (fst x) (scope_of_id bw fr (fst (fst t))) (snd x) (stmt_end_of sw (fst (fst t)))
+               (fst x) (scope_of_id bw fr (fst (fst t))) (snd x)
+               (if snd x then stmt_end_of sw (fst (fst t)) else stmt_end_of spw (fst (fst t)))
                (option_map (fun w => (fst (fst w), snd (fst w))) (nearest_block bw (fst (fst t)))) :: acc
      | None => fun _ => acc
      end eq_refl)
@@ -225,9 +234,9 @@ Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher 
 Definition establishers : list Establisher :=
   flat_map file_establishers (Index.Snapshot.file_refs p).
 
-(* an establisher is visible to a use only after its declaring statement finishes (block scopes only) *)
+(* a block-scoped establisher is visible only after its decl-kind visibility start (spec-end vs statement-end) *)
 Definition visible_to (e : Establisher) (use_id : positive) : bool :=
-  match est_block e with Some _ => Pos.ltb (est_stmt_end e) use_id | None => true end.
+  match est_block e with Some _ => Pos.ltb (est_vis_start e) use_id | None => true end.
 
 (* does [e]'s scope contain a use? block = same file within the block window; package = same directory *)
 Definition scope_contains (e : Establisher) (use_path : FilePath.T) (use_id : positive) : bool :=
@@ -298,6 +307,6 @@ Definition redeclares (es : list Establisher) (e : Establisher) : bool :=
 End WithProgram.
 
 Arguments MkEst {p idx}. Arguments est_ref {p idx}. Arguments est_spelling {p idx}. Arguments est_scope {p idx}.
-Arguments est_short {p idx}. Arguments est_stmt_end {p idx}. Arguments est_key {p idx}.
+Arguments est_short {p idx}. Arguments est_vis_start {p idx}. Arguments est_key {p idx}.
 Arguments ShortBlank {p idx}. Arguments ShortNew {p idx}. Arguments ShortReuse {p idx}.
 Arguments Establisher {p} idx.
