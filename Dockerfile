@@ -229,6 +229,16 @@ set +e; ico3=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch3 "$depst"); ic3=$?; set
   || fail "layer integration control 3: a removed module policy row was not rejected as module-row coverage (rc=$ic3)"
 echo "fido: layer integration control 3 OK — a removed module policy row over the real graph rejected as module-row coverage"
 echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and the single awk verdict pass both completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy; the gate greens only when every required operation completed (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
+# (b3) RETAINED-PHASE control: the index is built ONCE (Report.elaborate_phase, which threads it to every
+#      projection); a consumer that calls index_program or the raw occurrence fold would re-derive a peer object
+#      (rule 4 / no raw-source semantic enumeration).  Bindings and Facts must therefore name neither builder,
+#      and Report must build it in exactly one place.
+for f in Compilable/Bindings.v Compilable/Facts.v; do
+  if grep -qE 'index_program|occ_index\b|occ_file\b' "$f"; then grep -nE 'index_program|occ_index\b|occ_file\b' "$f"; fail "retained-phase control: $f rebuilds the index/fold instead of reading the threaded one"; fi
+done
+ipn=$(grep -cE 'Index\.index_program' Compilable/Report.v || true)
+[ "$ipn" = "1" ] || fail "retained-phase control: Report builds the index $ipn time(s), expected exactly once (elaborate_phase)"
+echo "fido: retained-phase control OK — the index is built once in Report.elaborate_phase; Bindings/Facts read the threaded idx, no peer rebuild"
 # (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi
@@ -594,7 +604,7 @@ Fido Materialize img To "/workspace/e2e-forge".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Opaque.v <<'EOF'
 Axiom a : Safe.Program.
-Definition sp : Safe.Program := a.
+Lemma sp : Safe.Program. Proof. exact a. Qed.
 Definition img : Emit.Image := Emit.of_safe sp.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge-op".
