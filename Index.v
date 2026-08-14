@@ -64,6 +64,31 @@ Definition option_get {A} (o : option A) : o <> None -> A :=
 Lemma option_get_some {A} (o : option A) : forall (H : o <> None), o = Some (option_get o H).
 Proof. destruct o as [a|]; intro H; [reflexivity | exfalso; exact (H eq_refl)]. Qed.
 
+(* total positional access into a list; the in-range proof makes it a projection of a member, never a fallback *)
+Fixpoint nth_lt {A} (l : list A) : forall n, Nat.lt n (length l) -> A :=
+  match l with
+  | [] => fun n H => False_rect A (Nat.nlt_0_r n H)
+  | x :: xs => fun n =>
+      match n with
+      | O => fun _ => x
+      | S k => fun H => nth_lt xs k (proj2 (Nat.succ_lt_mono k (length xs)) H)
+      end
+  end.
+
+(* the bound is a mere proposition, so a reference's identity is its file and position, not which proof it carries *)
+Lemma lt_unique (n m : nat) (p q : Nat.lt n m) : p = q.
+Proof. apply Peano_dec.le_unique. Qed.
+
+(* the total access agrees with the partial one: it returns exactly the retained member at that position *)
+Lemma nth_lt_nth_error {A} (l : list A) : forall n H, nth_error l n = Some (nth_lt l n H).
+Proof.
+  induction l as [|x xs IH]; intros [|k] H; cbn in *.
+  - exfalso; exact (Nat.nlt_0_r 0 H).
+  - exfalso; exact (Nat.nlt_0_r (S k) H).
+  - reflexivity.
+  - apply IH.
+Qed.
+
 (* the three spec shapes share one occurrence kind; this is the retained spec payload *)
 Inductive AnySpec : Type :=
 | ASConst : Syntax.ConstSpec -> AnySpec
@@ -539,6 +564,37 @@ Fixpoint occ_index_aux {f} (i : nat) (cs : list (CFile f)) : list (positive * po
   end.
 Definition occ_index (f : Syntax.File) : list (positive * positive * CFile f) := occ_index_aux 0 (cfile_cursors f).
 
+(* the index preserves its length: one entry per enumerated cursor, ids assigned by position *)
+Lemma occ_index_aux_length {f} : forall (cs : list (CFile f)) base, length (occ_index_aux base cs) = length cs.
+Proof. induction cs as [|x xs IH]; intros base; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+(* position i carries the id of_succ_nat (base+i) over exactly the cursor found at position i of the enumeration *)
+Lemma occ_index_aux_nth {f} : forall (cs : list (CFile f)) base i c,
+  nth_error cs i = Some c ->
+  exists se, nth_error (occ_index_aux base cs) i = Some (Pos.of_succ_nat (base + i), se, c).
+Proof.
+  induction cs as [|x xs IH]; intros base i c Hc.
+  - destruct i; cbn in Hc; discriminate.
+  - destruct i as [|k]; cbn in Hc.
+    + injection Hc as <-. cbn. eexists. rewrite Nat.add_0_r. reflexivity.
+    + cbn [occ_index_aux]. cbn [nth_error].
+      destruct (IH (S base) k c Hc) as [se Hse].
+      exists se. rewrite Hse. rewrite Nat.add_succ_comm. reflexivity.
+Qed.
+
+(* R1 totality: the index has exactly one entry per enumerated cursor — no occurrence is dropped or invented *)
+Theorem occ_index_length (f : Syntax.File) : length (occ_index f) = length (cfile_cursors f).
+Proof. unfold occ_index. apply occ_index_aux_length. Qed.
+
+(* R1 ordering/id uniqueness: position i carries id of_succ_nat i over the cursor at position i — a bijection *)
+Theorem occ_index_id_at (f : Syntax.File) : forall i c,
+  nth_error (cfile_cursors f) i = Some c ->
+  exists se, nth_error (occ_index f) i = Some (Pos.of_succ_nat i, se, c).
+Proof.
+  intros i c H. unfold occ_index.
+  destruct (occ_index_aux_nth (cfile_cursors f) 0 i c H) as [se Hse]. exists se. exact Hse.
+Qed.
+
 (* The retained per-file result: the source and its ordered cursor index, built once from the one fold. *)
 Record File := MakeFile { fi_source : Syntax.File ; fi_index : list (positive * positive * CFile fi_source) }.
 Definition index_file (f : Syntax.File) : File := MakeFile f (occ_index f).
@@ -580,13 +636,6 @@ Arguments MakeIndex {p}. Arguments idx_files {p}. Arguments idx_built {p}.
 Definition index_program (p : Syntax.Program) : ProgramIndex p :=
   MakeIndex (Collections.FileMap.map index_file (Syntax.files p)) eq_refl.
 
-(* a reference's validity: the local id names a real node in the retained cursor index — a lookup, not a mint *)
-Definition occ_ofb {p} (idx : ProgramIndex p) (path : FilePath.T) (local : positive) : bool :=
-  match Collections.FileMap.find path (idx_files idx) with
-  | Some fl => existsb (fun t => Pos.eqb (fst (fst t)) local) (fi_index fl)
-  | None => false
-  end.
-
 Module Snapshot.
 
 (* A file handle: a path with a boolean membership proof; its source is read from the program map. *)
@@ -619,36 +668,58 @@ Proof.
   f_equal. apply Eqdep_dec.UIP_dec, Bool.bool_dec.
 Qed.
 
+(* the retained per-file index the built map holds for a handle — the exact object a reference selects into *)
+Lemma local_find_some {p} (idx : ProgramIndex p) (fr : FileRef p) :
+  Collections.FileMap.find (fr_path fr) (idx_files idx) <> None.
+Proof.
+  rewrite (idx_built idx), Collections.FileFacts.map_o.
+  destruct (Collections.FileMap.find (fr_path fr) (Syntax.files p)) eqn:E; cbn; [discriminate|].
+  exfalso. apply (file_mem_find_some (fr_path fr) (Syntax.files p) (fr_memb fr)).
+  unfold Syntax.find_file. exact E.
+Qed.
+
+Definition local_entry {p} (idx : ProgramIndex p) (fr : FileRef p) : File :=
+  option_get (Collections.FileMap.find (fr_path fr) (idx_files idx)) (local_find_some idx fr).
+
+Definition local_index {p} (idx : ProgramIndex p) (fr : FileRef p)
+  : list (positive * positive * CFile (fi_source (local_entry idx fr))) := fi_index (local_entry idx fr).
+
+(* a reference is a dependent selector: a file handle plus a proved-in-range position into that retained index *)
 Record NodeRef {p : Syntax.Program} (idx : ProgramIndex p) : Type := MakeNodeRef {
-  nr_file  : FileRef p;
-  nr_local : positive;
-  nr_valid : occ_ofb idx (fr_path nr_file) nr_local = true
+  nr_file : FileRef p;
+  nr_pos  : nat;
+  nr_lt   : Nat.lt nr_pos (length (local_index idx nr_file))
 }.
-Arguments MakeNodeRef {p idx}. Arguments nr_file {p idx}. Arguments nr_local {p idx}. Arguments nr_valid {p idx}.
+Arguments MakeNodeRef {p idx}. Arguments nr_file {p idx}. Arguments nr_pos {p idx}. Arguments nr_lt {p idx}.
+
+(* the member the selector projects: exactly the retained occurrence at that position, total and without fallback *)
+Definition node_ref_elt {p} {idx : ProgramIndex p} (r : NodeRef idx)
+  : positive * positive * CFile (fi_source (local_entry idx (nr_file r)))
+  := nth_lt (local_index idx (nr_file r)) (nr_pos r) (nr_lt r).
+Definition node_ref_cursor {p} {idx : ProgramIndex p} (r : NodeRef idx)
+  : CFile (fi_source (local_entry idx (nr_file r))) := snd (node_ref_elt r).
 
 Definition node_ref_file {p} {idx : ProgramIndex p} (r : NodeRef idx) : FileRef p := nr_file r.
-Definition node_ref_local {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := nr_local r.
-Definition node_ref_key {p} {idx : ProgramIndex p} (r : NodeRef idx) : Key := MakeKey (fr_path (nr_file r)) (nr_local r).
-
-Lemma node_ref_valid {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  occ_ofb idx (fr_path (nr_file r)) (nr_local r) = true.
-Proof. destruct r as [fr l v]; exact v. Qed.
+Definition node_ref_local {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := Pos.of_succ_nat (nr_pos r).
+Definition node_ref_key {p} {idx : ProgramIndex p} (r : NodeRef idx) : Key :=
+  MakeKey (fr_path (nr_file r)) (node_ref_local r).
 
 Lemma node_ref_key_eq {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   node_ref_key r = MakeKey (file_ref_path (node_ref_file r)) (node_ref_local r).
 Proof. reflexivity. Qed.
 
-(* two references with equal file and equal local id are equal (validity is proof-irrelevant here) *)
+(* two references with equal handle and equal position are equal — the range proof is a mere proposition *)
 Lemma node_ref_ext {p} {idx : ProgramIndex p} (r1 r2 : NodeRef idx) :
-  nr_file r1 = nr_file r2 -> nr_local r1 = nr_local r2 -> r1 = r2.
+  nr_file r1 = nr_file r2 -> nr_pos r1 = nr_pos r2 -> r1 = r2.
 Proof.
-  destruct r1 as [f1 l1 v1], r2 as [f2 l2 v2]; cbn; intros Hf Hl; subst f2 l2.
-  f_equal. apply Eqdep_dec.UIP_dec, Bool.bool_dec.
+  destruct r1 as [f1 n1 h1], r2 as [f2 n2 h2]; cbn; intros Hf Hn; subst f2 n2.
+  f_equal. apply lt_unique.
 Qed.
 
 Lemma node_ref_key_inj {p} {idx : ProgramIndex p} (r1 r2 : NodeRef idx) : node_ref_key r1 = node_ref_key r2 -> r1 = r2.
 Proof.
-  unfold node_ref_key. intros H. injection H as Hp Hl.
+  unfold node_ref_key, node_ref_local. intros H. injection H as Hp Hl.
+  apply (f_equal Pos.to_nat) in Hl. rewrite 2 SuccNat2Pos.id_succ in Hl. injection Hl as Hl.
   apply node_ref_ext; [ apply file_ref_ext; exact Hp | exact Hl ].
 Qed.
 
@@ -686,36 +757,42 @@ Proof.
   unfold file_ref_path in Hp. unfold file_ref_source. rewrite <- Hp. apply file_ref_find.
 Qed.
 
-(* resolve a key to the reference it names in the retained index, when both its file and local id are real *)
+(* q >= 1 for a positive q, so encoding a position as of_succ_nat and decoding by pred . to_nat round-trips *)
+Lemma of_succ_pred_to_nat (q : positive) : Pos.of_succ_nat (Nat.pred (Pos.to_nat q)) = q.
+Proof.
+  apply Pos2Nat.inj. rewrite SuccNat2Pos.id_succ.
+  pose proof (Pos2Nat.is_pos q) as H. destruct (Pos.to_nat q) as [|n] eqn:E; [ lia | reflexivity ].
+Qed.
+
+(* resolve a key to the reference it names: locate the file, then take the position its id encodes, in range *)
 Definition ref_of_key {p : Syntax.Program} (idx : ProgramIndex p) (k : Key) : option (NodeRef idx) :=
   match file_of_path p (key_path k) with
   | Some fr =>
-      match occ_ofb idx (fr_path fr) (key_local k) as b
-            return occ_ofb idx (fr_path fr) (key_local k) = b -> option (NodeRef idx) with
-      | true  => fun H => Some (MakeNodeRef fr (key_local k) H)
-      | false => fun _ => None
-      end eq_refl
+      match lt_dec (Nat.pred (Pos.to_nat (key_local k))) (length (local_index idx fr)) with
+      | left H  => Some (MakeNodeRef fr (Nat.pred (Pos.to_nat (key_local k))) H)
+      | right _ => None
+      end
   | None => None
   end.
 
 Lemma ref_of_key_sound : forall p (idx : ProgramIndex p) k r, ref_of_key idx k = Some r -> node_ref_key r = k.
 Proof.
   intros p idx k r. unfold ref_of_key. destruct (file_of_path p (key_path k)) as [fr|] eqn:Efr; [|discriminate].
-  generalize (@eq_refl bool (occ_ofb idx (fr_path fr) (key_local k))).
-  destruct (occ_ofb idx (fr_path fr) (key_local k)) at 2 3; intros e H; [|discriminate H].
-  injection H as <-. unfold node_ref_key. cbn.
+  destruct (lt_dec (Nat.pred (Pos.to_nat (key_local k))) (length (local_index idx fr))) as [H|H]; [|discriminate].
+  intros HH. injection HH as <-. unfold node_ref_key, node_ref_local. cbn [nr_file nr_pos].
   apply file_of_path_sound in Efr. unfold file_ref_path in Efr.
-  destruct k as [kp kl]; cbn in *. rewrite Efr. reflexivity.
+  destruct k as [kp kl]; cbn [key_path key_local] in *.
+  rewrite of_succ_pred_to_nat. rewrite Efr. reflexivity.
 Qed.
 
 Lemma ref_of_key_complete : forall p (idx : ProgramIndex p) r, ref_of_key idx (node_ref_key r) = Some r.
 Proof.
-  intros p idx r. unfold ref_of_key, node_ref_key. cbn [key_path key_local].
+  intros p idx r. unfold ref_of_key, node_ref_key, node_ref_local. cbn [key_path key_local].
   rewrite (file_of_path_complete p (nr_file r)).
-  generalize (@eq_refl bool (occ_ofb idx (fr_path (nr_file r)) (nr_local r))).
-  destruct (occ_ofb idx (fr_path (nr_file r)) (nr_local r)) at 2 3; intros e.
+  rewrite SuccNat2Pos.id_succ. cbn [Nat.pred].
+  destruct (lt_dec (nr_pos r) (length (local_index idx (nr_file r)))) as [H|H].
   - f_equal. apply node_ref_ext; reflexivity.
-  - exfalso. rewrite (nr_valid r) in e. discriminate e.
+  - exfalso. exact (H (nr_lt r)).
 Qed.
 
 End Snapshot.
