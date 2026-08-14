@@ -12,25 +12,17 @@ accepted contract, reopen only its real causal dependents, negative closure for 
 **A milestone closes when its contract, its required evidence, a whole-system review, and Rob's acceptance
 all pass.** That rule is the same for every row below and is not repeated in them.
 
-## Done
+## Frontier
 
-`C4` (opaque static capability retaining the exact elaboration object) is accepted, and with it the current
-fragment: `println` of primitive literals plus one source-shaped explicit conversion. The mechanical M-series
-that followed it — source diet, performance snapshot, tool and build audit — is closed.
+`C5` is historically accepted: `Machine.T`, the one labelled-transition base every later runtime milestone
+shares — opaque `State`/`Start`/`Label`/`Result`, `initial`, a relational `step`, `final`, and the runs,
+reachability and absorbing-final results derived from it. It fixes no Go feature, no module imports it, and
+this repository defines no concrete `Machine.T` value (`ARCHITECTURE.md` §3).
 
-`DOC-RESET` is accepted. The documentation and review-process subsystem is now the minimal corpus, and it
-superseded what remained of the M-series. Git history owns every one of those contracts and its evidence.
-
-`ASSUM-GATE` is accepted. The hand-maintained assumption-surface list is deleted, and the build-time
-zero-project-axiom claim is owned by one chain — certified-module coverage, then the whole-theory
-`Fido Audit Assumptions`, then adversarial controls A-E — of which no part is sufficient alone.
-`DECISIONS.md` owns the decision; Git owns the accepted implementation.
-
-`C5` is accepted. `Machine.T` is the one labelled-transition base every later runtime milestone shares —
-opaque `State`, `Start`, `Label` and `Result`, plus `initial`, a relational `step`, and `final` — with finite
-and infinite runs, reachability, enabledness and absorbing-final results derived from it. It fixes no Go
-feature, no module imports it, and this repository defines no concrete `Machine.T` value; the first complete
-runtime vertical feature is what consumes it. `ARCHITECTURE.md` §3 describes it.
+The `C4` exact-elaboration retreat is **reopened and repaired** as the seven roots R1–R7 — the intrinsic
+`Index`, exact binding/scope/package identity, one retained phase, the honest three-way partition, the
+transparent capability, and the exact theorems and evidence. `.review/NEXT.md` owns the candidate. The C6
+roots that depend on it stay frozen; C6 resumes only after the repaired candidate is accepted.
 
 ## Ahead
 

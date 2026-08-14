@@ -539,7 +539,7 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
 echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && find . -type f | sort ); cat /workspace/generated-bytes/main.go
 
-# byte/rune SOURCE-ALIAS differential witness (C4 §12/§13): a println of the ACCEPTED alias endpoints
+# byte/rune SOURCE-ALIAS differential witness: a println of the ACCEPTED alias endpoints
 # byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) -> a DISPOSABLE tree the go-e2e builds+runs
 # to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8, rune IS int32).  The REJECTED
 # alias endpoints are exercised through the go-e2e `rej_conv` matrix.  Never the canonical published image.
@@ -567,10 +567,10 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
 
 # static soundness: Compilable.compile returns Rejected for every representable pinned-Go-invalid shape in the
-# §8.3 matrix (unary/complex type mismatch, wrong arity, no-value/type-as-value, non-callable, illegal statement)
+# invalid-program matrix (unary/complex type mismatch, wrong arity, no-value/type-as-value, non-callable, illegal statement)
 # and Compiled for the paired positive cases — proved through compile itself, never a second mint.
 if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
-echo "fido: static rejection controls OK — the §8.3 matrix lands in Rejected through compile; positive unary cases Compiled"
+echo "fido: static rejection controls OK — the invalid-program matrix lands in Rejected through compile; positive unary cases Compiled"
 
 # R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They compile outside the Fido
 # path, so the audit's Fido-modpath seed cannot reach them here; recompile each under the Fido path (the Fido
@@ -1118,7 +1118,7 @@ echo "fido e2e bytes: actual stderr hex=[$b_actual] golden=[$b_want]"
 [ "$b_actual" = "$b_want" ] || { echo "fido e2e bytes: BYTE MISMATCH — the boundary-byte string did not round-trip through Go"; rm -rf "$BFRESH"; exit 1; }
 echo "fido e2e bytes: boundary-byte string round-trips EXACTLY through pinned Go via the fresh runner (0x00/0x1f/0x7f/0x80/0xff + newline)"; rm -rf "$BFRESH"
 
-# --- BYTE/RUNE SOURCE-ALIAS DIFFERENTIAL (C4 §12/§13): the ACCEPTED alias endpoints
+# --- BYTE/RUNE SOURCE-ALIAS DIFFERENTIAL: the ACCEPTED alias endpoints
 #     byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) must COMPILE and RUN under the pinned
 #     toolchain (byte IS uint8, rune IS int32) — a Admissible-ACCEPTED alias program Go rejects would be a MODEL
 #     BUG.  The REJECTED alias endpoints are the `rej_conv` byte/rune/uint8/int32 lines below.  Disposable tree. ---
@@ -1158,7 +1158,7 @@ echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $
 rm -rf "$MFRESH"
 # (the no-main / duplicate-main rejections are the A-AD cases C/D/E/F below, routed through the fresh runner.)
 # hand-written REJECTED integer-conversion fixtures (via the fresh runner): a constant conversion that overflows
-# or converts a non-integer is rejected by `go build` EXACTLY as Typing makes impossible (a disagreement is a MODEL BUG).
+# or converts a non-integer is rejected by `go build` EXACTLY as Compilable.TypeResolution makes impossible (a disagreement is a MODEL BUG).
 rej_conv() { # <label> <main-body>
   d="/tmp/rej-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module rej\n\ngo 1.23\n' > "$d/go.mod"
@@ -1167,18 +1167,18 @@ rej_conv() { # <label> <main-body>
   _flog=$_FRESH_BUILD_LOG            # THIS run's log (empty on a setup/infra failure)
   require_go_ran "$1: $2"           # a setup/runner/fs/infra failure is NOT a Go rejection
   rm -rf "${FR:-/nonexistent}" 2>/dev/null || true
-  [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that Typing rejects (MODEL BUG)"; exit 1; }
+  [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that Compilable.TypeResolution rejects (MODEL BUG)"; exit 1; }
   { [ -n "$_flog" ] && [ -s "$_flog" ]; } || { echo "fido e2e diff: [$1: $2] rejected but produced NO current-run build log"; exit 1; }
   # CLASS-SPECIFIC evidence in THIS run's log: a CONVERSION / TYPE-CHECK diagnostic (overflow / truncation /
   # cannot-convert / cannot-use / mismatched), not a collision, missing/dup main, or infra failure.
   grep -qiE 'overflow|truncated|cannot convert|cannot use|mismatched' "$_flog" \
     || { echo "fido e2e diff: [$1: $2] rejected but NOT with a conversion/type-check class:"; cat "$_flog"; exit 1; }
-  echo "fido e2e diff: go build ./... (exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic — matches Typing"; }
+  echo "fido e2e diff: go build ./... (exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic — matches Compilable.TypeResolution"; }
 rej_conv int8-over   'println(int8(128))'
 rej_conv int8-under  'println(int8(-129))'
 rej_conv uint8-neg   'println(uint8(-1))'
 rej_conv uint8-over  'println(uint8(256))'
-# BYTE/RUNE SOURCE-ALIAS REJECT matrix (C4 §5.5): byte OVER uint8 range, rune OVER int32 range, and the
+# BYTE/RUNE SOURCE-ALIAS REJECT matrix: byte OVER uint8 range, rune OVER int32 range, and the
 # matching uint8/int32 endpoints — the pinned toolchain REJECTS them EXACTLY as Admissible makes impossible
 # (Compilable.single_rounding_byte_256_rejected/Compilable.single_rounding_byte_m1_rejected/Compilable.single_rounding_rune_over_rejected/Compilable.single_rounding_rune_under_rejected + the matching
 # Compilable.single_rounding_uint8_256_rejected/Compilable.single_rounding_uint8_m1_rejected/Compilable.single_rounding_int32_over_rejected/Compilable.single_rounding_int32_under_rejected).
@@ -1194,7 +1194,7 @@ rej_conv nested-over 'println(uint8(int(300)))'
 rej_conv conv-bool   'println(int8(true))'
 rej_conv conv-str    'println(uint64("x"))'
 # hand-written REJECTED float-conversion fixtures: F32/F64 overflow, a fractional/out-of-range float->int
-# constant, and wrong-type conversions — all rejected by `go build` EXACTLY as Typing makes impossible.
+# constant, and wrong-type conversions — all rejected by `go build` EXACTLY as Compilable.TypeResolution makes impossible.
 rej_conv f32-over    'println(float32(1e39))'
 rej_conv f64-over    'println(float64(1e309))'
 rej_conv int-frac    'println(int(3.5))'
@@ -1204,7 +1204,7 @@ rej_conv f32-bool    'println(float32(true))'
 rej_conv f64-str     'println(float64("x"))'
 # hand-written REJECTED complex-conversion fixtures: a real / imaginary component overflow, a
 # nonzero-imaginary or fractional/out-of-range complex->scalar conversion, and wrong-type complex conversions
-# all rejected by `go build` EXACTLY as Typing/Admissible make impossible (Complex.round_typed component
+# all rejected by `go build` EXACTLY as Compilable.TypeResolution/Admissible make impossible (Complex.round_typed component
 # overflow / Complex.real_if_imaginary_zero None / cross-kind reject).  A disagreement is a MODEL BUG.
 rej_conv c64-real-over  'println(complex64(complex(1e39, 0)))'
 rej_conv c64-imag-over  'println(complex64(complex(0, 1e39)))'
@@ -1217,19 +1217,19 @@ rej_conv c128-str       'println(complex128("x"))'
 # complex-underflow scalar-conversion scar: 1e-50 is a nonzero exact rational that UNDERFLOWS binary32
 # to +0.  The UNTYPED complex(3, 1e-50) has a nonzero imaginary, so int(...) is rejected; but the explicit
 # complex64 boundary rounds that imaginary to exact zero, after which int(complex64(...)) is accepted as 3.
-# Pinned Go 1.23 must agree with Typing on BOTH sides — the reject is a rej_conv, the accept-and-value-3 is
+# Pinned Go 1.23 must agree with Compilable.TypeResolution on BOTH sides — the reject is a rej_conv, the accept-and-value-3 is
 # an acc_conv (a standalone fixture, so the canonical witness/goldens are untouched).
 rej_conv int-of-ctinyimag 'println(int(complex(3, 1e-50)))'
 acc_conv() { # <label> <main-body> <expected-stderr>
   d="/tmp/acc-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module accm\n\ngo 1.23\n' > "$d/go.mod"
   printf '// fido was here.  woof woof.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
-  fresh_go_build "$d" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED [$1: $2] that Typing ACCEPTS (MODEL BUG)"; exit 1; }
+  fresh_go_build "$d" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED [$1: $2] that Compilable.TypeResolution ACCEPTS (MODEL BUG)"; exit 1; }
   _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
   { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: acc_conv [$1] produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }
   _o=$("$_e" 2>&1 1>/dev/null)   # println writes to STDERR
   [ "$_o" = "$3" ] || { echo "fido e2e diff: [$1] printed [$_o] != Go-expected [$3] (MODEL/GOLDEN BUG)"; rm -rf "$FR"; exit 1; }
-  rm -rf "$FR"; echo "fido e2e diff: go build ./... accepts + runs [$1] $2 -> $3 — matches Typing"; }
+  rm -rf "$FR"; echo "fido e2e diff: go build ./... accepts + runs [$1] $2 -> $3 — matches Compilable.TypeResolution"; }
 acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
 # ── FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  `go build ./...` computes a SOLE main package's

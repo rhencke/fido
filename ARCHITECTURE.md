@@ -47,8 +47,7 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 | `Names` | lexical identifier validity, ordinary-name refinement, the complete pinned predeclared spelling identity catalog, and the byte-level ASCII predicate every rendered file is proved to satisfy | scope, binding, semantic type, call rules, or support policy |
 | `Syntax` | source structure and source values | resolution, object identity, semantic type, diagnostics, variable identity, or behaviour |
 | `Index` | exact source-occurrence identity, views, parents, children, and source roles | binding, typing, diagnostics, or semantic facts |
-| `Typing` | type forms, semantic types, exact constants, type-environment input and output, and reflected type decisions | scopes, semantic object identity, source lookup, diagnostics, runtime values, or behaviour |
-| `Compilable` | scopes, semantic objects, binding, the retained static analysis, expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision | runtime values, dynamic places or environments, rendering, or behaviour |
+| `Compilable` | scopes, semantic objects, binding, the retained static analysis, type/expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision — its type, binding, report and package facts living in physical child modules (`Compilable.TypeResolution`, `Compilable.Bindings`, `Compilable.Report`, `Compilable.Facts`, `Compilable.Packages`), never peer layers | runtime values, dynamic places or environments, rendering, or behaviour |
 | `Machine` | the one behaviour relation and derived runs | static compilation or a second evaluator |
 | `Safe` | only the safety property and the transparent certificate retaining the exact compiled capability | values, stores, evaluation, rendering, or static facts |
 | `Render` | direct canonical source bytes | binding, typing, fact construction, or evaluation |
@@ -57,25 +56,25 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 
 `Integer` owns integer width, `Float` float format and `Complex` complex format. There is no `TargetConfig`,
 no `GoTypeTag`, no second width or conversion authority, no typed AST beside the one raw `Syntax`, and no
-source-name table in `Syntax`, `Typing` or `Render`.
+source-name table in `Syntax`, `Compilable.TypeResolution` or `Render`.
 
-One row is the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**, because
-no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`). The
-pre-C7 `Float.Value`, `Complex.Value` and `Safe` evaluator/value route are now deleted: float and complex
-typed constants are purely static and C7 creates the first runtime values. The other rows describe the
-destination too, not a finished tree: `Names` now owns the
-canonical ordinary-name refinement and the complete predeclared identity catalog, but `Index` does not yet own
-the refined references C6 adds, `Typing` does not yet own a program-indexed algebra, and `Compilable` owns no
-scope, object, boundary or three-way decision. Those remain C6 obligations, and the sixteen-name source
-conversion subset and `Compilable`'s fixed resolver survive only for the accepted C5 path until their later C6
-roots replace them. What holds **today** is the division of responsibility, not its contents.
+One row is still the destination rather than today's tree: `Runtime` does not exist, and **C7 creates it**,
+because no state or runtime scaffold lands before the complete vertical feature that consumes it (`ARCH-11`).
+The pre-C7 `Float.Value`, `Complex.Value` and `Safe` evaluator/value route are deleted: float and complex
+typed constants are purely static, and C7 creates the first runtime values.
 
-Source-name resolution is **in transition**. `Names`' closed sixteen-name source type-name class and
-`Admissible`'s fixed predeclared resolver are today's authority and are **temporary**: C6 deletes both. After
-C6 one ordinary identifier fills every name position, the complete predeclared catalog sits in the outer
-scope where any declaration may shadow it, an ordinary source name resolves through the retained binding
-phase, an alias creates no identity, and a defined type's identity is its exact nonblank declaration
-reference.
+The static rows now hold their contents, not merely their division. `Index` owns the intrinsic occurrence
+identity and its refined position-selector references; `Compilable.TypeResolution` owns the type facts; the
+retained binding phase resolves each ordinary source name; and `Compilable` owns the scope, object, boundary
+and three-way `Compiled`/`Rejected`/`OutsideScope` decision over one retained phase, carried transparently by
+the accepted `Program`. `Names` owns the ordinary-name refinement and the complete predeclared identity
+catalog, seated in the outer scope where any declaration may shadow it.
+
+The remaining type-system content is later C6 roots, not current fact. The type universe is still the bare
+semantic forms, so named basic-type identity (`int` distinct from `int32`), defined and alias type meaning,
+nonconstant conversions, and the program-indexed type environment are deferred; until they land, every
+conversion the current fragment expresses is constant and a predeclared type-name denotes one of the sixteen
+bare forms.
 
 **Support that depends on binding is decided after binding.** Constructor absence owns every exclusion syntax
 alone can identify. Where legality depends on which object a name resolves to, `Syntax` carries the ordinary
@@ -165,13 +164,12 @@ Emit: Collections FilePath Names Render Safe Syntax
 ```
 <!-- FIDO-LAYER-POLICY END -->
 
-The relation shows the sibling structure directly: `Render` lists no `Typing`, `Compilable` or `Safe`, `Emit`
+The relation shows the sibling structure directly: `Render` lists no `Compilable.TypeResolution`, `Compilable` or `Safe`, `Emit`
 lists no `Compilable`, and the two branches meet only at `Emit`. The gate's claim is exactly that the direct
 edges `rocq dep` reports equal this relation and that every theory module is covered once. It does **not**
 prove that a listed import is used, that a referenced owner is imported directly, that no forbidden name
 arrives through notation, coercion, hint or transitive visibility, or that a theorem belongs semantically to
-its module — those remain ownership-first review obligations. `Syntax`'s listed `Integer` edge is such an
-unused-but-present import, recorded here as an edge and left for its earliest mandatory retention repair.
+its module — those remain ownership-first review obligations.
 
 ---
 
@@ -198,9 +196,8 @@ exclusion; state only the guarantees the root exposes; complete definitions, pro
 required document changes; delete every superseded representation and path in the same terminal change; and
 review the whole current system before building a dependent root. No dependent root may use an unsettled one.
 
-While a milestone still carries a prose rendition of its own formal surface — as C6 does in `.review/NEXT.md` —
-that rendition is migration input only: non-authoritative, not independently elaborated, and true only of the
-portions not yet canonicalized. Each implementation commit canonicalizes one dependency-closed portion in its
+While a milestone still carries a prose rendition of its own formal surface, that rendition is migration input
+only: non-authoritative, not independently elaborated, and true only of the portions not yet canonicalized. Each implementation commit canonicalizes one dependency-closed portion in its
 permanent owner, deletes the corresponding rendition in the same commit, and deletes any superseded production
 authority in the same commit, so no exact formal fact is ever authoritative in two places. The rendition
 reaches zero at milestone completion; nothing is moved to another document, because Git owns history.
@@ -249,19 +246,20 @@ This refines dependency retreat, it does not delete it: a genuinely load-bearing
 reopens. A demonstrably internal proof refactor that changes no semantic, provenance, public-guarantee or
 boundary dependency needs no retreat; uncertainty means freeze and report.
 
-**Review and acceptance.** The active milestone is reviewed against its governing semantic obligations, the
-whole current implementation, proofs, tests, artifacts, gates and live paths, all accepted lower layers, and
-later-milestone prose as adversarial pressure — public types and constructor topology before proof bodies,
-graded by the weakest load-bearing link on the certified causal path. An A+ means the reviewer found no
-load-bearing defect in the exact reviewed immutable candidate — a frozen source archive identified by its
-ZIP-comment commit and archive SHA-256, not the live `HEAD`; it is not acceptance by itself. Acceptance requires
-two whole-system reviews by two different models of the same exact immutable candidate archive, followed by
-Rob's decision. For the current Fido workflow, Claude Code's post-implementation whole-system review is one model
-review and the primary ChatGPT whole-system review is the other; Claude Code's implementer role does not
-disqualify its review, because Rob explicitly designates it as one of the two. Each model must review the whole
-current system rather than merely endorse its own implementation report, and where practical the reports are
-written independently before cross-comparison. Neither model accepts; Rob alone accepts, and no work is
-manufactured after the reviewed frontier has survived review.
+**Review and acceptance.** An exhaustive review is the archive-authoritative sixteen-pass Wirth whole-system
+protocol. Sixteen criterion-isolated pass agents each answer one whole-system question — architecture,
+ownership, simplicity, semantics, intrinsic correctness, provenance, single authority, guarantee strength,
+boundary honesty, capability, execution path, proof integrity, foundational stability, retention, artifact
+adequacy, and governance — over the same exact immutable candidate: a frozen source archive identified by its
+ZIP-comment commit and archive SHA-256, not the live `HEAD`. Each inspects public types and constructor
+topology before proof bodies, freezes one findings report, and grades it; the candidate's grade is the weakest
+of the sixteen, never an average. A separate seventeenth synthesis role reads the sixteen frozen reports, maps
+their convergence, conflict, asymmetry and silence, and produces one dependency-ordered implementation
+contract. The submitted archive carries Rob's trusted attestation that its required gates passed before
+handoff, so a review inspects gate definitions, coverage and retained artifacts but never reruns the pinned
+toolchain and never treats local tool absence as missing evidence. Reviewers propose; no pass and no synthesis
+accepts; Rob alone accepts, and no work is manufactured after the reviewed frontier has survived review.
+`life.md` is outside this protocol and outside every actor's authority.
 
 **Strict checkpoint scope.** Whole-system inspection remains mandatory, but a finding blocks the active
 checkpoint only when it violates that checkpoint's accepted semantic, provenance, public-guarantee, production,
@@ -321,77 +319,65 @@ conversion naming a **source** type. Anything else is unrepresentable, not rejec
 
 ## 3. Static elaboration and retained facts
 
-> **Active repair (C4 exact-elaboration retreat, R1–R7).** This section states the **required accepted
-> outcome**. The current candidate is weaker — the occurrence/reference layer is not yet intrinsically
-> addressable, the static phase is not yet one retained object, and the decision is not yet carried by the
-> capability. `.review/NEXT.md` owns the exact current-candidate-versus-required-outcome gap and the dispatched
-> R1–R7 order until each increment lands. Read this section as the target, not as a claim about `HEAD`.
-
 ### Index — structural identity
 
 `Index` is the one structural occurrence-identity and navigation authority, derived from one immutable
 `Syntax.Program` snapshot. It imports only `Syntax`, `Collections` and `FilePath`; it knows no semantic types,
 admissibility, rendering or diagnostics.
 
-Each represented occurrence gets one canonical file-local `positive` id by deterministic preorder, file root
-= 1. Its `Index.Meta` lives in a sealed per-file table over pinned `FMapPositive`.
+One transparent terminating fold (`occ_index`) builds each file's ordered occurrence object once, assigning
+each represented occurrence its canonical file-local `positive` id by deterministic preorder, file root = 1.
+The fold's result is the retained object; every consumer reads it, none re-folds the raw source.
 
-An **independent, table-free** `source_occurrence_at` re-derives each occurrence's metadata straight from the
-syntax, and the universal `index_file_source_exact` pins stored metadata equal to source-occurrence metadata
-at every id, in **presence and absence**. A mislabeled table is therefore unprovable.
-
-References are sealed and indexed by the exact `Syntax.Program`, minted only through validated
-`file_of_path`/`ref_of_key`. Identity is `Index.Key` identity. A different-payload or different-`ModuleSpec`
-snapshot yields non-interchangeable reference types even when the erased data is equal.
-
-A conversion occupies two children: the source type-name occurrence at `Pos.succ me`, carrying its
-`Index.TypeNameView`, then the operand subtree. `TypeNameRef` recovers the retained source `Syntax.TypeExpr`
-through the reference.
+A reference is a **dependent selector into that retained object, valid by its indices** — not a coordinate,
+key, Boolean or table handle. A `NodeRef` is a `FileRef` plus a position `nr_pos` and a proof `nr_pos <
+length (local_index idx nr_file)`; a malformed position has no inhabitant, so an out-of-range or foreign-file
+reference cannot be constructed, and `le`-proof-irrelevance makes a reference's identity exactly its
+file-and-position. `node_ref_cursor` projects the exact retained member by total `nth_lt` — never a fallback.
+`BinderRef`/`BlockRef` refine a `NodeRef` with an erased `Prop` proof over the projected role/kind, so a
+wrong-role reference is likewise unconstructible; the proof erases at `vm_compute`, so the id is byte-identical.
+Transparency preserves `vm_compute`; unforgeability comes from the indices, not from opacity.
 
 The query API is **total by carried validity** — only `parent_of` is optional — never a semantic fallback.
-Navigation is exact: parent via metadata, direct children by preorder interval jumps, ancestry by intervals,
-one canonical enumeration, and the single-pass `visit_file` traversal that hands each original syntax
-fragment to its validated `NodeRef` in one structural pass. No per-node search, no located or copied AST, no
-second tree.
+Navigation is exact: file/node/parent/member projections over the retained object, kind/role refinements over
+the exact projection, and one canonical enumeration. No per-node search, no coordinate/equality/Boolean-backed
+peer mint, no raw-source semantic enumeration, no located or copied AST, no second tree.
 
-### Typing — the one type authority
+### Compilable.TypeResolution — the type authority
 
-`Typing` is evidence over the raw syntax, never a typed AST. The type universe **today** is exactly
-`{ BoolType, IntegerType over the ten Integer kinds, FloatType, ComplexType, StringType }` — bare forms with
-no identity of their own. C6 replaces that with the Go rule: each predeclared basic type is a **named
-identity**, so `int` and `int32` are distinct types that merely share an integer form, and a defined type is
-a further identity carrying its exact declaration reference. Form is what conversion and representability
-read; identity is what assignability reads, and the two are never the same fact. `byte` and `rune` are
-aliases — they mint no identity and are identical to `uint8` and `int32`. The universe grows only through
-reviewed milestones, never by a string, numeric tag or registry.
+`Compilable.TypeResolution` is the type child of `Compilable`, evidence over the raw syntax, never a typed AST.
+The type universe **today** is exactly `{ BoolType, IntegerType over the ten Integer kinds, FloatType,
+ComplexType, StringType }` — bare forms with no identity of their own. A later C6 root will replace that with
+the Go rule: each predeclared basic type becomes a **named identity**, so `int` and `int32` are distinct types
+that merely share an integer form, and a defined type is a further identity carrying its exact declaration
+reference. Form is what conversion and representability read; identity is what assignability reads, and the two
+are never the same fact. `byte` and `rune` are aliases — they mint no identity and are identical to `uint8`
+and `int32`. The universe grows only through reviewed milestones, never by a string, numeric tag or registry.
 
 A raw literal denotes an **exact untyped constant**: integers arbitrary-precision, a bare float literal an
 exact canonical rational, a complex literal an exact pair of rationals, strings exact byte sequences.
 
-`Typing.TypedConstant : SemanticType -> Type` is an intrinsic dependent family. **A mismatched or
+`Compilable.TypeResolution.TypedConstant : SemanticType -> Type` is an intrinsic dependent family. **A mismatched or
 out-of-range typed constant is unrepresentable, never merely rejected.**
 
-`Typing.convert_constant` is today's one conversion authority, and every conversion the current fragment can
+`Compilable.TypeResolution.convert_constant` is today's one conversion authority, and every conversion the current fragment can
 express is constant. Integer conversions are value-preserving and range-checked. Float conversions round
 **once at the destination** — F32 directly at binary32, never via F64, and a same-format float is returned
 unchanged. Complex conversions round each component once, and scalar↔complex follows Go's zero-imaginary
 rule.
 
-C6 makes conversion **two rules, because Go's are not one rule**. The constant authority keeps exactly the
-behaviour above, restated over a destination basic form. Beside it C6 adds the **nonconstant** authority,
-which is strictly narrower: identical types, types sharing an underlying form, scalar numeric to scalar
-numeric, and complex to complex. It admits no scalar↔complex crossing, so `complex128(i)` and `float64(c)`
-on variables are rejected — exactly as pinned `gc` rejects them. A conversion site reads the constant rule
-when its operand is constant and the value rule otherwise; neither is a fallback for the other, and neither is
-defined from the other.
+A later C6 root makes conversion **two rules, because Go's are not one rule**: the constant authority above,
+restated over a destination basic form, and beside it a **nonconstant** authority, strictly narrower —
+identical types, types sharing an underlying form, scalar numeric to scalar numeric, and complex to complex.
+It will admit no scalar↔complex crossing, so `complex128(i)` and `float64(c)` on variables are rejected exactly
+as pinned `gc` rejects them, and a conversion site will read the constant rule when its operand is constant and
+the value rule otherwise, neither a fallback for nor defined from the other.
 
-One source-shaped conversion `Syntax.Convert ts e` names a **source** type. Its semantic target is the
-compiler-owned resolution of `ts`. The index-free typing spec is parameterized by that resolver, so `Typing`
-never owns a source-name → semantic-type table. C6 deletes `Syntax.Convert` in favour of one `Application`
-whose head resolves through the retained binding phase; the property that `Typing` owns no name table
-survives that change.
+A conversion is one `Application` whose head resolves through the retained binding phase to a **source** type;
+its semantic target is the compiler-owned resolution of that name. The index-free typing spec is parameterized
+by that resolver, so `Compilable.TypeResolution` owns no source-name → semantic-type table.
 
-`Typing.resolve_constant_info` is use-context resolution. An untyped constant **defaults** (int →
+`Compilable.TypeResolution.resolve_constant_info` is use-context resolution. An untyped constant **defaults** (int →
 `IntegerType Int`, float → `FloatType F64`, complex → `ComplexType C128`); a typed constant **packs
 unchanged**, because its validity is intrinsic — not re-defaulted, not re-checked.
 
@@ -406,20 +392,23 @@ overflow checker, no placeholder type, and no typed AST.
 ### Admissible — exact whole-program acceptance
 
 `Admissible` is **exact whole-program compiler admissibility** — the pinned one-shot `go build ./...`
-acceptance — not a subset filter. It consumes the whole finite map.
+acceptance — not a subset filter, and a declarative characterization that mints nothing. It holds exactly when
+the retained phase's reports are both empty:
 
 ```text
-Admissible p := fresh_build_preflight_ok p  /\  SourceProgramValid p
-SourceProgramValid := Typing.Program /\ PackageDeclsUnique /\ MainPackagesHaveEntry
+Admissible p := all_diags p = [] /\ all_boundaries p = []
 ```
 
-Files group by parent directory into packages. One invalid package rejects the whole program: acceptance is
-all-or-nothing. `fresh_build_preflight_ok` is cmd/go's default-**output** rule: a sole main package's default
-executable name must not collide with an existing root directory. Zero or two-or-more packages write no
-default output, and the empty program is accepted.
+`all_diags` aggregates the fresh-build preflight, package-rule and per-occurrence diagnostics; `all_boundaries`
+aggregates the out-of-scope boundaries. Files group by parent directory into packages; one invalid package
+rejects the whole program, so acceptance is all-or-nothing. The preflight is cmd/go's default-**output** rule:
+a sole main package's default executable name must not collide with an existing root directory; zero or
+two-or-more packages write no default output, and the empty program is accepted.
 
-The one elaboration root `elaborate` builds one retained `Index.Program` and returns a `Compilable.Elaboration`.
-`Compilable.compile` **projects** it — there is no second checker.
+The one elaboration root `elaborate` builds one retained `Core` — the index, binding, type and expression
+facts, package-rule and preflight results, diagnostics and boundaries — computed once. `Compilable.compile`
+**projects** that `Core` into the three-way decision and carries it transparently in the accepted `Program`;
+there is no second checker, and `compile` is the sole `Program` mint.
 
 The one analysis computes two orthogonal sets — **definite diagnostics** and **exact scope boundaries** —
 and the public decision has three branches whose precedence is fixed: any diagnostic gives `Rejected`; no
@@ -500,9 +489,9 @@ ARCH-11 forbids.
 **There will be exactly one concrete machine, and C7 builds it.** C6 is entirely static: it supplies the
 retained facts, compiler-owned variable identities and the initialization-dependency object a runtime
 consumes, and adds no runtime module, value, place, store or environment. C7 introduces `Runtime` and the
-machine together, as one vertical. C7 is the first `Machine.T` for a `Safe.Program`: it gives the existing
-expression and `println` fragment one run relation and adds its own expression, output, order and
-fatal-panic slice. Every later
+machine together, as one vertical. C7 is the first `Machine.T` over the exact `Compilable.Program`: it gives
+the existing expression and `println` fragment one run relation and adds its own expression, output, order and
+fatal-panic slice. Safety refines that same behavior later; the machine never depends on a `Safe` certificate. Every later
 milestone extends that same machine's sealed internals — C8 adds control, C11 generalizes starts to imports
 and package dependency order — and none replaces it with a peer. A second run relation is the failure this
 base exists to prevent.
@@ -545,11 +534,11 @@ the exact rational round trip. A complex constant renders as one canonical `comp
 independent decoder and semantic round trip.
 
 Rendering is a **sibling branch** of static compilation: `Render` traverses raw `Syntax` and imports no
-`Typing`, `Compilable`, `Safe` or evidence authority. Each canonical spelling carries an **independent
+`Compilable.TypeResolution`, `Compilable`, `Safe` or evidence authority. Each canonical spelling carries an **independent
 renderer-local decoder** proving the exact source-value round trip — the integer, string, decimal and complex
 inverses recover the exact lower source value those bytes encode. These are direct source-value inverses, not
 a compiler-semantic denotation: any correspondence between a rendered spelling and the constant status
-`Typing` computes belongs to a later downstream adequacy layer with an exact retained premise and a real
+`Compilable.TypeResolution` computes belongs to a later downstream adequacy layer with an exact retained premise and a real
 consumer, and is absent until then.
 
 There is no tokenizer, lexer, parser or round-trip authority, and no formatter is invoked.
@@ -676,17 +665,20 @@ extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are gene
 
 ### Two honest claims — never conflate
 
-**(A) Kernel-internal exactness — PROVED.** The executable `Compilable.compile` succeeds exactly for the
-declarative `Admissible` judgment: sound, complete, and the one elaboration root satisfies
-`elaboration_accepted_iff_admissible`. Today the decision is two-way and that equivalence is unconditional.
+**(A) Kernel-internal exactness — PROVED.** The decision is three-way, and each branch is characterized exactly
+over the retained `Core`. `Compilable.compile` succeeds exactly for the declarative `Admissible` judgment —
+`accepted_iff_admissible : compiles p <-> Admissible p` — so a `Compiled` outcome is unconditionally sound and
+completeness holds over the whole admissible (in-scope, boundary-free) domain. `rejects_iff_diags` and
+`outsides_iff` characterize the other branches exactly — `Rejected` exactly when a diagnostic exists,
+`OutsideScope` exactly when the reports are clean of diagnostics but carry a boundary — and `decision_total`
+with the three pairwise exclusions (`compiles_not_rejects`, `compiles_not_outsides`, `rejects_not_outsides`)
+proves the partition exhaustive and disjoint. `program_source` and `program_core` pin the accepted `Program`'s
+source and retained core to the decision's, by computation.
 
-C6 makes the decision three-way, and the equivalence is then stated **over the in-scope domain**: soundness
-stays unconditional — a `Compiled` outcome always carries `Admissible` — and completeness holds exactly as
-wide as the domain, `Admissible p -> InScope p -> compile p` compiling. A program carrying an unmet semantic
-requirement returns the third outcome with that exact requirement, which is a statement about Fido's reach
-and never a claim that the program is invalid Go. Narrowing the domain to hide a rejection Fido gets wrong is
-the one way this claim can be laundered, so `InScope` is a proved property of the program, never a residue of
-whatever the checker failed on.
+An `OutsideScope` outcome carries the exact unmet semantic requirement — a statement about Fido's reach, never
+a claim that the program is invalid Go. Narrowing the domain to hide a rejection Fido gets wrong would launder
+completeness, so the in-scope domain is a proved property of the program, never a residue of whatever the
+checker failed on.
 
 **(B) External adequacy — the GOAL, not a kernel theorem.** Adequacy is **bidirectional over the in-scope
 domain**, and the domain is named rather than assumed:
@@ -762,7 +754,7 @@ was retired because another row already carried its obligation.
 |---|---|
 | ARCH-01 | The deletion and generalization standard: retention tests and the prohibition list. |
 | ARCH-02 | Minimal machine base — no Go feature defines a second run relation. |
-| ARCH-03 | One owner per meaning; the opaque static capability, its failure **and its outside-scope result** all retain the exact compiler object by construction. Public fact, diagnostic, boundary, layout and plan interfaces are projections of that object, never independently minted peers. **Equality to a rerun is never provenance.** |
+| ARCH-03 | One owner per meaning; the static capability, its failure **and its outside-scope result** all retain the exact compiler object by construction (the accepted `Program` carries it transparently, the decision core stays sealed). Public fact, diagnostic, boundary, layout and plan interfaces are projections of that object, never independently minted peers. **Equality to a rerun is never provenance.** |
 | ARCH-04 | Expression fact/use split — the use builder never inspects the raw child again. |
 | ARCH-05 | Single type algebra; aliases do not create identity; recursive named types refer to declarations. |
 | ARCH-06 | Static slot versus dynamic place — source binding identity and runtime storage identity never collapse. |

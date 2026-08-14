@@ -1,4 +1,4 @@
-(* rejection controls: compile Rejects the §9.3 invalid-program matrix and Compiles the paired positive cases *)
+(* controls: representable invalid/unimplemented cases Reject or bound; the paired positive cases Compile *)
 From Stdlib Require Import List NArith ZArith String.
 From Fido Require Import Integer Float FilePath ModulePath Version Names Syntax Compilable Compilable.Report.
 Import ListNotations.

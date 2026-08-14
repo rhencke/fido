@@ -218,7 +218,7 @@ builder:
 install-hooks:
 	git config core.hooksPath .githooks
 
-# RC-11 / CR-03 option 1: build the full Rocq/OCaml/Dune closure ONCE from toolchain.Dockerfile and push it to
+# Build the full Rocq/OCaml/Dune closure ONCE from toolchain.Dockerfile and push it to
 # GHCR, so the main Dockerfile consumes it only by immutable @sha256 digest (no live apt/opam at build time).
 # One-time operator setup first (not a build dependency, keeps the host boundary at shell/Make/Git/Docker/Buildx):
 #   gh auth token | docker login ghcr.io -u fidocancode --password-stdin

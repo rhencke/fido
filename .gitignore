@@ -39,7 +39,7 @@ __pycache__/
 .coq-native/
 _build/
 
-# Assistant tool residue.  The repository owns this exclusion deliberately: the working-tree inventory
-# `make check` archives must be determined by the repository alone, and it was previously excluded only by
-# a developer's personal global ignore file — so two clones of one commit could archive different trees.
+# Assistant tool residue.  The repository owns this exclusion deliberately, so the working-tree inventory
+# `make check` archives is determined by the repository alone and two clones of one commit archive the
+# same tree.
 /.claude/

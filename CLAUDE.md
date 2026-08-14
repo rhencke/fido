@@ -102,12 +102,16 @@ Review: implementation  review the exact canonical formal implementation and the
 
 A blocking review returns every finding in one pass. Findings live in the review conversation — they are
 never committed as repair documents. Fix the current files directly and ask for implementation review again.
-The candidate is an immutable frozen source archive, identified by its ZIP-comment
-commit and archive SHA-256, not the live `HEAD`; there is no confirmation counter and no override token.
+A day-to-day `Review:` runs against the current ref; the exhaustive review — the acceptance gate — runs over an
+immutable frozen source archive, identified by its ZIP-comment commit and archive SHA-256, not the live `HEAD`.
 
-Acceptance needs two whole-system reviews of that exact immutable candidate archive by two different models — Claude Code's
-post-implementation review counts as one, the primary ChatGPT review as the other — then Rob decides; neither
-model accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule.
+The exhaustive review is the archive-authoritative sixteen-pass Wirth protocol: sixteen criterion-isolated pass
+agents each grade one whole-system question over that one archive and freeze one findings report, the final
+grade is the weakest of the sixteen, and a separate seventeenth synthesis role reads all sixteen and produces
+one dependency-ordered implementation contract. The archive carries Rob's trusted attestation that its required
+gates passed before handoff, so reviewers inspect gate definitions and retained artifacts but never rerun the
+pinned toolchain. Rob alone accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule; `life.md` is
+outside it and outside every actor's authority.
 
 ## Commands
 

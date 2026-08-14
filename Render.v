@@ -799,7 +799,7 @@ Example literal_ascii : string_literal "hi"
   = String dquote_c (String "h"%char (String "i"%char (String dquote_c EmptyString))).
 Proof. reflexivity. Qed.
 
-(* The render-time constant-status authority speaks the same untyped and typed vocabulary [Typing] owns. *)
+(* The render-time constant-status authority speaks the vocabulary Compilable.TypeResolution owns. *)
 Definition digit_value (c : ascii) : option nat :=
   let n := nat_of_ascii c in
   if andb (Nat.leb 48 n) (Nat.leb n 57) then Some (n - 48)%nat else None.

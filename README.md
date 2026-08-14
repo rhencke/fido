@@ -26,7 +26,11 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
 
 ## What it proves
 
-- `Compilable.compile` succeeds **exactly** for the declarative `Admissible` judgment — sound and complete.
+- `Compilable.compile` returns one of three verdicts, each characterized **exactly** over the retained core:
+  it compiles a program exactly when the program is `Admissible` (`accepted_iff_admissible` — sound and
+  complete), rejects exactly when a diagnostic exists (`rejects_iff_diags`), and returns `OutsideScope` exactly
+  when the program is clean of diagnostics but carries a boundary (`outsides_iff`); the three are exhaustive and
+  disjoint (`decision_total`). Status: `IMPLEMENTED_NOT_ACCEPTED` until the repaired candidate passes review.
 - `Admissible` is exact whole-**program** admissibility, aiming at the pinned `go build ./...` acceptance for
   every representable program. A program `go build` accepts but Fido rejects is a **model bug**, not a
   documented limitation.

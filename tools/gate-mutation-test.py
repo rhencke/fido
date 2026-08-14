@@ -237,10 +237,10 @@ def main() -> int:
     wanted = '--self-test'
     selected = list(MUTANTS)
     failures = []
-    # Every mutant is an independent subprocess against its own private copy of the tree, so running them
-    # one at a time left three of four cores idle for seventeen minutes. Nothing about the evidence changes:
-    # each mutant still deletes exactly one rule and runs the whole self-test against it. Results are
-    # collected in the declared order, so the report reads identically however the work was scheduled.
+    # Every mutant is an independent subprocess against its own private copy of the tree, so they run in
+    # parallel. Nothing about the evidence changes: each mutant still deletes exactly one rule and runs the
+    # whole self-test against it, and results are collected in the declared order, so the report reads
+    # identically however the work was scheduled.
     workers = max(1, min(len(selected), (os.cpu_count() or 1)))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         ran = list(pool.map(lambda m: run_mutant(root, m[0], m[2], m[3], wanted), selected))

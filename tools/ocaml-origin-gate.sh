@@ -20,8 +20,7 @@
 # files walk no Rocq terms; (3) the bridge names no program/AST/type/safety structure.  There is deliberately
 # NO source-line-count ceiling — a numeric cap is not a correctness invariant; the behavioral emit fixtures
 # exercise the live boundary instead.  There is also NO whole-repository historical-name scanner: the real
-# boundary is this OCaml allowlist + the responsibility checks, and repository prose may freely discuss
-# deleted history without becoming an implementation defect.
+# boundary is this OCaml allowlist + the responsibility checks.
 set -eu
 root=${1:-.}
 allowed='e2e/apply.ml e2e/sink_test.ml plugin/sink.ml plugin/materialize.mlg'

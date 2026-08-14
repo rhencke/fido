@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# The pinned Rocq/OCaml/Dune/plugin toolchain closure (RC-11 / CR-03 option 1).
+# The pinned Rocq/OCaml/Dune/plugin toolchain closure.
 # Built once and pushed to ghcr.io/fidocancode/fido-toolchain, then consumed by the main Dockerfile ONLY by
 # immutable @sha256 digest.  This file is the RECORD of the closure; the digest in Dockerfile is the authority.
 # To change the toolchain: edit here, `make toolchain`, then repin the printed digest in Dockerfile + TOOLCHAIN.md.
