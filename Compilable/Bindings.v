@@ -60,36 +60,46 @@ Qed.
 (* lexical scopes: the predeclared universe, a package directory, and a func body's retained block occurrence *)
 Inductive ScopeId {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredScope
-| PackageScope : string -> ScopeId idx
+| PackageScope : Index.Snapshot.FileRef p -> ScopeId idx
 | BlockScope   : BlockRef idx -> ScopeId idx.
 Arguments PredeclaredScope {p idx}. Arguments PackageScope {p idx}. Arguments BlockScope {p idx}.
+
+(* a package is named by a canonical member file; its identity is that file's directory, no free string *)
+Definition pkg_dir {p} (fr : Index.Snapshot.FileRef p) : string :=
+  FilePath.parent (Index.Snapshot.file_ref_path fr).
 
 Definition scope_eqb {p} {idx : Index.ProgramIndex p} (a b : ScopeId idx) : bool :=
   match a, b with
   | PredeclaredScope, PredeclaredScope => true
-  | PackageScope da, PackageScope db   => String.eqb da db
+  | PackageScope fa, PackageScope fb   => String.eqb (pkg_dir fa) (pkg_dir fb)
   | BlockScope ra, BlockScope rb       => Index.key_equalb (block_key ra) (block_key rb)
   | _, _ => false
   end.
 
-Lemma scope_eqb_spec : forall p (idx : Index.ProgramIndex p) (a b : ScopeId idx), scope_eqb a b = true <-> a = b.
-Proof.
-  intros p idx [|da|ra] [|db|rb]; cbn; split; try discriminate; try reflexivity.
-  - intros H. apply String.eqb_eq in H. subst. reflexivity.
-  - intros H. injection H as <-. apply String.eqb_eq. reflexivity.
-  - intros H. apply Index.key_equalb_spec in H. apply Index.Snapshot.node_ref_key_inj in H.
-    apply block_ext in H. subst. reflexivity.
-  - intros H. injection H as <-. apply Index.key_equalb_spec. reflexivity.
-Qed.
+(* two scopes are one scope when they name the same package directory / block node / both predeclared *)
+Definition same_scope {p} {idx : Index.ProgramIndex p} (a b : ScopeId idx) : Prop :=
+  match a, b with
+  | PredeclaredScope, PredeclaredScope => True
+  | PackageScope fa, PackageScope fb   => pkg_dir fa = pkg_dir fb
+  | BlockScope ra, BlockScope rb       => block_node ra = block_node rb
+  | _, _ => False
+  end.
 
-Definition block_dir {p} {idx : Index.ProgramIndex p} (b : BlockRef idx) : string :=
-  FilePath.parent (Index.key_path (block_key b)).
+Lemma scope_eqb_spec : forall p (idx : Index.ProgramIndex p) (a b : ScopeId idx), scope_eqb a b = true <-> same_scope a b.
+Proof.
+  intros p idx [|fa|ra] [|fb|rb]; cbn; split; intro H;
+    try exact I; try discriminate H; try contradiction H; try reflexivity.
+  - apply String.eqb_eq in H; exact H.
+  - apply String.eqb_eq; exact H.
+  - apply Index.key_equalb_spec in H; apply Index.Snapshot.node_ref_key_inj in H; exact H.
+  - apply Index.key_equalb_spec; unfold block_key; rewrite H; reflexivity.
+Qed.
 
 Definition scope_parent {p} {idx : Index.ProgramIndex p} (s : ScopeId idx) : option (ScopeId idx) :=
   match s with
   | PredeclaredScope => None
   | PackageScope _   => Some PredeclaredScope
-  | BlockScope r     => Some (PackageScope (block_dir r))
+  | BlockScope r     => Some (PackageScope (Index.Snapshot.node_ref_file (block_node r)))
   end.
 
 (* the enclosing scopes of a scope, innermost first — the exact, finite chain *)
@@ -97,7 +107,7 @@ Definition scope_chain {p} {idx : Index.ProgramIndex p} (s : ScopeId idx) : list
   match s with
   | PredeclaredScope => [PredeclaredScope]
   | PackageScope d   => [PackageScope d; PredeclaredScope]
-  | BlockScope r     => [BlockScope r; PackageScope (block_dir r); PredeclaredScope]
+  | BlockScope r     => [BlockScope r; PackageScope (Index.Snapshot.node_ref_file (block_node r)); PredeclaredScope]
   end.
 
 Definition Encloses {p} {idx : Index.ProgramIndex p} (outer inner : ScopeId idx) : Prop :=
@@ -152,10 +162,10 @@ Definition nearest_block (bw : list (positive * positive * BlockRef idx)) (id : 
      else acc)
    None bw.
 
-Definition scope_of_id (bw : list (positive * positive * BlockRef idx)) (path : FilePath.T) (id : positive) : ScopeId idx :=
+Definition scope_of_id (bw : list (positive * positive * BlockRef idx)) (fr : Index.Snapshot.FileRef p) (id : positive) : ScopeId idx :=
   match nearest_block bw id with
   | Some (_, _, br) => BlockScope br
-  | None => PackageScope (FilePath.parent path)
+  | None => PackageScope fr
   end.
 
 (* the end of the block statement enclosing [id]; [id] itself when [id] is not inside a block statement *)
@@ -197,7 +207,6 @@ Record Establisher := MkEst {
 Definition est_key (e : Establisher) : Index.Key := binder_key (est_ref e).
 
 Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher :=
-  let path := Index.Snapshot.file_ref_path fr in
   let occs := Index.Snapshot.local_index idx fr in
   let bw   := block_windows fr in
   let sw   := stmt_windows occs in
@@ -207,7 +216,7 @@ Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher 
      | Some x => fun Heq =>
          MkEst (MkBinderRef (Index.Snapshot.MakeNodeRef fr (proj1_sig s) (proj2_sig s))
                             (binder_spelling_role (snd t) x Heq))
-               (fst x) (scope_of_id bw path (fst (fst t))) (snd x) (stmt_end_of sw (fst (fst t)))
+               (fst x) (scope_of_id bw fr (fst (fst t))) (snd x) (stmt_end_of sw (fst (fst t)))
                (option_map (fun w => (fst (fst w), snd (fst w))) (nearest_block bw (fst (fst t)))) :: acc
      | None => fun _ => acc
      end eq_refl)
