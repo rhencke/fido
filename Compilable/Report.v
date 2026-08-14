@@ -5,6 +5,7 @@ Import ListNotations.
 
 Inductive RootCause : Type :=
 | RCUnresolvedName        : Index.Key -> RootCause
+| RCInvalidIdentity       : Index.Key -> Names.PredeclaredName -> RootCause
 | RCInvalidConversion     : Index.Key -> Compilable.TypeResolution.SemanticType -> Syntax.Expr -> RootCause
 | RCDefaultNotRepresentable : Index.Key -> Compilable.TypeResolution.Constant -> RootCause
 | RCUnaryTypeMismatch     : Index.Key -> Syntax.Expr -> RootCause
@@ -38,7 +39,12 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
   let k  := Index.MakeKey path id in
   (match Index.cfile_view_expr c with
    | Some (Syntax.Name n) =>
-       match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with None => [RCUnresolvedName k] | Some _ => [] end
+       match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
+       | None => [RCUnresolvedName k]
+       | Some (Compilable.Bindings.PredeclaredObject pn) =>
+           match Compilable.Facts.predeclared_meaning pn with Compilable.Facts.ResInvalid => [RCInvalidIdentity k pn] | _ => [] end
+       | Some (Compilable.Bindings.SourceObject _) => []
+       end
    | _ => [] end)
   ++
   (match Index.cfile_view_expr c with
@@ -73,6 +79,7 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
        | Compilable.Facts.ResMeaning (Compilable.TypeResolution.NMValueConstant _)  => [RCNotCallable k]
        | Compilable.Facts.ResUnresolved => []
        | Compilable.Facts.ResUnmodelled => []
+       | Compilable.Facts.ResInvalid => []
        end
    | Some (Syntax.Application (Syntax.LiteralExpr _) _) => [RCNotCallable k]
    | _ => [] end)

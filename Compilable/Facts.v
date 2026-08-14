@@ -18,11 +18,12 @@ Definition predeclared_type_of_name (n : Names.PredeclaredName) : option Compila
   | _ => None
   end.
 
-(* The compiler owns the binding result of resolving a name: a semantic meaning, or unresolved/unmodelled. *)
+(* The binding result of resolving a name: a meaning, unresolved, unmodelled, or a known-invalid identity. *)
 Inductive Resolution : Type :=
 | ResMeaning    : Compilable.TypeResolution.NameMeaning -> Resolution
 | ResUnresolved : Resolution
-| ResUnmodelled : Resolution.
+| ResUnmodelled : Resolution
+| ResInvalid    : Resolution.
 
 (* The local typing spec needs a meaning or nothing; the compiler-owned failure kind stays behind. *)
 Definition resolution_meaning (r : Resolution) : option Compilable.TypeResolution.NameMeaning :=
@@ -37,6 +38,8 @@ Definition predeclared_meaning (n : Names.PredeclaredName) : Resolution :=
       | Names.PFalse   => ResMeaning (Compilable.TypeResolution.NMValueConstant (Compilable.TypeResolution.BoolConstant false))
       | Names.PComplex => ResMeaning Compilable.TypeResolution.NMComplexBuiltin
       | Names.PPrintln => ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin
+      | Names.PIota    => ResInvalid
+      | Names.PNil     => ResInvalid
       | _ => ResUnmodelled
       end
   end.
