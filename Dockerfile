@@ -364,24 +364,30 @@ meta_reject omitted-emit 'From Fido Require Import Syntax Compilable.' Emit.Mint
 # (2) a REACHABLE public term must make the helper fail its own expectation — otherwise a seal that quietly
 #     became public would still report green.
 meta_reject reachable "$SEALED_PRELUDE" Compilable.compile Compilable.compile 'IS reachable'
-# …and the payload really is forced by the token's indices.  These must fail to TYPECHECK, not merely be
-# absent, so they get their own control with its own expected reason.
-mintfail() {  # <label> <what> <definition text>
+# …and a type that forces its own contents rejects a forged inhabitant.  These must fail to TYPECHECK, not
+# merely be absent, so each gets its own control with its own expected reason.
+typefail() {  # <label> <what> <definition text>
   { printf 'From Stdlib Require Import String List.\n';
-    printf 'From Fido Require Import FilePath Collections ModulePath Version Syntax Compilable Safe Render Emit.\n';
-    printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/mintfail.v
-  if rocq c -Q _build/default/. Fido /tmp/mintfail.v > /tmp/mintfail.log 2>&1; then
-    cat /tmp/mintfail.log; fail "mint self-test $1: $2 WAS constructible — the token indices do not force the payload"
+    printf 'From Fido Require Import FilePath Collections ModulePath Version Syntax Index Compilable Safe Render Emit.\n';
+    printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/typefail.v
+  if rocq c -Q _build/default/. Fido /tmp/typefail.v > /tmp/typefail.log 2>&1; then
+    cat /tmp/typefail.log; fail "typing control $1: $2 WAS constructible — its type does not force the constraint"
   fi
-  grep -qE 'has type|cannot be applied|Unable to unify|expected to have type|not found' /tmp/mintfail.log \
-    || { cat /tmp/mintfail.log; fail "mint self-test $1: rejected, but not by typing"; }
-  echo "fido: mint self-test $1 — $2 unconstructible (as required)"; }
-mintfail AB "an image with foreign go.mod bytes" \
+  grep -qE 'has type|cannot be applied|Unable to unify|expected to have type|not found' /tmp/typefail.log \
+    || { cat /tmp/typefail.log; fail "typing control $1: rejected, but not by typing"; }
+  echo "fido: typing control $1 — $2 unconstructible (as required)"; }
+typefail AB "an image with foreign go.mod bytes" \
   'Definition forged (sp : Safe.Program) : Emit.Image := Emit.Pack sp "forged" (Emit.file_map sp) (Emit.Mint.issue sp).'
-mintfail AC "an image with a foreign file map" \
+typefail AC "an image with a foreign file map" \
   'Definition forged (sp : Safe.Program) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Collections.FileMap.empty string) (Emit.Mint.issue sp).'
-mintfail AD "an image authorized by an equality proof instead of a token" \
+typefail AD "an image authorized by an equality proof instead of a token" \
   'Definition forged (sp : Safe.Program) (H : Emit.module_file sp = Emit.module_file sp) : Emit.Image := Emit.Pack sp (Emit.module_file sp) (Emit.file_map sp) H.'
+# R1 negative-client controls: an occurrence reference has no inhabitant at an out-of-range position, and a
+# cursor is intrinsic to its file — it cannot be handed to a foreign one.  Both must fail by TYPING.
+typefail AH "a node reference at an out-of-range position" \
+  'Definition forged (p : Syntax.Program) (fr : Index.Snapshot.FileRef p) : Index.Snapshot.NodeRef (Index.index_program p) := Index.Snapshot.MakeNodeRef fr 999 eq_refl.'
+typefail AI "a cursor bearing a foreign file" \
+  'Definition forged (f g : Syntax.File) (c : Index.CFile f) : Index.CFile g := c.'
 # (f) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -423,7 +429,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — one decided core projected, three-way verdict matched, each branch fact read over that same core, accepted diagnostics/boundaries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-U/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + mint typing controls AB-AD + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-U/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + typing controls AB-AD (mint) / AH-AI (reference) + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

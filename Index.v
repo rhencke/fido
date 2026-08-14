@@ -733,6 +733,14 @@ Proof.
   apply node_ref_ext; [ apply file_ref_ext; exact Hp | exact Hl ].
 Qed.
 
+(* R1 exact member projection: the selector reads back precisely the retained occurrence at its position *)
+Theorem node_ref_projects {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  option_map snd (nth_error (local_index idx (nr_file r)) (nr_pos r)) = Some (node_ref_cursor r).
+Proof.
+  unfold node_ref_cursor, node_ref_elt.
+  rewrite (nth_lt_nth_error (local_index idx (nr_file r)) (nr_pos r) (nr_lt r)). reflexivity.
+Qed.
+
 (* Locate a file by its path, retaining the membership proof. *)
 Definition file_of_path (p : Syntax.Program) (fp : FilePath.T) : option (FileRef p) :=
   match Syntax.file_mem fp (Syntax.files p) as b
