@@ -19,6 +19,18 @@ Definition binder_key {p} {idx : Index.ProgramIndex p} (b : BinderRef idx) : Ind
 Lemma binder_ext {p} {idx : Index.ProgramIndex p} (a b : BinderRef idx) : binder_node a = binder_node b -> a = b.
 Proof. destruct a as [na ha], b as [nb hb]; cbn; intros ->; f_equal; apply Eqdep_dec.UIP_dec, Bool.bool_dec. Qed.
 
+(* a block reference: a node reference whose projected kind is a block, by proof — no any-node block scope *)
+Definition is_block_kind (k : Index.Kind) : bool := match k with Index.BlockKind => true | _ => false end.
+Record BlockRef {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type := MkBlockRef {
+  block_node : Index.Snapshot.NodeRef idx;
+  block_is   : is_block_kind (Index.Snapshot.node_ref_kind block_node) = true
+}.
+Arguments MkBlockRef {p idx}. Arguments block_node {p idx}. Arguments block_is {p idx}.
+Definition block_key {p} {idx : Index.ProgramIndex p} (b : BlockRef idx) : Index.Key :=
+  Index.Snapshot.node_ref_key (block_node b).
+Lemma block_ext {p} {idx : Index.ProgramIndex p} (a b : BlockRef idx) : block_node a = block_node b -> a = b.
+Proof. destruct a as [na ha], b as [nb hb]; cbn; intros ->; f_equal; apply Eqdep_dec.UIP_dec, Bool.bool_dec. Qed.
+
 (* an object is a predeclared entity or a source object named by its establisher's exact binder occurrence *)
 Inductive ObjectRef {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredObject : Names.PredeclaredName -> ObjectRef idx
@@ -49,15 +61,14 @@ Qed.
 Inductive ScopeId {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredScope
 | PackageScope : string -> ScopeId idx
-| BlockScope   : Index.Snapshot.NodeRef idx -> ScopeId idx.
+| BlockScope   : BlockRef idx -> ScopeId idx.
 Arguments PredeclaredScope {p idx}. Arguments PackageScope {p idx}. Arguments BlockScope {p idx}.
 
 Definition scope_eqb {p} {idx : Index.ProgramIndex p} (a b : ScopeId idx) : bool :=
   match a, b with
   | PredeclaredScope, PredeclaredScope => true
   | PackageScope da, PackageScope db   => String.eqb da db
-  | BlockScope ra, BlockScope rb       =>
-      Index.key_equalb (Index.Snapshot.node_ref_key ra) (Index.Snapshot.node_ref_key rb)
+  | BlockScope ra, BlockScope rb       => Index.key_equalb (block_key ra) (block_key rb)
   | _, _ => false
   end.
 
@@ -66,12 +77,13 @@ Proof.
   intros p idx [|da|ra] [|db|rb]; cbn; split; try discriminate; try reflexivity.
   - intros H. apply String.eqb_eq in H. subst. reflexivity.
   - intros H. injection H as <-. apply String.eqb_eq. reflexivity.
-  - intros H. apply Index.key_equalb_spec in H. apply Index.Snapshot.node_ref_key_inj in H. subst. reflexivity.
+  - intros H. apply Index.key_equalb_spec in H. apply Index.Snapshot.node_ref_key_inj in H.
+    apply block_ext in H. subst. reflexivity.
   - intros H. injection H as <-. apply Index.key_equalb_spec. reflexivity.
 Qed.
 
-Definition block_dir {p} {idx : Index.ProgramIndex p} (r : Index.Snapshot.NodeRef idx) : string :=
-  FilePath.parent (Index.key_path (Index.Snapshot.node_ref_key r)).
+Definition block_dir {p} {idx : Index.ProgramIndex p} (b : BlockRef idx) : string :=
+  FilePath.parent (Index.key_path (block_key b)).
 
 Definition scope_parent {p} {idx : Index.ProgramIndex p} (s : ScopeId idx) : option (ScopeId idx) :=
   match s with
@@ -106,16 +118,23 @@ Section WithProgram.
 Variable p : Syntax.Program.
 Variable idx : Index.ProgramIndex p.
 
-(* build the retained reference a real occurrence key names; a gathered key is always real, so this is total *)
-Definition ref_at (path : FilePath.T) (id : positive) : option (Index.Snapshot.NodeRef idx) :=
-  Index.Snapshot.ref_of_key idx (Index.MakeKey path id).
+(* whenever a cursor is a block, its projected kind really is a block — the proof a BlockRef needs *)
+Lemma block_kind_proof {f} (c : Index.CFile f) :
+  Index.cfile_kind c = Index.BlockKind -> is_block_kind (Index.cfile_kind c) = true.
+Proof. intros H. rewrite H. reflexivity. Qed.
 
-(* the func-body block windows [id, subtree_end] and direct block-statement windows, over a computed occ list *)
-Definition block_windows {f} (occs : list (positive * positive * Index.CFile f)) : list (positive * positive) :=
-  fold_right (fun t acc =>
-     match Index.cfile_kind (snd t) with
-     | Index.BlockKind => (fst (fst t), snd (fst t)) :: acc
-     | _ => acc end) [] occs.
+(* the func-body block windows [id, subtree_end], each carrying the block-scope reference it names; built totally *)
+Definition block_windows (fr : Index.Snapshot.FileRef p) : list (positive * positive * BlockRef idx) :=
+  let occs := Index.Snapshot.local_index idx fr in
+  fold_right (fun s acc =>
+     let t := Index.nth_lt occs (proj1_sig s) (proj2_sig s) in
+     match Index.cfile_kind (snd t) as k return Index.cfile_kind (snd t) = k -> list (positive * positive * BlockRef idx) with
+     | Index.BlockKind => fun Heq =>
+         (fst (fst t), snd (fst t),
+          MkBlockRef (Index.Snapshot.MakeNodeRef fr (proj1_sig s) (proj2_sig s)) (block_kind_proof (snd t) Heq)) :: acc
+     | _ => fun _ => acc
+     end eq_refl)
+   [] (Index.indexed_lt occs).
 
 Definition stmt_windows {f} (occs : list (positive * positive * Index.CFile f)) : list (positive * positive) :=
   fold_right (fun t acc =>
@@ -123,18 +142,19 @@ Definition stmt_windows {f} (occs : list (positive * positive * Index.CFile f)) 
      | Index.BlockStatement _ => (fst (fst t), snd (fst t)) :: acc
      | _ => acc end) [] occs.
 
-(* the innermost block window strictly containing [id]; ties resolved to the latest-starting (nearest) block *)
-Definition nearest_block (bw : list (positive * positive)) (id : positive) : option (positive * positive) :=
+(* the innermost block window strictly containing [id], with its reference; ties to the latest-starting block *)
+Definition nearest_block (bw : list (positive * positive * BlockRef idx)) (id : positive)
+  : option (positive * positive * BlockRef idx) :=
   fold_right (fun w acc =>
-     let '(bid, bend) := w in
+     let '(bid, bend, _) := w in
      if andb (Pos.ltb bid id) (Pos.leb id bend)
-     then match acc with Some (a, _) => if Pos.ltb a bid then Some (bid, bend) else acc | None => Some (bid, bend) end
+     then match acc with Some (a, _, _) => if Pos.ltb a bid then Some w else acc | None => Some w end
      else acc)
    None bw.
 
-Definition scope_of_id (bw : list (positive * positive)) (path : FilePath.T) (id : positive) : ScopeId idx :=
+Definition scope_of_id (bw : list (positive * positive * BlockRef idx)) (path : FilePath.T) (id : positive) : ScopeId idx :=
   match nearest_block bw id with
-  | Some (bid, _) => match ref_at path bid with Some r => BlockScope r | None => PackageScope (FilePath.parent path) end
+  | Some (_, _, br) => BlockScope br
   | None => PackageScope (FilePath.parent path)
   end.
 
@@ -179,7 +199,7 @@ Definition est_key (e : Establisher) : Index.Key := binder_key (est_ref e).
 Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher :=
   let path := Index.Snapshot.file_ref_path fr in
   let occs := Index.Snapshot.local_index idx fr in
-  let bw   := block_windows occs in
+  let bw   := block_windows fr in
   let sw   := stmt_windows occs in
   fold_right (fun s acc =>
      let t := Index.nth_lt occs (proj1_sig s) (proj2_sig s) in
@@ -188,7 +208,7 @@ Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher 
          MkEst (MkBinderRef (Index.Snapshot.MakeNodeRef fr (proj1_sig s) (proj2_sig s))
                             (binder_spelling_role (snd t) x Heq))
                (fst x) (scope_of_id bw path (fst (fst t))) (snd x) (stmt_end_of sw (fst (fst t)))
-               (nearest_block bw (fst (fst t))) :: acc
+               (option_map (fun w => (fst (fst w), snd (fst w))) (nearest_block bw (fst (fst t)))) :: acc
      | None => fun _ => acc
      end eq_refl)
    [] (Index.indexed_lt occs).

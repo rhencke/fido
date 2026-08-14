@@ -670,15 +670,7 @@ Proof.
   apply Collections.FileFacts.in_find_iff. apply Collections.FileFacts.mem_in_iff. exact H.
 Qed.
 
-Definition fr_source {p} (fr : FileRef p) : Syntax.File :=
-  option_get (Syntax.find_file (fr_path fr) (Syntax.files p)) (file_mem_find_some _ _ (fr_memb fr)).
-
 Definition file_ref_path {p} (fr : FileRef p) : FilePath.T := fr_path fr.
-Definition file_ref_source {p} (fr : FileRef p) : Syntax.File := fr_source fr.
-
-Lemma file_ref_find {p} (fr : FileRef p) :
-  Syntax.find_file (fr_path fr) (Syntax.files p) = Some (fr_source fr).
-Proof. unfold fr_source. apply option_get_some. Qed.
 
 Lemma file_ref_ext {p} (fr1 fr2 : FileRef p) : fr_path fr1 = fr_path fr2 -> fr1 = fr2.
 Proof.
@@ -720,8 +712,9 @@ Definition node_ref_elt {p} {idx : ProgramIndex p} (r : NodeRef idx)
 Definition node_ref_cursor {p} {idx : ProgramIndex p} (r : NodeRef idx)
   : CFile (fi_source (local_entry idx (nr_file r))) := snd (node_ref_elt r).
 
-(* the role read over the exact projected member — the basis for a reference's role refinement *)
+(* role and kind read over the exact projected member — the basis for a reference's role/kind refinements *)
 Definition node_ref_role {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role := cfile_role (node_ref_cursor r).
+Definition node_ref_kind {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind := cfile_kind (node_ref_cursor r).
 
 Definition node_ref_file {p} {idx : ProgramIndex p} (r : NodeRef idx) : FileRef p := nr_file r.
 Definition node_ref_local {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := Pos.of_succ_nat (nr_pos r).
@@ -755,40 +748,6 @@ Proof.
   rewrite (nth_lt_nth_error (local_index idx (nr_file r)) (nr_pos r) (nr_lt r)). reflexivity.
 Qed.
 
-(* Locate a file by its path, retaining the membership proof. *)
-Definition file_of_path (p : Syntax.Program) (fp : FilePath.T) : option (FileRef p) :=
-  match Syntax.file_mem fp (Syntax.files p) as b
-        return Syntax.file_mem fp (Syntax.files p) = b -> option (FileRef p) with
-  | true  => fun H => Some (MakeFileRef fp H)
-  | false => fun _ => None
-  end eq_refl.
-
-Lemma file_of_path_sound : forall p fp fr,
-  file_of_path p fp = Some fr -> file_ref_path fr = fp.
-Proof.
-  intros p fp fr. unfold file_of_path.
-  generalize (@eq_refl bool (Syntax.file_mem fp (Syntax.files p))).
-  destruct (Syntax.file_mem fp (Syntax.files p)) at 2 3; intros e H; [|discriminate H].
-  injection H as <-. reflexivity.
-Qed.
-
-Lemma file_of_path_complete : forall p fr,
-  file_of_path p (fr_path fr) = Some fr.
-Proof.
-  intros p fr. unfold file_of_path.
-  generalize (@eq_refl bool (Syntax.file_mem (fr_path fr) (Syntax.files p))).
-  destruct (Syntax.file_mem (fr_path fr) (Syntax.files p)) at 2 3; intros e.
-  - f_equal. apply file_ref_ext. reflexivity.
-  - exfalso. rewrite (fr_memb fr) in e. discriminate e.
-Qed.
-
-Lemma file_of_path_source : forall p fp fr,
-  file_of_path p fp = Some fr -> Syntax.find_file fp (Syntax.files p) = Some (file_ref_source fr).
-Proof.
-  intros p fp fr H. pose proof (file_of_path_sound p fp fr H) as Hp.
-  unfold file_ref_path in Hp. unfold file_ref_source. rewrite <- Hp. apply file_ref_find.
-Qed.
-
 (* a listed file binding is a real file, so its path is a member — the basis for a fallback-free handle list *)
 Lemma binding_mem (p : Syntax.Program) (b : FilePath.T * Syntax.File) :
   In b (Syntax.file_bindings (Syntax.files p)) -> Syntax.file_mem (fst b) (Syntax.files p) = true.
@@ -801,43 +760,5 @@ Qed.
 (* the retained files as handles: every file, once, with its membership — the enumeration consumers read *)
 Definition file_refs (p : Syntax.Program) : list (FileRef p) :=
   map_in (Syntax.file_bindings (Syntax.files p)) (fun b Hin => MakeFileRef (fst b) (binding_mem p b Hin)).
-
-(* q >= 1 for a positive q, so encoding a position as of_succ_nat and decoding by pred . to_nat round-trips *)
-Lemma of_succ_pred_to_nat (q : positive) : Pos.of_succ_nat (Nat.pred (Pos.to_nat q)) = q.
-Proof.
-  apply Pos2Nat.inj. rewrite SuccNat2Pos.id_succ.
-  pose proof (Pos2Nat.is_pos q) as H. destruct (Pos.to_nat q) as [|n] eqn:E; [ lia | reflexivity ].
-Qed.
-
-(* resolve a key to the reference it names: locate the file, then take the position its id encodes, in range *)
-Definition ref_of_key {p : Syntax.Program} (idx : ProgramIndex p) (k : Key) : option (NodeRef idx) :=
-  match file_of_path p (key_path k) with
-  | Some fr =>
-      match lt_dec (Nat.pred (Pos.to_nat (key_local k))) (length (local_index idx fr)) with
-      | left H  => Some (MakeNodeRef fr (Nat.pred (Pos.to_nat (key_local k))) H)
-      | right _ => None
-      end
-  | None => None
-  end.
-
-Lemma ref_of_key_sound : forall p (idx : ProgramIndex p) k r, ref_of_key idx k = Some r -> node_ref_key r = k.
-Proof.
-  intros p idx k r. unfold ref_of_key. destruct (file_of_path p (key_path k)) as [fr|] eqn:Efr; [|discriminate].
-  destruct (lt_dec (Nat.pred (Pos.to_nat (key_local k))) (length (local_index idx fr))) as [H|H]; [|discriminate].
-  intros HH. injection HH as <-. unfold node_ref_key, node_ref_local. cbn [nr_file nr_pos].
-  apply file_of_path_sound in Efr. unfold file_ref_path in Efr.
-  destruct k as [kp kl]; cbn [key_path key_local] in *.
-  rewrite of_succ_pred_to_nat. rewrite Efr. reflexivity.
-Qed.
-
-Lemma ref_of_key_complete : forall p (idx : ProgramIndex p) r, ref_of_key idx (node_ref_key r) = Some r.
-Proof.
-  intros p idx r. unfold ref_of_key, node_ref_key, node_ref_local. cbn [key_path key_local].
-  rewrite (file_of_path_complete p (nr_file r)).
-  rewrite SuccNat2Pos.id_succ. cbn [Nat.pred].
-  destruct (lt_dec (nr_pos r) (length (local_index idx (nr_file r)))) as [H|H].
-  - f_equal. apply node_ref_ext; reflexivity.
-  - exfalso. exact (H (nr_lt r)).
-Qed.
 
 End Snapshot.
