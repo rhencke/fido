@@ -62,7 +62,7 @@ Module Capability : CAPABILITY.
   Arguments core_diagnostics {p}. Arguments core_boundaries {p}.
   Definition Core := CoreRep.
   Definition elaborate (p : Syntax.Program) : Core p :=
-    MkCore p (all_diags p) (all_boundaries p).
+    let ph := elaborate_phase p in MkCore p (fst ph) (snd ph).
   Lemma elaborate_diagnostics : forall p, core_diagnostics (elaborate p) = all_diags p. Proof. reflexivity. Qed.
   Lemma elaborate_boundaries  : forall p, core_boundaries (elaborate p) = all_boundaries p. Proof. reflexivity. Qed.
 
