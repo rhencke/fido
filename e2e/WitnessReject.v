@@ -61,3 +61,6 @@ Definition o_cx_typed : Compilable.outsides (prog [ PL [ CPLX (CONV Names.PFloat
 (* iota and nil are known predeclared identities with no valid use in the active domain: definite invalidity *)
 Definition r_iota : Compilable.rejects (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]). Proof. reject. Qed.
 Definition r_nil  : Compilable.rejects (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]).  Proof. reject. Qed.
+
+(* a builtin used as a bare value (not called) is invalid Go — builtins are not first-class values *)
+Definition r_append_val : Compilable.rejects (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PAppend) ] ]). Proof. reject. Qed.

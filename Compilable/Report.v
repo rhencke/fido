@@ -21,7 +21,7 @@ Inductive RootCause : Type :=
 | RCBuildOutputDir        : string -> string -> RootCause.
 
 Inductive Requirement : Type :=
-| ReqValueMeaning : option Index.Key -> Requirement
+| ReqValueMeaning : Index.Key -> Requirement
 | ReqApplication  : Requirement
 | ReqStatement    : Requirement
 | ReqDeclaration  : Requirement
@@ -99,8 +99,13 @@ Definition occ_diag (idx : Index.ProgramIndex p) (es : list (Compilable.Bindings
   (match Index.cfile_view_expr c with
    | Some (Syntax.Name n) =>
        if Compilable.Facts.is_value_role (Index.cfile_role c) then
-         match Compilable.Facts.resolver_at p idx es path id n with
-         | Compilable.Facts.ResMeaning (Compilable.TypeResolution.NMConversionType _) | Compilable.Facts.ResMeaning Compilable.TypeResolution.NMComplexBuiltin | Compilable.Facts.ResMeaning Compilable.TypeResolution.NMPrintlnBuiltin => [RCTypeAsValue k]
+         match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
+         | Some (Compilable.Bindings.PredeclaredObject pn) =>
+             match Compilable.Facts.predeclared_meaning pn with
+             | Compilable.Facts.ResMeaning (Compilable.TypeResolution.NMValueConstant _) => []
+             | Compilable.Facts.ResInvalid => []
+             | _ => [RCTypeAsValue k]
+             end
          | _ => []
          end
        else []
@@ -126,8 +131,9 @@ Definition occ_boundary (idx : Index.ProgramIndex p) (es : list (Compilable.Bind
    | Some (Syntax.Name n) =>
        if Compilable.Facts.is_value_role (Index.cfile_role c) then
          match Compilable.Bindings.resolve p idx es path id (Names.ordinary_spelling n) with
-         | Some o => match Compilable.Facts.object_meaning o with Compilable.Facts.ResMeaning (Compilable.TypeResolution.NMValueConstant _) => [] | _ => [MakeBoundary k (ReqValueMeaning (Compilable.Bindings.object_key o))] end
-         | None   => []
+         | Some (Compilable.Bindings.SourceObject r) =>
+             [MakeBoundary k (ReqValueMeaning (Index.Snapshot.node_ref_key (Compilable.Bindings.binder_node r)))]
+         | _ => []
          end
        else []
    | _ => [] end)
