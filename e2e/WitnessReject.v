@@ -1,6 +1,6 @@
 (* rejection controls: compile Rejects the §9.3 invalid-program matrix and Compiles the paired positive cases *)
 From Stdlib Require Import List NArith ZArith String.
-From Fido Require Import Integer Float FilePath ModulePath Version Names Syntax Compilable.
+From Fido Require Import Integer Float FilePath ModulePath Version Names Syntax Compilable Compilable.Report.
 Import ListNotations.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
@@ -64,3 +64,37 @@ Definition r_nil  : Compilable.rejects (prog [ PL [ Syntax.Name (Names.predeclar
 
 (* a builtin used as a bare value (not called) is invalid Go — builtins are not first-class values *)
 Definition r_append_val : Compilable.rejects (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PAppend) ] ]). Proof. reject. Qed.
+
+Local Notation OID s := (Names.MakeOrdinary (Names.MakeIdentifier s eq_refl) eq_refl).
+Local Notation VNAME s := (Syntax.Name (OID s)).
+Local Notation NE1 x := (Collections.MakeNonEmpty x nil).
+
+(* exact-payload controls: the rejected cause is the exact structured value, not merely a nonempty list *)
+Definition r_iota_cause : exists k, all_diags (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ RCInvalidIdentity k Names.PIota ].
+Proof. eexists; vm_compute; reflexivity. Qed.
+Definition r_type_value_cause : exists k, all_diags (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ]) = [ RCTypeAsValue k ].
+Proof. eexists; vm_compute; reflexivity. Qed.
+Definition r_cx_mix_cause : exists k, all_diags (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ]) = [ RCComplexTypeMismatch k ].
+Proof. eexists; vm_compute; reflexivity. Qed.
+
+(* exact OutsideScope payload: no diagnostic, and exactly the typed-complex boundary requirement *)
+Definition o_cx_typed_payload :
+  all_diags (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = []
+  /\ exists k, all_boundaries (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = [ MakeBoundary k ReqComplexType ].
+Proof. split; [ vm_compute; reflexivity | eexists; vm_compute; reflexivity ]. Qed.
+
+(* exact Compiled payload: an accepted program's decided core is exactly empty of diagnostics and boundaries *)
+Definition c_neg_int8_core :
+  all_diags (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = []
+  /\ all_boundaries (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [].
+Proof. split; vm_compute; reflexivity. Qed.
+
+(* visibility: a name is not visible inside its own spec, so a self-initializer is unresolved and Rejected *)
+Definition r_var_self : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (VNAME "x"))) ]) ]). Proof. reject. Qed.
+Definition r_const_self : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (VNAME "x"))) ]) ]). Proof. reject. Qed.
+Definition r_short_self : Compilable.rejects (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (VNAME "x")) ]). Proof. reject. Qed.
+
+(* visibility: a name IS visible after its spec, but a source value's meaning is a later root (OutsideScope) *)
+Definition o_var_use : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; PL [ VNAME "x" ] ]). Proof. outside. Qed.
+Definition o_var_later : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "a"))) (Syntax.VarValues None (NE1 (ILIT 1))) ; Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "b"))) (Syntax.VarValues None (NE1 (VNAME "a"))) ]) ]). Proof. outside. Qed.
+Definition o_short_use : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 1)) ; PL [ VNAME "x" ] ]). Proof. outside. Qed.
