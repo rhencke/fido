@@ -93,5 +93,9 @@ current carrier.
 
 ## Stop / status
 
-`IMPLEMENTED_NOT_ACCEPTED`. Dispatched by Rob. Current: **step 1 — governance normalization**. Next: **R1** to
-Intentional Stop 1. `make check` on the pinned toolchain is the supported run. Only Rob accepts.
+`IMPLEMENTED_NOT_ACCEPTED`. Dispatched by Rob. Current: **R1 complete — Intentional Stop 1 passed** (intrinsic
+position-selector reference into the retained index; consumers read the retained index, no raw-source recompute;
+enumeration length / id-uniqueness / exact-projection theorems; negative controls AH/AI; witness bytes and path
+set byte-identical throughout). Next: **R2** — exact package/binding/scope identity, where the kind/role-refined
+reference types land with their application. `make check` on the pinned toolchain is the supported run. Only Rob
+accepts.

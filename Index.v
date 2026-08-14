@@ -96,6 +96,17 @@ Fixpoint map_in {A B} (l : list A) : (forall x, In x l -> B) -> list B :=
   | x :: xs => fun f => f x (or_introl eq_refl) :: map_in xs (fun y Hy => f y (or_intror Hy))
   end.
 
+(* every position of a list with its in-range proof — a total, fallback-free enumeration of selectors *)
+Fixpoint indexed_lt {A} (l : list A) : list { i : nat | Nat.lt i (length l) } :=
+  match l with
+  | [] => []
+  | x :: xs =>
+      exist _ O (Nat.lt_0_succ (length xs)) ::
+      List.map (fun s : { i | Nat.lt i (length xs) } =>
+                  exist _ (S (proj1_sig s)) (proj1 (Nat.succ_lt_mono (proj1_sig s) (length xs)) (proj2_sig s)))
+               (indexed_lt xs)
+  end.
+
 (* the three spec shapes share one occurrence kind; this is the retained spec payload *)
 Inductive AnySpec : Type :=
 | ASConst : Syntax.ConstSpec -> AnySpec
@@ -708,6 +719,9 @@ Definition node_ref_elt {p} {idx : ProgramIndex p} (r : NodeRef idx)
   := nth_lt (local_index idx (nr_file r)) (nr_pos r) (nr_lt r).
 Definition node_ref_cursor {p} {idx : ProgramIndex p} (r : NodeRef idx)
   : CFile (fi_source (local_entry idx (nr_file r))) := snd (node_ref_elt r).
+
+(* the role read over the exact projected member — the basis for a reference's role refinement *)
+Definition node_ref_role {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role := cfile_role (node_ref_cursor r).
 
 Definition node_ref_file {p} {idx : ProgramIndex p} (r : NodeRef idx) : FileRef p := nr_file r.
 Definition node_ref_local {p} {idx : ProgramIndex p} (r : NodeRef idx) : positive := Pos.of_succ_nat (nr_pos r).

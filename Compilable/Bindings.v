@@ -5,20 +5,33 @@ From Fido Require Import Collections FilePath Names Syntax Index.
 Import ListNotations.
 Local Open Scope positive_scope.
 
-(* an object is a predeclared entity or a source object named by its establisher's exact retained occurrence *)
+(* a binder reference: a node reference whose projected role is a binder — SpecName or ShortLhs, by proof *)
+Definition is_binder_role (rl : Index.Role) : bool :=
+  match rl with Index.SpecName _ => true | Index.ShortLhs _ => true | _ => false end.
+Record BinderRef {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type := MkBinderRef {
+  binder_node : Index.Snapshot.NodeRef idx;
+  binder_is   : is_binder_role (Index.Snapshot.node_ref_role binder_node) = true
+}.
+Arguments MkBinderRef {p idx}. Arguments binder_node {p idx}. Arguments binder_is {p idx}.
+Definition binder_key {p} {idx : Index.ProgramIndex p} (b : BinderRef idx) : Index.Key :=
+  Index.Snapshot.node_ref_key (binder_node b).
+(* the role proof is a mere proposition, so a binder reference is exactly its node — the proof never splits it *)
+Lemma binder_ext {p} {idx : Index.ProgramIndex p} (a b : BinderRef idx) : binder_node a = binder_node b -> a = b.
+Proof. destruct a as [na ha], b as [nb hb]; cbn; intros ->; f_equal; apply Eqdep_dec.UIP_dec, Bool.bool_dec. Qed.
+
+(* an object is a predeclared entity or a source object named by its establisher's exact binder occurrence *)
 Inductive ObjectRef {p : Syntax.Program} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredObject : Names.PredeclaredName -> ObjectRef idx
-| SourceObject      : Index.Snapshot.NodeRef idx -> ObjectRef idx.
+| SourceObject      : BinderRef idx -> ObjectRef idx.
 Arguments PredeclaredObject {p idx}. Arguments SourceObject {p idx}.
 
 Definition object_key {p} {idx : Index.ProgramIndex p} (o : ObjectRef idx) : option Index.Key :=
-  match o with PredeclaredObject _ => None | SourceObject r => Some (Index.Snapshot.node_ref_key r) end.
+  match o with PredeclaredObject _ => None | SourceObject r => Some (binder_key r) end.
 
 Definition object_eqb {p} {idx : Index.ProgramIndex p} (a b : ObjectRef idx) : bool :=
   match a, b with
   | PredeclaredObject na, PredeclaredObject nb => Names.predeclared_eqb na nb
-  | SourceObject ra, SourceObject rb           =>
-      Index.key_equalb (Index.Snapshot.node_ref_key ra) (Index.Snapshot.node_ref_key rb)
+  | SourceObject ra, SourceObject rb           => Index.key_equalb (binder_key ra) (binder_key rb)
   | _, _ => false
   end.
 
@@ -27,7 +40,8 @@ Proof.
   intros p idx [na|ra] [nb|rb]; cbn; split; try discriminate.
   - intros H. apply Names.predeclared_eqb_spec in H. subst. reflexivity.
   - intros H. injection H as <-. apply Names.predeclared_eqb_spec. reflexivity.
-  - intros H. apply Index.key_equalb_spec in H. apply Index.Snapshot.node_ref_key_inj in H. subst. reflexivity.
+  - intros H. apply Index.key_equalb_spec in H. apply Index.Snapshot.node_ref_key_inj in H.
+    apply binder_ext in H. subst. reflexivity.
   - intros H. injection H as <-. apply Index.key_equalb_spec. reflexivity.
 Qed.
 
@@ -142,8 +156,17 @@ Definition binder_spelling {f} (c : Index.CFile f) : option (string * bool) :=
   | _ => None
   end.
 
+(* whenever a cursor spells a binder, its role really is a binder role — the proof a BinderRef needs *)
+Lemma binder_spelling_role {f} (c : Index.CFile f) x :
+  binder_spelling c = Some x -> is_binder_role (Index.cfile_role c) = true.
+Proof.
+  intros H. unfold is_binder_role. unfold binder_spelling in H.
+  destruct (Index.cfile_view_binding_name c) as [[n|]|]; try discriminate H;
+    destruct (Index.cfile_role c); try discriminate H; reflexivity.
+Qed.
+
 Record Establisher := MkEst {
-  est_ref      : Index.Snapshot.NodeRef idx;
+  est_ref      : BinderRef idx;
   est_spelling : string;
   est_scope    : ScopeId idx;
   est_short    : bool;
@@ -151,23 +174,24 @@ Record Establisher := MkEst {
   est_block    : option (positive * positive)   (* the containing block window, for O(1) use-containment *)
 }.
 
-Definition est_key (e : Establisher) : Index.Key := Index.Snapshot.node_ref_key (est_ref e).
+Definition est_key (e : Establisher) : Index.Key := binder_key (est_ref e).
 
 Definition file_establishers (fr : Index.Snapshot.FileRef p) : list Establisher :=
   let path := Index.Snapshot.file_ref_path fr in
   let occs := Index.Snapshot.local_index idx fr in
   let bw   := block_windows occs in
   let sw   := stmt_windows occs in
-  fold_right (fun t acc =>
-     match binder_spelling (snd t) with
-     | Some (sp, sh) =>
-         match ref_at path (fst (fst t)) with
-         | Some r => MkEst r sp (scope_of_id bw path (fst (fst t))) sh (stmt_end_of sw (fst (fst t)))
-                          (nearest_block bw (fst (fst t))) :: acc
-         | None => acc
-         end
-     | None => acc end)
-   [] occs.
+  fold_right (fun s acc =>
+     let t := Index.nth_lt occs (proj1_sig s) (proj2_sig s) in
+     match binder_spelling (snd t) as bo return binder_spelling (snd t) = bo -> list Establisher with
+     | Some x => fun Heq =>
+         MkEst (MkBinderRef (Index.Snapshot.MakeNodeRef fr (proj1_sig s) (proj2_sig s))
+                            (binder_spelling_role (snd t) x Heq))
+               (fst x) (scope_of_id bw path (fst (fst t))) (snd x) (stmt_end_of sw (fst (fst t)))
+               (nearest_block bw (fst (fst t))) :: acc
+     | None => fun _ => acc
+     end eq_refl)
+   [] (Index.indexed_lt occs).
 
 Definition establishers : list Establisher :=
   flat_map file_establishers (Index.Snapshot.file_refs p).
@@ -220,7 +244,7 @@ Definition resolve (es : list Establisher) (use_path : FilePath.T) (use_id : pos
 Inductive ShortDisposition : Type :=
 | ShortBlank
 | ShortNew
-| ShortReuse : Index.Snapshot.NodeRef idx -> ShortDisposition.
+| ShortReuse : BinderRef idx -> ShortDisposition.
 
 (* the establishers of a spelling in one scope, other than [self], declared strictly before [self] *)
 Definition prior_establishers (es : list Establisher) (sc : ScopeId idx) (n : string) (self : Establisher)
