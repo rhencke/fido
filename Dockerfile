@@ -313,12 +313,12 @@ sealed() { # <label> <public sentinel in the module under test> <qualified term 
   grep -qF "$3" /tmp/sealed.log \
     || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
   echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
-# the decision, its verdict payloads, and the retained program payload are sealed behind CAPABILITY: a client
-# cannot forge a decision, an accepted/rejected/outside payload, or a program — `compile` is the only way to one.
+# the decision, its verdict payloads and the retained core are sealed behind CAPABILITY: a client cannot forge
+# a decision, an accepted/rejected/outside payload or a core — `compile` is the only way to one.  The Program
+# and the Safe certificate are transparent carriers (RC01: transparency preserves vm_compute, unforgeability
+# needs no opacity), unforgeable because their payload slots demand the sealed evidence (typing AJ/AK below).
 sealed F Compilable.compile Compilable.MkDecision
 sealed G Compilable.compile Compilable.Capability.MkDecision
-sealed H Compilable.compile Compilable.MkProgram
-sealed I Compilable.compile Compilable.Capability.MkProgram
 sealed J Compilable.compile Compilable.MkCompiled
 sealed K Compilable.compile Compilable.Capability.MkCompiled
 sealed L Compilable.compile Compilable.MkRejected
@@ -339,11 +339,8 @@ sealed U Compilable.compile Compilable.Capability.elaborate
 sealed Y Emit.Mint.issue Emit.Mint.Issue
 sealed Z Emit.Mint.issue Emit.Mint.TokenRepresentation
 sealed AA Emit.of_safe Emit.MakeImage
-# the SAFETY capability.  No certified transport reduces its representation, so the narrow carrier
-# allowance does not apply to it and it is sealed like the rest.
-sealed AE Safe.certify Safe.Make
-sealed AF Safe.certify Safe.ProgramRepresentation
-sealed AG Safe.certify Safe.Certificate.Make
+# the SAFETY certificate is a transparent carrier too — its retained source must compute for `of_safe` — and is
+# unforgeable intrinsically because its payload is the sealed Compilable.Program (typing control AK below).
 # ADVERSARIAL CONTROLS ON THE HELPER ITSELF.  A sealed-constructor test is only evidence if it could have
 # failed for the right reason, so the helper must reject its own bad evidence.  Each runs in a subshell,
 # because `fail` exits.
@@ -388,6 +385,12 @@ typefail AH "a node reference at an out-of-range position" \
   'Definition forged (p : Syntax.Program) (fr : Index.Snapshot.FileRef p) : Index.Snapshot.NodeRef (Index.index_program p) := Index.Snapshot.MakeNodeRef fr 999 eq_refl.'
 typefail AI "a cursor bearing a foreign file" \
   'Definition forged (f g : Syntax.File) (c : Index.CFile f) : Index.CFile g := c.'
+# R5 negative-client controls: the transparent Program and Safe carriers are unforgeable because their payload
+# slots demand the sealed compiled evidence, not a trivial proof.  Both must fail by TYPING.
+typefail AJ "a program payload that is not the sealed compiled evidence" \
+  'Definition forged (p : Syntax.Program) : Compilable.Program := Compilable.MkProgram p (Compilable.decided_core (Compilable.compile p)) I.'
+typefail AK "a certificate wrapping a non-program" \
+  'Definition forged : Safe.Program := Safe.Make I I.'
 # (f) the POSITIVE control — the sealed TYPES and the ONE mint path are reachable, so F-K are not passing
 #     merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -429,7 +432,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the sealed types / the ONE mint path are NOT reachable"
 fi
 echo "fido: sealed positive control — one decided core projected, three-way verdict matched, each branch fact read over that same core, accepted diagnostics/boundaries, certify and emit all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-U/Y-AA/AE-AG (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + typing controls AB-AD (mint) / AH-AI (reference) + positive control"
+echo "fido: prove OK — dune build; module coverage; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage sealed-capability self-tests F-G/J-U/Y-AA (the load check is proved once per distinct prelude+sentinel and reused; every sealing probe runs) + helper meta-controls + typing controls AB-AD (image) / AH-AI (reference) / AJ-AK (transparent program+certificate carriers) + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

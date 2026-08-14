@@ -24,11 +24,9 @@ Definition alias_valid : Compilable.Admissible alias_program.
 Proof. split; vm_compute; reflexivity. Qed.
 
 Definition alias_compiled : Compilable.Program :=
-  Compilable.program_of alias_program alias_valid.
+  Compilable.program_of_compiled alias_program (Compilable.compiles_of_admissible alias_program alias_valid).
 Definition alias_safe : Safe.Program := certify alias_compiled I.
-Definition alias_image : Emit.Image :=
-  Emit.of_safe_at alias_safe alias_program
-    (eq_trans (Safe.certify_source alias_compiled I) (Compilable.program_of_source alias_program alias_valid)).
+Definition alias_image : Emit.Image := Emit.of_safe alias_safe.
 
 Declare ML Module "fido.emit".
 Fido Materialize alias_image To "/workspace/generated-alias".

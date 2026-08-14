@@ -10,11 +10,9 @@ Definition empty_valid : Compilable.Admissible empty_prog.
 Proof. split; vm_compute; reflexivity. Qed.
 
 Definition empty_compiled : Compilable.Program :=
-  Compilable.program_of empty_prog empty_valid.
+  Compilable.program_of_compiled empty_prog (Compilable.compiles_of_admissible empty_prog empty_valid).
 Definition empty_safe : Safe.Program := certify empty_compiled I.
-Definition empty_image : Emit.Image :=
-  Emit.of_safe_at empty_safe empty_prog
-    (eq_trans (Safe.certify_source empty_compiled I) (Compilable.program_of_source empty_prog empty_valid)).
+Definition empty_image : Emit.Image := Emit.of_safe empty_safe.
 
 (* the empty source map builds and renders NO .go files *)
 Example empty_builds : exists p, build_program empty_module [] = Some p.

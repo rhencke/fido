@@ -37,20 +37,9 @@ Module Type CAPABILITY.
 
   Parameter compile : forall p : Syntax.Program, Decision p.
 
-  (* the accepted-program payload Safe retains: the exact source, its decided core, and the compiled evidence *)
-  Parameter Program : Type.
-  Parameter source   : Program -> Syntax.Program.
-  Parameter core     : forall pr : Program, Core (source pr).
-  Parameter accepted : forall pr : Program, core_diagnostics (core pr) = [].
-  Parameter in_scope : forall pr : Program, core_boundaries (core pr) = [].
-
   (* adequacy: the retained decided core's reports ARE the source-level reports, read off the same object *)
   Parameter decided_diagnostics : forall p, core_diagnostics (decided_core (compile p)) = all_diags p.
   Parameter decided_boundaries  : forall p, core_boundaries (decided_core (compile p)) = all_boundaries p.
-
-  (* an admissible program yields its accepted payload by eliminating the real decision, retaining its core *)
-  Parameter program_of : forall (p : Syntax.Program), Admissible p -> Program.
-  Parameter program_of_source : forall (p : Syntax.Program) (H : Admissible p), source (program_of p H) = p.
 End CAPABILITY.
 
 Module Capability : CAPABILITY.
@@ -114,33 +103,20 @@ Module Capability : CAPABILITY.
   Lemma decided_boundaries  : forall p, core_boundaries (decided_core (compile p)) = all_boundaries p.
   Proof. reflexivity. Qed.
 
-  Record ProgramRep : Type := MkProgram {
-    prog_src  : Syntax.Program;
-    prog_core : Core prog_src;
-    prog_ok   : CompiledAt prog_src prog_core
-  }.
-  Definition Program := ProgramRep.
-  Definition source (pr : Program) : Syntax.Program := prog_src pr.
-  Definition core (pr : Program) : Core (source pr) := prog_core pr.
-  Definition accepted (pr : Program) : core_diagnostics (core pr) = [] := c_accepted (prog_ok pr).
-  Definition in_scope (pr : Program) : core_boundaries (core pr) = [] := c_in_scope (prog_ok pr).
-
-  (* eliminate the real decision: an admissible program's verdict is Compiled, so retain its exact core+payload *)
-  Definition compiled_of (p : Syntax.Program) (H : Admissible p) : { pr : Program | source pr = p } :=
-    match verdict (compile p) with
-    | Compiled _ _ payload =>
-        exist _ (MkProgram p (decided_core (compile p)) payload) eq_refl
-    | Rejected _ _ payload =>
-        False_rect _ (r_rejected payload (eq_trans (decided_diagnostics p) (proj1 H)))
-    | OutsideScope _ _ payload =>
-        False_rect _ (o_blocked payload (eq_trans (decided_boundaries p) (proj2 H)))
-    end.
-  Definition program_of (p : Syntax.Program) (H : Admissible p) : Program := proj1_sig (compiled_of p H).
-  Definition program_of_source (p : Syntax.Program) (H : Admissible p) : source (program_of p H) = p :=
-    proj2_sig (compiled_of p H).
 End Capability.
 Include Capability.
 Arguments Compiled {p c} _. Arguments Rejected {p c} _. Arguments OutsideScope {p c} _.
+
+(* the accepted program: a transparent carrier of the exact retained source, decided core and compiled evidence *)
+Record Program : Type := MkProgram {
+  prog_src  : Syntax.Program;
+  prog_core : Core prog_src;
+  prog_ok   : CompiledAt prog_src prog_core
+}.
+Definition source (pr : Program) : Syntax.Program := prog_src pr.
+Definition core (pr : Program) : Core (source pr) := prog_core pr.
+Definition accepted (pr : Program) : core_diagnostics (core pr) = [] := c_accepted (prog_ok pr).
+Definition in_scope (pr : Program) : core_boundaries (core pr) = [] := c_in_scope (prog_ok pr).
 
 (* the two exact verdict predicates a control asserts, read from the decision's verdict branch. *)
 Definition compiles (p : Syntax.Program) : Prop :=
@@ -149,6 +125,19 @@ Definition rejects (p : Syntax.Program) : Prop :=
   match verdict (compile p) with Rejected _ => True | _ => False end.
 Definition outsides (p : Syntax.Program) : Prop :=
   match verdict (compile p) with OutsideScope _ => True | _ => False end.
+
+(* the payload of the Compiled branch, retained as the accepted program's compiled evidence *)
+Definition compiled_payload (p : Syntax.Program) (H : compiles p) : CompiledAt p (decided_core (compile p)) :=
+  match verdict (compile p) as v
+    return (match v with Compiled _ => True | _ => False end) -> CompiledAt p (decided_core (compile p)) with
+  | Compiled payload => fun _ => payload
+  | Rejected _ => fun H0 => False_rect _ H0
+  | OutsideScope _ => fun H0 => False_rect _ H0
+  end H.
+
+(* the compiled decision mints its accepted program with prog_src set directly, so source computes past the seal *)
+Definition program_of_compiled (p : Syntax.Program) (H : compiles p) : Program :=
+  MkProgram p (decided_core (compile p)) (compiled_payload p H).
 
 Definition compiles_of_admissible (p : Syntax.Program) (H : Admissible p) : compiles p :=
   match verdict (compile p) as v return (match v with Compiled _ => True | _ => False end) with

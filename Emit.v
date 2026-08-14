@@ -60,32 +60,11 @@ Proof. reflexivity. Qed.
 Lemma of_safe_files : forall sp, files (of_safe sp) = file_map sp.
 Proof. reflexivity. Qed.
 
-(* The same authority transported along the exact source equality; it issues nothing of its own. *)
-Definition of_safe_at (sp : Safe.Program) (p : Syntax.Program) (H : Safe.source sp = p) : Image :=
-  Pack sp (module_file_of p) (file_map_of p)
-    (eq_rect (Safe.source sp) (fun q => Mint.Token sp (module_file_of q) (file_map_of q))
-             (Mint.issue sp) p H).
-Lemma of_safe_at_retains : forall sp p H, safe (of_safe_at sp p H) = sp.
-Proof. reflexivity. Qed.
-Lemma of_safe_at_module_bytes : forall sp p H, module_bytes (of_safe_at sp p H) = module_file_of p.
-Proof. reflexivity. Qed.
-Lemma of_safe_at_files : forall sp p H, files (of_safe_at sp p H) = file_map_of p.
-Proof. reflexivity. Qed.
-Lemma of_safe_at_refl : forall sp, of_safe_at sp (Safe.source sp) eq_refl = of_safe sp.
-Proof. reflexivity. Qed.
-
 Definition entries (img : Image) : list (string * string) :=
   List.map (fun kv => (FilePath.text (fst kv), snd kv)) (FileMap.elements (files img)).
 
 Definition transport (img : Image) : string * list (string * string) :=
   (module_bytes img, entries img).
-
-Lemma of_safe_at_transport : forall sp p H, transport (of_safe_at sp p H) = transport (of_safe sp).
-Proof.
-  intros sp p H. unfold transport, entries.
-  rewrite of_safe_at_module_bytes, of_safe_at_files, of_safe_module_bytes, of_safe_files.
-  unfold module_file, file_map. rewrite H. reflexivity.
-Qed.
 
 Lemma of_safe_module_file_header : forall img,
   exists rest, module_bytes img = header ++ String nl_c rest.

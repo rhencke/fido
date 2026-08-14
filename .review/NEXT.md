@@ -13,12 +13,13 @@ repair narrative are Git history.
 
 ## Current truth vs. required outcome
 
-RC-01's core landed (`e100f84`): one transparent `occ_file` fold replaced the duplicate traversal/agreement
-forest, and the `vm_compute` occurrence wall is gone in-model. That progress is real but **not sufficient**. The
-fold's result is not retained as the compiler's causal object; occurrence and reference identities are still
-free records and coordinate-plus-Boolean handles; binding/diagnostics/boundaries return to raw source
-enumeration; and the public decision is split from the capability. **The rows below are the required outcome,
-not the current state.** Architecture prose must keep that distinction until each code increment lands.
+RC-01's core landed (`e100f84`) and **R1–R5 have since landed**: the transparent `occ_file` fold's result is
+retained as the compiler's one causal object; occurrence/reference identities are intrinsic position-selectors;
+binding/diagnostics/boundaries read the retained index and package/scope objects; and the public decision
+carries the exact `Program` through one transparent capability/provenance chain. **R6 (theorems + evidence) and
+R7 (corpus) remain the required outcome below, not the current state.** Architecture prose keeps that distinction
+until R7 finalizes. R4's concrete semantic partition landed; its deeper multi-issue causal chain is deferred as a
+no-op in the current single-issue domain.
 
 ## The resolved sealing question — closed, not a choice
 
@@ -93,9 +94,12 @@ current carrier.
 
 ## Stop / status
 
-`IMPLEMENTED_NOT_ACCEPTED`. Dispatched by Rob. Current: **R1 complete — Intentional Stop 1 passed** (intrinsic
-position-selector reference into the retained index; consumers read the retained index, no raw-source recompute;
-enumeration length / id-uniqueness / exact-projection theorems; negative controls AH/AI; witness bytes and path
-set byte-identical throughout). Next: **R2** — exact package/binding/scope identity, where the kind/role-refined
-reference types land with their application. `make check` on the pinned toolchain is the supported run. Only Rob
-accepts.
+`IMPLEMENTED_NOT_ACCEPTED`. Dispatched by Rob. Current: **R1–R5 landed** — intrinsic position-selector references
+into the retained index (R1); exact package/binding/scope identity with declaration-kind visibility (R2); the
+`Facts → Report → Compilable` cut over one retained phase (R3); the semantic partition — typed-`complex` →
+OutsideScope, `iota`/`nil`/builtin-as-value → Rejected, no `None` conflation (R4 concrete; deeper causal chain
+deferred as a domain no-op); and the transparent capability/provenance chain — `Compiled` carries the exact
+`Program`, `Emit.of_safe` is the sole image constructor, `program_of`/`compiled_of`/`of_safe_at` deleted, the
+certificate transparent, unforgeability intrinsic via typing controls AJ/AK (R5). Witness bytes and path set
+byte-identical throughout. Next: **Intentional Stop 2** — the formal/public gate audit after R2–R5. `make check`
+on the pinned toolchain is the supported run. Only Rob accepts.

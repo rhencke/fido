@@ -50,7 +50,7 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 | `Typing` | type forms, semantic types, exact constants, type-environment input and output, and reflected type decisions | scopes, semantic object identity, source lookup, diagnostics, runtime values, or behaviour |
 | `Compilable` | scopes, semantic objects, binding, the retained static analysis, expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision | runtime values, dynamic places or environments, rendering, or behaviour |
 | `Machine` | the one behaviour relation and derived runs | static compilation or a second evaluator |
-| `Safe` | only the safety property and the sealed certificate retaining the exact compiled capability | values, stores, evaluation, rendering, or static facts |
+| `Safe` | only the safety property and the transparent certificate retaining the exact compiled capability | values, stores, evaluation, rendering, or static facts |
 | `Render` | direct canonical source bytes | binding, typing, fact construction, or evaluation |
 | `Runtime` | **introduced by C7**: values, the permanent object store, dynamic places, dynamic environments, and their intrinsic operations | static variable identity, name binding, static facts, safety, or a second run relation |
 | `Emit` | the one image mint and exact emitted bytes | source or semantic authority |
