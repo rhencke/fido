@@ -215,6 +215,15 @@ Definition arg1 (r : Index.NodeRef idx) : Index.NodeRef idx :=
 
 (* ---- per-site classification, before blocking ---- *)
 
+(* an occurrence's role decides whether it is a value use at all: an application HEAD is a callee, never a
+   value, and the discarded expression of an expression statement is governed by own_stmt, not by a value
+   diagnostic.  A predeclared conversion/complex/println/unmodelled name is [TypeAsValue] only in a real value
+   use, and a void builtin call ([println]) has no value only where one is consumed. *)
+Definition is_app_head (r : Index.NodeRef idx) : bool :=
+  match Index.node_role r with Index.RApplicationHead => true | _ => false end.
+Definition value_ctx (r : Index.NodeRef idx) : bool :=
+  match Index.node_role r with Index.RApplicationHead => false | Index.RExprStatementExpr => false | _ => true end.
+
 Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
   match Index.node_view r with
   | Index.VExpr (Syntax.Name n) =>
@@ -224,7 +233,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
           match pmeaning pn with
           | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity pn) end
           | PMInvalidId => VInvalid (InvalidIdentity pn)
-          | _ => VInvalid (TypeAsValue (BN.PredeclaredObject pn))
+          | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
           end
       | BN.RBound (BN.SourceObject b) => VUnmet (ReqValueMeaning b)
       end
@@ -242,31 +251,32 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
           end
       | None => VNonconst
       end
-  | Index.VExpr (Syntax.Application (Syntax.Name h) (x :: nil)) =>
-      match nm_at r h with
-      | Some (TR.NMConversionForm t) =>
-          match constant_info r x with
-          | Some ci => match TR.convert_constant t ci with
-                       | TR.Converted tc => VOK (TR.mk_rc t tc)
-                       | TR.Overflows _ => VInvalid (ConversionOverflow t (arg0 r))
-                       | TR.NotForm _ => VInvalid (ConversionNotRepresentable t (arg0 r))
-                       end
-          | None => VNonconst
-          end
-      | _ => VNonconst
-      end
-  | Index.VExpr (Syntax.Application (Syntax.Name h) (re :: im :: nil)) =>
+  | Index.VExpr (Syntax.Application (Syntax.Name h) args) =>
       match BN.resolve bp r h with
-      | BN.RBound (BN.PredeclaredObject Names.PComplex) =>
-          match constant_info r re, constant_info r im with
-          | Some cre, Some cim =>
-              match complex_class cre cim with
-              | CxOk => match constant_info r (Syntax.Application (Syntax.Name h) (re :: im :: nil)) with
-                        | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
-                        | None => VNonconst end
-              | CxDefer => VUnmet (ReqComplexType r)
-              | CxError => VInvalid (ComplexMismatch (arg0 r) (arg1 r))
+      | BN.RBound (BN.PredeclaredObject pn) =>
+          match pmeaning pn, args with
+          | PMConvForm t, x :: nil =>
+              match constant_info r x with
+              | Some ci => match TR.convert_constant t ci with
+                           | TR.Converted tc => VOK (TR.mk_rc t tc)
+                           | TR.Overflows _ => VInvalid (ConversionOverflow t (arg0 r))
+                           | TR.NotForm _ => VInvalid (ConversionNotRepresentable t (arg0 r))
+                           end
+              | None => VNonconst
               end
+          | PMComplex, re :: im :: nil =>
+              match constant_info r re, constant_info r im with
+              | Some cre, Some cim =>
+                  match complex_class cre cim with
+                  | CxOk => match constant_info r (Syntax.Application (Syntax.Name h) (re :: im :: nil)) with
+                            | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
+                            | None => VNonconst end
+                  | CxDefer => VUnmet (ReqComplexType r)
+                  | CxError => VInvalid (ComplexMismatch (arg0 r) (arg1 r))
+                  end
+              | _, _ => VNonconst
+              end
+          | PMPrintln, _ => if value_ctx r then VInvalid NoValueUsed else VNonconst
           | _, _ => VNonconst
           end
       | _ => VNonconst
@@ -370,10 +380,12 @@ Definition dfails : list (Index.NodeRef idx * bool) :=
 
 Definition find_failing_in (df : list (Index.NodeRef idx * bool)) (r : Index.NodeRef idx) : option (BlockWitness r) :=
   fold_right (fun (p : Index.NodeRef idx * bool) (acc : option (BlockWitness r)) =>
-    match Bool.bool_dec (strict_descendant_b r (fst p)) true with
-    | left H => if snd p then Some (block_witness (fst p) (strict_descendant_b_spec r (fst p) H)) else acc
-    | right _ => acc
-    end) None df.
+    if snd p then
+      match Bool.bool_dec (strict_descendant_b r (fst p)) true with
+      | left H => Some (block_witness (fst p) (strict_descendant_b_spec r (fst p) H))
+      | right _ => acc
+      end
+    else acc) None df.
 
 Definition find_failing (r : Index.NodeRef idx) : option (BlockWitness r) := find_failing_in dfails r.
 
@@ -383,8 +395,8 @@ Proof.
   intros r w. unfold find_failing, find_failing_in, dfails.
   induction all_index_nodes as [|d rest IH]; cbn [map fold_right fst snd].
   - discriminate.
-  - destruct (Bool.bool_dec (strict_descendant_b r d) true) as [H|H].
-    + destruct (value_fails d) eqn:Hvf.
+  - destruct (value_fails d) eqn:Hvf.
+    + destruct (Bool.bool_dec (strict_descendant_b r d) true) as [H|H].
       * intro E; injection E as <-; cbn. split; [ apply strict_descendant_b_spec; exact H | exact Hvf ].
       * exact IH.
     + exact IH.
@@ -417,16 +429,6 @@ Arguments mkNF {p idx} _ _ _ _ _.
 Arguments nf_node {p idx} _.
 Arguments nf_v {p idx} _. Arguments nf_a {p idx} _. Arguments nf_s {p idx} _. Arguments nf_t {p idx} _.
 
-Definition noderef_eq_dec {p} {idx : Index.ProgramIndex p} (a b : Index.NodeRef idx) : {a = b} + {a <> b}.
-Proof.
-  destruct (Nat.eq_dec (Index.nr_pos a) (Index.nr_pos b)) as [Hp|Hp];
-    destruct (Bool.bool_dec (Index.fileref_eqb (Index.nr_file a) (Index.nr_file b)) true) as [Hf|Hf].
-  - left; apply Index.noderef_positional; [ apply Index.fileref_eqb_spec; exact Hf | exact Hp ].
-  - right; intro E; apply Hf; subst b; apply Index.fileref_eqb_spec; reflexivity.
-  - right; intro E; apply Hp; subst b; reflexivity.
-  - right; intro E; apply Hp; subst b; reflexivity.
-Defined.
-
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
 
@@ -449,54 +451,34 @@ Qed.
 Definition raw_facts : list (NodeFacts idx) :=
   let df := dfails bp in map (build_nf df) (all_index_nodes bp).
 
-Fixpoint lookup4 (l : list (NodeFacts idx)) (r : Index.NodeRef idx)
-  : (ValueOutcome r * AppOutcome r * StmtOutcome r * TypeUseOutcome r)%type :=
-  match l with
-  | nil => (value_fact_c bp r, app_fact_c bp r, stmt_fact_c bp r, type_fact_c bp r)
-  | nf :: rest =>
-      match noderef_eq_dec (nf_node nf) r with
-      | left H => (eq_rect _ (fun x => ValueOutcome x) (nf_v nf) r H,
-                   eq_rect _ (fun x => AppOutcome x) (nf_a nf) r H,
-                   eq_rect _ (fun x => StmtOutcome x) (nf_s nf) r H,
-                   eq_rect _ (fun x => TypeUseOutcome x) (nf_t nf) r H)
-      | right _ => lookup4 rest r
-      end
-  end.
+(* a blocked node's retained facts are all Blocked in every family, so Report (folding [fact_list] directly)
+   emits neither a diagnostic nor a boundary for it — no [lookup4]/[eq_rect] transport is ever needed. *)
+Lemma build_nf_blocked (r : Index.NodeRef idx) (w : BlockWitness r) :
+  find_failing bp r = Some w ->
+  build_nf (dfails bp) r = mkNF r (VBlocked w) (ABlocked w) (SBlocked w) (TBlocked w).
+Proof. intro H. unfold build_nf, find_failing in *. rewrite H. reflexivity. Qed.
 
-(* projecting the built list at any enumerated node returns exactly the spec classification *)
-Lemma lookup4_build (l : list (Index.NodeRef idx)) (r : Index.NodeRef idx) :
-  In r l ->
-  lookup4 (map (build_nf (dfails bp)) l) r = (value_fact_c bp r, app_fact_c bp r, stmt_fact_c bp r, type_fact_c bp r).
+(* every retained fact is exactly its node's canonical classification: [nf] in the stream is the [build_nf] of
+   its own node, so Report reads [nf_v]/[nf_a]/[nf_s]/[nf_t] in place — a projection, never a reclassification. *)
+Lemma fact_list_build (m : NodeFacts idx) :
+  In m (map (build_nf (dfails bp)) (all_index_nodes bp)) ->
+  m = build_nf (dfails bp) (nf_node m).
 Proof.
-  induction l as [|x rest IH]; intro Hin; [ destruct Hin | ].
-  cbn [map lookup4]. rewrite (build_nf_eq x). cbn [nf_node nf_v nf_a nf_s nf_t].
-  destruct (noderef_eq_dec x r) as [H|H].
-  - destruct H. reflexivity.
-  - destruct Hin as [Heq|Hin']; [ exfalso; apply H; exact Heq | apply IH; exact Hin' ].
+  intro Hin. apply in_map_iff in Hin. destruct Hin as [x [Heq _]].
+  assert (Hn : nf_node m = x).
+  { rewrite <- Heq. unfold build_nf. destruct (find_failing_in (dfails bp) x); reflexivity. }
+  rewrite Hn, Heq. reflexivity.
 Qed.
 
 Definition FactPhase : Type := { m : list (NodeFacts idx) | m = raw_facts }.
 Definition facts : FactPhase := exist _ raw_facts eq_refl.
 Definition fact_list (fp : FactPhase) : list (NodeFacts idx) := proj1_sig fp.
 
-Definition value_fact (fp : FactPhase) (r : Index.NodeRef idx) : ValueOutcome r :=
-  let '(v, _, _, _) := lookup4 (fact_list fp) r in v.
-Definition app_fact (fp : FactPhase) (r : Index.NodeRef idx) : AppOutcome r :=
-  let '(_, a, _, _) := lookup4 (fact_list fp) r in a.
-Definition stmt_fact (fp : FactPhase) (r : Index.NodeRef idx) : StmtOutcome r :=
-  let '(_, _, st, _) := lookup4 (fact_list fp) r in st.
-Definition type_use_fact (fp : FactPhase) (r : Index.NodeRef idx) : TypeUseOutcome r :=
-  let '(_, _, _, t) := lookup4 (fact_list fp) r in t.
-
 End Retain.
 
 Arguments FactPhase {p idx s} bp.
 Arguments facts {p idx s} bp.
 Arguments fact_list {p idx s bp} _.
-Arguments value_fact {p idx s bp} _ _.
-Arguments app_fact {p idx s bp} _ _.
-Arguments stmt_fact {p idx s bp} _ _.
-Arguments type_use_fact {p idx s bp} _ _.
 
 (* ---- laws ---- *)
 
@@ -506,19 +488,6 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 (* the phase content is built once; every phase carries exactly the canonical classification, none caller-supplied *)
 Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
 Proof. exact (proj2_sig fp). Qed.
-
-(* each family outcome is the retained classification of the exact queried site: a projection, not a rerun *)
-Lemma outcome_site_retained (fp : FactPhase bp) (r : Index.NodeRef idx) :
-  value_fact fp r = value_fact_c bp r /\ app_fact fp r = app_fact_c bp r
-  /\ stmt_fact fp r = stmt_fact_c bp r /\ type_use_fact fp r = type_fact_c bp r.
-Proof.
-  assert (Hl : lookup4 bp (fact_list fp) r
-    = (value_fact_c bp r, app_fact_c bp r, stmt_fact_c bp r, type_fact_c bp r)).
-  { unfold fact_list. rewrite (proj2_sig fp). unfold raw_facts.
-    apply lookup4_build. apply node_in_all. }
-  unfold value_fact, app_fact, stmt_fact, type_use_fact. rewrite Hl.
-  repeat split; reflexivity.
-Qed.
 
 (* statement and type-use families have no Nonconst constructor *)
 Lemma only_lawful_per_family (r : Index.NodeRef idx) :
@@ -573,6 +542,7 @@ Lemma nested_complex_zero_imag (r : Index.NodeRef idx) (h : Names.OrdinaryIdenti
   own_value bp r = VInvalid (ComplexMismatch (arg0 r) (arg1 r)).
 Proof.
   intros Hv Hres Hre Him Hcx; unfold own_value; rewrite Hv; cbv beta iota; rewrite Hres; cbv beta iota;
+    change (pmeaning Names.PComplex) with PMComplex; cbv beta iota;
     rewrite Hre, Him; cbv beta iota; rewrite Hcx; reflexivity.
 Qed.
 
@@ -586,6 +556,7 @@ Lemma typed_complex_outside (r : Index.NodeRef idx) (h : Names.OrdinaryIdentifie
   own_value bp r = VUnmet (ReqComplexType r).
 Proof.
   intros Hv Hres Hre Him Hcx; unfold own_value; rewrite Hv; cbv beta iota; rewrite Hres; cbv beta iota;
+    change (pmeaning Names.PComplex) with PMComplex; cbv beta iota;
     rewrite Hre, Him; cbv beta iota; rewrite Hcx; reflexivity.
 Qed.
 

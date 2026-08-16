@@ -1,5 +1,6 @@
-(* Report — projection only.  It classifies nothing: it enumerates sites, reads the retained FactPhase and
-   PackageFacts, and projects ordered diagnostics and boundaries. *)
+(* Report — projection only.  It classifies nothing: it FOLDS the retained FactPhase stream (each NodeFacts read
+   in place — no lookup, no [eq_rect] transport across a node equality) together with the PackageFacts, and
+   projects ordered diagnostics and boundaries. *)
 
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec.
 From Fido Require Import Syntax Index Compilable.PackageIdentity Compilable.Bindings Compilable.Packages Compilable.Facts.
@@ -11,9 +12,9 @@ Module PK := Compilable.Packages.
 Module FA := Compilable.Facts.
 
 Inductive DiagSite {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
-| AtNode : Index.NodeRef idx -> DiagSite s
+| AtOcc : FA.NodeFacts idx -> DiagSite s
 | AtPackage : PI.PackageRef s -> DiagSite s.
-Arguments AtNode {p idx s} _.
+Arguments AtOcc {p idx s} _.
 Arguments AtPackage {p idx s} _.
 
 Inductive ReportRoot {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
@@ -39,8 +40,7 @@ Section OverPhases.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bp : BN.BindingPhase s}
         (fp : FA.FactPhase bp) (pf : PK.PackageFacts bp).
 
-(* ---- outcome inspectors ---- *)
-
+(* ---- outcome inspectors: read a single retained outcome in place (no index transport) ---- *)
 Definition v_invalid {r : Index.NodeRef idx} (o : FA.ValueOutcome r) : bool := match o with FA.VInvalid _ => true | _ => false end.
 Definition a_invalid {r : Index.NodeRef idx} (o : FA.AppOutcome r) : bool := match o with FA.AInvalid _ => true | _ => false end.
 Definition s_invalid {r : Index.NodeRef idx} (o : FA.StmtOutcome r) : bool := match o with FA.SInvalid _ => true | _ => false end.
@@ -50,50 +50,47 @@ Definition a_unmet {r : Index.NodeRef idx} (o : FA.AppOutcome r) : bool := match
 Definition s_unmet {r : Index.NodeRef idx} (o : FA.StmtOutcome r) : bool := match o with FA.SUnmet _ => true | _ => false end.
 Definition t_unmet {r : Index.NodeRef idx} (o : FA.TypeUseOutcome r) : bool := match o with FA.TUnmet _ => true | _ => false end.
 
-Definition node_diag (r : Index.NodeRef idx) : bool :=
-  v_invalid (FA.value_fact fp r) || a_invalid (FA.app_fact fp r)
-  || s_invalid (FA.stmt_fact fp r) || t_invalid (FA.type_use_fact fp r).
-Definition node_bound (r : Index.NodeRef idx) : bool :=
-  negb (node_diag r) &&
-  (v_unmet (FA.value_fact fp r) || a_unmet (FA.app_fact fp r)
-   || s_unmet (FA.stmt_fact fp r) || t_unmet (FA.type_use_fact fp r)).
+(* ---- per-node predicates, read directly from the retained NodeFacts (the whole point: no per-query lookup) ---- *)
+Definition facts_diag (nf : FA.NodeFacts idx) : bool :=
+  v_invalid (FA.nf_v nf) || a_invalid (FA.nf_a nf) || s_invalid (FA.nf_s nf) || t_invalid (FA.nf_t nf).
+Definition facts_bound (nf : FA.NodeFacts idx) : bool :=
+  negb (facts_diag nf) &&
+  (v_unmet (FA.nf_v nf) || a_unmet (FA.nf_a nf) || s_unmet (FA.nf_s nf) || t_unmet (FA.nf_t nf)).
 
 (* ---- package-level facts ---- *)
-
 Definition pkg_main_issue (pr : PI.PackageRef s) : bool :=
   match BN.package_main bp pr with BN.MainMissing => true | BN.MainRedeclared _ _ _ => true | _ => false end.
 Definition collision_list : list (PI.PackageRef s) :=
   match PK.preflight pf with PK.FreshOk => [] | PK.FreshCollisions first rest => first :: rest end.
 Definition pkg_collides (pr : PI.PackageRef s) : bool := existsb (PI.packageref_eqb pr) collision_list.
 
+(* the diagnostic-producing test of a site; an occurrence carries its own retained facts, read in place *)
 Definition produces_diag (site : DiagSite s) : bool :=
+  let _ := fp in
   match site with
-  | AtNode r => node_diag r
+  | AtOcc nf => facts_diag nf
   | AtPackage pr => pkg_main_issue pr || pkg_collides pr
   end.
-Definition produces_bound (site : DiagSite s) : bool :=
-  let _ := pf in match site with AtNode r => node_bound r | AtPackage _ => false end.
+Definition produces_bound (nf : FA.NodeFacts idx) : bool := let _ := fp in let _ := pf in facts_bound nf.
 
 Record Diagnostic := diag_at { diag_site : DiagSite s ; diag_ok : produces_diag diag_site = true }.
-Record Boundary := bound_at { bound_site : Index.NodeRef idx ; bound_ok : produces_bound (AtNode bound_site) = true }.
+Record Boundary := bound_at { bound_facts : FA.NodeFacts idx ; bound_ok : produces_bound bound_facts = true }.
 
-(* ---- cause / related / root projections ---- *)
-
-Definition occ_cause_of (r : Index.NodeRef idx) : FA.Cause idx :=
-  match FA.value_fact fp r with
+(* ---- cause / related / root projections, all read from the retained NodeFacts ---- *)
+Definition facts_cause (nf : FA.NodeFacts idx) : FA.Cause idx :=
+  match FA.nf_v nf with
   | FA.VInvalid c => c
-  | _ => match FA.app_fact fp r with
+  | _ => match FA.nf_a nf with
          | FA.AInvalid c => c
-         | _ => match FA.stmt_fact fp r with
+         | _ => match FA.nf_s nf with
                 | FA.SInvalid c => c
-                | _ => match FA.type_use_fact fp r with FA.TInvalid c => c | _ => FA.IllegalStatement end
+                | _ => match FA.nf_t nf with FA.TInvalid c => c | _ => FA.IllegalStatement end
                 end
          end
   end.
-
 Definition diag_cause (d : Diagnostic) : ReportCause s :=
   match diag_site d with
-  | AtNode r => OccCause (occ_cause_of r)
+  | AtOcc nf => OccCause (facts_cause nf)
   | AtPackage pr =>
       match BN.package_main bp pr with
       | BN.MainMissing => PkgMissingMain pr
@@ -102,14 +99,11 @@ Definition diag_cause (d : Diagnostic) : ReportCause s :=
       end
   end.
 
-Definition occ_related (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
-  match FA.value_fact fp r with
-  | FA.VInvalid (FA.ComplexMismatch a b) => [a; b]
-  | _ => []
-  end.
+Definition facts_related (nf : FA.NodeFacts idx) : list (Index.NodeRef idx) :=
+  match FA.nf_v nf with FA.VInvalid (FA.ComplexMismatch a b) => [a; b] | _ => [] end.
 Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) :=
   match diag_site d with
-  | AtNode r => occ_related r
+  | AtOcc nf => facts_related nf
   | AtPackage pr =>
       match BN.package_main bp pr with
       | BN.MainRedeclared m1 m2 rest => map BN.main_node (m1 :: m2 :: rest)
@@ -117,27 +111,23 @@ Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) :=
       end
   end.
 Definition diag_root (d : Diagnostic) : ReportRoot s :=
-  match diag_site d with AtNode r => RootNode r | AtPackage pr => RootPackage pr end.
+  match diag_site d with AtOcc nf => RootNode (FA.nf_node nf) | AtPackage pr => RootPackage pr end.
 
-Definition bound_req (b : Boundary) : FA.Requirement idx :=
-  let r := bound_site b in
-  match FA.value_fact fp r with
+Definition facts_req (nf : FA.NodeFacts idx) : FA.Requirement idx :=
+  match FA.nf_v nf with
   | FA.VUnmet q => q
-  | _ => match FA.app_fact fp r with
+  | _ => match FA.nf_a nf with
          | FA.AUnmet q => q
-         | _ => match FA.stmt_fact fp r with
+         | _ => match FA.nf_s nf with
                 | FA.SUnmet q => q
-                | _ => match FA.type_use_fact fp r with FA.TUnmet q => q | _ => FA.ReqComplexType r end
+                | _ => match FA.nf_t nf with FA.TUnmet q => q | _ => FA.ReqComplexType (FA.nf_node nf) end
                 end
          end
   end.
-Definition bound_root (b : Boundary) : ReportRoot s := RootNode (bound_site b).
+Definition bound_req (b : Boundary) : FA.Requirement idx := facts_req (bound_facts b).
+Definition bound_root (b : Boundary) : ReportRoot s := RootNode (FA.nf_node (bound_facts b)).
 
-(* ---- enumeration ---- *)
-
-Definition all_nodes : list (Index.NodeRef idx) :=
-  flat_map Index.file_nodes (flat_map PI.pkg_members (PI.packages s)).
-
+(* ---- enumeration: fold the retained stream directly; no [all_nodes] reconstruction, no [lookup4] ---- *)
 Fixpoint build_diags (sites : list (DiagSite s))
   : (forall d, In d sites -> produces_diag d = true) -> list Diagnostic :=
   match sites with
@@ -145,20 +135,20 @@ Fixpoint build_diags (sites : list (DiagSite s))
   | site :: rest => fun H =>
       diag_at site (H site (or_introl eq_refl)) :: build_diags rest (fun d Hd => H d (or_intror Hd))
   end.
-Fixpoint build_bounds (nodes : list (Index.NodeRef idx))
-  : (forall r, In r nodes -> produces_bound (AtNode r) = true) -> list Boundary :=
-  match nodes with
+Fixpoint build_bounds (nfs : list (FA.NodeFacts idx))
+  : (forall nf, In nf nfs -> produces_bound nf = true) -> list Boundary :=
+  match nfs with
   | [] => fun _ => []
-  | r :: rest => fun H =>
-      bound_at r (H r (or_introl eq_refl)) :: build_bounds rest (fun r' Hr' => H r' (or_intror Hr'))
+  | nf :: rest => fun H =>
+      bound_at nf (H nf (or_introl eq_refl)) :: build_bounds rest (fun nf' Hnf' => H nf' (or_intror Hnf'))
   end.
 
 Lemma filter_diag_ok : forall (sites : list (DiagSite s)) d,
   In d (filter produces_diag sites) -> produces_diag d = true.
 Proof. intros sites d Hin; apply filter_In in Hin; exact (proj2 Hin). Qed.
-Lemma filter_bound_ok : forall (nodes : list (Index.NodeRef idx)) r,
-  In r (filter (fun r0 => produces_bound (AtNode r0)) nodes) -> produces_bound (AtNode r) = true.
-Proof. intros nodes r Hin; apply filter_In in Hin; exact (proj2 Hin). Qed.
+Lemma filter_bound_ok : forall (nfs : list (FA.NodeFacts idx)) nf,
+  In nf (filter produces_bound nfs) -> produces_bound nf = true.
+Proof. intros nfs nf Hin; apply filter_In in Hin; exact (proj2 Hin). Qed.
 
 Definition collision_diags : list Diagnostic :=
   build_diags (filter produces_diag (map AtPackage collision_list)) (filter_diag_ok _).
@@ -166,11 +156,11 @@ Definition main_diags : list Diagnostic :=
   build_diags (filter produces_diag (map AtPackage (filter pkg_main_issue (PI.packages s))))
               (filter_diag_ok _).
 Definition occ_diags : list Diagnostic :=
-  build_diags (filter produces_diag (map AtNode all_nodes)) (filter_diag_ok _).
+  build_diags (filter produces_diag (map AtOcc (FA.fact_list fp))) (filter_diag_ok _).
 
 Definition diagnostics : list Diagnostic := collision_diags ++ main_diags ++ occ_diags.
 Definition boundaries : list Boundary :=
-  build_bounds (filter (fun r => produces_bound (AtNode r)) all_nodes) (filter_bound_ok _).
+  build_bounds (filter produces_bound (FA.fact_list fp)) (filter_bound_ok _).
 
 End OverPhases.
 
@@ -213,30 +203,17 @@ Lemma precedence_total :
   diagnostics fp pf = collision_diags fp pf ++ main_diags fp pf ++ occ_diags fp pf.
 Proof. reflexivity. Qed.
 
-(* a blocked node produces no diagnostic and no boundary of its own *)
+(* a blocked node's retained facts are all Blocked, so folding the stream emits neither diagnostic nor boundary
+   for it — the report never re-decides a site the blocking already settled *)
 Lemma no_duplicate_blocked (r : Index.NodeRef idx) (w : FA.BlockWitness r) :
-  FA.find_failing bp r = Some w -> produces_diag fp pf (AtNode r) = false /\ produces_bound fp pf (AtNode r) = false.
-Proof.
-  intro H.
-  destruct (FA.outcome_site_retained bp fp r) as [Rv [Ra [Rs Rt]]].
-  assert (Ev : FA.value_fact fp r = FA.VBlocked w) by (rewrite Rv; unfold FA.value_fact_c; rewrite H; reflexivity).
-  assert (Ea : FA.app_fact fp r = FA.ABlocked w) by (rewrite Ra; unfold FA.app_fact_c; rewrite H; reflexivity).
-  assert (Es : FA.stmt_fact fp r = FA.SBlocked w) by (rewrite Rs; unfold FA.stmt_fact_c; rewrite H; reflexivity).
-  assert (Et : FA.type_use_fact fp r = FA.TBlocked w) by (rewrite Rt; unfold FA.type_fact_c; rewrite H; reflexivity).
-  split.
-  - change (node_diag fp r = false); unfold node_diag.
-    rewrite Ev, Ea, Es, Et; reflexivity.
-  - change (node_bound fp r = false); unfold node_bound, node_diag.
-    rewrite Ev, Ea, Es, Et; reflexivity.
-Qed.
+  FA.find_failing bp r = Some w ->
+  produces_diag fp pf (AtOcc (FA.build_nf bp (FA.dfails bp) r)) = false
+  /\ produces_bound fp pf (FA.build_nf bp (FA.dfails bp) r) = false.
+Proof. intro H. rewrite (FA.build_nf_blocked bp r w H). split; reflexivity. Qed.
 
-(* a site that produces a diagnostic produces no boundary *)
-Lemma decided_invalid_no_boundary (site : DiagSite s) :
-  produces_diag fp pf site = true -> produces_bound fp pf site = false.
-Proof.
-  destruct site as [r|pr]; cbn.
-  - unfold node_bound; intro H; rewrite H; reflexivity.
-  - intros _; reflexivity.
-Qed.
+(* a node that produces a diagnostic produces no boundary (the boundary gate negates the diagnostic bit) *)
+Lemma decided_invalid_no_boundary (nf : FA.NodeFacts idx) :
+  facts_diag nf = true -> produces_bound fp pf nf = false.
+Proof. unfold produces_bound, facts_bound; intro H; rewrite H; reflexivity. Qed.
 
 End Laws.
