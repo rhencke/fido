@@ -33,7 +33,7 @@ Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_
 Proof. vm_compute. reflexivity. Qed.
 
 Definition multi_valid : Compilable.Admissible (Compilable.elaborate multi_program).
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
 
 (* carry the exact compilation and its capability into the certified image *)
 Definition multi_cap : Compilable.Prog.Program (Compilable.elaborate multi_program) :=

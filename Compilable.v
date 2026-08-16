@@ -41,6 +41,32 @@ Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ bo
 Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
+(* Generic proof support only: a transparent observation of a list's OUTER constructor, with two ordinary
+   bridges recovering the exact list-shape propositions.  Used solely to close report-list emptiness
+   obligations through a bool-typed premise, so proof closure never traverses a large dependent normal form.
+   NOT used inside compile, nil_dec, diagnostics, boundaries, or any production semantic definition. *)
+Definition list_is_nilb {A : Type} (xs : list A) : bool :=
+  match xs with
+  | [] => true
+  | _ :: _ => false
+  end.
+
+Lemma list_is_nilb_true {A : Type} (xs : list A) :
+  list_is_nilb xs = true -> xs = [].
+Proof.
+  destruct xs as [|x xs]; cbn.
+  - intros _; reflexivity.
+  - intros H; discriminate H.
+Qed.
+
+Lemma list_is_nilb_false {A : Type} (xs : list A) :
+  list_is_nilb xs = false -> xs <> [].
+Proof.
+  destruct xs as [|x xs]; cbn.
+  - intros H; discriminate H.
+  - intros _ H; discriminate H.
+Qed.
+
 (* the compiled capability: an abstract indexed type whose only maker requires admissibility *)
 Module Type PROGRAM_SIG.
   Parameter Program : forall {p}, Compilation p -> Type.

@@ -21,7 +21,7 @@ Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 
 Definition alias_valid : Compilable.Admissible (Compilable.elaborate alias_program).
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
 
 (* carry the exact compilation and its capability into the certified image *)
 Definition alias_cap : Compilable.Prog.Program (Compilable.elaborate alias_program) :=

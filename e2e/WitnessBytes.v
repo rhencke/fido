@@ -16,7 +16,7 @@ Definition bytes_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition bytes_program : Syntax.Program := singleton_program bytes_module (FilePath.Make "main.go" eq_refl) bytes_file.
 
 Definition bytes_valid : Compilable.Admissible (Compilable.elaborate bytes_program).
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
 
 (* carry the exact compilation and its capability into the certified image *)
 Definition bytes_cap : Compilable.Prog.Program (Compilable.elaborate bytes_program) :=

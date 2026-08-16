@@ -7,7 +7,7 @@ Definition empty_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition empty_prog : Syntax.Program := empty_program empty_module.
 
 Definition empty_valid : Compilable.Admissible (Compilable.elaborate empty_prog).
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
 
 (* carry the exact compilation and its capability into the certified image *)
 Definition empty_cap : Compilable.Prog.Program (Compilable.elaborate empty_prog) :=

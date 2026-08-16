@@ -22,10 +22,15 @@ Definition rmain : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
   singleton_program rmod rmain [ Syntax.Main (Syntax.MakeBlock body) ].
 
+(* generic report-list bridges: observe only the list's outer constructor through a bool premise, then recover
+   the exact proposition — so proof closure never traverses the large dependent report normal form *)
+Ltac report_nil      := apply Compilable.list_is_nilb_true;  vm_compute; reflexivity.
+Ltac report_nonempty := apply Compilable.list_is_nilb_false; vm_compute; reflexivity.
+
 (* the three-way decision is proved through the exact narrow partition theorems over the retained compilation *)
-Ltac reject    := apply (proj2 (Compilable.rejects_iff_diags _)); vm_compute; discriminate.
-Ltac compileok := apply (proj2 (Compilable.accepted_iff_admissible _)); split; vm_compute; reflexivity.
-Ltac outside   := apply (proj2 (Compilable.outsides_iff _)); split; [ vm_compute; reflexivity | vm_compute; discriminate ].
+Ltac reject    := apply (proj2 (Compilable.rejects_iff_diags _)); report_nonempty.
+Ltac compileok := apply (proj2 (Compilable.accepted_iff_admissible _)); split; report_nil.
+Ltac outside   := apply (proj2 (Compilable.outsides_iff _)); split; [ report_nil | report_nonempty ].
 
 (* known type mismatches: unary minus over a nonnumeric or overflowing typed constant *)
 Definition r_neg_string  : Compilable.rejects (prog [ PL [ NEG (SLIT "x") ] ]).                         Proof. reject. Qed.
@@ -100,13 +105,13 @@ Proof. do 2 eexists; vm_compute; reflexivity. Qed.
 Definition o_cx_typed_payload :
   Compilable.diagnostics (ce (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = []
   /\ exists r, breqs (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = [ FA.ReqComplexType r ].
-Proof. split; [ vm_compute; reflexivity | eexists; vm_compute; reflexivity ]. Qed.
+Proof. split; [ report_nil | eexists; vm_compute; reflexivity ]. Qed.
 
 (* exact Compiled payload: an accepted program has no diagnostics and no boundaries *)
 Definition c_neg_int8_core :
   Compilable.diagnostics (ce (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = []
   /\ Compilable.boundaries (ce (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [].
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; report_nil. Qed.
 
 (* live-path: the SUPPLIED decision for an accepted program eliminates to carry its branch's exact
    compilation — no deleted mint — and that compilation's source is exactly the supplied program *)

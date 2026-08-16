@@ -72,7 +72,7 @@ Definition main_go : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition demo_program : Syntax.Program := singleton_program demo_module main_go demo_file.
 
 Definition demo_valid : Compilable.Admissible (Compilable.elaborate demo_program).
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
 
 (* carry the exact compilation and its capability into the certified image *)
 Definition demo_cap : Compilable.Prog.Program (Compilable.elaborate demo_program) :=

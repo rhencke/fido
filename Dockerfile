@@ -569,7 +569,7 @@ export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 #     go.mod + recursive .go, NO .fido/lock/temp — what the `generated-module` layer + go-e2e VALIDATE with a
 #     fresh `go build ./...`.  The sink is exercised separately (sink_test), reached in production only via `make regenerate`. ---
 G=/workspace/generated
-if ! rocq c -Q _build/default/. Fido -time e2e/Witness.v; then fail "Fido Materialize (witness) FAILED"; fi
+if ! rocq c -Q _build/default/. Fido -time e2e/Witness.v > /tmp/emit.log 2>&1; then cat /tmp/emit.log; fail "Fido Materialize (witness) FAILED"; fi
 cat /tmp/emit.log
 [ -f "$G/go.mod" ]  || fail "the materialized pristine has no rendered go.mod"
 [ -f "$G/main.go" ] || fail "the materialized pristine has no main.go"
