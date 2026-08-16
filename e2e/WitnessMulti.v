@@ -32,12 +32,13 @@ Definition multi_program : Syntax.Program :=
 Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_program.
 Proof. vm_compute. reflexivity. Qed.
 
-Definition multi_valid : Compilable.Admissible multi_program.
+Definition multi_valid : Compilable.Admissible (Compilable.elaborate multi_program).
 Proof. split; vm_compute; reflexivity. Qed.
 
-Definition multi_compiled : Compilable.Program :=
-  Compilable.program_of_compiled multi_program (Compilable.compiles_of_admissible multi_program multi_valid).
-Definition multi_safe : Safe.Program := certify multi_compiled I.
+(* carry the exact compilation and its capability into the certified image *)
+Definition multi_cap : Compilable.Prog.Program (Compilable.elaborate multi_program) :=
+  Compilable.Prog.issue (Compilable.elaborate multi_program) multi_valid.
+Definition multi_safe : Safe.Program := Safe.certify multi_program (Compilable.elaborate multi_program) multi_cap I.
 Definition multi_image : Emit.Image := Emit.of_safe multi_safe.
 
 Declare ML Module "fido.emit".

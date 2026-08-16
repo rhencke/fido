@@ -6,12 +6,13 @@ Import ListNotations.
 Definition empty_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition empty_prog : Syntax.Program := empty_program empty_module.
 
-Definition empty_valid : Compilable.Admissible empty_prog.
+Definition empty_valid : Compilable.Admissible (Compilable.elaborate empty_prog).
 Proof. split; vm_compute; reflexivity. Qed.
 
-Definition empty_compiled : Compilable.Program :=
-  Compilable.program_of_compiled empty_prog (Compilable.compiles_of_admissible empty_prog empty_valid).
-Definition empty_safe : Safe.Program := certify empty_compiled I.
+(* carry the exact compilation and its capability into the certified image *)
+Definition empty_cap : Compilable.Prog.Program (Compilable.elaborate empty_prog) :=
+  Compilable.Prog.issue (Compilable.elaborate empty_prog) empty_valid.
+Definition empty_safe : Safe.Program := Safe.certify empty_prog (Compilable.elaborate empty_prog) empty_cap I.
 Definition empty_image : Emit.Image := Emit.of_safe empty_safe.
 
 (* the empty source map builds and renders NO .go files *)

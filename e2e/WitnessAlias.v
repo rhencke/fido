@@ -20,12 +20,13 @@ Definition alias_file : list Syntax.TopLevelDecl :=
 Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 
-Definition alias_valid : Compilable.Admissible alias_program.
+Definition alias_valid : Compilable.Admissible (Compilable.elaborate alias_program).
 Proof. split; vm_compute; reflexivity. Qed.
 
-Definition alias_compiled : Compilable.Program :=
-  Compilable.program_of_compiled alias_program (Compilable.compiles_of_admissible alias_program alias_valid).
-Definition alias_safe : Safe.Program := certify alias_compiled I.
+(* carry the exact compilation and its capability into the certified image *)
+Definition alias_cap : Compilable.Prog.Program (Compilable.elaborate alias_program) :=
+  Compilable.Prog.issue (Compilable.elaborate alias_program) alias_valid.
+Definition alias_safe : Safe.Program := Safe.certify alias_program (Compilable.elaborate alias_program) alias_cap I.
 Definition alias_image : Emit.Image := Emit.of_safe alias_safe.
 
 Declare ML Module "fido.emit".

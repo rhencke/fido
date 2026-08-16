@@ -26,8 +26,8 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
 
 ## What it proves
 
-- `Compilable.compile` returns one of three verdicts, each characterized **exactly** over the retained core:
-  it compiles a program exactly when the program is `Admissible` (`accepted_iff_admissible` — sound and
+- `Compilable.compile` returns one of three verdicts, each characterized **exactly** over the one retained
+  compilation `elaborate` built: it compiles a program exactly when the compilation is `Admissible` (`accepted_iff_admissible` — sound and
   complete), rejects exactly when a diagnostic exists (`rejects_iff_diags`), and returns `OutsideScope` exactly
   when the program is clean of diagnostics but carries a boundary (`outsides_iff`); the three are exhaustive and
   disjoint (`decision_total`). Status: `IMPLEMENTED_NOT_ACCEPTED` until the repaired candidate passes review.
@@ -38,8 +38,9 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
   exact source value it encodes. `Render` is a sibling branch over the same `Syntax.Program`, importing no
   typing or compiler authority; any correspondence between a spelling and the constant status typing computes
   is a downstream adequacy obligation, not a current theorem.
-- Every emitted image carries proof it came from rendering one certified program, and the transport rejects
-  an image whose proof depends on an axiom.
+- Every emitted image is `Emit.of_safe` of one certified program — the sole image constructor, with no raw
+  byte, file, token or origin slot — so its bytes are a projection of that program's retained source, and the
+  transport rejects, before any filesystem effect, an image whose assumption closure is non-empty.
 - **Zero project axioms**, asserted every build by three checks that no one of them could make alone:
   certified-module coverage proves every tracked module is loaded, a whole-theory assumption-closure audit
   descends opaque proof bodies over that environment, and adversarial controls prove the audit is not

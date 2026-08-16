@@ -1,7 +1,11 @@
 (* controls: representable invalid/unimplemented cases Reject or bound; the paired positive cases Compile *)
 From Stdlib Require Import List NArith ZArith String.
-From Fido Require Import Integer Float FilePath ModulePath Version Names Syntax Compilable Compilable.Report.
+From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Compilable Compilable.Bindings Compilable.Facts Compilable.Report.
 Import ListNotations.
+
+Module BN := Compilable.Bindings.
+Module FA := Compilable.Facts.
+Module RP := Compilable.Report.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
 Local Notation NEG e := (Syntax.Unary Syntax.UnaryMinus e).
@@ -18,9 +22,10 @@ Definition rmain : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
   singleton_program rmod rmain [ Syntax.Main (Syntax.MakeBlock body) ].
 
-Ltac reject    := apply Compilable.rejects_of_diags; vm_compute; discriminate.
-Ltac compileok := apply Compilable.compiles_of_admissible; split; vm_compute; reflexivity.
-Ltac outside   := apply Compilable.outsides_of_boundaries; [ vm_compute; reflexivity | vm_compute; discriminate ].
+(* the three-way decision is proved through the exact narrow partition theorems over the retained compilation *)
+Ltac reject    := apply (proj2 (Compilable.rejects_iff_diags _)); vm_compute; discriminate.
+Ltac compileok := apply (proj2 (Compilable.accepted_iff_admissible _)); split; vm_compute; reflexivity.
+Ltac outside   := apply (proj2 (Compilable.outsides_iff _)); split; [ vm_compute; reflexivity | vm_compute; discriminate ].
 
 (* known type mismatches: unary minus over a nonnumeric or overflowing typed constant *)
 Definition r_neg_string  : Compilable.rejects (prog [ PL [ NEG (SLIT "x") ] ]).                         Proof. reject. Qed.
@@ -69,25 +74,48 @@ Local Notation OID s := (Names.MakeOrdinary (Names.MakeIdentifier s eq_refl) eq_
 Local Notation VNAME s := (Syntax.Name (OID s)).
 Local Notation NE1 x := (Collections.MakeNonEmpty x nil).
 
-(* exact-payload controls: the rejected cause is the exact structured value, not merely a nonempty list *)
-Definition r_iota_cause : exists k, all_diags (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ RCInvalidIdentity k Names.PIota ].
-Proof. eexists; vm_compute; reflexivity. Qed.
-Definition r_type_value_cause : exists k, all_diags (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ]) = [ RCTypeAsValue k ].
-Proof. eexists; vm_compute; reflexivity. Qed.
-Definition r_cx_mix_cause : exists k, all_diags (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ]) = [ RCComplexTypeMismatch k ].
-Proof. eexists; vm_compute; reflexivity. Qed.
+(* ---- exact-payload controls: the projected cause/requirement is the exact structured value ----
+   The diagnostics and boundaries are the retained Report projections; each control names the exact
+   Cause/Requirement, existentially binding only the retained NodeRefs it cannot spell literally. *)
+Definition ce (p : Syntax.Program) := Compilable.elaborate p.
+Definition dcauses (p : Syntax.Program) : list (RP.ReportCause (Compilable.comp_surface (ce p))) :=
+  map (RP.diag_cause (Compilable.comp_facts (ce p)) (Compilable.comp_pkgs (ce p))) (Compilable.diagnostics (ce p)).
+Definition breqs (p : Syntax.Program) : list (FA.Requirement (Compilable.comp_index (ce p))) :=
+  map (RP.bound_req (Compilable.comp_facts (ce p)) (Compilable.comp_pkgs (ce p))) (Compilable.boundaries (ce p)).
+
+Definition r_iota_cause :
+  dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ])
+  = [ RP.OccCause (FA.InvalidIdentity Names.PIota) ].
+Proof. vm_compute; reflexivity. Qed.
+Definition r_type_value_cause :
+  dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ])
+  = [ RP.OccCause (FA.TypeAsValue (BN.PredeclaredObject Names.PInt8)) ].
+Proof. vm_compute; reflexivity. Qed.
+Definition r_cx_mix_cause : exists a b,
+  dcauses (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ])
+  = [ RP.OccCause (FA.ComplexMismatch a b) ].
+Proof. do 2 eexists; vm_compute; reflexivity. Qed.
 
 (* exact OutsideScope payload: no diagnostic, and exactly the typed-complex boundary requirement *)
 Definition o_cx_typed_payload :
-  all_diags (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = []
-  /\ exists k, all_boundaries (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = [ MakeBoundary k ReqComplexType ].
+  Compilable.diagnostics (ce (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = []
+  /\ exists r, breqs (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = [ FA.ReqComplexType r ].
 Proof. split; [ vm_compute; reflexivity | eexists; vm_compute; reflexivity ]. Qed.
 
-(* exact Compiled payload: an accepted program's decided core is exactly empty of diagnostics and boundaries *)
+(* exact Compiled payload: an accepted program has no diagnostics and no boundaries *)
 Definition c_neg_int8_core :
-  all_diags (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = []
-  /\ all_boundaries (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [].
+  Compilable.diagnostics (ce (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = []
+  /\ Compilable.boundaries (ce (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [].
 Proof. split; vm_compute; reflexivity. Qed.
+
+(* live-path: the SUPPLIED decision for an accepted program eliminates to carry its branch's exact
+   compilation — no deleted mint — and that compilation's source is exactly the supplied program *)
+Definition supplied_carries_source :
+  match Compilable.compile (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) with
+  | Compilable.Compiled c _ => Compilable.comp_source c
+  | _ => prog []
+  end = prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ].
+Proof. vm_compute; reflexivity. Qed.
 
 (* visibility: a name is not visible inside its own spec, so a self-initializer is unresolved and Rejected *)
 Definition r_var_self : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (VNAME "x"))) ]) ]). Proof. reject. Qed.
