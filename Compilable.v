@@ -1,5 +1,4 @@
-(* Compilable — the sole production composer: one transparent retained compilation, an abstract compiled
-   capability, and the permanent three-way Compiled/Rejected/OutsideScope decision. *)
+(* Compilable — the production composer: one retained compilation, an abstract capability, a three-way decision. *)
 
 From Stdlib Require Import List Bool.
 From Fido Require Import Syntax Index Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Packages Compilable.Facts Compilable.Report.
@@ -41,10 +40,7 @@ Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ bo
 Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
-(* Generic proof support only: a transparent observation of a list's OUTER constructor, with two ordinary
-   bridges recovering the exact list-shape propositions.  Used solely to close report-list emptiness
-   obligations through a bool-typed premise, so proof closure never traverses a large dependent normal form.
-   NOT used inside compile, nil_dec, diagnostics, boundaries, or any production semantic definition. *)
+(* Generic proof support: a bool observation of a list's outer constructor, not used in any production definition. *)
 Definition list_is_nilb {A : Type} (xs : list A) : bool :=
   match xs with
   | [] => true
@@ -109,7 +105,7 @@ Definition rejects (p : Syntax.Program) : Prop :=
 Definition outsides (p : Syntax.Program) : Prop :=
   match compile p with OutsideScope _ _ _ => True | _ => False end.
 
-(* ---- narrow decision-partition theorems (these characterize the checker against its own projections) ---- *)
+(* narrow decision-partition theorems: they characterize the checker against its own projections *)
 
 Lemma decision_total : forall p, compiles p \/ rejects p \/ outsides p.
 Proof. intro p; unfold compiles, rejects, outsides; destruct (compile p); auto. Qed.

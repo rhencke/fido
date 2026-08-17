@@ -1,6 +1,4 @@
-(* Facts — one site-indexed classification phase: value, application, statement, and type-use outcomes over
-   the retained binding phase, with contextual builtin policy, exact conversion mapping, and strict-descendant
-   blocking.  Report only projects from this. *)
+(* Facts — site-indexed classification: value, application, statement, and type-use outcomes, with blocking *)
 
 From Stdlib Require Import List Bool String ZArith NArith Lia.
 From Fido Require Import Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings.
@@ -8,8 +6,6 @@ Import ListNotations.
 
 Module TR := Compilable.TypeResolution.
 Module BN := Compilable.Bindings.
-
-(* ---- payload algebras ---- *)
 
 Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
 | InvalidIdentity : Names.PredeclaredName -> Cause idx
@@ -84,8 +80,6 @@ Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef 
 | TBlocked : BlockWitness site -> TypeUseOutcome site.
 Arguments TOK {p idx site} _. Arguments TInvalid {p idx site} _.
 Arguments TUnmet {p idx site} _. Arguments TBlocked {p idx site} _.
-
-(* ---- contextual predeclared meaning and the constant-folding resolver ---- *)
 
 Inductive PMeaning : Type :=
 | PMConvForm : TR.TypeForm -> PMeaning
@@ -203,8 +197,6 @@ Definition complex_class (cre cim : TR.ConstantInfo) : ComplexClass :=
   | _, _ => CxDefer
   end.
 
-(* ---- argument-occurrence navigation ---- *)
-
 Definition is_arg_role (r : Index.Role) : bool := match r with Index.RApplicationArg _ => true | _ => false end.
 Definition app_arg_nodes (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
   filter (fun c => is_arg_role (Index.node_role c)) (Index.node_children r).
@@ -213,12 +205,7 @@ Definition arg0 (r : Index.NodeRef idx) : Index.NodeRef idx :=
 Definition arg1 (r : Index.NodeRef idx) : Index.NodeRef idx :=
   match app_arg_nodes r with _ :: b :: _ => b | _ => r end.
 
-(* ---- per-site classification, before blocking ---- *)
-
-(* an occurrence's role decides whether it is a value use at all: an application HEAD is a callee, never a
-   value, and the discarded expression of an expression statement is governed by own_stmt, not by a value
-   diagnostic.  A predeclared conversion/complex/println/unmodelled name is [TypeAsValue] only in a real value
-   use, and a void builtin call ([println]) has no value only where one is consumed. *)
+(* role decides value-use: an application head is a callee, not a value; expr-statement exprs go to own_stmt *)
 Definition is_app_head (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with Index.RApplicationHead => true | _ => false end.
 Definition value_ctx (r : Index.NodeRef idx) : bool :=
@@ -332,8 +319,6 @@ Definition own_stmt (r : Index.NodeRef idx) : StmtOutcome r :=
 
 Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r := TOK TR.BoolForm.
 
-(* ---- strict-descendant blocking ---- *)
-
 Definition value_fails (r : Index.NodeRef idx) : bool :=
   match own_value r with VInvalid _ => true | VUnmet _ => true | _ => false end.
 
@@ -349,8 +334,7 @@ Proof.
          | split; [ apply Nat.ltb_lt; exact Hlt | apply Nat.leb_le; exact Hle ] ].
 Qed.
 
-(* every occurrence, enumerated once through the retained surface (the [let _ := bp] keeps this generalized
-   over [bp] like the rest of the phase, so the whole phase shares one argument shape) *)
+(* every occurrence, enumerated once through the retained surface; the let _ := bp keeps this generalized over bp *)
 Definition all_index_nodes : list (Index.NodeRef idx) :=
   let _ := bp in flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
@@ -373,8 +357,7 @@ Proof.
   - apply node_in_file_nodes.
 Qed.
 
-(* the own-value validity of every occurrence, computed ONCE (the expensive classification is not repeated per
-   candidate the way a per-node file rescan would); blocking then only folds these cached bits *)
+(* the own-value validity of every occurrence, computed once and cached; blocking then only folds these bits *)
 Definition dfails : list (Index.NodeRef idx * bool) :=
   map (fun d => (d, value_fails d)) all_index_nodes.
 
@@ -413,9 +396,7 @@ Definition type_fact_c (r : Index.NodeRef idx) : TypeUseOutcome r :=
 
 End OverPhase.
 
-(* ---- the retained fact phase: each occurrence classified ONCE over one enumeration, then projected ----
-   [value_fact_c] above is the classifying SPEC; [FactPhase] retains the result so every projection is a read,
-   never a reclassification (blocking's [find_failing] is evaluated once per node, not once per family). *)
+(* the retained fact phase: each occurrence classified once, then projected as a read, never reclassified *)
 
 Record NodeFacts {p} {idx : Index.ProgramIndex p} : Type := mkNF {
   nf_node : Index.NodeRef idx ;
@@ -432,9 +413,7 @@ Arguments nf_v {p idx} _. Arguments nf_a {p idx} _. Arguments nf_s {p idx} _. Ar
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
 
-(* one classification per node: blocking folds the SHARED validity cache [df], and all four families are read
-   from the single [find_failing_in] result — the expensive own-value classification is never recomputed per
-   candidate.  [raw_facts] binds the cache once with [let], so [vm_compute] shares it across every node. *)
+(* one classification per node: all four families read one find_failing_in over the cache, bound once for vm_compute *)
 Definition build_nf (df : list (Index.NodeRef idx * bool)) (r : Index.NodeRef idx) : NodeFacts idx :=
   match find_failing_in df r with
   | Some w => mkNF r (VBlocked w) (ABlocked w) (SBlocked w) (TBlocked w)
@@ -451,15 +430,13 @@ Qed.
 Definition raw_facts : list (NodeFacts idx) :=
   let df := dfails bp in map (build_nf df) (all_index_nodes bp).
 
-(* a blocked node's retained facts are all Blocked in every family, so Report (folding [fact_list] directly)
-   emits neither a diagnostic nor a boundary for it — no [lookup4]/[eq_rect] transport is ever needed. *)
+(* a blocked node's facts are all Blocked, so Report folds fact_list directly with no lookup4/eq_rect transport *)
 Lemma build_nf_blocked (r : Index.NodeRef idx) (w : BlockWitness r) :
   find_failing bp r = Some w ->
   build_nf (dfails bp) r = mkNF r (VBlocked w) (ABlocked w) (SBlocked w) (TBlocked w).
 Proof. intro H. unfold build_nf, find_failing in *. rewrite H. reflexivity. Qed.
 
-(* every retained fact is exactly its node's canonical classification: [nf] in the stream is the [build_nf] of
-   its own node, so Report reads [nf_v]/[nf_a]/[nf_s]/[nf_t] in place — a projection, never a reclassification. *)
+(* every retained fact is its node's canonical build_nf, so Report reads it in place, never reclassifying *)
 Lemma fact_list_build (m : NodeFacts idx) :
   In m (map (build_nf (dfails bp)) (all_index_nodes bp)) ->
   m = build_nf (dfails bp) (nf_node m).
@@ -479,8 +456,6 @@ End Retain.
 Arguments FactPhase {p idx s} bp.
 Arguments facts {p idx s} bp.
 Arguments fact_list {p idx s bp} _.
-
-(* ---- laws ---- *)
 
 Section Laws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).

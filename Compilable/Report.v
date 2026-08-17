@@ -1,6 +1,4 @@
-(* Report — projection only.  It classifies nothing: it FOLDS the retained FactPhase stream (each NodeFacts read
-   in place — no lookup, no [eq_rect] transport across a node equality) together with the PackageFacts, and
-   projects ordered diagnostics and boundaries. *)
+(* Report — projection only: folds the retained facts stream into ordered diagnostics and boundaries, no lookup. *)
 
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec.
 From Fido Require Import Syntax Index Compilable.PackageIdentity Compilable.Bindings Compilable.Packages Compilable.Facts.
@@ -40,7 +38,7 @@ Section OverPhases.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bp : BN.BindingPhase s}
         (fp : FA.FactPhase bp) (pf : PK.PackageFacts bp).
 
-(* ---- outcome inspectors: read a single retained outcome in place (no index transport) ---- *)
+(* outcome inspectors: read a single retained outcome in place, no index transport *)
 Definition v_invalid {r : Index.NodeRef idx} (o : FA.ValueOutcome r) : bool := match o with FA.VInvalid _ => true | _ => false end.
 Definition a_invalid {r : Index.NodeRef idx} (o : FA.AppOutcome r) : bool := match o with FA.AInvalid _ => true | _ => false end.
 Definition s_invalid {r : Index.NodeRef idx} (o : FA.StmtOutcome r) : bool := match o with FA.SInvalid _ => true | _ => false end.
@@ -50,14 +48,13 @@ Definition a_unmet {r : Index.NodeRef idx} (o : FA.AppOutcome r) : bool := match
 Definition s_unmet {r : Index.NodeRef idx} (o : FA.StmtOutcome r) : bool := match o with FA.SUnmet _ => true | _ => false end.
 Definition t_unmet {r : Index.NodeRef idx} (o : FA.TypeUseOutcome r) : bool := match o with FA.TUnmet _ => true | _ => false end.
 
-(* ---- per-node predicates, read directly from the retained NodeFacts (the whole point: no per-query lookup) ---- *)
+(* per-node predicates, read directly from the retained NodeFacts: no per-query lookup *)
 Definition facts_diag (nf : FA.NodeFacts idx) : bool :=
   v_invalid (FA.nf_v nf) || a_invalid (FA.nf_a nf) || s_invalid (FA.nf_s nf) || t_invalid (FA.nf_t nf).
 Definition facts_bound (nf : FA.NodeFacts idx) : bool :=
   negb (facts_diag nf) &&
   (v_unmet (FA.nf_v nf) || a_unmet (FA.nf_a nf) || s_unmet (FA.nf_s nf) || t_unmet (FA.nf_t nf)).
 
-(* ---- package-level facts ---- *)
 Definition pkg_main_issue (pr : PI.PackageRef s) : bool :=
   match BN.package_main bp pr with BN.MainMissing => true | BN.MainRedeclared _ _ _ => true | _ => false end.
 Definition collision_list : list (PI.PackageRef s) :=
@@ -76,7 +73,7 @@ Definition produces_bound (nf : FA.NodeFacts idx) : bool := let _ := fp in let _
 Record Diagnostic := diag_at { diag_site : DiagSite s ; diag_ok : produces_diag diag_site = true }.
 Record Boundary := bound_at { bound_facts : FA.NodeFacts idx ; bound_ok : produces_bound bound_facts = true }.
 
-(* ---- cause / related / root projections, all read from the retained NodeFacts ---- *)
+(* cause / related / root projections, all read from the retained NodeFacts *)
 Definition facts_cause (nf : FA.NodeFacts idx) : FA.Cause idx :=
   match FA.nf_v nf with
   | FA.VInvalid c => c
@@ -127,7 +124,7 @@ Definition facts_req (nf : FA.NodeFacts idx) : FA.Requirement idx :=
 Definition bound_req (b : Boundary) : FA.Requirement idx := facts_req (bound_facts b).
 Definition bound_root (b : Boundary) : ReportRoot s := RootNode (FA.nf_node (bound_facts b)).
 
-(* ---- enumeration: fold the retained stream directly; no [all_nodes] reconstruction, no [lookup4] ---- *)
+(* enumeration: fold the retained stream directly, no all_nodes reconstruction, no lookup4 *)
 Fixpoint build_diags (sites : list (DiagSite s))
   : (forall d, In d sites -> produces_diag d = true) -> list Diagnostic :=
   match sites with
@@ -163,8 +160,6 @@ Definition boundaries : list Boundary :=
   build_bounds (filter produces_bound (FA.fact_list fp)) (filter_bound_ok _).
 
 End OverPhases.
-
-(* ---- laws ---- *)
 
 Section Laws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bp : BN.BindingPhase s}
@@ -203,8 +198,7 @@ Lemma precedence_total :
   diagnostics fp pf = collision_diags fp pf ++ main_diags fp pf ++ occ_diags fp pf.
 Proof. reflexivity. Qed.
 
-(* a blocked node's retained facts are all Blocked, so folding the stream emits neither diagnostic nor boundary
-   for it — the report never re-decides a site the blocking already settled *)
+(* a blocked node's facts are all Blocked, so folding the stream emits neither diagnostic nor boundary for it *)
 Lemma no_duplicate_blocked (r : Index.NodeRef idx) (w : FA.BlockWitness r) :
   FA.find_failing bp r = Some w ->
   produces_diag fp pf (AtOcc (FA.build_nf bp (FA.dfails bp) r)) = false

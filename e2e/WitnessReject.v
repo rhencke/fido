@@ -22,8 +22,7 @@ Definition rmain : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
   singleton_program rmod rmain [ Syntax.Main (Syntax.MakeBlock body) ].
 
-(* generic report-list bridges: observe only the list's outer constructor through a bool premise, then recover
-   the exact proposition — so proof closure never traverses the large dependent report normal form *)
+(* generic report-list bridges: observe the list's outer constructor via a bool premise, then recover the exact prop *)
 Ltac report_nil      := apply Compilable.list_is_nilb_true;  vm_compute; reflexivity.
 Ltac report_nonempty := apply Compilable.list_is_nilb_false; vm_compute; reflexivity.
 
@@ -79,9 +78,7 @@ Local Notation OID s := (Names.MakeOrdinary (Names.MakeIdentifier s eq_refl) eq_
 Local Notation VNAME s := (Syntax.Name (OID s)).
 Local Notation NE1 x := (Collections.MakeNonEmpty x nil).
 
-(* ---- exact-payload controls: the projected cause/requirement is the exact structured value ----
-   The diagnostics and boundaries are the retained Report projections; each control names the exact
-   Cause/Requirement, existentially binding only the retained NodeRefs it cannot spell literally. *)
+(* exact-payload controls: each names the exact Cause/Requirement, binding only the retained NodeRefs existentially *)
 Definition ce (p : Syntax.Program) := Compilable.elaborate p.
 Definition dcauses (p : Syntax.Program) : list (RP.ReportCause (Compilable.comp_surface (ce p))) :=
   map (RP.diag_cause (Compilable.comp_facts (ce p)) (Compilable.comp_pkgs (ce p))) (Compilable.diagnostics (ce p)).
@@ -113,8 +110,7 @@ Definition c_neg_int8_core :
   /\ Compilable.boundaries (ce (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [].
 Proof. split; report_nil. Qed.
 
-(* live-path: the SUPPLIED decision for an accepted program eliminates to carry its branch's exact
-   compilation — no deleted mint — and that compilation's source is exactly the supplied program *)
+(* live-path: the supplied decision carries its branch's exact compilation, whose source is the supplied program *)
 Definition supplied_carries_source :
   match Compilable.compile (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) with
   | Compilable.Compiled c _ => Compilable.comp_source c

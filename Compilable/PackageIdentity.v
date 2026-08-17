@@ -3,14 +3,12 @@ From Fido Require Import Syntax Index FilePath.
 Import ListNotations.
 Local Open Scope string_scope.
 
-(* The dedicated lower owner of package identity: one retained surface of the program's distinct package
-   directories, selected positionally.  Identity is the exact PackageRef, never a raw string. *)
+(* Package identity is the exact PackageRef over the retained package-dir surface, never a raw string. *)
 
 Definition surface_dirs {p} (idx : Index.ProgramIndex p) : list FilePath.PkgDir :=
   nodup FilePath.pkgdir_eq_dec (map (fun e => FilePath.file_dir (fst e)) (Index.prog_occs idx)).
 
-(* PackageSurface is pinned to the canonical surface, so every surface is THE surface (one_surface_retained)
-   and the positional selectors are total, while a concrete surface still reduces to its dir list. *)
+(* PackageSurface is pinned to the canonical surface, so every surface is that surface and reduces to its dir list. *)
 Definition PackageSurface {p} (idx : Index.ProgramIndex p) : Type :=
   { l : list FilePath.PkgDir | l = surface_dirs idx }.
 
@@ -34,8 +32,6 @@ Definition pkg_dir {p} {idx : Index.ProgramIndex p}{s : PackageSurface idx} (pr 
 
 Definition pkg_text {p} {idx : Index.ProgramIndex p}{s : PackageSurface idx} (pr : PackageRef s) : String.string :=
   String.concat "/" (FilePath.pkg_components (pkg_dir pr)).
-
-(* ---- positional selectors, membership, enumeration ---- *)
 
 Definition member_refs {p} (idx : Index.ProgramIndex p) (target : FilePath.PkgDir)
                        (l : list (FilePath.T * list Index.Occ)) : list (Index.FileRef idx) :=
@@ -123,8 +119,6 @@ Definition mk_packageref {p} {idx : Index.ProgramIndex p}(s : PackageSurface idx
 
 Definition packages {p} {idx : Index.ProgramIndex p}(s : PackageSurface idx) : list (PackageRef s) :=
   flat_map (fun n => match mk_packageref s n with Some pr => [pr] | None => [] end) (seq 0 (package_count s)).
-
-(* ---- laws ---- *)
 
 Lemma pkgref_positional {p} {idx : Index.ProgramIndex p}{s : PackageSurface idx} (a b : PackageRef s) :
   pr_pos a = pr_pos b -> a = b.

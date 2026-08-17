@@ -1,13 +1,10 @@
-(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution with visibility, and the
-   package-indexed reference to the anonymous top-level main declaration. *)
+(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and the per-package main reference. *)
 
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec.
 From Fido Require Import Syntax Names Index Compilable.PackageIdentity.
 Import ListNotations.
 
 Module PI := Compilable.PackageIdentity.
-
-(* ---- binder and block references (name-binding occurrences) ---- *)
 
 Definition is_binder_role (r : Index.Role) : bool :=
   match r with Index.RSpecName _ => true | Index.RShortLhs => true | _ => false end.
@@ -38,8 +35,6 @@ Arguments block_ok {p idx} _.
 Lemma blockref_positional {p} {idx : Index.ProgramIndex p} (a b : BlockRef idx) :
   block_node a = block_node b -> a = b.
 Proof. destruct a as [na Ha], b as [nb Hb]; cbn; intro E; subst nb; f_equal; apply (UIP_dec kind_eq_dec). Qed.
-
-(* ---- the anonymous top-level main declaration, referenced per package ---- *)
 
 Definition is_main_view (v : Index.NodeView) : bool :=
   match v with Index.VTop (Syntax.Main _) => true | _ => false end.
@@ -111,8 +106,6 @@ Definition main_status_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   | MainRedeclared m1 m2 rest => m1 :: m2 :: rest
   end.
 
-(* ---- objects and scopes ---- *)
-
 Inductive ObjectRef {p} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredObject : Names.PredeclaredName -> ObjectRef idx
 | SourceObject      : BinderRef idx -> ObjectRef idx.
@@ -124,8 +117,6 @@ Inductive ScopeId {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
 | BlockScope   : BlockRef idx -> ScopeId s.
 Arguments PackageScope {p idx s} _.
 Arguments BlockScope {p idx s} _.
-
-(* ---- scope discovery and declaration-kind visibility ---- *)
 
 Definition is_spec_kind (k : Index.Kind) : bool := match k with Index.SpecKind _ => true | _ => false end.
 Definition is_stmt_kind (k : Index.Kind) : bool := match k with Index.StmtKind => true | _ => false end.
@@ -155,8 +146,7 @@ Definition nearest_kind_extent {p} {idx : Index.ProgramIndex p}
     else acc) None nodes
   with Some a => Index.node_extent a | None => Index.nr_pos b end.
 
-(* where a block-scoped binder becomes visible: a type name at its own identifier; a const/var name at the end
-   of its spec; a short-declaration name at the end of its statement. *)
+(* where a block-scoped binder becomes visible: type at its identifier, const/var at spec end, short at statement end *)
 Definition vis_start {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : nat :=
   let nodes := Index.file_nodes (Index.nr_file b) in
   match Index.node_role b with
@@ -214,8 +204,6 @@ Definition ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
 Definition all_ests {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : list (Est s) :=
   flat_map (fun pr => flat_map (ests_of_file pr) (PI.pkg_members pr)) (PI.packages s).
 
-(* ---- per-package main status, computed once ---- *)
-
 Definition main_nodes_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) : list (Index.NodeRef idx) :=
   filter is_main_node (flat_map Index.file_nodes (PI.pkg_members pr)).
@@ -263,7 +251,7 @@ Proof. destruct decls as [|m1 [|m2 rest]]; reflexivity. Qed.
 Definition main_status_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) : MainStatus s pr := main_status_from (main_decls_of pr).
 
-(* ---- the retained binding phase, sealed to its one builder ---- *)
+(* the retained binding phase, sealed to its one builder *)
 
 Record RawBP {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_rawbp {
   rbp_ests : list (Est s) ;
@@ -299,8 +287,6 @@ Lemma main_is_package_local {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   forall m, In m (main_status_decls (package_main bp pr)) -> PI.package_of_file s (Index.nr_file (main_node m)) = pr.
 Proof. intros m _; exact (main_pkg m). Qed.
 
-(* ---- resolution ---- *)
-
 Definition is_block_scoped {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
   match est_scope e with BlockScope _ => true | PackageScope _ => false end.
 
@@ -319,7 +305,7 @@ Definition source_cands {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
   (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : list (Est s) :=
   filter (fun e => andb (Names.ordinary_equalb (est_name e) n) (contains_visible e u)) (bp_ests bp).
 
-(* prefer the innermost (block) candidate; else any candidate; else no source binding *)
+(* prefer the innermost (block) binding; else any match; else no source binding *)
 Definition pick_best {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (cands : list (Est s)) : option (Est s) :=
   match find is_block_scoped cands with Some e => Some e | None => hd_error cands end.
@@ -387,8 +373,6 @@ Proof.
   - pose proof (pick_best_none _ E) as Hnil.
     destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
 Qed.
-
-(* ---- declaration-kind visibility laws ---- *)
 
 Lemma typespec_visible_after_identifier {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
   Index.node_role r = Index.RSpecName Index.TypeSpecF -> vis_start r = Index.nr_pos r.

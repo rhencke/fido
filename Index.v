@@ -3,10 +3,7 @@ From Stdlib Require Import List Bool Lia Arith PeanoNat Eqdep_dec Wf_nat.
 From Fido Require Import FilePath Collections Syntax.
 Import ListNotations.
 
-(* One transparent per-file preorder occurrence authority. No cursor topology, no equality-backed index, no
-   per-id view map: the internal storage is a one-pass fold into plain per-file occurrence lists. *)
-
-(* ---- the occurrence universe: a view of the exact selected source fragment, its kind, and its role ---- *)
+(* One transparent per-file preorder occurrence authority: a one-pass fold into plain per-file lists, no view map. *)
 
 Inductive NodeView : Type :=
 | VExpr        : Syntax.Expr         -> NodeView
@@ -41,7 +38,7 @@ Definition kind_of_view (v : NodeView) : Kind :=
   | VDecl _ => DeclKind | VStmt _ => StmtKind | VBlock _ => BlockKind | VTop _ => TopKind | VFile _ => FileKind
   end.
 
-(* ---- generic total positional access; the in-range proof makes it a projection, never a fallback ---- *)
+(* generic total positional access: the in-range proof makes it a projection, never a fallback *)
 
 Fixpoint nth_lt {A} (l : list A) : forall n, n < length l -> A :=
   match l with
@@ -69,7 +66,7 @@ Qed.
 Lemma nth_lt_pi {A} (l : list A) (n : nat) (H1 H2 : n < length l) : nth_lt l n H1 = nth_lt l n H2.
 Proof. f_equal; apply lt_unique. Qed.
 
-(* ---- the stored occurrence: the fold's payload at one preorder position ---- *)
+(* the stored occurrence: the fold's payload at one preorder position *)
 
 Record Occ := mkOcc {
   o_view   : NodeView ;
@@ -77,19 +74,14 @@ Record Occ := mkOcc {
   o_parent : option nat ;   (* the enclosing occurrence's position; None only at the file root *)
   o_extent : nat            (* the last position of this occurrence's subtree; >= its own position *)
 }.
-(* Kind is not stored: it is a pure function of the view (kind_of_view), so storing it would be a second
-   authority for one fact. node_kind derives it, and view_exact_all_kinds is then reflexivity. *)
-
-(* ---- the source rose tree: the preorder structure before positions are assigned ---- *)
+(* Kind is not stored: it is a pure function of the view (kind_of_view), so storing it would be a second authority *)
 
 Inductive RNode : Type := mkRNode { rn_view : NodeView ; rn_role : Role ; rn_kids : list RNode }.
 
 Definition r_expr (role : Role) (e : Syntax.Expr) (kids : list RNode) : RNode :=
   mkRNode (VExpr e) role kids.
 
-(* build an expression subtree: head/argument/operand roles are assigned to children by their parent.
-   The application arguments use an inlined nested fixpoint (as Syntax.Expr_ind' does) so the guard checker
-   accepts the recursive call on each argument, a subterm of [Application head args]. *)
+(* build an expression subtree; args use an inlined nested fixpoint so the guard checker accepts each recursive call *)
 Fixpoint node_of_expr (role : Role) (e : Syntax.Expr) : RNode :=
   match e with
   | Syntax.Name _        => r_expr role e []
@@ -169,7 +161,7 @@ Definition node_of_toplevel (role : Role) (t : Syntax.TopLevelDecl) : RNode :=
 Definition file_tree (f : Syntax.File) : RNode :=
   mkRNode (VFile f) RPlain (List.map (node_of_toplevel RPlain) (Syntax.declarations f)).
 
-(* ---- flatten the rose tree to a preorder occurrence list with positions/parent/extent ---- *)
+(* flatten the rose tree to a preorder occurrence list with positions/parent/extent *)
 
 Fixpoint tree_size (n : RNode) : nat :=
   S ((fix sizes (ns : list RNode) : nat :=
@@ -183,8 +175,7 @@ Fixpoint flat (parent : option nat) (base : nat) (n : RNode) {struct n} : list O
         | k :: rest => flat (Some base) b k ++ flat_kids (b + tree_size k) rest
         end) (S base) (rn_kids n).
 
-(* the same kids-flattener, named as a standalone Fixpoint (calling the now-closed flat) so the proofs have a
-   handle to induct over; flat_unfold rewrites the inlined fix inside flat to this. *)
+(* the kids-flattener as a standalone Fixpoint so proofs can induct; flat_unfold rewrites flat's inlined fix to this *)
 Fixpoint flat_forest (parent : option nat) (base : nat) (ns : list RNode) {struct ns} : list Occ :=
   match ns with
   | [] => []
@@ -193,13 +184,12 @@ Fixpoint flat_forest (parent : option nat) (base : nat) (ns : list RNode) {struc
 
 Definition file_occs (f : Syntax.File) : list Occ := flat None 0 (file_tree f).
 
-(* ---- the retained per-file authority: plain per-file occurrence lists, built once ---- *)
+(* the retained per-file authority: plain per-file occurrence lists, built once *)
 
 Definition raw_index (p : Syntax.Program) : list (FilePath.T * list Occ) :=
   List.map (fun b => (fst b, file_occs (snd b))) (Syntax.program_bindings p).
 
-(* ProgramIndex is sealed to the one canonical index: every idx IS raw_index p (read via prog_occs), so the
-   structural laws hold for every idx, while a concrete index_program p still reduces for vm_compute/nf_all. *)
+(* ProgramIndex is sealed to the one canonical index: every idx is raw_index p, still reducing for vm_compute *)
 Definition ProgramIndex (p : Syntax.Program) : Type := { l : list (FilePath.T * list Occ) | l = raw_index p }.
 Definition index_program (p : Syntax.Program) : ProgramIndex p := exist _ (raw_index p) eq_refl.
 Definition prog_occs {p} (idx : ProgramIndex p) : list (FilePath.T * list Occ) := proj1_sig idx.
@@ -244,7 +234,7 @@ Proof.
   exists e; split; [ exact Hin | apply FilePath.equalb_spec in He; exact He ].
 Qed.
 
-(* build a FileRef at a candidate path, if present *)
+(* build a FileRef at a path, if present *)
 Definition mk_fileref {p} (idx : ProgramIndex p) (path : FilePath.T) : option (FileRef idx) :=
   match Bool.bool_dec (index_has_file idx path) true with
   | left H  => Some (file_ref path H)
@@ -278,10 +268,7 @@ Arguments nr_file {p idx} _.
 Arguments nr_pos {p idx} _.
 Arguments nr_lt {p idx} _.
 
-(* occurrence access reads the retained list by position through [nth_error] — the in-range proof [nr_lt]
-   discharges the impossible None branch, so this is still a total projection (never a fallback), but it does
-   NOT thread/accumulate an O(position) `le` witness the way [nth_lt] does; a fold that reads every node's
-   occurrence therefore stays linear in the retained-proof size rather than quadratic. *)
+(* occurrence access reads the retained list by nth_error; nr_lt discharges None, keeping it a linear projection *)
 Lemma occ_at_none_absurd {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   nth_error (file_occ_list idx (fr_path (nr_file r))) (nr_pos r) = None -> False.
 Proof.
@@ -308,11 +295,7 @@ Definition node_kind   {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind     :
 Definition node_role   {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role     := o_role   (occ_at r).
 Definition node_extent {p} {idx : ProgramIndex p} (r : NodeRef idx) : nat      := o_extent (occ_at r).
 
-(* build a NodeRef at a candidate position, if in range (used by parent/children navigation).
-   The bound is derived through an OPAQUE lemma from a boolean test, so a built NodeRef carries an O(1) proof
-   term rather than an O(position) `le` witness.  [nth_lt] only threads the bound (it never matches on it), so
-   occurrence access still computes; a fold that materializes a whole file's nodes then stays linear in the
-   retained-proof size instead of quadratic. *)
+(* build a NodeRef if in range; the bound comes via an opaque lemma so the proof is O(1), keeping folds linear *)
 Lemma lt_of_ltb (a b : nat) : Nat.ltb a b = true -> a < b.
 Proof. apply Nat.ltb_lt. Qed.
 
@@ -358,8 +341,6 @@ Qed.
 
 Definition strict_descendant {p} {idx : ProgramIndex p} (a b : NodeRef idx) : Prop :=
   nr_file a = nr_file b /\ nr_pos a < nr_pos b /\ nr_pos b <= node_extent a.
-
-(* ---- flatten invariants: the numeric facts the fold establishes, proven once, then read by the laws ---- *)
 
 (* the nested-list induction principle RNode's auto-generated scheme cannot give (kids recurse through list) *)
 Fixpoint RNode_ind' (P : RNode -> Prop)
@@ -415,8 +396,7 @@ Proof.
   apply flat_forest_length. exact IH.
 Qed.
 
-(* every occurrence in [flat parent base n] carries: an extent at least its own absolute position; a parent equal
-   to the passed one exactly at the head; and, off the head, a strictly-earlier in-subtree parent position. *)
+(* every occurrence in flat carries an extent >= its position, the passed parent at head, an earlier parent off it *)
 Definition node_ok (n : RNode) : Prop :=
   forall parent base i occ,
     nth_error (flat parent base n) i = Some occ ->
@@ -495,8 +475,6 @@ Proof.
     [ eexists; reflexivity | exfalso; apply E; apply Nat.ltb_lt; exact H ].
 Qed.
 
-(* ---- laws ---- *)
-
 (* identity is file + position; the in-range proof is irrelevant (le is a proposition with unique proofs) *)
 Lemma noderef_positional {p} {idx : ProgramIndex p} (a b : NodeRef idx) :
   nr_file a = nr_file b -> nr_pos a = nr_pos b -> a = b.
@@ -505,8 +483,7 @@ Proof.
   f_equal; apply lt_unique.
 Qed.
 
-(* a selector cannot cross indices: NodeRef is indexed by the exact idx, so a NodeRef of a different index is a
-   distinct type; the property is the dependent typing itself (see the build's foreign-index typing controls). *)
+(* a selector cannot cross indices: NodeRef is indexed by idx, so a foreign-index NodeRef is a distinct type *)
 Definition foreign_index_by_type {p} (idx : ProgramIndex p) : Prop := True.
 
 (* node_kind is derived from node_view, so the classification always matches the retained fragment *)
@@ -548,10 +525,7 @@ Proof.
   - exfalso. pose proof (nr_lt r) as HL. unfold occ_count in HL. rewrite Hnil in HL. cbn in HL. lia.
 Qed.
 
-(* ---- main_role_plain: the anonymous top-level Main declaration is never a name binder ---- *)
-
-(* rpv_b n: every node in n whose view is a VTop carries role RPlain.  Only node_of_toplevel emits a VTop
-   view, and only ever with RPlain, so this holds for a whole file tree; the sub-builders emit no VTop. *)
+(* rpv_b: every VTop-view node carries RPlain, since only node_of_toplevel emits VTop, always with RPlain *)
 Fixpoint rpv_b (n : RNode) : bool :=
   match rn_view n with VTop _ => match rn_role n with RPlain => true | _ => false end | _ => true end
   && (fix allb (ns : list RNode) : bool := match ns with [] => true | k :: rest => rpv_b k && allb rest end)
@@ -715,8 +689,7 @@ Proof.
   - exfalso. pose proof (nr_lt r) as HL. unfold occ_count in HL. rewrite Hnil in HL. cbn in HL. lia.
 Qed.
 
-(* strict descent is well-founded: a descendant shares the file and has a strictly larger, still in-range
-   position, so [occ_count - position] is a strictly decreasing measure toward descendants *)
+(* strict descent is well-founded: occ_count - position strictly decreases toward descendants in the same file *)
 Lemma descendant_wellfounded {p} {idx : ProgramIndex p} :
   well_founded (fun b a : NodeRef idx => strict_descendant a b).
 Proof.

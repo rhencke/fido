@@ -211,7 +211,7 @@ Proof.
   rewrite forallb_forall; intros x Hx. rewrite forallb_forall in Hdirs. apply Hdirs, in_rev, Hx.
 Qed.
 
-(* A package directory: a validated list of directory components; [] is the module-root package.  Not a string. *)
+(* A package directory: a validated list of directory components (not a string); [] is the module-root package. *)
 Record PkgDir : Type := MakePkgDir {
   pkg_components : list string ;
   pkg_valid      : forallb dir_component_ok pkg_components = true

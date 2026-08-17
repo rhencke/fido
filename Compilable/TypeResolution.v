@@ -3,8 +3,7 @@ From Fido Require Import Integer Float Complex Names.
 Import ListNotations.
 Open Scope Z_scope.
 
-(* C4 owns pure structural FORM only: no semantic type identity, no environment, no runtime.  TypeForm is the
-   structural shape a constant may take; it is never a nominal type identity. *)
+(* Pure structural form only: TypeForm is the shape a constant may take, never a nominal type identity. *)
 
 Inductive TypeForm : Type :=
 | BoolForm
@@ -104,8 +103,7 @@ Record ResolvedConstant := mk_rc {
 Definition resolved_constant_form (rc : ResolvedConstant) : TypeForm := rc_form rc.
 Definition resolved_constant_exact (rc : ResolvedConstant) : Constant := typed_exact (rc_value rc).
 
-(* A conversion is total and distinguishes the three exact outcomes: a value of the target form; a value of the
-   target form but out of range; or a constant that is not of the target form at all. *)
+(* Conversion is total with three exact outcomes: a target-form value, an out-of-range value, or not the target form. *)
 Inductive ConversionResult (target : TypeForm) : Type :=
 | Converted : TypedConstant target -> ConversionResult target
 | Overflows : Constant -> ConversionResult target
@@ -176,8 +174,7 @@ Definition convert_constant (target : TypeForm) (ci : ConstantInfo) : Conversion
       end
   end.
 
-(* A failed conversion carries the exact offending constant unchanged, so overflow and not-representable
-   diagnostics name the real value; conversion is total by construction. *)
+(* A failed conversion carries the exact offending constant, so overflow diagnostics name the real value. *)
 Lemma convert_total_exact : forall target ci,
   (forall c, convert_constant target ci = Overflows c -> c = ci_const ci)
   /\ (forall c, convert_constant target ci = NotForm c -> c = ci_const ci).

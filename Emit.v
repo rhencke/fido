@@ -13,15 +13,13 @@ Definition file_map_of (p : Syntax.Program) : FileMap.t string :=
 Definition module_file_of (p : Syntax.Program) : string :=
   Render.module_file (Syntax.module_spec p).
 
-(* Safety decides whether a program may be emitted, never what its bytes are: every byte is a pure
-   projection of the certified source. *)
+(* Safety decides whether a program may be emitted, never its bytes: every byte is a pure source projection. *)
 Definition file_map (sp : Safe.Program) : FileMap.t string := file_map_of (Safe.source sp).
 Definition module_file (sp : Safe.Program) : string := module_file_of (Safe.source sp).
 Definition entries (sp : Safe.Program) : list (string * string) :=
   List.map (fun kv => (FilePath.text (fst kv), snd kv)) (FileMap.elements (file_map sp)).
 
-(* The image is a sole-constructor witness carrying only the certified program; there is no forgeable
-   raw-byte, file-map, origin, token, or equality field.  Bytes are obtained only by projection. *)
+(* A sole-constructor witness carrying only the certified program: no forgeable byte, file-map, or origin field. *)
 Inductive Image : Type := of_safe : Safe.Program -> Image.
 
 Definition transport (img : Image) : string * list (string * string) :=
@@ -34,8 +32,6 @@ Proof. intros [sp]; exists sp; reflexivity. Qed.
 (* Transport reduces, on any certified program, to the projected module bytes and file entries. *)
 Lemma transport_reduces : forall sp, transport (of_safe sp) = (module_file sp, entries sp).
 Proof. reflexivity. Qed.
-
-(* ---- byte-content guarantees on the emittable output ---- *)
 
 Lemma module_file_header : forall sp,
   exists rest, module_file sp = header ++ String nl_c rest.

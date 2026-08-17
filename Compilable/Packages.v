@@ -8,7 +8,7 @@ Local Open Scope string_scope.
 Module PI := Compilable.PackageIdentity.
 Module BN := Compilable.Bindings.
 
-(* ---- cmd/go's default executable name: the last import-path component, dropping a trailing version ---- *)
+(* cmd/go's default executable name: the last import-path component, dropping a trailing version element. *)
 
 Definition ascii_is_digit (c : ascii) : bool :=
   let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
@@ -31,8 +31,6 @@ Definition default_exec_name_c (comps : list string) : string :=
       if is_version_element final then List.last (List.removelast comps) ""%string else final
   | _ => List.last comps ""%string
   end.
-
-(* ---- the fresh-build preflight ---- *)
 
 Inductive FreshBuildDisposition {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | FreshOk : FreshBuildDisposition s
@@ -75,8 +73,6 @@ Definition preflight {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx
   (pf : PackageFacts bp) : FreshBuildDisposition s := proj1_sig pf.
 Definition package_rule {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bp : BN.BindingPhase s}
   (pf : PackageFacts bp) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
-
-(* ---- laws ---- *)
 
 Lemma package_rule_is_projection {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {bp : BN.BindingPhase s} (pf : PackageFacts bp) (pr : PI.PackageRef s) :
