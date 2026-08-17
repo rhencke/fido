@@ -3,7 +3,7 @@
 #
 # `make regenerate` builds the `sync` stage, which `COPY --from=go-e2e /fresh-build-ok`.  That Docker-DAG edge
 # is the whole guarantee: the marker exists only if the go-e2e stage (the pinned one-shot `go build ./...` over
-# the materialized pristine) completed successfully, so a FAILED fresh build must make `--target sync`
+# the materialized pristine) completed successfully, so a FAILED go-e2e validation must make `--target sync`
 # unbuildable — no sink effect can occur.  This proves that edge is load-bearing.  (It is NOT resistance to a
 # deliberate local bypass — that is explicitly out of scope; it guards against a broken or removed validation
 # step for the cooperating workflow.)

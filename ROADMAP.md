@@ -19,13 +19,16 @@ shares — opaque `State`/`Start`/`Label`/`Result`, `initial`, a relational `ste
 reachability and absorbing-final results derived from it. It fixes no Go feature, no module imports it, and
 this repository defines no concrete `Machine.T` value (`ARCHITECTURE.md` §3).
 
-The `C4` exact-elaboration retreat is **`IMPLEMENTED_NOT_ACCEPTED`** — reopened and repaired as the seven
-roots R1–R7: the intrinsic `Index` and its position selectors, exact package/binding/scope identity with the
-anonymous package-main declaration carried as `Compilable.Bindings.MainDeclRef s pr`, the `Facts → Report →
-Compilable` cut over one retained phase built once, the honest three-way partition, the transparent
-capability chain (`Compiled` carries the exact `Prog.Program`; `Emit.of_safe` is the sole image constructor),
-and the exact theorems and evidence. `.review/NEXT.md` owns the candidate. C4 stays implemented-not-accepted
-until Rob separately accepts it; the C6 roots that depend on it stay frozen and resume only after acceptance.
+The `C4` static-authority cutover is **`IMPLEMENTED_NOT_ACCEPTED`** — one atomic replacement of the whole C4
+topology: the direct shallow `Index` (finite file→position→cell maps) and its position selectors, exact
+package/binding/scope identity with the fixed-spelling `func main()` carried as `Compilable.Bindings.MainDeclRef
+s pr` — a real package function establishment with `MainOne`/`MainMultiple` multiplicity — one
+`Compilable.Analysis` fact and issue authority (`Facts` and `Packages` deleted) with the canonical issue table,
+the applicability + complete 5-way disposition algebra, and the selected-package preflight, projection-only
+`Report`, the sealed `C4_PUBLIC` surface (`compile`/`inspect`/`compiled_prog`, opaque `Prog`, no public
+elaborator), and the exact theorems and evidence. `.review/NEXT.md` owns the candidate. C4 stays
+implemented-not-accepted until Rob separately accepts it; the C6 roots that depend on it stay frozen and resume
+only after acceptance.
 
 ## Ahead
 

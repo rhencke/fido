@@ -1,4 +1,4 @@
-(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and the per-package main reference. *)
+(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and the per-package fixed main. *)
 
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec.
 From Fido Require Import Syntax Names Index Compilable.PackageIdentity.
@@ -21,89 +21,70 @@ Lemma binderref_positional {p} {idx : Index.ProgramIndex p} (a b : BinderRef idx
   binder_node a = binder_node b -> a = b.
 Proof. destruct a as [na Ha], b as [nb Hb]; cbn; intro E; subst nb; f_equal; apply (UIP_dec Bool.bool_dec). Qed.
 
-Definition kind_eq_dec (a b : Index.Kind) : {a = b} + {a <> b}.
-Proof. decide equality; decide equality. Defined.
+(* a shallow block occurrence is the Index block reference; mk_blockref makes the check total *)
+Definition mk_blockref {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.BlockRef idx) :=
+  (match Index.is_block_view (Index.node_view r) as b
+     return Index.is_block_view (Index.node_view r) = b -> option (Index.BlockRef idx) with
+   | true => fun H => Some (Index.mkBlockRef r H)
+   | false => fun _ => None
+   end) eq_refl.
 
-Record BlockRef {p} (idx : Index.ProgramIndex p) : Type := block_ref {
-  block_node : Index.NodeRef idx ;
-  block_ok   : Index.node_kind block_node = Index.BlockKind
-}.
-Arguments block_ref {p idx} _ _.
-Arguments block_node {p idx} _.
-Arguments block_ok {p idx} _.
-
-Lemma blockref_positional {p} {idx : Index.ProgramIndex p} (a b : BlockRef idx) :
-  block_node a = block_node b -> a = b.
-Proof. destruct a as [na Ha], b as [nb Hb]; cbn; intro E; subst nb; f_equal; apply (UIP_dec kind_eq_dec). Qed.
-
-Definition is_main_view (v : Index.NodeView) : bool :=
-  match v with Index.VTop (Syntax.Main _) => true | _ => false end.
-Definition is_main_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : bool :=
-  is_main_view (Index.node_view r).
-
-Definition body_of_view (v : Index.NodeView) : is_main_view v = true -> Syntax.Block :=
-  match v return is_main_view v = true -> Syntax.Block with
-  | Index.VTop t =>
-      match t return is_main_view (Index.VTop t) = true -> Syntax.Block with
-      | Syntax.Main body        => fun _ => body
-      | Syntax.TopDeclaration _ => fun H => False_rect _ (Bool.diff_false_true H)
-      end
-  | _ => fun H => False_rect _ (Bool.diff_false_true H)
-  end.
-
-Lemma body_of_view_spec : forall v H, v = Index.VTop (Syntax.Main (body_of_view v H)).
+Lemma mk_blockref_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) (br : Index.BlockRef idx) :
+  mk_blockref r = Some br -> Index.bl_node br = r.
 Proof.
-  intro v; destruct v as [e|te|bn|cs|vs|ts|d|st|blk|t|f]; intro H; try discriminate H.
-  destruct t as [d|body]; [ discriminate H | reflexivity ].
+  unfold mk_blockref. generalize (@eq_refl bool (Index.is_block_view (Index.node_view r))).
+  destruct (Index.is_block_view (Index.node_view r)) at 2 3; intro H;
+    [ intro E; injection E as <-; reflexivity | discriminate ].
 Qed.
 
+Definition is_main_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : bool :=
+  Index.is_main_view (Index.node_view r).
+
+(* a fixed main declaration: an Index main occurrence qualified into its exact package *)
 Record MainDeclRef {p} {idx : Index.ProgramIndex p}
   (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type := main_decl_ref {
-  main_node : Index.NodeRef idx ;
-  main_ok   : is_main_node main_node = true ;
-  main_pkg  : PI.package_of_file s (Index.nr_file main_node) = pr
+  main_occ : Index.MainOccurrenceRef idx ;
+  main_pkg : PI.package_of_file s (Index.nr_file (Index.mo_node main_occ)) = pr
 }.
-Arguments main_decl_ref {p idx s pr} _ _ _.
-Arguments main_node {p idx s pr} _.
-Arguments main_ok {p idx s pr} _.
+Arguments main_decl_ref {p idx s pr} _ _.
+Arguments main_occ {p idx s pr} _.
 Arguments main_pkg {p idx s pr} _.
 
-Definition main_body {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (m : MainDeclRef s pr) : Syntax.Block :=
-  body_of_view (Index.node_view (main_node m)) (main_ok m).
-
-Lemma main_body_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (m : MainDeclRef s pr) : Index.node_view (main_node m) = Index.VTop (Syntax.Main (main_body m)).
-Proof. exact (body_of_view_spec (Index.node_view (main_node m)) (main_ok m)). Qed.
+Definition main_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
+  (m : MainDeclRef s pr) : Index.NodeRef idx := Index.mo_node (main_occ m).
 
 Lemma main_declref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
   (a b : MainDeclRef s pr) : main_node a = main_node b -> a = b.
 Proof.
-  destruct a as [na Ha Pa], b as [nb Hb Pb]; cbn; intro E; subst nb.
-  f_equal; [ apply (UIP_dec Bool.bool_dec) | apply (UIP_dec PI.packageref_eq_dec) ].
+  destruct a as [oa Pa], b as [ob Pb]; unfold main_node; cbn; intro E.
+  assert (oa = ob) as Eo by (apply Index.mainocc_positional; exact E). subst ob.
+  f_equal; apply (UIP_dec PI.packageref_eq_dec).
 Qed.
 
-Lemma main_declref_not_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (m : MainDeclRef s pr) : is_binder_role (Index.node_role (main_node m)) = false.
+(* the fixed main spelling is fixed by the source Main constructor, so a main is never a named binder *)
+Lemma main_not_binder_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
+  (m : MainDeclRef s pr) : forall bn, Index.node_view (main_node m) <> Index.VBindingName bn.
 Proof.
-  rewrite (Index.main_role_plain (main_node m) (main_body m) (main_body_exact m)); reflexivity.
+  intros bn Heq. pose proof (Index.mo_ok (main_occ m)) as Hmo. unfold main_node in Heq.
+  rewrite Heq in Hmo. discriminate Hmo.
 Qed.
 
+(* main multiplicity, independent of any ordinary declaration group keyed by main *)
 Inductive MainStatus {p} {idx : Index.ProgramIndex p}
   (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type :=
 | MainMissing : MainStatus s pr
-| MainUnique : MainDeclRef s pr -> MainStatus s pr
-| MainRedeclared : MainDeclRef s pr -> MainDeclRef s pr -> list (MainDeclRef s pr) -> MainStatus s pr.
+| MainOne : MainDeclRef s pr -> MainStatus s pr
+| MainMultiple : MainDeclRef s pr -> MainDeclRef s pr -> list (MainDeclRef s pr) -> MainStatus s pr.
 Arguments MainMissing {p idx s pr}.
-Arguments MainUnique {p idx s pr} _.
-Arguments MainRedeclared {p idx s pr} _ _ _.
+Arguments MainOne {p idx s pr} _.
+Arguments MainMultiple {p idx s pr} _ _ _.
 
 Definition main_status_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
   (st : MainStatus s pr) : list (MainDeclRef s pr) :=
   match st with
   | MainMissing => []
-  | MainUnique m => [m]
-  | MainRedeclared m1 m2 rest => m1 :: m2 :: rest
+  | MainOne m => [m]
+  | MainMultiple m1 m2 rest => m1 :: m2 :: rest
   end.
 
 Inductive ObjectRef {p} (idx : Index.ProgramIndex p) : Type :=
@@ -114,7 +95,7 @@ Arguments SourceObject {p idx} _.
 
 Inductive ScopeId {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | PackageScope : PI.PackageRef s -> ScopeId s
-| BlockScope   : BlockRef idx -> ScopeId s.
+| BlockScope   : Index.BlockRef idx -> ScopeId s.
 Arguments PackageScope {p idx s} _.
 Arguments BlockScope {p idx s} _.
 
@@ -123,18 +104,18 @@ Definition is_stmt_kind (k : Index.Kind) : bool := match k with Index.StmtKind =
 
 (* the nearest block enclosing [b] (largest start position among containing blocks), carrying its reference *)
 Definition nearest_block {p} {idx : Index.ProgramIndex p}
-  (nodes : list (Index.NodeRef idx)) (b : Index.NodeRef idx) : option (BlockRef idx) :=
+  (nodes : list (Index.NodeRef idx)) (b : Index.NodeRef idx) : option (Index.BlockRef idx) :=
   fold_right (fun a acc =>
-    (match Index.node_kind a as k return Index.node_kind a = k -> option (BlockRef idx) with
-     | Index.BlockKind => fun H =>
-         if andb (Nat.ltb (Index.nr_pos a) (Index.nr_pos b)) (Nat.leb (Index.nr_pos b) (Index.node_extent a))
-         then match acc with
-              | Some br => if Nat.ltb (Index.nr_pos (block_node br)) (Index.nr_pos a) then Some (block_ref a H) else acc
-              | None => Some (block_ref a H)
-              end
-         else acc
-     | _ => fun _ => acc
-     end) eq_refl) None nodes.
+    match mk_blockref a with
+    | Some br =>
+        if andb (Nat.ltb (Index.nr_pos a) (Index.nr_pos b)) (Nat.leb (Index.nr_pos b) (Index.node_extent a))
+        then match acc with
+             | Some br' => if Nat.ltb (Index.nr_pos (Index.bl_node br')) (Index.nr_pos a) then Some br else acc
+             | None => Some br
+             end
+        else acc
+    | None => acc
+    end) None nodes.
 
 (* the extent of the nearest ancestor of [b] whose kind passes [kb], or [b]'s own position if none *)
 Definition nearest_kind_extent {p} {idx : Index.ProgramIndex p}
@@ -224,7 +205,7 @@ Fixpoint build_main_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfac
   match nodes with
   | [] => fun _ => []
   | r :: rest => fun H =>
-      main_decl_ref r (proj1 (H r (or_introl eq_refl))) (proj2 (H r (or_introl eq_refl)))
+      main_decl_ref (Index.mkMainOccurrenceRef r (proj1 (H r (or_introl eq_refl)))) (proj2 (H r (or_introl eq_refl)))
       :: build_main_decls pr rest (fun r' Hr' => H r' (or_intror Hr'))
   end.
 
@@ -240,8 +221,8 @@ Definition main_status_from {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   (decls : list (MainDeclRef s pr)) : MainStatus s pr :=
   match decls with
   | [] => MainMissing
-  | m :: nil => MainUnique m
-  | m1 :: m2 :: rest => MainRedeclared m1 m2 rest
+  | m :: nil => MainOne m
+  | m1 :: m2 :: rest => MainMultiple m1 m2 rest
   end.
 
 Lemma main_status_decls_from {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
@@ -295,9 +276,9 @@ Definition contains_visible {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   match est_scope e with
   | PackageScope pr => PI.packageref_eqb (PI.package_of_file s (Index.nr_file u)) pr
   | BlockScope br =>
-      andb (Index.fileref_eqb (Index.nr_file (block_node br)) (Index.nr_file u))
-      (andb (Nat.ltb (Index.nr_pos (block_node br)) (Index.nr_pos u))
-      (andb (Nat.leb (Index.nr_pos u) (Index.node_extent (block_node br)))
+      andb (Index.fileref_eqb (Index.nr_file (Index.bl_node br)) (Index.nr_file u))
+      (andb (Nat.ltb (Index.nr_pos (Index.bl_node br)) (Index.nr_pos u))
+      (andb (Nat.leb (Index.nr_pos u) (Index.node_extent (Index.bl_node br)))
             (Nat.ltb (est_vstart e) (Index.nr_pos u))))
   end.
 
@@ -340,13 +321,6 @@ Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
       | Some pn => RBound (PredeclaredObject pn)
       | None => RUnbound
       end
-  end.
-
-Definition scope_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (r : Index.NodeRef idx) : ScopeId s :=
-  match nearest_block (Index.file_nodes (Index.nr_file r)) r with
-  | Some br => BlockScope br
-  | None => PackageScope (PI.package_of_file s (Index.nr_file r))
   end.
 
 Definition resolved_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

@@ -71,13 +71,12 @@ Definition demo_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "f
 Definition main_go : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition demo_program : Syntax.Program := singleton_program demo_module main_go demo_file.
 
-Definition demo_valid : Compilable.Admissible (Compilable.elaborate demo_program).
-Proof. split; apply Compilable.list_is_nilb_true; vm_compute; reflexivity. Qed.
-
-(* carry the exact compilation and its capability into the certified image *)
-Definition demo_cap : Compilable.Prog.Program (Compilable.elaborate demo_program) :=
-  Compilable.Prog.issue (Compilable.elaborate demo_program) demo_valid.
-Definition demo_safe : Safe.Program := Safe.certify demo_program (Compilable.elaborate demo_program) demo_cap I.
+(* the compiled branch, recovered from compile via shallow nilb observers (no deep phase normalization) *)
+Definition demo_reveal : { c : Compilable.Compilation demo_program & Compilable.CompiledPayload (Compilable.compile demo_program) c } :=
+  Compilable.compiled_of_nilb demo_program
+    (ltac:(vm_compute; reflexivity)) (ltac:(vm_compute; reflexivity)).
+Definition demo_safe : Safe.Program :=
+  Safe.certify demo_program (Compilable.compile demo_program) (projT1 demo_reveal) (projT2 demo_reveal) I.
 Definition demo_image : Emit.Image := Emit.of_safe demo_safe.
 
 Declare ML Module "fido.emit".

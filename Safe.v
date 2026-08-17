@@ -6,17 +6,20 @@ Definition Property {p} {c : Compilable.Compilation p} (_ : Compilable.Prog.Prog
 (* Primitive projections so reading a certificate's source never co-normalizes the retained heavy phases. *)
 #[projections(primitive)]
 Record Program : Type := certify {
-  safe_src  : Syntax.Program ;
-  safe_comp : Compilable.Compilation safe_src ;
-  safe_prog : Compilable.Prog.Program safe_comp ;
-  safe_ok   : Property safe_prog
+  safe_src     : Syntax.Program ;
+  safe_dec     : Compilable.Decision safe_src ;
+  safe_comp    : Compilable.Compilation safe_src ;
+  safe_payload : Compilable.CompiledPayload safe_dec safe_comp ;
+  safe_ok      : Property (Compilable.Prog.compiled_prog safe_payload)
 }.
 
 (* The certified source: [Emit] reaches it via this projection, then [Render] traverses that raw [Syntax]. *)
 Definition source (sp : Program) : Syntax.Program := safe_src sp.
 
-(* Retention: the stored compilation and capability are exactly those supplied, recovered by projection. *)
+(* Retention: the stored decision, compilation, and compiled payload are exactly those supplied, by projection. *)
 Theorem safe_retains_program :
-  forall src comp prog ok,
-    safe_comp (certify src comp prog ok) = comp /\ safe_prog (certify src comp prog ok) = prog.
-Proof. intros; split; reflexivity. Qed.
+  forall src dec comp cp ok,
+    safe_dec (certify src dec comp cp ok) = dec
+    /\ safe_comp (certify src dec comp cp ok) = comp
+    /\ safe_payload (certify src dec comp cp ok) = cp.
+Proof. intros; repeat split; reflexivity. Qed.

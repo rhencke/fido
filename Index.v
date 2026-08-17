@@ -1,10 +1,10 @@
+(* One direct shallow occurrence authority: a finite file map of finite position maps of shallow cells. *)
 
-From Stdlib Require Import List Bool Lia Arith PeanoNat Eqdep_dec Wf_nat.
+From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
 From Fido Require Import FilePath Collections Syntax.
 Import ListNotations.
 
-(* One transparent per-file preorder occurrence authority: a one-pass fold into plain per-file lists, no view map. *)
-
+(* the occurrence view: the exact selected source fragment at one preorder position *)
 Inductive NodeView : Type :=
 | VExpr        : Syntax.Expr         -> NodeView
 | VTypeExpr    : Syntax.TypeExpr     -> NodeView
@@ -30,7 +30,7 @@ Inductive Role :=
 | RUnaryOperand | RSpecName : SpecFlavor -> Role
 | RShortLhs | RExprStatementExpr | RTypeUse.
 
-(* the kind each view is classified as; node_kind agrees with this (view_exact_all_kinds) *)
+(* the kind each view is classified as; node_kind derives this, so kind is never stored *)
 Definition kind_of_view (v : NodeView) : Kind :=
   match v with
   | VExpr _ => ExprKind | VTypeExpr _ => TypeExprKind | VBindingName _ => BindingNameKind
@@ -38,8 +38,7 @@ Definition kind_of_view (v : NodeView) : Kind :=
   | VDecl _ => DeclKind | VStmt _ => StmtKind | VBlock _ => BlockKind | VTop _ => TopKind | VFile _ => FileKind
   end.
 
-(* generic total positional access: the in-range proof makes it a projection, never a fallback *)
-
+(* generic total positional list access; the in-range proof makes it a projection, never a fallback *)
 Fixpoint nth_lt {A} (l : list A) : forall n, n < length l -> A :=
   match l with
   | [] => fun n H => False_rect A (Nat.nlt_0_r n H)
@@ -62,154 +61,356 @@ Proof.
   - apply IH.
 Qed.
 
-(* nth_lt depends only on the position, not on the proof it carries *)
-Lemma nth_lt_pi {A} (l : list A) (n : nat) (H1 H2 : n < length l) : nth_lt l n H1 = nth_lt l n H2.
-Proof. f_equal; apply lt_unique. Qed.
-
-(* the stored occurrence: the fold's payload at one preorder position *)
-
-Record Occ := mkOcc {
-  o_view   : NodeView ;
-  o_role   : Role ;
-  o_parent : option nat ;   (* the enclosing occurrence's position; None only at the file root *)
-  o_extent : nat            (* the last position of this occurrence's subtree; >= its own position *)
+(* one shallow cell: view, role, parent position, subtree extent, ordered direct-child positions *)
+Record Cell : Type := mkCell {
+  c_view     : NodeView ;
+  c_role     : Role ;
+  c_parent   : option nat ;
+  c_extent   : nat ;
+  c_children : list nat
 }.
-(* Kind is not stored: it is a pure function of the view (kind_of_view), so storing it would be a second authority *)
 
-Inductive RNode : Type := mkRNode { rn_view : NodeView ; rn_role : Role ; rn_kids : list RNode }.
+(* number a list of items left to right, threading the next free position and collecting each item's root *)
+Fixpoint number_list {A} (f : nat -> A -> list (nat * Cell) * nat) (b : nat) (xs : list A)
+  : list (nat * Cell) * nat * list nat :=
+  match xs with
+  | [] => ([], b, [])
+  | x :: rest =>
+      let '(xc, b') := f b x in
+      let '(rc, b'', roots) := number_list f b' rest in
+      (xc ++ rc, b'', b :: roots)
+  end.
 
-Definition r_expr (role : Role) (e : Syntax.Expr) (kids : list RNode) : RNode :=
-  mkRNode (VExpr e) role kids.
+Definition number_leaf (v : NodeView) (par : option nat) (role : Role) (b : nat) : list (nat * Cell) * nat :=
+  ([(b, mkCell v role par b [])], S b).
 
-(* build an expression subtree; args use an inlined nested fixpoint so the guard checker accepts each recursive call *)
-Fixpoint node_of_expr (role : Role) (e : Syntax.Expr) : RNode :=
+(* an expression subtree; the arg list uses an inlined nested fixpoint so the guard checker accepts each arg *)
+Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr) {struct e}
+  : list (nat * Cell) * nat :=
   match e with
-  | Syntax.Name _        => r_expr role e []
-  | Syntax.LiteralExpr _ => r_expr role e []
-  | Syntax.Unary _ e'    => r_expr role e [ node_of_expr RUnaryOperand e' ]
+  | Syntax.Name _ => number_leaf (VExpr e) par role b
+  | Syntax.LiteralExpr _ => number_leaf (VExpr e) par role b
+  | Syntax.Unary _ e' =>
+      let '(kc, nxt) := number_expr (Some b) RUnaryOperand (S b) e' in
+      ((b, mkCell (VExpr e) role par (nxt - 1) [S b]) :: kc, nxt)
   | Syntax.Application head args =>
-      r_expr role e
-        ( node_of_expr RApplicationHead head
-          :: (fix args_nodes (i : nat) (es : list Syntax.Expr) : list RNode :=
-                match es with
-                | [] => []
-                | a :: rest => node_of_expr (RApplicationArg i) a :: args_nodes (S i) rest
-                end) 0 args )
+      let '(hc, b1) := number_expr (Some b) RApplicationHead (S b) head in
+      let fix do_args (i : nat) (bi : nat) (es : list Syntax.Expr) {struct es}
+        : list (nat * Cell) * nat * list nat :=
+        match es with
+        | [] => ([], bi, [])
+        | a :: rest =>
+            let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+            let '(rc, bf, roots) := do_args (S i) bi' rest in
+            (ac ++ rc, bf, bi :: roots)
+        end in
+      let '(ac, bfin, aroots) := do_args 0 b1 args in
+      ((b, mkCell (VExpr e) role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
   end.
 
-Definition node_of_typeexpr (role : Role) (t : Syntax.TypeExpr) : RNode :=
-  mkRNode (VTypeExpr t) role [].
-Definition node_of_bindingname (role : Role) (b : Syntax.BindingName) : RNode :=
-  mkRNode (VBindingName b) role [].
-
-Definition opttype_nodes (ot : option Syntax.TypeExpr) : list RNode :=
-  match ot with Some t => [ node_of_typeexpr RTypeUse t ] | None => [] end.
-
-Definition node_of_constspec (role : Role) (cs : Syntax.ConstSpec) : RNode :=
-  mkRNode (VConstSpec cs) role
-    ( List.map (node_of_bindingname (RSpecName ConstSpecF)) (Collections.ne_to_list (Syntax.const_names cs))
-      ++ match Syntax.const_init cs with
-         | Syntax.ExplicitConstInit ot vals =>
-             opttype_nodes ot ++ List.map (node_of_expr RPlain) (Collections.ne_to_list vals)
-         | Syntax.InheritedConstInit => []
-         end ).
-
-Definition node_of_varspec (role : Role) (vs : Syntax.VarSpec) : RNode :=
-  mkRNode (VVarSpec vs) role
-    ( List.map (node_of_bindingname (RSpecName VarSpecF)) (Collections.ne_to_list (Syntax.var_names vs))
-      ++ match Syntax.var_init vs with
-         | Syntax.VarTypeOnly t => [ node_of_typeexpr RTypeUse t ]
-         | Syntax.VarValues ot vals => opttype_nodes ot ++ List.map (node_of_expr RPlain) (Collections.ne_to_list vals)
-         end ).
-
-Definition node_of_typespec (role : Role) (ts : Syntax.TypeSpec) : RNode :=
-  mkRNode (VTypeSpec ts) role
-    (match ts with
-     | Syntax.AliasSpec b t | Syntax.DefSpec b t =>
-         [ node_of_bindingname (RSpecName TypeSpecF) b ; node_of_typeexpr RTypeUse t ]
-     end).
-
-Definition node_of_decl (role : Role) (d : Syntax.Declaration) : RNode :=
-  mkRNode (VDecl d) role
-    (match d with
-     | Syntax.ConstDecl cs => List.map (node_of_constspec RPlain) cs
-     | Syntax.VarDecl vs   => List.map (node_of_varspec RPlain) vs
-     | Syntax.TypeDecl ts  => List.map (node_of_typespec RPlain) ts
-     end).
-
-Definition node_of_stmt (role : Role) (s : Syntax.Stmt) : RNode :=
-  mkRNode (VStmt s) role
-    (match s with
-     | Syntax.ExprStmt e        => [ node_of_expr RExprStatementExpr e ]
-     | Syntax.DeclarationStmt d => [ node_of_decl RPlain d ]
-     | Syntax.ShortVarDecl names vals =>
-         List.map (node_of_bindingname RShortLhs) (Collections.ne_to_list names)
-         ++ List.map (node_of_expr RPlain) (Collections.ne_to_list vals)
-     end).
-
-Definition node_of_block (role : Role) (b : Syntax.Block) : RNode :=
-  mkRNode (VBlock b) role
-    (match b with Syntax.MakeBlock stmts => List.map (node_of_stmt RPlain) stmts end).
-
-Definition node_of_toplevel (role : Role) (t : Syntax.TopLevelDecl) : RNode :=
-  mkRNode (VTop t) role
-    (match t with
-     | Syntax.TopDeclaration d => [ node_of_decl RPlain d ]
-     | Syntax.Main blk         => [ node_of_block RPlain blk ]
-     end).
-
-Definition file_tree (f : Syntax.File) : RNode :=
-  mkRNode (VFile f) RPlain (List.map (node_of_toplevel RPlain) (Syntax.declarations f)).
-
-(* flatten the rose tree to a preorder occurrence list with positions/parent/extent *)
-
-Fixpoint tree_size (n : RNode) : nat :=
-  S ((fix sizes (ns : list RNode) : nat :=
-        match ns with [] => 0 | k :: rest => tree_size k + sizes rest end) (rn_kids n)).
-
-Fixpoint flat (parent : option nat) (base : nat) (n : RNode) {struct n} : list Occ :=
-  mkOcc (rn_view n) (rn_role n) parent (base + tree_size n - 1)
-  :: (fix flat_kids (b : nat) (ns : list RNode) {struct ns} : list Occ :=
-        match ns with
-        | [] => []
-        | k :: rest => flat (Some base) b k ++ flat_kids (b + tree_size k) rest
-        end) (S base) (rn_kids n).
-
-(* the kids-flattener as a standalone Fixpoint so proofs can induct; flat_unfold rewrites flat's inlined fix to this *)
-Fixpoint flat_forest (parent : option nat) (base : nat) (ns : list RNode) {struct ns} : list Occ :=
-  match ns with
-  | [] => []
-  | k :: rest => flat parent base k ++ flat_forest parent (base + tree_size k) rest
+(* the standalone twin of number_expr's inlined arg-numberer; number_args_unfold bridges the two for proofs *)
+Fixpoint number_args (self : nat) (i : nat) (b : nat) (es : list Syntax.Expr) {struct es}
+  : list (nat * Cell) * nat * list nat :=
+  match es with
+  | [] => ([], b, [])
+  | a :: rest =>
+      let '(ac, b') := number_expr (Some self) (RApplicationArg i) b a in
+      let '(rc, bf, roots) := number_args self (S i) b' rest in
+      (ac ++ rc, bf, b :: roots)
   end.
 
-Definition file_occs (f : Syntax.File) : list Occ := flat None 0 (file_tree f).
+Definition number_typeexpr (par : option nat) (role : Role) (b : nat) (t : Syntax.TypeExpr) : list (nat * Cell) * nat :=
+  number_leaf (VTypeExpr t) par role b.
+Definition number_bindingname (par : option nat) (role : Role) (b : nat) (bn : Syntax.BindingName) : list (nat * Cell) * nat :=
+  number_leaf (VBindingName bn) par role b.
 
-(* the retained per-file authority: plain per-file occurrence lists, built once *)
+Definition number_opttype (par : option nat) (b : nat) (ot : option Syntax.TypeExpr) : list (nat * Cell) * nat * list nat :=
+  match ot with
+  | Some t => let '(c, b') := number_typeexpr par RTypeUse b t in (c, b', [b])
+  | None => ([], b, [])
+  end.
 
-Definition raw_index (p : Syntax.Program) : list (FilePath.T * list Occ) :=
-  List.map (fun b => (fst b, file_occs (snd b))) (Syntax.program_bindings p).
+Definition number_constspec (par : option nat) (role : Role) (b : nat) (cs : Syntax.ConstSpec) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(nc, b1, nroots) := number_list (number_bindingname (Some self) (RSpecName ConstSpecF))
+                                        (S self) (Collections.ne_to_list (Syntax.const_names cs)) in
+  let '(ic, bfin, iroots) :=
+    match Syntax.const_init cs with
+    | Syntax.ExplicitConstInit ot vals =>
+        let '(oc, b2, oroots) := number_opttype (Some self) b1 ot in
+        let '(vc, b3, vroots) := number_list (number_expr (Some self) RPlain) b2 (Collections.ne_to_list vals) in
+        (oc ++ vc, b3, oroots ++ vroots)
+    | Syntax.InheritedConstInit => ([], b1, [])
+    end in
+  ((self, mkCell (VConstSpec cs) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
 
-(* ProgramIndex is sealed to the one canonical index: every idx is raw_index p, still reducing for vm_compute *)
-Definition ProgramIndex (p : Syntax.Program) : Type := { l : list (FilePath.T * list Occ) | l = raw_index p }.
+Definition number_varspec (par : option nat) (role : Role) (b : nat) (vs : Syntax.VarSpec) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(nc, b1, nroots) := number_list (number_bindingname (Some self) (RSpecName VarSpecF))
+                                        (S self) (Collections.ne_to_list (Syntax.var_names vs)) in
+  let '(ic, bfin, iroots) :=
+    match Syntax.var_init vs with
+    | Syntax.VarTypeOnly t => let '(c, b2) := number_typeexpr (Some self) RTypeUse b1 t in (c, b2, [b1])
+    | Syntax.VarValues ot vals =>
+        let '(oc, b2, oroots) := number_opttype (Some self) b1 ot in
+        let '(vc, b3, vroots) := number_list (number_expr (Some self) RPlain) b2 (Collections.ne_to_list vals) in
+        (oc ++ vc, b3, oroots ++ vroots)
+    end in
+  ((self, mkCell (VVarSpec vs) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
+
+Definition number_typespec (par : option nat) (role : Role) (b : nat) (ts : Syntax.TypeSpec) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(bn, t) := match ts with Syntax.AliasSpec bn t | Syntax.DefSpec bn t => (bn, t) end in
+  let '(bc, b1) := number_bindingname (Some self) (RSpecName TypeSpecF) (S self) bn in
+  let '(tc, bfin) := number_typeexpr (Some self) RTypeUse b1 t in
+  ((self, mkCell (VTypeSpec ts) role par (bfin - 1) [S self; b1]) :: (bc ++ tc), bfin).
+
+Definition number_decl (par : option nat) (role : Role) (b : nat) (d : Syntax.Declaration) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(kc, bfin, roots) :=
+    match d with
+    | Syntax.ConstDecl cs => number_list (number_constspec (Some self) RPlain) (S self) cs
+    | Syntax.VarDecl vs   => number_list (number_varspec (Some self) RPlain) (S self) vs
+    | Syntax.TypeDecl ts  => number_list (number_typespec (Some self) RPlain) (S self) ts
+    end in
+  ((self, mkCell (VDecl d) role par (bfin - 1) roots) :: kc, bfin).
+
+Definition number_stmt (par : option nat) (role : Role) (b : nat) (s : Syntax.Stmt) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(kc, bfin, roots) :=
+    match s with
+    | Syntax.ExprStmt e => let '(c, b') := number_expr (Some self) RExprStatementExpr (S self) e in (c, b', [S self])
+    | Syntax.DeclarationStmt d => let '(c, b') := number_decl (Some self) RPlain (S self) d in (c, b', [S self])
+    | Syntax.ShortVarDecl names vals =>
+        let '(nc, b1, nroots) := number_list (number_bindingname (Some self) RShortLhs)
+                                              (S self) (Collections.ne_to_list names) in
+        let '(vc, b2, vroots) := number_list (number_expr (Some self) RPlain) b1 (Collections.ne_to_list vals) in
+        (nc ++ vc, b2, nroots ++ vroots)
+    end in
+  ((self, mkCell (VStmt s) role par (bfin - 1) roots) :: kc, bfin).
+
+Definition number_block (par : option nat) (role : Role) (b : nat) (blk : Syntax.Block) : list (nat * Cell) * nat :=
+  let self := b in
+  let stmts := match blk with Syntax.MakeBlock stmts => stmts end in
+  let '(kc, bfin, roots) := number_list (number_stmt (Some self) RPlain) (S self) stmts in
+  ((self, mkCell (VBlock blk) role par (bfin - 1) roots) :: kc, bfin).
+
+Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Syntax.TopLevelDecl) : list (nat * Cell) * nat :=
+  let self := b in
+  let '(kc, bfin, roots) :=
+    match td with
+    | Syntax.TopDeclaration d => let '(c, b') := number_decl (Some self) RPlain (S self) d in (c, b', [S self])
+    | Syntax.Main blk         => let '(c, b') := number_block (Some self) RPlain (S self) blk in (c, b', [S self])
+    end in
+  ((self, mkCell (VTop td) role par (bfin - 1) roots) :: kc, bfin).
+
+(* the file occurrence at position 0, its children the top-level declarations, in one preorder pass *)
+Definition number_file (f : Syntax.File) : list (nat * Cell) :=
+  let '(dc, bfin, droots) := number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f) in
+  (0, mkCell (VFile f) RPlain None (bfin - 1) droots) :: dc.
+
+(* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
+Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
+  fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
+             (Collections.NodeMap.empty Cell) occs.
+
+Record FileInfo : Type := mkFileInfo { fi_cells : Collections.NodeMap.t Cell ; fi_count : nat }.
+
+Definition build_fileinfo (f : Syntax.File) : FileInfo :=
+  mkFileInfo (posmap_of (number_file f)) (List.length (number_file f)).
+
+Definition raw_index (p : Syntax.Program) : Collections.FileMap.t FileInfo :=
+  Collections.FileMap.map build_fileinfo (Syntax.files p).
+
+(* ProgramIndex is sealed to the one canonical index, so every idx is raw_index p and refs cannot be foreign *)
+Definition ProgramIndex (p : Syntax.Program) : Type := { m : Collections.FileMap.t FileInfo | m = raw_index p }.
 Definition index_program (p : Syntax.Program) : ProgramIndex p := exist _ (raw_index p) eq_refl.
-Definition prog_occs {p} (idx : ProgramIndex p) : list (FilePath.T * list Occ) := proj1_sig idx.
+Definition prog_map {p} (idx : ProgramIndex p) : Collections.FileMap.t FileInfo := proj1_sig idx.
 
-Definition index_has_file {p} (idx : ProgramIndex p) (path : FilePath.T) : bool :=
-  existsb (fun b => FilePath.equalb (fst b) path) (prog_occs idx).
-Definition file_occ_list {p} (idx : ProgramIndex p) (path : FilePath.T) : list Occ :=
-  match find (fun b => FilePath.equalb (fst b) path) (prog_occs idx) with Some b => snd b | None => [] end.
+Definition file_has {p} (idx : ProgramIndex p) (path : FilePath.T) : bool :=
+  Collections.FileMap.mem path (prog_map idx).
 
-Record FileRef {p} (idx : ProgramIndex p) : Type := file_ref {
+Lemma file_find_some {p} (idx : ProgramIndex p) (path : FilePath.T) :
+  file_has idx path = true -> exists fi, Collections.FileMap.find path (prog_map idx) = Some fi.
+Proof.
+  unfold file_has; intro H. apply Collections.FileFacts.mem_in_iff in H. destruct H as [fi Hmt].
+  exists fi. apply Collections.FileFacts.find_mapsto_iff; exact Hmt.
+Qed.
+
+(* a file reference is its path plus the proof it is a member; membership makes lookup total *)
+Record FileRef {p} (idx : ProgramIndex p) : Type := mkFileRef {
   fr_path : FilePath.T ;
-  fr_in   : index_has_file idx fr_path = true
+  fr_in   : file_has idx fr_path = true
 }.
-Arguments file_ref {p idx} _ _.
+Arguments mkFileRef {p idx} _ _.
 Arguments fr_path {p idx} _.
 Arguments fr_in {p idx} _.
 
-(* a file selector is its path; the membership proof is irrelevant (bool has unique proofs) *)
-Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) : fr_path a = fr_path b -> a = b.
-Proof. destruct a as [pa Ha], b as [pb Hb]; cbn; intro E; subst pb; f_equal; apply (UIP_dec Bool.bool_dec). Qed.
+Lemma file_find_not_none {p} {idx : ProgramIndex p} (fr : FileRef idx) :
+  Collections.FileMap.find (fr_path fr) (prog_map idx) = None -> False.
+Proof.
+  intro Hn. destruct (file_find_some idx (fr_path fr) (fr_in fr)) as [fi Hfi]. rewrite Hfi in Hn; discriminate.
+Qed.
+
+Definition file_info_of {p} {idx : ProgramIndex p} (fr : FileRef idx) : FileInfo :=
+  (match Collections.FileMap.find (fr_path fr) (prog_map idx) as o
+     return Collections.FileMap.find (fr_path fr) (prog_map idx) = o -> FileInfo with
+   | Some fi => fun _ => fi
+   | None => fun Hn => False_rect FileInfo (file_find_not_none fr Hn)
+   end) eq_refl.
+
+Definition occ_count {p} {idx : ProgramIndex p} (fr : FileRef idx) : nat := fi_count (file_info_of fr).
+
+Module NodeFacts := FMapFacts.WFacts_fun Collections.NodeMap.E Collections.NodeMap.
+
+Definition cell_map {p} {idx : ProgramIndex p} (fr : FileRef idx) : Collections.NodeMap.t Cell :=
+  fi_cells (file_info_of fr).
+
+(* a node reference: a file, its position key, and proof of membership, so occ_at is a total projection *)
+Record NodeRef {p} (idx : ProgramIndex p) : Type := mkNodeRef {
+  nr_file : FileRef idx ;
+  nr_key  : positive ;
+  nr_in   : Collections.NodeMap.mem nr_key (cell_map nr_file) = true
+}.
+Arguments mkNodeRef {p idx} _ _ _.
+Arguments nr_file {p idx} _.
+Arguments nr_key {p idx} _.
+Arguments nr_in {p idx} _.
+
+Definition occ_at {p} {idx : ProgramIndex p} (r : NodeRef idx) : Cell :=
+  (match Collections.NodeMap.find (nr_key r) (cell_map (nr_file r)) as o
+     return Collections.NodeMap.find (nr_key r) (cell_map (nr_file r)) = o -> Cell with
+   | Some c => fun _ => c
+   | None => fun Hn => False_rect Cell
+       (proj1 (NodeFacts.in_find_iff _ _) (proj2 (NodeFacts.mem_in_iff _ _) (nr_in r)) Hn)
+   end) eq_refl.
+
+Definition nr_pos {p} {idx : ProgramIndex p} (r : NodeRef idx) : nat := Nat.pred (Pos.to_nat (nr_key r)).
+Definition node_view {p} {idx : ProgramIndex p} (r : NodeRef idx) : NodeView := c_view (occ_at r).
+Definition node_role {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role := c_role (occ_at r).
+Definition node_kind {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind := kind_of_view (node_view r).
+Definition node_extent {p} {idx : ProgramIndex p} (r : NodeRef idx) : nat := c_extent (occ_at r).
+
+Definition mk_noderef {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) : option (NodeRef idx) :=
+  (match Collections.NodeMap.mem k (cell_map fr) as b
+     return Collections.NodeMap.mem k (cell_map fr) = b -> option (NodeRef idx) with
+   | true => fun H => Some (mkNodeRef fr k H)
+   | false => fun _ => None
+   end) eq_refl.
+
+Lemma mk_noderef_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) (r : NodeRef idx) :
+  mk_noderef fr k = Some r -> nr_file r = fr.
+Proof.
+  unfold mk_noderef. generalize (@eq_refl bool (Collections.NodeMap.mem k (cell_map fr))).
+  destruct (Collections.NodeMap.mem k (cell_map fr)) at 2 3; intro H;
+    [ intro E; injection E as <-; reflexivity | discriminate ].
+Qed.
+
+Definition node_parent {p} {idx : ProgramIndex p} (r : NodeRef idx) : option (NodeRef idx) :=
+  match c_parent (occ_at r) with Some pp => mk_noderef (nr_file r) (Pos.of_succ_nat pp) | None => None end.
+
+Definition node_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  fold_right (fun pp acc => match mk_noderef (nr_file r) (Pos.of_succ_nat pp) with Some c => c :: acc | None => acc end)
+             [] (c_children (occ_at r)).
+
+Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
+  flat_map (fun kv => match mk_noderef fr (fst kv) with Some r => [r] | None => [] end)
+           (Collections.NodeMap.elements (cell_map fr)).
+
+Lemma file_nodes_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (r : NodeRef idx) :
+  In r (file_nodes fr) -> nr_file r = fr.
+Proof.
+  unfold file_nodes. intro Hin. apply in_flat_map in Hin. destruct Hin as [kv [_ Hin]].
+  destruct (mk_noderef fr (fst kv)) as [r'|] eqn:E; try rewrite E in Hin; cbn in Hin.
+  - destruct Hin as [Heq|[]]. subst r'. exact (mk_noderef_file fr (fst kv) r E).
+  - destruct Hin.
+Qed.
+
+(* fixed-main occurrence identity: one exact Syntax.Main occurrence; its body is the sibling shallow block *)
+Definition is_main_view (v : NodeView) : bool := match v with VTop (Syntax.Main _) => true | _ => false end.
+Definition is_block_view (v : NodeView) : bool := match v with VBlock _ => true | _ => false end.
+
+Record MainOccurrenceRef {p} (idx : ProgramIndex p) : Type := mkMainOccurrenceRef {
+  mo_node : NodeRef idx ;
+  mo_ok   : is_main_view (node_view mo_node) = true
+}.
+Arguments mkMainOccurrenceRef {p idx} _ _.
+Arguments mo_node {p idx} _.
+Arguments mo_ok {p idx} _.
+
+Record BlockRef {p} (idx : ProgramIndex p) : Type := mkBlockRef {
+  bl_node : NodeRef idx ;
+  bl_ok   : is_block_view (node_view bl_node) = true
+}.
+Arguments mkBlockRef {p idx} _ _.
+Arguments bl_node {p idx} _.
+Arguments bl_ok {p idx} _.
+
+Lemma mainocc_positional {p} {idx : ProgramIndex p} (a b : MainOccurrenceRef idx) :
+  mo_node a = mo_node b -> a = b.
+Proof. destruct a as [na Ha], b as [nb Hb]; cbn; intro E; subst nb; f_equal; apply (UIP_dec Bool.bool_dec). Qed.
+
+Lemma blockref_positional {p} {idx : ProgramIndex p} (a b : BlockRef idx) :
+  bl_node a = bl_node b -> a = b.
+Proof. destruct a as [na Ha], b as [nb Hb]; cbn; intro E; subst nb; f_equal; apply (UIP_dec Bool.bool_dec). Qed.
+
+(* a node is identified by its file and position; the membership proof is irrelevant (bool has unique proofs) *)
+Lemma noderef_positional {p} {idx : ProgramIndex p} (a b : NodeRef idx) :
+  nr_file a = nr_file b -> nr_pos a = nr_pos b -> a = b.
+Proof.
+  destruct a as [fa ka Ha], b as [fb kb Hb]; unfold nr_pos; simpl; intros Ef Ep; subst fb.
+  assert (ka = kb) as Ek.
+  { apply Pos2Nat.inj. pose proof (Pos2Nat.is_pos ka); pose proof (Pos2Nat.is_pos kb); lia. }
+  subst kb. f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
+
+Lemma mk_noderef_self {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  mk_noderef (nr_file r) (nr_key r) = Some r.
+Proof.
+  unfold mk_noderef. generalize (@eq_refl bool (Collections.NodeMap.mem (nr_key r) (cell_map (nr_file r)))).
+  destruct (Collections.NodeMap.mem (nr_key r) (cell_map (nr_file r))) at 2 3; intro H.
+  - f_equal. apply noderef_positional; reflexivity.
+  - exfalso; pose proof (nr_in r) as Hin; congruence.
+Qed.
+
+Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
+  fr_path a = fr_path b -> a = b.
+Proof.
+  destruct a as [pa Ha], b as [pb Hb]; simpl; intro E; subst pb; f_equal; apply (UIP_dec Bool.bool_dec).
+Qed.
+
+Definition mk_fileref {p} (idx : ProgramIndex p) (path : FilePath.T) : option (FileRef idx) :=
+  (match file_has idx path as b return file_has idx path = b -> option (FileRef idx) with
+   | true => fun H => Some (mkFileRef path H)
+   | false => fun _ => None
+   end) eq_refl.
+
+Lemma mk_fileref_path {p} (idx : ProgramIndex p) (path : FilePath.T) (fr : FileRef idx) :
+  mk_fileref idx path = Some fr -> fr_path fr = path.
+Proof.
+  unfold mk_fileref. generalize (@eq_refl bool (file_has idx path)).
+  destruct (file_has idx path) at 2 3; intro H; [ intro E; injection E as <-; reflexivity | discriminate ].
+Qed.
+
+Lemma mk_fileref_none {p} (idx : ProgramIndex p) (path : FilePath.T) :
+  mk_fileref idx path = None -> file_has idx path = false.
+Proof.
+  unfold mk_fileref. generalize (@eq_refl bool (file_has idx path)).
+  destruct (file_has idx path) at 2 3; intro H; [ intro E; discriminate E | intros _; exact H ].
+Qed.
+
+Lemma mk_fileref_some {p} (idx : ProgramIndex p) (path : FilePath.T) :
+  file_has idx path = true -> exists fr, mk_fileref idx path = Some fr.
+Proof.
+  intro Hfh. destruct (mk_fileref idx path) as [fr|] eqn:E.
+  - exists fr; reflexivity.
+  - exfalso. pose proof (mk_fileref_none idx path E) as H. rewrite Hfh in H; discriminate.
+Qed.
+
+(* every member file, enumerated as a FileRef, in the finite map's key order *)
+Definition all_files {p} (idx : ProgramIndex p) : list (FileRef idx) :=
+  flat_map (fun kv => match mk_fileref idx (fst kv) with Some fr => [fr] | None => [] end)
+           (Collections.FileMap.elements (prog_map idx)).
 
 Definition fileref_eqb {p} {idx : ProgramIndex p} (a b : FileRef idx) : bool :=
   FilePath.equalb (fr_path a) (fr_path b).
@@ -218,482 +419,4 @@ Proof.
   unfold fileref_eqb; split.
   - intro H; apply FilePath.equalb_spec in H; apply fileref_positional; exact H.
   - intro H; subst b; apply FilePath.equalb_spec; reflexivity.
-Qed.
-
-Lemma in_index_has_file {p} (idx : ProgramIndex p) (e : FilePath.T * list Occ) :
-  In e (prog_occs idx) -> index_has_file idx (fst e) = true.
-Proof.
-  intro Hin. unfold index_has_file. apply existsb_exists.
-  exists e; split; [ exact Hin | apply FilePath.equalb_spec; reflexivity ].
-Qed.
-
-Lemma index_has_file_in {p} (idx : ProgramIndex p) (path : FilePath.T) :
-  index_has_file idx path = true -> exists e, In e (prog_occs idx) /\ fst e = path.
-Proof.
-  unfold index_has_file; intro H. apply existsb_exists in H. destruct H as [e [Hin He]].
-  exists e; split; [ exact Hin | apply FilePath.equalb_spec in He; exact He ].
-Qed.
-
-(* build a FileRef at a path, if present *)
-Definition mk_fileref {p} (idx : ProgramIndex p) (path : FilePath.T) : option (FileRef idx) :=
-  match Bool.bool_dec (index_has_file idx path) true with
-  | left H  => Some (file_ref path H)
-  | right _ => None
-  end.
-
-Lemma mk_fileref_path {p} (idx : ProgramIndex p) (path : FilePath.T) (fr : FileRef idx) :
-  mk_fileref idx path = Some fr -> fr_path fr = path.
-Proof.
-  unfold mk_fileref; destruct (Bool.bool_dec (index_has_file idx path) true);
-    [ intro H; injection H as <-; reflexivity | discriminate ].
-Qed.
-
-Lemma mk_fileref_of_in {p} (idx : ProgramIndex p) (path : FilePath.T) :
-  index_has_file idx path = true -> exists fr, mk_fileref idx path = Some fr /\ fr_path fr = path.
-Proof.
-  intro H; unfold mk_fileref; destruct (Bool.bool_dec (index_has_file idx path) true) as [H'|H'];
-    [ eexists; split; reflexivity | congruence ].
-Qed.
-
-Definition occ_count {p} {idx : ProgramIndex p} (fr : FileRef idx) : nat :=
-  length (file_occ_list idx (fr_path fr)).
-
-Record NodeRef {p} (idx : ProgramIndex p) : Type := node_at {
-  nr_file : FileRef idx ;
-  nr_pos  : nat ;
-  nr_lt   : nr_pos < occ_count nr_file
-}.
-Arguments node_at {p idx} _ _ _.
-Arguments nr_file {p idx} _.
-Arguments nr_pos {p idx} _.
-Arguments nr_lt {p idx} _.
-
-(* occurrence access reads the retained list by nth_error; nr_lt discharges None, keeping it a linear projection *)
-Lemma occ_at_none_absurd {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  nth_error (file_occ_list idx (fr_path (nr_file r))) (nr_pos r) = None -> False.
-Proof.
-  intro E. apply nth_error_None in E. pose proof (nr_lt r) as Hlt. unfold occ_count in Hlt. lia.
-Qed.
-
-Definition occ_of_opt {A} (o : option A) : o <> None -> A :=
-  match o with Some x => fun _ => x | None => fun H => False_rect A (H eq_refl) end.
-
-Definition occ_at {p} {idx : ProgramIndex p} (r : NodeRef idx) : Occ :=
-  occ_of_opt (nth_error (file_occ_list idx (fr_path (nr_file r))) (nr_pos r)) (occ_at_none_absurd r).
-
-Lemma occ_at_spec {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  nth_error (file_occ_list idx (fr_path (nr_file r))) (nr_pos r) = Some (occ_at r).
-Proof.
-  unfold occ_at. generalize (occ_at_none_absurd r).
-  destruct (nth_error (file_occ_list idx (fr_path (nr_file r))) (nr_pos r)) as [x|]; intro H; cbn.
-  - reflexivity.
-  - exfalso; exact (H eq_refl).
-Qed.
-
-Definition node_view   {p} {idx : ProgramIndex p} (r : NodeRef idx) : NodeView := o_view   (occ_at r).
-Definition node_kind   {p} {idx : ProgramIndex p} (r : NodeRef idx) : Kind     := kind_of_view (node_view r).
-Definition node_role   {p} {idx : ProgramIndex p} (r : NodeRef idx) : Role     := o_role   (occ_at r).
-Definition node_extent {p} {idx : ProgramIndex p} (r : NodeRef idx) : nat      := o_extent (occ_at r).
-
-(* build a NodeRef if in range; the bound comes via an opaque lemma so the proof is O(1), keeping folds linear *)
-Lemma lt_of_ltb (a b : nat) : Nat.ltb a b = true -> a < b.
-Proof. apply Nat.ltb_lt. Qed.
-
-Definition mk_noderef {p}{idx : ProgramIndex p} (fr : FileRef idx) (q : nat) : option (NodeRef idx) :=
-  match Bool.bool_dec (Nat.ltb q (occ_count fr)) true with
-  | left E  => Some (node_at fr q (lt_of_ltb q (occ_count fr) E))
-  | right _ => None
-  end.
-
-Definition node_parent {p} {idx : ProgramIndex p} (r : NodeRef idx) : option (NodeRef idx) :=
-  match o_parent (occ_at r) with Some pp => mk_noderef (nr_file r) pp | None => None end.
-
-Definition node_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
-  flat_map
-    (fun q => match mk_noderef (nr_file r) q with
-              | Some c => match o_parent (occ_at c) with
-                          | Some pp => if Nat.eqb pp (nr_pos r) then [c] else []
-                          | None => []
-                          end
-              | None => []
-              end)
-    (seq (S (nr_pos r)) (node_extent r - nr_pos r)).
-
-Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
-  flat_map (fun q => match mk_noderef fr q with Some r => [r] | None => [] end)
-           (seq 0 (occ_count fr)).
-
-Lemma mk_noderef_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (q : nat) (r : NodeRef idx) :
-  mk_noderef fr q = Some r -> nr_file r = fr.
-Proof.
-  unfold mk_noderef; destruct (Bool.bool_dec (Nat.ltb q (occ_count fr)) true);
-    [ intro E; injection E as <-; reflexivity | discriminate ].
-Qed.
-
-Lemma file_nodes_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (r : NodeRef idx) :
-  In r (file_nodes fr) -> nr_file r = fr.
-Proof.
-  unfold file_nodes; intro Hin. apply in_flat_map in Hin. destruct Hin as [q [_ Hin]].
-  destruct (mk_noderef fr q) as [r'|] eqn:E; cbn in Hin.
-  - destruct Hin as [Heq|[]]. subst r'. exact (mk_noderef_file fr q r E).
-  - destruct Hin.
-Qed.
-
-Definition strict_descendant {p} {idx : ProgramIndex p} (a b : NodeRef idx) : Prop :=
-  nr_file a = nr_file b /\ nr_pos a < nr_pos b /\ nr_pos b <= node_extent a.
-
-(* the nested-list induction principle RNode's auto-generated scheme cannot give (kids recurse through list) *)
-Fixpoint RNode_ind' (P : RNode -> Prop)
-  (step : forall v role kids, Forall P kids -> P (mkRNode v role kids))
-  (n : RNode) {struct n} : P n :=
-  match n with
-  | mkRNode v role kids =>
-      step v role kids
-        ((fix kl (ns : list RNode) : Forall P ns :=
-            match ns with
-            | [] => Forall_nil P
-            | k :: rest => Forall_cons k (RNode_ind' P step k) (kl rest)
-            end) kids)
-  end.
-
-(* a named handle for the subtree-size sum the inlined fix inside tree_size computes *)
-Fixpoint sum_tree_size (ns : list RNode) : nat :=
-  match ns with [] => 0 | k :: rest => tree_size k + sum_tree_size rest end.
-
-Lemma tree_size_cons : forall v role kids, tree_size (mkRNode v role kids) = S (sum_tree_size kids).
-Proof. reflexivity. Qed.
-
-Lemma tree_size_pos : forall n, 0 < tree_size n.
-Proof. intros n; destruct n; cbn [tree_size]; lia. Qed.
-
-(* one flatten step: the inlined kids-fix inside flat equals the standalone flat_forest, by induction on kids *)
-Lemma flat_unfold : forall parent base v role kids,
-  flat parent base (mkRNode v role kids)
-  = mkOcc v role parent (base + tree_size (mkRNode v role kids) - 1)
-    :: flat_forest (Some base) (S base) kids.
-Proof.
-  intros parent base v role kids. cbn [flat rn_view rn_role rn_kids]. f_equal.
-  generalize (S base) as b. induction kids as [|k rest IH]; intro b.
-  - reflexivity.
-  - cbn. rewrite IH. reflexivity.
-Qed.
-
-Lemma flat_forest_length : forall ns,
-  Forall (fun k => forall parent base, length (flat parent base k) = tree_size k) ns ->
-  forall parent base, length (flat_forest parent base ns) = sum_tree_size ns.
-Proof.
-  induction ns as [|k rest IH]; intros HF parent base.
-  - reflexivity.
-  - cbn [flat_forest sum_tree_size]. rewrite length_app.
-    inversion HF as [|? ? Hk HFrest]; subst.
-    rewrite (Hk parent base). rewrite (IH HFrest parent (base + tree_size k)). reflexivity.
-Qed.
-
-Lemma flat_length : forall n parent base, length (flat parent base n) = tree_size n.
-Proof.
-  induction n as [v role kids IH] using RNode_ind'; intros parent base.
-  rewrite flat_unfold. cbn [length]. rewrite tree_size_cons. f_equal.
-  apply flat_forest_length. exact IH.
-Qed.
-
-(* every occurrence in flat carries an extent >= its position, the passed parent at head, an earlier parent off it *)
-Definition node_ok (n : RNode) : Prop :=
-  forall parent base i occ,
-    nth_error (flat parent base n) i = Some occ ->
-    base + i <= o_extent occ
-    /\ (i = 0 -> o_parent occ = parent)
-    /\ (i <> 0 -> exists pp, o_parent occ = Some pp /\ base <= pp /\ pp < base + i).
-
-Lemma flat_forest_nth : forall ns, Forall node_ok ns ->
-  forall pbase b, pbase < b -> forall j occ,
-    nth_error (flat_forest (Some pbase) b ns) j = Some occ ->
-    b + j <= o_extent occ /\ (exists pp, o_parent occ = Some pp /\ pbase <= pp /\ pp < b + j).
-Proof.
-  induction ns as [|k rest IH]; intros HF pbase b Hlt j occ Hnth.
-  - destruct j; discriminate Hnth.
-  - cbn [flat_forest] in Hnth.
-    pose proof (flat_length k (Some pbase) b) as HL.
-    destruct (Nat.lt_ge_cases j (length (flat (Some pbase) b k))) as [Hjl | Hjge].
-    + rewrite nth_error_app1 in Hnth by exact Hjl.
-      inversion HF as [|? ? Hk HFrest]; subst.
-      destruct (Hk (Some pbase) b j occ Hnth) as (Hext & Hp0 & Hpn).
-      split; [exact Hext|].
-      destruct (Nat.eq_dec j 0) as [->|Hj0].
-      * exists pbase. split; [exact (Hp0 eq_refl) | split; lia].
-      * destruct (Hpn Hj0) as (pp & Hpp & Hlo & Hhi). exists pp. split; [exact Hpp | split; lia].
-    + rewrite nth_error_app2 in Hnth by exact Hjge.
-      inversion HF as [|? ? Hk HFrest]; subst.
-      assert (Hlt' : pbase < b + tree_size k) by lia.
-      destruct (IH HFrest pbase (b + tree_size k) Hlt'
-                   (j - length (flat (Some pbase) b k)) occ Hnth)
-        as (Hext & pp & Hpp & Hlo & Hhi).
-      split.
-      * replace (b + j) with ((b + tree_size k) + (j - length (flat (Some pbase) b k))) by lia. exact Hext.
-      * exists pp. split; [exact Hpp | split; [exact Hlo|]].
-        replace (b + j) with ((b + tree_size k) + (j - length (flat (Some pbase) b k))) by lia. exact Hhi.
-Qed.
-
-Lemma flat_node_ok : forall n, node_ok n.
-Proof.
-  induction n as [v role kids IH] using RNode_ind'.
-  unfold node_ok. intros parent base i occ Hnth.
-  rewrite flat_unfold in Hnth. destruct i as [|j].
-  - cbn [nth_error] in Hnth. injection Hnth as Heq. subst occ.
-    pose proof (tree_size_pos (mkRNode v role kids)) as Hpos.
-    cbn [o_extent o_parent]. split; [ | split ].
-    + lia.
-    + intros _; reflexivity.
-    + intros H; congruence.
-  - cbn [nth_error] in Hnth.
-    assert (Hlt : base < S base) by lia.
-    destruct (flat_forest_nth kids IH base (S base) Hlt j occ Hnth) as (Hext & pp & Hpp & Hlo & Hhi).
-    repeat split.
-    + replace (base + S j) with (S base + j) by lia. exact Hext.
-    + intros Hc; discriminate Hc.
-    + intros _. exists pp. split; [exact Hpp | split; [lia|]].
-      replace (base + S j) with (S base + j) by lia. exact Hhi.
-Qed.
-
-(* every occurrence list a canonical index yields for a path is either empty or a whole-file [flat None 0 _] *)
-Lemma file_occ_list_flat : forall p (idx : ProgramIndex p) path,
-  (exists f, file_occ_list idx path = flat None 0 (file_tree f))
-  \/ file_occ_list idx path = [].
-Proof.
-  intros p idx path. unfold file_occ_list, prog_occs. rewrite (proj2_sig idx). unfold raw_index.
-  induction (Syntax.program_bindings p) as [|b rest IH]; cbn.
-  - right; reflexivity.
-  - destruct (FilePath.equalb (fst b) path) eqn:E.
-    + left. exists (snd b). reflexivity.
-    + exact IH.
-Qed.
-
-Lemma mk_noderef_some {p} {idx : ProgramIndex p} (fr : FileRef idx) (q : nat) :
-  q < occ_count fr -> exists r, mk_noderef fr q = Some r.
-Proof.
-  intros H. unfold mk_noderef.
-  destruct (Bool.bool_dec (Nat.ltb q (occ_count fr)) true) as [E|E];
-    [ eexists; reflexivity | exfalso; apply E; apply Nat.ltb_lt; exact H ].
-Qed.
-
-(* identity is file + position; the in-range proof is irrelevant (le is a proposition with unique proofs) *)
-Lemma noderef_positional {p} {idx : ProgramIndex p} (a b : NodeRef idx) :
-  nr_file a = nr_file b -> nr_pos a = nr_pos b -> a = b.
-Proof.
-  destruct a as [fa pa Ha], b as [fb pb Hb]; simpl; intros Ef Ep; subst.
-  f_equal; apply lt_unique.
-Qed.
-
-(* a selector cannot cross indices: NodeRef is indexed by idx, so a foreign-index NodeRef is a distinct type *)
-Definition foreign_index_by_type {p} (idx : ProgramIndex p) : Prop := True.
-
-(* node_kind is derived from node_view, so the classification always matches the retained fragment *)
-Lemma view_exact_all_kinds {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  kind_of_view (node_view r) = node_kind r.
-Proof. reflexivity. Qed.
-
-(* every projection is total on the canonical index (no fallback); node_parent is None exactly at the file root *)
-Lemma node_total {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  (nr_pos r = 0 -> node_parent r = None) /\ (nr_pos r <> 0 -> node_parent r <> None).
-Proof.
-  destruct (file_occ_list_flat p idx (fr_path (nr_file r))) as [(f & Hf) | Hnil].
-  - assert (E : nth_error (flat None 0 (file_tree f)) (nr_pos r) = Some (occ_at r)).
-    { rewrite <- Hf. apply occ_at_spec. }
-    destruct (flat_node_ok (file_tree f) None 0 (nr_pos r) (occ_at r) E) as (_ & Hp0 & Hpn).
-    unfold node_parent. split.
-    + intros H0. rewrite (Hp0 H0). reflexivity.
-    + intros Hn0. destruct (Hpn Hn0) as (pp & Hpp & _ & Hhi). rewrite Hpp.
-      destruct (mk_noderef_some (nr_file r) pp) as (r' & Hr').
-      { pose proof (nr_lt r). lia. }
-      rewrite Hr'. discriminate.
-  - exfalso. pose proof (nr_lt r) as HL. unfold occ_count in HL. rewrite Hnil in HL. cbn in HL. lia.
-Qed.
-
-(* positions are the exact preorder: a node's extent bounds it below, and any parent position is strictly earlier *)
-Lemma occ_order_exact {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  nr_pos r <= node_extent r
-  /\ (forall pp, o_parent (occ_at r) = Some pp -> pp < nr_pos r).
-Proof.
-  destruct (file_occ_list_flat p idx (fr_path (nr_file r))) as [(f & Hf) | Hnil].
-  - assert (E : nth_error (flat None 0 (file_tree f)) (nr_pos r) = Some (occ_at r)).
-    { rewrite <- Hf. apply occ_at_spec. }
-    destruct (flat_node_ok (file_tree f) None 0 (nr_pos r) (occ_at r) E) as (Hext & Hp0 & Hpn).
-    split.
-    + unfold node_extent. lia.
-    + intros pp Hpp. destruct (Nat.eq_dec (nr_pos r) 0) as [H0|Hn0].
-      * rewrite (Hp0 H0) in Hpp. discriminate Hpp.
-      * destruct (Hpn Hn0) as (pp' & Hpp' & _ & Hhi). rewrite Hpp' in Hpp. injection Hpp as <-. lia.
-  - exfalso. pose proof (nr_lt r) as HL. unfold occ_count in HL. rewrite Hnil in HL. cbn in HL. lia.
-Qed.
-
-(* rpv_b: every VTop-view node carries RPlain, since only node_of_toplevel emits VTop, always with RPlain *)
-Fixpoint rpv_b (n : RNode) : bool :=
-  match rn_view n with VTop _ => match rn_role n with RPlain => true | _ => false end | _ => true end
-  && (fix allb (ns : list RNode) : bool := match ns with [] => true | k :: rest => rpv_b k && allb rest end)
-       (rn_kids n).
-
-Lemma rpv_b_cons : forall v role kids,
-  rpv_b (mkRNode v role kids)
-  = (match v with VTop _ => match role with RPlain => true | _ => false end | _ => true end)
-    && forallb rpv_b kids.
-Proof.
-  intros v role kids. cbn [rpv_b rn_view rn_role rn_kids]. f_equal.
-Qed.
-
-Lemma forallb_rpv_app : forall l1 l2,
-  forallb rpv_b l1 = true -> forallb rpv_b l2 = true -> forallb rpv_b (l1 ++ l2) = true.
-Proof.
-  intros l1 l2 H1 H2. apply forallb_forall. intros n Hn. apply in_app_or in Hn.
-  destruct Hn as [Hn|Hn]; [ rewrite forallb_forall in H1; apply H1 | rewrite forallb_forall in H2; apply H2 ]; exact Hn.
-Qed.
-Lemma forallb_rpv_map : forall {A} (g : A -> RNode) (l : list A),
-  (forall x, rpv_b (g x) = true) -> forallb rpv_b (map g l) = true.
-Proof.
-  intros A g l H. apply forallb_forall. intros y Hy. apply in_map_iff in Hy.
-  destruct Hy as [x [<- _]]. apply H.
-Qed.
-
-Lemma rpv_b_typeexpr : forall role t, rpv_b (node_of_typeexpr role t) = true.
-Proof. intros role t; unfold node_of_typeexpr; rewrite rpv_b_cons; apply andb_true_intro; split; reflexivity. Qed.
-Lemma rpv_b_bindingname : forall role b, rpv_b (node_of_bindingname role b) = true.
-Proof. intros role b; unfold node_of_bindingname; rewrite rpv_b_cons; apply andb_true_intro; split; reflexivity. Qed.
-Lemma rpv_b_opttype : forall ot, forallb rpv_b (opttype_nodes ot) = true.
-Proof. intros [t|]; cbn [opttype_nodes]; [ cbn [forallb]; rewrite rpv_b_typeexpr; reflexivity | reflexivity ]. Qed.
-
-(* the application-argument subtrees, named so the proof can induct over them *)
-Fixpoint arg_nodes (i : nat) (es : list Syntax.Expr) : list RNode :=
-  match es with [] => [] | a :: rest => node_of_expr (RApplicationArg i) a :: arg_nodes (S i) rest end.
-Lemma node_of_expr_app : forall role head args,
-  node_of_expr role (Syntax.Application head args)
-  = mkRNode (VExpr (Syntax.Application head args)) role (node_of_expr RApplicationHead head :: arg_nodes 0 args).
-Proof. intros role head args; reflexivity. Qed.
-Lemma arg_nodes_cons : forall i a rest,
-  arg_nodes i (a :: rest) = node_of_expr (RApplicationArg i) a :: arg_nodes (S i) rest.
-Proof. reflexivity. Qed.
-Lemma node_of_expr_unary : forall role op e',
-  node_of_expr role (Syntax.Unary op e')
-  = mkRNode (VExpr (Syntax.Unary op e')) role [node_of_expr RUnaryOperand e'].
-Proof. reflexivity. Qed.
-
-Lemma rpv_b_arg_nodes : forall args,
-  Forall (fun a => forall role, rpv_b (node_of_expr role a) = true) args ->
-  forall i, forallb rpv_b (arg_nodes i args) = true.
-Proof.
-  induction args as [|a rest IH]; intros HF i; [reflexivity|].
-  rewrite arg_nodes_cons; cbn [forallb]. inversion HF as [|? ? Ha Hrest]; subst.
-  rewrite (Ha (RApplicationArg i)), (IH Hrest (S i)); reflexivity.
-Qed.
-
-Lemma rpv_b_expr : forall e role, rpv_b (node_of_expr role e) = true.
-Proof.
-  intro e; induction e as [n|l|op e' IH|head args IHhead IHargs] using Syntax.Expr_ind'; intro role.
-  - reflexivity.
-  - reflexivity.
-  - rewrite node_of_expr_unary, rpv_b_cons; apply andb_true_intro; split; [reflexivity|].
-    cbn [forallb]; rewrite (IH RUnaryOperand); reflexivity.
-  - rewrite node_of_expr_app, rpv_b_cons; apply andb_true_intro; split; [reflexivity|].
-    cbn [forallb]; rewrite (IHhead RApplicationHead); cbn [andb].
-    exact (rpv_b_arg_nodes args IHargs 0).
-Qed.
-
-Lemma rpv_b_constspec : forall role cs, rpv_b (node_of_constspec role cs) = true.
-Proof.
-  intros role cs. unfold node_of_constspec. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  apply forallb_rpv_app; [ apply forallb_rpv_map; intro; apply rpv_b_bindingname |].
-  destruct (Syntax.const_init cs) as [ot vals|];
-    [ apply forallb_rpv_app; [ apply rpv_b_opttype | apply forallb_rpv_map; intro; apply rpv_b_expr ] | reflexivity ].
-Qed.
-Lemma rpv_b_varspec : forall role vs, rpv_b (node_of_varspec role vs) = true.
-Proof.
-  intros role vs. unfold node_of_varspec. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  apply forallb_rpv_app; [ apply forallb_rpv_map; intro; apply rpv_b_bindingname |].
-  destruct (Syntax.var_init vs) as [t|ot vals];
-    [ cbn [forallb]; rewrite rpv_b_typeexpr; reflexivity
-    | apply forallb_rpv_app; [ apply rpv_b_opttype | apply forallb_rpv_map; intro; apply rpv_b_expr ] ].
-Qed.
-Lemma rpv_b_typespec : forall role ts, rpv_b (node_of_typespec role ts) = true.
-Proof.
-  intros role ts. unfold node_of_typespec. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  destruct ts; cbn [forallb]; rewrite rpv_b_bindingname, rpv_b_typeexpr; reflexivity.
-Qed.
-Lemma rpv_b_decl : forall role d, rpv_b (node_of_decl role d) = true.
-Proof.
-  intros role d. unfold node_of_decl. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  destruct d; apply forallb_rpv_map; intro; [ apply rpv_b_constspec | apply rpv_b_varspec | apply rpv_b_typespec ].
-Qed.
-Lemma rpv_b_stmt : forall role s, rpv_b (node_of_stmt role s) = true.
-Proof.
-  intros role s. unfold node_of_stmt. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  destruct s as [e|d|names vals]; cbn [forallb].
-  - rewrite rpv_b_expr; reflexivity.
-  - rewrite rpv_b_decl; reflexivity.
-  - apply forallb_rpv_app; apply forallb_rpv_map; intro; [ apply rpv_b_bindingname | apply rpv_b_expr ].
-Qed.
-Lemma rpv_b_block : forall role b, rpv_b (node_of_block role b) = true.
-Proof.
-  intros role b. unfold node_of_block. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  destruct b; apply forallb_rpv_map; intro; apply rpv_b_stmt.
-Qed.
-Lemma rpv_b_toplevel_plain : forall t, rpv_b (node_of_toplevel RPlain t) = true.
-Proof.
-  intros t. unfold node_of_toplevel. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  destruct t; cbn [forallb]; [ rewrite rpv_b_decl | rewrite rpv_b_block ]; reflexivity.
-Qed.
-Lemma rpv_b_file_tree : forall f, rpv_b (file_tree f) = true.
-Proof.
-  intros f. unfold file_tree. rewrite rpv_b_cons. apply andb_true_intro; split; [reflexivity|].
-  apply forallb_rpv_map; intro; apply rpv_b_toplevel_plain.
-Qed.
-
-(* flatten preserves the rpv discipline into every occurrence *)
-Definition rv_ok (n : RNode) : Prop :=
-  forall parent base i occ, nth_error (flat parent base n) i = Some occ ->
-    forall t, o_view occ = VTop t -> o_role occ = RPlain.
-
-Lemma flat_forest_rv : forall ns, Forall rv_ok ns ->
-  forall parent base j occ, nth_error (flat_forest parent base ns) j = Some occ ->
-    forall t, o_view occ = VTop t -> o_role occ = RPlain.
-Proof.
-  induction ns as [|k rest IH]; intros HF parent base j occ Hnth t Hv.
-  - destruct j; discriminate Hnth.
-  - cbn [flat_forest] in Hnth. destruct (Nat.lt_ge_cases j (length (flat parent base k))) as [Hjl|Hjge].
-    + rewrite nth_error_app1 in Hnth by exact Hjl.
-      inversion HF as [|? ? Hk HFrest]; subst. exact (Hk parent base j occ Hnth t Hv).
-    + rewrite nth_error_app2 in Hnth by exact Hjge.
-      inversion HF as [|? ? Hk HFrest]; subst.
-      exact (IH HFrest parent (base + tree_size k) (j - length (flat parent base k)) occ Hnth t Hv).
-Qed.
-
-Lemma flat_rv : forall n, rpv_b n = true -> rv_ok n.
-Proof.
-  induction n as [v role kids IH] using RNode_ind'. intro Hrpv.
-  rewrite rpv_b_cons in Hrpv. apply andb_true_iff in Hrpv as [Hhead Hkids].
-  unfold rv_ok; intros parent base i occ Hnth t Hv. rewrite flat_unfold in Hnth. destruct i as [|j].
-  - cbn [nth_error] in Hnth. injection Hnth as <-. cbn [o_view o_role] in *.
-    subst v. destruct role; first [ reflexivity | discriminate Hhead ].
-  - cbn [nth_error] in Hnth.
-    assert (Hrv : Forall rv_ok kids).
-    { apply Forall_forall. intros k Hk. apply (proj1 (Forall_forall _ _) IH k Hk).
-      apply (proj1 (forallb_forall _ _) Hkids k Hk). }
-    exact (flat_forest_rv kids Hrv (Some base) (S base) j occ Hnth t Hv).
-Qed.
-
-(* the anonymous top-level main declaration carries role RPlain, so it is never a name binder *)
-Lemma main_role_plain {p} {idx : ProgramIndex p} (r : NodeRef idx) (body : Syntax.Block) :
-  node_view r = VTop (Syntax.Main body) -> node_role r = RPlain.
-Proof.
-  intro Hv. destruct (file_occ_list_flat p idx (fr_path (nr_file r))) as [(f & Hf) | Hnil].
-  - assert (E : nth_error (flat None 0 (file_tree f)) (nr_pos r) = Some (occ_at r)).
-    { rewrite <- Hf. apply occ_at_spec. }
-    apply (flat_rv (file_tree f) (rpv_b_file_tree f) None 0 (nr_pos r) (occ_at r) E (Syntax.Main body)).
-    unfold node_view in Hv. exact Hv.
-  - exfalso. pose proof (nr_lt r) as HL. unfold occ_count in HL. rewrite Hnil in HL. cbn in HL. lia.
-Qed.
-
-(* strict descent is well-founded: occ_count - position strictly decreases toward descendants in the same file *)
-Lemma descendant_wellfounded {p} {idx : ProgramIndex p} :
-  well_founded (fun b a : NodeRef idx => strict_descendant a b).
-Proof.
-  apply (well_founded_lt_compat _ (fun r => occ_count (nr_file r) - nr_pos r)).
-  intros x y H. destruct H as (Ef & Hlt & _).
-  pose proof (nr_lt x) as Hx. rewrite Ef. lia.
 Qed.

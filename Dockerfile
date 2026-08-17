@@ -234,21 +234,21 @@ echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and
 #      index_program, package_surface, bindings, package_facts, facts).  A downstream module that rebuilt the
 #      index or a phase would re-derive a peer object (rule 4 / no raw-source semantic enumeration), so the
 #      child modules name none of those builders, and Report is projection-only.
-for pair in Index.index_program PI.package_surface BN.bindings PK.package_facts FA.facts; do
+for pair in Index.index_program PI.package_surface BN.bindings AN.package_facts AN.facts; do
   n=$(grep -coF "$pair" Compilable.v || true)
   [ "$n" = "1" ] || fail "one-build control: Compilable.elaborate names $pair $n time(s), expected exactly once"
 done
-for f in Compilable/Report.v Compilable/Bindings.v Compilable/Facts.v Compilable/Packages.v; do
+for f in Compilable/Report.v Compilable/Bindings.v Compilable/Analysis.v; do
   if grep -qE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; then grep -nE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; fail "one-build control: $f rebuilds the index/fold instead of reading the threaded one"; fi
 done
 # Report is projection-only: it resolves, classifies, and indexes NOTHING — it names no resolver, index
 # builder, phase builder, type layer, or peer composer (contract: Report does not reference index_program,
 # package-surface/package-fact builders, resolve, facts, TypeResolution, or another composer).
-if grep -qE 'Index\.index_program|PI\.package_surface|BN\.bindings|PK\.package_facts|FA\.facts\b|\bresolve\b|TypeResolution' Compilable/Report.v; then
-  grep -nE 'Index\.index_program|PI\.package_surface|BN\.bindings|PK\.package_facts|FA\.facts\b|\bresolve\b|TypeResolution' Compilable/Report.v
+if grep -qE 'Index\.index_program|PI\.package_surface|BN\.bindings|AN\.package_facts|AN\.facts\b|\bresolve\b|TypeResolution' Compilable/Report.v; then
+  grep -nE 'Index\.index_program|PI\.package_surface|BN\.bindings|AN\.package_facts|AN\.facts\b|\bresolve\b|TypeResolution' Compilable/Report.v
   fail "projection-only control: Compilable.Report names a resolver, index/phase builder, type layer, or composer"
 fi
-echo "fido: one-build control OK — Compilable.elaborate builds index + four phases once each and threads them; Report/Bindings/Facts/Packages rebuild nothing; Report is projection-only"
+echo "fido: one-build control OK — Compilable.elaborate builds index + four phases once each and threads them; Report/Bindings/Analysis rebuild no index; Report is projection-only"
 # (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi
@@ -398,8 +398,8 @@ meta_reject reachable "$SEALED_PRELUDE" Compilable.compile Compilable.compile 'I
 # merely be absent, so each gets its own control with its own expected reason.
 typefail() {  # <label> <what> <definition text>
   { printf 'From Stdlib Require Import String List.\n';
-    printf 'From Fido Require Import FilePath Collections ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Packages Compilable.Facts Compilable.Report Safe Render Emit.\n';
-    printf 'Module IX := Index. Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module PG := Compilable.Packages. Module FA := Compilable.Facts. Module RP := Compilable.Report. Module CP := Compilable. Module PR := Compilable.Prog.\n';
+    printf 'From Fido Require Import FilePath Collections ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Safe Render Emit.\n';
+    printf 'Module IX := Index. Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis. Module RP := Compilable.Report. Module CP := Compilable. Module PR := Compilable.Prog.\n';
     printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/typefail.v
   if rocq c -Q _build/default/. Fido /tmp/typefail.v > /tmp/typefail.log 2>&1; then
     cat /tmp/typefail.log; fail "typing control $1: $2 WAS constructible — its type does not force the constraint"
@@ -410,11 +410,13 @@ typefail() {  # <label> <what> <definition text>
 # R5/R1/R2/R3 intrinsic-unforgeability negative CLIENTS.  Each is positive-load-guarded by the shared prelude
 # (the positive control below fails loudly if that prelude does not load) and must fail for the intended TYPING
 # reason, never because a prerequisite is absent.
-# — capability/decision provenance (a bad compilation mints nothing) —
-typefail neg_program_for_bad_compilation "a capability for a non-admissible compilation" \
-  'Definition forged (p : Syntax.Program) (H : CP.diagnostics (CP.elaborate p) <> nil) : PR.Program (CP.elaborate p) := PR.issue (CP.elaborate p) H.'
-typefail neg_compiled_for_bad_compilation "a Compiled decision without a real capability" \
-  'Definition forged (p : Syntax.Program) : CP.Decision p := CP.Compiled (CP.elaborate p) tt.'
+# — capability/decision provenance: a Prog comes ONLY from compiled_prog on a real compiled payload —
+typefail neg_prog_from_rejected "a capability projected from a rejected payload" \
+  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) (rp : CP.RejectedPayload (CP.compile p) c) : PR.Program c := PR.compiled_prog rp.'
+typefail neg_compiled_without_admissible "a Compiled decision without an admissibility proof" \
+  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) : CP.Decision p := CP.DCompiled c tt.'
+typefail neg_moved_payload "a compiled payload moved to a foreign decision" \
+  'Definition forged (p : Syntax.Program) (d e : CP.Decision p) (c : CP.Compilation p) (cp : CP.CompiledPayload d c) : CP.CompiledPayload e c := cp.'
 typefail neg_moved_result "a decision moved to a foreign program" \
   'Definition forged (p q : Syntax.Program) (d : CP.Decision p) : CP.Decision q := d.'
 typefail neg_foreign_lower_phase "a binding phase from a foreign surface" \
@@ -422,38 +424,32 @@ typefail neg_foreign_lower_phase "a binding phase from a foreign surface" \
 # — index / occurrence / selector (R1) —
 typefail neg_foreign_index_occurrence "an occurrence used at a foreign index" \
   'Definition forged (p q : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : IX.NodeRef (IX.index_program q) := r.'
-typefail neg_foreign_occurrence "an occurrence built from a foreign file selector" \
-  'Definition forged (p q : Syntax.Program) (fr : IX.FileRef (IX.index_program p)) (n : nat) (H : n < IX.occ_count fr) : IX.NodeRef (IX.index_program q) := IX.node_at fr n H.'
-typefail neg_out_of_range_selector "an occurrence at an out-of-range position" \
-  'Definition forged (p : Syntax.Program) (fr : IX.FileRef (IX.index_program p)) : IX.NodeRef (IX.index_program p) := IX.node_at fr 999 eq_refl.'
+typefail neg_out_of_range_selector "an occurrence with a forged membership proof" \
+  'Definition forged (p : Syntax.Program) (fr : IX.FileRef (IX.index_program p)) : IX.NodeRef (IX.index_program p) := IX.mkNodeRef fr (Pos.of_succ_nat 999) eq_refl.'
 typefail neg_foreign_surface_package "a package reference from a foreign surface" \
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sp) : PI.PackageRef sq := pr.'
-# — package-main reference (R2): anonymous Syntax.Main, MainDeclRef is the SOLE public semantic carrier —
-typefail neg_non_main_decl_ref "a MainDeclRef from a node not proved to be main" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) (Hpkg : PI.package_of_file s (IX.nr_file r) = pr) : BN.MainDeclRef s pr := BN.main_decl_ref r eq_refl Hpkg.'
-typefail neg_main_block_as_main_decl "a MainDeclRef from the child block beneath a Main" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (b : IX.NodeRef (IX.index_program p)) (Hblk : IX.node_kind b = IX.BlockKind) (Hpkg : PI.package_of_file s (IX.nr_file b) = pr) : BN.MainDeclRef s pr := BN.main_decl_ref b eq_refl Hpkg.'
+# — package-main reference (R2): fixed Syntax.Main, MainDeclRef is the SOLE public semantic carrier —
+typefail neg_non_main_decl_ref "a MainDeclRef from a node not proved to be a main occurrence" \
+  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) (Hpkg : PI.package_of_file s (IX.nr_file r) = pr) : BN.MainDeclRef s pr := BN.main_decl_ref (IX.mkMainOccurrenceRef r eq_refl) Hpkg.'
 typefail neg_foreign_main_package "a MainDeclRef reassigned to a foreign package of the same surface" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (prA prB : PI.PackageRef s) (m : BN.MainDeclRef s prA) : BN.MainDeclRef s prB := m.'
 typefail neg_foreign_main_surface "a MainDeclRef moved to a foreign surface" \
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (prp : PI.PackageRef sp) (prq : PI.PackageRef sq) (m : BN.MainDeclRef sp prp) : BN.MainDeclRef sq prq := m.'
 typefail neg_moved_main_decl_ref "a main node moved across its index" \
   'Definition forged (p q : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : IX.NodeRef (IX.index_program q) := BN.main_node m.'
-typefail neg_binder_as_main_decl "a BinderRef accepted directly by MainUnique" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (b : BN.BinderRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainUnique b.'
-typefail neg_raw_node_as_main_decl "a raw NodeRef accepted directly by MainUnique" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainUnique r.'
+typefail neg_raw_node_as_main_decl "a raw NodeRef accepted directly by MainOne" \
+  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainOne r.'
+typefail neg_binder_as_main_decl "a BinderRef accepted directly by MainOne" \
+  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (b : BN.BinderRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainOne b.'
 typefail neg_main_decl_as_binder "a BinderRef built from a main node" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : BN.BinderRef (IX.index_program p) := BN.binder_ref (BN.main_node m) eq_refl.'
 typefail neg_main_decl_as_source_object "a SourceObject built from a MainDeclRef" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : BN.ObjectRef (IX.index_program p) := BN.SourceObject m.'
-# — report / facts (R3/R4): diagnostics carry a producing proof, no self-block, no nullary requirement —
+# — report / analysis (R3/R4): diagnostics carry a producing proof, no self-block, no nullary requirement —
 typefail neg_free_report_record "a Diagnostic without its producing proof" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase s) (fp : FA.FactPhase bp) (pf : PG.PackageFacts bp) (site : RP.DiagSite s) : RP.Diagnostic fp pf := RP.diag_at fp pf site eq_refl.'
-typefail neg_block_self_cycle "a block witness whose root is the blocked node itself" \
-  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : FA.BlockWitness r := FA.block_witness r eq_refl.'
+  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase s) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (site : AN.DiagSite s) : AN.Diagnostic fp pf := AN.diag_at fp pf site eq_refl.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
-  'Definition forged (p : Syntax.Program) : FA.Requirement (IX.index_program p) := FA.ReqComplexType.'
+  'Definition forged (p : Syntax.Program) : AN.Requirement (IX.index_program p) := AN.ReqComplexType.'
 # — image (R5): of_safe is the sole route and carries only the certified program (no byte/file slots) —
 typefail neg_raw_image_bytes "an image carrying a raw byte string" \
   'Definition forged (sp : Safe.Program) : Emit.Image := Emit.of_safe sp "raw"%string.'
@@ -463,49 +459,46 @@ typefail neg_foreign_image_bytes "an image carrying a foreign file map" \
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
 From Stdlib Require Import String List.
-From Fido Require Import Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Packages Compilable.Facts Compilable.Report Safe Render Emit.
+From Fido Require Import Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Safe Render Emit.
 Import ListNotations.
-Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module RP := Compilable.Report.
-(* eliminate the SUPPLIED Decision and read each branch's exact (c, prog)/proof, using only the public surface *)
+Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis.
+(* compile is the sole Decision source; inspect the sole eliminator, revealing each branch's exact (c, payload) *)
 Definition decision_case (p : Syntax.Program) : nat :=
-  match Compilable.compile p with
-  | Compilable.Compiled _ _ => 0 | Compilable.Rejected _ _ => 1 | Compilable.OutsideScope _ _ _ => 2 end.
+  match Compilable.inspect (Compilable.compile p) with
+  | Compilable.IsCompiled _ _ => 0 | Compilable.IsRejected _ _ => 1 | Compilable.IsOutside _ _ => 2 end.
 (* a supplied Compiled yields THAT exact compilation without re-invoking compile *)
 Definition from_compiled (p : Syntax.Program) (d : Compilable.Decision p) : option Syntax.Program :=
-  match d with Compilable.Compiled c _ => Some (Compilable.comp_source c) | _ => None end.
-Definition accepted_pair (p : Syntax.Program) (c : Compilable.Compilation p) (prog : Compilable.Prog.Program c)
-  : Compilable.Compilation p * Compilable.Prog.Program c := (c, prog).
-(* direct decision construction is lawful ONLY with the exact compilation and the exact required proof *)
-Definition mk_compiled (p : Syntax.Program) (H : Compilable.Admissible (Compilable.elaborate p))
-  : Compilable.Decision p := Compilable.Compiled (Compilable.elaborate p) (Compilable.Prog.issue (Compilable.elaborate p) H).
-Definition mk_rejected (p : Syntax.Program) (H : Compilable.diagnostics (Compilable.elaborate p) <> nil)
-  : Compilable.Decision p := Compilable.Rejected (Compilable.elaborate p) H.
-Definition mk_outside (p : Syntax.Program) (Hd : Compilable.diagnostics (Compilable.elaborate p) = nil)
-  (Hb : Compilable.boundaries (Compilable.elaborate p) <> nil)
-  : Compilable.Decision p := Compilable.OutsideScope (Compilable.elaborate p) Hd Hb.
-(* an admissible Prog.issue is lawful *)
-Definition mk_prog (p : Syntax.Program) (H : Compilable.Admissible (Compilable.elaborate p))
-  : Compilable.Prog.Program (Compilable.elaborate p) := Compilable.Prog.issue (Compilable.elaborate p) H.
-(* certify the exact compiled program, then of_safe / transport — the sole image route *)
-Definition certify_it (src : Syntax.Program) (c : Compilable.Compilation src)
-  (prog : Compilable.Prog.Program c) (H : Safe.Property prog) : Safe.Program := Safe.certify src c prog H.
+  match Compilable.inspect d with Compilable.IsCompiled c _ => Some (Compilable.comp_source c) | _ => None end.
+(* compiled_prog is the sole Prog projection, from the exact supplied compiled payload *)
+Definition cap_of (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
+  (cp : Compilable.CompiledPayload d c) : Compilable.Prog.Program c := Compilable.Prog.compiled_prog cp.
+(* the revealed rejected/outside reports are the exact retained lists of that compilation *)
+Definition rej_diags (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
+  (rp : Compilable.RejectedPayload d c) : list (Compilable.Diagnostic c) := Compilable.rejected_diagnostics rp.
+Definition out_bounds (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
+  (op : Compilable.OutsidePayload d c) : list (Compilable.Boundary c) := Compilable.outside_boundaries op.
+(* Admissible is a characterization of the exact report lists, not a capability constructor *)
+Definition adm_iff (p : Syntax.Program) (c : Compilable.Compilation p)
+  : Compilable.Admissible c <-> Compilable.diagnostics c = nil /\ Compilable.boundaries c = nil
+  := Compilable.admissible_iff_reports c.
+(* certify the exact compiled program (source, decision, revealed compilation, payload, property), then emit *)
+Definition certify_it (src : Syntax.Program) (d : Compilable.Decision src) (c : Compilable.Compilation src)
+  (cp : Compilable.CompiledPayload d c) (H : Safe.Property (Compilable.Prog.compiled_prog cp)) : Safe.Program
+  := Safe.certify src d c cp H.
 Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
 Definition emitted_bytes (sp : Safe.Program) : string * list (string * string) := Emit.transport (Emit.of_safe sp).
-(* the public main-result constructors accept package-indexed MainDeclRef payloads and no completeness proofs *)
-Definition mk_unique (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m : BN.MainDeclRef s pr) : BN.MainStatus s pr := BN.MainUnique m.
-Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : BN.MainStatus s pr := BN.MainRedeclared m1 m2 rest.
+(* the public main multiplicity and canonical group issue over package-indexed MainDeclRef payloads *)
+Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
+  (m : BN.MainDeclRef s pr) : BN.MainStatus s pr := BN.MainOne m.
+Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
+  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : BN.MainStatus s pr := BN.MainMultiple m1 m2 rest.
 Definition mk_pkg_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : RP.ReportCause s := RP.PkgMainRedeclared pr m1 m2 rest.
-(* main_body is a transparent projection of the exact retained node view *)
-Definition body_of (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m : BN.MainDeclRef s pr) : Syntax.Block := BN.main_body m.
+  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : AN.IssueCause s := AN.PkgMainRedeclared pr m1 m2 rest.
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — supplied-Decision elimination to exact (c,prog); lawful Prog.issue + direct Compiled/Rejected/OutsideScope construction with exact proofs; certify + of_safe + transport; MainUnique/MainRedeclared/PkgMainRedeclared over MainDeclRef payloads; main_body projection — all reachable (as required)"
+echo "fido: sealed positive control — compile is the sole Decision source and inspect its sole eliminator, revealing each branch's exact (c, payload); compiled_prog is the sole Prog projection; rejected/outside report accessors + admissible_iff_reports; Safe.certify over (src, decision, revealed compilation, compiled payload, property) + of_safe + transport; MainOne/MainMultiple/PkgMainRedeclared over MainDeclRef payloads — all reachable (as required)"
 echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage deleted-family absence probes F-X/Y-AD/AL-AQ (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (capability/index/occurrence/selector/package/main/report/image) + positive control"
 SH
 
@@ -1477,7 +1470,7 @@ SH
 #    adapter (linking Sink) and bakes in the pristine `generated-module` layer; run with the repo root
 #    bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink.  It never
 #    re-generates or renders.  VALIDATE-BEFORE-PUBLISH: it COPYs the go-e2e /fresh-build-ok DAG edge, so building
-#    `sync` FORCES go-e2e (the pinned `go build ./...`) to succeed first — a failing fresh build makes this stage
+#    `sync` FORCES go-e2e (the pinned `go build ./...`) to succeed first — a failing validation makes this stage
 #    unbuildable — and it publishes the ORIGINAL generated-module layer, never a go-e2e build directory.
 FROM emit AS sync
 COPY --from=go-e2e /fresh-build-ok /fresh-build-ok

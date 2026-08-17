@@ -4,4 +4,4 @@
  (name Fido)
  (synopsis "Fido — a Rocq-to-Go generator: Compilable.compile is the sole Go static verdict over one retained Index (binding, typing, package rules, fresh-build preflight, exact diagnostics, and the three-way Compiled/Rejected/OutsideScope), Safe adds proof-taking post-compile safety, Render is a sibling branch mapping the same Syntax.Program to canonical bytes, and the two branches join at the Emit.Image a validate-before-publish sink materializes; Collections wraps pinned-stdlib maps")
  (theories Stdlib)
- (modules Decimal Integer Float Complex FilePath ModulePath Version Collections Names Syntax Index Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Report Compilable.Facts Compilable.Packages Compilable Machine Safe Render Emit))
+ (modules Decimal Integer Float Complex FilePath ModulePath Version Collections Names Syntax Index Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Compilable Machine Safe Render Emit))

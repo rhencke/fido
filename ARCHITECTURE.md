@@ -47,7 +47,7 @@ gate. **Axiom-free is not correct** — always check that the theorem's statemen
 | `Names` | lexical identifier validity, ordinary-name refinement, the complete pinned predeclared spelling identity catalog, and the byte-level ASCII predicate every rendered file is proved to satisfy | scope, binding, semantic type, call rules, or support policy |
 | `Syntax` | source structure and source values | resolution, object identity, semantic type, diagnostics, variable identity, or behaviour |
 | `Index` | exact source-occurrence identity, views, parents, children, and source roles | binding, typing, diagnostics, or semantic facts |
-| `Compilable` | scopes, semantic objects, binding, the retained static analysis, type/expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision — its type forms, package identity, binding, report and package facts living in physical child modules (`Compilable.TypeResolution`, `Compilable.PackageIdentity`, `Compilable.Bindings`, `Compilable.Report`, `Compilable.Facts`, `Compilable.Packages`), never peer layers | runtime values, dynamic places or environments, rendering, or behaviour |
+| `Compilable` | scopes, semantic objects, binding, the retained static analysis, type/expression/use/application facts, result plans, static variable identity, dependency objects, diagnostics, scope boundaries, and the three-way decision — its type forms, package identity, binding, analysis and report living in physical child modules (`Compilable.TypeResolution`, `Compilable.PackageIdentity`, `Compilable.Bindings`, `Compilable.Analysis`, `Compilable.Report`), never peer layers | runtime values, dynamic places or environments, rendering, or behaviour |
 | `Machine` | the one behaviour relation and derived runs | static compilation or a second evaluator |
 | `Safe` | only the safety property and the transparent certificate retaining the exact compiled capability | values, stores, evaluation, rendering, or static facts |
 | `Render` | direct canonical source bytes | binding, typing, fact construction, or evaluation |
@@ -112,26 +112,29 @@ C6 decomposes `Compilable` on exactly this rule:
 ```text
 Compilable/TypeResolution.v    the permanent type-form layer (`TypeForm`, constants, conversion forms) — form, never identity
 Compilable/PackageIdentity.v   the retained package surface, `PackageRef` position selectors, and `package_of_file`
-Compilable/Bindings.v          scopes, object-establishing binders, declaration-kind visibility, and the anonymous
-                               package-main declaration carried as `MainDeclRef s pr`; the retained binding phase
-Compilable/Facts.v             per-site value/application/statement/type-use outcome families and strict-descendant
-                               blocking, over one retained fact phase built once
-Compilable/Packages.v          the fresh-build preflight disposition and the package rule (definitionally the retained main)
-Compilable/Report.v            projection only: it resolves and classifies nothing, projecting the retained facts and
-                               package facts into ordered diagnostics and boundaries
-Compilable.v                   the sole composer: one retained `Compilation` built once, the abstract `Prog.Program`
-                               capability, and the permanent three-way `Compiled`/`Rejected`/`OutsideScope` decision
+Compilable/Bindings.v          scopes, object-establishing binders, declaration-kind visibility, and the fixed-spelling
+                               `func main()` occurrence qualified through PackageIdentity as `MainDeclRef s pr`, with
+                               `MainMissing`/`MainOne`/`MainMultiple` multiplicity; the retained binding phase
+Compilable/Analysis.v          the sole fact and issue authority: per-occurrence value/application/statement/type-use
+                               outcomes with blocking over one retained fact phase, the selected-nonempty-package
+                               fresh-output preflight, and the one canonical issue table (cause, class, subject, root, order)
+Compilable/Report.v            projection only: it resolves and classifies nothing, projecting the canonical Analysis
+                               issue table into ordered diagnostics and boundaries
+Compilable.v                   the sole composer and sealed public surface: one retained abstract `Compilation` built once,
+                               `compile` the sole `Decision` source, `inspect` its sole eliminator, `compiled_prog` the sole
+                               payload-gated `Prog` projection, and the permanent three-way Compiled/Rejected/Outside decision
 ```
 
-TypeResolution and PackageIdentity precede Bindings; Bindings precedes Facts and Packages; Facts and Packages
-precede Report; Report precedes `Compilable.v`. No child imports `Compilable.v`. Further C6 children (package
-dependency order, runtime) stay prose-only and frozen until this repair is accepted.
+TypeResolution and PackageIdentity precede Bindings; Bindings precedes Analysis; Analysis precedes Report;
+Report precedes `Compilable.v`. No child imports `Compilable.v`. Further C6 children (package dependency order,
+runtime) stay prose-only and frozen until this milestone is accepted.
 
-`Compilable.Facts` owns the resolution facts: the name-resolution meanings and the resolver over the retained
-index and the once-gathered establishers, whose gathering already fixes the declare-then-use order a short or
-grouped declaration needs. `Compilable.Report` consumes those facts and owns their projection into diagnostics,
-requirements, boundaries and the canonical report lists. The dependency runs one way — Report onto Facts — and
-the layer gate confirms no cycle.
+`Compilable.Analysis` owns the resolution facts and issues: the name-resolution meanings and the resolver over the
+retained index and the once-gathered establishers (whose gathering already fixes the declare-then-use order a short
+or grouped declaration needs), the per-occurrence outcomes, the fresh-output preflight, and the one canonical issue
+table. `Compilable.Report` consumes the completed Analysis and owns only its projection into diagnostics,
+requirements, boundaries and the canonical report lists — it selects no cause, order, or fallback. The dependency
+runs one way — Report onto Analysis — and the layer gate confirms no cycle.
 
 ### Direct module dependencies are gated
 
@@ -156,12 +159,11 @@ Names:
 Syntax: Collections FilePath Float ModulePath Names Version
 Index: Collections FilePath Syntax
 Compilable.TypeResolution: Complex Float Integer Names
-Compilable.PackageIdentity: FilePath Index Syntax
+Compilable.PackageIdentity: FilePath Index
 Compilable.Bindings: Compilable.PackageIdentity Index Names Syntax
-Compilable.Report: Compilable.Bindings Compilable.Facts Compilable.PackageIdentity Compilable.Packages Index Syntax
-Compilable.Facts: Compilable.Bindings Compilable.TypeResolution Complex Float Index Integer Names Syntax
-Compilable.Packages: Compilable.Bindings Compilable.PackageIdentity FilePath Index Syntax
-Compilable: Compilable.Bindings Compilable.Facts Compilable.PackageIdentity Compilable.Packages Compilable.Report Compilable.TypeResolution Index Syntax
+Compilable.Analysis: Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
+Compilable.Report: Compilable.Analysis Compilable.Bindings Compilable.PackageIdentity Index Syntax
+Compilable: Compilable.Analysis Compilable.Bindings Compilable.PackageIdentity Compilable.Report Compilable.TypeResolution Index Syntax
 Machine:
 Safe: Compilable Syntax
 Render: Complex Decimal Float ModulePath Names Syntax Version
@@ -412,29 +414,32 @@ rejects the whole program, so acceptance is all-or-nothing. The preflight is cmd
 a sole main package's default executable name must not collide with an existing root directory; zero or
 two-or-more packages write no default output, and the empty program is accepted.
 
-The one elaboration root `elaborate` builds one retained `Compilation` — the intrinsic index, the package
-surface, the binding phase, the package facts and the fact phase — computed once, each field a dependent
-projection of the one before it. `Compilable.compile` **projects** diagnostics and boundaries from that one
-`Compilation` and returns the three-way decision, carrying the exact `Compilation` transparently in every
-branch; there is no second checker, and `compile` is the sole route to a `Compiled` decision.
+The private composer (a `Local` `elaborate`, never a public route) builds one retained `Compilation` — the
+intrinsic index, the package surface, the binding phase, the package facts and the fact phase — computed once,
+each field a dependent projection of the one before it. `Compilable.compile p` is the **sole first source** of a
+`Decision p`; `inspect d` is the **sole eliminator**, revealing the exact retained `Compilation` and the exact
+abstract branch payload of that supplied `d`. There is no public elaborator, no public decision constructor,
+and no second checker. `Compilation`, `Decision`, every branch payload, and `Prog` are abstract to a client.
 
 The one analysis computes two orthogonal sets — **definite diagnostics** and **exact scope boundaries** —
-and the public decision has three branches whose precedence is fixed: any diagnostic gives `Rejected`; no
-diagnostic with any boundary gives `OutsideScope`; both empty gives `Compiled`. **A boundary never becomes a
-diagnostic to preserve a binary result type.**
+and the decision has three branches whose precedence is fixed: any diagnostic gives Rejected (which may retain
+simultaneous boundaries); no diagnostic with any boundary gives Outside; both empty gives Compiled. **A boundary
+never becomes a diagnostic.** `admissible_iff_reports` characterizes admissibility as exactly both lists empty.
 
-`Compiled` carries the exact `Compilation` and a `Prog.Program` capability — an abstract compiled type whose
-only maker, `Prog.issue`, demands a proof of `Admissible` (both diagnostic lists empty). `Rejected` carries the
-exact `Compilation` and a proof its diagnostics are non-empty; `OutsideScope` carries the exact `Compilation`, a
-proof its diagnostics are empty and a proof its boundaries are non-empty, and asserts nothing about Go validity.
-Only the `Compiled` branch yields a `Prog.Program`, and only that capability reaches `Safe.Program` or an
-`Emit.Image`.
+The Compiled branch exposes the one `Prog` capability only through `compiled_prog` on the exact supplied compiled
+payload; `Prog.Program` is an abstract type whose admissibility-gated maker `issue` is **private** to the
+capability module, so no public theorem or transport turns an arbitrary `Compilation` plus `Admissible` into a
+`Prog`. The rejected/outside payloads expose only their exact report lists (`rejected_diagnostics`,
+`rejected_boundaries`, `outside_boundaries`). Only a compiled payload's `compiled_prog` reaches `Safe.Program` or
+an `Emit.Image`. Public `Case` constructors are harmless: a caller must already hold the matching abstract payload.
 
-Diagnostics are structured values anchored in the exact retained index: invalid conversion (primary = the innermost
-failing conversion, with an outer-context field), default-not-representable, duplicate-main, missing-main and
-build-output-directory. The three diagnostic layers each have an emptiness characterization, and a failed
-preflight takes precedence over the sole package's semantic errors. **An outcome is a structured branch and
-its exact diagnostic list, never a collapsed tag.**
+Diagnostics are structured values anchored in the exact retained index: unresolved name, invalid identity,
+type-as-value, not-a-type, non-callable object or expression head, conversion arity/overflow/not-representable,
+complex arity/mismatch, unary mismatch, default-integer overflow, no-value-used, illegal statement, const
+missing-initializer, result-count mismatch, short duplicate, and the package/main/output-collision issues. Each
+is a canonical `Analysis` issue-table row with an exact subject, class, cause and source-order ordinal; `Report`
+projects them into ordered diagnostics and boundaries and selects no cause, order, or fallback. **An outcome is a
+structured branch and its exact issue list, never a collapsed tag.**
 
 The three-way outcome is not owned exclusively by completed type resolution. An outside boundary is the exact
 earliest unmet requirement at an exact retained site, so it arises from the earliest partial-phase fact that
@@ -450,22 +455,24 @@ The production analysis is one retained `Compilation`: the intrinsic index, the 
 phase, the package facts and the fact phase, each a field typed by the exact prior field it consumes. Nothing is
 rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
 
-Occurrence identity is intrinsic. A `NodeRef` is a position selector into one file's retained plain-list preorder,
-indexed by the exact `ProgramIndex`; a `PackageRef` is a position into the retained package surface; a
-`MainDeclRef s pr` retains the exact `VTop (Syntax.Main body)` occurrence and makes membership in package `pr`
-intrinsic. A reference from a foreign index, surface, or package is unrepresentable by type, never rejected by a
-check. There is no per-id occurrence map, `List.find`/`existsb` scan, or recomputed peer object in the read path.
+Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
+cells, indexed by the exact `ProgramIndex` with an irrelevant membership proof; a `PackageRef` is a position into
+the retained package surface; a `MainDeclRef s pr` qualifies the exact `MainOccurrenceRef` (a `VTop (Syntax.Main
+body)` occurrence) through PackageIdentity, making membership in package `pr` intrinsic, and its multiplicity per
+package is `MainMissing`/`MainOne`/`MainMultiple`, independent of the ordinary declaration group keyed by `main`.
+A reference from a foreign index, surface, or package is unrepresentable by type, never rejected by a check.
+There is no `List.find`/`existsb` scan or recomputed peer object in the read path.
 
 The phase retains the whole flow as a dependent chain: the causal chain **is** the dependent types, so a foreign
 component is unrepresentable by type mismatch rather than caught by a comparison.
 
 **Equality to a recomputation is never provenance.** The retained `Compilation` holds each phase once; the index,
 facts, package facts, diagnostics and boundaries are projections of it, never a stored equality to a rerun. The
-compiled capability `Prog.Program` is abstract — sealed behind a module signature whose only maker demands an
-`Admissible` proof — so a client cannot forge one, and `Compilable.compile` is the only route to a `Compiled`
-decision. The transparent `Compilation`, `Decision` and `Safe`/`Emit` carriers keep unforgeability in their
-payload slots — a real capability, a real diagnostic or boundary proof — not behind opacity that would strand
-`vm_compute`.
+compiled capability `Prog.Program` is abstract — sealed behind a module signature whose only maker `compiled_prog`
+demands a compiled payload obtained by eliminating a supplied `Decision`, its admissibility-gated `issue` private —
+so a client cannot forge one, and `compile`/`inspect` are the only route. `compile`, `inspect`, `Decision` and the
+payloads stay reducible so witnesses materialize through them; only `Prog.Program` is opaque, and the byte path
+projects it away (`Safe.source` is a primitive projection), so opacity never strands `vm_compute`.
 
 From C6 the same rule binds the phase the core retains. The **exact type environment** built during the
 phase, the **exact package dependency outcome**, and every accepted binding, object, expression, use,
@@ -474,6 +481,27 @@ second call to the environment builder, and not declared as independent accepted
 The environment is not total over phases: the phase result is a sum, and a phase that found a type cycle
 holds a cyclic result and therefore has no environment at all. The accepted environment is reached by
 **dependent elimination** of that result, never by an equality bridge to a rerun.
+
+### Structural progress and cost
+
+Every load-bearing construction is **structural recursion over finite maps**, terminating by construction: no
+fuel, gas, step budget, retry count, timeout, recursion limit, arbitrary maximum, or cached last-good result
+appears anywhere in the certified theory. The numbering pass, the per-file position map, the package surface,
+the binding phase, the fact phase, the issue table, and the report projection are each a single structural pass;
+`fact_phase_one_pass` proves the retained fact phase is exactly one row per indexed occurrence.
+
+The construction cost is charged in explicit parameters, with no unit-cost strings and no assumed physical
+sharing: `F` source files, `N` indexed occurrences, `E` direct occurrence edges, `P` selected nonempty packages,
+`B_n` named establishments, `M` fixed-main establishments, `B` total status rows, `G` canonical declaration
+groups, `Q_o`/`Q_s`/`Q_b` name-use / statement / short-left incidences, `R` report members, `A` applicable fact
+rows, `I` canonical issue rows, `D` diagnostics, `U` boundaries, `L_path` characters inspected for the singleton
+default-output name, and per-stage `chi_*` character inspections, `J_X` reference incidences, `K_X` cells
+constructed, and `S_X` retained copies. The stage bounds: Index is one preorder pass building `N` cells and `E`
+edges (`O(N)` map inserts, each `chi_file`-bounded); PackageIdentity is `O(F·chi_file)` for the surface plus the
+`P`-scan; Bindings is `O(B_n + Q_b)`; Analysis is one `O(N)` fact pass plus the `O(P·L_path)` preflight and the
+issue-table fold `O(A + I)`; Report is an `O(R)` projection with no re-scan; Decision/Safe/Emit are `O(1)`
+projections plus the `O(K_render)` byte traversal. Retained space is `O(N + B + G + I + R)` fields, each an exact
+retained reference, never a duplicated source tree or repeated prefix scan.
 
 ### Machine — the abstract run base
 
@@ -675,14 +703,15 @@ extensionality. Tracked axiom-bearing fixtures are forbidden; negatives are gene
 ### Two honest claims — never conflate
 
 **(A) Kernel-internal exactness — PROVED.** The decision is three-way, and each branch is characterized exactly
-over the retained `Compilation`. `Compilable.compile` succeeds exactly for the declarative `Admissible` judgment —
-`accepted_iff_admissible : compiles p <-> Admissible (elaborate p)` — so a `Compiled` outcome is unconditionally sound and
-completeness holds over the whole admissible (in-scope, boundary-free) domain. `rejects_iff_diags` and
-`outsides_iff` characterize the other branches exactly — `Rejected` exactly when a diagnostic exists,
-`OutsideScope` exactly when the reports are clean of diagnostics but carry a boundary — and `decision_total`
-with the three pairwise exclusions (`compiles_not_rejects`, `compiles_not_outsides`, `rejects_not_outsides`)
-proves the partition exhaustive and disjoint. `Prog.program_source` and `Prog.program_compilation` pin the
-capability's source and retained `Compilation` to the decision's, by computation.
+over the exact retained `Compilation` revealed by `inspect`. `admissible_iff_reports` makes admissibility exactly
+both report lists empty; `compiled_admissible` proves a compiled payload's revealed compilation is admissible, so a
+Compiled outcome is unconditionally sound and completeness holds over the whole admissible (in-scope, boundary-free)
+domain. `rejected_has_diagnostics` and `outside_reports` characterize the other branches exactly — Rejected carries
+a non-empty diagnostic list, Outside empty diagnostics with a non-empty boundary — and `inspect_compile` decides
+`compile`'s branch by exactly those report lists. `inspect` returns exactly one `Case`, and the payload disjointness
+lemmas (`compiled_not_rejected`, `compiled_not_outside`, `rejected_not_outside`) prove the branches disjoint.
+`compiled_prog_admissible` and the payload's indexing pin the capability to the exact supplied compiled payload and
+its revealed compilation.
 
 An `OutsideScope` outcome carries the exact unmet semantic requirement — a statement about Fido's reach, never
 a claim that the program is invalid Go. Narrowing the domain to hide a rejection Fido gets wrong would launder

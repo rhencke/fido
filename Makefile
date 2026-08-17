@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants audit-fresh profile perf pytools hostpython go-probe toolchain
+        diet mutants profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -119,26 +119,18 @@ e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target go-e2e .
 	$(call fido_mark,e2e)
 
-# Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` FORCES
-# the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's /fresh-build-ok), so a failed
-# fresh build makes `sync` unbuildable and no sink effect occurs.  It publishes the original pristine bytes,
-# never a post-build one.
+# Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` requires
+# the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's success marker), so a failed
+# validation makes `sync` unbuildable and no sink effect occurs — a cache hit on a passing go-e2e is equally
+# valid.  It publishes the original pristine bytes, never a post-build one.
 regenerate: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
 	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
-# Force the proof gate and the whole-tree e2e to RUN rather than report a Buildx cache hit.  A cached
-# verdict is valid, but an audit should observe its assertions rather than infer them from a cache key.
-audit-fresh: builder
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
-	  --no-cache-filter prover --target prover .
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain \
-	  --no-cache-filter go-e2e --target go-e2e .
-
 # With go-e2e forced to FAIL on a temp Dockerfile copy, `--target sync` must be unbuildable, and on the
-# unmodified tree it must build — so `make regenerate` cannot publish without a validated fresh build.
+# unmodified tree it must build — so `make regenerate` cannot publish without a passing go-e2e validation.
 regen-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
 
