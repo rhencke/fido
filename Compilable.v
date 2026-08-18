@@ -1,232 +1,238 @@
-(* Compilable — the static semantic phase and the permanent three-way Compiled/Rejected/OutsideScope decision. *)
+(* Compilable — the sealed public surface: compile is the sole Decision source, inspect its sole eliminator. *)
 
-From Stdlib Require Import List Bool String Ascii ZArith NArith Lia.
-From Fido Require Import Collections FilePath ModulePath Version Names Integer Float Complex Syntax Index Compilable.TypeResolution Compilable.Bindings Compilable.Report Compilable.Facts.
+From Stdlib Require Import List Bool.
+From Fido Require Import Syntax Index Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report.
 Import ListNotations.
 
-(* compile returns one Decision: the exact decided core, then a verdict that is a fact about that same core. *)
-Definition Admissible (p : Syntax.Program) : Prop := all_diags p = [] /\ all_boundaries p = [].
+Module PI := Compilable.PackageIdentity.
+Module BN := Compilable.Bindings.
+Module AN := Compilable.Analysis.
+Module RP := Compilable.Report.
+
+(* one retained compilation: every phase built once and kept as a field; the composer is private *)
+Record Compilation (p : Syntax.Program) : Type := mk_compilation {
+  comp_index   : Index.ProgramIndex p ;
+  comp_surface : PI.PackageSurface comp_index ;
+  comp_binds   : BN.BindingPhase comp_surface ;
+  comp_pkgs    : AN.PackageFacts comp_binds ;
+  comp_facts   : AN.FactPhase comp_binds
+}.
+Arguments mk_compilation {p} _ _ _ _ _.
+Arguments comp_index {p} _.
+Arguments comp_surface {p} _.
+Arguments comp_binds {p} _.
+Arguments comp_pkgs {p} _.
+Arguments comp_facts {p} _.
+
+(* the sole composer, private: a client cannot rebuild a compilation, only receive one from compile via inspect *)
+Local Definition elaborate (p : Syntax.Program) : Compilation p :=
+  let idx := Index.index_program p in
+  let surface := PI.package_surface idx in
+  let binds := BN.bindings surface in
+  mk_compilation idx surface binds (AN.package_facts binds) (AN.facts binds).
+
+Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (comp_facts c) (comp_pkgs c).
+Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (comp_facts c) (comp_pkgs c).
+Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (comp_facts c) (comp_pkgs c).
+Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (comp_facts c) (comp_pkgs c).
+
+Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ boundaries c = [].
+
+Lemma admissible_iff_reports {p} (c : Compilation p) :
+  Admissible c <-> diagnostics c = [] /\ boundaries c = [].
+Proof. unfold Admissible; split; intro H; exact H. Qed.
 
 Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
-Module Type CAPABILITY.
-  Parameter Core : Syntax.Program -> Type.
-  Parameter core_diagnostics : forall {p}, Core p -> list RootCause.
-  Parameter core_boundaries  : forall {p}, Core p -> list Boundary.
+(* Generic proof support: a bool observation of a list's outer constructor, not used in any production definition. *)
+Definition list_is_nilb {A : Type} (xs : list A) : bool :=
+  match xs with [] => true | _ :: _ => false end.
+Lemma list_is_nilb_true {A : Type} (xs : list A) : list_is_nilb xs = true -> xs = [].
+Proof. destruct xs as [|x xs]; cbn; [ intros _; reflexivity | intros H; discriminate H ]. Qed.
+Lemma list_is_nilb_false {A : Type} (xs : list A) : list_is_nilb xs = false -> xs <> [].
+Proof. destruct xs as [|x xs]; cbn; [ intros H; discriminate H | intros _ H; discriminate H ]. Qed.
 
-  (* each branch payload is indexed by the exact program p and the exact decided core c, and states a fact about c *)
-  Parameter CompiledAt : forall (p : Syntax.Program), Core p -> Type.
-  Parameter c_accepted : forall {p} {c : Core p}, CompiledAt p c -> core_diagnostics c = [].
-  Parameter c_in_scope : forall {p} {c : Core p}, CompiledAt p c -> core_boundaries c = [].
-  Parameter RejectedAt : forall (p : Syntax.Program), Core p -> Type.
-  Parameter r_rejected : forall {p} {c : Core p}, RejectedAt p c -> core_diagnostics c <> [].
-  Parameter OutsideAt : forall (p : Syntax.Program), Core p -> Type.
-  Parameter o_clean   : forall {p} {c : Core p}, OutsideAt p c -> core_diagnostics c = [].
-  Parameter o_blocked : forall {p} {c : Core p}, OutsideAt p c -> core_boundaries c <> [].
+(* the permanent three-way decision; each branch carries the exact compilation built once, with its exact proof *)
+Inductive Decision (p : Syntax.Program) : Type :=
+| DCompiled : forall c : Compilation p, Admissible c -> Decision p
+| DRejected : forall c : Compilation p, diagnostics c <> [] -> Decision p
+| DOutside  : forall c : Compilation p, diagnostics c = [] -> boundaries c <> [] -> Decision p.
+Arguments DCompiled {p} _ _.
+Arguments DRejected {p} _ _.
+Arguments DOutside {p} _ _ _.
 
-  Inductive Verdict (p : Syntax.Program) (c : Core p) : Type :=
-  | Compiled     (payload : CompiledAt p c)
-  | Rejected     (payload : RejectedAt p c)
-  | OutsideScope (payload : OutsideAt p c).
+Definition compile (p : Syntax.Program) : Decision p :=
+  let c := elaborate p in
+  match nil_dec (diagnostics c) with
+  | left Hd =>
+      match nil_dec (boundaries c) with
+      | left Hb => DCompiled c (conj Hd Hb)
+      | right Hb => DOutside c Hd Hb
+      end
+  | right Hd => DRejected c Hd
+  end.
 
-  (* the public decision object: one decided core, and a verdict a client reads over that very core *)
-  Parameter Decision : Syntax.Program -> Type.
-  Parameter decided_core : forall {p}, Decision p -> Core p.
-  Parameter verdict : forall {p} (d : Decision p), Verdict p (decided_core d).
+(* branch payloads: obtainable only by eliminating a supplied Decision; each names its exact revealed compilation *)
+Definition CompiledPayload {p} (d : Decision p) (c : Compilation p) : Type :=
+  match d with DCompiled c' _ => c' = c | _ => False end.
+Definition RejectedPayload {p} (d : Decision p) (c : Compilation p) : Type :=
+  match d with DRejected c' _ => c' = c | _ => False end.
+Definition OutsidePayload {p} (d : Decision p) (c : Compilation p) : Type :=
+  match d with DOutside c' _ _ => c' = c | _ => False end.
 
-  Parameter compile : forall p : Syntax.Program, Decision p.
+Definition rejected_diagnostics {p} {d : Decision p} {c : Compilation p} (_ : RejectedPayload d c) : list (Diagnostic c) :=
+  diagnostics c.
+Definition rejected_boundaries {p} {d : Decision p} {c : Compilation p} (_ : RejectedPayload d c) : list (Boundary c) :=
+  boundaries c.
+Definition outside_boundaries {p} {d : Decision p} {c : Compilation p} (_ : OutsidePayload d c) : list (Boundary c) :=
+  boundaries c.
 
-  (* adequacy: the retained decided core's reports ARE the source-level reports, read off the same object *)
-  Parameter decided_diagnostics : forall p, core_diagnostics (decided_core (compile p)) = all_diags p.
-  Parameter decided_boundaries  : forall p, core_boundaries (decided_core (compile p)) = all_boundaries p.
-End CAPABILITY.
+(* the compiled capability: an abstract type whose only public maker projects it from a supplied compiled payload *)
+Module Type PROGRAM_SIG.
+  Parameter Program : forall {p}, Compilation p -> Type.
+  Parameter compiled_prog : forall {p} {d : Decision p} {c : Compilation p}, CompiledPayload d c -> Program c.
+End PROGRAM_SIG.
 
-Module Capability : CAPABILITY.
-  (* the retained elaborated object: one static pass's diagnostics and boundaries; every verdict reads it, no rerun *)
-  Record CoreRep (p : Syntax.Program) : Type := MkCore {
-    core_diagnostics : list RootCause;
-    core_boundaries  : list Boundary
-  }.
-  Arguments core_diagnostics {p}. Arguments core_boundaries {p}.
-  Definition Core := CoreRep.
-  Definition elaborate (p : Syntax.Program) : Core p :=
-    let ph := elaborate_phase p in MkCore p (fst ph) (snd ph).
-  Lemma elaborate_diagnostics : forall p, core_diagnostics (elaborate p) = all_diags p. Proof. reflexivity. Qed.
-  Lemma elaborate_boundaries  : forall p, core_boundaries (elaborate p) = all_boundaries p. Proof. reflexivity. Qed.
+Module Prog : PROGRAM_SIG.
+  Definition Program {p} (_ : Compilation p) : Type := unit.
+  (* private: the sole admissibility-gated mint, reachable only through compiled_prog on a real compiled payload *)
+  Definition issue {p} (c : Compilation p) (_ : Admissible c) : Program c := tt.
+  Definition compiled_prog {p} {d : Decision p} {c : Compilation p} (cp : CompiledPayload d c) : Program c :=
+    (match d as d0 return CompiledPayload d0 c -> Program c with
+     | DCompiled c' Hadm => fun Heq => issue c (eq_rect c' (fun x => Admissible x) Hadm c Heq)
+     | DRejected _ _ => fun f => match f return Program c with end
+     | DOutside _ _ _ => fun f => match f return Program c with end
+     end) cp.
+End Prog.
 
-  Record CompiledRep (p : Syntax.Program) (c : Core p) : Type := MkCompiled {
-    c_accepted : core_diagnostics c = [];
-    c_in_scope : core_boundaries c = []
-  }.
-  Arguments c_accepted {p c}. Arguments c_in_scope {p c}.
-  Definition CompiledAt := CompiledRep.
-  Record RejectedRep (p : Syntax.Program) (c : Core p) : Type := MkRejected {
-    r_rejected : core_diagnostics c <> []
-  }.
-  Arguments r_rejected {p c}.
-  Definition RejectedAt := RejectedRep.
-  Record OutsideRep (p : Syntax.Program) (c : Core p) : Type := MkOutside {
-    o_clean   : core_diagnostics c = [];
-    o_blocked : core_boundaries c <> []
-  }.
-  Arguments o_clean {p c}. Arguments o_blocked {p c}.
-  Definition OutsideAt := OutsideRep.
+(* inspect's result: a supplied Decision revealed as exactly one branch with its abstract payload *)
+Inductive Case {p} (d : Decision p) : Type :=
+| IsCompiled : forall c : Compilation p, CompiledPayload d c -> Case d
+| IsRejected : forall c : Compilation p, RejectedPayload d c -> Case d
+| IsOutside  : forall c : Compilation p, OutsidePayload d c -> Case d.
+Arguments IsCompiled {p d} _ _.
+Arguments IsRejected {p d} _ _.
+Arguments IsOutside {p d} _ _.
 
-  Inductive Verdict (p : Syntax.Program) (c : Core p) : Type :=
-  | Compiled     (payload : CompiledAt p c)
-  | Rejected     (payload : RejectedAt p c)
-  | OutsideScope (payload : OutsideAt p c).
+Definition inspect {p} (d : Decision p) : Case d :=
+  match d as d0 return Case d0 with
+  | DCompiled c Hadm => IsCompiled c (eq_refl : CompiledPayload (DCompiled c Hadm) c)
+  | DRejected c Hd => IsRejected c (eq_refl : RejectedPayload (DRejected c Hd) c)
+  | DOutside c Hd Hb => IsOutside c (eq_refl : OutsidePayload (DOutside c Hd Hb) c)
+  end.
 
-  Record DecisionRep (p : Syntax.Program) : Type := MkDecision {
-    decided_core : Core p;
-    verdict : Verdict p decided_core
-  }.
-  Arguments decided_core {p}. Arguments verdict {p}.
-  Definition Decision := DecisionRep.
+(* branch facts: each payload characterizes the exact revealed compilation's reports; none mints a capability *)
+Lemma compiled_admissible {p} {d : Decision p} {c : Compilation p} (cp : CompiledPayload d c) :
+  diagnostics c = [] /\ boundaries c = [].
+Proof.
+  destruct d as [c' Hadm | c' Hd | c' Hd Hb]; cbn in cp; [ destruct cp; exact Hadm | destruct cp | destruct cp ].
+Qed.
 
-  (* one elaboration, retained as [c]; the verdict is chosen from [c]'s own reports and indexed by that same [c] *)
-  Definition compile (p : Syntax.Program) : Decision p :=
-    let c := elaborate p in
-    MkDecision p c
-      match nil_dec (core_diagnostics c) with
-      | left Hd =>
-          match nil_dec (core_boundaries c) with
-          | left Hb  => Compiled p c (MkCompiled p c Hd Hb)
-          | right Hb => OutsideScope p c (MkOutside p c Hd Hb)
-          end
-      | right Hd => Rejected p c (MkRejected p c Hd)
-      end.
+Lemma rejected_has_diagnostics {p} {d : Decision p} {c : Compilation p} (rp : RejectedPayload d c) :
+  diagnostics c <> [].
+Proof.
+  destruct d as [c' Hadm | c' Hd | c' Hd Hb]; cbn in rp; [ destruct rp | destruct rp; exact Hd | destruct rp ].
+Qed.
 
-  Lemma decided_diagnostics : forall p, core_diagnostics (decided_core (compile p)) = all_diags p.
-  Proof. reflexivity. Qed.
-  Lemma decided_boundaries  : forall p, core_boundaries (decided_core (compile p)) = all_boundaries p.
-  Proof. reflexivity. Qed.
+Lemma outside_reports {p} {d : Decision p} {c : Compilation p} (op : OutsidePayload d c) :
+  diagnostics c = [] /\ boundaries c <> [].
+Proof.
+  destruct d as [c' Hadm | c' Hd | c' Hd Hb]; cbn in op; [ destruct op | destruct op | destruct op; split; assumption ].
+Qed.
 
-End Capability.
-Include Capability.
-Arguments Compiled {p c} _. Arguments Rejected {p c} _. Arguments OutsideScope {p c} _.
+(* the compiled capability retains the admissibility of exactly the revealed compilation *)
+Lemma compiled_prog_admissible {p} {d : Decision p} {c : Compilation p} (cp : CompiledPayload d c) :
+  Admissible c.
+Proof. apply admissible_iff_reports; exact (compiled_admissible cp). Qed.
 
-(* the accepted program: a transparent carrier of the exact retained source, decided core and compiled evidence *)
-Record Program : Type := MkProgram {
-  prog_src  : Syntax.Program;
-  prog_core : Core prog_src;
-  prog_ok   : CompiledAt prog_src prog_core
-}.
-Definition source (pr : Program) : Syntax.Program := prog_src pr.
-Definition core (pr : Program) : Core (source pr) := prog_core pr.
-Definition accepted (pr : Program) : core_diagnostics (core pr) = [] := c_accepted (prog_ok pr).
-Definition in_scope (pr : Program) : core_boundaries (core pr) = [] := c_in_scope (prog_ok pr).
+(* payload disjointness: for one supplied decision, at most one branch payload is inhabited *)
+Lemma compiled_not_rejected {p} {d : Decision p} {c c' : Compilation p} :
+  CompiledPayload d c -> RejectedPayload d c' -> False.
+Proof. destruct d; cbn; intros H1 H2; solve [ destruct H1 | destruct H2 ]. Qed.
+Lemma compiled_not_outside {p} {d : Decision p} {c c' : Compilation p} :
+  CompiledPayload d c -> OutsidePayload d c' -> False.
+Proof. destruct d; cbn; intros H1 H2; solve [ destruct H1 | destruct H2 ]. Qed.
+Lemma rejected_not_outside {p} {d : Decision p} {c c' : Compilation p} :
+  RejectedPayload d c -> OutsidePayload d c' -> False.
+Proof. destruct d; cbn; intros H1 H2; solve [ destruct H1 | destruct H2 ]. Qed.
 
-(* the two exact verdict predicates a control asserts, read from the decision's verdict branch. *)
+(* shallow branch recovery: a client selects the compile branch by nilb observers, not a deep normal form *)
+Definition diag_nilb (p : Syntax.Program) : bool := list_is_nilb (diagnostics (elaborate p)).
+Definition bound_nilb (p : Syntax.Program) : bool := list_is_nilb (boundaries (elaborate p)).
+
+Definition compiled_of_nilb (p : Syntax.Program) :
+  diag_nilb p = true -> bound_nilb p = true -> { c : Compilation p & CompiledPayload (compile p) c }.
+Proof.
+  intros Hd Hb. apply list_is_nilb_true in Hd. apply list_is_nilb_true in Hb.
+  unfold compile.
+  destruct (nil_dec (diagnostics (elaborate p))) as [Hd'|Hd'].
+  - destruct (nil_dec (boundaries (elaborate p))) as [Hb'|Hb'].
+    + exists (elaborate p); reflexivity.
+    + exfalso; exact (Hb' Hb).
+  - exfalso; exact (Hd' Hd).
+Defined.
+
+Definition rejected_of_nilb (p : Syntax.Program) :
+  diag_nilb p = false -> { c : Compilation p & RejectedPayload (compile p) c }.
+Proof.
+  intro Hd. apply list_is_nilb_false in Hd. unfold compile.
+  destruct (nil_dec (diagnostics (elaborate p))) as [Hd'|Hd'].
+  - exfalso; exact (Hd Hd').
+  - exists (elaborate p); reflexivity.
+Defined.
+
+Definition outside_of_nilb (p : Syntax.Program) :
+  diag_nilb p = true -> bound_nilb p = false -> { c : Compilation p & OutsidePayload (compile p) c }.
+Proof.
+  intros Hd Hb. apply list_is_nilb_true in Hd. apply list_is_nilb_false in Hb.
+  unfold compile.
+  destruct (nil_dec (diagnostics (elaborate p))) as [Hd'|Hd'].
+  - destruct (nil_dec (boundaries (elaborate p))) as [Hb'|Hb'].
+    + exfalso; exact (Hb Hb').
+    + exists (elaborate p); reflexivity.
+  - exfalso; exact (Hd' Hd).
+Defined.
+
+(* the supplied program of a revealed compilation, by projection *)
+Definition comp_source {p} (_ : Compilation p) : Syntax.Program := p.
+
+(* compile's branch is decided exactly by the report lists of the one compilation it builds *)
+Theorem inspect_compile {p} :
+  match inspect (compile p) with
+  | IsCompiled c _ => diagnostics c = [] /\ boundaries c = []
+  | IsRejected c _ => diagnostics c <> []
+  | IsOutside c _  => diagnostics c = [] /\ boundaries c <> []
+  end.
+Proof.
+  unfold compile.
+  destruct (nil_dec (diagnostics (elaborate p))) as [Hd|Hd].
+  - destruct (nil_dec (boundaries (elaborate p))) as [Hb|Hb]; cbn.
+    + split; assumption.
+    + split; assumption.
+  - cbn; exact Hd.
+Qed.
+
+(* convenience branch predicates over the production authority; each recovered from shallow nilb observers *)
 Definition compiles (p : Syntax.Program) : Prop :=
-  match verdict (compile p) with Compiled _ => True | _ => False end.
+  match compile p with DCompiled _ _ => True | _ => False end.
 Definition rejects (p : Syntax.Program) : Prop :=
-  match verdict (compile p) with Rejected _ => True | _ => False end.
+  match compile p with DRejected _ _ => True | _ => False end.
 Definition outsides (p : Syntax.Program) : Prop :=
-  match verdict (compile p) with OutsideScope _ => True | _ => False end.
+  match compile p with DOutside _ _ _ => True | _ => False end.
 
-(* the payload of the Compiled branch, retained as the accepted program's compiled evidence *)
-Definition compiled_payload (p : Syntax.Program) (H : compiles p) : CompiledAt p (decided_core (compile p)) :=
-  match verdict (compile p) as v
-    return (match v with Compiled _ => True | _ => False end) -> CompiledAt p (decided_core (compile p)) with
-  | Compiled payload => fun _ => payload
-  | Rejected _ => fun H0 => False_rect _ H0
-  | OutsideScope _ => fun H0 => False_rect _ H0
-  end H.
-
-(* the compiled decision mints its accepted program with prog_src set directly, so source computes past the seal *)
-Definition program_of_compiled (p : Syntax.Program) (H : compiles p) : Program :=
-  MkProgram p (decided_core (compile p)) (compiled_payload p H).
-
-Definition compiles_of_admissible (p : Syntax.Program) (H : Admissible p) : compiles p :=
-  match verdict (compile p) as v return (match v with Compiled _ => True | _ => False end) with
-  | Compiled _ => I
-  | Rejected payload => r_rejected payload (eq_trans (decided_diagnostics p) (proj1 H))
-  | OutsideScope payload => o_blocked payload (eq_trans (decided_boundaries p) (proj2 H))
-  end.
-Definition rejects_of_diags (p : Syntax.Program) (Hd : all_diags p <> []) : rejects p :=
-  match verdict (compile p) as v return (match v with Rejected _ => True | _ => False end) with
-  | Compiled payload => False_rect _ (Hd (eq_trans (eq_sym (decided_diagnostics p)) (c_accepted payload)))
-  | Rejected _ => I
-  | OutsideScope payload => False_rect _ (Hd (eq_trans (eq_sym (decided_diagnostics p)) (o_clean payload)))
-  end.
-Definition outsides_of_boundaries (p : Syntax.Program) (Hd : all_diags p = []) (Hb : all_boundaries p <> []) : outsides p :=
-  match verdict (compile p) as v return (match v with OutsideScope _ => True | _ => False end) with
-  | Compiled payload => False_rect _ (Hb (eq_trans (eq_sym (decided_boundaries p)) (c_in_scope payload)))
-  | Rejected payload => False_rect _ (r_rejected payload (eq_trans (decided_diagnostics p) Hd))
-  | OutsideScope _ => I
-  end.
-
-(* compiled soundness: a program that compiles has empty source-level diagnostics and boundaries *)
-Definition admissible_of_compiles (p : Syntax.Program) (H : compiles p) : Admissible p :=
-  match verdict (compile p) as v
-    return (match v with Compiled _ => True | _ => False end) -> Admissible p with
-  | Compiled payload => fun _ =>
-      conj (eq_trans (eq_sym (decided_diagnostics p)) (c_accepted payload))
-           (eq_trans (eq_sym (decided_boundaries p)) (c_in_scope payload))
-  | Rejected _ => fun H0 => False_rect _ H0
-  | OutsideScope _ => fun H0 => False_rect _ H0
-  end H.
-(* soundness and completeness together: a program compiles exactly when it is admissible *)
-Definition accepted_iff_admissible (p : Syntax.Program) : compiles p <-> Admissible p :=
-  conj (admissible_of_compiles p) (compiles_of_admissible p).
-
-(* exact rejected characterization: a program is Rejected exactly when it has a diagnostic *)
-Definition diags_of_rejects (p : Syntax.Program) (H : rejects p) : all_diags p <> [] :=
-  match verdict (compile p) as v
-    return (match v with Rejected _ => True | _ => False end) -> all_diags p <> [] with
-  | Rejected payload => fun _ Hb => r_rejected payload (eq_trans (decided_diagnostics p) Hb)
-  | Compiled _ => fun H0 => False_rect _ H0
-  | OutsideScope _ => fun H0 => False_rect _ H0
-  end H.
-Definition rejects_iff_diags (p : Syntax.Program) : rejects p <-> all_diags p <> [] :=
-  conj (diags_of_rejects p) (rejects_of_diags p).
-
-(* exact outside characterization: Outside exactly when clean of diagnostics but blocked by a boundary *)
-Definition outside_char_of_outsides (p : Syntax.Program) (H : outsides p)
-  : all_diags p = [] /\ all_boundaries p <> [] :=
-  match verdict (compile p) as v
-    return (match v with OutsideScope _ => True | _ => False end) -> (all_diags p = [] /\ all_boundaries p <> []) with
-  | OutsideScope payload => fun _ =>
-      conj (eq_trans (eq_sym (decided_diagnostics p)) (o_clean payload))
-           (fun Hb => o_blocked payload (eq_trans (decided_boundaries p) Hb))
-  | Compiled _ => fun H0 => False_rect _ H0
-  | Rejected _ => fun H0 => False_rect _ H0
-  end H.
-Definition outsides_iff (p : Syntax.Program)
-  : outsides p <-> (all_diags p = [] /\ all_boundaries p <> []) :=
-  conj (outside_char_of_outsides p)
-       (fun H => outsides_of_boundaries p (proj1 H) (proj2 H)).
-
-(* branch exhaustiveness: every program is compiled, rejected, or outside scope *)
-Definition decision_total (p : Syntax.Program) : compiles p \/ rejects p \/ outsides p :=
-  match verdict (compile p) as v
-    return (match v with Compiled _ => True | _ => False end)
-        \/ (match v with Rejected _ => True | _ => False end)
-        \/ (match v with OutsideScope _ => True | _ => False end) with
-  | Compiled _ => or_introl I
-  | Rejected _ => or_intror (or_introl I)
-  | OutsideScope _ => or_intror (or_intror I)
-  end.
-
-(* branch exclusivity: the three verdicts are pairwise incompatible *)
-Definition compiles_not_rejects (p : Syntax.Program) (Hc : compiles p) : ~ rejects p :=
-  match verdict (compile p) as v
-    return (match v with Compiled _ => True | _ => False end) -> (match v with Rejected _ => True | _ => False end) -> False with
-  | Compiled _ => fun _ Hx => Hx | Rejected _ => fun Hx _ => Hx | OutsideScope _ => fun Hx _ => Hx
-  end Hc.
-Definition compiles_not_outsides (p : Syntax.Program) (Hc : compiles p) : ~ outsides p :=
-  match verdict (compile p) as v
-    return (match v with Compiled _ => True | _ => False end) -> (match v with OutsideScope _ => True | _ => False end) -> False with
-  | Compiled _ => fun _ Hx => Hx | Rejected _ => fun Hx _ => Hx | OutsideScope _ => fun Hx _ => Hx
-  end Hc.
-Definition rejects_not_outsides (p : Syntax.Program) (Hr : rejects p) : ~ outsides p :=
-  match verdict (compile p) as v
-    return (match v with Rejected _ => True | _ => False end) -> (match v with OutsideScope _ => True | _ => False end) -> False with
-  | Compiled _ => fun Hx _ => Hx | Rejected _ => fun _ Hx => Hx | OutsideScope _ => fun Hx _ => Hx
-  end Hr.
-
-(* exact program identity: the minted program's source and retained core ARE the decision's, by computation *)
-Definition program_source (p : Syntax.Program) (H : compiles p) : source (program_of_compiled p H) = p := eq_refl.
-Definition program_core (p : Syntax.Program) (H : compiles p) : core (program_of_compiled p H) = decided_core (compile p) := eq_refl.
+Lemma compiles_via_nilb (p : Syntax.Program) : diag_nilb p = true -> bound_nilb p = true -> compiles p.
+Proof.
+  intros Hd Hb. destruct (compiled_of_nilb p Hd Hb) as [c cp]. unfold compiles.
+  destruct (compile p) as [c' Hadm | c' Hd' | c' Hd' Hb']; cbn in cp; [ exact I | destruct cp | destruct cp ].
+Qed.
+Lemma rejects_via_nilb (p : Syntax.Program) : diag_nilb p = false -> rejects p.
+Proof.
+  intro Hd. destruct (rejected_of_nilb p Hd) as [c rp]. unfold rejects.
+  destruct (compile p) as [c' Hadm | c' Hd' | c' Hd' Hb']; cbn in rp; [ destruct rp | exact I | destruct rp ].
+Qed.
+Lemma outsides_via_nilb (p : Syntax.Program) : diag_nilb p = true -> bound_nilb p = false -> outsides p.
+Proof.
+  intros Hd Hb. destruct (outside_of_nilb p Hd Hb) as [c op]. unfold outsides.
+  destruct (compile p) as [c' Hadm | c' Hd' | c' Hd' Hb']; cbn in op; [ destruct op | destruct op | exact I ].
+Qed.

@@ -193,6 +193,46 @@ Proof.
 Qed.
 
 
+(* Every directory component of a file's parent is a valid directory component. *)
+Lemma file_dir_components_ok : forall p, forallb dir_component_ok (dir_components (parent p)) = true.
+Proof.
+  intro p. unfold dir_components.
+  destruct (String.eqb (parent p) ""%string) eqn:E; [ reflexivity |].
+  pose proof (valid p) as Hok. unfold path_ok in Hok.
+  destruct (rev (split_slash (text p))) as [|lastc rdirs] eqn:Erev; [ discriminate Hok |].
+  apply Bool.andb_true_iff in Hok as [Hdirs _].
+  assert (Hpar : parent p = String.concat "/" (rev rdirs))
+    by (unfold parent, parent_of; rewrite Erev; reflexivity).
+  assert (Hsingle : forall x, In x (rev rdirs) -> split_slash x = [x]).
+  { intros x Hx. apply dir_component_ok_single. rewrite forallb_forall in Hdirs. apply Hdirs, in_rev, Hx. }
+  assert (Hpne : parent p <> ""%string) by (intro Hc; rewrite Hc in E; cbn in E; discriminate E).
+  assert (Hrne : rev rdirs <> []) by (intro Hc; apply Hpne; rewrite Hpar, Hc; reflexivity).
+  rewrite Hpar, (split_concat_singles (rev rdirs) Hsingle Hrne).
+  rewrite forallb_forall; intros x Hx. rewrite forallb_forall in Hdirs. apply Hdirs, in_rev, Hx.
+Qed.
+
+(* A package directory: a validated list of directory components (not a string); [] is the module-root package. *)
+Record PkgDir : Type := MakePkgDir {
+  pkg_components : list string ;
+  pkg_valid      : forallb dir_component_ok pkg_components = true
+}.
+
+Lemma pkg_valid_pi : forall l (p q : forallb dir_component_ok l = true), p = q.
+Proof. intros l p q; apply (UIP_dec Bool.bool_dec). Qed.
+
+Lemma pkgdir_equal : forall a b, pkg_components a = pkg_components b -> a = b.
+Proof. intros [la pa] [lb pb] H; cbn in H; subst lb; f_equal; apply pkg_valid_pi. Qed.
+
+Definition pkgdir_eq_dec (a b : PkgDir) : {a = b} + {a <> b}.
+Proof.
+  destruct (list_eq_dec string_dec (pkg_components a) (pkg_components b)) as [E|NE].
+  - left; apply pkgdir_equal; exact E.
+  - right; intro H; apply NE; rewrite H; reflexivity.
+Defined.
+
+(* The package-directory projection of a file: files sharing one PkgDir form one package. *)
+Definition file_dir (p : T) : PkgDir := MakePkgDir (dir_components (parent p)) (file_dir_components_ok p).
+
 Example ok_main    : path_ok "main.go" = true.        Proof. reflexivity. Qed.
 Example ok_a       : path_ok "a.go" = true.           Proof. reflexivity. Qed.
 Example ok_pkg     : path_ok "pkg/main.go" = true.    Proof. reflexivity. Qed.

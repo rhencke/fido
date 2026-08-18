@@ -1,272 +1,208 @@
-From Stdlib Require Import NArith ZArith List Bool String Ascii Lia.
-From Stdlib Require Import SetoidList Permutation.
-From Fido Require Import Integer Float Complex Syntax.
+From Stdlib Require Import NArith ZArith List Bool String Lia.
+From Fido Require Import Integer Float Complex Names.
 Import ListNotations.
 Open Scope Z_scope.
 
-Inductive SemanticType : Type :=
-| BoolType
-| IntegerType : Integer.Kind -> SemanticType
-| FloatType   : Float.Kind -> SemanticType
-| ComplexType : Complex.Kind -> SemanticType
-| StringType.
+(* Pure structural form only: TypeForm is the shape a constant may take, never a nominal type identity. *)
 
-Definition type_equalb (a b : SemanticType) : bool :=
+Inductive TypeForm : Type :=
+| BoolForm
+| IntegerForm : Integer.Kind -> TypeForm
+| FloatForm   : Float.Kind -> TypeForm
+| ComplexForm : Complex.Kind -> TypeForm
+| StringForm.
+
+Definition form_equalb (a b : TypeForm) : bool :=
   match a, b with
-  | BoolType, BoolType => true
-  | IntegerType it1, IntegerType it2 => Integer.equalb it1 it2
-  | FloatType ft1, FloatType ft2 => Float.kind_equalb ft1 ft2
-  | ComplexType ct1, ComplexType ct2 => Complex.kind_equalb ct1 ct2
-  | StringType, StringType => true
+  | BoolForm, BoolForm => true
+  | IntegerForm k1, IntegerForm k2 => Integer.equalb k1 k2
+  | FloatForm k1, FloatForm k2 => Float.kind_equalb k1 k2
+  | ComplexForm k1, ComplexForm k2 => Complex.kind_equalb k1 k2
+  | StringForm, StringForm => true
   | _, _ => false
   end.
 
-Lemma type_equalb_spec : forall a b, type_equalb a b = true <-> a = b.
+Lemma form_equalb_spec : forall a b, form_equalb a b = true <-> a = b.
 Proof.
-  intros [| it1 | ft1 | ct1 |] [| it2 | ft2 | ct2 |]; simpl; split; intro H;
+  intros [| k1 | k1 | k1 |] [| k2 | k2 | k2 |]; cbn; split; intro H;
     try reflexivity; try discriminate.
   - apply Integer.equalb_spec in H; subst; reflexivity.
-  - injection H as Heq; subst; apply Integer.equalb_spec; reflexivity.
+  - injection H as ->; apply Integer.equalb_spec; reflexivity.
   - apply Float.kind_equalb_spec in H; subst; reflexivity.
-  - injection H as Heq; subst; apply Float.kind_equalb_spec; reflexivity.
+  - injection H as ->; apply Float.kind_equalb_spec; reflexivity.
   - apply Complex.kind_equalb_spec in H; subst; reflexivity.
-  - injection H as Heq; subst; apply Complex.kind_equalb_spec; reflexivity.
+  - injection H as ->; apply Complex.kind_equalb_spec; reflexivity.
 Qed.
 
-Inductive Constant : Type :=
-| BoolConstant    : bool -> Constant
-| IntegerConstant     : Z -> Constant
-| FloatConstant   : Float.Constant -> Constant
-| ComplexConstant : Complex.Constant -> Constant
-| StringConstant  : string -> Constant.
+(* Distinct forms are separated by the decision procedure: form carries no identity that would merge them. *)
+Lemma form_identity_separation : forall a b, a <> b <-> form_equalb a b = false.
+Proof.
+  intros a b; split.
+  - intro Hne. destruct (form_equalb a b) eqn:E; [ apply form_equalb_spec in E; contradiction | reflexivity ].
+  - intros E Heq; subst b. assert (form_equalb a a = true) by (apply form_equalb_spec; reflexivity); congruence.
+Qed.
 
-(* The exact integer a floating constant denotes, when it denotes one; the sole float-to-integer bridge. *)
+(* An exact folded constant value; never a nominal type. *)
+Inductive Constant : Type :=
+| CInt     : Z -> Constant
+| CFloat   : Float.Constant -> Constant
+| CComplex : Complex.Constant -> Constant
+| CString  : string -> Constant
+| CBool    : bool -> Constant.
+
+(* A typed constant cannot exist without the evidence its form requires, so an out-of-range one has no value. *)
+Inductive TypedConstant : TypeForm -> Type :=
+| TCBool    : bool -> TypedConstant BoolForm
+| TCInt     : forall (k : Integer.Kind) (z : Z), Integer.representableb k z = true -> TypedConstant (IntegerForm k)
+| TCFloat   : forall (k : Float.Kind), Float.TypedConstant k -> TypedConstant (FloatForm k)
+| TCComplex : forall (k : Complex.Kind), Complex.TypedConstant k -> TypedConstant (ComplexForm k)
+| TCString  : string -> TypedConstant StringForm.
+
+(* Forget the form, keep the exact constant; reads stored data and never re-rounds. *)
+Definition typed_exact {t : TypeForm} (tc : TypedConstant t) : Constant :=
+  match tc with
+  | TCBool b       => CBool b
+  | TCInt _ z _    => CInt z
+  | TCFloat _ v    => CFloat (Float.exact v)
+  | TCComplex _ v  => CComplex (Complex.typed_exact v)
+  | TCString s     => CString s
+  end.
+
+(* A typed constant's exact value has exactly the shape its form dictates; integers carry their range proof. *)
+Lemma typed_constant_intrinsic : forall t (tc : TypedConstant t),
+  match t as t0 return TypedConstant t0 -> Prop with
+  | BoolForm      => fun c => exists b, typed_exact c = CBool b
+  | IntegerForm k => fun c => exists z, typed_exact c = CInt z /\ Integer.representableb k z = true
+  | FloatForm _   => fun c => exists q, typed_exact c = CFloat q
+  | ComplexForm _ => fun c => exists cc, typed_exact c = CComplex cc
+  | StringForm    => fun c => exists s, typed_exact c = CString s
+  end tc.
+Proof.
+  intros t tc; destruct tc; cbn.
+  - eexists; reflexivity.
+  - eexists; split; [ reflexivity | eassumption ].
+  - eexists; reflexivity.
+  - eexists; reflexivity.
+  - eexists; reflexivity.
+Qed.
+
+Inductive TypedFlag : Type :=
+| Untyped
+| ExplicitlyTyped : TypeForm -> TypedFlag.
+
+Record ConstantInfo := mk_cinfo {
+  ci_const : Constant;
+  ci_typed : TypedFlag
+}.
+
+Record ResolvedConstant := mk_rc {
+  rc_form  : TypeForm;
+  rc_value : TypedConstant rc_form
+}.
+
+Definition resolved_constant_form (rc : ResolvedConstant) : TypeForm := rc_form rc.
+Definition resolved_constant_exact (rc : ResolvedConstant) : Constant := typed_exact (rc_value rc).
+
+(* Conversion is total with three exact outcomes: a target-form value, an out-of-range value, or not the target form. *)
+Inductive ConversionResult (target : TypeForm) : Type :=
+| Converted : TypedConstant target -> ConversionResult target
+| Overflows : Constant -> ConversionResult target
+| NotForm   : Constant -> ConversionResult target.
+Arguments Converted {target} _.
+Arguments Overflows {target} _.
+Arguments NotForm {target} _.
+
+(* The exact integer a constant denotes, when it denotes one; the sole float/complex-to-integer bridge. *)
 Definition constant_to_int (q : Float.Constant) : option Z :=
   if Z.eqb (Z.rem (Float.numerator q) (Zpos (Float.denominator q))) 0
   then Some (Float.numerator q / Zpos (Float.denominator q)) else None.
 
-(* Decidable float-format equality; it reduces to [left eq_refl], so a same-format conversion is the identity. *)
-Definition float_kind_eq_dec (a b : Float.Kind) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-
-Definition complex_kind_eq_dec (a b : Complex.Kind) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-
-(* A typed constant cannot exist without the evidence its type requires, so an out-of-range one has no value. *)
-Inductive TypedConstant : SemanticType -> Type :=
-| TypedBool    : bool -> TypedConstant BoolType
-| TypedInteger : forall (it : Integer.Kind) (z : Z), Integer.representableb it z = true -> TypedConstant (IntegerType it)
-| TypedFloat   : forall (ft : Float.Kind), Float.TypedConstant ft -> TypedConstant (FloatType ft)
-| TypedComplex : forall (ct : Complex.Kind), Complex.TypedConstant ct -> TypedConstant (ComplexType ct)
-| TypedString  : string -> TypedConstant StringType.
-
-(* Forget the type, keep the exact constant; this reads stored data and never re-rounds a float. *)
-Definition typed_exact {t : SemanticType} (tc : TypedConstant t) : Constant :=
-  match tc with
-  | TypedBool b        => BoolConstant b
-  | TypedInteger _ z _ => IntegerConstant z
-  | TypedFloat _ tfc   => FloatConstant (Float.exact tfc)
-  | TypedComplex _ tcc => ComplexConstant (Complex.typed_exact tcc)
-  | TypedString s      => StringConstant s
-  end.
-
-(* An index-annotated match extracts the intrinsic component, so no dependent destruction is needed. *)
-Definition typed_float {ft : Float.Kind} (tc : TypedConstant (FloatType ft)) : Float.TypedConstant ft :=
-  match tc in TypedConstant t return match t with FloatType f => Float.TypedConstant f | _ => unit end with
-  | TypedFloat _ tfc => tfc
-  | TypedBool _ => tt | TypedInteger _ _ _ => tt | TypedComplex _ _ => tt | TypedString _ => tt
-  end.
-
-Definition typed_complex {ct : Complex.Kind} (tc : TypedConstant (ComplexType ct)) : Complex.TypedConstant ct :=
-  match tc in TypedConstant t return match t with ComplexType c => Complex.TypedConstant c | _ => unit end with
-  | TypedComplex _ tcc => tcc
-  | TypedBool _ => tt | TypedInteger _ _ _ => tt | TypedFloat _ _ => tt | TypedString _ => tt
-  end.
-
-(* A decidable guard carrying its own proof, so [typed_integer_of_Z] needs no dependent convoy. *)
-Definition bool_true_dec (b : bool) : {b = true} + {b = false} :=
-  match b with true => left eq_refl | false => right eq_refl end.
-
-Definition typed_integer_of_Z (it : Integer.Kind) (z : Z) : option (TypedConstant (IntegerType it)) :=
-  match bool_true_dec (Integer.representableb it z) with
-  | left H  => Some (TypedInteger it z H)
-  | right _ => None
-  end.
-
-Definition typed_float_of_constant (ft : Float.Kind) (q : Float.Constant) : option (TypedConstant (FloatType ft)) :=
-  option_map (TypedFloat ft) (round_typed_float ft q).
-
-(* Construct a typed complex constant by the one authority; either component's overflow rejects the whole. *)
-Definition typed_complex_of_constant (ct : Complex.Kind) (c : Complex.Constant) : option (TypedConstant (ComplexType ct)) :=
-  option_map (TypedComplex ct) (Complex.round_typed ct c).
-
-(* The exact numeric embedding into the complex plane, with no rounding of its own. *)
-Definition numeric_constant_to_complex (c : Constant) : option Complex.Constant :=
+Definition int_value (c : Constant) : option Z :=
   match c with
-  | IntegerConstant z     => Some (Complex.of_real (Float.constant_of_Z z))
-  | FloatConstant q   => Some (Complex.of_real q)
-  | ComplexConstant c => Some c
+  | CInt z     => Some z
+  | CFloat q   => constant_to_int q
+  | CComplex cc => match Complex.real_if_imaginary_zero cc with Some q => constant_to_int q | None => None end
+  | _          => None
+  end.
+Definition float_value (c : Constant) : option Float.Constant :=
+  match c with
+  | CInt z     => Some (Float.constant_of_Z z)
+  | CFloat q   => Some q
+  | CComplex cc => Complex.real_if_imaginary_zero cc
+  | _          => None
+  end.
+Definition complex_value (c : Constant) : option Complex.Constant :=
+  match c with
+  | CInt z     => Some (Complex.of_real (Float.constant_of_Z z))
+  | CFloat q   => Some (Complex.of_real q)
+  | CComplex cc => Some cc
   | _          => None
   end.
 
-(* One constant-status analysis over the raw AST: a literal is untyped, an explicit conversion is typed. *)
-Inductive ConstantInfo : Type :=
-| UntypedInfo : Constant -> ConstantInfo
-| TypedInfo   : forall (t : SemanticType), TypedConstant t -> ConstantInfo.
+(* A decidable guard carrying its own proof, so the integer branch needs no dependent convoy. *)
+Definition bool_true_dec (b : bool) : {b = true} + {b = false} :=
+  match b with true => left eq_refl | false => right eq_refl end.
 
-Definition constant_info_exact (ci : ConstantInfo) : Constant :=
-  match ci with UntypedInfo c => c | TypedInfo _ tc => typed_exact tc end.
-
-(* The packed result of resolving one expression: existential evidence, not a typed tree. *)
-Inductive ResolvedConstant : Type :=
-| PackResolved : forall (t : SemanticType), TypedConstant t -> ResolvedConstant.
-
-Definition resolved_constant_type (rc : ResolvedConstant) : SemanticType :=
-  match rc with PackResolved t _ => t end.
-Definition resolved_constant_exact (rc : ResolvedConstant) : Constant :=
-  match rc with PackResolved _ tc => typed_exact tc end.
-
-(* Converting a typed float to its own format returns the existing constant unchanged, with no reround. *)
-Definition same_float_kind_identity (ft : Float.Kind) (ci : ConstantInfo) : option (TypedConstant (FloatType ft)) :=
-  match ci with
-  | TypedInfo (FloatType ft') tc =>
-      match float_kind_eq_dec ft' ft with
-      | left Heq => Some (eq_rect (FloatType ft') (fun T => TypedConstant T) tc (FloatType ft) (f_equal FloatType Heq))
-      | right _  => None
-      end
-  | _ => None
-  end.
-
-Definition same_complex_kind_identity (ct : Complex.Kind) (ci : ConstantInfo) : option (TypedConstant (ComplexType ct)) :=
-  match ci with
-  | TypedInfo (ComplexType ct') tc =>
-      match complex_kind_eq_dec ct' ct with
-      | left Heq => Some (eq_rect (ComplexType ct') (fun T => TypedConstant T) tc (ComplexType ct) (f_equal ComplexType Heq))
-      | right _  => None
-      end
-  | _ => None
-  end.
-
-(* A typed float at the complex component format becomes the real component directly, with no reround. *)
-Definition reuse_float_as_complex (ct : Complex.Kind) (ci : ConstantInfo) : option (TypedConstant (ComplexType ct)) :=
-  match ci with
-  | TypedInfo (FloatType ft') tc =>
-      match float_kind_eq_dec ft' (Complex.component_kind ct) with
-      | left Heq =>
-          option_map
-            (fun imz => TypedComplex ct
-               (Complex.MakeTypedConstant (eq_rect ft' (fun f => Float.TypedConstant f) (typed_float tc)
-                              (Complex.component_kind ct) Heq) imz))
-            (round_typed_float (Complex.component_kind ct) Float.constant_zero)
-      | right _ => None
-      end
-  | _ => None
-  end.
-
-(* A matching-format typed complex with exact zero imaginary projects its existing real component. *)
-Definition reuse_complex_as_float (ft : Float.Kind) (ci : ConstantInfo) : option (TypedConstant (FloatType ft)) :=
-  match ci with
-  | TypedInfo (ComplexType ct') tc =>
-      match float_kind_eq_dec (Complex.component_kind ct') ft with
-      | left Heq =>
-          if Complex.constant_imaginary_is_zero (Complex.typed_exact (typed_complex tc))
-          then Some (eq_rect (Complex.component_kind ct') (fun f => TypedConstant (FloatType f))
-                             (TypedFloat (Complex.component_kind ct') (Complex.typed_real (typed_complex tc)))
-                             ft Heq)
-          else None
-      | right _ => None
-      end
-  | _ => None
-  end.
-
-(* Float-target conversion: reuse where the format already matches, otherwise round the exact value once. *)
-Definition convert_to_float (ft : Float.Kind) (ci : ConstantInfo) : option (TypedConstant (FloatType ft)) :=
-  match same_float_kind_identity ft ci with
-  | Some tc => Some tc
-  | None =>
-  match reuse_complex_as_float ft ci with
-  | Some tc => Some tc
-  | None =>
-      match constant_info_exact ci with
-      | IntegerConstant z    => typed_float_of_constant ft (Float.constant_of_Z z)
-      | FloatConstant q  => typed_float_of_constant ft q
-      | ComplexConstant c => match Complex.real_if_imaginary_zero c with
-                      | Some q => typed_float_of_constant ft q
-                      | None   => None end
-      | _         => None
-      end
-  end end.
-
-Definition convert_to_complex (ct : Complex.Kind) (ci : ConstantInfo) : option (TypedConstant (ComplexType ct)) :=
-  match same_complex_kind_identity ct ci with
-  | Some tc => Some tc
-  | None =>
-  match reuse_float_as_complex ct ci with
-  | Some tc => Some tc
-  | None =>
-      match numeric_constant_to_complex (constant_info_exact ci) with
-      | Some c => typed_complex_of_constant ct c
-      | None   => None
-      end
-  end end.
-
-Definition convert_constant (target : SemanticType) (ci : ConstantInfo) : option (TypedConstant target) :=
+Definition convert_constant (target : TypeForm) (ci : ConstantInfo) : ConversionResult target :=
+  let c := ci_const ci in
   match target with
-  | BoolType    => None
-  | StringType  => None
-  | IntegerType it =>
-      match constant_info_exact ci with
-      | IntegerConstant z   => typed_integer_of_Z it z
-      | FloatConstant q => match constant_to_int q with
-                    | Some z => typed_integer_of_Z it z
-                    | None => None end
-      | ComplexConstant c => match Complex.real_if_imaginary_zero c with
-                      | Some q => match constant_to_int q with
-                                  | Some z => typed_integer_of_Z it z
-                                  | None => None end
-                      | None => None end
-      | _ => None
+  | BoolForm     => match c with CBool b   => Converted (TCBool b)   | _ => NotForm c end
+  | StringForm   => match c with CString s => Converted (TCString s) | _ => NotForm c end
+  | IntegerForm k =>
+      match int_value c with
+      | Some z => match bool_true_dec (Integer.representableb k z) with
+                  | left H  => Converted (TCInt k z H)
+                  | right _ => Overflows c
+                  end
+      | None => NotForm c
       end
-  | FloatType ft => convert_to_float ft ci
-  | ComplexType ct => convert_to_complex ct ci
+  | FloatForm k =>
+      match float_value c with
+      | Some q => match round_typed_float k q with
+                  | Some v => Converted (TCFloat k v)
+                  | None   => Overflows c
+                  end
+      | None => NotForm c
+      end
+  | ComplexForm k =>
+      match complex_value c with
+      | Some cc => match Complex.round_typed k cc with
+                   | Some v => Converted (TCComplex k v)
+                   | None   => Overflows c
+                   end
+      | None => NotForm c
+      end
   end.
 
-(* Typing an untyped constant at a numeric target routes through the same conversion authority. *)
-Definition type_untyped_constant_at (t : SemanticType) (c : Constant) : option (TypedConstant t) :=
-  match t with
-  | BoolType       => match c with BoolConstant b   => Some (TypedBool b)  | _ => None end
-  | StringType     => match c with StringConstant s => Some (TypedString s) | _ => None end
-  | IntegerType it => convert_constant (IntegerType it) (UntypedInfo c)
-  | FloatType ft   => convert_constant (FloatType ft) (UntypedInfo c)
-  | ComplexType ct => convert_constant (ComplexType ct) (UntypedInfo c)
-  end.
-
-(* Representability is successful typing at the requested type, so it cannot disagree with conversion. *)
-Definition ConstantRepresentable (t : SemanticType) (c : Constant) : Prop :=
-  exists tc : TypedConstant t, type_untyped_constant_at t c = Some tc.
-
-Definition constant_representableb (t : SemanticType) (c : Constant) : bool :=
-  match type_untyped_constant_at t c with Some _ => true | None => false end.
-
-Lemma constant_representableb_iff : forall t c, constant_representableb t c = true <-> ConstantRepresentable t c.
+(* A failed conversion carries the exact offending constant, so overflow diagnostics name the real value. *)
+Lemma convert_total_exact : forall target ci,
+  (forall c, convert_constant target ci = Overflows c -> c = ci_const ci)
+  /\ (forall c, convert_constant target ci = NotForm c -> c = ci_const ci).
 Proof.
-  intros t c; unfold constant_representableb, ConstantRepresentable.
-  destruct (type_untyped_constant_at t c) as [tc|] eqn:E; split.
+  intros target ci; split; intros c H; unfold convert_constant in H; destruct target;
+    repeat (match goal with
+            | [ H : context[match ?x with _ => _ end] |- _ ] => destruct x eqn:?
+            end); try discriminate; injection H as <-; reflexivity.
+Qed.
+
+Definition constant_representableb (target : TypeForm) (c : Constant) : bool :=
+  match convert_constant target (mk_cinfo c Untyped) with Converted _ => true | _ => false end.
+
+Definition ConstantRepresentable (target : TypeForm) (c : Constant) : Prop :=
+  constant_representableb target c = true.
+
+Lemma representable_iff_converted : forall target c,
+  ConstantRepresentable target c <-> exists tc, convert_constant target (mk_cinfo c Untyped) = Converted tc.
+Proof.
+  intros target c; unfold ConstantRepresentable, constant_representableb.
+  destruct (convert_constant target (mk_cinfo c Untyped)) as [tc| |] eqn:E; split.
   - intros _; exists tc; reflexivity.
   - intros _; reflexivity.
   - discriminate.
-  - intros [tc' H]; discriminate.
+  - intros [tc H]; discriminate.
+  - discriminate.
+  - intros [tc H]; discriminate.
 Qed.
-
-Lemma type_untyped_int_convert : forall it c,
-  type_untyped_constant_at (IntegerType it) c = convert_constant (IntegerType it) (UntypedInfo c).
-Proof. reflexivity. Qed.
-Lemma type_untyped_float_convert : forall ft c,
-  type_untyped_constant_at (FloatType ft) c = convert_constant (FloatType ft) (UntypedInfo c).
-Proof. reflexivity. Qed.
-Lemma type_untyped_complex_convert : forall ct c,
-  type_untyped_constant_at (ComplexType ct) c = convert_constant (ComplexType ct) (UntypedInfo c).
-Proof. reflexivity. Qed.
 
 (* Exact negation of a folded constant; a source magnitude gains its sign from a unary minus. *)
 Lemma float_constant_neg_canonical : forall q : Float.Constant,
@@ -276,9 +212,9 @@ Definition float_constant_neg (q : Float.Constant) : Float.Constant :=
   Float.MakeConstant (- Float.numerator q) (Float.denominator q) (float_constant_neg_canonical q).
 Definition constant_neg (c : Constant) : option Constant :=
   match c with
-  | IntegerConstant z => Some (IntegerConstant (- z))
-  | FloatConstant q   => Some (FloatConstant (float_constant_neg q))
-  | ComplexConstant cc => Some (ComplexConstant (Complex.MakeConstant
+  | CInt z     => Some (CInt (- z))
+  | CFloat q   => Some (CFloat (float_constant_neg q))
+  | CComplex cc => Some (CComplex (Complex.MakeConstant
       (float_constant_neg (Complex.exact_real cc)) (float_constant_neg (Complex.exact_imaginary cc))))
   | _ => None
   end.
@@ -286,185 +222,67 @@ Definition constant_neg (c : Constant) : option Constant :=
 (* The exact numeric embedding of a folded constant as a floating component, with no rounding. *)
 Definition constant_to_float (c : Constant) : option Float.Constant :=
   match c with
-  | IntegerConstant z => Some (Float.constant_of_Z z)
-  | FloatConstant q   => Some q
+  | CInt z   => Some (Float.constant_of_Z z)
+  | CFloat q => Some q
   | _ => None
   end.
 Definition complex_of_constants (re im : Constant) : option Constant :=
   match constant_to_float re, constant_to_float im with
-  | Some r, Some i => Some (ComplexConstant (Complex.MakeConstant r i))
+  | Some r, Some i => Some (CComplex (Complex.MakeConstant r i))
   | _, _ => None
   end.
 
-(* A source name's resolved meaning; the compiler's binding supplies it, never a spelling scan. *)
-Inductive NameMeaning : Type :=
-| NMValueConstant  : Constant -> NameMeaning
-| NMConversionType : SemanticType -> NameMeaning
-| NMComplexBuiltin : NameMeaning
-| NMPrintlnBuiltin : NameMeaning.
-
-(* A complex builtin's components must be floating or untyped numeric; the exact rule classifies a pair. *)
-Inductive ComplexClass : Type := CxOk | CxDefer | CxError.
-Definition complex_comp (ci : ConstantInfo) : option (option Float.Kind) :=
-  match ci with
-  | UntypedInfo (IntegerConstant _) | UntypedInfo (FloatConstant _) => Some None
-  | TypedInfo (FloatType ft) _ => Some (Some ft)
-  | _ => None
-  end.
-Definition complex_class (cre cim : ConstantInfo) : ComplexClass :=
-  match complex_comp cre, complex_comp cim with
-  | None, _ | _, None => CxError
-  | Some None, Some None => CxOk
-  | Some (Some a), Some (Some b) => if Float.kind_equalb a b then CxDefer else CxError
-  | _, _ => CxDefer
-  end.
-
-(* The typing spec takes a source-name resolver; None is the compiler-owned unresolved/unmodelled binding result. *)
-Section TypingResolver.
-Variable resolve_name : Names.OrdinaryIdentifier -> option NameMeaning.
-
-Fixpoint constant_info (e : Syntax.Expr) : option ConstantInfo :=
-  match e with
-  | Syntax.Name n =>
-      match resolve_name n with Some (NMValueConstant c) => Some (UntypedInfo c) | _ => None end
-  | Syntax.LiteralExpr (Syntax.IntegerLiteral k) => Some (UntypedInfo (IntegerConstant (Z.of_N k)))
-  | Syntax.LiteralExpr (Syntax.FloatLiteral d)   => Some (UntypedInfo (FloatConstant (Float.nnd_value d)))
-  | Syntax.LiteralExpr (Syntax.StringLiteral s)  => Some (UntypedInfo (StringConstant s))
-  | Syntax.Unary Syntax.UnaryMinus e' =>
-      match constant_info e' with
-      | Some (UntypedInfo c)  => option_map UntypedInfo (constant_neg c)
-      | Some (TypedInfo t tc) =>
-          match constant_neg (constant_info_exact (TypedInfo t tc)) with
-          | Some c => option_map (TypedInfo t) (convert_constant t (UntypedInfo c))
-          | None   => None
-          end
-      | None => None
-      end
-  | Syntax.Application head args =>
-      match head, args with
-      | Syntax.Name n, x :: nil =>
-          match resolve_name n with
-          | Some (NMConversionType t) =>
-              match constant_info x with
-              | Some ci => option_map (TypedInfo t) (convert_constant t ci)
-              | None => None
-              end
-          | _ => None
-          end
-      | Syntax.Name n, re :: im :: nil =>
-          match resolve_name n with
-          | Some NMComplexBuiltin =>
-              match constant_info re, constant_info im with
-              | Some cre, Some cim =>
-                  match complex_class cre cim with
-                  | CxOk => option_map UntypedInfo
-                              (complex_of_constants (constant_info_exact cre) (constant_info_exact cim))
-                  | _ => None
-                  end
-              | _, _ => None
-              end
-          | _ => None
-          end
-      | _, _ => None
-      end
-  end.
-
-(* Defaulting turns an untyped constant into a typed one; an overflowing bare float has no default. *)
+(* Defaulting turns an untyped constant into a typed one; an overflowing bare numeric constant has no default. *)
 Definition default_constant (c : Constant) : option ResolvedConstant :=
   match c with
-  | BoolConstant b    => Some (PackResolved BoolType (TypedBool b))
-  | IntegerConstant z     => option_map (PackResolved (IntegerType Integer.Int)) (typed_integer_of_Z Integer.Int z)
-  | FloatConstant q   => option_map (PackResolved (FloatType F64)) (typed_float_of_constant F64 q)
-  | ComplexConstant c => option_map (PackResolved (ComplexType C128)) (typed_complex_of_constant C128 c)
-  | StringConstant s  => Some (PackResolved StringType (TypedString s))
+  | CBool b    => Some (mk_rc BoolForm (TCBool b))
+  | CString s  => Some (mk_rc StringForm (TCString s))
+  | CInt z     => match bool_true_dec (Integer.representableb Integer.Int z) with
+                  | left H  => Some (mk_rc (IntegerForm Integer.Int) (TCInt Integer.Int z H))
+                  | right _ => None
+                  end
+  | CFloat q   => match round_typed_float Float.F64 q with
+                  | Some v => Some (mk_rc (FloatForm Float.F64) (TCFloat Float.F64 v))
+                  | None   => None
+                  end
+  | CComplex cc => match Complex.round_typed Complex.C128 cc with
+                   | Some v => Some (mk_rc (ComplexForm Complex.C128) (TCComplex Complex.C128 v))
+                   | None   => None
+                   end
   end.
 
-Definition resolve_constant_info (ci : ConstantInfo) : option ResolvedConstant :=
-  match ci with
-  | UntypedInfo c  => default_constant c
-  | TypedInfo t tc => Some (PackResolved t tc)
+(* A source name's resolved FORM meaning; contextual policy (complex/println/iota/nil) lives in Facts, not here. *)
+Inductive NameMeaning : Type :=
+| NMConversionForm : TypeForm -> NameMeaning
+| NMValueConstant  : Constant -> NameMeaning
+| NMNoFormMeaning.
+
+Definition predeclared_meaning (n : Names.PredeclaredName) : NameMeaning :=
+  match n with
+  | Names.PBool       => NMConversionForm BoolForm
+  | Names.PString     => NMConversionForm StringForm
+  | Names.PInt        => NMConversionForm (IntegerForm Integer.Int)
+  | Names.PInt8       => NMConversionForm (IntegerForm Integer.Int8)
+  | Names.PInt16      => NMConversionForm (IntegerForm Integer.Int16)
+  | Names.PInt32      => NMConversionForm (IntegerForm Integer.Int32)
+  | Names.PInt64      => NMConversionForm (IntegerForm Integer.Int64)
+  | Names.PUint       => NMConversionForm (IntegerForm Integer.Uint)
+  | Names.PUint8      => NMConversionForm (IntegerForm Integer.Uint8)
+  | Names.PUint16     => NMConversionForm (IntegerForm Integer.Uint16)
+  | Names.PUint32     => NMConversionForm (IntegerForm Integer.Uint32)
+  | Names.PUint64     => NMConversionForm (IntegerForm Integer.Uint64)
+  | Names.PByte       => NMConversionForm (IntegerForm Integer.Uint8)
+  | Names.PRune       => NMConversionForm (IntegerForm Integer.Int32)
+  | Names.PFloat32    => NMConversionForm (FloatForm Float.F32)
+  | Names.PFloat64    => NMConversionForm (FloatForm Float.F64)
+  | Names.PComplex64  => NMConversionForm (ComplexForm Complex.C64)
+  | Names.PComplex128 => NMConversionForm (ComplexForm Complex.C128)
+  | Names.PTrue       => NMValueConstant (CBool true)
+  | Names.PFalse      => NMValueConstant (CBool false)
+  | _                 => NMNoFormMeaning
   end.
-
-Lemma constant_info_deterministic : forall e ci1 ci2,
-  constant_info e = Some ci1 -> constant_info e = Some ci2 -> ci1 = ci2.
-Proof. intros e ci1 ci2 H1 H2; rewrite H1 in H2; injection H2 as <-; reflexivity. Qed.
-
-Lemma constant_info_zero_sign :
-  constant_info (Syntax.LiteralExpr (Syntax.IntegerLiteral 0))
-  = constant_info (Syntax.Unary Syntax.UnaryMinus (Syntax.LiteralExpr (Syntax.IntegerLiteral 0))).
-Proof. reflexivity. Qed.
-
-(* A nested same-format float conversion returns the same carrier, so a typed float is never rerounded. *)
-Lemma convert_constant_same_float : forall ft (tc : TypedConstant (FloatType ft)),
-  convert_constant (FloatType ft) (TypedInfo (FloatType ft) tc) = Some tc.
-Proof. intros ft tc; destruct ft; reflexivity. Qed.
-
-Lemma convert_constant_same_complex : forall ct (tc : TypedConstant (ComplexType ct)),
-  convert_constant (ComplexType ct) (TypedInfo (ComplexType ct) tc) = Some tc.
-Proof. intros ct tc; destruct ct; reflexivity. Qed.
-
-Lemma convert_complex_reuses_float_component : forall ct (tc : TypedConstant (FloatType (Complex.component_kind ct))),
-  exists tcc, convert_constant (ComplexType ct) (TypedInfo (FloatType (Complex.component_kind ct)) tc)
-                = Some (TypedComplex ct tcc)
-           /\ Complex.typed_real tcc = typed_float tc.
-Proof.
-  intros ct tc; destruct ct.
-  - destruct (round_typed_float F32 Float.constant_zero) as [imz|] eqn:Hz; [ | vm_compute in Hz; discriminate ].
-    exists (Complex.MakeTypedConstant (typed_float tc) imz); split; [ | reflexivity ].
-    unfold convert_constant, convert_to_complex, same_complex_kind_identity, reuse_float_as_complex;
-      cbn [Complex.component_kind float_kind_eq_dec eq_rect option_map]; rewrite Hz; reflexivity.
-  - destruct (round_typed_float F64 Float.constant_zero) as [imz|] eqn:Hz; [ | vm_compute in Hz; discriminate ].
-    exists (Complex.MakeTypedConstant (typed_float tc) imz); split; [ | reflexivity ].
-    unfold convert_constant, convert_to_complex, same_complex_kind_identity, reuse_float_as_complex;
-      cbn [Complex.component_kind float_kind_eq_dec eq_rect option_map]; rewrite Hz; reflexivity.
-Qed.
-
-Lemma convert_float_reuses_complex_component : forall ct (tc : TypedConstant (ComplexType ct)),
-  Complex.constant_imaginary_is_zero (Complex.typed_exact (typed_complex tc)) = true ->
-  convert_constant (FloatType (Complex.component_kind ct)) (TypedInfo (ComplexType ct) tc)
-    = Some (TypedFloat (Complex.component_kind ct) (Complex.typed_real (typed_complex tc))).
-Proof.
-  intros ct tc Hz; destruct ct;
-    unfold convert_constant, convert_to_float, same_float_kind_identity, reuse_complex_as_float;
-    cbn [Complex.component_kind float_kind_eq_dec eq_rect]; rewrite Hz; reflexivity.
-Qed.
-
-Lemma typed_int_value : forall it (tc : TypedConstant (IntegerType it)),
-  exists z, typed_exact tc = IntegerConstant z /\ Integer.representableb it z = true.
-Proof.
-  intros it tc.
-  refine (match tc as tc0 in TypedConstant t
-          return (match t with
-                  | IntegerType it' => exists z, typed_exact tc0 = IntegerConstant z /\ Integer.representableb it' z = true
-                  | _ => True end)
-          with
-          | TypedInteger it0 z0 Hpf => _
-          | _ => I
-          end).
-  exists z0; split; [ reflexivity | exact Hpf ].
-Qed.
-
-Lemma convert_constant_same_int : forall it (tc : TypedConstant (IntegerType it)),
-  exists tc', convert_constant (IntegerType it) (TypedInfo (IntegerType it) tc) = Some tc'
-           /\ typed_exact tc' = typed_exact tc.
-Proof.
-  intros it tc.
-  destruct (typed_int_value it tc) as [ z [ Hexact Hz ] ].
-  cbn [convert_constant constant_info_exact]; rewrite Hexact.
-  unfold typed_integer_of_Z; destruct (bool_true_dec (Integer.representableb it z)) as [H'|H'].
-  - exists (TypedInteger it z H'); split; reflexivity.
-  - congruence.
-Qed.
-
-(* An invalid inner conversion propagates and no outer conversion revives it. *)
-Lemma constant_info_conv_none : forall n x,
-  constant_info x = None -> constant_info (Syntax.Application (Syntax.Name n) [x]) = None.
-Proof. intros n x H; cbn [constant_info]; destruct (resolve_name n) as [[c|t| |]|]; rewrite ?H; reflexivity. Qed.
-
-End TypingResolver.
 
 (* A mismatched or out-of-range typed constant cannot be constructed at all. *)
-Fail Definition mismatch_string_carrying_int : TypedConstant StringType := TypedInteger Integer.Int 3 eq_refl.
-Fail Definition mismatch_int_out_of_range : TypedConstant (IntegerType Integer.Int8) := TypedInteger Integer.Int8 128 eq_refl.
-Fail Definition mismatch_float_carrying_bool : TypedConstant (FloatType F64) := TypedBool true.
-
+Fail Definition mismatch_string_carrying_int : TypedConstant StringForm := TCInt Integer.Int 3 eq_refl.
+Fail Definition mismatch_int_out_of_range : TypedConstant (IntegerForm Integer.Int8) := TCInt Integer.Int8 128 eq_refl.
+Fail Definition mismatch_float_carrying_bool : TypedConstant (FloatForm Float.F64) := TCBool true.
