@@ -1,187 +1,163 @@
-# C4 correction — sealing vs. reducible witnesses: a design decision for the reviewer
+# C4 correction — sealing vs. reducible witnesses: a decision for the reviewer
 
 **Status:** `BLOCKED_FOR_ROB` at dependency-order step 2 (public topology) of the C4 correction contract
-(`ebf80c34-WORK_CONTRACT.md`). No code was changed to reach this conclusion; the working tree is exactly the
-entry state (commit `1306aa190fc1a21fd8c1bc94dde56c10f8054409`, tree `b39729a19afb1ef429652c5ac4fcd53ae71e04ba`,
-clean). Four throwaway spikes were built, observed, and deleted.
+(`ebf80c34-WORK_CONTRACT.md`). No canonical code was changed to reach this conclusion; five throwaway spikes were
+built, observed, and deleted. The candidate content is exactly the entry state (commit
+`1306aa190fc1a21fd8c1bc94dde56c10f8054409`, tree `b39729a19afb1ef429652c5ac4fcd53ae71e04ba`); the only commit on
+the branch is this write-up.
 
-This file exists only to hand the decision to the reviewer. It is not part of the governing corpus and should be
-deleted once the sealing approach is chosen.
-
----
-
-## The ask, in one paragraph
-
-Contract finding #1 requires a **genuinely sealed** public surface: `Compilation`, `Decision`, the branch
-payloads, and the compiled capability must be **abstract outside the sealed owner**, with their constructors
-**absent from the client namespace**, and §10 requires hostile-client controls that fail when a client tries to
-**name** a raw constructor or **pattern-match the Decision directly**. Separately, §Preservation and §12 require
-the certified witnesses to keep **materializing to bytes** (`make emit`/`e2e`, preserved goldens). In this Rocq
-toolchain those two requirements are **mutually exclusive**: making `Decision` abstract forces `compile`/`inspect`
-to be non-reducing in client code, and the materializer cannot then compute the witness image. I need the reviewer
-to choose which requirement gives, or to supply a Rocq technique that satisfies both. My recommendation is
-**Resolution A** below.
+This file exists only to hand the decision to the reviewer, and should be deleted once the approach is chosen.
 
 ---
 
-## Why the two requirements collide
+## Bottom line
 
-### Materialization requires client-side reduction of `compile`/`inspect`
+The contract requires **all** of the following, and in this Rocq toolchain they cannot hold together:
 
-The witness image is produced by the `Fido Materialize` plugin, which normalizes the transport term with
-`Reductionops.nf_all` (`plugin/materialize.mlg:213`). `nf_all` does **not** unfold opaque constants. The witness is
+1. **Sound, type-level sealing** (§2, §10): `Decision`/`Compilation`/payloads abstract outside the owner;
+   constructors absent from the client namespace; hostile controls fail when a client *names* a raw constructor
+   or pattern-matches `Decision` directly; "impossible states … established by Rocq module/type topology"
+   (§Required-validation-2, line 818).
+2. **Reducible, Rocq-computed certified witnesses** (§Preservation, §12): `make emit`/`e2e` materialize the
+   certified image to the preserved bytes/goldens, via `Fido Materialize` (which normalizes with
+   `Reductionops.nf_all`).
+3. **`inspect` as the sole payload route** (§2, §10, line 597): no `*_of_nilb`, no mint-from-report-equality, no
+   second decision authority (e.g. a parallel boolean `check`).
 
-```coq
-demo_safe  := Safe.certify demo_program (compile demo_program) c cp _   (* c, cp from inspect *)
-demo_image := Emit.of_safe demo_safe
-```
+These are mutually exclusive. The chain of forced implications:
 
-`Safe` uses primitive projections, so `Safe.source demo_safe` reduces to `demo_program` **without** forcing the
-heavy phases — good. But obtaining `c` and `cp` still requires eliminating the decision:
+- (2) requires `inspect (compile p)` to **reduce** in client code (to extract the payload the witness feeds to
+  `Safe.certify`; the source bytes are then a primitive projection). Proven: under opaque ascription the match is
+  stuck and materialization fails.
+- reduction requires `Decision`/`compile`/`inspect` **transparent**.
+- a **transparent** type is **forgeable**: a client can write out a canonical-looking value and close any
+  equality guard with `eq_refl` (Coq *conversion* evaluates even an un-nameable `Local` composer). So a hostile
+  client can fabricate a `Compilation` with empty reports, prove `Admissible`, apply `DCompiled`, and mint a
+  `Prog`/`Image` — i.e. **sound sealing fails** under transparency.
+- the only escape valves for (2) that would allow opacity — a reducible boolean `check` proved equivalent to
+  `compile`, or minting the payload from `diagnostics = []` — are exactly what (3) forbids.
 
-```coq
-match Compilable.inspect (Compilable.compile demo_program) with
-| IsCompiled c cp => Safe.certify demo_program (compile demo_program) c cp _
-| _ => (* no image exists for a non-compiling program *)
-end
-```
-
-For this to reduce to a concrete `Safe.certify …` (so `Safe.source` can then project the source), the scrutinee
-`inspect (compile demo_program)` must reduce to `IsCompiled c cp`. That requires `compile` and `inspect` to be
-**delta-reducible in the client**. The same is true for proving *any* fact about a concrete program's compilation
-(e.g. `compiles demo_program`): the proof reduces `compile`, which requires transparency.
-
-### Abstracting `Decision` forces `compile`/`inspect` opaque
-
-Hiding a constructor's **name** from clients (so `Fail Definition x := Compilable.DCompiled` actually fails, per
-§10) requires the type to be **abstract** — i.e. exposed through an opaque module signature. Under an opaque
-ascription, the module's operations become opaque constants, and `nf_all`/`vm_compute` leave
-`inspect (compile p)` **stuck**. So the witness image cannot be computed, and no concrete program can even be
-*proved* to compile.
-
-There is no ascription in this Rocq that yields *reducing operations* **and** *un-nameable constructors*.
+So: **sound seal ⇔ opacity ⇔ no client reduction ⇔ no computable witness**, and the sanctioned witness route is
+mandatory. The requirement set has no implementation in this Rocq. The reviewer must relax one axis.
 
 ---
 
-## Mechanisms tried (all four spikes deleted; each was a `make prove-errors` observation)
+## Why materialization needs client-side reduction
 
-| Mechanism | Hides the constructor name? | `inspect (compile p)` reduces in a **separate client file**? |
-|---|---|---|
-| `Local Module` / `Local Inductive` | — | **rejected**: "This command does not support this attribute: local" |
-| `#[private(matching)] Inductive` | **no** — the client both names the constructor and matches `Decision` directly | yes |
-| `Module M : SIG := Impl` (opaque) | **yes** | **no** — `vm_compute (inspect (compile 0))` is stuck; `reflexivity` fails to unify |
-| `Module M <: SIG := Impl` (transparent) | **no** — the full interface (incl. constructors) is exposed | yes |
+The witness is `Emit.of_safe (Safe.certify demo_program (compile demo_program) c cp _)`, where `c`, `cp` come from
+`match inspect (compile demo_program) with IsCompiled c cp => …`. `Safe` uses primitive projections, so
+`Safe.source` reduces to the source **without** forcing the phases — but the enclosing `match` on
+`inspect (compile demo_program)` must first reduce to `IsCompiled c cp`, or the whole term is stuck and
+`Fido Materialize` (via `Reductionops.nf_all`, `plugin/materialize.mlg:213`, which does not unfold opaque
+constants) cannot decode `(go.mod, entries)`. Proving *any* fact about a concrete program's compilation has the
+same requirement. Hence `compile`/`inspect` must be transparent.
 
-The opaque and transparent ascriptions are the two endpoints Rocq offers; neither is the needed middle point.
+## Why a transparent surface cannot be soundly sealed
 
-This is precisely contract **stop-condition 5**: *"The sealed public API cannot be implemented without exposing …
-a raw constructor …."* To keep the required reducing witnesses, the raw `Decision` constructor must remain
-nameable. Because the public acquisition topology is Rob-reserved (contract line 1015), I stopped here rather than
-pick a resolution myself — especially since the previous candidate's sealing was found to be only cosmetic.
+A transparent inductive/record's values are constructible by writing them out. An equality guard
+(`DCompiled : forall c, c = elaborate p -> … -> Decision p` with `elaborate` a `Local Definition`) does **not**
+help: the `Local` keyword hides the *name* but conversion still evaluates the *body*, so a client closes the guard
+with `eq_refl` by supplying a value convertible to `elaborate p`. Spike E below demonstrates a client building the
+"sealed" constructor directly. The same defeats a sealed-sigma field
+(`Compilation p := { facts | facts = analysis p }`): supply the canonical `facts` value + `eq_refl`. For any one
+concrete target program these canonical values are specific closed terms an adversary can, in principle, write —
+so the seal is not proof-level. Only an **abstract** (opaque) type makes values un-constructible, and that removes
+reduction.
+
+## Mechanisms measured (five throwaway spikes, all deleted)
+
+| # | Mechanism | Hides constructor (name + direct-match + apply)? | `inspect (compile p)` reduces in a client file? |
+|---|---|---|---|
+| A | `Local Module` / `Local Inductive` | — | **rejected**: "does not support this attribute: local" |
+| B | `#[private(matching)] Inductive` | **no** (client names, matches, applies freely) | yes |
+| C | `Module M : SIG := Impl` (opaque) | **yes** | **no** — `vm_compute (inspect (compile 0))` stuck |
+| D | `Module M <: SIG := Impl` (transparent) | **no** (full interface, ctor nameable) | yes |
+| E | transparent inductive + `Local Definition` equality guard | **no** — client forges `DC v eq_refl` (conversion) | yes |
+
+Opaque and transparent ascriptions bracket the needed middle point without hitting it. This is contract
+**stop-condition 5** ("cannot implement the sealed API without exposing a raw constructor"); the public
+acquisition topology is Rob-reserved (line 1015).
 
 ---
 
-## Resolution options
+## The relaxations the reviewer can choose among
 
-### Resolution A — provenance sealing (recommended)
+### R1 — accept practical (not proof-level) sealing; keep everything working *(least disruptive)*
 
-Keep `Decision`/`Compilation`/payloads **transparent** (so the witnesses still materialize), and make **forgery
-impossible** rather than making the constructor un-nameable:
+Keep `Decision`/`Compilation`/payloads **transparent** (witnesses/goldens unchanged). Fix the *real* finding-#1
+defects soundly: delete every `*_of_nilb`; make `inspect` the sole payload route in all witnesses; make the whole
+canonical composer chain (`index`/`surface`/`bindings`/`analysis`/the top composer) `Local Definition`
+(un-nameable), and make `mk_compilation`/`DCompiled` unreachable by any **named/ordinary** route. Hostile controls
+then prove a client cannot forge via any named constructor, composer, `nilb`, or report-equality route. The
+acknowledged residual: a determined adversary could hand-reconstruct a target program's exact canonical value and
+close the guard with `eq_refl` — impractical, but **not** a type-level impossibility.
 
-- The private composer is a `Local Definition elaborate` (Rocq **does** support `Local Definition`, unlike
-  `Local Module`/`Local Inductive`), so `elaborate` is **un-nameable** by any client.
-- `DCompiled` carries a witness tying its compilation to the private composer, e.g.
-  `DCompiled : forall c, c = elaborate p -> Admissible c -> Decision p`. A client cannot write `elaborate p`
-  (un-nameable), so **cannot construct the required equality**, so **cannot apply `DCompiled`** to mint a decision
-  from fabricated data.
-- `CompiledPayload` is **abstract**, obtained only from `inspect`; a client cannot extract the composer-equality
-  from a payload to route around the guard.
-- All `*_of_nilb` helpers are **deleted**; `inspect` is the sole eliminator; `compiled_prog` (already an opaque
-  capability, whose bytes are avoided via `Safe.source`) stays the sole capability maker.
+This is the most defensible fit for the accepted **cooperating-developer** threat boundary (scope row SR-005), but
+it **contradicts §Required-validation-2 line 818** ("impossible states must be established by Rocq type
+topology"). Choosing R1 means relaxing that sentence to "no forgery via any named/ordinary route," and rewording
+the §10 controls to target *ordinary construction/forgery* rather than *naming*.
 
-**What this achieves (the security intent of finding #1):** no client can forge a `Decision`, a `CompiledPayload`,
-a `Prog` capability, or an `Emit.Image` for a program that did not actually compile — including via the previously
-abused `*_of_nilb` list-equality route or a `DCompiled` applied with a provable `Admissible`. `compile` is the sole
-first source of a *valid* decision; `inspect` the sole source of a payload; `compiled_prog` the sole source of the
-capability. The witnesses keep materializing unchanged; goldens are preserved.
+### R2 — keep proof-level sealing; change the witness/provenance architecture
 
-**What it does not achieve (the residual, versus the literal §2/§10 wording):** the raw constructor **name**
-(`Compilable.DCompiled`) is technically still in the client namespace, though inert — it cannot be applied to forge.
-A client can also `match` a `Decision` directly, but that only yields an already-legitimate compilation (the same
-one `inspect` would give) and a reusable equality — it forges nothing. The §10 hostile controls would therefore
-target **application/forgery** (constructing a valid decision/payload/capability/image from fabricated data — must
-fail) instead of **naming**.
+Make `Decision` opaque (every §10 control passes literally). Since no concrete program can then be reduced or
+proved to compile through the sealed API, the certified-emit link must be re-founded: e.g. move the
+compile-certification into a **trusted** materialization step, or expose a reducible decision that the contract
+currently forbids. This is a substantial redesign that likely conflicts with §Preservation (`Emit.of_safe` sole
+route; preserved certified bytes) and with (3) above. I do not recommend it without a concrete alternative
+provenance design from the reviewer.
 
-**One confirming spike still owed:** whether a public constructor whose *type* mentions a `Local Definition`
-(`c = elaborate p`) exports cleanly and genuinely blocks client application. This is a ~one-build check I will run
-first if A is chosen.
+### R3 — a Rocq technique I have not found
 
-### Resolution B — fully opaque `Decision`
-
-Seal `Decision` through an opaque signature so every §10 hostile test passes **literally** (naming and direct-match
-both fail). This forbids client-side reduction, so the certified witnesses can no longer be Rocq-computed to bytes.
-It requires **replacing the certified-emit/materialize architecture** (how a concrete program is shown to compile
-and how its bytes are produced) and very likely conflicts with §Preservation (`Emit.of_safe` as the sole image
-route; preserved paths/bytes/modes/goldens). This is a large, high-risk redesign and I do not recommend it without
-a concrete alternative materialization design.
-
-### Resolution C — a Rocq technique I have not found
-
-If the reviewer knows an idiom for a **reducible-yet-abstract** sum type (client reduction of `inspect ∘ compile`
-while the constructors are un-nameable), or a materialization route that survives opacity, please point me to it and
-I will implement the literal §2/§10 seal as written. My four spikes did not find one, and the module system's
-opaque/transparent endpoints appear to bracket the needed behavior without hitting it.
+If the reviewer knows an idiom for a **reducible-yet-abstract** sum type, or a materialization route that survives
+opacity without a forbidden second authority, please point me to it and I will implement §2/§10 literally.
 
 ---
 
 ## What I need decided
 
-1. **Which resolution** (A recommended / B / C).
-2. If **A**: confirmation that the §10 hostile controls may target **forgery/application** rather than
-   **constructor-naming**, and that the "provenance sealing" guarantee above is the accepted meaning of "genuinely
-   sealed" for C4. I will then run the one confirming spike and proceed through the full dependency order (Index →
-   PackageIdentity → Bindings → Analysis → Report → Compilable → Safe/Emit → controls → docs), delivering one
-   candidate.
-3. If **C**: the technique or reference.
+1. **R1**, **R2**, or **R3**.
+2. If **R1**: confirmation that the §10 controls may target *forgery via named/ordinary routes* (not constructor
+   *naming*), and that this "no ordinary forgery" property is the accepted meaning of "genuinely sealed" for C4
+   under the cooperating-developer threat model — i.e. line 818 is relaxed accordingly. I then proceed through the
+   full dependency order and deliver one candidate.
+3. If **R2**: the alternative provenance/materialization design.
+4. If **R3**: the technique or reference.
 
-Everything downstream (Index shallow-cell rewrite, applicability-first `Analysis.Result`, coexisting issue rows,
-complete import-path preflight, projection-only `Report`) is unaffected by this choice **except** that whether
-`CompiledPayload` is abstract (A) or the surface is fully opaque (B) changes how `Analysis.Result` and the payloads
-are exposed — which is why the contract's own dependency order puts the public topology first, and why I did not
-begin the lower layers before this is settled.
+Everything downstream (shallow-cell `Index`, applicability-first `Analysis.Result`, coexisting issue rows,
+complete import-path preflight, projection-only `Report`) is independent of this choice **except** how the
+payloads/result are exposed — which is why the dependency order puts the public topology first and why I have not
+begun the lower layers.
 
 ---
 
-## Appendix — decisive spike (reproducible)
+## Appendix — the two decisive spikes (reproducible)
 
-The opaque-ascription spike that proves reduction is lost (the others are analogous):
-
+**Spike C (opacity kills reduction).**
 ```coq
-(* SpikeSealed.v *)
-From Stdlib Require Import Arith.
-Module Type DEC_SIG.
-  Parameter Dec : nat -> Type.
-  Parameter compile : forall p, Dec p.
-  Inductive Case (p : nat) (d : Dec p) : Type := IsC : p = 0 -> Case p d | IsR : p <> 0 -> Case p d.
-  Parameter inspect : forall p (d : Dec p), Case p d.
-End DEC_SIG.
+(* SpikeSealed.v *)  Module Type DEC_SIG.
+  Parameter Dec : nat -> Type.  Parameter compile : forall p, Dec p.
+  Inductive Case (p:nat)(d:Dec p):Type := IsC:p=0->Case p d | IsR:p<>0->Case p d.
+  Parameter inspect : forall p (d:Dec p), Case p d.  End DEC_SIG.
 Module DecImpl <: DEC_SIG.
-  Inductive Dec_ (p : nat) : Type := DC : p = 0 -> Dec_ p | DR : p <> 0 -> Dec_ p.
-  Definition Dec := Dec_.
-  Definition compile (p : nat) : Dec p := match Nat.eq_dec p 0 with left h => DC p h | right h => DR p h end.
-  Inductive Case (p : nat) (d : Dec p) : Type := IsC : p = 0 -> Case p d | IsR : p <> 0 -> Case p d.
-  Definition inspect (p : nat) (d : Dec p) : Case p d := match d with DC _ h => IsC p d h | DR _ h => IsR p d h end.
-End DecImpl.
-Module Dec : DEC_SIG := DecImpl.
-
-(* SpikeClient.v — separate compilation unit *)
-From Fido Require Import SpikeSealed.
-Example client_reduces :
-  (match SpikeSealed.Dec.inspect 0 (SpikeSealed.Dec.compile 0) with
-   | SpikeSealed.Dec.IsC _ _ _ => true | SpikeSealed.Dec.IsR _ _ _ => false end) = true.
-Proof. vm_compute. reflexivity. Qed.   (* FAILS: "Unable to unify true with <stuck term>" *)
+  Inductive Dec_(p:nat):Type := DC:p=0->Dec_ p | DR:p<>0->Dec_ p.  Definition Dec := Dec_.
+  Definition compile p : Dec p := match Nat.eq_dec p 0 with left h=>DC p h|right h=>DR p h end.
+  Inductive Case (p:nat)(d:Dec p):Type := IsC:p=0->Case p d | IsR:p<>0->Case p d.
+  Definition inspect p (d:Dec p):Case p d := match d with DC _ h=>IsC p d h|DR _ h=>IsR p d h end.
+End DecImpl.  Module Dec : DEC_SIG := DecImpl.
+(* SpikeClient.v *)  From Fido Require Import SpikeSealed.
+Example e : (match SpikeSealed.Dec.inspect 0 (SpikeSealed.Dec.compile 0) with
+             SpikeSealed.Dec.IsC _ _ _ => true | SpikeSealed.Dec.IsR _ _ _ => false end) = true.
+Proof. vm_compute. reflexivity. Qed.   (* FAILS: "Unable to unify true with <stuck>" *)
 ```
 
-Observed: the client `Example` fails — opaque ascription blocks the reduction the materializer needs. With `<:`
-(transparent) the same `Example` succeeds, but then `Fail Definition x := SpikeSealed.Dec.DC 0 h` does **not**
-fail (the constructor is nameable), i.e. the seal is cosmetic.
+**Spike E (a transparent `Local`-guard is forgeable).**
+```coq
+(* SpikeSealed.v *)  From Stdlib Require Import Arith.
+Local Definition elaborate (p:nat) : nat := p + 7.
+Inductive Dec (p:nat):Type := DC : forall c:nat, c = elaborate p -> Dec p | DR : Dec p.
+Definition compile p : Dec p := DC p (elaborate p) eq_refl.
+(* SpikeClient.v *)  From Fido Require Import SpikeSealed.
+Fail Definition hostile_forge : SpikeSealed.Dec 3 := SpikeSealed.DC 3 10 eq_refl.
+(* "The command has not failed!" — the forge TYPECHECKS: conversion reduces elaborate 3 to 10,
+   so eq_refl : 10 = 10 closes the guard c = elaborate 3, even though `elaborate` is un-nameable. *)
+```
