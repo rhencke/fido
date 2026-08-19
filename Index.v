@@ -1476,6 +1476,340 @@ Proof.
   - apply (Hd pos cell Hin pp Hpp).
 Qed.
 
+(* [covered occs q]: position q is listed among the children of some member cell — it is nobody's orphan *)
+Definition covered (occs : list (nat * Cell)) (q : nat) : Prop :=
+  exists r rcell, In (r, rcell) occs /\ In q (c_children rcell).
+
+Lemma covered_app_l : forall c1 c2 q, covered c1 q -> covered (c1 ++ c2) q.
+Proof.
+  intros c1 c2 q [r [rcell [Hin Hq]]]. exists r, rcell. split; [ apply in_or_app; left; exact Hin | exact Hq ].
+Qed.
+
+Lemma covered_app_r : forall c1 c2 q, covered c2 q -> covered (c1 ++ c2) q.
+Proof.
+  intros c1 c2 q [r [rcell [Hin Hq]]]. exists r, rcell. split; [ apply in_or_app; right; exact Hin | exact Hq ].
+Qed.
+
+(* every position a sublist fills is either one of its element roots or already covered inside an element *)
+Lemma number_list_cover {A} (g : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x q, b < q < snd (g b x) -> covered (fst (g b x)) q) ->
+  (forall b x, b <= snd (g b x)) ->
+  forall b xs q, b <= q < snd (fst (number_list g b xs)) ->
+    In q (snd (number_list g b xs)) \/ covered (fst (fst (number_list g b xs))) q.
+Proof.
+  intros Hg Hmono b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - cbn [number_list fst snd]. intros q Hq. exfalso; lia.
+  - cbn [number_list]. pose proof (Hmono b x) as Hm. pose proof (Hg b x) as Hgx.
+    destruct (g b x) as [xc b']. cbn [fst snd] in Hm, Hgx.
+    specialize (IH b'). destruct (number_list g b' rest) as [[rc bfin] roots].
+    cbn [fst snd] in IH |- *. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b' q) as [Hge|Hqlt].
+    + destruct (IH q (conj Hge Hqhi)) as [Hin|Hcov];
+        [ left; apply in_cons; exact Hin | right; apply covered_app_r; exact Hcov ].
+    + destruct (Nat.eq_dec q b) as [->|Hne].
+      * left; apply in_eq.
+      * right. apply covered_app_l. apply Hgx. split; [ lia | exact Hqlt ].
+Qed.
+
+Lemma covered_cons : forall kv occs q, covered occs q -> covered (kv :: occs) q.
+Proof. intros kv occs q [r [rcell [Hin Hq]]]. exists r, rcell. split; [ right; exact Hin | exact Hq ]. Qed.
+
+Lemma covered_here : forall b rcell occs q, In q (c_children rcell) -> covered ((b, rcell) :: occs) q.
+Proof. intros b rcell occs q Hq. exists b, rcell. split; [ left; reflexivity | exact Hq ]. Qed.
+
+(* every interior position of an expression's block is covered — its own root lists it, or a sub-expression does *)
+Lemma number_expr_cover : forall e par role b q,
+  b < q < snd (number_expr par role b e) -> covered (fst (number_expr par role b e)) q.
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b; cbn [number_expr].
+  - cbn [number_leaf fst snd]. intros q Hq. exfalso; lia.
+  - cbn [number_leaf fst snd]. intros q Hq. exfalso; lia.
+  - specialize (IHe (Some b) RUnaryOperand (S b)).
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    cbn [fst snd] in IHe |- *. intros q [Hqlo Hqhi].
+    destruct (Nat.eq_dec q (S b)) as [->|Hne].
+    + apply covered_here. cbn [c_children]. left; reflexivity.
+    + apply covered_cons. apply IHe. split; [ lia | exact Hqhi ].
+  - specialize (IHe (Some b) RApplicationHead (S b)).
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1]. cbn [fst snd] in IHe.
+    assert (Hda : forall es, Forall (fun a => forall par role bb q,
+                     bb < q < snd (number_expr par role bb a) -> covered (fst (number_expr par role bb a)) q) es ->
+      forall i0 bi, (let '(ac, bf, roots) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in
+        forall q, bi <= q < bf -> In q roots \/ covered ac q)).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - intros q Hq. exfalso; lia.
+      - specialize (Ha (Some b) (RApplicationArg i0) bi).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi']. cbn [fst snd] in Ha.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        cbn [fst snd] in IHrest |- *. intros q [Hqlo Hqhi].
+        destruct (le_lt_dec bi' q) as [Hge|Hqlt].
+        + destruct (IHrest q (conj Hge Hqhi)) as [Hin|Hcov];
+            [ left; apply in_cons; exact Hin | right; apply covered_app_r; exact Hcov ].
+        + destruct (Nat.eq_dec q bi) as [->|Hne].
+          * left; apply in_eq.
+          * right. apply covered_app_l. apply Ha. split; [ lia | exact Hqlt ]. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    cbn [fst snd] in Hda |- *. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b1 q) as [Hge|Hqlt].
+    + destruct (Hda q (conj Hge Hqhi)) as [Hin|Hcov].
+      * apply covered_here. cbn [c_children]. right; exact Hin.
+      * apply covered_cons. apply covered_app_r. exact Hcov.
+    + destruct (Nat.eq_dec q (S b)) as [->|Hne].
+      * apply covered_here. cbn [c_children]. left; reflexivity.
+      * apply covered_cons. apply covered_app_l. apply IHe. split; [ lia | exact Hqlt ].
+Qed.
+
+Lemma number_typeexpr_cover : forall t par role b q,
+  b < q < snd (number_typeexpr par role b t) -> covered (fst (number_typeexpr par role b t)) q.
+Proof. intros t par role b q Hq. cbn [number_typeexpr number_leaf snd] in Hq. exfalso; lia. Qed.
+
+Lemma number_bindingname_cover : forall bn par role b q,
+  b < q < snd (number_bindingname par role b bn) -> covered (fst (number_bindingname par role b bn)) q.
+Proof. intros bn par role b q Hq. cbn [number_bindingname number_leaf snd] in Hq. exfalso; lia. Qed.
+
+(* the optional type slot fills exactly [b] (its type) or nothing: any position it covers is its one root *)
+Lemma number_opttype_cover : forall ot par b q,
+  b <= q < snd (fst (number_opttype par b ot)) ->
+    In q (snd (number_opttype par b ot)) \/ covered (fst (fst (number_opttype par b ot))) q.
+Proof.
+  intros ot par b q. destruct ot as [t|].
+  - cbn [number_opttype number_typeexpr number_leaf fst snd]. intros [Hlo Hhi].
+    assert (q = b) by lia. subst q. left; apply in_eq.
+  - cbn [number_opttype fst snd]. intros [Hlo Hhi]. exfalso; lia.
+Qed.
+
+Lemma number_constspec_cover : forall cs par role b q,
+  b < q < snd (number_constspec par role b cs) -> covered (fst (number_constspec par role b cs)) q.
+Proof.
+  intros cs par role b. unfold number_constspec.
+  pose proof (number_list_cover (number_bindingname (Some b) (RSpecName ConstSpecF))
+      (fun bb x q => number_bindingname_cover x (Some b) (RSpecName ConstSpecF) bb q)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.const_names cs))) as Hnc.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - pose proof (number_opttype_cover ot (Some b) b1) as Hoc.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc.
+    pose proof (number_list_cover (number_expr (Some b) RPlain)
+        (fun bb x q => number_expr_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b1 q) as [Hb1|Hb1].
+    + destruct (le_lt_dec b2 q) as [Hb2|Hb2].
+      * destruct (Hvc q (conj Hb2 Hqhi)) as [Hin|Hcov].
+        -- apply covered_here; cbn [c_children]; apply in_or_app; right; apply in_or_app; right; exact Hin.
+        -- apply covered_cons; apply covered_app_r; apply covered_app_r; exact Hcov.
+      * destruct (Hoc q (conj Hb1 Hb2)) as [Hin|Hcov].
+        -- apply covered_here; cbn [c_children]; apply in_or_app; right; apply in_or_app; left; exact Hin.
+        -- apply covered_cons; apply covered_app_r; apply covered_app_l; exact Hcov.
+    + destruct (Hnc q (conj Hqlo Hb1)) as [Hin|Hcov].
+      * apply covered_here; cbn [c_children]; apply in_or_app; left; exact Hin.
+      * apply covered_cons; apply covered_app_l; exact Hcov.
+  - cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Hnc q (conj Hqlo Hqhi)) as [Hin|Hcov].
+    + apply covered_here; cbn [c_children]; rewrite app_nil_r; exact Hin.
+    + apply covered_cons; rewrite app_nil_r; exact Hcov.
+Qed.
+
+Lemma number_varspec_cover : forall vs par role b q,
+  b < q < snd (number_varspec par role b vs) -> covered (fst (number_varspec par role b vs)) q.
+Proof.
+  intros vs par role b. unfold number_varspec.
+  pose proof (number_list_cover (number_bindingname (Some b) (RSpecName VarSpecF))
+      (fun bb x q => number_bindingname_cover x (Some b) (RSpecName VarSpecF) bb q)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.var_names vs))) as Hnc.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - cbn [number_typeexpr number_leaf fst snd]. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b1 q) as [Hb1|Hb1].
+    + assert (q = b1) by lia. subst q.
+      apply covered_here; cbn [c_children]; apply in_or_app; right; apply in_eq.
+    + destruct (Hnc q (conj Hqlo Hb1)) as [Hin|Hcov].
+      * apply covered_here; cbn [c_children]; apply in_or_app; left; exact Hin.
+      * apply covered_cons; apply covered_app_l; exact Hcov.
+  - pose proof (number_opttype_cover ot (Some b) b1) as Hoc.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc.
+    pose proof (number_list_cover (number_expr (Some b) RPlain)
+        (fun bb x q => number_expr_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b1 q) as [Hb1|Hb1].
+    + destruct (le_lt_dec b2 q) as [Hb2|Hb2].
+      * destruct (Hvc q (conj Hb2 Hqhi)) as [Hin|Hcov].
+        -- apply covered_here; cbn [c_children]; apply in_or_app; right; apply in_or_app; right; exact Hin.
+        -- apply covered_cons; apply covered_app_r; apply covered_app_r; exact Hcov.
+      * destruct (Hoc q (conj Hb1 Hb2)) as [Hin|Hcov].
+        -- apply covered_here; cbn [c_children]; apply in_or_app; right; apply in_or_app; left; exact Hin.
+        -- apply covered_cons; apply covered_app_r; apply covered_app_l; exact Hcov.
+    + destruct (Hnc q (conj Hqlo Hb1)) as [Hin|Hcov].
+      * apply covered_here; cbn [c_children]; apply in_or_app; left; exact Hin.
+      * apply covered_cons; apply covered_app_l; exact Hcov.
+Qed.
+
+Lemma number_typespec_cover : forall ts par role b q,
+  b < q < snd (number_typespec par role b ts) -> covered (fst (number_typespec par role b ts)) q.
+Proof.
+  intros ts par role b. unfold number_typespec; destruct ts as [bn t|bn t];
+  ( cbn [number_bindingname number_typeexpr number_leaf fst snd]; intros q [Hqlo Hqhi];
+    destruct (Nat.eq_dec q (S b)) as [->|Hne];
+    [ apply covered_here; cbn [c_children]; apply in_eq
+    | assert (q = S (S b)) by lia; subst q;
+      apply covered_here; cbn [c_children]; apply in_cons; apply in_eq ] ).
+Qed.
+
+Lemma number_decl_cover : forall d par role b q,
+  b < q < snd (number_decl par role b d) -> covered (fst (number_decl par role b d)) q.
+Proof.
+  intros d par role b. unfold number_decl. destruct d as [cs|vs|ts].
+  - pose proof (number_list_cover (number_constspec (Some b) RPlain)
+        (fun bb x q => number_constspec_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_constspec_span (Some b) RPlain bb x)) (S b) cs) as Hk.
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Hk q (conj Hqlo Hqhi)) as [Hin|Hcov];
+      [ apply covered_here; cbn [c_children]; exact Hin | apply covered_cons; exact Hcov ].
+  - pose proof (number_list_cover (number_varspec (Some b) RPlain)
+        (fun bb x q => number_varspec_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_varspec_span (Some b) RPlain bb x)) (S b) vs) as Hk.
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Hk q (conj Hqlo Hqhi)) as [Hin|Hcov];
+      [ apply covered_here; cbn [c_children]; exact Hin | apply covered_cons; exact Hcov ].
+  - pose proof (number_list_cover (number_typespec (Some b) RPlain)
+        (fun bb x q => number_typespec_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_typespec_span (Some b) RPlain bb x)) (S b) ts) as Hk.
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Hk q (conj Hqlo Hqhi)) as [Hin|Hcov];
+      [ apply covered_here; cbn [c_children]; exact Hin | apply covered_cons; exact Hcov ].
+Qed.
+
+Lemma number_stmt_cover : forall s par role b q,
+  b < q < snd (number_stmt par role b s) -> covered (fst (number_stmt par role b s)) q.
+Proof.
+  intros s par role b. unfold number_stmt. destruct s as [e|d|names vals].
+  - pose proof (number_expr_cover e (Some b) RExprStatementExpr (S b)) as Hc.
+    pose proof (number_expr_spans e (Some b) RExprStatementExpr (S b)) as Hs.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst snd] in Hc, Hs.
+    cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Nat.eq_dec q (S b)) as [->|Hne].
+    + apply covered_here; cbn [c_children]; left; reflexivity.
+    + apply covered_cons. apply Hc. split; [ lia | exact Hqhi ].
+  - pose proof (number_decl_cover d (Some b) RPlain (S b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hc.
+    cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Nat.eq_dec q (S b)) as [->|Hne].
+    + apply covered_here; cbn [c_children]; left; reflexivity.
+    + apply covered_cons. apply Hc. split; [ lia | exact Hqhi ].
+  - pose proof (number_list_cover (number_bindingname (Some b) RShortLhs)
+        (fun bb x q => number_bindingname_cover x (Some b) RShortLhs bb q)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) RShortLhs bb x))
+        (S b) (Collections.ne_to_list names)) as Hnc.
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc.
+    pose proof (number_list_cover (number_expr (Some b) RPlain)
+        (fun bb x q => number_expr_cover x (Some b) RPlain bb q)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b1 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc. cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (le_lt_dec b1 q) as [Hb1|Hb1].
+    + destruct (Hvc q (conj Hb1 Hqhi)) as [Hin|Hcov].
+      * apply covered_here; cbn [c_children]; apply in_or_app; right; exact Hin.
+      * apply covered_cons; apply covered_app_r; exact Hcov.
+    + destruct (Hnc q (conj Hqlo Hb1)) as [Hin|Hcov].
+      * apply covered_here; cbn [c_children]; apply in_or_app; left; exact Hin.
+      * apply covered_cons; apply covered_app_l; exact Hcov.
+Qed.
+
+Lemma number_block_cover : forall blk par role b q,
+  b < q < snd (number_block par role b blk) -> covered (fst (number_block par role b blk)) q.
+Proof.
+  intros [stmts] par role b. unfold number_block.
+  pose proof (number_list_cover (number_stmt (Some b) RPlain)
+      (fun bb x q => number_stmt_cover x (Some b) RPlain bb q)
+      (fun bb x => span_final_ge _ _ (number_stmt_span (Some b) RPlain bb x)) (S b) stmts) as Hk.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk. cbn [fst snd]. intros q [Hqlo Hqhi].
+  destruct (Hk q (conj Hqlo Hqhi)) as [Hin|Hcov];
+    [ apply covered_here; cbn [c_children]; exact Hin | apply covered_cons; exact Hcov ].
+Qed.
+
+Lemma number_toplevel_cover : forall td par role b q,
+  b < q < snd (number_toplevel par role b td) -> covered (fst (number_toplevel par role b td)) q.
+Proof.
+  intros td par role b. unfold number_toplevel. destruct td as [d|blk].
+  - pose proof (number_decl_cover d (Some b) RPlain (S b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hc.
+    cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Nat.eq_dec q (S b)) as [->|Hne].
+    + apply covered_here; cbn [c_children]; left; reflexivity.
+    + apply covered_cons. apply Hc. split; [ lia | exact Hqhi ].
+  - pose proof (number_block_cover blk (Some b) RPlain (S b)) as Hc.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst snd] in Hc.
+    cbn [fst snd]. intros q [Hqlo Hqhi].
+    destruct (Nat.eq_dec q (S b)) as [->|Hne].
+    + apply covered_here; cbn [c_children]; left; reflexivity.
+    + apply covered_cons. apply Hc. split; [ lia | exact Hqhi ].
+Qed.
+
+(* every non-file position in the file is listed as some occurrence's child — the forest has no orphans *)
+Lemma number_file_cover : forall f q,
+  0 < q < List.length (number_file f) -> covered (number_file f) q.
+Proof.
+  intros f q Hq. unfold number_file in *.
+  pose proof (number_list_cover (number_toplevel (Some 0) RPlain)
+      (fun bb x q => number_toplevel_cover x (Some 0) RPlain bb q)
+      (fun bb x => span_final_ge _ _ (number_toplevel_span (Some 0) RPlain bb x)) 1 (Syntax.declarations f)) as Hd.
+  pose proof (number_list_span (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_span (Some 0) RPlain bb x) (Syntax.declarations f) 1) as Hsp.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd length] in Hd, Hsp, Hq |- *.
+  destruct Hsp as [nd [Hmap Hbfin]]. cbn [fst snd] in Hmap, Hbfin. destruct Hq as [Hqlo Hqhi].
+  assert (Hqb : q < bfin).
+  { assert (Hlen : List.length dc = nd).
+    { apply (f_equal (@length nat)) in Hmap.
+      first [ rewrite length_map in Hmap | rewrite map_length in Hmap ];
+      first [ rewrite length_seq in Hmap | rewrite seq_length in Hmap ]; exact Hmap. }
+    lia. }
+  destruct (Hd q (conj Hqlo Hqb)) as [Hin|Hcov];
+    [ apply covered_here; cbn [c_children]; exact Hin | apply covered_cons; exact Hcov ].
+Qed.
+
+(* distinct positions ⇒ one cell per position: two members sharing a position are the same cell *)
+Lemma occ_unique : forall (occs : list (nat * Cell)) p c1 c2,
+  NoDup (map fst occs) -> In (p, c1) occs -> In (p, c2) occs -> c1 = c2.
+Proof.
+  induction occs as [|[k c] rest IH]; intros p c1 c2 Hnd Hin1 Hin2; [ destruct Hin1 | ].
+  cbn [map] in Hnd. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd'].
+  destruct Hin1 as [E1|Hin1]; destruct Hin2 as [E2|Hin2].
+  - inversion E1; inversion E2; subst; reflexivity.
+  - inversion E1; subst. exfalso; apply Hnotin; apply in_map_iff; exists (p, c2); split; [ reflexivity | exact Hin2 ].
+  - inversion E2; subst. exfalso; apply Hnotin; apply in_map_iff; exists (p, c1); split; [ reflexivity | exact Hin1 ].
+  - exact (IH p c1 c2 Hnd' Hin1 Hin2).
+Qed.
+
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
@@ -1794,6 +2128,29 @@ Qed.
 (* every represented source occurrence appears once: the ordinal positions of a file are pairwise distinct *)
 Lemma occurrences_distinct : forall f, NoDup (map fst (number_file f)).
 Proof. intro f. destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply seq_NoDup. Qed.
+
+(* §4:252 completeness/inverse: any cell whose parent edge names pp is itself listed among pp's children *)
+Lemma number_file_complete : forall f cp ccell pp pcell,
+  In (cp, ccell) (number_file f) -> In (pp, pcell) (number_file f) ->
+  c_parent ccell = Some pp -> In cp (c_children pcell).
+Proof.
+  intros f cp ccell pp pcell Hinc Hinp Hpar.
+  pose proof (occurrences_distinct f) as Hnd.
+  pose proof (number_file_pbounds f cp ccell Hinc pp Hpar) as [Hpp Hcplt].
+  pose proof (number_file_positions f) as [count Hpos].
+  assert (Hcpin : In cp (map fst (number_file f)))
+    by (apply in_map_iff; exists (cp, ccell); split; [ reflexivity | exact Hinc ]).
+  rewrite Hpos in Hcpin. apply in_seq in Hcpin.
+  assert (Hlen : List.length (number_file f) = count).
+  { first [ rewrite <- (length_map fst (number_file f)) | rewrite <- (map_length fst (number_file f)) ].
+    rewrite Hpos. first [ apply length_seq | apply seq_length ]. }
+  destruct (number_file_cover f cp ltac:(lia)) as [r [rcell [Hinr Hchild]]].
+  destruct (number_file_cpo f r rcell Hinr cp Hchild) as [ccell' [Hinc' Hpar']].
+  assert (ccell' = ccell) by (apply (occ_unique (number_file f) cp); [ exact Hnd | exact Hinc' | exact Hinc ]).
+  subst ccell'. rewrite Hpar in Hpar'. injection Hpar' as Hrpp. subst r.
+  assert (rcell = pcell) by (apply (occ_unique (number_file f) pp); [ exact Hnd | exact Hinr | exact Hinp ]).
+  subst rcell. exact Hchild.
+Qed.
 
 (* the position map domain is exactly the source-occurrence domain: its keys are the in-range ordinals *)
 Lemma domain_exact {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) :
