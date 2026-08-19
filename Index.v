@@ -221,6 +221,30 @@ Proof.
     do 2 eexists; cbn [fst]; repeat split; reflexivity.
 Qed.
 
+(* the parent inverse: every child position resolves to a member whose parent edge points back to the cell *)
+Definition child_parent_ok (occs : list (nat * Cell)) : Prop :=
+  forall pos cell, In (pos, cell) occs ->
+    forall cp, In cp (c_children cell) ->
+      exists ccell, In (cp, ccell) occs /\ c_parent ccell = Some pos.
+
+Lemma child_parent_ok_app : forall c1 c2,
+  child_parent_ok c1 -> child_parent_ok c2 -> child_parent_ok (c1 ++ c2).
+Proof.
+  intros c1 c2 H1 H2 pos cell Hin cp Hcp. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - destruct (H1 pos cell Hin cp Hcp) as [cc [Hc Hp]]. exists cc. split; [ apply in_or_app; left; exact Hc | exact Hp ].
+  - destruct (H2 pos cell Hin cp Hcp) as [cc [Hc Hp]]. exists cc. split; [ apply in_or_app; right; exact Hc | exact Hp ].
+Qed.
+
+Lemma child_parent_ok_node : forall self cell kids,
+  (forall cp, In cp (c_children cell) ->
+     exists cc, In (cp, cc) ((self, cell) :: kids) /\ c_parent cc = Some self) ->
+  child_parent_ok kids -> child_parent_ok ((self, cell) :: kids).
+Proof.
+  intros self cell kids Hself Hkids pos c Hin cp Hcp. destruct Hin as [Heq|Hin].
+  - inversion Heq; subst. destruct (Hself cp Hcp) as [cc [Hc Hp]]. exists cc. split; [ exact Hc | exact Hp ].
+  - destruct (Hkids pos c Hin cp Hcp) as [cc [Hc Hp]]. exists cc. split; [ right; exact Hc | exact Hp ].
+Qed.
+
 (* the exact first-child edge law: a view carrying a required first edge has that edge at S pos, in range *)
 Definition requires_first_edge (v : NodeView) : bool :=
   match v with VApplication | VUnary _ | VStmt SSExpr => true | _ => false end.
@@ -295,6 +319,69 @@ Proof.
     constructor.
     + cbn [fst snd edge_wf requires_first_edge c_view c_children first_child_wf]. split; [ reflexivity | lia ].
     + apply Forall_app; split; [ eapply ewf_weaken; [ | exact IHe ]; lia | exact Hacwf ].
+Qed.
+
+(* every expression's children resolve back: each child position is a member whose parent edge is this cell *)
+Lemma number_expr_cpo : forall e par role b, child_parent_ok (fst (number_expr par role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b; cbn [number_expr].
+  - cbn [number_leaf fst]. intros pos c Hin cp Hcp.
+    destruct Hin as [Heq|[]]; inversion Heq; subst; cbn [c_children] in Hcp; destruct Hcp.
+  - cbn [number_leaf fst]. intros pos c Hin cp Hcp.
+    destruct Hin as [Heq|[]]; inversion Heq; subst; cbn [c_children] in Hcp; destruct Hcp.
+  - specialize (IHe (Some b) RUnaryOperand (S b)).
+    pose proof (number_expr_root e (Some b) RUnaryOperand (S b)) as [urest [urc [Huroot [_ [_ Hupar]]]]].
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    cbn [fst] in IHe, Huroot |- *.
+    apply child_parent_ok_node.
+    + cbn [c_children]. intros cp [Hcp|[]]; subst cp.
+      exists urc. split; [ right; rewrite Huroot; left; reflexivity | exact Hupar ].
+    + exact IHe.
+  - specialize (IHe (Some b) RApplicationHead (S b)).
+    pose proof (number_expr_root e (Some b) RApplicationHead (S b)) as [hrest [hrc [Hhroot [_ [_ Hhpar]]]]].
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1].
+    cbn [fst] in IHe, Hhroot.
+    assert (Hda : forall es, Forall (fun a => forall par role bb,
+                     child_parent_ok (fst (number_expr par role bb a))) es ->
+      forall i0 bi, (let '(ac, _, roots) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in
+        child_parent_ok ac /\
+        (forall ar, In ar roots -> exists cc, In (ar, cc) ac /\ c_parent cc = Some b))).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - split; [ intros pos c Hin; destruct Hin | intros ar Har; destruct Har ].
+      - pose proof (number_expr_root a (Some b) (RApplicationArg i0) bi) as [arest [arc [Haroot [_ [_ Hapar]]]]].
+        specialize (Ha (Some b) (RApplicationArg i0) bi).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst] in Ha, Haroot.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        destruct IHrest as [Hrcok Hroots]. cbn [fst snd] in Hrcok, Hroots |- *.
+        split.
+        + apply child_parent_ok_app; [ exact Ha | exact Hrcok ].
+        + intros ar [Har|Har].
+          * subst ar. exists arc.
+            split; [ apply in_or_app; left; rewrite Haroot; left; reflexivity | exact Hapar ].
+          * destruct (Hroots ar Har) as [cc [Hcc Hccpar]]. exists cc.
+            split; [ apply in_or_app; right; exact Hcc | exact Hccpar ]. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    destruct Hda as [Hacok Haroots]. cbn [fst snd] in Hacok, Haroots |- *.
+    apply child_parent_ok_node.
+    + cbn [c_children]. intros cp [Hcp|Hcp].
+      * subst cp. exists hrc.
+        split; [ right; apply in_or_app; left; rewrite Hhroot; left; reflexivity | exact Hhpar ].
+      * destruct (Haroots cp Hcp) as [cc [Hcc Hccpar]]. exists cc.
+        split; [ right; apply in_or_app; right; exact Hcc | exact Hccpar ].
+    + apply child_parent_ok_app; [ exact IHe | exact Hacok ].
 Qed.
 
 Definition number_typeexpr (par : option nat) (role : Role) (b : nat) (t : Syntax.TypeExpr) : list (nat * Cell) * nat :=
@@ -748,6 +835,357 @@ Proof.
     first [ rewrite length_seq in Hmap | rewrite seq_length in Hmap ]; exact Hmap. }
   cbn [length]. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
   eapply ewf_weaken; [ | exact Hd ]. lia.
+Qed.
+
+(* [roots_resolve occs self roots]: every root position is a member of [occs] whose parent edge is [self] *)
+Definition roots_resolve (occs : list (nat * Cell)) (self : nat) (roots : list nat) : Prop :=
+  forall ar, In ar roots -> exists cc, In (ar, cc) occs /\ c_parent cc = Some self.
+
+Lemma roots_resolve_app_l : forall occs extra self roots,
+  roots_resolve occs self roots -> roots_resolve (occs ++ extra) self roots.
+Proof.
+  intros occs extra self roots H ar Har. destruct (H ar Har) as [cc [Hin Hpar]].
+  exists cc. split; [ apply in_or_app; left; exact Hin | exact Hpar ].
+Qed.
+
+Lemma roots_resolve_app_r : forall occs extra self roots,
+  roots_resolve occs self roots -> roots_resolve (extra ++ occs) self roots.
+Proof.
+  intros occs extra self roots H ar Har. destruct (H ar Har) as [cc [Hin Hpar]].
+  exists cc. split; [ apply in_or_app; right; exact Hin | exact Hpar ].
+Qed.
+
+Lemma roots_resolve_concat : forall occs self r1 r2,
+  roots_resolve occs self r1 -> roots_resolve occs self r2 -> roots_resolve occs self (r1 ++ r2).
+Proof.
+  intros occs self r1 r2 H1 H2 ar Har. apply in_app_or in Har.
+  destruct Har as [Har|Har]; [ apply H1 | apply H2 ]; exact Har.
+Qed.
+
+Lemma cpo_node : forall self cell kids,
+  roots_resolve kids self (c_children cell) ->
+  child_parent_ok kids -> child_parent_ok ((self, cell) :: kids).
+Proof.
+  intros self cell kids Hres Hkids. apply child_parent_ok_node; [ | exact Hkids ].
+  intros cp Hcp. destruct (Hres cp Hcp) as [cc [Hin Hpar]]. exists cc. split; [ right; exact Hin | exact Hpar ].
+Qed.
+
+(* one sublist numbered by [g]: its cells resolve internally and its roots point back to the shared parent *)
+Lemma number_list_cpo {A} (g : nat -> A -> list (nat * Cell) * nat) (par : nat) :
+  (forall b x, child_parent_ok (fst (g b x))) ->
+  (forall b x, exists cc rest, fst (g b x) = (b, cc) :: rest /\ c_parent cc = Some par) ->
+  forall b xs,
+    child_parent_ok (fst (fst (number_list g b xs))) /\
+    roots_resolve (fst (fst (number_list g b xs))) par (snd (number_list g b xs)).
+Proof.
+  intros Hcpo Hroot b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - cbn [number_list fst snd]. split; [ intros pos c Hin; destruct Hin | intros ar Har; destruct Har ].
+  - cbn [number_list].
+    pose proof (Hroot b x) as [rc [rest' [Hgx Hrcpar]]].
+    specialize (Hcpo b x). destruct (g b x) as [xc b']. cbn [fst] in Hcpo, Hgx.
+    specialize (IH b'). destruct (number_list g b' rest) as [[rcl b''] roots].
+    destruct IH as [Hcpol Hresl]. cbn [fst snd] in Hcpol, Hresl |- *.
+    split.
+    + apply child_parent_ok_app; [ exact Hcpo | exact Hcpol ].
+    + intros ar [Har|Har].
+      * subst ar. exists rc. split; [ apply in_or_app; left; rewrite Hgx; left; reflexivity | exact Hrcpar ].
+      * destruct (Hresl ar Har) as [cc [Hin Hpar]].
+        exists cc. split; [ apply in_or_app; right; exact Hin | exact Hpar ].
+Qed.
+
+(* each composite occurrence begins with its own cell, carrying the passed parent edge — the root fact *)
+Lemma number_expr_root' : forall par role b e,
+  exists cc rest, fst (number_expr par role b e) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros. destruct (number_expr_root e par role b) as [rest [rc [H [_ [_ Hpar]]]]].
+  exists rc, rest. split; [ exact H | exact Hpar ].
+Qed.
+
+Lemma number_typeexpr_root : forall par role b t,
+  exists cc rest, fst (number_typeexpr par role b t) = (b, cc) :: rest /\ c_parent cc = par.
+Proof. intros. cbn [number_typeexpr number_leaf fst]. do 2 eexists; split; reflexivity. Qed.
+
+Lemma number_bindingname_root : forall par role b bn,
+  exists cc rest, fst (number_bindingname par role b bn) = (b, cc) :: rest /\ c_parent cc = par.
+Proof. intros. cbn [number_bindingname number_leaf fst]. do 2 eexists; split; reflexivity. Qed.
+
+Lemma number_constspec_root : forall par role b cs,
+  exists cc rest, fst (number_constspec par role b cs) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b cs. unfold number_constspec.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst]. do 2 eexists; split; reflexivity.
+  - cbn [fst]. do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_varspec_root : forall par role b vs,
+  exists cc rest, fst (number_varspec par role b vs) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b vs. unfold number_varspec.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2].
+    cbn [fst]. do 2 eexists; split; reflexivity.
+  - destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst]. do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_typespec_root : forall par role b ts,
+  exists cc rest, fst (number_typespec par role b ts) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b ts. unfold number_typespec; destruct ts as [bn t|bn t];
+    (destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+     destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin];
+     cbn [fst]; do 2 eexists; split; reflexivity).
+Qed.
+
+Lemma number_decl_root : forall par role b d,
+  exists cc rest, fst (number_decl par role b d) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b d. unfold number_decl.
+  destruct d as [cs|vs|ts];
+    [ destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots]
+    | destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots]
+    | destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots] ];
+    cbn [fst]; do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_stmt_root : forall par role b s,
+  exists cc rest, fst (number_stmt par role b s) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b s. unfold number_stmt.
+  destruct s as [e|d|names vals];
+    [ destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']
+    | destruct (number_decl (Some b) RPlain (S b) d) as [c b']
+    | destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots];
+      destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots] ];
+    cbn [fst]; do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_block_root : forall par role b blk,
+  exists cc rest, fst (number_block par role b blk) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b [stmts]. unfold number_block.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst]. do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_toplevel_root : forall par role b td,
+  exists cc rest, fst (number_toplevel par role b td) = (b, cc) :: rest /\ c_parent cc = par.
+Proof.
+  intros par role b td. unfold number_toplevel.
+  destruct td as [d|blk];
+    [ destruct (number_decl (Some b) RPlain (S b) d) as [c b']
+    | destruct (number_block (Some b) RPlain (S b) blk) as [c b'] ];
+    cbn [fst]; do 2 eexists; split; reflexivity.
+Qed.
+
+Lemma number_typeexpr_cpo : forall par role b t, child_parent_ok (fst (number_typeexpr par role b t)).
+Proof.
+  intros. cbn [number_typeexpr number_leaf fst]. intros pos c Hin cp Hcp.
+  destruct Hin as [Heq|[]]; inversion Heq; subst; cbn [c_children] in Hcp; destruct Hcp.
+Qed.
+
+Lemma number_bindingname_cpo : forall par role b bn, child_parent_ok (fst (number_bindingname par role b bn)).
+Proof.
+  intros. cbn [number_bindingname number_leaf fst]. intros pos c Hin cp Hcp.
+  destruct Hin as [Heq|[]]; inversion Heq; subst; cbn [c_children] in Hcp; destruct Hcp.
+Qed.
+
+Lemma number_opttype_cpo : forall self b ot,
+  child_parent_ok (fst (fst (number_opttype (Some self) b ot))) /\
+  roots_resolve (fst (fst (number_opttype (Some self) b ot))) self (snd (number_opttype (Some self) b ot)).
+Proof.
+  intros self b ot. destruct ot as [t|].
+  - cbn [number_opttype].
+    pose proof (number_typeexpr_cpo (Some self) RTypeUse b t) as Hc.
+    pose proof (number_typeexpr_root (Some self) RTypeUse b t) as [rc [rest [Hr Hpar]]].
+    destruct (number_typeexpr (Some self) RTypeUse b t) as [tc b'].
+    cbn [fst snd] in Hc, Hr |- *. split.
+    + exact Hc.
+    + intros ar [Har|[]]. subst ar. exists rc. split; [ rewrite Hr; left; reflexivity | exact Hpar ].
+  - cbn [number_opttype fst snd]. split; [ intros pos c Hin; destruct Hin | intros ar Har; destruct Har ].
+Qed.
+
+Lemma number_constspec_cpo : forall par role b cs, child_parent_ok (fst (number_constspec par role b cs)).
+Proof.
+  intros par role b cs. unfold number_constspec.
+  destruct (number_list_cpo (number_bindingname (Some b) (RSpecName ConstSpecF)) b
+             (fun bb x => number_bindingname_cpo (Some b) (RSpecName ConstSpecF) bb x)
+             (fun bb x => number_bindingname_root (Some b) (RSpecName ConstSpecF) bb x)
+             (S b) (Collections.ne_to_list (Syntax.const_names cs))) as [Hnc_cpo Hnc_res].
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc_cpo, Hnc_res.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - pose proof (number_opttype_cpo b b1 ot) as [Hoc_cpo Hoc_res].
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc_cpo, Hoc_res.
+    destruct (number_list_cpo (number_expr (Some b) RPlain) b
+               (fun bb x => number_expr_cpo x (Some b) RPlain bb)
+               (fun bb x => number_expr_root' (Some b) RPlain bb x)
+               b2 (Collections.ne_to_list vals)) as [Hvc_cpo Hvc_res].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc_cpo, Hvc_res. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. apply roots_resolve_concat.
+      * apply roots_resolve_app_l. exact Hnc_res.
+      * apply roots_resolve_app_r. apply roots_resolve_concat;
+          [ apply roots_resolve_app_l; exact Hoc_res | apply roots_resolve_app_r; exact Hvc_res ].
+    + apply child_parent_ok_app; [ exact Hnc_cpo | apply child_parent_ok_app; [ exact Hoc_cpo | exact Hvc_cpo ] ].
+  - cbn [fst]. apply cpo_node.
+    + cbn [c_children]. rewrite !app_nil_r. exact Hnc_res.
+    + rewrite app_nil_r. exact Hnc_cpo.
+Qed.
+
+Lemma number_varspec_cpo : forall par role b vs, child_parent_ok (fst (number_varspec par role b vs)).
+Proof.
+  intros par role b vs. unfold number_varspec.
+  destruct (number_list_cpo (number_bindingname (Some b) (RSpecName VarSpecF)) b
+             (fun bb x => number_bindingname_cpo (Some b) (RSpecName VarSpecF) bb x)
+             (fun bb x => number_bindingname_root (Some b) (RSpecName VarSpecF) bb x)
+             (S b) (Collections.ne_to_list (Syntax.var_names vs))) as [Hnc_cpo Hnc_res].
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc_cpo, Hnc_res.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - pose proof (number_typeexpr_cpo (Some b) RTypeUse b1 t) as Htc_cpo.
+    pose proof (number_typeexpr_root (Some b) RTypeUse b1 t) as [tc0 [trest [Htr Htpar]]].
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2].
+    cbn [fst] in Htc_cpo, Htr. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. apply roots_resolve_concat.
+      * apply roots_resolve_app_l. exact Hnc_res.
+      * apply roots_resolve_app_r. intros ar [Har|[]]. subst ar. exists tc0.
+        split; [ rewrite Htr; left; reflexivity | exact Htpar ].
+    + apply child_parent_ok_app; [ exact Hnc_cpo | exact Htc_cpo ].
+  - pose proof (number_opttype_cpo b b1 ot) as [Hoc_cpo Hoc_res].
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc_cpo, Hoc_res.
+    destruct (number_list_cpo (number_expr (Some b) RPlain) b
+               (fun bb x => number_expr_cpo x (Some b) RPlain bb)
+               (fun bb x => number_expr_root' (Some b) RPlain bb x)
+               b2 (Collections.ne_to_list vals)) as [Hvc_cpo Hvc_res].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc_cpo, Hvc_res. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. apply roots_resolve_concat.
+      * apply roots_resolve_app_l. exact Hnc_res.
+      * apply roots_resolve_app_r. apply roots_resolve_concat;
+          [ apply roots_resolve_app_l; exact Hoc_res | apply roots_resolve_app_r; exact Hvc_res ].
+    + apply child_parent_ok_app; [ exact Hnc_cpo | apply child_parent_ok_app; [ exact Hoc_cpo | exact Hvc_cpo ] ].
+Qed.
+
+Lemma number_typespec_cpo : forall par role b ts, child_parent_ok (fst (number_typespec par role b ts)).
+Proof.
+  intros par role b ts. unfold number_typespec; destruct ts as [bn t|bn t];
+  ( pose proof (number_bindingname_cpo (Some b) (RSpecName TypeSpecF) (S b) bn) as Hbc_cpo;
+    pose proof (number_bindingname_root (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc0 [brest [Hbr Hbpar]]];
+    destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+    cbn [fst] in Hbc_cpo, Hbr;
+    pose proof (number_typeexpr_cpo (Some b) RTypeUse b1 t) as Htc_cpo;
+    pose proof (number_typeexpr_root (Some b) RTypeUse b1 t) as [tc0 [trest [Htr Htpar]]];
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin];
+    cbn [fst] in Htc_cpo, Htr; cbn [fst]; apply cpo_node;
+    [ cbn [c_children]; intros ar Har; destruct Har as [Har|[Har|[]]];
+      [ subst ar; exists bc0; split; [ apply in_or_app; left; rewrite Hbr; left; reflexivity | exact Hbpar ]
+      | subst ar; exists tc0; split; [ apply in_or_app; right; rewrite Htr; left; reflexivity | exact Htpar ] ]
+    | apply child_parent_ok_app; [ exact Hbc_cpo | exact Htc_cpo ] ] ).
+Qed.
+
+Lemma number_decl_cpo : forall par role b d, child_parent_ok (fst (number_decl par role b d)).
+Proof.
+  intros par role b d. unfold number_decl. destruct d as [cs|vs|ts].
+  - destruct (number_list_cpo (number_constspec (Some b) RPlain) b
+        (fun bb x => number_constspec_cpo (Some b) RPlain bb x)
+        (fun bb x => number_constspec_root (Some b) RPlain bb x) (S b) cs) as [Hk_cpo Hk_res].
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk_cpo, Hk_res. cbn [fst]. apply cpo_node; [ cbn [c_children]; exact Hk_res | exact Hk_cpo ].
+  - destruct (number_list_cpo (number_varspec (Some b) RPlain) b
+        (fun bb x => number_varspec_cpo (Some b) RPlain bb x)
+        (fun bb x => number_varspec_root (Some b) RPlain bb x) (S b) vs) as [Hk_cpo Hk_res].
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk_cpo, Hk_res. cbn [fst]. apply cpo_node; [ cbn [c_children]; exact Hk_res | exact Hk_cpo ].
+  - destruct (number_list_cpo (number_typespec (Some b) RPlain) b
+        (fun bb x => number_typespec_cpo (Some b) RPlain bb x)
+        (fun bb x => number_typespec_root (Some b) RPlain bb x) (S b) ts) as [Hk_cpo Hk_res].
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots].
+    cbn [fst snd] in Hk_cpo, Hk_res. cbn [fst]. apply cpo_node; [ cbn [c_children]; exact Hk_res | exact Hk_cpo ].
+Qed.
+
+Lemma number_stmt_cpo : forall par role b s, child_parent_ok (fst (number_stmt par role b s)).
+Proof.
+  intros par role b s. unfold number_stmt. destruct s as [e|d|names vals].
+  - pose proof (number_expr_cpo e (Some b) RExprStatementExpr (S b)) as Hc_cpo.
+    pose proof (number_expr_root' (Some b) RExprStatementExpr (S b) e) as [c0 [crest [Hcr Hcpar]]].
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b'].
+    cbn [fst] in Hc_cpo, Hcr. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. intros ar [Har|[]]. subst ar. exists c0.
+      split; [ rewrite Hcr; left; reflexivity | exact Hcpar ].
+    + exact Hc_cpo.
+  - pose proof (number_decl_cpo (Some b) RPlain (S b) d) as Hc_cpo.
+    pose proof (number_decl_root (Some b) RPlain (S b) d) as [c0 [crest [Hcr Hcpar]]].
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b'].
+    cbn [fst] in Hc_cpo, Hcr. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. intros ar [Har|[]]. subst ar. exists c0.
+      split; [ rewrite Hcr; left; reflexivity | exact Hcpar ].
+    + exact Hc_cpo.
+  - destruct (number_list_cpo (number_bindingname (Some b) RShortLhs) b
+        (fun bb x => number_bindingname_cpo (Some b) RShortLhs bb x)
+        (fun bb x => number_bindingname_root (Some b) RShortLhs bb x)
+        (S b) (Collections.ne_to_list names)) as [Hnc_cpo Hnc_res].
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc_cpo, Hnc_res.
+    destruct (number_list_cpo (number_expr (Some b) RPlain) b
+        (fun bb x => number_expr_cpo x (Some b) RPlain bb)
+        (fun bb x => number_expr_root' (Some b) RPlain bb x)
+        b1 (Collections.ne_to_list vals)) as [Hvc_cpo Hvc_res].
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc_cpo, Hvc_res. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. apply roots_resolve_concat;
+        [ apply roots_resolve_app_l; exact Hnc_res | apply roots_resolve_app_r; exact Hvc_res ].
+    + apply child_parent_ok_app; [ exact Hnc_cpo | exact Hvc_cpo ].
+Qed.
+
+Lemma number_block_cpo : forall par role b blk, child_parent_ok (fst (number_block par role b blk)).
+Proof.
+  intros par role b [stmts]. unfold number_block.
+  destruct (number_list_cpo (number_stmt (Some b) RPlain) b
+      (fun bb x => number_stmt_cpo (Some b) RPlain bb x)
+      (fun bb x => number_stmt_root (Some b) RPlain bb x) (S b) stmts) as [Hk_cpo Hk_res].
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk_cpo, Hk_res. cbn [fst]. apply cpo_node; [ cbn [c_children]; exact Hk_res | exact Hk_cpo ].
+Qed.
+
+Lemma number_toplevel_cpo : forall par role b td, child_parent_ok (fst (number_toplevel par role b td)).
+Proof.
+  intros par role b td. unfold number_toplevel. destruct td as [d|blk].
+  - pose proof (number_decl_cpo (Some b) RPlain (S b) d) as Hc_cpo.
+    pose proof (number_decl_root (Some b) RPlain (S b) d) as [c0 [crest [Hcr Hcpar]]].
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b'].
+    cbn [fst] in Hc_cpo, Hcr. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. intros ar [Har|[]]. subst ar. exists c0.
+      split; [ rewrite Hcr; left; reflexivity | exact Hcpar ].
+    + exact Hc_cpo.
+  - pose proof (number_block_cpo (Some b) RPlain (S b) blk) as Hc_cpo.
+    pose proof (number_block_root (Some b) RPlain (S b) blk) as [c0 [crest [Hcr Hcpar]]].
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b'].
+    cbn [fst] in Hc_cpo, Hcr. cbn [fst]. apply cpo_node.
+    + cbn [c_children]. intros ar [Har|[]]. subst ar. exists c0.
+      split; [ rewrite Hcr; left; reflexivity | exact Hcpar ].
+    + exact Hc_cpo.
+Qed.
+
+(* the whole-file parent inverse: every child position resolves to a member whose parent edge points back *)
+Lemma number_file_cpo : forall f, child_parent_ok (number_file f).
+Proof.
+  intro f. unfold number_file.
+  destruct (number_list_cpo (number_toplevel (Some 0) RPlain) 0
+      (fun bb x => number_toplevel_cpo (Some 0) RPlain bb x)
+      (fun bb x => number_toplevel_root (Some 0) RPlain bb x) 1 (Syntax.declarations f)) as [Hd_cpo Hd_res].
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hd_cpo, Hd_res |- *. apply cpo_node; [ cbn [c_children]; exact Hd_res | exact Hd_cpo ].
 Qed.
 
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
