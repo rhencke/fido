@@ -17,8 +17,9 @@ Local Definition c_result (p : Syntax.Program) : AN.Result p := AN.analyze p.
 Inductive Disposition := Compiled | Rejected | OutsideScope.
 
 Definition disposition (p : Syntax.Program) : Disposition :=
-  match nil_dec (RP.diagnostics (AN.res_facts (c_result p)) (AN.res_pkg (c_result p))) with
-  | left _ => match nil_dec (RP.boundaries (AN.res_facts (c_result p)) (AN.res_pkg (c_result p))) with left _ => Compiled | right _ => OutsideScope end
+  let c := c_result p in
+  match nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c)) with
+  | left _ => match nil_dec (RP.boundaries (AN.res_facts c) (AN.res_pkg c)) with left _ => Compiled | right _ => OutsideScope end
   | right _ => Rejected
   end.
 
@@ -90,7 +91,7 @@ Module Sealed : C4_PUBLIC.
   (* compile builds the branch object whose tag the transparent disposition already names, from the same result *)
   Definition compile (p : Syntax.Program) : OutcomeAt p (disposition p).
   Proof.
-    unfold OutcomeAt, disposition.
+    unfold OutcomeAt, disposition. cbv zeta.
     destruct (nil_dec (RP.diagnostics (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hd|Hd].
     - destruct (nil_dec (RP.boundaries (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hb|Hb].
       + exact (mkProg (elaborate p) (conj Hd Hb)).
