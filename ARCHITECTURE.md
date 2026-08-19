@@ -163,7 +163,7 @@ Compilable.PackageIdentity: FilePath Index ModulePath Syntax
 Compilable.Bindings: Compilable.PackageIdentity Index Names Syntax
 Compilable.Analysis: Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
 Compilable.Report: Compilable.Analysis Compilable.Bindings Compilable.PackageIdentity Index Syntax
-Compilable: Compilable.Analysis Compilable.Bindings Compilable.PackageIdentity Compilable.Report Compilable.TypeResolution Index Syntax
+Compilable: Compilable.Analysis Compilable.Report Syntax
 Machine:
 Render: Complex Decimal Float ModulePath Names Syntax Version
 Emit: Collections Compilable FilePath Names Render Syntax

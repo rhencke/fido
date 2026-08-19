@@ -639,6 +639,24 @@ Lemma packages_consume_one_surface {p} {idx : Index.ProgramIndex p} {s : BN.PI.P
   {bp : BN.BindingPhase s} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
 Proof. exact (proj2_sig pf). Qed.
 
+(* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
+Record Result (p : Syntax.Program) : Type := mk_result {
+  res_index   : Index.ProgramIndex p ;
+  res_surface : BN.PI.PackageSurface res_index ;
+  res_binds   : BN.BindingPhase res_surface ;
+  res_facts   : FactPhase res_binds ;
+  res_pkg     : PackageFacts res_binds
+}.
+Arguments mk_result {p} _ _ _ _ _.
+Arguments res_index {p} _. Arguments res_surface {p} _. Arguments res_binds {p} _.
+Arguments res_facts {p} _. Arguments res_pkg {p} _.
+
+Definition analyze (p : Syntax.Program) : Result p :=
+  let i := Index.index_program p in
+  let s := BN.PI.package_surface i in
+  let b := BN.bindings s in
+  mk_result i s b (facts b) (package_facts b).
+
 (* the one canonical issue table: Analysis owns cause, class, subject, root, and source order *)
 
 Inductive DiagSite {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
@@ -946,4 +964,12 @@ Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
 Proof. unfold fact_list, facts; cbn [proj1_sig]. reflexivity. Qed.
 
 End Cost.
+
+(* the canonical issue lists and 5-way summary as projections of the one retained result, for downstream readers *)
+Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_facts r) (res_pkg r)) :=
+  diagnostics (res_facts r) (res_pkg r).
+Definition result_boundaries {p} (r : Result p) : list (Boundary (res_facts r) (res_pkg r)) :=
+  boundaries (res_facts r) (res_pkg r).
+Definition result_disposition {p} (r : Result p) : Disposition (res_surface r) :=
+  program_disposition (res_facts r) (res_pkg r).
 

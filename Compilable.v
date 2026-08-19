@@ -1,30 +1,24 @@
-(* Compilable — the C4 root: compile is the sole source of the abstract Program/Rejection/Outside branch objects *)
+(* Compilable — the C4 root: compile alone mints Program/Rejection/Outside over one Analysis.Result. *)
 
 From Stdlib Require Import List Bool.
-From Fido Require Import Syntax Index Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report.
+From Fido Require Import Syntax Compilable.Analysis Compilable.Report.
 Import ListNotations.
 
-Module PI := Compilable.PackageIdentity.
-Module BN := Compilable.Bindings.
 Module AN := Compilable.Analysis.
 Module RP := Compilable.Report.
 
 Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
-(* the one canonical analysis chain for p, each builder named exactly once; every projection derives from it *)
-Local Definition c_i (p : Syntax.Program) : Index.ProgramIndex p := Index.index_program p.
-Local Definition c_s (p : Syntax.Program) : PI.PackageSurface (c_i p) := PI.package_surface (c_i p).
-Local Definition c_b (p : Syntax.Program) : BN.BindingPhase (c_s p) := BN.bindings (c_s p).
-Local Definition c_pf (p : Syntax.Program) : AN.PackageFacts (c_b p) := AN.package_facts (c_b p).
-Local Definition c_fp (p : Syntax.Program) : AN.FactPhase (c_b p) := AN.facts (c_b p).
+(* the one canonical analysis result for p; every projection and branch object derives from this single object *)
+Local Definition c_result (p : Syntax.Program) : AN.Result p := AN.analyze p.
 
-(* the public program branch tag: a direct 3-way projection of the one canonical issue table over p's chain *)
+(* the public program branch tag: a direct 3-way projection of the one canonical result's issue lists *)
 Inductive Disposition := Compiled | Rejected | OutsideScope.
 
 Definition disposition (p : Syntax.Program) : Disposition :=
-  match nil_dec (RP.diagnostics (c_fp p) (c_pf p)) with
-  | left _ => match nil_dec (RP.boundaries (c_fp p) (c_pf p)) with left _ => Compiled | right _ => OutsideScope end
+  match nil_dec (RP.diagnostics (AN.res_facts (c_result p)) (AN.res_pkg (c_result p))) with
+  | left _ => match nil_dec (RP.boundaries (AN.res_facts (c_result p)) (AN.res_pkg (c_result p))) with left _ => Compiled | right _ => OutsideScope end
   | right _ => Rejected
   end.
 
@@ -44,6 +38,9 @@ Module Type C4_PUBLIC.
   Parameter rejection_compilation : forall {p}, Rejection p -> Compilation p.
   Parameter outside_compilation   : forall {p}, Outside p -> Compilation p.
 
+  (* the exact retained analysis result projected read-only from each compilation; it mints no capability *)
+  Parameter compilation_result : forall {p}, Compilation p -> AN.Result p.
+
   Parameter Diagnostic : forall {p}, Compilation p -> Type.
   Parameter Boundary   : forall {p}, Compilation p -> Type.
   Parameter diagnostics : forall {p} (c : Compilation p), list (Diagnostic c).
@@ -60,30 +57,24 @@ Module Type C4_PUBLIC.
 End C4_PUBLIC.
 
 Module Sealed : C4_PUBLIC.
-  (* one retained compilation: the exact index-surface-bindings-package-facts chain, built once, kept as fields *)
-  Record CompilationR (p : Syntax.Program) : Type := mkComp {
-    k_i  : Index.ProgramIndex p ;
-    k_s  : PI.PackageSurface k_i ;
-    k_b  : BN.BindingPhase k_s ;
-    k_pf : AN.PackageFacts k_b ;
-    k_fp : AN.FactPhase k_b
-  }.
-  Arguments mkComp {p} _ _ _ _ _.
-  Arguments k_pf {p} _.
-  Arguments k_fp {p} _.
+  (* one retained result: the exact index-surface-bindings-facts-package chain, built once by analyze, kept whole *)
+  Record CompilationR (p : Syntax.Program) : Type := mkComp { c_res : AN.Result p }.
+  Arguments mkComp {p} _.
+  Arguments c_res {p} _.
   Definition Compilation := CompilationR.
 
-  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (k_fp c) (k_pf c).
-  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (k_fp c) (k_pf c).
-  Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (k_fp c) (k_pf c).
-  Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (k_fp c) (k_pf c).
+  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
+  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
+  Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
+  Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
 
   Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ boundaries c = [].
   Lemma admissible_iff_reports {p} (c : Compilation p) : Admissible c <-> diagnostics c = [] /\ boundaries c = [].
   Proof. unfold Admissible; split; intro H; exact H. Qed.
 
-  (* the sole composer, private: it consumes the one shared chain, so no downstream module rebuilds the index *)
-  Definition elaborate (p : Syntax.Program) : Compilation p := mkComp (c_i p) (c_s p) (c_b p) (c_pf p) (c_fp p).
+  (* the sole composer, private: it binds one exact result and keeps it whole; no downstream module rebuilds it *)
+  Definition elaborate (p : Syntax.Program) : Compilation p := mkComp (AN.analyze p).
+  Definition compilation_result {p} (c : Compilation p) : AN.Result p := c_res c.
 
   Record ProgramR   (p : Syntax.Program) : Type := mkProg { pr_comp : Compilation p ; pr_adm  : Admissible pr_comp }.
   Record RejectionR (p : Syntax.Program) : Type := mkRej  { rj_comp : Compilation p ; rj_diag : diagnostics rj_comp <> [] }.
@@ -96,12 +87,12 @@ Module Sealed : C4_PUBLIC.
   Definition OutcomeAt (p : Syntax.Program) (k : Disposition) : Type :=
     match k with Compiled => Program p | Rejected => Rejection p | OutsideScope => Outside p end.
 
-  (* compile builds the branch object whose tag the transparent disposition already names, from the same reports *)
+  (* compile builds the branch object whose tag the transparent disposition already names, from the same result *)
   Definition compile (p : Syntax.Program) : OutcomeAt p (disposition p).
   Proof.
     unfold OutcomeAt, disposition.
-    destruct (nil_dec (RP.diagnostics (c_fp p) (c_pf p))) as [Hd|Hd].
-    - destruct (nil_dec (RP.boundaries (c_fp p) (c_pf p))) as [Hb|Hb].
+    destruct (nil_dec (RP.diagnostics (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hd|Hd].
+    - destruct (nil_dec (RP.boundaries (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hb|Hb].
       + exact (mkProg (elaborate p) (conj Hd Hb)).
       + exact (mkOut (elaborate p) Hd Hb).
     - exact (mkRej (elaborate p) Hd).
@@ -132,6 +123,7 @@ Definition compile := Sealed.compile.
 Definition program_compilation {p} := @Sealed.program_compilation p.
 Definition rejection_compilation {p} := @Sealed.rejection_compilation p.
 Definition outside_compilation {p} := @Sealed.outside_compilation p.
+Definition compilation_result {p} := @Sealed.compilation_result p.
 Definition Diagnostic {p} := @Sealed.Diagnostic p.
 Definition Boundary {p} := @Sealed.Boundary p.
 Definition diagnostics {p} := @Sealed.diagnostics p.
@@ -141,6 +133,11 @@ Definition admissible_iff_reports {p} := @Sealed.admissible_iff_reports p.
 Definition program_admissible {p} := @Sealed.program_admissible p.
 Definition rejection_has_diagnostics {p} := @Sealed.rejection_has_diagnostics p.
 Definition outside_reports {p} := @Sealed.outside_reports p.
+
+(* read-only result projections for future evidence layers: each branch object exposes its exact retained result *)
+Definition program_result   {p} (cp : Program p)  : AN.Result p := compilation_result (program_compilation cp).
+Definition rejection_result {p} (r  : Rejection p) : AN.Result p := compilation_result (rejection_compilation r).
+Definition outside_result   {p} (o  : Outside p)   : AN.Result p := compilation_result (outside_compilation o).
 
 (* the sanctioned compiled capability: compile (the sole source) coerced by a decidable disposition=Compiled proof *)
 Definition compiled_program (p : Syntax.Program) (H : disposition p = Compiled) : Program p :=

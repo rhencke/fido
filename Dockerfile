@@ -229,16 +229,18 @@ set +e; ico3=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch3 "$depst"); ic3=$?; set
   || fail "layer integration control 3: a removed module policy row was not rejected as module-row coverage (rc=$ic3)"
 echo "fido: layer integration control 3 OK — a removed module policy row over the real graph rejected as module-row coverage"
 echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and the single awk verdict pass both completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy; the gate greens only when every required operation completed (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
-# (b3) ONE-BUILD control: `Compilable.elaborate` is the SOLE composer — it builds the retained index and each
-#      phase EXACTLY ONCE and threads them to every projection (contract: elaborate makes one call each to
-#      index_program, package_surface, bindings, package_facts, facts).  A downstream module that rebuilt the
-#      index or a phase would re-derive a peer object (rule 4 / no raw-source semantic enumeration), so the
-#      child modules name none of those builders, and Report is projection-only.
-for pair in Index.index_program PI.package_surface BN.bindings AN.package_facts AN.facts; do
-  n=$(grep -coF "$pair" Compilable.v || true)
-  [ "$n" = "1" ] || fail "one-build control: Compilable.elaborate names $pair $n time(s), expected exactly once"
+# (b3) ONE-BUILD control (LEXICAL only; the semantic one-Result guarantee is the type topology — Compilation is
+#      one Result field — plus the Rocq projection theorems in the proof suite): `Analysis.analyze` is the SOLE
+#      composer, building the index and each phase once and returning one `Analysis.Result`.  Compilable delegates
+#      to `analyze` and rebuilds nothing; `analyze` is the one index build in Analysis; Report/Bindings rebuild no
+#      index; Report is projection-only.
+[ "$(grep -coF 'AN.analyze' Compilable.v)" != "0" ] || fail "one-build control: Compilable does not delegate to AN.analyze"
+for raw in Index.index_program PI.package_surface BN.bindings AN.package_facts AN.facts; do
+  n=$(grep -coF "$raw" Compilable.v || true)
+  [ "$n" = "0" ] || fail "one-build control: Compilable names raw builder $raw $n time(s) (must delegate to AN.analyze)"
 done
-for f in Compilable/Report.v Compilable/Bindings.v Compilable/Analysis.v; do
+[ "$(grep -coF 'Index.index_program' Compilable/Analysis.v)" = "1" ] || fail "one-build control: Analysis.analyze must build the index exactly once"
+for f in Compilable/Report.v Compilable/Bindings.v; do
   if grep -qE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; then grep -nE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; fail "one-build control: $f rebuilds the index/fold instead of reading the threaded one"; fi
 done
 # Report is projection-only: it resolves, classifies, and indexes NOTHING — it names no resolver, index
@@ -248,7 +250,7 @@ if grep -qE 'Index\.index_program|PI\.package_surface|BN\.bindings|AN\.package_f
   grep -nE 'Index\.index_program|PI\.package_surface|BN\.bindings|AN\.package_facts|AN\.facts\b|\bresolve\b|TypeResolution' Compilable/Report.v
   fail "projection-only control: Compilable.Report names a resolver, index/phase builder, type layer, or composer"
 fi
-echo "fido: one-build control OK — Compilable.elaborate builds index + four phases once each and threads them; Report/Bindings/Analysis rebuild no index; Report is projection-only"
+echo "fido: one-build control OK (lexical) — Compilable delegates to AN.analyze and names no raw builder; Analysis.analyze builds the index once; Report/Bindings rebuild no index; Report is projection-only (the semantic one-Result guarantee is the Compilation-is-one-Result type topology + the Rocq projection theorems)"
 # (c) the WHOLE-certified-theory assumption audit over constants + inductives + surviving named assumptions
 { printf 'From Fido Require Import %s.\n' "$mods"; printf 'Declare ML Module "fido.emit".\nFido Audit Assumptions.\n'; } > /tmp/audit.v
 if ! rocq c -Q _build/default/. Fido /tmp/audit.v > /tmp/audit.log 2>&1; then cat /tmp/audit.log; fail "whole-theory audit FAILED"; fi
