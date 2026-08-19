@@ -7,10 +7,10 @@ Import ListNotations.
 Inductive SpecFlavor := ConstSpecF | VarSpecF | TypeSpecF.
 
 (* shallow local shapes: the immediate constructor and its scalar payload only; substructure is child cells *)
-Inductive ConstShape    := CSExplicit (has_type : bool) | CSInherited.
+Inductive ConstShape    := CSExplicit (has_type : bool) (n_names n_values : nat) | CSInherited.
 Inductive VarShape       := VSTypeOnly | VSValues (has_type : bool).
 Inductive TypeSpecShape  := TSAlias | TSDef.
-Inductive StmtShape      := SSExpr | SSDecl | SSShort.
+Inductive StmtShape      := SSExpr | SSDecl | SSShort (n_names : nat).
 Inductive TopShape       := TSTopDecl | TSMain.
 
 (* the occurrence view: one shallow local cell — the head constructor and only immediate scalars, no descendants *)
@@ -98,7 +98,10 @@ Definition number_leaf (v : NodeView) (par : option nat) (role : Role) (b : nat)
 (* the shallow shape of each composite occurrence: its head constructor and immediate scalar flags only *)
 Definition constspec_shape (cs : Syntax.ConstSpec) : ConstShape :=
   match Syntax.const_init cs with
-  | Syntax.ExplicitConstInit ot _ => CSExplicit (match ot with Some _ => true | None => false end)
+  | Syntax.ExplicitConstInit ot vals =>
+      CSExplicit (match ot with Some _ => true | None => false end)
+                 (List.length (Collections.ne_to_list (Syntax.const_names cs)))
+                 (List.length (Collections.ne_to_list vals))
   | Syntax.InheritedConstInit => CSInherited
   end.
 Definition varspec_shape (vs : Syntax.VarSpec) : VarShape :=
@@ -111,7 +114,8 @@ Definition typespec_shape (ts : Syntax.TypeSpec) : TypeSpecShape :=
 Definition decl_flavor (d : Syntax.Declaration) : SpecFlavor :=
   match d with Syntax.ConstDecl _ => ConstSpecF | Syntax.VarDecl _ => VarSpecF | Syntax.TypeDecl _ => TypeSpecF end.
 Definition stmt_shape (s : Syntax.Stmt) : StmtShape :=
-  match s with Syntax.ExprStmt _ => SSExpr | Syntax.DeclarationStmt _ => SSDecl | Syntax.ShortVarDecl _ _ => SSShort end.
+  match s with Syntax.ExprStmt _ => SSExpr | Syntax.DeclarationStmt _ => SSDecl
+             | Syntax.ShortVarDecl names _ => SSShort (List.length (Collections.ne_to_list names)) end.
 Definition top_shape (td : Syntax.TopLevelDecl) : TopShape :=
   match td with Syntax.TopDeclaration _ => TSTopDecl | Syntax.Main _ => TSMain end.
 

@@ -262,11 +262,7 @@ Fixpoint first_short_dup (bs : list (Index.NodeRef idx)) : option Names.Ordinary
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
 Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
   match Index.node_view r with
-  | Index.VConstSpec (Index.CSExplicit _) =>
-      let nn := List.length (filter (fun c => match Index.node_role c with Index.RSpecName Index.ConstSpecF => true | _ => false end)
-                                    (Index.node_children r)) in
-      let nv := List.length (filter (fun c => match Index.node_role c with Index.RPlain => true | _ => false end)
-                                    (Index.node_children r)) in
+  | Index.VConstSpec (Index.CSExplicit _ nn nv) =>
       if Nat.eqb nn nv then VUnmet (ReqDeclMeaning r) else VInvalid (ResultCountMismatch nn nv)
   | Index.VConstSpec Index.CSInherited => if BN.spec_is_first r then VInvalid ConstMissingInit else VUnmet (ReqDeclMeaning r)
   | _ => VNonconst
@@ -404,10 +400,9 @@ Definition own_stmt (r : Index.NodeRef idx) : StmtOutcome r :=
                end
            | _ => fun _ => SInvalid IllegalStatement
            end eq_refl
-  | Index.VStmt Index.SSShort => fun _ =>
+  | Index.VStmt (Index.SSShort n_names) => fun _ =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
-      match first_short_dup (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
-                                    (Index.node_children r)) with
+      match first_short_dup (firstn n_names (Index.node_children r)) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
@@ -485,7 +480,7 @@ Definition occ_facts (r : Index.NodeRef idx) : list (OccFact idx) :=
   | Index.VName _ | Index.VLiteral _ | Index.VUnary _ => [OFValue r (own_value bp r)]
   | Index.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp r)]
   | Index.VStmt Index.SSExpr => [OFStmt r (own_stmt bp r)]
-  | Index.VStmt Index.SSShort => [OFStmt r (own_stmt bp r)]
+  | Index.VStmt (Index.SSShort _) => [OFStmt r (own_stmt bp r)]
   | Index.VTypeExpr _ => [OFType r (own_type bp r)]
   | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => [OFValue r (own_value bp r)]
   | _ => []
@@ -826,7 +821,7 @@ Definition family_lookup (r : Index.NodeRef idx) (f : Family) : FamilyResult s :
   | FamTypeUse => match Index.node_view r with Index.VTypeExpr _ => Applicable (occ_disp_t (own_type bp r)) | _ => NotApplicable end
   | FamDeclaration => match Index.node_view r with
                       | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => Applicable (occ_disp_v (own_value bp r))
-                      | Index.VStmt Index.SSShort => Applicable (occ_disp_s (own_stmt bp r))
+                      | Index.VStmt (Index.SSShort _) => Applicable (occ_disp_s (own_stmt bp r))
                       | _ => NotApplicable
                       end
   end.

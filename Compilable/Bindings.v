@@ -444,7 +444,7 @@ Definition spec_is_first {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx
   match spec_predecessor r with Some _ => false | None => true end.
 
 Definition is_explicit_const_spec {p} {idx : Index.ProgramIndex p} (c : Index.NodeRef idx) : bool :=
-  match Index.node_view c with Index.VConstSpec (Index.CSExplicit _) => true | _ => false end.
+  match Index.node_view c with Index.VConstSpec (Index.CSExplicit _ _ _) => true | _ => false end.
 
 (* the effective explicit origin of a const spec: itself if explicit, else the nearest preceding explicit spec *)
 Definition const_effective_origin {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
