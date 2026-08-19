@@ -23,10 +23,10 @@ Definition rmain : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
   singleton_program rmod rmain [ Syntax.Main (Syntax.MakeBlock body) ].
 
-(* each branch is decided through the production authority (compile), recovered from shallow nilb observers *)
-Ltac reject    := apply Compilable.rejects_via_nilb; vm_compute; reflexivity.
-Ltac compileok := apply Compilable.compiles_via_nilb; vm_compute; reflexivity.
-Ltac outside   := apply Compilable.outsides_via_nilb; vm_compute; reflexivity.
+(* each branch is decided through the production authority: the transparent [disposition], reduced by computation *)
+Ltac reject    := vm_compute; reflexivity.
+Ltac compileok := vm_compute; reflexivity.
+Ltac outside   := vm_compute; reflexivity.
 
 (* known type mismatches: unary minus over a nonnumeric or overflowing typed constant *)
 Definition r_neg_string  : Compilable.rejects (prog [ PL [ NEG (SLIT "x") ] ]).                         Proof. reject. Qed.
@@ -114,6 +114,14 @@ Definition dcauses (p : Syntax.Program) :=
 Definition breqs (p : Syntax.Program) :=
   map (AN.bound_req (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
       (AN.boundaries (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
+(* the boundary FACTS themselves; matching a fact's shape avoids the occ_req extraction that vm_computes a huge proof *)
+Definition bfacts (p : Syntax.Program) :=
+  map (AN.bound_fact (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
+      (AN.boundaries (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
+(* the diagnostic SITES; matching a site's shape avoids the diag_cause/group_cause extraction that blows up *)
+Definition dsites (p : Syntax.Program) :=
+  map (AN.diag_site (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
+      (AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
 
 Definition r_iota_cause :
   dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ].
@@ -131,3 +139,28 @@ Proof. split; [ vm_compute; reflexivity | eexists; vm_compute; reflexivity ]. Qe
 Definition c_neg_int8_core :
   dcauses (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [] /\ breqs (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [].
 Proof. split; vm_compute; reflexivity. Qed.
+
+(* main-as-object: a use of the identifier main resolves to the package main function, or a shadowing local main *)
+Definition o_main_recursive : Compilable.outsides (prog [ Syntax.ExprStmt (APP (OID "main") []) ]). Proof. outside. Qed.
+Definition o_main_value : Compilable.outsides (prog [ PL [ VNAME "main" ] ]). Proof. outside. Qed.
+Definition r_main_as_type : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarTypeOnly (Syntax.NamedType (OID "main"))) ]) ]). Proof. reject. Qed.
+(* the recursive main call is the package main function object (a later-root boundary), never an unresolved name *)
+Definition o_main_recursive_payload :
+  (match bfacts (prog [ Syntax.ExprStmt (APP (OID "main") []) ]) with
+   | [ AN.OFApp _ (AN.AUnmet (AN.ReqMainUse _)) ] => true | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* a local main shadows the package main through the ordinary block rule *)
+Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
+
+(* ordinary redeclaration: two var/const specs sharing one block scope and spelling is a redeclaration issue *)
+Definition r_redecl_var : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]). Proof. reject. Qed.
+(* the one diagnostic is a group-redeclaration site over an establishment spelled "x" (cause OrdinaryRedeclared) *)
+Definition r_redecl_payload :
+  (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]) with
+   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "x")
+   | _ => false
+   end) = true.
+Proof. vm_compute; reflexivity. Qed.
+
+(* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
+Definition o_const_inherited : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ; Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "y"))) Syntax.InheritedConstInit ]) ]). Proof. outside. Qed.

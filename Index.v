@@ -1,24 +1,34 @@
 (* One direct shallow occurrence authority: a finite file map of finite position maps of shallow cells. *)
 
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
-From Fido Require Import FilePath Collections Syntax.
+From Fido Require Import FilePath Collections Names Syntax.
 Import ListNotations.
 
-(* the occurrence view: the exact selected source fragment at one preorder position *)
-Inductive NodeView : Type :=
-| VExpr        : Syntax.Expr         -> NodeView
-| VTypeExpr    : Syntax.TypeExpr     -> NodeView
-| VBindingName : Syntax.BindingName  -> NodeView
-| VConstSpec   : Syntax.ConstSpec    -> NodeView
-| VVarSpec     : Syntax.VarSpec      -> NodeView
-| VTypeSpec    : Syntax.TypeSpec     -> NodeView
-| VDecl        : Syntax.Declaration  -> NodeView
-| VStmt        : Syntax.Stmt         -> NodeView
-| VBlock       : Syntax.Block        -> NodeView
-| VTop         : Syntax.TopLevelDecl -> NodeView
-| VFile        : Syntax.File         -> NodeView.
-
 Inductive SpecFlavor := ConstSpecF | VarSpecF | TypeSpecF.
+
+(* shallow local shapes: the immediate constructor and its scalar payload only; substructure is child cells *)
+Inductive ConstShape    := CSExplicit (has_type : bool) | CSInherited.
+Inductive VarShape       := VSTypeOnly | VSValues (has_type : bool).
+Inductive TypeSpecShape  := TSAlias | TSDef.
+Inductive StmtShape      := SSExpr | SSDecl | SSShort.
+Inductive TopShape       := TSTopDecl | TSMain.
+
+(* the occurrence view: one shallow local cell — the head constructor and only immediate scalars, no descendants *)
+Inductive NodeView : Type :=
+| VName        : Names.OrdinaryIdentifier -> NodeView
+| VLiteral     : Syntax.Literal           -> NodeView
+| VUnary       : Syntax.UnaryOp           -> NodeView
+| VApplication : NodeView
+| VTypeExpr    : Syntax.TypeExpr          -> NodeView
+| VBindingName : Syntax.BindingName       -> NodeView
+| VConstSpec   : ConstShape               -> NodeView
+| VVarSpec     : VarShape                  -> NodeView
+| VTypeSpec    : TypeSpecShape            -> NodeView
+| VDecl        : SpecFlavor               -> NodeView
+| VStmt        : StmtShape                 -> NodeView
+| VBlock       : NodeView
+| VTop         : TopShape                  -> NodeView
+| VFile        : NodeView.
 
 Inductive Kind :=
 | ExprKind | TypeExprKind | BindingNameKind
@@ -33,9 +43,10 @@ Inductive Role :=
 (* the kind each view is classified as; node_kind derives this, so kind is never stored *)
 Definition kind_of_view (v : NodeView) : Kind :=
   match v with
-  | VExpr _ => ExprKind | VTypeExpr _ => TypeExprKind | VBindingName _ => BindingNameKind
+  | VName _ | VLiteral _ | VUnary _ | VApplication => ExprKind
+  | VTypeExpr _ => TypeExprKind | VBindingName _ => BindingNameKind
   | VConstSpec _ => SpecKind ConstSpecF | VVarSpec _ => SpecKind VarSpecF | VTypeSpec _ => SpecKind TypeSpecF
-  | VDecl _ => DeclKind | VStmt _ => StmtKind | VBlock _ => BlockKind | VTop _ => TopKind | VFile _ => FileKind
+  | VDecl _ => DeclKind | VStmt _ => StmtKind | VBlock => BlockKind | VTop _ => TopKind | VFile => FileKind
   end.
 
 (* generic total positional list access; the in-range proof makes it a projection, never a fallback *)
@@ -84,15 +95,35 @@ Fixpoint number_list {A} (f : nat -> A -> list (nat * Cell) * nat) (b : nat) (xs
 Definition number_leaf (v : NodeView) (par : option nat) (role : Role) (b : nat) : list (nat * Cell) * nat :=
   ([(b, mkCell v role par b [])], S b).
 
+(* the shallow shape of each composite occurrence: its head constructor and immediate scalar flags only *)
+Definition constspec_shape (cs : Syntax.ConstSpec) : ConstShape :=
+  match Syntax.const_init cs with
+  | Syntax.ExplicitConstInit ot _ => CSExplicit (match ot with Some _ => true | None => false end)
+  | Syntax.InheritedConstInit => CSInherited
+  end.
+Definition varspec_shape (vs : Syntax.VarSpec) : VarShape :=
+  match Syntax.var_init vs with
+  | Syntax.VarTypeOnly _ => VSTypeOnly
+  | Syntax.VarValues ot _ => VSValues (match ot with Some _ => true | None => false end)
+  end.
+Definition typespec_shape (ts : Syntax.TypeSpec) : TypeSpecShape :=
+  match ts with Syntax.AliasSpec _ _ => TSAlias | Syntax.DefSpec _ _ => TSDef end.
+Definition decl_flavor (d : Syntax.Declaration) : SpecFlavor :=
+  match d with Syntax.ConstDecl _ => ConstSpecF | Syntax.VarDecl _ => VarSpecF | Syntax.TypeDecl _ => TypeSpecF end.
+Definition stmt_shape (s : Syntax.Stmt) : StmtShape :=
+  match s with Syntax.ExprStmt _ => SSExpr | Syntax.DeclarationStmt _ => SSDecl | Syntax.ShortVarDecl _ _ => SSShort end.
+Definition top_shape (td : Syntax.TopLevelDecl) : TopShape :=
+  match td with Syntax.TopDeclaration _ => TSTopDecl | Syntax.Main _ => TSMain end.
+
 (* an expression subtree; the arg list uses an inlined nested fixpoint so the guard checker accepts each arg *)
 Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr) {struct e}
   : list (nat * Cell) * nat :=
   match e with
-  | Syntax.Name _ => number_leaf (VExpr e) par role b
-  | Syntax.LiteralExpr _ => number_leaf (VExpr e) par role b
-  | Syntax.Unary _ e' =>
+  | Syntax.Name n => number_leaf (VName n) par role b
+  | Syntax.LiteralExpr lit => number_leaf (VLiteral lit) par role b
+  | Syntax.Unary op e' =>
       let '(kc, nxt) := number_expr (Some b) RUnaryOperand (S b) e' in
-      ((b, mkCell (VExpr e) role par (nxt - 1) [S b]) :: kc, nxt)
+      ((b, mkCell (VUnary op) role par (nxt - 1) [S b]) :: kc, nxt)
   | Syntax.Application head args =>
       let '(hc, b1) := number_expr (Some b) RApplicationHead (S b) head in
       let fix do_args (i : nat) (bi : nat) (es : list Syntax.Expr) {struct es}
@@ -105,7 +136,7 @@ Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr
             (ac ++ rc, bf, bi :: roots)
         end in
       let '(ac, bfin, aroots) := do_args 0 b1 args in
-      ((b, mkCell (VExpr e) role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
+      ((b, mkCell VApplication role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
   end.
 
 (* the standalone twin of number_expr's inlined arg-numberer; number_args_unfold bridges the two for proofs *)
@@ -142,7 +173,7 @@ Definition number_constspec (par : option nat) (role : Role) (b : nat) (cs : Syn
         (oc ++ vc, b3, oroots ++ vroots)
     | Syntax.InheritedConstInit => ([], b1, [])
     end in
-  ((self, mkCell (VConstSpec cs) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
+  ((self, mkCell (VConstSpec (constspec_shape cs)) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
 
 Definition number_varspec (par : option nat) (role : Role) (b : nat) (vs : Syntax.VarSpec) : list (nat * Cell) * nat :=
   let self := b in
@@ -156,14 +187,14 @@ Definition number_varspec (par : option nat) (role : Role) (b : nat) (vs : Synta
         let '(vc, b3, vroots) := number_list (number_expr (Some self) RPlain) b2 (Collections.ne_to_list vals) in
         (oc ++ vc, b3, oroots ++ vroots)
     end in
-  ((self, mkCell (VVarSpec vs) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
+  ((self, mkCell (VVarSpec (varspec_shape vs)) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
 
 Definition number_typespec (par : option nat) (role : Role) (b : nat) (ts : Syntax.TypeSpec) : list (nat * Cell) * nat :=
   let self := b in
   let '(bn, t) := match ts with Syntax.AliasSpec bn t | Syntax.DefSpec bn t => (bn, t) end in
   let '(bc, b1) := number_bindingname (Some self) (RSpecName TypeSpecF) (S self) bn in
   let '(tc, bfin) := number_typeexpr (Some self) RTypeUse b1 t in
-  ((self, mkCell (VTypeSpec ts) role par (bfin - 1) [S self; b1]) :: (bc ++ tc), bfin).
+  ((self, mkCell (VTypeSpec (typespec_shape ts)) role par (bfin - 1) [S self; b1]) :: (bc ++ tc), bfin).
 
 Definition number_decl (par : option nat) (role : Role) (b : nat) (d : Syntax.Declaration) : list (nat * Cell) * nat :=
   let self := b in
@@ -173,7 +204,7 @@ Definition number_decl (par : option nat) (role : Role) (b : nat) (d : Syntax.De
     | Syntax.VarDecl vs   => number_list (number_varspec (Some self) RPlain) (S self) vs
     | Syntax.TypeDecl ts  => number_list (number_typespec (Some self) RPlain) (S self) ts
     end in
-  ((self, mkCell (VDecl d) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VDecl (decl_flavor d)) role par (bfin - 1) roots) :: kc, bfin).
 
 Definition number_stmt (par : option nat) (role : Role) (b : nat) (s : Syntax.Stmt) : list (nat * Cell) * nat :=
   let self := b in
@@ -187,13 +218,13 @@ Definition number_stmt (par : option nat) (role : Role) (b : nat) (s : Syntax.St
         let '(vc, b2, vroots) := number_list (number_expr (Some self) RPlain) b1 (Collections.ne_to_list vals) in
         (nc ++ vc, b2, nroots ++ vroots)
     end in
-  ((self, mkCell (VStmt s) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VStmt (stmt_shape s)) role par (bfin - 1) roots) :: kc, bfin).
 
 Definition number_block (par : option nat) (role : Role) (b : nat) (blk : Syntax.Block) : list (nat * Cell) * nat :=
   let self := b in
   let stmts := match blk with Syntax.MakeBlock stmts => stmts end in
   let '(kc, bfin, roots) := number_list (number_stmt (Some self) RPlain) (S self) stmts in
-  ((self, mkCell (VBlock blk) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell VBlock role par (bfin - 1) roots) :: kc, bfin).
 
 Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Syntax.TopLevelDecl) : list (nat * Cell) * nat :=
   let self := b in
@@ -202,12 +233,12 @@ Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Synt
     | Syntax.TopDeclaration d => let '(c, b') := number_decl (Some self) RPlain (S self) d in (c, b', [S self])
     | Syntax.Main blk         => let '(c, b') := number_block (Some self) RPlain (S self) blk in (c, b', [S self])
     end in
-  ((self, mkCell (VTop td) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VTop (top_shape td)) role par (bfin - 1) roots) :: kc, bfin).
 
 (* the file occurrence at position 0, its children the top-level declarations, in one preorder pass *)
 Definition number_file (f : Syntax.File) : list (nat * Cell) :=
   let '(dc, bfin, droots) := number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f) in
-  (0, mkCell (VFile f) RPlain None (bfin - 1) droots) :: dc.
+  (0, mkCell VFile RPlain None (bfin - 1) droots) :: dc.
 
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
@@ -216,8 +247,9 @@ Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
 
 Record FileInfo : Type := mkFileInfo { fi_cells : Collections.NodeMap.t Cell ; fi_count : nat }.
 
+(* one structural traversal: [number_file] is evaluated once and its result reused for the map and the count *)
 Definition build_fileinfo (f : Syntax.File) : FileInfo :=
-  mkFileInfo (posmap_of (number_file f)) (List.length (number_file f)).
+  let occs := number_file f in mkFileInfo (posmap_of occs) (List.length occs).
 
 Definition raw_index (p : Syntax.Program) : Collections.FileMap.t FileInfo :=
   Collections.FileMap.map build_fileinfo (Syntax.files p).
@@ -327,8 +359,8 @@ Proof.
 Qed.
 
 (* fixed-main occurrence identity: one exact Syntax.Main occurrence; its body is the sibling shallow block *)
-Definition is_main_view (v : NodeView) : bool := match v with VTop (Syntax.Main _) => true | _ => false end.
-Definition is_block_view (v : NodeView) : bool := match v with VBlock _ => true | _ => false end.
+Definition is_main_view (v : NodeView) : bool := match v with VTop TSMain => true | _ => false end.
+Definition is_block_view (v : NodeView) : bool := match v with VBlock => true | _ => false end.
 
 Record MainOccurrenceRef {p} (idx : ProgramIndex p) : Type := mkMainOccurrenceRef {
   mo_node : NodeRef idx ;

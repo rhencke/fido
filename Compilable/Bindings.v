@@ -1,6 +1,6 @@
 (* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and the per-package fixed main. *)
 
-From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec.
+From Stdlib Require Import String List Bool Arith PeanoNat Lia Eqdep_dec PArith.
 From Fido Require Import Syntax Names Index Compilable.PackageIdentity.
 Import ListNotations.
 
@@ -89,9 +89,11 @@ Definition main_status_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
 
 Inductive ObjectRef {p} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredObject : Names.PredeclaredName -> ObjectRef idx
-| SourceObject      : BinderRef idx -> ObjectRef idx.
+| SourceObject      : BinderRef idx -> ObjectRef idx
+| MainObject        : Index.MainOccurrenceRef idx -> ObjectRef idx.
 Arguments PredeclaredObject {p idx} _.
 Arguments SourceObject {p idx} _.
+Arguments MainObject {p idx} _.
 
 Inductive ScopeId {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | PackageScope : PI.PackageRef s -> ScopeId s
@@ -178,9 +180,14 @@ Definition make_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   | None => None
   end.
 
+(* establishments of a file in source order (ascending position); file_nodes is trie order, so iterate positions *)
 Definition ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (fr : Index.FileRef idx) : list (Est s) :=
-  fold_right (fun b acc => match make_est pr b with Some e => e :: acc | None => acc end) [] (Index.file_nodes fr).
+  flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
+                       | Some b => match make_est pr b with Some e => [e] | None => [] end
+                       | None => []
+                       end)
+           (seq 0 (Index.occ_count fr)).
 
 Definition all_ests {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : list (Est s) :=
   flat_map (fun pr => flat_map (ests_of_file pr) (PI.pkg_members pr)) (PI.packages s).
@@ -312,14 +319,33 @@ Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
 Arguments RBound {p idx s bp use n} _.
 Arguments RUnbound {p idx s bp use n}.
 
+(* the source identifier "main"; the fixed package-scope main function resolves under this ordinary name *)
+Definition main_ident : Names.OrdinaryIdentifier :=
+  Names.MakeOrdinary (Names.MakeIdentifier "main"%string eq_refl) eq_refl.
+
+(* the resolvable main object of a package: its first main occurrence, or none when the package has no main *)
+Definition package_main_occ {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) : option (Index.MainOccurrenceRef idx) :=
+  match package_main bp pr with
+  | MainMissing => None
+  | MainOne m => Some (main_occ m)
+  | MainMultiple m _ _ => Some (main_occ m)
+  end.
+
+(* ordinary resolution: nearest source binding (a local main shadows), then the package main, then predeclared *)
 Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Resolved bp use n :=
   match pick_best (source_cands bp use n) with
   | Some e => RBound (SourceObject (est_binder e))
   | None =>
-      match Names.classify_predeclared (Names.ordinary_spelling n) with
-      | Some pn => RBound (PredeclaredObject pn)
-      | None => RUnbound
+      match (if Names.ordinary_equalb n main_ident
+             then package_main_occ bp (PI.package_of_file s (Index.nr_file use)) else None) with
+      | Some m => RBound (MainObject m)
+      | None =>
+          match Names.classify_predeclared (Names.ordinary_spelling n) with
+          | Some pn => RBound (PredeclaredObject pn)
+          | None => RUnbound
+          end
       end
   end.
 
@@ -336,6 +362,9 @@ Theorem resolve_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
   match resolve bp use n with
   | RBound (SourceObject b) => exists e, In e (source_cands bp use n) /\ est_binder e = b
+  | RBound (MainObject m) =>
+      source_cands bp use n = [] /\ Names.ordinary_equalb n main_ident = true
+      /\ package_main_occ bp (PI.package_of_file s (Index.nr_file use)) = Some m
   | RBound (PredeclaredObject pn) =>
       source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = Some pn
   | RUnbound =>
@@ -345,7 +374,10 @@ Proof.
   unfold resolve. destruct (pick_best (source_cands bp use n)) as [e|] eqn:E.
   - exists e; split; [ apply pick_best_in; exact E | reflexivity ].
   - pose proof (pick_best_none _ E) as Hnil.
-    destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
+    destruct (if Names.ordinary_equalb n main_ident
+              then package_main_occ bp (PI.package_of_file s (Index.nr_file use)) else None) as [m|] eqn:Em.
+    + destruct (Names.ordinary_equalb n main_ident) eqn:Eq; [ split; [exact Hnil | split; [reflexivity | exact Em]] | discriminate Em ].
+    + destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
 Qed.
 
 Lemma typespec_visible_after_identifier {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
@@ -367,3 +399,98 @@ Lemma typespec_self_outer_shadow {p} {idx : Index.ProgramIndex p} (r u : Index.N
   Index.node_role r = Index.RSpecName Index.TypeSpecF -> Index.nr_pos r < Index.nr_pos u ->
   vis_start r < Index.nr_pos u.
 Proof. intros Hr Hlt; rewrite (typespec_visible_after_identifier r Hr); exact Hlt. Qed.
+
+(* declaration groups: the establishments sharing one exact scope and spelling *)
+
+Definition noderef_eqb {p} {idx : Index.ProgramIndex p} (a b : Index.NodeRef idx) : bool :=
+  andb (Index.fileref_eqb (Index.nr_file a) (Index.nr_file b)) (Nat.eqb (Index.nr_pos a) (Index.nr_pos b)).
+
+Lemma noderef_eqb_spec {p} {idx : Index.ProgramIndex p} (a b : Index.NodeRef idx) :
+  noderef_eqb a b = true <-> a = b.
+Proof.
+  unfold noderef_eqb; split.
+  - intro H; apply andb_true_iff in H as [Hf Hp].
+    apply Index.fileref_eqb_spec in Hf. apply Nat.eqb_eq in Hp. apply Index.noderef_positional; assumption.
+  - intro H; subst b. rewrite (proj2 (Index.fileref_eqb_spec _ _) eq_refl), Nat.eqb_refl; reflexivity.
+Qed.
+
+Definition scope_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : ScopeId s) : bool :=
+  match a, b with
+  | PackageScope pa, PackageScope pb => PI.packageref_eqb pa pb
+  | BlockScope ba, BlockScope bb => noderef_eqb (Index.bl_node ba) (Index.bl_node bb)
+  | _, _ => false
+  end.
+
+Lemma scope_eqb_spec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : ScopeId s) :
+  scope_eqb a b = true <-> a = b.
+Proof.
+  destruct a as [pa|ba], b as [pb|bb]; cbn; split; try discriminate.
+  - intro H; apply PI.packageref_eqb_spec in H; subst; reflexivity.
+  - intro H; injection H as <-; apply (proj2 (PI.packageref_eqb_spec _ _) eq_refl).
+  - intro H; apply noderef_eqb_spec in H; apply Index.blockref_positional in H; subst; reflexivity.
+  - intro H; injection H as <-; apply (proj2 (noderef_eqb_spec _ _) eq_refl).
+Qed.
+
+(* two establishments belong to the same declaration group iff they share an exact scope and spelling *)
+Definition same_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
+  andb (scope_eqb (est_scope a) (est_scope b)) (Names.ordinary_equalb (est_name a) (est_name b)).
+
+(* two establishments are the same establishment iff they share their exact binder occurrence *)
+Definition est_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
+  noderef_eqb (binder_node (est_binder a)) (binder_node (est_binder b)).
+
+(* the ordered members of e's group: every establishment sharing e's scope and spelling, in bp_ests source order *)
+Definition group_members {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (e : Est s) : list (Est s) := filter (same_group e) (bp_ests bp).
+
+(* a group's multiplicity; "ambiguous" (embedded-field/dot-import) is unrepresentable here, so absent by design *)
+Inductive GroupStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+| GUnique     : Est s -> GroupStatus s
+| GRedeclared : Est s -> Est s -> list (Est s) -> GroupStatus s.
+Arguments GUnique {p idx s} _.
+Arguments GRedeclared {p idx s} _ _ _.
+
+Definition group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (members : list (Est s)) : option (GroupStatus s) :=
+  match members with
+  | [] => None
+  | m :: nil => Some (GUnique m)
+  | a :: b :: rest => Some (GRedeclared a b rest)
+  end.
+
+(* the immediately-preceding sibling spec of a declaration spec, in source order — its inheritance predecessor *)
+Definition spec_predecessor {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
+  match Index.node_parent r with
+  | Some par => fold_left (fun acc c => if Nat.ltb (Index.nr_pos c) (Index.nr_pos r) then Some c else acc)
+                          (Index.node_children par) None
+  | None => None
+  end.
+
+(* a spec heads its declaration exactly when it has no predecessor; a first inherited const spec is invalid *)
+Definition spec_is_first {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : bool :=
+  match spec_predecessor r with Some _ => false | None => true end.
+
+Definition is_explicit_const_spec {p} {idx : Index.ProgramIndex p} (c : Index.NodeRef idx) : bool :=
+  match Index.node_view c with Index.VConstSpec (Index.CSExplicit _) => true | _ => false end.
+
+(* the effective explicit origin of a const spec: itself if explicit, else the nearest preceding explicit spec *)
+Definition const_effective_origin {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
+  if is_explicit_const_spec r then Some r
+  else match Index.node_parent r with
+       | Some par =>
+           fold_left (fun acc c => if andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos r)) (is_explicit_const_spec c)
+                                   then Some c else acc) (Index.node_children par) None
+       | None => None
+       end.
+
+(* a short left-hand name repeated earlier in the same short statement is an exact duplicate (invalid) left status *)
+Definition short_lhs_duplicate {p} {idx : Index.ProgramIndex p}
+  (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : bool :=
+  match Index.node_parent r with
+  | Some stmt =>
+      existsb (fun c => andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos r))
+                             (match binder_ident c with Some m => Names.ordinary_equalb m n | None => false end))
+              (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
+                      (Index.node_children stmt))
+  | None => false
+  end.

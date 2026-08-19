@@ -1,7 +1,7 @@
 (* PackageIdentity — file, package, and selected-nonempty-package identity only; no main, collision, or issue. *)
 
-From Stdlib Require Import List Bool Arith PeanoNat Lia.
-From Fido Require Import Index FilePath.
+From Stdlib Require Import String Ascii Bool Arith PeanoNat Lia List.
+From Fido Require Import Index FilePath Syntax ModulePath.
 Import ListNotations.
 
 (* a file is nonempty when it holds at least one top-level declaration (more than just its file occurrence) *)
@@ -211,3 +211,45 @@ Definition package_selection {p} {idx : Index.ProgramIndex p} (s : PackageSurfac
   | a :: nil => OneSelected a
   | a :: b :: rest => MultipleSelected a b rest
   end.
+
+(* the complete import path is module-path components ++ package-directory components *)
+Local Open Scope string_scope.
+
+Definition module_components {p} (idx : Index.ProgramIndex p) : list string :=
+  ModulePath.segments (Syntax.module_path (Syntax.module_spec p)).
+
+Definition import_path {p} {idx : Index.ProgramIndex p} {s : PackageSurface idx}
+  (pr : PackageRef s) : list string := module_components idx ++ pkg_components pr.
+
+Definition ascii_is_digit (c : ascii) : bool :=
+  let n := nat_of_ascii c in andb (Nat.leb 48 n) (Nat.leb n 57).
+Fixpoint str_all_digits (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (ascii_is_digit c) (str_all_digits s') end.
+Definition is_version_element (s : string) : bool :=
+  match s with
+  | String c0 (String c1 rest) =>
+      andb (Ascii.eqb c0 "v"%char)
+        (andb (negb (Ascii.eqb c1 "0"%char))
+          (andb (negb (andb (Ascii.eqb c1 "1"%char)
+                            (match rest with EmptyString => true | _ => false end)))
+                (str_all_digits (String c1 rest))))
+  | _ => false
+  end.
+Definition default_exec_name_c (comps : list string) : string :=
+  match comps with
+  | _ :: _ :: _ =>
+      let final := List.last comps ""%string in
+      if is_version_element final then List.last (List.removelast comps) ""%string else final
+  | _ => List.last comps ""%string
+  end.
+Definition default_exec_name {p} {idx : Index.ProgramIndex p} {s : PackageSurface idx}
+  (pr : PackageRef s) : string := default_exec_name_c (import_path pr).
+
+(* the module-root entries that a fresh executable could collide with: the top-level directory of each package *)
+Definition first_dir_component {p} {idx : Index.ProgramIndex p} {s : PackageSurface idx}
+  (pr : PackageRef s) : option string :=
+  match pkg_components pr with c :: _ => Some c | [] => None end.
+Definition root_entry_names {p} {idx : Index.ProgramIndex p} (s : PackageSurface idx) : list string :=
+  fold_right (fun pr acc => match first_dir_component pr with Some c => c :: acc | None => acc end) [] (packages s).
+
+Local Close Scope string_scope.

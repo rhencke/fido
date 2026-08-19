@@ -1,6 +1,6 @@
 (* The byte and rune alias differential: the accepted conversions, rendered in their source spellings. *)
 From Stdlib Require Import List NArith String Ascii.
-From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Safe Render Emit.
+From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Render Emit.
 Import ListNotations.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
@@ -20,11 +20,9 @@ Definition alias_file : list Syntax.TopLevelDecl :=
 Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 
-Definition alias_reveal : { c : Compilable.Compilation alias_program & Compilable.CompiledPayload (Compilable.compile alias_program) c } :=
-  Compilable.compiled_of_nilb alias_program (ltac:(vm_compute; reflexivity)) (ltac:(vm_compute; reflexivity)).
-Definition alias_safe : Safe.Program :=
-  Safe.certify alias_program (Compilable.compile alias_program) (projT1 alias_reveal) (projT2 alias_reveal) I.
-Definition alias_image : Emit.Image := Emit.of_safe alias_safe.
+Definition alias_capa : Compilable.Program alias_program :=
+  Compilable.compiled_program alias_program (ltac:(vm_compute; reflexivity)).
+Definition alias_image : Emit.Image alias_capa Emit.CompiledOnly tt := Emit.of_compiled alias_capa.
 
 Declare ML Module "fido.emit".
 Fido Materialize alias_image To "/workspace/generated-alias".

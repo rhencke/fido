@@ -1,6 +1,6 @@
 (* The canonical witness: every admitted primitive, materialized pristine and validated by pinned Go. *)
 From Stdlib Require Import List NArith ZArith String Ascii.
-From Fido Require Import Integer Float Complex FilePath ModulePath Version Names Syntax Compilable Safe Render Emit.
+From Fido Require Import Integer Float Complex FilePath ModulePath Version Names Syntax Compilable Render Emit.
 Import ListNotations.
 
 (* control-byte strings built by exact ascii code, each between two letters *)
@@ -71,13 +71,10 @@ Definition demo_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "f
 Definition main_go : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition demo_program : Syntax.Program := singleton_program demo_module main_go demo_file.
 
-(* the compiled branch, recovered from compile via shallow nilb observers (no deep phase normalization) *)
-Definition demo_reveal : { c : Compilable.Compilation demo_program & Compilable.CompiledPayload (Compilable.compile demo_program) c } :=
-  Compilable.compiled_of_nilb demo_program
-    (ltac:(vm_compute; reflexivity)) (ltac:(vm_compute; reflexivity)).
-Definition demo_safe : Safe.Program :=
-  Safe.certify demo_program (Compilable.compile demo_program) (projT1 demo_reveal) (projT2 demo_reveal) I.
-Definition demo_image : Emit.Image := Emit.of_safe demo_safe.
+(* the compiled capability, from compile directly: for this concrete program disposition reduces to Compiled *)
+Definition demo_prog : Compilable.Program demo_program :=
+  Compilable.compiled_program demo_program (ltac:(vm_compute; reflexivity)).
+Definition demo_image : Emit.Image demo_prog Emit.CompiledOnly tt := Emit.of_compiled demo_prog.
 
 Declare ML Module "fido.emit".
 Fido Materialize demo_image To "/workspace/generated".

@@ -172,19 +172,34 @@ let decode_guarded t =
   let env = Global.env () in
   let sigma = Evd.from_env env in
   let (tc, _) = Constrintern.interp_constr env sigma t in
-  (* DIAG (scratch, remove): wall-clock per boundary step, on UNBUFFERED stderr so the last line survives an
-     OOM-kill and names the step. *)
-  let _diag_t = ref (Unix.gettimeofday ()) in
-  let _diag name = let now = Unix.gettimeofday () in
-    Printf.eprintf "DIAG %s %.1fs\n" name (now -. !_diag_t); flush stderr; _diag_t := now in
   (* STEP 1 — TYPECHECK: apply the certified transport projection (resolved by qualified name) and
      typecheck it, so [tc] must have the proved image type.  A raw (go.mod, entries) transport has type
      string * list (string*string), not the image type, and is rejected here. *)
   let de_ref = Nametab.locate (Libnames.qualid_of_string "Fido.Emit.transport") in
   let (sigma, de) = Evd.fresh_global env sigma de_ref in
-  let app = EConstr.mkApp (de, [| tc |]) in
+  (* Emit.transport is generic over the evidence-indexed image: its leading arguments (program, compiled
+     program, evidence family, evidence) are implicit and inferred from the image's type.  Insert a hole for
+     each leading argument up to the image argument (the first whose domain is Fido.Emit.Image), then apply
+     the image; the typecheck below unifies the holes against the image's exact type. *)
+  let image_ind = match Nametab.locate (Libnames.qualid_of_string "Fido.Emit.Image") with
+    | Names.GlobRef.IndRef ind -> ind
+    | _ -> CErrors.user_err (str "fido materialize: Fido.Emit.Image is not an inductive") in
+  let is_image sigma dom =
+    let (hd, _) = EConstr.decompose_app sigma dom in
+    match EConstr.kind sigma hd with
+    | Constr.Ind (i, _) -> Names.Ind.CanOrd.equal i image_ind
+    | _ -> false in
+  let (sigma, dety) = Typing.type_of env sigma de in
+  let rec peel sigma ty acc =
+    match EConstr.kind sigma ty with
+    | Constr.Prod (_, dom, _) when is_image sigma dom ->
+        (sigma, EConstr.mkApp (de, Array.of_list (List.rev (tc :: acc))))
+    | Constr.Prod (_, dom, cod) ->
+        let (sigma, ev) = Evarutil.new_evar env sigma dom in
+        peel sigma (EConstr.Vars.subst1 ev cod) (ev :: acc)
+    | _ -> CErrors.user_err (str "fido materialize: Emit.transport has no image argument") in
+  let (sigma, app) = peel sigma dety [] in
   let (sigma, _ty) = Typing.type_of env sigma app in
-  _diag "step1-typecheck";
   (* STEP 2 — ASSUMPTION-CLOSURE: the image type is proof-carrying, but a proof can be an [Axiom]/
      [Admitted]/section [Variable].  Compute the term's assumption closure exactly as `Print Assumptions`
      does — the union over every global reference it mentions, DESCENDING opaque (Qed) proof bodies via the
@@ -208,10 +223,8 @@ let decode_guarded t =
      bodies, including behind opaque Qed proofs — the SAME mechanism the whole-theory audit uses). *)
   List.iter (function Names.GlobRef.VarRef _ -> forged () | _ -> ()) grefs;
   if assums_disallowed (closure_assums env grefs) <> [] then forged ();
-  _diag "step2-closure";
   (* STEP 3 — DECODE the final transport ONLY: reduce and structurally decode the (go.mod, entries) pair. *)
   let nf = Reductionops.nf_all env sigma app in
-  _diag "step3-nf_all";
   decode_transport sigma nf
 
 (* STEP 4a — MATERIALIZE: the low-level EXPORT primitive — write the provenance-guarded, decoded authoritative

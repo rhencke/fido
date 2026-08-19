@@ -23,6 +23,16 @@ Definition diag_root (d : Diagnostic) : AN.IssueRoot s := AN.diag_root fp pf d.
 Definition bound_req (b : Boundary) : AN.Requirement idx := AN.bound_req fp pf b.
 Definition bound_root (b : Boundary) : AN.IssueRoot s := AN.bound_root fp pf b.
 
+(* exact projection: Report's diagnostics/boundaries ARE Analysis's issue lists, same members and order, no repair *)
+Lemma diagnostics_exact : diagnostics = AN.diagnostics fp pf.
+Proof. reflexivity. Qed.
+Lemma boundaries_exact : boundaries = AN.boundaries fp pf.
+Proof. reflexivity. Qed.
+Lemma diag_cause_exact : forall d, diag_cause d = AN.diag_cause fp pf d.
+Proof. reflexivity. Qed.
+Lemma bound_req_exact : forall b, bound_req b = AN.bound_req fp pf b.
+Proof. reflexivity. Qed.
+
 End Project.
 
 Arguments Diagnostic {p idx s bp} fp pf.

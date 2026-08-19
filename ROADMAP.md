@@ -25,8 +25,10 @@ package/binding/scope identity with the fixed-spelling `func main()` carried as 
 s pr` — a real package function establishment with `MainOne`/`MainMultiple` multiplicity — one
 `Compilable.Analysis` fact and issue authority (`Facts` and `Packages` deleted) with the canonical issue table,
 the applicability + complete 5-way disposition algebra, and the selected-package preflight, projection-only
-`Report`, the sealed `C4_PUBLIC` surface (`compile`/`inspect`/`compiled_prog`, opaque `Prog`, no public
-elaborator), and the exact theorems and evidence. `.review/NEXT.md` owns the candidate. C4 stays
+`Report`, the sealed `C4_PUBLIC` surface (`compile` the sole source of the abstract
+`Program`/`Rejection`/`Outside` branch objects selected by the transparent `disposition`, no public maker or
+composer), the one generic evidence-indexed `Emit` over an exact compiled `Program`, and the exact theorems and
+evidence. `.review/NEXT.md` owns the candidate. C4 stays
 implemented-not-accepted until Rob separately accepts it; the C6 roots that depend on it stay frozen and resume
 only after acceptance.
 

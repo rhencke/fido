@@ -1,6 +1,6 @@
 (* A differential witness: two main packages in different directories, plus a file with no declarations. *)
 From Stdlib Require Import List NArith String.
-From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Safe Render Emit.
+From Fido Require Import FilePath ModulePath Version Names Syntax Compilable Render Emit.
 Import ListNotations.
 
 Local Notation PL args := (Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) args)).
@@ -33,11 +33,9 @@ Lemma multi_program_built : build_program multi_module multi_nodes = Some multi_
 Proof. vm_compute. reflexivity. Qed.
 
 (* two selected packages (root and sub): collision is non-applicable, so both mains compile cleanly *)
-Definition multi_reveal : { c : Compilable.Compilation multi_program & Compilable.CompiledPayload (Compilable.compile multi_program) c } :=
-  Compilable.compiled_of_nilb multi_program (ltac:(vm_compute; reflexivity)) (ltac:(vm_compute; reflexivity)).
-Definition multi_safe : Safe.Program :=
-  Safe.certify multi_program (Compilable.compile multi_program) (projT1 multi_reveal) (projT2 multi_reveal) I.
-Definition multi_image : Emit.Image := Emit.of_safe multi_safe.
+Definition multi_capa : Compilable.Program multi_program :=
+  Compilable.compiled_program multi_program (ltac:(vm_compute; reflexivity)).
+Definition multi_image : Emit.Image multi_capa Emit.CompiledOnly tt := Emit.of_compiled multi_capa.
 
 Declare ML Module "fido.emit".
 Fido Materialize multi_image To "/workspace/generated-multi".

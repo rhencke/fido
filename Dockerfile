@@ -305,7 +305,7 @@ echo "fido: audit self-test E — closed Section theorem accepted (as required)"
 #     does stage 2 add the hidden term and require a failure that NAMES that hidden component.  The
 #     prelude imports the whole public chain, because `Compilable` cannot import its own downstream
 #     modules and no transitive loading can supply them.
-SEALED_PRELUDE='From Fido Require Import Syntax Index Compilable Safe Emit.'
+SEALED_PRELUDE='From Fido Require Import Syntax Index Compilable Emit.'
 # The stage-1 load check is determined ENTIRELY by (prelude, sentinel), so it runs once per distinct pair.
 # Twenty-five controls name only four such pairs; recompiling a byte-identical file against the same _build
 # in the same stage re-establishes the fact it already established and proves nothing further.  The KEY must
@@ -333,47 +333,33 @@ sealed() { # <label> <public sentinel in the module under test> <qualified term 
   grep -qF "$3" /tmp/sealed.log \
     || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
   echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
-# The three-way Decision has PUBLIC constructors (Compiled/Rejected/OutsideScope); unforgeability is INTRINSIC
-# (RC01: transparency preserves vm_compute).  `Compiled` demands a real capability `Prog.Program c`, whose only
-# maker is `Prog.issue` on an admissibility proof; `Rejected`/`OutsideScope` demand real diagnostic/boundary
-# proofs (the neg_* typing controls below).  The LEGACY verdict/core/capability/mint/raw-image families are
-# DELETED, so a client naming any is rejected exactly as an axiom self-test is; each stage-1 sentinel proves the
-# module still loads, so the absence is real and not a load failure.
-sealed F  Compilable.compile      Compilable.MkDecision
-sealed G  Compilable.compile      Compilable.Verdict
-sealed J  Compilable.compile      Compilable.MkCompiled
-sealed K  Compilable.compile      Compilable.CompiledAt
-sealed L  Compilable.compile      Compilable.MkRejected
-sealed M  Compilable.compile      Compilable.RejectedAt
-sealed N  Compilable.compile      Compilable.MkOutside
-sealed O  Compilable.compile      Compilable.OutsideAt
-# the retained-core record, its constructor and the old core projections are gone — the exact-core repair keeps
-# the exact phases in the transparent Compilation, never a peer Core.
-sealed P  Compilable.compile      Compilable.Core
-sealed Q  Compilable.compile      Compilable.CoreRep
-sealed R  Compilable.compile      Compilable.MkCore
-sealed S  Compilable.compile      Compilable.decided_core
-sealed T  Compilable.compile      Compilable.core
-sealed U  Compilable.compile      Compilable.source
-# the predicate-backed program-mint routes and the raw program record are gone; the only route to a capability
-# is `Prog.issue` on an admissibility proof (neg_program_for_bad_compilation).
-sealed V  Compilable.compile      Compilable.program_of_compiled
-sealed W  Compilable.compile      Compilable.MkProgram
-sealed X  Compilable.compile      Compilable.program_of
-sealed AL Compilable.compile      Compilable.program_of_source
-# neg_raw_image_route: the MINT/token authority, the raw image Pack and its byte/file/origin fields, and the
-# source-transporting image constructor are gone; `of_safe` is the sole image route (neg_raw_image_bytes below).
-sealed Y  Emit.of_safe            Emit.Mint
-sealed Z  Emit.of_safe            Emit.Token
-sealed AA Emit.of_safe            Emit.Pack
-sealed AB Emit.of_safe            Emit.MakeImage
-sealed AC Emit.of_safe            Emit.of_safe_at
-sealed AD Emit.of_safe            Emit.module_bytes
-# the old unindexed Safe record surface and the old positional Index snapshot/cursor surface are gone.
-sealed AN Safe.certify            Safe.Make
-sealed AO Safe.certify            Safe.compiled
-sealed AP Index.index_program     Index.Snapshot
-sealed AQ Index.index_program     Index.CFile
+# The three-way disposition (Compiled/Rejected/OutsideScope) is a PUBLIC transparent tag; the branch objects
+# Program/Rejection/Outside and the Compilation are genuinely ABSTRACT (`Module Sealed : C4_PUBLIC` — opaque
+# ascription).  Their record makers (mkComp/mkProg/mkRej/mkOut and the CompilationR/ProgramR/RejectionR/OutsideR
+# records) and the private composer `elaborate` are ABSENT from the client namespace: `compile` is the sole
+# source of every branch object.  A client naming any hidden maker is rejected exactly as an axiom self-test is;
+# each stage-1 sentinel proves the module still loads, so the absence is real and not a load failure.
+sealed F  Compilable.compile      Compilable.Sealed.mkComp
+sealed G  Compilable.compile      Compilable.Sealed.mkProg
+sealed J  Compilable.compile      Compilable.Sealed.mkRej
+sealed K  Compilable.compile      Compilable.Sealed.mkOut
+sealed L  Compilable.compile      Compilable.Sealed.CompilationR
+sealed M  Compilable.compile      Compilable.Sealed.ProgramR
+sealed N  Compilable.compile      Compilable.Sealed.RejectionR
+sealed O  Compilable.compile      Compilable.Sealed.OutsideR
+# the private composer is hidden too: no client rebuilds the retained compilation outside `compile`.
+sealed P  Compilable.compile      Compilable.Sealed.elaborate
+# the top-level namespace re-exports only the abstract C4_PUBLIC surface — no maker leaks to `Compilable.*`.
+sealed Q  Compilable.compile      Compilable.mkComp
+sealed R  Compilable.compile      Compilable.mkProg
+sealed S  Compilable.compile      Compilable.elaborate
+# the generic evidence-indexed image exposes `of_compiled`/`of_evidence` as its ONLY routes; the old
+# mint/token/Pack/byte-carrying image surface is gone, so a client naming any is rejected.
+sealed Y  Emit.module_file_of     Emit.Mint
+sealed Z  Emit.module_file_of     Emit.Token
+sealed AA Emit.module_file_of     Emit.Pack
+sealed AB Emit.module_file_of     Emit.MakeImage
+sealed AC Emit.module_file_of     Emit.module_bytes
 # ADVERSARIAL CONTROLS ON THE HELPER ITSELF.  A sealed-constructor test is only evidence if it could have
 # failed for the right reason, so the helper must reject its own bad evidence.  Each runs in a subshell,
 # because `fail` exits.
@@ -387,9 +373,9 @@ meta_reject() { # <label> <prelude> <sentinel> <hidden term> <expected rejection
   esac; }
 # (1) a prelude that never loads the module under test.  The helper must call that invalid evidence,
 #     rather than reporting a sealed constructor.
-meta_reject omitted-safe 'From Fido Require Import Syntax Compilable.' Safe.certify Safe.Make \
+meta_reject omitted-compilable 'From Fido Require Import Syntax Index.' Compilable.compile Compilable.Sealed.mkProg \
   'did not load or its public sentinel'
-meta_reject omitted-emit 'From Fido Require Import Syntax Compilable.' Emit.of_safe Emit.Pack \
+meta_reject omitted-emit 'From Fido Require Import Syntax Index Compilable.' Emit.module_file_of Emit.Pack \
   'did not load or its public sentinel'
 # (2) a REACHABLE public term must make the helper fail its own expectation — otherwise a seal that quietly
 #     became public would still report green.
@@ -398,8 +384,8 @@ meta_reject reachable "$SEALED_PRELUDE" Compilable.compile Compilable.compile 'I
 # merely be absent, so each gets its own control with its own expected reason.
 typefail() {  # <label> <what> <definition text>
   { printf 'From Stdlib Require Import String List.\n';
-    printf 'From Fido Require Import FilePath Collections ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Safe Render Emit.\n';
-    printf 'Module IX := Index. Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis. Module RP := Compilable.Report. Module CP := Compilable. Module PR := Compilable.Prog.\n';
+    printf 'From Fido Require Import FilePath Collections ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.\n';
+    printf 'Module IX := Index. Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis. Module RP := Compilable.Report. Module CP := Compilable.\n';
     printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/typefail.v
   if rocq c -Q _build/default/. Fido /tmp/typefail.v > /tmp/typefail.log 2>&1; then
     cat /tmp/typefail.log; fail "typing control $1: $2 WAS constructible — its type does not force the constraint"
@@ -410,15 +396,16 @@ typefail() {  # <label> <what> <definition text>
 # R5/R1/R2/R3 intrinsic-unforgeability negative CLIENTS.  Each is positive-load-guarded by the shared prelude
 # (the positive control below fails loudly if that prelude does not load) and must fail for the intended TYPING
 # reason, never because a prerequisite is absent.
-# — capability/decision provenance: a Prog comes ONLY from compiled_prog on a real compiled payload —
-typefail neg_prog_from_rejected "a capability projected from a rejected payload" \
-  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) (rp : CP.RejectedPayload (CP.compile p) c) : PR.Program c := PR.compiled_prog rp.'
-typefail neg_compiled_without_admissible "a Compiled decision without an admissibility proof" \
-  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) : CP.Decision p := CP.DCompiled c tt.'
-typefail neg_moved_payload "a compiled payload moved to a foreign decision" \
-  'Definition forged (p : Syntax.Program) (d e : CP.Decision p) (c : CP.Compilation p) (cp : CP.CompiledPayload d c) : CP.CompiledPayload e c := cp.'
-typefail neg_moved_result "a decision moved to a foreign program" \
-  'Definition forged (p q : Syntax.Program) (d : CP.Decision p) : CP.Decision q := d.'
+# — branch objects come ONLY from `compile`; Program/Rejection/Outside/Compilation are abstract, program-indexed,
+#   and not interconvertible, so no coercion mints a Program —
+typefail neg_compilation_as_program "a Compilation coerced directly to a Program" \
+  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) : CP.Program p := c.'
+typefail neg_rejection_as_program "a Rejection used where a Program is required" \
+  'Definition forged (p : Syntax.Program) (r : CP.Rejection p) : CP.Program p := r.'
+typefail neg_outside_as_program "an Outside branch used where a Program is required" \
+  'Definition forged (p : Syntax.Program) (o : CP.Outside p) : CP.Program p := o.'
+typefail neg_moved_program "a Program moved to a foreign source program" \
+  'Definition forged (p q : Syntax.Program) (cp : CP.Program p) : CP.Program q := cp.'
 typefail neg_foreign_lower_phase "a binding phase from a foreign surface" \
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (bp : BN.BindingPhase sp) : BN.BindingPhase sq := bp.'
 # — index / occurrence / selector (R1) —
@@ -450,43 +437,56 @@ typefail neg_free_report_record "a Diagnostic without its producing proof" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase s) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (site : AN.DiagSite s) : AN.Diagnostic fp pf := AN.diag_at fp pf site eq_refl.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
   'Definition forged (p : Syntax.Program) : AN.Requirement (IX.index_program p) := AN.ReqComplexType.'
-# — image (R5): of_safe is the sole route and carries only the certified program (no byte/file slots) —
-typefail neg_raw_image_bytes "an image carrying a raw byte string" \
-  'Definition forged (sp : Safe.Program) : Emit.Image := Emit.of_safe sp "raw"%string.'
-typefail neg_foreign_image_bytes "an image carrying a foreign file map" \
-  'Definition forged (sp : Safe.Program) : Emit.Image := Emit.of_safe sp (Collections.FileMap.empty string).'
+# — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
+#   carries no byte/file slot and cannot pair evidence with a foreign compiled root —
+typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
+  'Definition forged (p : Syntax.Program) (cp : CP.Program p) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_evidence "raw"%string.'
+typefail neg_image_foreign_root "an image pairing evidence with a foreign compiled root" \
+  'Definition forged (p q : Syntax.Program) (cp : CP.Program p) (cq : CP.Program q) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_compiled cq.'
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
 From Stdlib Require Import String List.
-From Fido Require Import Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Safe Render Emit.
+From Fido Require Import Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
 Import ListNotations.
 Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis.
-(* compile is the sole Decision source; inspect the sole eliminator, revealing each branch's exact (c, payload) *)
-Definition decision_case (p : Syntax.Program) : nat :=
-  match Compilable.inspect (Compilable.compile p) with
-  | Compilable.IsCompiled _ _ => 0 | Compilable.IsRejected _ _ => 1 | Compilable.IsOutside _ _ => 2 end.
-(* a supplied Compiled yields THAT exact compilation without re-invoking compile *)
-Definition from_compiled (p : Syntax.Program) (d : Compilable.Decision p) : option Syntax.Program :=
-  match Compilable.inspect d with Compilable.IsCompiled c _ => Some (Compilable.comp_source c) | _ => None end.
-(* compiled_prog is the sole Prog projection, from the exact supplied compiled payload *)
-Definition cap_of (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
-  (cp : Compilable.CompiledPayload d c) : Compilable.Prog.Program c := Compilable.Prog.compiled_prog cp.
-(* the revealed rejected/outside reports are the exact retained lists of that compilation *)
-Definition rej_diags (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
-  (rp : Compilable.RejectedPayload d c) : list (Compilable.Diagnostic c) := Compilable.rejected_diagnostics rp.
-Definition out_bounds (p : Syntax.Program) (d : Compilable.Decision p) (c : Compilable.Compilation p)
-  (op : Compilable.OutsidePayload d c) : list (Compilable.Boundary c) := Compilable.outside_boundaries op.
-(* Admissible is a characterization of the exact report lists, not a capability constructor *)
+(* the disposition is a PUBLIC transparent tag; compile is the sole source of every branch object *)
+Definition branch_tag (p : Syntax.Program) : Compilable.Disposition := Compilable.disposition p.
+(* generic branch handling for an unknown program: observe compile's result at the abstract branch types, opening
+   no record maker *)
+Definition observe (p : Syntax.Program) : nat :=
+  (match Compilable.disposition p as k return Compilable.OutcomeAt p k -> nat with
+   | Compilable.Compiled => fun _ => 0
+   | Compilable.Rejected => fun _ => 1
+   | Compilable.OutsideScope => fun _ => 2
+   end) (Compilable.compile p).
+(* for a concrete program whose disposition reduces to Compiled, compile p is directly usable as Program p *)
+Definition compiled_of (p : Syntax.Program) (H : Compilable.disposition p = Compilable.Compiled) : Compilable.Program p :=
+  Compilable.compiled_program p H.
+(* every branch object projects to the exact retained Compilation; its reports characterise admissibility *)
+Definition comp_of (p : Syntax.Program) (cp : Compilable.Program p) : Compilable.Compilation p :=
+  Compilable.program_compilation cp.
+Definition prog_adm (p : Syntax.Program) (cp : Compilable.Program p)
+  : Compilable.Admissible (Compilable.program_compilation cp) := Compilable.program_admissible cp.
+Definition rej_has_diag (p : Syntax.Program) (r : Compilable.Rejection p)
+  : Compilable.diagnostics (Compilable.rejection_compilation r) <> nil := Compilable.rejection_has_diagnostics r.
+Definition out_rep (p : Syntax.Program) (o : Compilable.Outside p)
+  : Compilable.diagnostics (Compilable.outside_compilation o) = nil /\ Compilable.boundaries (Compilable.outside_compilation o) <> nil
+  := Compilable.outside_reports o.
 Definition adm_iff (p : Syntax.Program) (c : Compilable.Compilation p)
   : Compilable.Admissible c <-> Compilable.diagnostics c = nil /\ Compilable.boundaries c = nil
   := Compilable.admissible_iff_reports c.
-(* certify the exact compiled program (source, decision, revealed compilation, payload, property), then emit *)
-Definition certify_it (src : Syntax.Program) (d : Compilable.Decision src) (c : Compilable.Compilation src)
-  (cp : Compilable.CompiledPayload d c) (H : Safe.Property (Compilable.Prog.compiled_prog cp)) : Safe.Program
-  := Safe.certify src d c cp H.
-Definition emit_it (sp : Safe.Program) : Emit.Image := Emit.of_safe sp.
-Definition emitted_bytes (sp : Safe.Program) : string * list (string * string) := Emit.transport (Emit.of_safe sp).
+(* base compiled emission and evidence-carrying emission are the ONLY image routes; transport ignores evidence *)
+Definition base_image (p : Syntax.Program) (cp : Compilable.Program p) : Emit.Image cp Emit.CompiledOnly tt :=
+  Emit.of_compiled cp.
+Definition ExampleEv (p : Syntax.Program) : Compilable.Program p -> Type := fun _ => unit.
+Definition ev_image (p : Syntax.Program) (cp : Compilable.Program p) : Emit.Image cp (ExampleEv p) tt :=
+  Emit.of_evidence.
+Definition emitted (p : Syntax.Program) (cp : Compilable.Program p) : string * list (string * string) :=
+  Emit.transport (Emit.of_compiled cp).
+Definition bytes_evidence_independent (p : Syntax.Program) (cp : Compilable.Program p)
+  : Emit.transport (ev_image p cp) = Emit.transport (base_image p cp)
+  := Emit.transport_evidence_independent p cp (ExampleEv p) tt Emit.CompiledOnly tt (ev_image p cp) (base_image p cp).
 (* the public main multiplicity and canonical group issue over package-indexed MainDeclRef payloads *)
 Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (m : BN.MainDeclRef s pr) : BN.MainStatus s pr := BN.MainOne m.
@@ -498,8 +498,8 @@ CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole Decision source and inspect its sole eliminator, revealing each branch's exact (c, payload); compiled_prog is the sole Prog projection; rejected/outside report accessors + admissible_iff_reports; Safe.certify over (src, decision, revealed compilation, compiled payload, property) + of_safe + transport; MainOne/MainMultiple/PkgMainRedeclared over MainDeclRef payloads — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; two-stage deleted-family absence probes F-X/Y-AD/AL-AQ (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (capability/index/occurrence/selector/package/main/report/image) + positive control"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple/PkgMainRedeclared over MainDeclRef payloads — all reachable (as required)"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image) + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
@@ -644,37 +644,39 @@ echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixtur
 # variable, and a TRANSITIVE section variable — each errors `rocq c` (no `Fail`) and we assert the reason + no target.
 mkdir -p /tmp/forge
 cat > /tmp/forge/preamble <<'EOF'
-From Stdlib Require Import List String.
-From Fido Require Import FilePath Collections ModulePath Version Syntax Compilable Safe Render Emit.
-Import ListNotations.
+From Fido Require Import Syntax Compilable Emit.
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Direct.v <<'EOF'
-Axiom sp : Safe.Program.
-Definition img : Emit.Image := Emit.of_safe sp.
+Axiom p : Syntax.Program.
+Axiom cp : Compilable.Program p.
+Definition img := Emit.of_compiled cp.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Opaque.v <<'EOF'
-Axiom a : Safe.Program.
-Lemma sp : Safe.Program. Proof. exact a. Qed.
-Definition img : Emit.Image := Emit.of_safe sp.
+Axiom p : Syntax.Program.
+Axiom a : Compilable.Program p.
+Lemma cp : Compilable.Program p. Proof. exact a. Qed.
+Definition img := Emit.of_compiled cp.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge-op".
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/Var.v <<'EOF'
 Declare ML Module "fido.emit".
 Section S.
-Variable sp : Safe.Program.
-Definition img : Emit.Image := Emit.of_safe sp.
+Variable p : Syntax.Program.
+Variable cp : Compilable.Program p.
+Definition img := Emit.of_compiled cp.
 Fido Materialize img To "/workspace/e2e-forge-var".
 End S.
 EOF
 cat /tmp/forge/preamble - > /tmp/forge/VarIndirect.v <<'EOF'
 Declare ML Module "fido.emit".
 Section S.
-Variable v : Safe.Program.
-Definition sp : Safe.Program := v.
-Definition img : Emit.Image := Emit.of_safe sp.
+Variable p : Syntax.Program.
+Variable v : Compilable.Program p.
+Definition cp : Compilable.Program p := v.
+Definition img := Emit.of_compiled cp.
 Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
 EOF

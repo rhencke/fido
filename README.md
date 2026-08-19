@@ -17,8 +17,8 @@ complete, with exact untyped constants, single-rounding conversions and canonica
 `rune` are distinct source syntax resolving to equal semantic types. The empty module is a valid program.
 
 The general source algebra represents invalid Go too, so `Compilable.compile` — the sole static verdict —
-**rejects** a definite Go error and returns **OutsideScope** only when an exact rule has not yet landed; `Safe`
-is proof-taking post-compile safety, never a compiler.
+**rejects** a definite Go error and returns **OutsideScope** only when an exact rule has not yet landed. Real
+safety evidence is a future opt-in C15 layer, not a post-compile gateway.
 
 The tracked `main.go` is the canonical witness. It is generated, not written: `make check` and the pre-commit
 hook verify it byte-exact against a pristine build, and its reviewed stdout, stderr and exit status are
@@ -26,12 +26,12 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
 
 ## What it proves
 
-- `Compilable.compile` is the sole source of a three-way `Decision`, eliminated only by `inspect`, each branch
-  characterized **exactly** over the exact retained compilation it reveals: a Compiled payload's compilation is
-  admissible (`compiled_admissible`, with `admissible_iff_reports` making admissibility exactly both report lists
-  empty), Rejected carries a non-empty diagnostic list (`rejected_has_diagnostics`), OutsideScope empty diagnostics
-  with a boundary (`outside_reports`); `inspect_compile` decides the branch by those report lists and the payload
-  disjointness lemmas make the three disjoint. Status: `IMPLEMENTED_NOT_ACCEPTED` until the candidate passes review.
+- `Compilable.compile` is the sole source of the three abstract branch objects `Program`/`Rejection`/`Outside`,
+  selected by the transparent `disposition` tag over the one canonical `Analysis` computation, each characterized
+  **exactly** over the exact retained compilation it projects: a `Program`'s compilation is admissible
+  (`program_admissible`, with `admissible_iff_reports` making admissibility exactly both report lists empty), a
+  `Rejection` carries a non-empty diagnostic list (`rejection_has_diagnostics`), an `Outside` empty diagnostics with a
+  boundary (`outside_reports`). Status: `IMPLEMENTED_NOT_ACCEPTED` until the candidate passes review.
 - `Admissible` is exact whole-**program** admissibility, aiming at the pinned `go build ./...` acceptance for
   every representable program. A program `go build` accepts but Fido rejects is a **model bug**, not a
   documented limitation.
@@ -39,9 +39,10 @@ hook verify it byte-exact against a pristine build, and its reviewed stdout, std
   exact source value it encodes. `Render` is a sibling branch over the same `Syntax.Program`, importing no
   typing or compiler authority; any correspondence between a spelling and the constant status typing computes
   is a downstream adequacy obligation, not a current theorem.
-- Every emitted image is `Emit.of_safe` of one certified program — the sole image constructor, with no raw
-  byte, file, token or origin slot — so its bytes are a projection of that program's retained source, and the
-  transport rejects, before any filesystem effect, an image whose assumption closure is non-empty.
+- C4 emission requires an exact compiled `Program`: `Emit.of_compiled` is the base image and `Emit.of_evidence`
+  carries one exact opt-in evidence object, both over that root — with no raw byte, file, token or origin slot — so an
+  image's bytes are a projection of the program's retained source, and the transport rejects, before any filesystem
+  effect, an image whose assumption closure is non-empty.
 - **Zero project axioms**, asserted every build by three checks that no one of them could make alone:
   certified-module coverage proves every tracked module is loaded, a whole-theory assumption-closure audit
   descends opaque proof bodies over that environment, and adversarial controls prove the audit is not

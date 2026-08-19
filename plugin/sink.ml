@@ -35,7 +35,7 @@
    root chain and reject a reserved-namespace desired path BEFORE any effect; ensure/roll-back .fido; lock;
    inspect; delete abandoned temps; preflight; stage complete; install by rename; remove stale; release.
 
-   HONEST GUARANTEE (Linux/amd64 scope).  Syntax.Program acceptance, Safe.Program certification, and Emit.Image
+   HONEST GUARANTEE (Linux/amd64 scope).  Syntax.Program acceptance, Compilable compilation, and Emit.Image
    creation are semantically all-or-nothing.  Dirty-directory installation is locked for cooperating
    emitters, rejects foreign Go/module inputs and nested `.fido` in the Go-discovered namespace (skipping the
    opaque dot/underscore/testdata/vendor trees `go build ./...` ignores), inspects that namespace fail-closed,
