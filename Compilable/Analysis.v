@@ -148,10 +148,6 @@ Definition app_arg_nodes (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
 Definition is_head_role (r : Index.Role) : bool := match r with Index.RApplicationHead => true | _ => false end.
 Definition app_head_node (r : Index.NodeRef idx) : Index.NodeRef idx :=
   match filter (fun c => is_head_role (Index.node_role c)) (Index.node_children r) with h :: _ => h | [] => r end.
-Definition arg0 (r : Index.NodeRef idx) : Index.NodeRef idx :=
-  match app_arg_nodes r with a :: _ => a | [] => r end.
-Definition arg1 (r : Index.NodeRef idx) : Index.NodeRef idx :=
-  match app_arg_nodes r with _ :: b :: _ => b | _ => r end.
 
 (* the constant of an occurrence, computed once per file, children before parents, over the shallow index *)
 Definition operand_child (r : Index.NodeRef idx) : Index.NodeRef idx :=
@@ -314,7 +310,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst else VInvalid (DefaultOverflow (TR.ci_const ci))
                        end
-          | None => VInvalid (UnaryMismatch (arg0 r))
+          | None => VInvalid (UnaryMismatch r)
           end
       | None => VNonconst
       end
@@ -328,8 +324,8 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
                   match const_at x with
                   | Some ci => match TR.convert_constant t ci with
                                | TR.Converted tc => VOK (TR.mk_rc t tc)
-                               | TR.Overflows _ => VInvalid (ConversionOverflow t (arg0 r))
-                               | TR.NotForm _ => VInvalid (ConversionNotRepresentable t (arg0 r))
+                               | TR.Overflows _ => VInvalid (ConversionOverflow t x)
+                               | TR.NotForm _ => VInvalid (ConversionNotRepresentable t x)
                                end
                   | None => VNonconst
                   end
@@ -341,7 +337,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
                                 | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
                                 | None => VNonconst end
                       | CxDefer => VUnmet (ReqComplexType r)
-                      | CxError => VInvalid (ComplexMismatch (arg0 r) (arg1 r))
+                      | CxError => VInvalid (ComplexMismatch re im)
                       end
                   | _, _ => VNonconst
                   end
@@ -560,7 +556,7 @@ Lemma nested_complex_zero_imag (r : Index.NodeRef idx) (h : Names.OrdinaryIdenti
   BN.resolve bp r h = BN.RBound (BN.PredeclaredObject Names.PComplex) ->
   const_at bp re = Some cre -> const_at bp im = Some cim ->
   complex_class cre cim = CxError ->
-  own_value bp r = VInvalid (ComplexMismatch (arg0 r) (arg1 r)).
+  own_value bp r = VInvalid (ComplexMismatch re im).
 Proof.
   intros Hv Hhead Harg Hres Hre Him Hcx; unfold own_value; rewrite Hv; cbv beta iota;
     rewrite Hhead; cbv beta iota; rewrite Hres; cbv beta iota;
