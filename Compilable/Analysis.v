@@ -517,7 +517,7 @@ End Laws.
 
 Inductive FreshBuildDisposition {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | FreshOk : FreshBuildDisposition s
-| FreshCollision : BN.PI.PackageRef s -> string -> FreshBuildDisposition s.
+| FreshCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> FreshBuildDisposition s.
 Arguments FreshOk {p idx s}.
 Arguments FreshCollision {p idx s} _ _.
 
@@ -527,8 +527,10 @@ Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
   let _ := bp in
   match BN.PI.package_selection s with
   | BN.PI.OneSelected pr =>
-      match find (String.eqb (BN.PI.default_exec_name pr)) (BN.PI.root_entry_names s) with
-      | Some root => FreshCollision pr root
+      match find (fun rr => andb (String.eqb (BN.PI.default_exec_name pr) (BN.PI.re_name rr))
+                                 (match BN.PI.re_kind rr with BN.PI.RootDir => true | BN.PI.RootFile => false end))
+                 (BN.PI.root_entries idx) with
+      | Some rr => FreshCollision pr rr
       | None => FreshOk
       end
   | _ => FreshOk

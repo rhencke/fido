@@ -245,11 +245,96 @@ Definition default_exec_name_c (comps : list string) : string :=
 Definition default_exec_name {p} {idx : Index.ProgramIndex p} {s : PackageSurface idx}
   (pr : PackageRef s) : string := default_exec_name_c (import_path pr).
 
-(* the module-root entries that a fresh executable could collide with: the top-level directory of each package *)
-Definition first_dir_component {p} {idx : Index.ProgramIndex p} {s : PackageSurface idx}
-  (pr : PackageRef s) : option string :=
-  match pkg_components pr with c :: _ => Some c | [] => None end.
-Definition root_entry_names {p} {idx : Index.ProgramIndex p} (s : PackageSurface idx) : list string :=
-  fold_right (fun pr acc => match first_dir_component pr with Some c => c :: acc | None => acc end) [] (packages s).
+(* the required executable-name helper cases: a terminal canonical vN (N>=2) strips, nothing else does *)
+Example exec_m       : default_exec_name_c ["example.com"; "m"] = "m".               Proof. reflexivity. Qed.
+Example exec_m_v2    : default_exec_name_c ["example.com"; "m"; "v2"] = "m".          Proof. reflexivity. Qed.
+Example exec_m_a_v2  : default_exec_name_c ["example.com"; "m"; "a"; "v2"] = "a".     Proof. reflexivity. Qed.
+Example exec_v2_root : default_exec_name_c ["example.com"; "v2"] = "example.com".     Proof. reflexivity. Qed.
+Example exec_keep_v1     : default_exec_name_c ["m"; "v1"] = "v1".        Proof. reflexivity. Qed.
+Example exec_keep_v01    : default_exec_name_c ["m"; "v01"] = "v01".      Proof. reflexivity. Qed.
+Example exec_keep_verify : default_exec_name_c ["m"; "verify"] = "verify". Proof. reflexivity. Qed.
+Example exec_keep_v2x    : default_exec_name_c ["m"; "v2x"] = "v2x".      Proof. reflexivity. Qed.
+Example exec_nonterminal_v2 : default_exec_name_c ["m"; "v2"; "a"] = "a". Proof. reflexivity. Qed.
+
+(* a module-root namespace entry is a subdirectory (its top component) or a root-level file (its stem) *)
+Inductive RootEntryKind := RootDir | RootFile.
+Definition rek_eq_dec (a b : RootEntryKind) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+
+(* the root entry a source file contributes to: its top directory component, or its own stem at the root *)
+Definition root_key {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx) : string * RootEntryKind :=
+  match FilePath.pkg_components (FilePath.file_dir (Index.fr_path fr)) with
+  | c :: _ => (c, RootDir)
+  | [] => (FilePath.strip_go (FilePath.text (Index.fr_path fr)), RootFile)
+  end.
+
+Definition rootkey_eq_dec (a b : string * RootEntryKind) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [a1 a2], b as [b1 b2].
+  destruct (string_dec a1 b1) as [E1|N1]; [| right; congruence].
+  destruct (rek_eq_dec a2 b2) as [E2|N2]; [ left; congruence | right; congruence ].
+Defined.
+Definition rootkey_eqb (a b : string * RootEntryKind) : bool := if rootkey_eq_dec a b then true else false.
+
+Definition root_keys {p} (idx : Index.ProgramIndex p) : list (string * RootEntryKind) :=
+  nodup rootkey_eq_dec (map (@root_key p idx) (Index.all_files idx)).
+
+(* the retained root entry: a position selector into the distinct root keys, carrying name, kind, contributors *)
+Record RootEntryRef {p} (idx : Index.ProgramIndex p) : Type := root_at {
+  rr_pos : nat ;
+  rr_lt  : rr_pos < length (root_keys idx)
+}.
+Arguments root_at {p idx} _ _.
+Arguments rr_pos {p idx} _.
+Arguments rr_lt {p idx} _.
+
+Definition re_key {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : string * RootEntryKind :=
+  Index.nth_lt (root_keys idx) (rr_pos rr) (rr_lt rr).
+Definition re_name {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : string := fst (re_key rr).
+Definition re_kind {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : RootEntryKind := snd (re_key rr).
+Definition re_files {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : list (Index.FileRef idx) :=
+  filter (fun fr => rootkey_eqb (root_key fr) (re_key rr)) (Index.all_files idx).
+
+Definition mk_rootref {p} {idx : Index.ProgramIndex p} (n : nat) : option (RootEntryRef idx) :=
+  match lt_dec n (length (root_keys idx)) with left H => Some (root_at n H) | right _ => None end.
+Definition root_entries {p} (idx : Index.ProgramIndex p) : list (RootEntryRef idx) :=
+  flat_map (fun n => match mk_rootref n with Some rr => [rr] | None => [] end) (seq 0 (length (root_keys idx))).
+
+Lemma rr_positional {p} {idx : Index.ProgramIndex p} (a b : RootEntryRef idx) :
+  rr_pos a = rr_pos b -> a = b.
+Proof. destruct a as [pa Ha], b as [pb Hb]; cbn; intro E; subst pb; f_equal; apply Index.lt_unique. Qed.
+
+Lemma re_key_in {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : In (re_key rr) (root_keys idx).
+Proof. unfold re_key. apply nth_lt_In. Qed.
+
+(* each retained root entry keeps a nonempty exact set of the source files that contribute to it *)
+Lemma re_files_nonempty {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : re_files rr <> [].
+Proof.
+  pose proof (re_key_in rr) as Hin. unfold root_keys in Hin. rewrite nodup_In in Hin.
+  apply in_map_iff in Hin. destruct Hin as [fr [Hk Hfr]].
+  intro Hnil. assert (Hmem : In fr (re_files rr)).
+  { unfold re_files. apply filter_In. split; [ exact Hfr | ].
+    unfold rootkey_eqb. rewrite Hk. destruct (rootkey_eq_dec (re_key rr) (re_key rr)); [ reflexivity | congruence ]. }
+  rewrite Hnil in Hmem. exact Hmem.
+Qed.
+
+(* the contributing files are exactly the source files whose root key is this entry's key *)
+Lemma re_files_exact {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) (fr : Index.FileRef idx) :
+  In fr (re_files rr) <-> In fr (Index.all_files idx) /\ root_key fr = re_key rr.
+Proof.
+  unfold re_files. rewrite filter_In. unfold rootkey_eqb.
+  split; intros [H1 H2]; (split; [ exact H1 | ]).
+  - destruct (rootkey_eq_dec (root_key fr) (re_key rr)); [ assumption | discriminate ].
+  - rewrite H2. destruct (rootkey_eq_dec (re_key rr) (re_key rr)); [ reflexivity | congruence ].
+Qed.
+
+Lemma root_entries_complete {p} {idx : Index.ProgramIndex p} (rr : RootEntryRef idx) : In rr (root_entries idx).
+Proof.
+  unfold root_entries. apply in_flat_map. exists (rr_pos rr). split.
+  - apply in_seq. pose proof (rr_lt rr); lia.
+  - unfold mk_rootref. destruct (lt_dec (rr_pos rr) (length (root_keys idx))) as [H|H].
+    + replace (root_at (rr_pos rr) H) with rr by (apply rr_positional; reflexivity). left; reflexivity.
+    + exfalso; apply H; exact (rr_lt rr).
+Qed.
 
 Local Close Scope string_scope.
