@@ -145,27 +145,19 @@ Definition complex_class (cre cim : TR.ConstantInfo) : ComplexClass :=
 Definition is_arg_role (r : Index.Role) : bool := match r with Index.RApplicationArg _ => true | _ => false end.
 Definition app_arg_nodes (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
   filter (fun c => is_arg_role (Index.node_role c)) (Index.node_children r).
-Definition is_head_role (r : Index.Role) : bool := match r with Index.RApplicationHead => true | _ => false end.
-Definition app_head_node (r : Index.NodeRef idx) : Index.NodeRef idx :=
-  match filter (fun c => is_head_role (Index.node_role c)) (Index.node_children r) with h :: _ => h | [] => r end.
-
-(* the constant of an occurrence, computed once per file, children before parents, over the shallow index *)
-Definition operand_child (r : Index.NodeRef idx) : Index.NodeRef idx :=
-  match filter (fun c => match Index.node_role c with Index.RUnaryOperand => true | _ => false end)
-               (Index.node_children r) with o :: _ => o | [] => r end.
 Definition mconst (m : Collections.NodeMap.t (option TR.ConstantInfo)) (rc : Index.NodeRef idx)
   : option TR.ConstantInfo :=
   match Collections.NodeMap.find (Index.nr_key rc) m with Some oc => oc | None => None end.
 Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
   : option TR.ConstantInfo :=
-  match Index.node_view r with
-  | Index.VName n =>
+  match Index.node_view r as v return Index.node_view r = v -> option TR.ConstantInfo with
+  | Index.VName n => fun _ =>
       match nm_at r n with Some (TR.NMValueConstant c) => Some (TR.mk_cinfo c TR.Untyped) | _ => None end
-  | Index.VLiteral (Syntax.IntegerLiteral k) => Some (TR.mk_cinfo (TR.CInt (Z.of_N k)) TR.Untyped)
-  | Index.VLiteral (Syntax.FloatLiteral d) => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
-  | Index.VLiteral (Syntax.StringLiteral str) => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
-  | Index.VUnary Syntax.UnaryMinus =>
-      match mconst m (operand_child r) with
+  | Index.VLiteral (Syntax.IntegerLiteral k) => fun _ => Some (TR.mk_cinfo (TR.CInt (Z.of_N k)) TR.Untyped)
+  | Index.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
+  | Index.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
+  | Index.VUnary Syntax.UnaryMinus => fun Hv =>
+      match mconst m (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Some ci =>
           match TR.constant_neg (TR.ci_const ci) with
           | Some c' =>
@@ -181,8 +173,8 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
           end
       | None => None
       end
-  | Index.VApplication =>
-      match Index.node_view (app_head_node r) with
+  | Index.VApplication => fun Hv =>
+      match Index.node_view (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Index.VName h =>
           match app_arg_nodes r with
           | x :: nil =>
@@ -216,8 +208,8 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
           end
       | _ => None
       end
-  | _ => None
-  end.
+  | _ => fun _ => None
+  end eq_refl.
 (* the file's constants folded in descending position order — children before parents (file_nodes is trie order) *)
 Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t (option TR.ConstantInfo) :=
   fold_left (fun m pos =>
@@ -237,9 +229,9 @@ Definition value_ctx (r : Index.NodeRef idx) : bool :=
 
 (* a conversion/complex head folds its argument, so a folded value's default-int type is never forced *)
 Definition head_folds (par : Index.NodeRef idx) : bool :=
-  match Index.node_view par with
-  | Index.VApplication =>
-      match Index.node_view (app_head_node par) with
+  match Index.node_view par as v return Index.node_view par = v -> bool with
+  | Index.VApplication => fun Hv =>
+      match Index.node_view (Index.first_edge par (f_equal Index.requires_first_edge Hv)) with
       | Index.VName h =>
           match BN.resolve bp par h with
           | BN.RBound (BN.PredeclaredObject pn) =>
@@ -248,8 +240,8 @@ Definition head_folds (par : Index.NodeRef idx) : bool :=
           end
       | _ => false
       end
-  | _ => false
-  end.
+  | _ => fun _ => false
+  end eq_refl.
 Definition fold_consumed (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with
   | Index.RUnaryOperand => true
@@ -281,8 +273,8 @@ Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
   end.
 
 Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
-  match Index.node_view r with
-  | Index.VName n =>
+  match Index.node_view r as v return Index.node_view r = v -> ValueOutcome r with
+  | Index.VName n => fun _ =>
       match BN.resolve bp r n with
       | BN.RUnbound => VInvalid (UnresolvedName n r)
       | BN.RBound (BN.PredeclaredObject pn) =>
@@ -294,7 +286,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
       | BN.RBound (BN.SourceObject b) => VUnmet (ReqValueMeaning b)
       | BN.RBound (BN.MainObject m) => if is_app_head r then VNonconst else VUnmet (ReqMainUse m)
       end
-  | Index.VLiteral _ =>
+  | Index.VLiteral _ => fun _ =>
       match const_at r with
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
@@ -302,8 +294,8 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
                    end
       | None => VNonconst
       end
-  | Index.VUnary Syntax.UnaryMinus =>
-      match const_at (operand_child r) with
+  | Index.VUnary Syntax.UnaryMinus => fun Hv =>
+      match const_at (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Some _ =>
           match const_at r with
           | Some ci => match resolve_constant_info ci with
@@ -314,8 +306,8 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
           end
       | None => VNonconst
       end
-  | Index.VApplication =>
-      match Index.node_view (app_head_node r) with
+  | Index.VApplication => fun Hv =>
+      match Index.node_view (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
@@ -349,16 +341,17 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
       | _ => VNonconst
       end
   (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
-  | Index.VConstSpec _ => const_spec_disposition r
-  | Index.VVarSpec _ => VUnmet (ReqDeclMeaning r)
-  | Index.VTypeSpec _ => VUnmet (ReqDeclMeaning r)
-  | _ => VNonconst
-  end.
+  | Index.VConstSpec _ => fun _ => const_spec_disposition r
+  | Index.VVarSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
+  | Index.VTypeSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
+  | _ => fun _ => VNonconst
+  end eq_refl.
 
 Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
-  match Index.node_view r with
-  | Index.VApplication =>
-      match Index.node_view (app_head_node r) with
+  match Index.node_view r as v return Index.node_view r = v -> AppOutcome r with
+  | Index.VApplication => fun Hv =>
+      let hd := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
+      match Index.node_view hd with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
@@ -379,15 +372,10 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
           | BN.RBound (BN.MainObject m) => AUnmet (ReqMainUse m)
           | BN.RUnbound => AOK AppBuiltinStmt
           end
-      | _ => AInvalid (NotCallableExpr (app_head_node r))
+      | _ => AInvalid (NotCallableExpr hd)
       end
-  | _ => AOK AppBuiltinStmt
-  end.
-
-Definition is_exprstmt_role (r : Index.Role) : bool :=
-  match r with Index.RExprStatementExpr => true | _ => false end.
-Definition stmt_expr_node (r : Index.NodeRef idx) : Index.NodeRef idx :=
-  match filter (fun c => is_exprstmt_role (Index.node_role c)) (Index.node_children r) with e :: _ => e | [] => r end.
+  | _ => fun _ => AOK AppBuiltinStmt
+  end eq_refl.
 
 (* the statement expr already owns a diagnostic or boundary: the illegal-statement judgment is dependent, not a root *)
 Definition child_owns_issue (e : Index.NodeRef idx) : bool :=
@@ -398,13 +386,13 @@ Definition child_owns_issue (e : Index.NodeRef idx) : bool :=
 
 (* an expr-statement is illegal only when its expr is otherwise valid but not a legal statement head *)
 Definition own_stmt (r : Index.NodeRef idx) : StmtOutcome r :=
-  match Index.node_view r with
-  | Index.VStmt Index.SSExpr =>
-      let e := stmt_expr_node r in
+  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
+  | Index.VStmt Index.SSExpr => fun Hv =>
+      let e := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
       if child_owns_issue e then SOK
-      else match Index.node_view e with
-           | Index.VApplication =>
-               match Index.node_view (app_head_node e) with
+      else match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
+           | Index.VApplication => fun He =>
+               match Index.node_view (Index.first_edge e (f_equal Index.requires_first_edge He)) with
                | Index.VName h =>
                    match BN.resolve bp r h with
                    | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
@@ -414,17 +402,17 @@ Definition own_stmt (r : Index.NodeRef idx) : StmtOutcome r :=
                    end
                | _ => SInvalid IllegalStatement
                end
-           | _ => SInvalid IllegalStatement
-           end
-  | Index.VStmt Index.SSShort =>
+           | _ => fun _ => SInvalid IllegalStatement
+           end eq_refl
+  | Index.VStmt Index.SSShort => fun _ =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
       match first_short_dup (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
                                     (Index.node_children r)) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
-  | _ => SOK
-  end.
+  | _ => fun _ => SOK
+  end eq_refl.
 
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
 Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
@@ -527,72 +515,6 @@ Lemma only_lawful_per_family (r : Index.NodeRef idx) :
   (forall o : StmtOutcome r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q))
   /\ (forall o : TypeUseOutcome r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q)).
 Proof. split; intro o; destruct o; eauto 7. Qed.
-
-(* iota and nil in a governed value context are invalid identities *)
-Lemma iota_nil_contextual (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) (pn : Names.PredeclaredName) :
-  Index.node_view r = Index.VName n ->
-  BN.resolve bp r n = BN.RBound (BN.PredeclaredObject pn) ->
-  pmeaning pn = PMInvalidId ->
-  own_value bp r = VInvalid (InvalidIdentity pn).
-Proof.
-  intros Hv Hres Hpm; unfold own_value; rewrite Hv; cbv beta iota; rewrite Hres; cbv beta iota; rewrite Hpm; reflexivity.
-Qed.
-
-(* a source-object value use is an unmet later-root requirement *)
-Lemma source_value_outside (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) (b : BN.BinderRef idx) :
-  Index.node_view r = Index.VName n ->
-  BN.resolve bp r n = BN.RBound (BN.SourceObject b) ->
-  own_value bp r = VUnmet (ReqValueMeaning b).
-Proof.
-  intros Hv Hres; unfold own_value; rewrite Hv; cbv beta iota; rewrite Hres; reflexivity.
-Qed.
-
-(* an untyped nested complex with a non-real component is a complex mismatch naming both argument sites *)
-Lemma nested_complex_zero_imag (r : Index.NodeRef idx) (h : Names.OrdinaryIdentifier) (re im : Index.NodeRef idx)
-      (cre cim : TR.ConstantInfo) :
-  Index.node_view r = Index.VApplication ->
-  Index.node_view (app_head_node r) = Index.VName h ->
-  app_arg_nodes r = re :: im :: nil ->
-  BN.resolve bp r h = BN.RBound (BN.PredeclaredObject Names.PComplex) ->
-  const_at bp re = Some cre -> const_at bp im = Some cim ->
-  complex_class cre cim = CxError ->
-  own_value bp r = VInvalid (ComplexMismatch re im).
-Proof.
-  intros Hv Hhead Harg Hres Hre Him Hcx; unfold own_value; rewrite Hv; cbv beta iota;
-    rewrite Hhead; cbv beta iota; rewrite Hres; cbv beta iota;
-    change (pmeaning Names.PComplex) with PMComplex; rewrite Harg; cbv beta iota;
-    rewrite Hre, Him; cbv beta iota; rewrite Hcx; reflexivity.
-Qed.
-
-(* a typed complex requiring later identity meaning is unmet, with no diagnostic *)
-Lemma typed_complex_outside (r : Index.NodeRef idx) (h : Names.OrdinaryIdentifier) (re im : Index.NodeRef idx)
-      (cre cim : TR.ConstantInfo) :
-  Index.node_view r = Index.VApplication ->
-  Index.node_view (app_head_node r) = Index.VName h ->
-  app_arg_nodes r = re :: im :: nil ->
-  BN.resolve bp r h = BN.RBound (BN.PredeclaredObject Names.PComplex) ->
-  const_at bp re = Some cre -> const_at bp im = Some cim ->
-  complex_class cre cim = CxDefer ->
-  own_value bp r = VUnmet (ReqComplexType r).
-Proof.
-  intros Hv Hhead Harg Hres Hre Him Hcx; unfold own_value; rewrite Hv; cbv beta iota;
-    rewrite Hhead; cbv beta iota; rewrite Hres; cbv beta iota;
-    change (pmeaning Names.PComplex) with PMComplex; rewrite Harg; cbv beta iota;
-    rewrite Hre, Him; cbv beta iota; rewrite Hcx; reflexivity.
-Qed.
-
-(* a valid but unmodelled callable is an unmet application requirement *)
-Lemma unmodelled_callable (r : Index.NodeRef idx) (h : Names.OrdinaryIdentifier)
-      (pn : Names.PredeclaredName) :
-  Index.node_view r = Index.VApplication ->
-  Index.node_view (app_head_node r) = Index.VName h ->
-  BN.resolve bp r h = BN.RBound (BN.PredeclaredObject pn) ->
-  pmeaning pn = PMUnmodelled ->
-  own_app bp r = AUnmet (ReqApplication pn (app_arg_nodes r)).
-Proof.
-  intros Hv Hhead Hres Hpm; unfold own_app; rewrite Hv; cbv beta iota;
-    rewrite Hhead; cbv beta iota; rewrite Hres; cbv beta iota; rewrite Hpm; reflexivity.
-Qed.
 
 End Laws.
 

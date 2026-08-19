@@ -192,6 +192,107 @@ Proof.
     + lia.
 Qed.
 
+(* the shallow view each expression head presents as its own root cell *)
+Definition expr_view (e : Syntax.Expr) : NodeView :=
+  match e with
+  | Syntax.Name n => VName n
+  | Syntax.LiteralExpr l => VLiteral l
+  | Syntax.Unary op _ => VUnary op
+  | Syntax.Application _ _ => VApplication
+  end.
+
+(* number_expr's first emitted cell is the occurrence's own root at b, carrying the passed role, view, and parent *)
+Lemma number_expr_root : forall e par role b,
+  exists rest rc, fst (number_expr par role b e) = (b, rc) :: rest
+                  /\ c_role rc = role /\ c_view rc = expr_view e /\ c_parent rc = par.
+Proof.
+  intros e par role b. destruct e as [n|l|op e'|hd args]; cbn [number_expr].
+  - do 2 eexists; cbn [number_leaf fst]; repeat split; reflexivity.
+  - do 2 eexists; cbn [number_leaf fst]; repeat split; reflexivity.
+  - destruct (number_expr (Some b) RUnaryOperand (S b) e') as [kc nxt].
+    do 2 eexists; cbn [fst]; repeat split; reflexivity.
+  - destruct (number_expr (Some b) RApplicationHead (S b) hd) as [hc b1].
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    do 2 eexists; cbn [fst]; repeat split; reflexivity.
+Qed.
+
+(* the exact first-child edge law: a view carrying a required first edge has that edge at S pos, in range *)
+Definition requires_first_edge (v : NodeView) : bool :=
+  match v with VApplication | VUnary _ | VStmt SSExpr => true | _ => false end.
+Definition first_child_wf (children : list nat) (pos bnd : nat) : Prop :=
+  match children with hp :: _ => hp = S pos /\ hp < bnd | [] => False end.
+Definition edge_wf (pos : nat) (cell : Cell) (bnd : nat) : Prop :=
+  if requires_first_edge (c_view cell) then first_child_wf (c_children cell) pos bnd else True.
+Definition ewf (occs : list (nat * Cell)) (bnd : nat) : Prop :=
+  Forall (fun kv => edge_wf (fst kv) (snd kv) bnd) occs.
+
+Lemma first_child_wf_mono : forall ch pos m M, m <= M -> first_child_wf ch pos m -> first_child_wf ch pos M.
+Proof.
+  intros [|hp tl] pos m M Hle; unfold first_child_wf;
+    [ exact (fun H => H) | intros [Heq Hlt]; exact (conj Heq (Nat.lt_le_trans _ _ _ Hlt Hle)) ].
+Qed.
+Lemma edge_wf_mono : forall pos cell m M, m <= M -> edge_wf pos cell m -> edge_wf pos cell M.
+Proof.
+  intros pos cell m M Hle. unfold edge_wf.
+  destruct (requires_first_edge (c_view cell)); [ apply first_child_wf_mono; exact Hle | exact (fun H => H) ].
+Qed.
+Lemma ewf_weaken : forall occs m M, m <= M -> ewf occs m -> ewf occs M.
+Proof.
+  intros occs m M Hle H. unfold ewf in *. eapply Forall_impl; [| exact H ].
+  intros kv Hkv. eapply edge_wf_mono; [ exact Hle | exact Hkv ].
+Qed.
+
+Lemma number_expr_edge_wf : forall e par role b,
+  ewf (fst (number_expr par role b e)) (snd (number_expr par role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b; cbn [number_expr].
+  - cbn [number_leaf fst snd]; constructor; [ cbn [edge_wf requires_first_edge c_view]; exact I | constructor ].
+  - cbn [number_leaf fst snd]; constructor; [ cbn [edge_wf requires_first_edge c_view]; exact I | constructor ].
+  - specialize (IHe (Some b) RUnaryOperand (S b)).
+    pose proof (number_expr_span e (Some b) RUnaryOperand (S b)) as Hsp.
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    destruct Hsp as [n1 [_ [Hnxt Hn1pos]]]. cbn [fst snd] in IHe, Hnxt |- *.
+    constructor.
+    + cbn [fst snd edge_wf requires_first_edge c_view c_children first_child_wf]. split; [ reflexivity | lia ].
+    + exact IHe.
+  - specialize (IHe (Some b) RApplicationHead (S b)).
+    pose proof (number_expr_span e (Some b) RApplicationHead (S b)) as Hsph.
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1].
+    destruct Hsph as [nh [_ [Hb1 Hnhpos]]]. cbn [fst snd] in IHe, Hb1.
+    assert (Hda : forall es, Forall (fun a => forall par role bb,
+                     ewf (fst (number_expr par role bb a)) (snd (number_expr par role bb a))) es ->
+      forall i0 bi, (let '(ac, bf, _) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in ewf ac bf /\ bi <= bf)).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - split; [ constructor | lia ].
+      - pose proof (number_expr_span a (Some b) (RApplicationArg i0) bi) as [na [_ [Hbi' Hnapos]]].
+        specialize (Ha (Some b) (RApplicationArg i0) bi).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst snd] in Ha, Hbi'.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        destruct IHrest as [Hrcwf Hle2]. cbn [fst snd] in Hrcwf, Hle2 |- *.
+        split.
+        + apply Forall_app; split; [ eapply ewf_weaken; [ | exact Ha ]; lia | exact Hrcwf ].
+        + lia. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    destruct Hda as [Hacwf Hble]. cbn [fst snd] in Hacwf, Hble |- *.
+    constructor.
+    + cbn [fst snd edge_wf requires_first_edge c_view c_children first_child_wf]. split; [ reflexivity | lia ].
+    + apply Forall_app; split; [ eapply ewf_weaken; [ | exact IHe ]; lia | exact Hacwf ].
+Qed.
+
 Definition number_typeexpr (par : option nat) (role : Role) (b : nat) (t : Syntax.TypeExpr) : list (nat * Cell) * nat :=
   number_leaf (VTypeExpr t) par role b.
 Definition number_bindingname (par : option nat) (role : Role) (b : nat) (bn : Syntax.BindingName) : list (nat * Cell) * nat :=
@@ -444,6 +545,207 @@ Proof.
   exists (S m). cbn [map fst seq]. rewrite Hdc. reflexivity.
 Qed.
 
+(* the exact first-edge law over a whole file numbering: each required first edge is S-of-its-position, in range *)
+Lemma span_final_ge : forall out b, spans out b -> b <= snd out.
+Proof. intros out b [n [_ H]]; lia. Qed.
+
+Lemma ewf_node : forall self cell kids bnd, edge_wf self cell bnd -> ewf kids bnd -> ewf ((self, cell) :: kids) bnd.
+Proof. intros; constructor; assumption. Qed.
+
+Lemma number_list_edge_wf {A} (f : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x, ewf (fst (f b x)) (snd (f b x))) ->
+  (forall b x, b <= snd (f b x)) ->
+  forall b xs, ewf (fst (fst (number_list f b xs))) (snd (fst (number_list f b xs)))
+               /\ b <= snd (fst (number_list f b xs)).
+Proof.
+  intros Hf Hmono b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - cbn [number_list fst snd]. split; [ constructor | lia ].
+  - cbn [number_list]. specialize (Hf b x); specialize (Hmono b x).
+    destruct (f b x) as [xc b']. cbn [fst snd] in Hf, Hmono.
+    specialize (IH b'). destruct (number_list f b' rest) as [[rc b''] roots].
+    destruct IH as [Hrc Hle]. cbn [fst snd] in Hrc, Hle |- *.
+    split; [ apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hf ]; lia | exact Hrc ] | lia ].
+Qed.
+
+Lemma number_typeexpr_edge_wf : forall par role b t,
+  ewf (fst (number_typeexpr par role b t)) (snd (number_typeexpr par role b t)).
+Proof. intros; cbn [number_typeexpr number_leaf fst snd]; apply ewf_node;
+  [ cbn [edge_wf requires_first_edge c_view]; exact I | constructor ]. Qed.
+Lemma number_bindingname_edge_wf : forall par role b bn,
+  ewf (fst (number_bindingname par role b bn)) (snd (number_bindingname par role b bn)).
+Proof. intros; cbn [number_bindingname number_leaf fst snd]; apply ewf_node;
+  [ cbn [edge_wf requires_first_edge c_view]; exact I | constructor ]. Qed.
+
+Lemma number_opttype_edge_wf : forall par b ot,
+  ewf (fst (fst (number_opttype par b ot))) (snd (fst (number_opttype par b ot))).
+Proof.
+  intros par b [t|]; cbn [number_opttype].
+  - pose proof (number_typeexpr_edge_wf par RTypeUse b t) as Ht.
+    destruct (number_typeexpr par RTypeUse b t) as [c b']. cbn [fst snd] in Ht |- *. exact Ht.
+  - cbn [fst snd]. constructor.
+Qed.
+
+Lemma number_constspec_edge_wf : forall par role b cs,
+  ewf (fst (number_constspec par role b cs)) (snd (number_constspec par role b cs)).
+Proof.
+  intros par role b cs. unfold number_constspec.
+  destruct (number_list_edge_wf (number_bindingname (Some b) (RSpecName ConstSpecF))
+        (fun bb x => number_bindingname_edge_wf (Some b) (RSpecName ConstSpecF) bb x)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x))
+        (S b) (Collections.ne_to_list (Syntax.const_names cs))) as [Hnc Hncle].
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hncle. destruct (Syntax.const_init cs) as [ot vals | ].
+  - pose proof (number_opttype_edge_wf (Some b) b1 ot) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hocle.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hocle.
+    destruct (number_list_edge_wf (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_edge_wf x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as [Hvc Hvcle].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc, Hvcle |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+    apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hnc ]; lia
+      | apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hoc ]; lia | exact Hvc ] ].
+  - cbn [fst snd] in *. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+    apply Forall_app; split; [ exact Hnc | constructor ].
+Qed.
+
+Lemma number_varspec_edge_wf : forall par role b vs,
+  ewf (fst (number_varspec par role b vs)) (snd (number_varspec par role b vs)).
+Proof.
+  intros par role b vs. unfold number_varspec.
+  destruct (number_list_edge_wf (number_bindingname (Some b) (RSpecName VarSpecF))
+        (fun bb x => number_bindingname_edge_wf (Some b) (RSpecName VarSpecF) bb x)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x))
+        (S b) (Collections.ne_to_list (Syntax.var_names vs))) as [Hnc Hncle].
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hncle. destruct (Syntax.var_init vs) as [t | ot vals].
+  - pose proof (number_typeexpr_edge_wf (Some b) RTypeUse b1 t) as Ht.
+    pose proof (span_final_ge _ _ (number_typeexpr_spans (Some b) RTypeUse b1 t)) as Htle.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [c b2]. cbn [fst snd] in Ht, Htle |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+    apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hnc ]; lia | exact Ht ].
+  - pose proof (number_opttype_edge_wf (Some b) b1 ot) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hocle.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hocle.
+    destruct (number_list_edge_wf (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_edge_wf x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as [Hvc Hvcle].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc, Hvcle |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+    apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hnc ]; lia
+      | apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hoc ]; lia | exact Hvc ] ].
+Qed.
+
+Lemma number_typespec_edge_wf : forall par role b ts,
+  ewf (fst (number_typespec par role b ts)) (snd (number_typespec par role b ts)).
+Proof.
+  intros par role b ts. unfold number_typespec; destruct ts as [bn t | bn t];
+  ( pose proof (number_bindingname_edge_wf (Some b) (RSpecName TypeSpecF) (S b) bn) as Hbc;
+    pose proof (span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName TypeSpecF) (S b) bn)) as Hbcle;
+    destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1]; cbn [fst snd] in Hbc, Hbcle;
+    pose proof (number_typeexpr_edge_wf (Some b) RTypeUse b1 t) as Htc;
+    pose proof (span_final_ge _ _ (number_typeexpr_spans (Some b) RTypeUse b1 t)) as Htcle;
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin]; cbn [fst snd] in Htc, Htcle |- *;
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ];
+    apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hbc ]; lia | exact Htc ] ).
+Qed.
+
+Lemma number_decl_edge_wf : forall par role b d,
+  ewf (fst (number_decl par role b d)) (snd (number_decl par role b d)).
+Proof.
+  intros par role b d. unfold number_decl; destruct d as [cs | vs | ts].
+  - destruct (number_list_edge_wf (number_constspec (Some b) RPlain)
+        (fun bb x => number_constspec_edge_wf (Some b) RPlain bb x)
+        (fun bb x => span_final_ge _ _ (number_constspec_span (Some b) RPlain bb x)) (S b) cs) as [Hk _].
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk |- *. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hk ].
+  - destruct (number_list_edge_wf (number_varspec (Some b) RPlain)
+        (fun bb x => number_varspec_edge_wf (Some b) RPlain bb x)
+        (fun bb x => span_final_ge _ _ (number_varspec_span (Some b) RPlain bb x)) (S b) vs) as [Hk _].
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk |- *. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hk ].
+  - destruct (number_list_edge_wf (number_typespec (Some b) RPlain)
+        (fun bb x => number_typespec_edge_wf (Some b) RPlain bb x)
+        (fun bb x => span_final_ge _ _ (number_typespec_span (Some b) RPlain bb x)) (S b) ts) as [Hk _].
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots].
+    cbn [fst snd] in Hk |- *. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hk ].
+Qed.
+
+Lemma number_stmt_edge_wf : forall par role b s,
+  ewf (fst (number_stmt par role b s)) (snd (number_stmt par role b s)).
+Proof.
+  intros par role b s. unfold number_stmt; destruct s as [e | d | names vals].
+  - pose proof (number_expr_edge_wf e (Some b) RExprStatementExpr (S b)) as He.
+    pose proof (number_expr_span e (Some b) RExprStatementExpr (S b)) as [ne [_ [Hb' Hnepos]]].
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst snd] in He, Hb' |- *.
+    apply ewf_node; [ cbn [fst snd edge_wf requires_first_edge c_view c_children first_child_wf];
+      split; [ reflexivity | lia ] | exact He ].
+  - pose proof (number_decl_edge_wf (Some b) RPlain (S b) d) as Hd.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hd |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hd ].
+  - destruct (number_list_edge_wf (number_bindingname (Some b) RShortLhs)
+        (fun bb x => number_bindingname_edge_wf (Some b) RShortLhs bb x)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) RShortLhs bb x))
+        (S b) (Collections.ne_to_list names)) as [Hnc Hncle].
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc, Hncle.
+    destruct (number_list_edge_wf (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_edge_wf x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b1 (Collections.ne_to_list vals)) as [Hvc Hvcle].
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc, Hvcle |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+    apply Forall_app; split; [ eapply ewf_weaken; [ | exact Hnc ]; lia | exact Hvc ].
+Qed.
+
+Lemma number_block_edge_wf : forall par role b blk,
+  ewf (fst (number_block par role b blk)) (snd (number_block par role b blk)).
+Proof.
+  intros par role b [stmts]. unfold number_block.
+  destruct (number_list_edge_wf (number_stmt (Some b) RPlain)
+      (fun bb x => number_stmt_edge_wf (Some b) RPlain bb x)
+      (fun bb x => span_final_ge _ _ (number_stmt_span (Some b) RPlain bb x)) (S b) stmts) as [Hk _].
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk |- *. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hk ].
+Qed.
+
+Lemma number_toplevel_edge_wf : forall par role b td,
+  ewf (fst (number_toplevel par role b td)) (snd (number_toplevel par role b td)).
+Proof.
+  intros par role b td. unfold number_toplevel; destruct td as [d | blk].
+  - pose proof (number_decl_edge_wf (Some b) RPlain (S b) d) as Hd.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hd |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hd ].
+  - pose proof (number_block_edge_wf (Some b) RPlain (S b) blk) as Hb.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst snd] in Hb |- *.
+    apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | exact Hb ].
+Qed.
+
+Lemma number_file_edge_wf : forall f, ewf (number_file f) (length (number_file f)).
+Proof.
+  intro f. unfold number_file.
+  destruct (number_list_edge_wf (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_edge_wf (Some 0) RPlain bb x)
+      (fun bb x => span_final_ge _ _ (number_toplevel_span (Some 0) RPlain bb x)) 1 (Syntax.declarations f)) as [Hd _].
+  pose proof (number_list_span (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_span (Some 0) RPlain bb x) (Syntax.declarations f) 1) as Hsp.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hd, Hsp. destruct Hsp as [ntop [Hmap Hbfin]]. cbn [fst snd] in Hmap, Hbfin.
+  assert (Hlen : length dc = ntop).
+  { apply (f_equal (@length nat)) in Hmap.
+    first [ rewrite length_map in Hmap | rewrite map_length in Hmap ];
+    first [ rewrite length_seq in Hmap | rewrite seq_length in Hmap ]; exact Hmap. }
+  cbn [length]. apply ewf_node; [ cbn [edge_wf requires_first_edge c_view]; exact I | ].
+  eapply ewf_weaken; [ | exact Hd ]. lia.
+Qed.
+
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
@@ -608,6 +910,162 @@ Proof.
   - f_equal. apply noderef_positional; reflexivity.
   - exfalso; pose proof (nr_in r) as Hin; congruence.
 Qed.
+
+(* transport: a cell found in the position map is one of the numbering-list entries, at the same position *)
+Lemma posmap_nil : posmap_of [] = Collections.NodeMap.empty Cell.
+Proof. reflexivity. Qed.
+Lemma posmap_cons : forall kv rest,
+  posmap_of (kv :: rest)
+  = Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) (posmap_of rest).
+Proof. reflexivity. Qed.
+
+Lemma posmap_find_in : forall occs k cell,
+  Collections.NodeMap.find k (posmap_of occs) = Some cell ->
+  exists pos, k = Pos.of_succ_nat pos /\ In (pos, cell) occs.
+Proof.
+  induction occs as [|[pos0 c] rest IH]; intros k cell Hf.
+  - rewrite posmap_nil, NodeFacts.empty_o in Hf. discriminate.
+  - rewrite posmap_cons in Hf. cbn [fst snd] in Hf. rewrite NodeFacts.add_o in Hf.
+    destruct (Collections.NodeMap.E.eq_dec (Pos.of_succ_nat pos0) k) as [Heq|Hneq].
+    + injection Hf as Hc. exists pos0. split; [ symmetry; exact Heq | left; rewrite Hc; reflexivity ].
+    + destruct (IH k cell Hf) as [pos [Hk Hin]]. exists pos. split; [ exact Hk | right; exact Hin ].
+Qed.
+
+(* the position map key of a node reference is exactly the successor-encoding of its ordinal position *)
+Lemma nr_key_pos {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  nr_key r = Pos.of_succ_nat (nr_pos r).
+Proof.
+  apply Pos2Nat.inj. unfold nr_pos. rewrite SuccNat2Pos.id_succ.
+  pose proof (Pos2Nat.is_pos (nr_key r)). lia.
+Qed.
+
+(* occ_at is the value the position map actually stores for the node's key *)
+Lemma occ_at_find_some {p} {idx : ProgramIndex p} (r : NodeRef idx) c :
+  Collections.NodeMap.find (nr_key r) (cell_map (nr_file r)) = Some c -> occ_at r = c.
+Proof.
+  intro E. unfold occ_at.
+  generalize (@eq_refl (option Cell) (Collections.NodeMap.find (nr_key r) (cell_map (nr_file r)))).
+  destruct (Collections.NodeMap.find (nr_key r) (cell_map (nr_file r))) at 2 3; intro H; congruence.
+Qed.
+
+Lemma occ_at_find {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  Collections.NodeMap.find (nr_key r) (cell_map (nr_file r)) = Some (occ_at r).
+Proof.
+  destruct (Collections.NodeMap.find (nr_key r) (cell_map (nr_file r))) as [c|] eqn:E.
+  - rewrite (occ_at_find_some r c E). reflexivity.
+  - exfalso. exact (proj1 (NodeFacts.in_find_iff _ _) (proj2 (NodeFacts.mem_in_iff _ _) (nr_in r)) E).
+Qed.
+
+(* the value file_info_of retrieves is exactly what the program map stores for the file's path *)
+Lemma file_info_of_find {p} {idx : ProgramIndex p} (fr : FileRef idx) fi :
+  Collections.FileMap.find (fr_path fr) (prog_map idx) = Some fi -> file_info_of fr = fi.
+Proof.
+  intro E. unfold file_info_of.
+  generalize (@eq_refl (option FileInfo) (Collections.FileMap.find (fr_path fr) (prog_map idx))).
+  destruct (Collections.FileMap.find (fr_path fr) (prog_map idx)) at 2 3; intro H; congruence.
+Qed.
+
+(* every file reference resolves to the single-pass numbering build of some source file *)
+Lemma fileinfo_number_file {p} {idx : ProgramIndex p} (fr : FileRef idx) :
+  exists f, file_info_of fr = build_fileinfo f.
+Proof.
+  destruct (file_find_some idx (fr_path fr) (fr_in fr)) as [fi Hfi].
+  pose proof (file_info_of_find fr fi Hfi) as Hfio.
+  unfold prog_map in Hfi. rewrite (proj2_sig idx) in Hfi. unfold raw_index in Hfi.
+  rewrite Collections.FileFacts.map_o in Hfi.
+  destruct (Collections.FileMap.find (fr_path fr) (Syntax.files p)) as [file|] eqn:Ef;
+    cbn [option_map] in Hfi.
+  - injection Hfi as <-. exists file. exact Hfio.
+  - discriminate.
+Qed.
+
+Lemma cellmap_number_file {p} {idx : ProgramIndex p} (fr : FileRef idx) :
+  exists f, cell_map fr = posmap_of (number_file f).
+Proof. destruct (fileinfo_number_file fr) as [f Hf]. exists f. unfold cell_map; rewrite Hf; reflexivity. Qed.
+
+(* the universal transport: any node's cell is a numbering-list entry of its file, at its ordinal position *)
+Lemma occ_in_number_file {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  exists f, In (nr_pos r, occ_at r) (number_file f) /\ occ_count (nr_file r) = length (number_file f).
+Proof.
+  destruct (fileinfo_number_file (nr_file r)) as [f Hf].
+  assert (Hc : cell_map (nr_file r) = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  exists f. split; [| unfold occ_count; rewrite Hf; reflexivity ].
+  pose proof (occ_at_find r) as Hfind. rewrite Hc in Hfind.
+  destruct (posmap_find_in (number_file f) (nr_key r) (occ_at r) Hfind) as [pos [Hk Hin]].
+  assert (Hpe : pos = nr_pos r).
+  { pose proof (nr_key_pos r) as Hkp.
+    assert (Pos.of_succ_nat (nr_pos r) = Pos.of_succ_nat pos) as Hpp by (rewrite <- Hkp; exact Hk).
+    apply (f_equal Pos.to_nat) in Hpp. rewrite !SuccNat2Pos.id_succ in Hpp. lia. }
+  rewrite Hpe in Hin. exact Hin.
+Qed.
+
+(* a source position present in the numbering list is a live key of the position map *)
+Lemma posmap_mem_of_in : forall occs q,
+  In q (map fst occs) -> Collections.NodeMap.mem (Pos.of_succ_nat q) (posmap_of occs) = true.
+Proof.
+  induction occs as [|[pos0 c] rest IH]; intros q Hin.
+  - cbn in Hin. contradiction.
+  - cbn [map fst] in Hin. rewrite posmap_cons. cbn [fst snd].
+    apply NodeFacts.mem_in_iff, NodeFacts.add_in_iff. destruct Hin as [Heq | Hin].
+    + subst pos0. left. reflexivity.
+    + right. apply NodeFacts.mem_in_iff, IH. exact Hin.
+Qed.
+
+(* coverage lifts an in-range ordinal position to a live position-map key on the exact file *)
+Lemma mem_at_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat) :
+  pos < occ_count fr -> Collections.NodeMap.mem (Pos.of_succ_nat pos) (cell_map fr) = true.
+Proof.
+  intro H. destruct (fileinfo_number_file fr) as [f Hf].
+  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hn0 : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
+  rewrite Hc. apply posmap_mem_of_in.
+  destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply in_seq.
+  rewrite Hn0 in H.
+  assert (Hlen : length (number_file f) = n).
+  { apply (f_equal (@length nat)) in Hn.
+    first [ rewrite length_map in Hn | rewrite map_length in Hn ];
+    first [ rewrite length_seq in Hn | rewrite seq_length in Hn ]; exact Hn. }
+  lia.
+Qed.
+
+(* the total position-indexed node reference: any in-range ordinal resolves without option or fallback *)
+Definition noderef_at_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat)
+  (H : pos < occ_count fr) : NodeRef idx := mkNodeRef fr (Pos.of_succ_nat pos) (mem_at_pos fr pos H).
+
+Lemma noderef_at_pos_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat)
+  (H : pos < occ_count fr) : nr_file (noderef_at_pos fr pos H) = fr.
+Proof. reflexivity. Qed.
+
+Lemma noderef_at_pos_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat)
+  (H : pos < occ_count fr) : nr_pos (noderef_at_pos fr pos H) = pos.
+Proof. unfold noderef_at_pos, nr_pos; cbn [nr_key]; rewrite SuccNat2Pos.id_succ; reflexivity. Qed.
+
+(* every node's cell obeys the first-edge law with its own file's occurrence count as the range bound *)
+Lemma occ_edge_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  edge_wf (nr_pos r) (occ_at r) (occ_count (nr_file r)).
+Proof.
+  destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  rewrite Hcount. pose proof (number_file_edge_wf f) as Hwf. unfold ewf in Hwf.
+  rewrite Forall_forall in Hwf. exact (Hwf _ Hin).
+Qed.
+
+(* the exact first required child of any node that carries a required edge, in range on its own file *)
+Lemma occ_first_child_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  requires_first_edge (node_view r) = true ->
+  first_child_wf (c_children (occ_at r)) (nr_pos r) (occ_count (nr_file r)).
+Proof.
+  intro H. pose proof (occ_edge_wf r) as He. unfold edge_wf in He. unfold node_view in H.
+  rewrite H in He. exact He.
+Qed.
+
+(* the total refined first-edge reference: no filter, no fallback — a required edge resolves exactly *)
+Definition first_edge {p} {idx : ProgramIndex p} (r : NodeRef idx)
+  (H : requires_first_edge (node_view r) = true) : NodeRef idx :=
+  match c_children (occ_at r) as ch
+    return first_child_wf ch (nr_pos r) (occ_count (nr_file r)) -> NodeRef idx with
+  | [] => fun Hw => False_rect _ Hw
+  | hp :: _ => fun Hw => noderef_at_pos (nr_file r) hp (proj2 Hw)
+  end (occ_first_child_wf r H).
 
 Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
   fr_path a = fr_path b -> a = b.
