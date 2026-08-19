@@ -318,6 +318,132 @@ Proof.
     cbn [fst snd] in *. exact (spans_app xc b' rc b'' b Hf IH).
 Qed.
 
+Lemma number_typeexpr_spans : forall par role b t, spans (number_typeexpr par role b t) b.
+Proof. intros; apply spans_leaf. Qed.
+Lemma number_bindingname_spans : forall par role b bn, spans (number_bindingname par role b bn) b.
+Proof. intros; apply spans_leaf. Qed.
+
+Lemma number_opttype_span : forall par b ot, spans (let '(c, b', _) := number_opttype par b ot in (c, b')) b.
+Proof.
+  intros par b [t|].
+  - cbn [number_opttype]. pose proof (number_typeexpr_spans par RTypeUse b t) as Hs.
+    destruct (number_typeexpr par RTypeUse b t) as [c b']. cbn [fst snd] in Hs |- *. exact Hs.
+  - exists 0. cbn [number_opttype fst snd map seq]. split; [ reflexivity | lia ].
+Qed.
+
+Lemma number_constspec_span : forall par role b cs, spans (number_constspec par role b cs) b.
+Proof.
+  intros par role b cs. unfold number_constspec.
+  pose proof (number_list_span (number_bindingname (Some b) (RSpecName ConstSpecF))
+                (fun bb x => number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x)
+                (Collections.ne_to_list (Syntax.const_names cs)) (S b)) as Hn.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+              (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hn.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - pose proof (number_opttype_span (Some b) b1 ot) as Ho.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Ho.
+    pose proof (number_list_span (number_expr (Some b) RPlain)
+                  (fun bb x => number_expr_spans x (Some b) RPlain bb)
+                  (Collections.ne_to_list vals) b2) as Hv.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hv |- *. apply spans_node.
+    exact (spans_app nc b1 (oc ++ vc) b3 (S b) Hn (spans_app oc b2 vc b3 b1 Ho Hv)).
+  - cbn [fst snd]. apply spans_node. rewrite app_nil_r. exact Hn.
+Qed.
+
+Lemma number_varspec_span : forall par role b vs, spans (number_varspec par role b vs) b.
+Proof.
+  intros par role b vs. unfold number_varspec.
+  pose proof (number_list_span (number_bindingname (Some b) (RSpecName VarSpecF))
+                (fun bb x => number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x)
+                (Collections.ne_to_list (Syntax.var_names vs)) (S b)) as Hn.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+              (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hn.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - pose proof (number_typeexpr_spans (Some b) RTypeUse b1 t) as Ht.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [c b2]. cbn [fst snd] in Ht |- *.
+    apply spans_node. exact (spans_app nc b1 c b2 (S b) Hn Ht).
+  - pose proof (number_opttype_span (Some b) b1 ot) as Ho.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Ho.
+    pose proof (number_list_span (number_expr (Some b) RPlain)
+                  (fun bb x => number_expr_spans x (Some b) RPlain bb)
+                  (Collections.ne_to_list vals) b2) as Hv.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hv |- *. apply spans_node.
+    exact (spans_app nc b1 (oc ++ vc) b3 (S b) Hn (spans_app oc b2 vc b3 b1 Ho Hv)).
+Qed.
+
+Lemma number_typespec_span : forall par role b ts, spans (number_typespec par role b ts) b.
+Proof.
+  intros par role b ts. unfold number_typespec.
+  destruct ts as [bn t|bn t]; cbn [fst snd];
+    ( pose proof (number_bindingname_spans (Some b) (RSpecName TypeSpecF) (S b) bn) as Hb;
+      destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+      pose proof (number_typeexpr_spans (Some b) RTypeUse b1 t) as Ht;
+      destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin];
+      cbn [fst snd] in Hb, Ht |- *;
+      apply spans_node; exact (spans_app bc b1 tc bfin (S b) Hb Ht) ).
+Qed.
+
+Lemma number_decl_span : forall par role b d, spans (number_decl par role b d) b.
+Proof.
+  intros par role b d. unfold number_decl. destruct d as [cs|vs|ts];
+  [ pose proof (number_list_span (number_constspec (Some b) RPlain) (fun bb x => number_constspec_span (Some b) RPlain bb x) cs (S b)) as Hs;
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots]
+  | pose proof (number_list_span (number_varspec (Some b) RPlain) (fun bb x => number_varspec_span (Some b) RPlain bb x) vs (S b)) as Hs;
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots]
+  | pose proof (number_list_span (number_typespec (Some b) RPlain) (fun bb x => number_typespec_span (Some b) RPlain bb x) ts (S b)) as Hs;
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots] ];
+  cbn [fst snd] in Hs |- *; apply spans_node; exact Hs.
+Qed.
+
+Lemma number_stmt_span : forall par role b s, spans (number_stmt par role b s) b.
+Proof.
+  intros par role b s. unfold number_stmt. destruct s as [e | d | names vals].
+  - pose proof (number_expr_spans e (Some b) RExprStatementExpr (S b)) as He.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b'].
+    cbn [fst snd] in He |- *. apply spans_node. exact He.
+  - pose proof (number_decl_span (Some b) RPlain (S b) d) as Hd.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b'].
+    cbn [fst snd] in Hd |- *. apply spans_node. exact Hd.
+  - pose proof (number_list_span (number_bindingname (Some b) RShortLhs) (fun bb x => number_bindingname_spans (Some b) RShortLhs bb x) (Collections.ne_to_list names) (S b)) as Hn.
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots]. cbn [fst snd] in Hn.
+    pose proof (number_list_span (number_expr (Some b) RPlain) (fun bb x => number_expr_spans x (Some b) RPlain bb) (Collections.ne_to_list vals) b1) as Hv.
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots]. cbn [fst snd] in Hv |- *.
+    apply spans_node. exact (spans_app nc b1 vc b2 (S b) Hn Hv).
+Qed.
+
+Lemma number_block_span : forall par role b blk, spans (number_block par role b blk) b.
+Proof.
+  intros par role b blk. unfold number_block. destruct blk as [stmts].
+  pose proof (number_list_span (number_stmt (Some b) RPlain) (fun bb x => number_stmt_span (Some b) RPlain bb x) stmts (S b)) as Hs.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hs |- *. apply spans_node. exact Hs.
+Qed.
+
+Lemma number_toplevel_span : forall par role b td, spans (number_toplevel par role b td) b.
+Proof.
+  intros par role b td. unfold number_toplevel. destruct td as [d | blk].
+  - pose proof (number_decl_span (Some b) RPlain (S b) d) as Hd.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hd |- *.
+    apply spans_node. exact Hd.
+  - pose proof (number_block_span (Some b) RPlain (S b) blk) as Hb.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst snd] in Hb |- *.
+    apply spans_node. exact Hb.
+Qed.
+
+(* file coverage: occurrence positions are exactly the contiguous source-preorder block [0, n) from the file root *)
+Lemma number_file_positions : forall f, exists n, map fst (number_file f) = seq 0 n.
+Proof.
+  intro f. unfold number_file.
+  pose proof (number_list_span (number_toplevel (Some 0) RPlain) (fun bb x => number_toplevel_span (Some 0) RPlain bb x) (Syntax.declarations f) 1) as Hs.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hs. destruct Hs as [m [Hdc Hbfin]]. cbn [fst snd] in Hdc.
+  exists (S m). cbn [map fst seq]. rewrite Hdc. reflexivity.
+Qed.
+
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
