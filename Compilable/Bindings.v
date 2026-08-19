@@ -102,20 +102,24 @@ Arguments PackageScope {p idx s} _.
 Arguments BlockScope {p idx s} _.
 
 
-(* the nearest block enclosing [b] (largest start position among containing blocks), carrying its reference *)
-Definition nearest_block {p} {idx : Index.ProgramIndex p}
-  (nodes : list (Index.NodeRef idx)) (b : Index.NodeRef idx) : option (Index.BlockRef idx) :=
-  fold_right (fun a acc =>
-    match mk_blockref a with
-    | Some br =>
-        if andb (Nat.ltb (Index.nr_pos a) (Index.nr_pos b)) (Nat.leb (Index.nr_pos b) (Index.node_extent a))
-        then match acc with
-             | Some br' => if Nat.ltb (Index.nr_pos (Index.bl_node br')) (Index.nr_pos a) then Some br else acc
-             | None => Some br
-             end
-        else acc
-    | None => acc
-    end) None nodes.
+(* the nearest enclosing block per node, from one ascending fold — parents first, no per-fact scan *)
+Definition nearest_block_table {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx)
+  : Collections.NodeMap.t (option (Index.BlockRef idx)) :=
+  fold_left (fun tbl pos =>
+    match Index.mk_noderef fr (Pos.of_succ_nat pos) with
+    | Some r =>
+        Collections.NodeMap.add (Index.nr_key r)
+          (match Index.node_parent r with
+           | Some par =>
+               match mk_blockref par with
+               | Some br => Some br
+               | None => match Collections.NodeMap.find (Index.nr_key par) tbl with Some x => x | None => None end
+               end
+           | None => None
+           end) tbl
+    | None => tbl
+    end)
+    (seq 0 (Index.occ_count fr)) (Collections.NodeMap.empty _).
 
 (* a block binder's visibility start: type at its position, else its enclosing spec/statement parent's extent *)
 Definition vis_start {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : nat :=
@@ -137,10 +141,10 @@ Lemma short_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) :
 Proof. intro H; rewrite H; reflexivity. Qed.
 
 Definition est_scope_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (b : Index.NodeRef idx) : ScopeId s :=
-  match nearest_block (Index.file_nodes (Index.nr_file b)) b with
-  | Some br => BlockScope br
-  | None => PackageScope pr
+  (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx) : ScopeId s :=
+  match Collections.NodeMap.find (Index.nr_key b) nbt with
+  | Some (Some br) => BlockScope br
+  | _ => PackageScope pr
   end.
 
 Record Est {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_est {
@@ -156,12 +160,13 @@ Arguments est_scope {p idx s} _.
 Arguments est_vstart {p idx s} _.
 
 Definition make_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (b : Index.NodeRef idx) : option (Est s) :=
+  (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
+  : option (Est s) :=
   match binder_ident b with
   | Some n =>
       (match Index.node_role b as r return Index.node_role b = r -> option (Est s) with
-       | Index.RSpecName fl => fun H => Some (mk_est (binder_ref b (spec_binder b fl H)) n (est_scope_of pr b) (vis_start b))
-       | Index.RShortLhs    => fun H => Some (mk_est (binder_ref b (short_binder b H)) n (est_scope_of pr b) (vis_start b))
+       | Index.RSpecName fl => fun H => Some (mk_est (binder_ref b (spec_binder b fl H)) n (est_scope_of pr nbt b) (vis_start b))
+       | Index.RShortLhs    => fun H => Some (mk_est (binder_ref b (short_binder b H)) n (est_scope_of pr nbt b) (vis_start b))
        | _ => fun _ => None
        end) eq_refl
   | None => None
@@ -170,8 +175,9 @@ Definition make_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
 (* establishments of a file in source order (ascending position); file_nodes is trie order, so iterate positions *)
 Definition ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (fr : Index.FileRef idx) : list (Est s) :=
+  let nbt := nearest_block_table fr in
   flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-                       | Some b => match make_est pr b with Some e => [e] | None => [] end
+                       | Some b => match make_est pr nbt b with Some e => [e] | None => [] end
                        | None => []
                        end)
            (seq 0 (Index.occ_count fr)).
