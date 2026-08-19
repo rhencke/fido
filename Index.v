@@ -804,6 +804,7 @@ Definition file_info_of {p} {idx : ProgramIndex p} (fr : FileRef idx) : FileInfo
 Definition occ_count {p} {idx : ProgramIndex p} (fr : FileRef idx) : nat := fi_count (file_info_of fr).
 
 Module NodeFacts := FMapFacts.WFacts_fun Collections.NodeMap.E Collections.NodeMap.
+Module NodeProperties := FMapFacts.WProperties_fun Collections.NodeMap.E Collections.NodeMap.
 
 Definition cell_map {p} {idx : ProgramIndex p} (fr : FileRef idx) : Collections.NodeMap.t Cell :=
   fi_cells (file_info_of fr).
@@ -935,6 +936,27 @@ Proof.
     + destruct (IH k cell Hf) as [pos [Hk Hin]]. exists pos. split; [ exact Hk | right; exact Hin ].
 Qed.
 
+(* distinct source positions give the position map exactly one binding each, so its cardinality is the count *)
+Lemma posmap_cardinal : forall occs,
+  NoDup (map fst occs) -> Collections.NodeMap.cardinal (posmap_of occs) = length occs.
+Proof.
+  induction occs as [|[pos0 c] rest IH]; intro Hnd.
+  - reflexivity.
+  - cbn [map fst] in Hnd. rewrite NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd'].
+    assert (Hni : ~ Collections.NodeMap.In (Pos.of_succ_nat pos0) (posmap_of rest)).
+    { intro Hin. rewrite NodeFacts.in_find_iff in Hin.
+      destruct (Collections.NodeMap.find (Pos.of_succ_nat pos0) (posmap_of rest)) as [cell|] eqn:E;
+        [| exact (Hin eq_refl) ].
+      destruct (posmap_find_in rest (Pos.of_succ_nat pos0) cell E) as [q [Hq Hinq]].
+      apply (f_equal Pos.to_nat) in Hq. rewrite !SuccNat2Pos.id_succ in Hq.
+      apply Hnotin. apply in_map_iff. exists (q, cell); split; [ cbn [fst]; lia | exact Hinq ]. }
+    rewrite posmap_cons. cbn [fst snd].
+    rewrite (NodeProperties.cardinal_2 (m := posmap_of rest)
+             (m' := Collections.NodeMap.add (Pos.of_succ_nat pos0) c (posmap_of rest))
+             Hni (fun y => eq_refl)).
+    cbn [length]. f_equal. apply IH; exact Hnd'.
+Qed.
+
 (* the position map key of a node reference is exactly the successor-encoding of its ordinal position *)
 Lemma nr_key_pos {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   nr_key r = Pos.of_succ_nat (nr_pos r).
@@ -1001,6 +1023,17 @@ Proof.
     assert (Pos.of_succ_nat (nr_pos r) = Pos.of_succ_nat pos) as Hpp by (rewrite <- Hkp; exact Hk).
     apply (f_equal Pos.to_nat) in Hpp. rewrite !SuccNat2Pos.id_succ in Hpp. lia. }
   rewrite Hpe in Hin. exact Hin.
+Qed.
+
+(* count equals domain cardinality: the retained occurrence count is exactly the position map's binding count *)
+Lemma occ_count_cardinal {p} {idx : ProgramIndex p} (fr : FileRef idx) :
+  occ_count fr = Collections.NodeMap.cardinal (cell_map fr).
+Proof.
+  destruct (fileinfo_number_file fr) as [f Hf].
+  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hcount : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
+  rewrite Hc, Hcount. symmetry. apply posmap_cardinal.
+  destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply seq_NoDup.
 Qed.
 
 (* a source position present in the numbering list is a live key of the position map *)
