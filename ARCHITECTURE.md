@@ -114,8 +114,8 @@ semantics consume these exact projections rather than rebuild them:
 Compilable/TypeResolution.v    the permanent type-form layer (`TypeForm`, constants, conversion forms) — form, never identity
 Compilable/PackageIdentity.v   the retained package surface, `PackageRef` position selectors, and `package_of_file`
 Compilable/Bindings.v          scopes, object-establishing binders, declaration-kind visibility, and the fixed-spelling
-                               `func main()` occurrence qualified through PackageIdentity as `MainDeclRef s pr`, with
-                               `MainMissing`/`MainOne`/`MainMultiple` multiplicity; the retained binding phase
+                               `func main()` as a package-scope function declaration (`DeclOrigin.DOFunc`) joining the one
+                               declaration group, `MainMissing`/`MainOne`/`MainMultiple` a projection over it; the retained binding phase
 Compilable/Analysis.v          the sole fact and issue authority: per-occurrence value/application/statement/type-use
                                outcomes with blocking over one retained fact phase, the selected-nonempty-package
                                fresh-output preflight, and the one canonical issue table (cause, class, subject, root, order)
@@ -461,9 +461,9 @@ rebuilt or re-proved by a consumer — every downstream reading is a projection 
 
 Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
 cells, indexed by the exact `ProgramIndex` with an irrelevant membership proof; a `PackageRef` is a position into
-the retained package surface; a `MainDeclRef s pr` qualifies the exact `MainOccurrenceRef` (a `VTop (Syntax.Main
-body)` occurrence) through PackageIdentity, making membership in package `pr` intrinsic, and its multiplicity per
-package is `MainMissing`/`MainOne`/`MainMultiple`, independent of the ordinary declaration group keyed by `main`.
+the retained package surface; the fixed `func main()` establishes a package-scope function declaration
+(`DeclOrigin.DOFunc` over its `MainOccurrenceRef`, a `VTop (Syntax.Main body)` occurrence) in the one declaration
+group keyed by scope and spelling, and `MainMissing`/`MainOne`/`MainMultiple` is a distinguished projection over it.
 A reference from a foreign index, surface, or package is unrepresentable by type, never rejected by a check.
 There is no `List.find`/`existsb` scan or recomputed peer object in the read path.
 

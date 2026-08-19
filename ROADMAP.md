@@ -21,8 +21,8 @@ this repository defines no concrete `Machine.T` value (`ARCHITECTURE.md` §3).
 
 The `C4` static-authority cutover is **`IMPLEMENTED_NOT_ACCEPTED`** — one atomic replacement of the whole C4
 topology: the direct shallow `Index` (finite file→position→cell maps) and its position selectors, exact
-package/binding/scope identity with the fixed-spelling `func main()` carried as `Compilable.Bindings.MainDeclRef
-s pr` — a real package function establishment with `MainOne`/`MainMultiple` multiplicity — one
+package/binding/scope identity with the fixed-spelling `func main()` a package-scope function declaration in the one
+declaration group (`Bindings.DeclOrigin.DOFunc`), `MainOne`/`MainMultiple` a projection over it — one
 `Compilable.Analysis` fact and issue authority (`Facts` and `Packages` deleted) with the canonical issue table,
 the applicability + complete 5-way disposition algebra, and the selected-package preflight, projection-only
 `Report`, the sealed `C4_PUBLIC` surface (`compile` the sole source of the abstract

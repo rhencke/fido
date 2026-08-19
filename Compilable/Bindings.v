@@ -1,4 +1,4 @@
-(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and the per-package fixed main. *)
+(* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and package-scope function declarations. *)
 
 From Stdlib Require Import String List Bool Arith PeanoNat Lia Eqdep_dec PArith.
 From Fido Require Import Syntax Names Index Compilable.PackageIdentity.
@@ -37,70 +37,29 @@ Proof.
     [ intro E; injection E as <-; reflexivity | discriminate ].
 Qed.
 
-Definition is_main_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : bool :=
-  Index.is_main_view (Index.node_view r).
+(* a declaration origin: a name binder or a package-scope function declaration (fixed main today; C9 extends DOFunc) *)
+Inductive DeclOrigin {p} (idx : Index.ProgramIndex p) : Type :=
+| DOBinder : BinderRef idx -> DeclOrigin idx
+| DOFunc   : Index.MainOccurrenceRef idx -> DeclOrigin idx.
+Arguments DOBinder {p idx} _.
+Arguments DOFunc {p idx} _.
 
-(* a fixed main declaration: an Index main occurrence qualified into its exact package *)
-Record MainDeclRef {p} {idx : Index.ProgramIndex p}
-  (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type := main_decl_ref {
-  main_occ : Index.MainOccurrenceRef idx ;
-  main_pkg : PI.package_of_file s (Index.nr_file (Index.mo_node main_occ)) = pr
-}.
-Arguments main_decl_ref {p idx s pr} _ _.
-Arguments main_occ {p idx s pr} _.
-Arguments main_pkg {p idx s pr} _.
+(* the establishing source occurrence of a declaration origin: the binder token, or the function declaration *)
+Definition do_node {p} {idx : Index.ProgramIndex p} (o : DeclOrigin idx) : Index.NodeRef idx :=
+  match o with DOBinder b => binder_node b | DOFunc mo => Index.mo_node mo end.
 
-Definition main_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (m : MainDeclRef s pr) : Index.NodeRef idx := Index.mo_node (main_occ m).
-
-Lemma main_declref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (a b : MainDeclRef s pr) : main_node a = main_node b -> a = b.
-Proof.
-  destruct a as [oa Pa], b as [ob Pb]; unfold main_node; cbn; intro E.
-  assert (oa = ob) as Eo by (apply Index.mainocc_positional; exact E). subst ob.
-  f_equal; apply (UIP_dec PI.packageref_eq_dec).
-Qed.
-
-(* the fixed main spelling is fixed by the source Main constructor, so a main is never a named binder *)
-Lemma main_not_binder_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (m : MainDeclRef s pr) : forall bn, Index.node_view (main_node m) <> Index.VBindingName bn.
-Proof.
-  intros bn Heq. pose proof (Index.mo_ok (main_occ m)) as Hmo. unfold main_node in Heq.
-  rewrite Heq in Hmo. discriminate Hmo.
-Qed.
-
-(* main multiplicity, independent of any ordinary declaration group keyed by main *)
-Inductive MainStatus {p} {idx : Index.ProgramIndex p}
-  (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type :=
-| MainMissing : MainStatus s pr
-| MainOne : MainDeclRef s pr -> MainStatus s pr
-| MainMultiple : MainDeclRef s pr -> MainDeclRef s pr -> list (MainDeclRef s pr) -> MainStatus s pr.
-Arguments MainMissing {p idx s pr}.
-Arguments MainOne {p idx s pr} _.
-Arguments MainMultiple {p idx s pr} _ _ _.
-
-Definition main_status_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (st : MainStatus s pr) : list (MainDeclRef s pr) :=
-  match st with
-  | MainMissing => []
-  | MainOne m => [m]
-  | MainMultiple m1 m2 rest => m1 :: m2 :: rest
-  end.
-
+(* an object a name resolves to: a predeclared identity, or a source declaration (a binder or a function) *)
 Inductive ObjectRef {p} (idx : Index.ProgramIndex p) : Type :=
 | PredeclaredObject : Names.PredeclaredName -> ObjectRef idx
-| SourceObject      : BinderRef idx -> ObjectRef idx
-| MainObject        : Index.MainOccurrenceRef idx -> ObjectRef idx.
+| SourceObject      : DeclOrigin idx -> ObjectRef idx.
 Arguments PredeclaredObject {p idx} _.
 Arguments SourceObject {p idx} _.
-Arguments MainObject {p idx} _.
 
 Inductive ScopeId {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | PackageScope : PI.PackageRef s -> ScopeId s
 | BlockScope   : Index.BlockRef idx -> ScopeId s.
 Arguments PackageScope {p idx s} _.
 Arguments BlockScope {p idx s} _.
-
 
 (* the nearest enclosing block per node, from one ascending fold — parents first, no per-fact scan *)
 Definition nearest_block_table {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx)
@@ -147,37 +106,61 @@ Definition est_scope_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
   | _ => PackageScope pr
   end.
 
+(* the source identifier "main"; the fixed package-scope main function establishes under this ordinary name *)
+Definition main_ident : Names.OrdinaryIdentifier :=
+  Names.MakeOrdinary (Names.MakeIdentifier "main"%string eq_refl) eq_refl.
+
 Record Est {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_est {
-  est_binder : BinderRef idx ;
+  est_origin : DeclOrigin idx ;
   est_name   : Names.OrdinaryIdentifier ;
   est_scope  : ScopeId s ;
   est_vstart : nat
 }.
 Arguments mk_est {p idx s} _ _ _ _.
-Arguments est_binder {p idx s} _.
+Arguments est_origin {p idx s} _.
 Arguments est_name {p idx s} _.
 Arguments est_scope {p idx s} _.
 Arguments est_vstart {p idx s} _.
 
+(* the establishing source occurrence of an establishment: its binder token or its function declaration *)
+Definition est_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : Index.NodeRef idx :=
+  do_node (est_origin e).
+
+(* an ordinary name binder establishes its name at its scope *)
 Definition make_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
   : option (Est s) :=
   match binder_ident b with
   | Some n =>
       (match Index.node_role b as r return Index.node_role b = r -> option (Est s) with
-       | Index.RSpecName fl => fun H => Some (mk_est (binder_ref b (spec_binder b fl H)) n (est_scope_of pr nbt b) (vis_start b))
-       | Index.RShortLhs    => fun H => Some (mk_est (binder_ref b (short_binder b H)) n (est_scope_of pr nbt b) (vis_start b))
+       | Index.RSpecName fl => fun H => Some (mk_est (DOBinder (binder_ref b (spec_binder b fl H))) n (est_scope_of pr nbt b) (vis_start b))
+       | Index.RShortLhs    => fun H => Some (mk_est (DOBinder (binder_ref b (short_binder b H))) n (est_scope_of pr nbt b) (vis_start b))
        | _ => fun _ => None
        end) eq_refl
   | None => None
   end.
+
+(* a package-scope function declaration: the fixed main establishes the name main at package scope *)
+Definition make_main_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (b : Index.NodeRef idx) : option (Est s) :=
+  (match Index.is_main_view (Index.node_view b) as m
+     return Index.is_main_view (Index.node_view b) = m -> option (Est s) with
+   | true => fun H => Some (mk_est (DOFunc (Index.mkMainOccurrenceRef b H)) main_ident (PackageScope pr) (Index.nr_pos b))
+   | false => fun _ => None
+   end) eq_refl.
+
+(* one establishment per source occurrence: a function declaration, else a name binder, else none *)
+Definition est_of_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
+  : option (Est s) :=
+  match make_main_est pr b with Some e => Some e | None => make_est pr nbt b end.
 
 (* establishments of a file in source order (ascending position); file_nodes is trie order, so iterate positions *)
 Definition ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (fr : Index.FileRef idx) : list (Est s) :=
   let nbt := nearest_block_table fr in
   flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-                       | Some b => match make_est pr nbt b with Some e => [e] | None => [] end
+                       | Some b => match est_of_node pr nbt b with Some e => [e] | None => [] end
                        | None => []
                        end)
            (seq 0 (Index.occ_count fr)).
@@ -185,88 +168,88 @@ Definition ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
 Definition all_ests {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : list (Est s) :=
   flat_map (fun pr => flat_map (ests_of_file pr) (PI.pkg_members pr)) (PI.packages s).
 
-Definition main_nodes_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) : list (Index.NodeRef idx) :=
-  filter is_main_node (flat_map Index.file_nodes (PI.pkg_members pr)).
+(* main multiplicity: a distinguished projection over the package-scope function declarations named main *)
+Inductive MainStatus {p} {idx : Index.ProgramIndex p}
+  (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type :=
+| MainMissing : MainStatus s pr
+| MainOne : Est s -> MainStatus s pr
+| MainMultiple : Est s -> Est s -> list (Est s) -> MainStatus s pr.
+Arguments MainMissing {p idx s pr}.
+Arguments MainOne {p idx s pr} _.
+Arguments MainMultiple {p idx s pr} _ _ _.
 
-Lemma main_nodes_of_ok {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) : forall r, In r (main_nodes_of pr) ->
-  is_main_node r = true /\ PI.package_of_file s (Index.nr_file r) = pr.
-Proof.
-  intros r Hin. unfold main_nodes_of in Hin. apply filter_In in Hin. destruct Hin as [Hin Hmain].
-  split; [exact Hmain|]. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hrfn]].
-  rewrite (Index.file_nodes_file fr r Hrfn). apply PI.package_of_file_member; exact Hfr.
-Qed.
-
-Fixpoint build_main_decls {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (nodes : list (Index.NodeRef idx))
-  : (forall r, In r nodes -> is_main_node r = true /\ PI.package_of_file s (Index.nr_file r) = pr)
-    -> list (MainDeclRef s pr) :=
-  match nodes with
-  | [] => fun _ => []
-  | r :: rest => fun H =>
-      main_decl_ref (Index.mkMainOccurrenceRef r (proj1 (H r (or_introl eq_refl)))) (proj2 (H r (or_introl eq_refl)))
-      :: build_main_decls pr rest (fun r' Hr' => H r' (or_intror Hr'))
+Definition main_status_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
+  (st : MainStatus s pr) : list (Est s) :=
+  match st with
+  | MainMissing => []
+  | MainOne m => [m]
+  | MainMultiple m1 m2 rest => m1 :: m2 :: rest
   end.
 
-Lemma build_main_decls_nodes {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) : forall nodes H, map main_node (build_main_decls pr nodes H) = nodes.
-Proof. induction nodes as [|r rest IH]; intro H; [reflexivity | cbn; f_equal; apply IH]. Qed.
+(* a function-declaration establishment (DOFunc); the fixed main is its only current inhabitant *)
+Definition is_func_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
+  match est_origin e with DOFunc _ => true | _ => false end.
 
-Definition main_decls_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) : list (MainDeclRef s pr) :=
-  build_main_decls pr (main_nodes_of pr) (main_nodes_of_ok pr).
+(* the package-scope function declarations named main in one package, in establishment order *)
+Definition main_ests_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ests : list (Est s)) (pr : PI.PackageRef s) : list (Est s) :=
+  filter (fun e => andb (is_func_est e)
+                        (andb (Names.ordinary_equalb (est_name e) main_ident)
+                              (match est_scope e with PackageScope q => PI.packageref_eqb q pr | _ => false end)))
+         ests.
 
-Definition main_status_from {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (decls : list (MainDeclRef s pr)) : MainStatus s pr :=
-  match decls with
+Definition main_status_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ests : list (Est s)) (pr : PI.PackageRef s) : MainStatus s pr :=
+  match main_ests_of ests pr with
   | [] => MainMissing
   | m :: nil => MainOne m
   | m1 :: m2 :: rest => MainMultiple m1 m2 rest
   end.
 
-Lemma main_status_decls_from {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {pr : PI.PackageRef s}
-  (decls : list (MainDeclRef s pr)) : main_status_decls (main_status_from decls) = decls.
-Proof. destruct decls as [|m1 [|m2 rest]]; reflexivity. Qed.
+Lemma main_status_ests_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ests : list (Est s)) (pr : PI.PackageRef s) :
+  main_status_ests (main_status_of ests pr) = main_ests_of ests pr.
+Proof. unfold main_status_of; destruct (main_ests_of ests pr) as [|m1 [|m2 rest]]; reflexivity. Qed.
 
-Definition main_status_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) : MainStatus s pr := main_status_from (main_decls_of pr).
-
-(* the retained binding phase, sealed to its one builder *)
+(* the retained binding phase, sealed to its one builder; main status is a projection over the establishments *)
 
 Record RawBP {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_rawbp {
-  rbp_ests : list (Est s) ;
-  rbp_main : forall pr : PI.PackageRef s, MainStatus s pr
+  rbp_ests : list (Est s)
 }.
-Arguments mk_rawbp {p idx s} _ _.
+Arguments mk_rawbp {p idx s} _.
 Arguments rbp_ests {p idx s} _.
-Arguments rbp_main {p idx s} _ _.
 
 Definition raw_bindings {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : RawBP s :=
-  mk_rawbp (all_ests s) (fun pr => main_status_of pr).
+  mk_rawbp (all_ests s).
 Definition BindingPhase {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
   { b : RawBP s | b = raw_bindings s }.
 Definition bindings {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : BindingPhase s :=
   exist _ (raw_bindings s) eq_refl.
 Definition bp_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (bp : BindingPhase s) : list (Est s) :=
   rbp_ests (proj1_sig bp).
-Definition package_main {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (pr : PI.PackageRef s) : MainStatus s pr := rbp_main (proj1_sig bp) pr.
 
+Definition package_main {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) : MainStatus s pr := main_status_of (bp_ests bp) pr.
+
+(* the main status is exactly the projection of the retained establishments over that package *)
 Theorem package_main_sound {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (pr : PI.PackageRef s) :
-  map main_node (main_status_decls (package_main bp pr))
-  = filter is_main_node (flat_map Index.file_nodes (PI.pkg_members pr)).
-Proof.
-  unfold package_main. rewrite (proj2_sig bp). cbn [rbp_main raw_bindings].
-  unfold main_status_of. rewrite main_status_decls_from. unfold main_decls_of.
-  rewrite build_main_decls_nodes. reflexivity.
-Qed.
+  main_status_ests (package_main bp pr) = main_ests_of (bp_ests bp) pr.
+Proof. unfold package_main. apply main_status_ests_of. Qed.
 
+(* every main declaration in the status is a package-scope function declaration of that package *)
 Lemma main_is_package_local {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (pr : PI.PackageRef s) :
-  forall m, In m (main_status_decls (package_main bp pr)) -> PI.package_of_file s (Index.nr_file (main_node m)) = pr.
-Proof. intros m _; exact (main_pkg m). Qed.
+  forall m, In m (main_status_ests (package_main bp pr)) ->
+    is_func_est m = true /\ est_scope m = PackageScope pr.
+Proof.
+  intros m Hin. rewrite package_main_sound in Hin. unfold main_ests_of in Hin.
+  apply filter_In in Hin. destruct Hin as [_ Hcond].
+  apply andb_prop in Hcond as [Hf Hrest]. apply andb_prop in Hrest as [_ Hsc].
+  split; [exact Hf|].
+  destruct (est_scope m) as [q|] eqn:E; [| discriminate Hsc].
+  apply PI.packageref_eqb_spec in Hsc; subst q; reflexivity.
+Qed.
 
 Definition is_block_scoped {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
   match est_scope e with BlockScope _ => true | PackageScope _ => false end.
@@ -305,74 +288,6 @@ Proof.
   destruct l as [|y ys]; [ reflexivity | cbn; discriminate ].
 Qed.
 
-Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
-| RBound   : ObjectRef idx -> Resolved bp use n
-| RUnbound : Resolved bp use n.
-Arguments RBound {p idx s bp use n} _.
-Arguments RUnbound {p idx s bp use n}.
-
-(* the source identifier "main"; the fixed package-scope main function resolves under this ordinary name *)
-Definition main_ident : Names.OrdinaryIdentifier :=
-  Names.MakeOrdinary (Names.MakeIdentifier "main"%string eq_refl) eq_refl.
-
-(* the resolvable main object of a package: its first main occurrence, or none when the package has no main *)
-Definition package_main_occ {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (pr : PI.PackageRef s) : option (Index.MainOccurrenceRef idx) :=
-  match package_main bp pr with
-  | MainMissing => None
-  | MainOne m => Some (main_occ m)
-  | MainMultiple m _ _ => Some (main_occ m)
-  end.
-
-(* ordinary resolution: nearest source binding (a local main shadows), then the package main, then predeclared *)
-Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Resolved bp use n :=
-  match pick_best (source_cands bp use n) with
-  | Some e => RBound (SourceObject (est_binder e))
-  | None =>
-      match (if Names.ordinary_equalb n main_ident
-             then package_main_occ bp (PI.package_of_file s (Index.nr_file use)) else None) with
-      | Some m => RBound (MainObject m)
-      | None =>
-          match Names.classify_predeclared (Names.ordinary_spelling n) with
-          | Some pn => RBound (PredeclaredObject pn)
-          | None => RUnbound
-          end
-      end
-  end.
-
-Definition resolved_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {bp : BindingPhase s} {use : Index.NodeRef idx} {n : Names.OrdinaryIdentifier}
-  (_ : Resolved bp use n) : Index.NodeRef idx * Names.OrdinaryIdentifier := (use, n).
-
-Lemma resolve_retains_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
-  resolved_query (resolve bp use n) = (use, n).
-Proof. reflexivity. Qed.
-
-Theorem resolve_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
-  match resolve bp use n with
-  | RBound (SourceObject b) => exists e, In e (source_cands bp use n) /\ est_binder e = b
-  | RBound (MainObject m) =>
-      source_cands bp use n = [] /\ Names.ordinary_equalb n main_ident = true
-      /\ package_main_occ bp (PI.package_of_file s (Index.nr_file use)) = Some m
-  | RBound (PredeclaredObject pn) =>
-      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = Some pn
-  | RUnbound =>
-      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = None
-  end.
-Proof.
-  unfold resolve. destruct (pick_best (source_cands bp use n)) as [e|] eqn:E.
-  - exists e; split; [ apply pick_best_in; exact E | reflexivity ].
-  - pose proof (pick_best_none _ E) as Hnil.
-    destruct (if Names.ordinary_equalb n main_ident
-              then package_main_occ bp (PI.package_of_file s (Index.nr_file use)) else None) as [m|] eqn:Em.
-    + destruct (Names.ordinary_equalb n main_ident) eqn:Eq; [ split; [exact Hnil | split; [reflexivity | exact Em]] | discriminate Em ].
-    + destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
-Qed.
-
 (* declaration groups: the establishments sharing one exact scope and spelling *)
 
 Definition noderef_eqb {p} {idx : Index.ProgramIndex p} (a b : Index.NodeRef idx) : bool :=
@@ -408,9 +323,9 @@ Qed.
 Definition same_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
   andb (scope_eqb (est_scope a) (est_scope b)) (Names.ordinary_equalb (est_name a) (est_name b)).
 
-(* two establishments are the same establishment iff they share their exact binder occurrence *)
+(* two establishments are the same establishment iff they share their exact source occurrence *)
 Definition est_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
-  noderef_eqb (binder_node (est_binder a)) (binder_node (est_binder b)).
+  noderef_eqb (est_node a) (est_node b).
 
 (* the ordered members of e's group: every establishment sharing e's scope and spelling, in bp_ests source order *)
 Definition group_members {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -430,6 +345,72 @@ Definition group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
   | m :: nil => Some (GUnique m)
   | a :: b :: rest => Some (GRedeclared a b rest)
   end.
+
+(* a declaration establishment: a const/var/type spec name or a function declaration; short-lhs is excluded *)
+Definition is_decl_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
+  match est_origin e with
+  | DOBinder b => match Index.node_role (binder_node b) with Index.RSpecName _ => true | _ => false end
+  | DOFunc _ => true
+  end.
+
+(* the declaration members of e's group; a redeclared declaration group is an ambiguous name *)
+Definition decl_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (e : Est s) : list (Est s) := filter is_decl_est (group_members bp e).
+Definition decl_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (e : Est s) : bool :=
+  andb (is_decl_est e)
+       (match group_status (decl_group bp e) with Some (GRedeclared _ _ _) => true | _ => false end).
+
+Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
+| RBound      : ObjectRef idx -> Resolved bp use n
+| RRedeclared : Resolved bp use n
+| RUnbound    : Resolved bp use n.
+Arguments RBound {p idx s bp use n} _.
+Arguments RRedeclared {p idx s bp use n}.
+Arguments RUnbound {p idx s bp use n}.
+
+(* resolution: one group authority; nearest binding shadows; a redeclared group is ambiguous; main no special route *)
+Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Resolved bp use n :=
+  match pick_best (source_cands bp use n) with
+  | Some e => if decl_ambiguous bp e then RRedeclared else RBound (SourceObject (est_origin e))
+  | None =>
+      match Names.classify_predeclared (Names.ordinary_spelling n) with
+      | Some pn => RBound (PredeclaredObject pn)
+      | None => RUnbound
+      end
+  end.
+
+Definition resolved_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {use : Index.NodeRef idx} {n : Names.OrdinaryIdentifier}
+  (_ : Resolved bp use n) : Index.NodeRef idx * Names.OrdinaryIdentifier := (use, n).
+
+Lemma resolve_retains_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  resolved_query (resolve bp use n) = (use, n).
+Proof. reflexivity. Qed.
+
+Theorem resolve_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  match resolve bp use n with
+  | RBound (SourceObject o) =>
+      exists e, In e (source_cands bp use n) /\ est_origin e = o /\ decl_ambiguous bp e = false
+  | RBound (PredeclaredObject pn) =>
+      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = Some pn
+  | RRedeclared =>
+      exists e, pick_best (source_cands bp use n) = Some e /\ decl_ambiguous bp e = true
+  | RUnbound =>
+      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = None
+  end.
+Proof.
+  unfold resolve. destruct (pick_best (source_cands bp use n)) as [e|] eqn:E.
+  - destruct (decl_ambiguous bp e) eqn:Ea.
+    + exists e; split; [ reflexivity | exact Ea ].
+    + exists e; split; [ apply pick_best_in; exact E | split; [ reflexivity | exact Ea ] ].
+  - pose proof (pick_best_none _ E) as Hnil.
+    destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
+Qed.
 
 (* the immediately-preceding sibling spec of a declaration spec, in source order — its inheritance predecessor *)
 Definition spec_predecessor {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
@@ -494,7 +475,7 @@ Definition short_first_dup {p} {idx : Index.ProgramIndex p}
 (* the establishment carried by a binder occurrence, when it establishes one *)
 Definition est_of_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (b : Index.NodeRef idx) : option (Est s) :=
-  find (fun e => noderef_eqb (binder_node (est_binder e)) b) (bp_ests bp).
+  find (fun e => noderef_eqb (est_node e) b) (bp_ests bp).
 
 (* the exact ordered left-side status of one short-declaration name *)
 Inductive ShortLhsStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
@@ -520,10 +501,10 @@ Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
           match est_of_binder bp b with
           | Some eb =>
               match find (fun e => andb (negb (est_eqb e eb))
-                                        (Nat.ltb (Index.nr_pos (binder_node (est_binder e))) (Index.nr_pos b)))
+                                        (Nat.ltb (Index.nr_pos (est_node e)) (Index.nr_pos b)))
                          (group_members bp eb) with
               | Some prior =>
-                  if is_variable_binder (binder_node (est_binder prior))
+                  if is_variable_binder (est_node prior)
                   then ShortExistingVariable prior else ShortExistingNonVariable prior
               | None => ShortNew eb
               end

@@ -164,3 +164,32 @@ Proof. vm_compute; reflexivity. Qed.
 
 (* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
 Definition o_const_inherited : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ; Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "y"))) Syntax.InheritedConstInit ]) ]). Proof. outside. Qed.
+
+(* Rob's four fixed-main / declaration-group combinations: main participates in the ONE (scope, spelling) group *)
+Definition prog_tops (tops : list Syntax.TopLevelDecl) : Syntax.Program := singleton_program rmod rmain tops.
+Definition main0 : Syntax.TopLevelDecl := Syntax.Main (Syntax.MakeBlock []).
+Definition tconstmain : Syntax.TopLevelDecl :=
+  Syntax.TopDeclaration (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "main"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]).
+
+(* (a) one fixed main, no competitor -> unique group + MainOne -> Compiled *)
+Definition c_main_only : Compilable.compiles (prog_tops [ main0 ]). Proof. compileok. Qed.
+(* (b) a fixed main plus a const main: a redeclared group, so main is an ordinary group member and it Rejects *)
+Definition r_main_const_redecl : Compilable.rejects (prog_tops [ tconstmain ; main0 ]). Proof. reject. Qed.
+Definition r_main_const_redecl_payload :
+  (match dsites (prog_tops [ tconstmain ; main0 ]) with
+   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "main")
+   | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* (c) multiple fixed mains: a redeclared group through the one authority, no first-main pick, so Rejected *)
+Definition r_main_multiple : Compilable.rejects (prog_tops [ main0 ; main0 ]). Proof. reject. Qed.
+Definition r_main_multiple_payload :
+  (match dsites (prog_tops [ main0 ; main0 ]) with
+   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "main")
+   | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* (d) no fixed main, an ordinary const main: MainMissing, so the missing-entry diagnostic Rejects *)
+Definition r_main_missing : Compilable.rejects (prog_tops [ tconstmain ]). Proof. reject. Qed.
+Definition r_main_missing_payload :
+  (match dsites (prog_tops [ tconstmain ]) with
+   | [ AN.AtPackage _ ] => true | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.

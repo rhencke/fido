@@ -417,23 +417,18 @@ typefail neg_out_of_range_selector "an occurrence with a forged membership proof
   'Definition forged (p : Syntax.Program) (fr : IX.FileRef (IX.index_program p)) : IX.NodeRef (IX.index_program p) := IX.mkNodeRef fr (Pos.of_succ_nat 999) eq_refl.'
 typefail neg_foreign_surface_package "a package reference from a foreign surface" \
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sp) : PI.PackageRef sq := pr.'
-# — package-main reference (R2): fixed Syntax.Main, MainDeclRef is the SOLE public semantic carrier —
-typefail neg_non_main_decl_ref "a MainDeclRef from a node not proved to be a main occurrence" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) (Hpkg : PI.package_of_file s (IX.nr_file r) = pr) : BN.MainDeclRef s pr := BN.main_decl_ref (IX.mkMainOccurrenceRef r eq_refl) Hpkg.'
-typefail neg_foreign_main_package "a MainDeclRef reassigned to a foreign package of the same surface" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (prA prB : PI.PackageRef s) (m : BN.MainDeclRef s prA) : BN.MainDeclRef s prB := m.'
-typefail neg_foreign_main_surface "a MainDeclRef moved to a foreign surface" \
-  'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (prp : PI.PackageRef sp) (prq : PI.PackageRef sq) (m : BN.MainDeclRef sp prp) : BN.MainDeclRef sq prq := m.'
-typefail neg_moved_main_decl_ref "a main node moved across its index" \
-  'Definition forged (p q : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : IX.NodeRef (IX.index_program q) := BN.main_node m.'
-typefail neg_raw_node_as_main_decl "a raw NodeRef accepted directly by MainOne" \
+# — package-main (R2): fixed Syntax.Main establishes as a package-scope function declaration (DOFunc) in the ONE
+#   declaration-group authority; MainStatus is a projection over those exact Est declarations, not a raw carrier —
+typefail neg_func_origin_needs_main "a function-declaration origin from a node not proved to be a main occurrence" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.DeclOrigin (IX.index_program p) := BN.DOFunc (IX.mkMainOccurrenceRef r eq_refl).'
+typefail neg_raw_node_as_main_status "a raw NodeRef accepted directly by MainOne" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainOne r.'
-typefail neg_binder_as_main_decl "a BinderRef accepted directly by MainOne" \
+typefail neg_binder_as_main_status "a BinderRef accepted directly by MainOne" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (b : BN.BinderRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainOne b.'
-typefail neg_main_decl_as_binder "a BinderRef built from a main node" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : BN.BinderRef (IX.index_program p) := BN.binder_ref (BN.main_node m) eq_refl.'
-typefail neg_main_decl_as_source_object "a SourceObject built from a MainDeclRef" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (m : BN.MainDeclRef s pr) : BN.ObjectRef (IX.index_program p) := BN.SourceObject m.'
+typefail neg_main_est_foreign_surface "an establishment from a foreign surface accepted by MainOne" \
+  'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sq) (e : BN.Est sp) : BN.MainStatus sq pr := BN.MainOne e.'
+typefail neg_raw_node_as_source_object "a SourceObject built directly from a raw NodeRef, bypassing a proven origin" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.ObjectRef (IX.index_program p) := BN.SourceObject r.'
 # — report / analysis (R3/R4): diagnostics carry a producing proof, no self-block, no nullary requirement —
 typefail neg_free_report_record "a Diagnostic without its producing proof" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase s) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (site : AN.DiagSite s) : AN.Diagnostic fp pf := AN.diag_at fp pf site eq_refl.'
@@ -489,18 +484,24 @@ Definition emitted (p : Syntax.Program) (cp : Compilable.Program p) : string * l
 Definition bytes_evidence_independent (p : Syntax.Program) (cp : Compilable.Program p)
   : Emit.transport (ev_image p cp) = Emit.transport (base_image p cp)
   := Emit.transport_evidence_independent p cp (ExampleEv p) tt Emit.CompiledOnly tt (ev_image p cp) (base_image p cp).
-(* the public main multiplicity and canonical group issue over package-indexed MainDeclRef payloads *)
+(* main multiplicity is a distinguished projection over the package-scope function-declaration establishments;
+   the fixed main participates in the ONE declaration-group authority, so its redeclaration is OrdinaryRedeclared,
+   and it resolves as a SourceObject over its DOFunc origin — no main-specific carrier *)
 Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m : BN.MainDeclRef s pr) : BN.MainStatus s pr := BN.MainOne m.
+  (e : BN.Est s) : BN.MainStatus s pr := BN.MainOne e.
 Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : BN.MainStatus s pr := BN.MainMultiple m1 m2 rest.
-Definition mk_pkg_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
-  (m1 m2 : BN.MainDeclRef s pr) (rest : list (BN.MainDeclRef s pr)) : AN.IssueCause s := AN.PkgMainRedeclared pr m1 m2 rest.
+  (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : BN.MainStatus s pr := BN.MainMultiple e1 e2 rest.
+Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+  (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : AN.IssueCause s := AN.OrdinaryRedeclared e1 e2 rest.
+Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+  (bp : BN.BindingPhase s) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
+Definition main_as_object (p : Syntax.Program) (mo : Index.MainOccurrenceRef (Index.index_program p))
+  : BN.ObjectRef (Index.index_program p) := BN.SourceObject (BN.DOFunc mo).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple/PkgMainRedeclared over MainDeclRef payloads — all reachable (as required)"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, OrdinaryRedeclared for a redeclared main group, and main as a SourceObject(DOFunc) — all reachable (as required)"
 echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image) + positive control"
 SH
 

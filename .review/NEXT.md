@@ -11,9 +11,10 @@ The C4 static-authority subsystem is rebuilt as an exact-evidence DAG rooted at 
   semantic-major stripping).
 - **Bindings** is the structural binding foundation: establishments, scopes, ordinary resolution, declaration
   groups keyed by exact scope and spelling with unique/redeclared status, const-inheritance and short-declaration
-  facts, and the fixed `func main()` as a real package-scope function object resolvable through ordinary scope
-  (recursive/cross-file, with local `main` shadowing) whose `MainMissing`/`MainOne`/`MainMultiple` status is
-  distinct from ordinary group status.
+  facts, and the fixed `func main()` as a real package-scope function declaration that joins the one declaration
+  group keyed by scope and spelling (a redeclared `main` group is `OrdinaryRedeclared`) and resolves through
+  ordinary scope (recursive/cross-file, with local `main` shadowing), `MainMissing`/`MainOne`/`MainMultiple` a
+  distinguished projection over those declarations for executable-entry multiplicity.
 - **Analysis** is the sole fact and issue authority: one applicability-first fact per applicable family (no
   rectangular default successes), the canonical issue table with coexistence (no diagnostic-suppresses-boundary
   rule), ordinary redeclaration, the selected-package fresh-output preflight, and the complete disposition algebra.

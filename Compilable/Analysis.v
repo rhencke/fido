@@ -41,11 +41,12 @@ Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqComplexType : Index.NodeRef idx -> Requirement idx
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
 | ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
+| ReqAmbiguousName : Index.NodeRef idx -> Requirement idx
 | ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _.
+Arguments ReqMainUse {p idx} _. Arguments ReqAmbiguousName {p idx} _.
 
 Inductive AppResult : Type :=
 | AppValue : TR.ResolvedConstant -> AppResult
@@ -267,8 +268,9 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           | PMInvalidId => VInvalid (InvalidIdentity pn)
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
           end
-      | BN.RBound (BN.SourceObject b) => VUnmet (ReqValueMeaning b)
-      | BN.RBound (BN.MainObject m) => if is_app_head r then VNonconst else VUnmet (ReqMainUse m)
+      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning b)
+      | BN.RBound (BN.SourceObject (BN.DOFunc m)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse m)
+      | BN.RRedeclared => VUnmet (ReqAmbiguousName r)
       end
   | Index.VLiteral _ => fun _ =>
       match mconst ctab r with
@@ -352,8 +354,9 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | PMInvalidId => AOK AppBuiltinStmt
               | PMUnmodelled => AUnmet (ReqApplication pn (app_args r Hv))
               end
-          | BN.RBound (BN.SourceObject b) => AInvalid (NotCallable (BN.SourceObject b))
-          | BN.RBound (BN.MainObject m) => AUnmet (ReqMainUse m)
+          | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
+          | BN.RBound (BN.SourceObject (BN.DOFunc m)) => AUnmet (ReqMainUse m)
+          | BN.RRedeclared => AUnmet (ReqAmbiguousName r)
           | BN.RUnbound => AOK AppBuiltinStmt
           end
       | _ => AInvalid (NotCallableExpr hd)
@@ -413,8 +416,9 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
                  then TUnmet (ReqTypeMeaning (BN.PredeclaredObject pn))
                  else TInvalid (NotAType (BN.PredeclaredObject pn))
           end
-      | BN.RBound (BN.SourceObject b) => TUnmet (ReqTypeMeaning (BN.SourceObject b))
-      | BN.RBound (BN.MainObject m) => TInvalid (NotAType (BN.MainObject m))
+      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
+      | BN.RBound (BN.SourceObject (BN.DOFunc m)) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
+      | BN.RRedeclared => TUnmet (ReqAmbiguousName r)
       | BN.RUnbound => TInvalid (UnresolvedName n r)
       end
   | _ => TOK TR.BoolForm
@@ -558,13 +562,10 @@ Arguments RootPackage {p idx s} _.
 Inductive IssueCause {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | OccCause : Cause idx -> IssueCause s
 | PkgMissingMain : BN.PI.PackageRef s -> IssueCause s
-| PkgMainRedeclared : forall pr : BN.PI.PackageRef s,
-    BN.MainDeclRef s pr -> BN.MainDeclRef s pr -> list (BN.MainDeclRef s pr) -> IssueCause s
 | PkgOutputCollision : BN.PI.PackageRef s -> IssueCause s
 | OrdinaryRedeclared : BN.Est s -> BN.Est s -> list (BN.Est s) -> IssueCause s.
 Arguments OccCause {p idx s} _.
 Arguments PkgMissingMain {p idx s} _.
-Arguments PkgMainRedeclared {p idx s} _ _ _ _.
 Arguments PkgOutputCollision {p idx s} _.
 Arguments OrdinaryRedeclared {p idx s} _ _ _.
 
@@ -587,20 +588,18 @@ Definition occ_diag (o : OccFact idx) : bool :=
 Definition occ_bound (o : OccFact idx) : bool :=
   match o with OFValue _ ov => v_unmet ov | OFApp _ oa => a_unmet oa | OFStmt _ os => s_unmet os | OFType _ ot => t_unmet ot end.
 
+(* missing executable entry (no fixed main); multiple mains are a declaration-group redeclaration, not this issue *)
 Definition pkg_main_issue (pr : BN.PI.PackageRef s) : bool :=
-  match BN.package_main bp pr with BN.MainMissing => true | BN.MainMultiple _ _ _ => true | _ => false end.
+  match BN.package_main bp pr with BN.MainMissing => true | _ => false end.
 Definition collision_list : list (BN.PI.PackageRef s) :=
   match preflight pf with FreshOk => [] | FreshCollision pr _ => [pr] end.
 Definition pkg_collides (pr : BN.PI.PackageRef s) : bool := existsb (BN.PI.packageref_eqb pr) collision_list.
 
-(* ordinary redeclaration: 2+ const/var/type spec ests share one scope and spelling (short repeats and main excluded) *)
-Definition is_spec_est (e : BN.Est s) : bool :=
-  match Index.node_role (BN.binder_node (BN.est_binder e)) with Index.RSpecName _ => true | _ => false end.
-Definition spec_group (e : BN.Est s) : list (BN.Est s) := filter is_spec_est (BN.group_members bp e).
+(* redeclaration: 2+ decl ests (spec or func) share one scope+spelling; short-lhs excluded, main included *)
 Definition group_redeclared (e : BN.Est s) : bool :=
-  andb (is_spec_est e)
-    (andb (match BN.group_status (spec_group e) with Some (BN.GRedeclared _ _ _) => true | _ => false end)
-          (match spec_group e with m :: _ => BN.est_eqb m e | [] => false end)).
+  andb (BN.is_decl_est e)
+    (andb (match BN.group_status (BN.decl_group bp e) with Some (BN.GRedeclared _ _ _) => true | _ => false end)
+          (match BN.decl_group bp e with m :: _ => BN.est_eqb m e | [] => false end)).
 
 Definition produces_diag (site : DiagSite s) : bool :=
   let _ := fp in
@@ -633,11 +632,11 @@ Proof.
   - destruct ot; cbn in Hb; solve [ discriminate Hb | assumption ].
 Defined.
 
+(* an AtPackage diagnostic is a missing-main entry (no fixed main), else a fresh-output collision *)
 Definition pkg_cause (pr : BN.PI.PackageRef s) : IssueCause s :=
   match BN.package_main bp pr with
   | BN.MainMissing => PkgMissingMain pr
-  | BN.MainMultiple m1 m2 rest => PkgMainRedeclared pr m1 m2 rest
-  | BN.MainOne _ => PkgOutputCollision pr
+  | _ => PkgOutputCollision pr
   end.
 
 (* the exact redeclared spec establishments of a group; the produces proof discharges the unique/none cases *)
@@ -645,7 +644,7 @@ Definition group_cause (e : BN.Est s) (H : group_redeclared e = true) : IssueCau
 Proof.
   unfold group_redeclared in H.
   apply andb_prop in H as [_ H]; apply andb_prop in H as [Hstat _].
-  destruct (BN.group_status (spec_group e)) as [gs|] eqn:E; [| discriminate Hstat].
+  destruct (BN.group_status (BN.decl_group bp e)) as [gs|] eqn:E; [| discriminate Hstat].
   destruct gs as [m | a b rest]; [ discriminate Hstat | exact (OrdinaryRedeclared a b rest) ].
 Defined.
 
@@ -661,18 +660,14 @@ Definition occ_related (o : OccFact idx) : list (Index.NodeRef idx) :=
 Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) :=
   match diag_site d with
   | AtOcc o => occ_related o
-  | AtPackage pr =>
-      match BN.package_main bp pr with
-      | BN.MainMultiple m1 m2 rest => map BN.main_node (m1 :: m2 :: rest)
-      | _ => []
-      end
-  | AtGroup e => map (fun m => BN.binder_node (BN.est_binder m)) (spec_group e)
+  | AtPackage _ => []
+  | AtGroup e => map BN.est_node (BN.decl_group bp e)
   end.
 Definition diag_root (d : Diagnostic) : IssueRoot s :=
   match diag_site d with
   | AtOcc o => RootNode (of_node o)
   | AtPackage pr => RootPackage pr
-  | AtGroup e => RootNode (BN.binder_node (BN.est_binder e))
+  | AtGroup e => RootNode (BN.est_node e)
   end.
 
 Definition bound_req (b : Boundary) : Requirement idx := occ_req (bound_fact b) (bound_ok b).
