@@ -7,12 +7,12 @@ governs. Read it before any structural change.
 
 ## 1. Goal and closed universe
 
-Fido emits Go that has been proved compile-admissible and safe **before** any bytes exist. An untrusted
-proposer may write a program and arbitrary supporting lemmas; no Go is emitted unless Rocq first proves the
-whole program admissible.
+Fido emits Go that has been proved compile-admissible **before** any bytes exist. An untrusted proposer may
+write a program and arbitrary supporting lemmas; no Go is emitted unless Rocq first proves the whole program
+admissible. Safety is a future opt-in evidence layer (C15), never a precondition of emission.
 
-There is **one** program representation. The AST *is* the IR. `Admissible` and `Property` are evidence and
-facts over that one program, never new trees.
+There is **one** program representation. The AST *is* the IR. `Admissible` and the exact `Analysis.Result` it
+reads are evidence and facts over that one program, never new trees.
 
 ```text
                 ┌ Compilable.compile → Program ┐   compile is the sole Go static verdict; a compiled Program
@@ -107,7 +107,8 @@ duplicate carrier, compatibility facade, callback registry or reconstructed prov
 the same single owner on both sides of the cut. A circular dependency is not an obstacle to route around; it
 means the semantic cut is wrong, and it returns to review.
 
-C6 decomposes `Compilable` on exactly this rule:
+The C4 evidence-DAG re-architecture decomposes `Compilable` on exactly this rule; C6's remaining static
+semantics consume these exact projections rather than rebuild them:
 
 ```text
 Compilable/TypeResolution.v    the permanent type-form layer (`TypeForm`, constants, conversion forms) — form, never identity
@@ -127,7 +128,7 @@ Compilable.v                   the sole composer and sealed `C4_PUBLIC` surface:
 
 TypeResolution and PackageIdentity precede Bindings; Bindings precedes Analysis; Analysis precedes Report;
 Report precedes `Compilable.v`. No child imports `Compilable.v`. Further C6 children (package dependency order,
-runtime) stay prose-only and frozen until this milestone is accepted.
+runtime) stay prose-only and frozen until this candidate is accepted.
 
 `Compilable.Analysis` owns the resolution facts and issues: the name-resolution meanings and the resolver over the
 retained index and the once-gathered establishers (whose gathering already fixes the declare-then-use order a short
@@ -404,19 +405,19 @@ acceptance — not a subset filter, and a declarative characterization that mint
 the retained phase's reports are both empty:
 
 ```text
-Admissible p := all_diags p = [] /\ all_boundaries p = []
+Admissible c := diagnostics c = [] /\ boundaries c = []
 ```
 
 `Compilable.diagnostics` aggregates the fresh-build preflight, package-rule and per-occurrence diagnostics;
 `Compilable.boundaries` aggregates the out-of-scope boundaries — both are `Compilable.Report` projections of the
-one retained fact and package-fact phase. Files group by parent directory into packages; one invalid package
+one retained `Analysis.Result`, over its fact phase and package-fact phase. Files group by parent directory into packages; one invalid package
 rejects the whole program, so acceptance is all-or-nothing. The preflight is cmd/go's default-**output** rule:
 a sole main package's default executable name must not collide with an existing root directory; zero or
 two-or-more packages write no default output, and the empty program is accepted.
 
-The private composer `elaborate` (inside `Module Sealed`, never a public route) builds one retained `Compilation` —
-the intrinsic index, the package surface, the binding phase, the package facts and the fact phase — computed once,
-each field a dependent projection of the one before it. The transparent `disposition p` is a direct three-way
+The private composer `elaborate` (inside `Module Sealed`, never a public route) builds one retained `Compilation`
+wrapping one `Analysis.Result` — the intrinsic index, the package surface, the binding phase, the fact phase and
+the package facts, computed once, each a dependent projection of the prior field it consumes. The transparent `disposition p` is a direct three-way
 projection of the one canonical issue table, and `Compilable.compile p : OutcomeAt p (disposition p)` is the **sole
 source** of the abstract branch objects: for a concrete `p` the tag reduces and `compile p` is directly the
 `Program p`, `Rejection p` or `Outside p` the reports name. There is no public elaborator, no `Decision` type and no
@@ -453,8 +454,9 @@ precedence above and the one-core provenance law below are unchanged.
 
 ### Retained causal objects
 
-The production analysis is one retained `Compilation`: the intrinsic index, the package surface, the binding
-phase, the package facts and the fact phase, each a field typed by the exact prior field it consumes. Nothing is
+The production analysis is one retained `Analysis.Result`, wrapped by the branch-neutral `Compilation`: the
+intrinsic index, the package surface, the binding phase, the fact phase and the package facts, each a field typed
+by the exact prior field it consumes. Nothing is
 rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
 
 Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
@@ -468,8 +470,9 @@ There is no `List.find`/`existsb` scan or recomputed peer object in the read pat
 The phase retains the whole flow as a dependent chain: the causal chain **is** the dependent types, so a foreign
 component is unrepresentable by type mismatch rather than caught by a comparison.
 
-**Equality to a recomputation is never provenance.** The retained `Compilation` holds each phase once; the index,
-facts, package facts, diagnostics and boundaries are projections of it, never a stored equality to a rerun. The
+**Equality to a recomputation is never provenance.** The retained `Compilation` holds one `Analysis.Result`, which
+holds each phase once; the index, facts, package facts, diagnostics and boundaries are projections of it, never a
+stored equality to a rerun. The
 compiled capability `Program p` is abstract — sealed behind the `C4_PUBLIC` signature whose only maker `mkProg`
 demands `Admissible` over the retained `Compilation` — so a client cannot forge one, and `compile` (via
 `compiled_program`) is the only route. The transparent `disposition` and `OutcomeAt` stay reducible, and the byte
@@ -490,7 +493,8 @@ Every load-bearing construction is **structural recursion over finite maps**, te
 fuel, gas, step budget, retry count, timeout, recursion limit, arbitrary maximum, or cached last-good result
 appears anywhere in the certified theory. The numbering pass, the per-file position map, the package surface,
 the binding phase, the fact phase, the issue table, and the report projection are each a single structural pass;
-`fact_phase_one_pass` proves the retained fact phase is exactly one row per indexed occurrence.
+`fact_phase_one_pass` proves the retained fact phase is exactly that one raw occurrence fold, never a rebuilt or
+deduplicated list.
 
 The construction cost is charged in explicit parameters, with no unit-cost strings and no assumed physical
 sharing: `F` source files, `N` indexed occurrences, `E` direct occurrence edges, `P` selected nonempty packages,

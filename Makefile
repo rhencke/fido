@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants profile perf pytools hostpython go-probe toolchain
+        diet mutants ledger profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -69,7 +69,7 @@ pytools: builder
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
 # `make perf` times the complete `make -j1 check` invocation externally.
 # The `check` marker records only completion of this recipe body.
-check: pytools hostpython diet mutants prove e2e builder
+check: pytools hostpython diet mutants ledger prove e2e builder
 	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  $(PYRUN) tools/worktree-list.py --self-test && \
 	  $(PYRUN) tools/worktree-list.py > "$$tmp/list.nul" && \
@@ -154,6 +154,14 @@ diet: pytools
 	@$(PYRUN) tools/source-diet.py --self-test
 	@$(PYRUN) tools/source-diet.py --check
 	$(call fido_mark,diet)
+
+# The raw structured-data gate: the .review ledgers are well-formed BEFORE any derived count or cross-ledger
+# claim.  Its adversarial controls run first, so a green here is one the checker can still earn.  It owns no
+# derived count and no semantic decision; the code and its gated theorems remain the sole authority.
+ledger: pytools
+	@$(PYRUN) tools/ledger-validate.py --self-test
+	@$(PYRUN) tools/ledger-validate.py
+	$(call fido_mark,ledger)
 
 # The one diagnostic timing aid.  It runs the exact `make -j1 check` path once project-cold and once hot on
 # a dedicated serial builder, records cumulative elapsed milliseconds at a few real target completions, and

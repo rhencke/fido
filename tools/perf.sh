@@ -33,14 +33,19 @@ docker buildx create --name "$BUILDER" --driver docker-container --buildkitd-con
     >/dev/null
 docker buildx inspect --bootstrap "$BUILDER" >/dev/null
 
-# Every stable toolchain authority, built ON THE MEASURED BUILDER, so no registry pull and no toolchain
-# construction can land inside a timed interval.  A fresh builder shares nothing with the developer's, so
-# priming only Python left Rocq, OCaml and Go to be acquired inside the cold run the file called excluded.
-# Cold means cold for the PROJECT, not an empty machine — and it means ONE cold pass: the Makefile forces the
-# prover root once in `prove` and the emit root once in `e2e`, and the final generated-artifact comparison
-# reuses that generated module rather than rebuilding it a second time inside the same measured interval.
-echo "fido: perf — priming stable toolchain layers on $BUILDER (outside every measured interval)"
-for stage in python-tools rocq-builder rocq-base go-base; do
+# Every stable ancestor the measured `make check` consumes, primed ON THE MEASURED BUILDER, so no registry
+# pull and no base-layer setup lands inside a timed interval.  A fresh builder shares nothing with the
+# developer's, so priming only Python left the pinned Rocq/OCaml image and Go to be pulled inside the cold run
+# the file called excluded.  These three are exactly the stable ancestors `check` builds on, all defined in
+# THIS Dockerfile: `python-tools` (policy/pytools), `rocq-base` (the pinned pre-published Rocq/OCaml toolchain
+# image `prove` and `emit` build on — pulled, not rebuilt) and `go-base` (the Go executor).  `check` never
+# builds the toolchain from source: that is `toolchain.Dockerfile` behind `make toolchain`, so `rocq-builder`
+# is not primed here — it names a stage this Dockerfile does not define and would prime nothing `check` uses.
+# Cold means cold for the PROJECT, not an empty machine, and ONE cold pass: the Makefile forces the prover
+# root once in `prove` and the emit root once in `e2e`, and the final generated-artifact comparison reuses
+# that generated module rather than rebuilding it a second time inside the same measured interval.
+echo "fido: perf — priming stable ancestors on $BUILDER (outside every measured interval): python-tools rocq-base go-base"
+for stage in python-tools rocq-base go-base; do
     docker buildx build --builder "$BUILDER" --platform "$PLATFORM" --target "$stage" . >/dev/null 2>&1
 done
 

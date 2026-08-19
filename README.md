@@ -3,8 +3,8 @@
 A Go generator that proves its output correct before the output exists.
 
 An untrusted proposer may write any program it likes. **No Go is emitted unless Rocq first proves the whole
-program compile-admissible and safe.** There is one program representation — the AST *is* the IR — and
-"compiled" and "safe" are proofs over that one program, never new trees.
+program compile-admissible.** There is one program representation — the AST *is* the IR — and being
+"compiled" is a proof over that one program, never a new tree.
 
 ## What it does today
 
