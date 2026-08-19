@@ -1210,6 +1210,272 @@ Proof.
   split; [ reflexivity | cbn [c_children]; exact Hlen ].
 Qed.
 
+(* every parent edge lands inside the block: [lo, pos) — no edge escapes below lo or forward past its child *)
+Definition pbounds (lo : nat) (occs : list (nat * Cell)) : Prop :=
+  forall pos cell, In (pos, cell) occs -> forall pp, c_parent cell = Some pp -> lo <= pp /\ pp < pos.
+
+Lemma pbounds_app : forall lo c1 c2, pbounds lo c1 -> pbounds lo c2 -> pbounds lo (c1 ++ c2).
+Proof.
+  intros lo c1 c2 H1 H2 pos cell Hin pp Hpp. apply in_app_or in Hin.
+  destruct Hin as [Hin|Hin]; [ apply (H1 pos cell Hin pp Hpp) | apply (H2 pos cell Hin pp Hpp) ].
+Qed.
+
+Lemma pbounds_weaken : forall lo hi occs, lo <= hi -> pbounds hi occs -> pbounds lo occs.
+Proof.
+  intros lo hi occs Hle H pos cell Hin pp Hpp. destruct (H pos cell Hin pp Hpp) as [Ha Hb]. split; [ lia | exact Hb ].
+Qed.
+
+Lemma pbounds_node : forall lo b rootcell subforest,
+  c_parent rootcell = Some lo -> lo < b ->
+  pbounds lo subforest -> pbounds lo ((b, rootcell) :: subforest).
+Proof.
+  intros lo b rootcell sf Hrp Hlt Hsf pos cell Hin pp Hpp. destruct Hin as [Heq|Hin].
+  - inversion Heq; subst. rewrite Hrp in Hpp. inversion Hpp; subst. split; [ lia | exact Hlt ].
+  - apply (Hsf pos cell Hin pp Hpp).
+Qed.
+
+(* the shared sublist form: with the parent below its first element, every element edge stays in [lo, pos) *)
+Lemma number_list_pbounds {A} (g : nat -> A -> list (nat * Cell) * nat) (lo : nat) :
+  (forall b x, lo < b -> pbounds lo (fst (g b x))) ->
+  (forall b x, b <= snd (g b x)) ->
+  forall b xs, lo < b -> pbounds lo (fst (fst (number_list g b xs))).
+Proof.
+  intros Hg Hmono b xs; revert b; induction xs as [|x rest IH]; intros b Hlt.
+  - cbn [number_list fst snd]. intros pos cell Hin; destruct Hin.
+  - cbn [number_list]. specialize (Hg b x Hlt). pose proof (Hmono b x) as Hm.
+    destruct (g b x) as [xc b']. cbn [fst snd] in Hg, Hm.
+    assert (Hlt' : lo < b') by lia.
+    specialize (IH b' Hlt'). destruct (number_list g b' rest) as [[rc b''] roots].
+    cbn [fst snd] in IH |- *. apply pbounds_app; [ exact Hg | exact IH ].
+Qed.
+
+Lemma number_expr_pbounds : forall e pv role b,
+  pv < b -> pbounds pv (fst (number_expr (Some pv) role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros pv role b Hlt; cbn [number_expr].
+  - cbn [number_leaf fst]. apply pbounds_node; [ reflexivity | exact Hlt | intros pos cell Hin; destruct Hin ].
+  - cbn [number_leaf fst]. apply pbounds_node; [ reflexivity | exact Hlt | intros pos cell Hin; destruct Hin ].
+  - specialize (IHe b RUnaryOperand (S b) (Nat.lt_succ_diag_r b)).
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt]. cbn [fst] in IHe |- *.
+    apply pbounds_node; [ reflexivity | exact Hlt | eapply pbounds_weaken; [ | exact IHe ]; lia ].
+  - specialize (IHe b RApplicationHead (S b) (Nat.lt_succ_diag_r b)).
+    pose proof (number_expr_span e (Some b) RApplicationHead (S b)) as [nh [_ [Hb1 _]]].
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1]. cbn [fst snd] in IHe, Hb1.
+    assert (Hda : forall es, Forall (fun a => forall pv role bb, pv < bb ->
+                     pbounds pv (fst (number_expr (Some pv) role bb a))) es ->
+      forall i0 bi, b < bi -> pbounds b (fst (fst ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es)))).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi Hbi.
+      - cbn [number_list fst snd]. intros pos cell Hin; destruct Hin.
+      - specialize (Ha b (RApplicationArg i0) bi Hbi).
+        pose proof (number_expr_span a (Some b) (RApplicationArg i0) bi) as [na [_ [Hbi' _]]].
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst snd] in Ha, Hbi'.
+        assert (Hbi2 : b < bi') by lia.
+        specialize (IHrest (S i0) bi' Hbi2).
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        cbn [fst snd] in IHrest |- *. apply pbounds_app; [ exact Ha | exact IHrest ]. }
+    assert (Hb1' : b < b1) by lia.
+    specialize (Hda args H 0 b1 Hb1').
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    cbn [fst snd] in Hda |- *.
+    apply pbounds_node; [ reflexivity | exact Hlt | ].
+    apply pbounds_app; [ eapply pbounds_weaken; [ | exact IHe ]; lia
+      | eapply pbounds_weaken; [ | exact Hda ]; lia ].
+Qed.
+
+Lemma number_typeexpr_pbounds : forall t pv role b, pv < b -> pbounds pv (fst (number_typeexpr (Some pv) role b t)).
+Proof.
+  intros t pv role b Hlt. cbn [number_typeexpr number_leaf fst].
+  apply pbounds_node; [ reflexivity | exact Hlt | intros pos cell Hin; destruct Hin ].
+Qed.
+
+Lemma number_bindingname_pbounds : forall bn pv role b, pv < b -> pbounds pv (fst (number_bindingname (Some pv) role b bn)).
+Proof.
+  intros bn pv role b Hlt. cbn [number_bindingname number_leaf fst].
+  apply pbounds_node; [ reflexivity | exact Hlt | intros pos cell Hin; destruct Hin ].
+Qed.
+
+Lemma number_opttype_pbounds : forall ot pv b, pv < b -> pbounds pv (fst (fst (number_opttype (Some pv) b ot))).
+Proof.
+  intros ot pv b Hlt. destruct ot as [t|].
+  - cbn [number_opttype].
+    pose proof (number_typeexpr_pbounds t pv RTypeUse b Hlt) as Ht.
+    destruct (number_typeexpr (Some pv) RTypeUse b t) as [tc b']. cbn [fst] in Ht |- *. exact Ht.
+  - cbn [number_opttype fst snd]. intros pos cell Hin; destruct Hin.
+Qed.
+
+Lemma number_constspec_pbounds : forall cs pv role b, pv < b -> pbounds pv (fst (number_constspec (Some pv) role b cs)).
+Proof.
+  intros cs pv role b Hlt. unfold number_constspec.
+  pose proof (number_list_pbounds (number_bindingname (Some b) (RSpecName ConstSpecF)) b
+      (fun bb x Hbb => number_bindingname_pbounds x b (RSpecName ConstSpecF) bb Hbb)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.const_names cs)) (Nat.lt_succ_diag_r b)) as Hnc.
+  pose proof (span_final_ge _ _ (number_list_span (number_bindingname (Some b) (RSpecName ConstSpecF))
+      (fun bb x => number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x)
+      (Collections.ne_to_list (Syntax.const_names cs)) (S b))) as Hb1.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hb1.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - assert (Hb1lt : b < b1) by lia.
+    pose proof (number_opttype_pbounds ot b b1 Hb1lt) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hb2.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hb2.
+    assert (Hb2lt : b < b2) by lia.
+    pose proof (number_list_pbounds (number_expr (Some b) RPlain) b
+        (fun bb x Hbb => number_expr_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals) Hb2lt) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | apply pbounds_app; [ exact Hnc | apply pbounds_app; [ exact Hoc | exact Hvc ] ] ] ].
+  - cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      rewrite app_nil_r; apply (pbounds_weaken pv b); [ lia | exact Hnc ] ].
+Qed.
+
+Lemma number_varspec_pbounds : forall vs pv role b, pv < b -> pbounds pv (fst (number_varspec (Some pv) role b vs)).
+Proof.
+  intros vs pv role b Hlt. unfold number_varspec.
+  pose proof (number_list_pbounds (number_bindingname (Some b) (RSpecName VarSpecF)) b
+      (fun bb x Hbb => number_bindingname_pbounds x b (RSpecName VarSpecF) bb Hbb)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.var_names vs)) (Nat.lt_succ_diag_r b)) as Hnc.
+  pose proof (span_final_ge _ _ (number_list_span (number_bindingname (Some b) (RSpecName VarSpecF))
+      (fun bb x => number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x)
+      (Collections.ne_to_list (Syntax.var_names vs)) (S b))) as Hb1.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hb1.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - assert (Hb1lt : b < b1) by lia.
+    pose proof (number_typeexpr_pbounds t b RTypeUse b1 Hb1lt) as Htc.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2]. cbn [fst] in Htc.
+    cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | apply pbounds_app; [ exact Hnc | exact Htc ] ] ].
+  - assert (Hb1lt : b < b1) by lia.
+    pose proof (number_opttype_pbounds ot b b1 Hb1lt) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hb2.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hb2.
+    assert (Hb2lt : b < b2) by lia.
+    pose proof (number_list_pbounds (number_expr (Some b) RPlain) b
+        (fun bb x Hbb => number_expr_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals) Hb2lt) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | apply pbounds_app; [ exact Hnc | apply pbounds_app; [ exact Hoc | exact Hvc ] ] ] ].
+Qed.
+
+Lemma number_typespec_pbounds : forall ts pv role b, pv < b -> pbounds pv (fst (number_typespec (Some pv) role b ts)).
+Proof.
+  intros ts pv role b Hlt. unfold number_typespec; destruct ts as [bn t|bn t];
+  ( pose proof (number_bindingname_pbounds bn b (RSpecName TypeSpecF) (S b) (Nat.lt_succ_diag_r b)) as Hbc;
+    pose proof (span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName TypeSpecF) (S b) bn)) as Hb1;
+    destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+    cbn [fst snd] in Hbc, Hb1;
+    assert (Hb1lt : b < b1) by lia;
+    pose proof (number_typeexpr_pbounds t b RTypeUse b1 Hb1lt) as Htc;
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin]; cbn [fst] in Htc;
+    cbn [fst]; apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | apply pbounds_app; [ exact Hbc | exact Htc ] ] ] ).
+Qed.
+
+Lemma number_decl_pbounds : forall d pv role b, pv < b -> pbounds pv (fst (number_decl (Some pv) role b d)).
+Proof.
+  intros d pv role b Hlt. unfold number_decl. destruct d as [cs|vs|ts].
+  - pose proof (number_list_pbounds (number_constspec (Some b) RPlain) b
+        (fun bb x Hbb => number_constspec_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_constspec_span (Some b) RPlain bb x)) (S b) cs (Nat.lt_succ_diag_r b)) as Hk.
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | exact Hk ] ].
+  - pose proof (number_list_pbounds (number_varspec (Some b) RPlain) b
+        (fun bb x Hbb => number_varspec_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_varspec_span (Some b) RPlain bb x)) (S b) vs (Nat.lt_succ_diag_r b)) as Hk.
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | exact Hk ] ].
+  - pose proof (number_list_pbounds (number_typespec (Some b) RPlain) b
+        (fun bb x Hbb => number_typespec_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_typespec_span (Some b) RPlain bb x)) (S b) ts (Nat.lt_succ_diag_r b)) as Hk.
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots].
+    cbn [fst snd] in Hk. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | exact Hk ] ].
+Qed.
+
+Lemma number_stmt_pbounds : forall s pv role b, pv < b -> pbounds pv (fst (number_stmt (Some pv) role b s)).
+Proof.
+  intros s pv role b Hlt. unfold number_stmt. destruct s as [e|d|names vals].
+  - pose proof (number_expr_pbounds e b RExprStatementExpr (S b) (Nat.lt_succ_diag_r b)) as Hc.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst] in Hc.
+    cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt | apply (pbounds_weaken pv b); [ lia | exact Hc ] ].
+  - pose proof (number_decl_pbounds d b RPlain (S b) (Nat.lt_succ_diag_r b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hc.
+    cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt | apply (pbounds_weaken pv b); [ lia | exact Hc ] ].
+  - pose proof (number_list_pbounds (number_bindingname (Some b) RShortLhs) b
+        (fun bb x Hbb => number_bindingname_pbounds x b RShortLhs bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) RShortLhs bb x))
+        (S b) (Collections.ne_to_list names) (Nat.lt_succ_diag_r b)) as Hnc.
+    pose proof (span_final_ge _ _ (number_list_span (number_bindingname (Some b) RShortLhs)
+        (fun bb x => number_bindingname_spans (Some b) RShortLhs bb x) (Collections.ne_to_list names) (S b))) as Hb1.
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc, Hb1. assert (Hb1lt : b < b1) by lia.
+    pose proof (number_list_pbounds (number_expr (Some b) RPlain) b
+        (fun bb x Hbb => number_expr_pbounds x b RPlain bb Hbb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b1 (Collections.ne_to_list vals) Hb1lt) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+      apply (pbounds_weaken pv b); [ lia | apply pbounds_app; [ exact Hnc | exact Hvc ] ] ].
+Qed.
+
+Lemma number_block_pbounds : forall blk pv role b, pv < b -> pbounds pv (fst (number_block (Some pv) role b blk)).
+Proof.
+  intros [stmts] pv role b Hlt. unfold number_block.
+  pose proof (number_list_pbounds (number_stmt (Some b) RPlain) b
+      (fun bb x Hbb => number_stmt_pbounds x b RPlain bb Hbb)
+      (fun bb x => span_final_ge _ _ (number_stmt_span (Some b) RPlain bb x)) (S b) stmts (Nat.lt_succ_diag_r b)) as Hk.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk. cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt |
+    apply (pbounds_weaken pv b); [ lia | exact Hk ] ].
+Qed.
+
+Lemma number_toplevel_pbounds : forall td pv role b, pv < b -> pbounds pv (fst (number_toplevel (Some pv) role b td)).
+Proof.
+  intros td pv role b Hlt. unfold number_toplevel. destruct td as [d|blk].
+  - pose proof (number_decl_pbounds d b RPlain (S b) (Nat.lt_succ_diag_r b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hc.
+    cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt | apply (pbounds_weaken pv b); [ lia | exact Hc ] ].
+  - pose proof (number_block_pbounds blk b RPlain (S b) (Nat.lt_succ_diag_r b)) as Hc.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst] in Hc.
+    cbn [fst]. apply pbounds_node; [ reflexivity | exact Hlt | apply (pbounds_weaken pv b); [ lia | exact Hc ] ].
+Qed.
+
+(* whole-file parent well-scoping: every parent edge points strictly earlier — the parent relation is acyclic *)
+Lemma number_file_pbounds : forall f, pbounds 0 (number_file f).
+Proof.
+  intro f. unfold number_file.
+  pose proof (number_list_pbounds (number_toplevel (Some 0) RPlain) 0
+      (fun bb x Hbb => number_toplevel_pbounds x 0 RPlain bb Hbb)
+      (fun bb x => span_final_ge _ _ (number_toplevel_span (Some 0) RPlain bb x))
+      1 (Syntax.declarations f) (Nat.lt_0_succ 0)) as Hd.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hd |- *. intros pos cell Hin pp Hpp. destruct Hin as [Heq|Hin].
+  - inversion Heq; subst. discriminate Hpp.
+  - apply (Hd pos cell Hin pp Hpp).
+Qed.
+
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
