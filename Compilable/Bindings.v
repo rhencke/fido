@@ -456,6 +456,25 @@ Definition const_effective_origin {p} {idx : Index.ProgramIndex p} (r : Index.No
        | None => None
        end.
 
+(* a spec's ordered binding-name children: the exact names it declares, in source order *)
+Definition spec_name_binders {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  filter (fun c => match Index.node_role c with Index.RSpecName _ => true | _ => false end) (Index.node_children r).
+
+(* a spec's optional type-use child; genuine absence (no type) is a real None, not a degraded edge *)
+Definition spec_type_ref {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
+  find (fun c => match Index.node_role c with Index.RTypeUse => true | _ => false end) (Index.node_children r).
+
+(* a spec's ordered value-expression children, in source order *)
+Definition spec_value_refs {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  filter (fun c => match Index.node_role c with Index.RPlain => true | _ => false end) (Index.node_children r).
+
+(* the ordered chain of preceding sibling specs; with no effective explicit origin this is the invalid chain *)
+Definition const_predecessor_chain {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  match Index.node_parent r with
+  | Some par => filter (fun c => Nat.ltb (Index.nr_pos c) (Index.nr_pos r)) (Index.node_children par)
+  | None => []
+  end.
+
 (* a short left-hand name repeated earlier in the same short statement is an exact duplicate (invalid) left status *)
 Definition short_lhs_duplicate {p} {idx : Index.ProgramIndex p}
   (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : bool :=
