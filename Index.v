@@ -1065,6 +1065,35 @@ Proof.
   lia.
 Qed.
 
+(* every represented source occurrence appears once: the ordinal positions of a file are pairwise distinct *)
+Lemma occurrences_distinct : forall f, NoDup (map fst (number_file f)).
+Proof. intro f. destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply seq_NoDup. Qed.
+
+(* the position map domain is exactly the source-occurrence domain: its keys are the in-range ordinals *)
+Lemma domain_exact {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) :
+  Collections.NodeMap.In k (cell_map fr) <-> exists pos, pos < occ_count fr /\ k = Pos.of_succ_nat pos.
+Proof.
+  destruct (fileinfo_number_file fr) as [f Hf].
+  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hcount : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
+  destruct (number_file_positions f) as [n Hn].
+  assert (Hlen : length (number_file f) = n).
+  { apply (f_equal (@length nat)) in Hn.
+    first [ rewrite length_map in Hn | rewrite map_length in Hn ];
+    first [ rewrite length_seq in Hn | rewrite seq_length in Hn ]; exact Hn. }
+  rewrite Hc, Hcount, Hlen. split.
+  - intro Hin.
+    destruct (Collections.NodeMap.find k (posmap_of (number_file f))) as [cell|] eqn:E;
+      [| exfalso; rewrite NodeFacts.in_find_iff in Hin; apply Hin; exact E ].
+    destruct (posmap_find_in (number_file f) k cell E) as [pos [Hk Hinpos]].
+    exists pos. split; [| exact Hk].
+    assert (Hinm : In pos (map fst (number_file f)))
+      by (apply in_map_iff; exists (pos, cell); split; [ reflexivity | exact Hinpos ]).
+    rewrite Hn in Hinm. apply in_seq in Hinm. lia.
+  - intros [pos [Hlt Hk]]. subst k. rewrite NodeFacts.mem_in_iff. apply posmap_mem_of_in.
+    rewrite Hn. apply in_seq. lia.
+Qed.
+
 (* the total position-indexed node reference: any in-range ordinal resolves without option or fallback *)
 Definition noderef_at_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat)
   (H : pos < occ_count fr) : NodeRef idx := mkNodeRef fr (Pos.of_succ_nat pos) (mem_at_pos fr pos H).
