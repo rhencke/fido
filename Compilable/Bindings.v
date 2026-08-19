@@ -486,3 +486,79 @@ Definition short_lhs_duplicate {p} {idx : Index.ProgramIndex p}
                       (Index.node_children stmt))
   | None => false
   end.
+
+(* a binder introduces a variable object exactly when it is a short-lhs or var-spec name *)
+Definition is_variable_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : bool :=
+  match Index.node_role b with Index.RShortLhs | Index.RSpecName Index.VarSpecF => true | _ => false end.
+
+(* the first earlier same-statement short-lhs binder repeating this name, in source order *)
+Definition short_first_dup {p} {idx : Index.ProgramIndex p}
+  (b : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : option (Index.NodeRef idx) :=
+  match Index.node_parent b with
+  | Some stmt =>
+      find (fun c => andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos b))
+                          (match binder_ident c with Some m => Names.ordinary_equalb m n | None => false end))
+           (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
+                   (Index.node_children stmt))
+  | None => None
+  end.
+
+(* the establishment carried by a binder occurrence, when it establishes one *)
+Definition est_of_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (b : Index.NodeRef idx) : option (Est s) :=
+  find (fun e => noderef_eqb (binder_node (est_binder e)) b) (bp_ests bp).
+
+(* the exact ordered left-side status of one short-declaration name *)
+Inductive ShortLhsStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+| ShortBlank               : Index.NodeRef idx -> ShortLhsStatus s
+| ShortNew                 : Est s -> ShortLhsStatus s
+| ShortExistingVariable    : Est s -> ShortLhsStatus s
+| ShortExistingNonVariable : Est s -> ShortLhsStatus s
+| ShortDuplicate           : Index.NodeRef idx -> Index.NodeRef idx -> ShortLhsStatus s.
+Arguments ShortBlank {p idx s} _.
+Arguments ShortNew {p idx s} _.
+Arguments ShortExistingVariable {p idx s} _.
+Arguments ShortExistingNonVariable {p idx s} _.
+Arguments ShortDuplicate {p idx s} _ _.
+
+Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (b : Index.NodeRef idx) : ShortLhsStatus s :=
+  match binder_ident b with
+  | None => ShortBlank b
+  | Some n =>
+      match short_first_dup b n with
+      | Some first => ShortDuplicate first b
+      | None =>
+          match est_of_binder bp b with
+          | Some eb =>
+              match find (fun e => andb (negb (est_eqb e eb))
+                                        (Nat.ltb (Index.nr_pos (binder_node (est_binder e))) (Index.nr_pos b)))
+                         (group_members bp eb) with
+              | Some prior =>
+                  if is_variable_binder (binder_node (est_binder prior))
+                  then ShortExistingVariable prior else ShortExistingNonVariable prior
+              | None => ShortNew eb
+              end
+          | None => ShortBlank b
+          end
+      end
+  end.
+
+(* the exact ordered left-side statuses of a short declaration statement, in source order *)
+Definition short_lhs_statuses {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (stmt : Index.NodeRef idx) : list (ShortLhsStatus s) :=
+  map (short_lhs_status bp)
+      (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
+              (Index.node_children stmt)).
+
+(* an exact new-nonblank witness (the first ShortNew), or None as exact NoNewNonblank evidence *)
+Definition short_new_nonblank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (stmt : Index.NodeRef idx) : option (Est s) :=
+  fold_right (fun st acc => match st with ShortNew e => Some e | _ => acc end) None (short_lhs_statuses bp stmt).
+
+(* the short statement's ordered right-side value-expression refs, evaluated at the pre-statement cutpoint *)
+Definition short_rhs_refs {p} {idx : Index.ProgramIndex p} (stmt : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  spec_value_refs stmt.
+
+(* the pre-statement cutpoint: the new left objects are not visible before the statement's own position *)
+Definition short_cutpoint {p} {idx : Index.ProgramIndex p} (stmt : Index.NodeRef idx) : nat := Index.nr_pos stmt.
