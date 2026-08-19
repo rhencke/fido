@@ -91,12 +91,12 @@ Module Sealed : C4_PUBLIC.
   (* compile builds the branch object whose tag the transparent disposition already names, from the same result *)
   Definition compile (p : Syntax.Program) : OutcomeAt p (disposition p).
   Proof.
-    unfold OutcomeAt, disposition. cbv zeta.
-    destruct (nil_dec (RP.diagnostics (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hd|Hd].
-    - destruct (nil_dec (RP.boundaries (AN.res_facts (c_result p)) (AN.res_pkg (c_result p)))) as [Hb|Hb].
-      + exact (mkProg (elaborate p) (conj Hd Hb)).
-      + exact (mkOut (elaborate p) Hd Hb).
-    - exact (mkRej (elaborate p) Hd).
+    unfold OutcomeAt, disposition. cbv zeta. set (c := c_result p).
+    destruct (nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c))) as [Hd|Hd].
+    - destruct (nil_dec (RP.boundaries (AN.res_facts c) (AN.res_pkg c))) as [Hb|Hb].
+      + exact (mkProg (mkComp c) (conj Hd Hb)).
+      + exact (mkOut (mkComp c) Hd Hb).
+    - exact (mkRej (mkComp c) Hd).
   Defined.
 
   Definition program_compilation {p} (cp : Program p) : Compilation p := pr_comp cp.
