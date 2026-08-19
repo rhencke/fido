@@ -139,6 +139,59 @@ Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr
       ((b, mkCell VApplication role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
   end.
 
+(* every number_expr call emits its cells at exactly the consecutive positions [b, b+n), advancing to b+n, n>0 *)
+Lemma number_expr_span : forall e par role b,
+  exists n, map fst (fst (number_expr par role b e)) = seq b n
+            /\ snd (number_expr par role b e) = b + n /\ 0 < n.
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b.
+  - exists 1; cbn [number_expr number_leaf fst snd map seq]; split; [ reflexivity | split; lia ].
+  - exists 1; cbn [number_expr number_leaf fst snd map seq]; split; [ reflexivity | split; lia ].
+  - cbn [number_expr]. specialize (IHe (Some b) RUnaryOperand (S b)).
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    cbn [fst snd] in IHe. destruct IHe as [m [Hkc [Hnxt Hm]]].
+    exists (S m). split; [| split].
+    + cbn [fst snd map seq]. rewrite Hkc. reflexivity.
+    + cbn [snd]. lia.
+    + lia.
+  - (* Application (head e) args *)
+    cbn [number_expr]. specialize (IHe (Some b) RApplicationHead (S b)).
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1].
+    cbn [fst snd] in IHe. destruct IHe as [m1 [Hhc [Hb1 Hm1]]].
+    assert (Hda : forall (es : list Syntax.Expr),
+      Forall (fun a => forall par role bb,
+        exists n, map fst (fst (number_expr par role bb a)) = seq bb n
+                  /\ snd (number_expr par role bb a) = bb + n /\ 0 < n) es ->
+      forall i0 bi,
+        (let '(ac, bf, _) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in exists k, map fst ac = seq bi k /\ bf = bi + k)).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - cbn [fst snd map seq]. exists 0. split; [ reflexivity | lia ].
+      - cbn [fst snd]. specialize (Ha (Some b) (RApplicationArg i0) bi).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst snd] in Ha. destruct Ha as [k1 [Hac1 [Hbi' _]]].
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots]. destruct IHrest as [k2 [Hrc Hbf]].
+        cbn [fst snd]. exists (k1 + k2). split.
+        * rewrite map_app, Hac1, Hrc, seq_app, <- Hbi'. reflexivity.
+        * lia. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots]. destruct Hda as [k [Hac Hbf]].
+    exists (S (m1 + k)). split; [| split].
+    + cbn [fst snd map seq]. rewrite map_app, Hhc, Hac, seq_app, <- Hb1. reflexivity.
+    + cbn [snd]. lia.
+    + lia.
+Qed.
+
 Definition number_typeexpr (par : option nat) (role : Role) (b : nat) (t : Syntax.TypeExpr) : list (nat * Cell) * nat :=
   number_leaf (VTypeExpr t) par role b.
 Definition number_bindingname (par : option nat) (role : Role) (b : nat) (bn : Syntax.BindingName) : list (nat * Cell) * nat :=
@@ -228,6 +281,42 @@ Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Synt
 Definition number_file (f : Syntax.File) : list (nat * Cell) :=
   let '(dc, bfin, droots) := number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f) in
   (0, mkCell VFile RPlain None (bfin - 1) droots) :: dc.
+
+(* coverage foundation: [spans out b] says a numbering call filled exactly the contiguous positions [b, b+n) *)
+Definition spans (out : list (nat * Cell) * nat) (b : nat) : Prop :=
+  exists n, map fst (fst out) = seq b n /\ snd out = b + n.
+
+Lemma spans_app : forall c1 b1 c2 b2 b,
+  spans (c1, b1) b -> spans (c2, b2) b1 -> spans (c1 ++ c2, b2) b.
+Proof.
+  intros c1 b1 c2 b2 b [n1 [H1 E1]] [n2 [H2 E2]]; cbn [fst snd] in H1, E1, H2, E2.
+  exists (n1 + n2); cbn [fst snd]; split;
+    [ rewrite map_app, H1, H2, seq_app; subst b1; reflexivity | lia ].
+Qed.
+
+Lemma spans_node : forall self (cell : Cell) kids bfin,
+  spans (kids, bfin) (S self) -> spans ((self, cell) :: kids, bfin) self.
+Proof.
+  intros self cell kids bfin [m [H E]]; cbn [fst snd] in H, E.
+  exists (S m); cbn [fst snd map seq]; split; [ rewrite H; reflexivity | lia ].
+Qed.
+
+Lemma spans_leaf : forall v par role b, spans (number_leaf v par role b) b.
+Proof. intros; exists 1; cbn [number_leaf fst snd map seq]; split; [ reflexivity | lia ]. Qed.
+
+Lemma number_expr_spans : forall e par role b, spans (number_expr par role b e) b.
+Proof. intros e par role b; destruct (number_expr_span e par role b) as [n [H1 [H2 _]]]; now exists n. Qed.
+
+Lemma number_list_span {A} (f : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x, spans (f b x) b) ->
+  forall xs b, spans (let '(c, b', _) := number_list f b xs in (c, b')) b.
+Proof.
+  intros Hf xs; induction xs as [|x rest IH]; intro b.
+  - exists 0; cbn [number_list fst snd map seq]; split; [ reflexivity | lia ].
+  - cbn [number_list]. specialize (Hf b x); destruct (f b x) as [xc b'].
+    specialize (IH b'); destruct (number_list f b' rest) as [[rc b''] roots].
+    cbn [fst snd] in *. exact (spans_app xc b' rc b'' b Hf IH).
+Qed.
 
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
