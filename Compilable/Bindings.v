@@ -101,8 +101,6 @@ Inductive ScopeId {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
 Arguments PackageScope {p idx s} _.
 Arguments BlockScope {p idx s} _.
 
-Definition is_spec_kind (k : Index.Kind) : bool := match k with Index.SpecKind _ => true | _ => false end.
-Definition is_stmt_kind (k : Index.Kind) : bool := match k with Index.StmtKind => true | _ => false end.
 
 (* the nearest block enclosing [b] (largest start position among containing blocks), carrying its reference *)
 Definition nearest_block {p} {idx : Index.ProgramIndex p}
@@ -119,23 +117,12 @@ Definition nearest_block {p} {idx : Index.ProgramIndex p}
     | None => acc
     end) None nodes.
 
-(* the extent of the nearest ancestor of [b] whose kind passes [kb], or [b]'s own position if none *)
-Definition nearest_kind_extent {p} {idx : Index.ProgramIndex p}
-  (kb : Index.Kind -> bool) (nodes : list (Index.NodeRef idx)) (b : Index.NodeRef idx) : nat :=
-  match fold_right (fun a acc =>
-    if andb (kb (Index.node_kind a))
-            (andb (Nat.ltb (Index.nr_pos a) (Index.nr_pos b)) (Nat.leb (Index.nr_pos b) (Index.node_extent a)))
-    then match acc with Some a' => if Nat.ltb (Index.nr_pos a') (Index.nr_pos a) then Some a else acc | None => Some a end
-    else acc) None nodes
-  with Some a => Index.node_extent a | None => Index.nr_pos b end.
-
-(* where a block-scoped binder becomes visible: type at its identifier, const/var at spec end, short at statement end *)
+(* a block binder's visibility start: type at its position, else its enclosing spec/statement parent's extent *)
 Definition vis_start {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : nat :=
-  let nodes := Index.file_nodes (Index.nr_file b) in
   match Index.node_role b with
   | Index.RSpecName Index.TypeSpecF => Index.nr_pos b
-  | Index.RSpecName _ => nearest_kind_extent is_spec_kind nodes b
-  | Index.RShortLhs   => nearest_kind_extent is_stmt_kind nodes b
+  | Index.RSpecName _ => match Index.node_parent b with Some par => Index.node_extent par | None => Index.nr_pos b end
+  | Index.RShortLhs   => match Index.node_parent b with Some par => Index.node_extent par | None => Index.nr_pos b end
   | _ => Index.nr_pos b
   end.
 
@@ -379,26 +366,6 @@ Proof.
     + destruct (Names.ordinary_equalb n main_ident) eqn:Eq; [ split; [exact Hnil | split; [reflexivity | exact Em]] | discriminate Em ].
     + destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
 Qed.
-
-Lemma typespec_visible_after_identifier {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
-  Index.node_role r = Index.RSpecName Index.TypeSpecF -> vis_start r = Index.nr_pos r.
-Proof. intro H; unfold vis_start; rewrite H; reflexivity. Qed.
-
-Lemma const_var_spec_end_visibility {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
-  (Index.node_role r = Index.RSpecName Index.ConstSpecF \/ Index.node_role r = Index.RSpecName Index.VarSpecF) ->
-  vis_start r = nearest_kind_extent is_spec_kind (Index.file_nodes (Index.nr_file r)) r.
-Proof. intros [H|H]; unfold vis_start; rewrite H; reflexivity. Qed.
-
-Lemma short_decl_statement_end_visibility {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
-  Index.node_role r = Index.RShortLhs ->
-  vis_start r = nearest_kind_extent is_stmt_kind (Index.file_nodes (Index.nr_file r)) r.
-Proof. intro H; unfold vis_start; rewrite H; reflexivity. Qed.
-
-(* a type name is visible inside its own scope after its identifier, so it shadows an outer name there *)
-Lemma typespec_self_outer_shadow {p} {idx : Index.ProgramIndex p} (r u : Index.NodeRef idx) :
-  Index.node_role r = Index.RSpecName Index.TypeSpecF -> Index.nr_pos r < Index.nr_pos u ->
-  vis_start r < Index.nr_pos u.
-Proof. intros Hr Hlt; rewrite (typespec_visible_after_identifier r Hr); exact Hlt. Qed.
 
 (* declaration groups: the establishments sharing one exact scope and spelling *)
 
