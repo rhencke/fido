@@ -246,15 +246,6 @@ Definition fold_consumed (r : Index.NodeRef idx) : bool :=
   | _ => false
   end.
 
-(* the first repeated short left-hand name of a short statement, over its ordered left-hand binders *)
-Fixpoint first_short_dup (bs : list (Index.NodeRef idx)) : option Names.OrdinaryIdentifier :=
-  match bs with
-  | [] => None
-  | b :: rest => match BN.binder_ident b with
-                 | Some n => if BN.short_lhs_duplicate b n then Some n else first_short_dup rest
-                 | None => first_short_dup rest
-                 end
-  end.
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
 Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
@@ -397,9 +388,9 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
                end
            | _ => fun _ => SInvalid IllegalStatement
            end eq_refl
-  | Index.VStmt (Index.SSShort n_names) => fun _ =>
+  | Index.VStmt (Index.SSShort _) => fun _ =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
-      match first_short_dup (firstn n_names (Index.node_children r)) with
+      match BN.short_stmt_dup_name bp r with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end

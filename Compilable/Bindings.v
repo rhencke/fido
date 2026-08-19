@@ -475,18 +475,6 @@ Definition const_predecessor_chain {p} {idx : Index.ProgramIndex p} (r : Index.N
   | None => []
   end.
 
-(* a short left-hand name repeated earlier in the same short statement is an exact duplicate (invalid) left status *)
-Definition short_lhs_duplicate {p} {idx : Index.ProgramIndex p}
-  (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : bool :=
-  match Index.node_parent r with
-  | Some stmt =>
-      existsb (fun c => andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos r))
-                             (match binder_ident c with Some m => Names.ordinary_equalb m n | None => false end))
-              (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
-                      (Index.node_children stmt))
-  | None => false
-  end.
-
 (* a binder introduces a variable object exactly when it is a short-lhs or var-spec name *)
 Definition is_variable_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : bool :=
   match Index.node_role b with Index.RShortLhs | Index.RSpecName Index.VarSpecF => true | _ => false end.
@@ -555,6 +543,12 @@ Definition short_lhs_statuses {p} {idx : Index.ProgramIndex p} {s : PI.PackageSu
 Definition short_new_nonblank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (stmt : Index.NodeRef idx) : option (Est s) :=
   fold_right (fun st acc => match st with ShortNew e => Some e | _ => acc end) None (short_lhs_statuses bp stmt).
+
+(* the first duplicate short-left name, the exact current short-declaration invalidity from the retained statuses *)
+Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (stmt : Index.NodeRef idx) : option Names.OrdinaryIdentifier :=
+  fold_right (fun st acc => match st with ShortDuplicate _ later => binder_ident later | _ => acc end)
+             None (short_lhs_statuses bp stmt).
 
 (* the short statement's ordered right-side value-expression refs, evaluated at the pre-statement cutpoint *)
 Definition short_rhs_refs {p} {idx : Index.ProgramIndex p} (stmt : Index.NodeRef idx) : list (Index.NodeRef idx) :=
