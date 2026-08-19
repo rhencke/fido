@@ -218,9 +218,6 @@ Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t (option 
                | None => m
                end)
             (rev (seq 0 (Index.occ_count fr))) (Collections.NodeMap.empty _).
-Definition const_at (r : Index.NodeRef idx) : option TR.ConstantInfo :=
-  mconst (const_table (Index.nr_file r)) r.
-
 (* role decides value-use: an application head is a callee, not a value; expr-statement exprs go to own_stmt *)
 Definition is_app_head (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with Index.RApplicationHead => true | _ => false end.
@@ -268,7 +265,7 @@ Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
   | _ => VNonconst
   end.
 
-Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
+Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> ValueOutcome r with
   | Index.VName n => fun _ =>
       match BN.resolve bp r n with
@@ -283,7 +280,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
       | BN.RBound (BN.MainObject m) => if is_app_head r then VNonconst else VUnmet (ReqMainUse m)
       end
   | Index.VLiteral _ => fun _ =>
-      match const_at r with
+      match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
                    | None => if fold_consumed r then VNonconst else VInvalid (DefaultOverflow (TR.ci_const ci))
@@ -291,9 +288,9 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
       | None => VNonconst
       end
   | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match const_at (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
+      match mconst ctab (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Some _ =>
-          match const_at r with
+          match mconst ctab r with
           | Some ci => match resolve_constant_info ci with
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst else VInvalid (DefaultOverflow (TR.ci_const ci))
@@ -309,7 +306,7 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
           | BN.RBound (BN.PredeclaredObject pn) =>
               match pmeaning pn, app_args r Hv with
               | PMConvForm t, x :: nil =>
-                  match const_at x with
+                  match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
                                | TR.Converted tc => VOK (TR.mk_rc t tc)
                                | TR.Overflows _ => VInvalid (ConversionOverflow t x)
@@ -318,10 +315,10 @@ Definition own_value (r : Index.NodeRef idx) : ValueOutcome r :=
                   | None => VNonconst
                   end
               | PMComplex, re :: im :: nil =>
-                  match const_at re, const_at im with
+                  match mconst ctab re, mconst ctab im with
                   | Some cre, Some cim =>
                       match complex_class cre cim with
-                      | CxOk => match const_at r with
+                      | CxOk => match mconst ctab r with
                                 | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
                                 | None => VNonconst end
                       | CxDefer => VUnmet (ReqComplexType r)
@@ -374,18 +371,18 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
   end eq_refl.
 
 (* the statement expr already owns a diagnostic or boundary: the illegal-statement judgment is dependent, not a root *)
-Definition child_owns_issue (e : Index.NodeRef idx) : bool :=
-  match own_value e with
+Definition child_owns_issue (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : bool :=
+  match own_value ctab e with
   | VInvalid _ | VUnmet _ => true
   | _ => match own_app e with AInvalid _ | AUnmet _ => true | _ => false end
   end.
 
 (* an expr-statement is illegal only when its expr is otherwise valid but not a legal statement head *)
-Definition own_stmt (r : Index.NodeRef idx) : StmtOutcome r :=
+Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
   | Index.VStmt Index.SSExpr => fun Hv =>
       let e := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
-      if child_owns_issue e then SOK
+      if child_owns_issue ctab e then SOK
       else match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
            | Index.VApplication => fun He =>
                match Index.node_view (Index.first_edge e (f_equal Index.requires_first_edge He)) with
@@ -432,30 +429,6 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
   | _ => TOK TR.BoolForm
   end.
 
-(* every occurrence, enumerated once through the retained surface; the let _ := bp keeps this generalized over bp *)
-Definition all_index_nodes : list (Index.NodeRef idx) :=
-  let _ := bp in flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s)).
-
-Lemma node_in_file_nodes (r : Index.NodeRef idx) : In r (Index.file_nodes (Index.nr_file r)).
-Proof.
-  pose proof (Index.nr_in r) as Hmem.
-  apply Index.NodeFacts.mem_in_iff in Hmem. destruct Hmem as [c Hmt].
-  apply Index.NodeFacts.elements_mapsto_iff in Hmt.
-  apply SetoidList.InA_alt in Hmt. destruct Hmt as [[k v] [Heq Hk]].
-  destruct Heq as [Hkey _]; cbn in Hkey.
-  unfold Index.file_nodes. apply in_flat_map. exists (k, v). split; [exact Hk|].
-  cbn [fst]. rewrite <- Hkey, Index.mk_noderef_self. apply in_eq.
-Qed.
-
-Lemma node_in_all (r : Index.NodeRef idx) : In r all_index_nodes.
-Proof.
-  unfold all_index_nodes; cbv zeta. apply in_flat_map. exists (Index.nr_file r). split.
-  - apply in_flat_map. exists (BN.PI.package_of_file s (Index.nr_file r)). split.
-    + apply BN.PI.packages_complete.
-    + apply BN.PI.pkg_members_of_file.
-  - apply node_in_file_nodes.
-Qed.
-
 End OverPhase.
 
 (* one applicability-first fact per applicable family; an application carries disjoint callability and value facts *)
@@ -475,18 +448,21 @@ Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
-Definition occ_facts (r : Index.NodeRef idx) : list (OccFact idx) :=
+Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact idx) :=
   match Index.node_view r with
-  | Index.VName _ | Index.VLiteral _ | Index.VUnary _ => [OFValue r (own_value bp r)]
-  | Index.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp r)]
-  | Index.VStmt Index.SSExpr => [OFStmt r (own_stmt bp r)]
-  | Index.VStmt (Index.SSShort _) => [OFStmt r (own_stmt bp r)]
+  | Index.VName _ | Index.VLiteral _ | Index.VUnary _ => [OFValue r (own_value bp ctab r)]
+  | Index.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
+  | Index.VStmt Index.SSExpr => [OFStmt r (own_stmt bp ctab r)]
+  | Index.VStmt (Index.SSShort _) => [OFStmt r (own_stmt bp ctab r)]
   | Index.VTypeExpr _ => [OFType r (own_type bp r)]
-  | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => [OFValue r (own_value bp r)]
+  | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
   | _ => []
   end.
 
-Definition raw_facts : list (OccFact idx) := flat_map occ_facts (all_index_nodes bp).
+(* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
+Definition raw_facts : list (OccFact idx) :=
+  flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
+           (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
 Definition FactPhase : Type := { m : list (OccFact idx) | m = raw_facts }.
 Definition facts : FactPhase := exist _ raw_facts eq_refl.
@@ -816,14 +792,15 @@ Definition occ_disp_t {r : Index.NodeRef idx} (o : TypeUseOutcome r) : Dispositi
 
 (* applicability-first: a family applies by role/view, then computes its outcome; else NotApplicable, no fact *)
 Definition family_lookup (r : Index.NodeRef idx) (f : Family) : FamilyResult s :=
+  let ctab := const_table bp (Index.nr_file r) in
   match f with
-  | FamValue => match Index.node_view r with Index.VName _ | Index.VLiteral _ | Index.VUnary _ | Index.VApplication => Applicable (occ_disp_v (own_value bp r)) | _ => NotApplicable end
+  | FamValue => match Index.node_view r with Index.VName _ | Index.VLiteral _ | Index.VUnary _ | Index.VApplication => Applicable (occ_disp_v (own_value bp ctab r)) | _ => NotApplicable end
   | FamApplication => match Index.node_view r with Index.VApplication => Applicable (occ_disp_a (own_app bp r)) | _ => NotApplicable end
-  | FamStatement => match Index.node_view r with Index.VStmt Index.SSExpr => Applicable (occ_disp_s (own_stmt bp r)) | _ => NotApplicable end
+  | FamStatement => match Index.node_view r with Index.VStmt Index.SSExpr => Applicable (occ_disp_s (own_stmt bp ctab r)) | _ => NotApplicable end
   | FamTypeUse => match Index.node_view r with Index.VTypeExpr _ => Applicable (occ_disp_t (own_type bp r)) | _ => NotApplicable end
   | FamDeclaration => match Index.node_view r with
-                      | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => Applicable (occ_disp_v (own_value bp r))
-                      | Index.VStmt (Index.SSShort _) => Applicable (occ_disp_s (own_stmt bp r))
+                      | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => Applicable (occ_disp_v (own_value bp ctab r))
+                      | Index.VStmt (Index.SSShort _) => Applicable (occ_disp_s (own_stmt bp ctab r))
                       | _ => NotApplicable
                       end
   end.
