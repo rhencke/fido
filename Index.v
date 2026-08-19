@@ -2152,6 +2152,390 @@ Proof.
   subst rcell. exact Hchild.
 Qed.
 
+(* a listed child is a real position, so it falls below the block end that the span fixes *)
+Lemma child_lt : forall occs n b pos cell r,
+  map fst occs = seq b n -> child_parent_ok occs ->
+  In (pos, cell) occs -> In r (c_children cell) -> r < b + n.
+Proof.
+  intros occs n b pos cell r Hmap Hcpo Hin Hr.
+  destruct (Hcpo pos cell Hin r Hr) as [rc [Hinr _]].
+  apply (in_map fst) in Hinr. cbn [fst] in Hinr. rewrite Hmap in Hinr. apply in_seq in Hinr. lia.
+Qed.
+
+(* the extent field exactly delimits each cell's block: its own position at or below it, its children within it *)
+Definition ext_ok (bnd : nat) (occs : list (nat * Cell)) : Prop :=
+  Forall (fun '(pos, cell) => pos <= c_extent cell < bnd /\
+                              (forall r, In r (c_children cell) -> r <= c_extent cell)) occs.
+
+Lemma ext_ok_weaken : forall bnd bnd' occs, bnd <= bnd' -> ext_ok bnd occs -> ext_ok bnd' occs.
+Proof.
+  intros bnd bnd' occs Hle. apply Forall_impl. intros [pos cell] [[H1 H2] H3]. split; [ split; [ exact H1 | lia ] | exact H3 ].
+Qed.
+
+Lemma ext_ok_app : forall bnd c1 c2, ext_ok bnd c1 -> ext_ok bnd c2 -> ext_ok bnd (c1 ++ c2).
+Proof. intros bnd c1 c2 H1 H2. apply Forall_app; split; assumption. Qed.
+
+Lemma number_expr_ext : forall e par role b,
+  ext_ok (snd (number_expr par role b e)) (fst (number_expr par role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b.
+  - cbn [number_expr number_leaf fst snd]. constructor; [ | constructor ].
+    cbn [c_extent c_children]. split; [ lia | intros r Hr; destruct Hr ].
+  - cbn [number_expr number_leaf fst snd]. constructor; [ | constructor ].
+    cbn [c_extent c_children]. split; [ lia | intros r Hr; destruct Hr ].
+  - specialize (IHe (Some b) RUnaryOperand (S b)).
+    pose proof (number_expr_cpo (Syntax.Unary op e) par role b) as Hcpo.
+    pose proof (number_expr_spans (Syntax.Unary op e) par role b) as [n [Hmap Hnxt]].
+    cbn [number_expr] in Hcpo, Hmap, Hnxt |- *.
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    cbn [fst snd] in IHe, Hcpo, Hmap, Hnxt |- *.
+    assert (HSb : S b < b + n)
+      by (eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; left; reflexivity ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r [Hr|[]]; subst r; lia ].
+    + exact IHe.
+  - specialize (IHe (Some b) RApplicationHead (S b)).
+    pose proof (number_expr_cpo (Syntax.Application e args) par role b) as Hcpo.
+    pose proof (number_expr_spans (Syntax.Application e args) par role b) as [n [Hmap Hbfin]].
+    cbn [number_expr] in Hcpo, Hmap, Hbfin |- *.
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1]. cbn [fst snd] in IHe.
+    assert (Hda : forall es, Forall (fun a => forall par role bb,
+                     ext_ok (snd (number_expr par role bb a)) (fst (number_expr par role bb a))) es ->
+      forall i0 bi, (let '(ac, bf, roots) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in ext_ok bf ac /\ bi <= bf)).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - split; [ constructor | lia ].
+      - specialize (Ha (Some b) (RApplicationArg i0) bi).
+        pose proof (number_expr_span a (Some b) (RApplicationArg i0) bi) as [na [_ [Hbi' _]]].
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst snd] in Ha, Hbi'.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        cbn [fst snd] in IHrest |- *. destruct IHrest as [IHrc IHle].
+        split; [ apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Ha ]; lia | exact IHrc ] | lia ]. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    cbn [fst snd] in Hda, Hmap, Hbfin |- *. destruct Hda as [Hext Hble].
+    assert (Hchild : forall r, In r (S b :: aroots) -> r < b + n).
+    { intros r Hr. eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]. }
+    constructor.
+    + cbn [c_extent c_children]. split.
+      * pose proof (Hchild (S b) (or_introl eq_refl)). lia.
+      * intros r Hr. pose proof (Hchild r Hr). lia.
+    + apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact IHe ]; lia | exact Hext ].
+Qed.
+
+Lemma map_seq_pos : forall (occs : list (nat * Cell)) n b, map fst occs = seq b n -> occs <> [] -> 0 < n.
+Proof.
+  intros [|x l] n b Hmap Hne; [ contradiction | destruct n; [ cbn [map seq] in Hmap; discriminate | lia ] ].
+Qed.
+
+Lemma number_typeexpr_ext : forall t par role b,
+  ext_ok (snd (number_typeexpr par role b t)) (fst (number_typeexpr par role b t)).
+Proof.
+  intros. cbn [number_typeexpr number_leaf fst snd]. constructor; [ | constructor ].
+  cbn [c_extent c_children]. split; [ lia | intros r Hr; destruct Hr ].
+Qed.
+
+Lemma number_bindingname_ext : forall bn par role b,
+  ext_ok (snd (number_bindingname par role b bn)) (fst (number_bindingname par role b bn)).
+Proof.
+  intros. cbn [number_bindingname number_leaf fst snd]. constructor; [ | constructor ].
+  cbn [c_extent c_children]. split; [ lia | intros r Hr; destruct Hr ].
+Qed.
+
+Lemma number_opttype_ext : forall ot par b,
+  ext_ok (snd (fst (number_opttype par b ot))) (fst (fst (number_opttype par b ot))).
+Proof.
+  intros ot par b. destruct ot as [t|].
+  - cbn [number_opttype]. pose proof (number_typeexpr_ext t par RTypeUse b) as Ht.
+    destruct (number_typeexpr par RTypeUse b t) as [tc b']. cbn [fst snd] in Ht |- *. exact Ht.
+  - cbn [number_opttype fst snd]. constructor.
+Qed.
+
+Lemma number_list_ext {A} (g : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x, ext_ok (snd (g b x)) (fst (g b x))) ->
+  (forall b x, b <= snd (g b x)) ->
+  forall b xs, ext_ok (snd (fst (number_list g b xs))) (fst (fst (number_list g b xs))) /\
+               b <= snd (fst (number_list g b xs)).
+Proof.
+  intros Hg Hmono b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - cbn [number_list fst snd]. split; [ constructor | lia ].
+  - cbn [number_list]. pose proof (Hg b x) as Hgx. pose proof (Hmono b x) as Hm.
+    destruct (g b x) as [xc b']. cbn [fst snd] in Hgx, Hm.
+    specialize (IH b'). destruct (number_list g b' rest) as [[rc bfin] roots].
+    cbn [fst snd] in IH |- *. destruct IH as [IHext IHle].
+    split; [ apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hgx ]; lia | exact IHext ] | lia ].
+Qed.
+
+Lemma number_constspec_ext : forall cs par role b,
+  ext_ok (snd (number_constspec par role b cs)) (fst (number_constspec par role b cs)).
+Proof.
+  intros cs par role b.
+  pose proof (number_constspec_cpo par role b cs) as Hcpo.
+  pose proof (number_constspec_span par role b cs) as [n [Hmap Hsnd]].
+  unfold number_constspec in Hcpo, Hmap, Hsnd |- *.
+  destruct (number_list_ext (number_bindingname (Some b) (RSpecName ConstSpecF))
+      (fun bb x => number_bindingname_ext x (Some b) (RSpecName ConstSpecF) bb)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.const_names cs))) as [Hnc Hnc_le].
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hnc_le, Hcpo, Hmap, Hsnd.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - pose proof (number_opttype_ext ot (Some b) b1) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hb2.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hb2.
+    destruct (number_list_ext (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as [Hvc Hvc_le].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc, Hvc_le, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (nroots ++ oroots ++ vroots) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hnc ]; lia
+        | apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hoc ]; lia | eapply ext_ok_weaken; [ | exact Hvc ]; lia ] ].
+  - cbn [fst snd] in Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (nroots ++ []) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + rewrite app_nil_r. eapply ext_ok_weaken; [ | exact Hnc ]. lia.
+Qed.
+
+Lemma number_varspec_ext : forall vs par role b,
+  ext_ok (snd (number_varspec par role b vs)) (fst (number_varspec par role b vs)).
+Proof.
+  intros vs par role b.
+  pose proof (number_varspec_cpo par role b vs) as Hcpo.
+  pose proof (number_varspec_span par role b vs) as [n [Hmap Hsnd]].
+  unfold number_varspec in Hcpo, Hmap, Hsnd |- *.
+  destruct (number_list_ext (number_bindingname (Some b) (RSpecName VarSpecF))
+      (fun bb x => number_bindingname_ext x (Some b) (RSpecName VarSpecF) bb)
+      (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x))
+      (S b) (Collections.ne_to_list (Syntax.var_names vs))) as [Hnc Hnc_le].
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc, Hnc_le, Hcpo, Hmap, Hsnd.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - pose proof (number_typeexpr_ext t (Some b) RTypeUse b1) as Htc.
+    pose proof (span_final_ge _ _ (number_typeexpr_spans (Some b) RTypeUse b1 t)) as Hb2.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2]. cbn [fst snd] in Htc, Hb2, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (nroots ++ b1 :: nil) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hnc ]; lia | eapply ext_ok_weaken; [ | exact Htc ]; lia ].
+  - pose proof (number_opttype_ext ot (Some b) b1) as Hoc.
+    pose proof (span_final_ge _ _ (number_opttype_span (Some b) b1 ot)) as Hb2.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc, Hb2.
+    destruct (number_list_ext (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b2 (Collections.ne_to_list vals)) as [Hvc Hvc_le].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc, Hvc_le, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (nroots ++ oroots ++ vroots) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hnc ]; lia
+        | apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hoc ]; lia | eapply ext_ok_weaken; [ | exact Hvc ]; lia ] ].
+Qed.
+
+Lemma number_typespec_ext : forall ts par role b,
+  ext_ok (snd (number_typespec par role b ts)) (fst (number_typespec par role b ts)).
+Proof.
+  intros ts par role b.
+  pose proof (number_typespec_cpo par role b ts) as Hcpo.
+  pose proof (number_typespec_span par role b ts) as [n [Hmap Hsnd]].
+  unfold number_typespec in Hcpo, Hmap, Hsnd |- *. destruct ts as [bn t|bn t];
+  ( pose proof (number_bindingname_ext bn (Some b) (RSpecName TypeSpecF) (S b)) as Hbc;
+    pose proof (span_final_ge _ _ (number_bindingname_spans (Some b) (RSpecName TypeSpecF) (S b) bn)) as Hb1;
+    destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+    pose proof (number_typeexpr_ext t (Some b) RTypeUse b1) as Htc;
+    pose proof (span_final_ge _ _ (number_typeexpr_spans (Some b) RTypeUse b1 t)) as Hbfin;
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin];
+    cbn [fst snd] in Hbc, Hb1, Htc, Hbfin, Hcpo, Hmap, Hsnd |- *;
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate);
+    assert (Hchild : forall r, In r (S b :: b1 :: nil) -> r < b + n) by
+      (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]);
+    constructor;
+    [ cbn [c_extent c_children]; split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ]
+    | apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hbc ]; lia | eapply ext_ok_weaken; [ | exact Htc ]; lia ] ] ).
+Qed.
+
+Lemma number_decl_ext : forall d par role b,
+  ext_ok (snd (number_decl par role b d)) (fst (number_decl par role b d)).
+Proof.
+  intros d par role b.
+  pose proof (number_decl_cpo par role b d) as Hcpo.
+  pose proof (number_decl_span par role b d) as [n [Hmap Hsnd]].
+  unfold number_decl in Hcpo, Hmap, Hsnd |- *. destruct d as [cs|vs|ts];
+  [ destruct (number_list_ext (number_constspec (Some b) RPlain)
+        (fun bb x => number_constspec_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_constspec_span (Some b) RPlain bb x)) (S b) cs) as [Hk _];
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots]
+  | destruct (number_list_ext (number_varspec (Some b) RPlain)
+        (fun bb x => number_varspec_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_varspec_span (Some b) RPlain bb x)) (S b) vs) as [Hk _];
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots]
+  | destruct (number_list_ext (number_typespec (Some b) RPlain)
+        (fun bb x => number_typespec_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_typespec_span (Some b) RPlain bb x)) (S b) ts) as [Hk _];
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots] ];
+  cbn [fst snd] in Hk, Hcpo, Hmap, Hsnd |- *;
+  ( assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate);
+    assert (Hchild : forall r, In r roots -> r < b + n) by
+      (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]);
+    constructor;
+    [ cbn [c_extent c_children]; split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ]
+    | eapply ext_ok_weaken; [ | exact Hk ]; lia ] ).
+Qed.
+
+Lemma number_stmt_ext : forall s par role b,
+  ext_ok (snd (number_stmt par role b s)) (fst (number_stmt par role b s)).
+Proof.
+  intros s par role b.
+  pose proof (number_stmt_cpo par role b s) as Hcpo.
+  pose proof (number_stmt_span par role b s) as [n [Hmap Hsnd]].
+  unfold number_stmt in Hcpo, Hmap, Hsnd |- *. destruct s as [e|d|names vals].
+  - pose proof (number_expr_ext e (Some b) RExprStatementExpr (S b)) as Hc.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst snd] in Hc, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (S b :: nil) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + eapply ext_ok_weaken; [ | exact Hc ]. lia.
+  - pose proof (number_decl_ext d (Some b) RPlain (S b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hc, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (S b :: nil) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + eapply ext_ok_weaken; [ | exact Hc ]. lia.
+  - destruct (number_list_ext (number_bindingname (Some b) RShortLhs)
+        (fun bb x => number_bindingname_ext x (Some b) RShortLhs bb)
+        (fun bb x => span_final_ge _ _ (number_bindingname_spans (Some b) RShortLhs bb x))
+        (S b) (Collections.ne_to_list names)) as [Hnc Hnc_le].
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc, Hnc_le.
+    destruct (number_list_ext (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_ext x (Some b) RPlain bb)
+        (fun bb x => span_final_ge _ _ (number_expr_spans x (Some b) RPlain bb))
+        b1 (Collections.ne_to_list vals)) as [Hvc Hvc_le].
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc, Hvc_le, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (nroots ++ vroots) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + apply ext_ok_app; [ eapply ext_ok_weaken; [ | exact Hnc ]; lia | eapply ext_ok_weaken; [ | exact Hvc ]; lia ].
+Qed.
+
+Lemma number_block_ext : forall blk par role b,
+  ext_ok (snd (number_block par role b blk)) (fst (number_block par role b blk)).
+Proof.
+  intros [stmts] par role b.
+  pose proof (number_block_cpo par role b (Syntax.MakeBlock stmts)) as Hcpo.
+  pose proof (number_block_span par role b (Syntax.MakeBlock stmts)) as [n [Hmap Hsnd]].
+  unfold number_block in Hcpo, Hmap, Hsnd |- *.
+  destruct (number_list_ext (number_stmt (Some b) RPlain)
+      (fun bb x => number_stmt_ext x (Some b) RPlain bb)
+      (fun bb x => span_final_ge _ _ (number_stmt_span (Some b) RPlain bb x)) (S b) stmts) as [Hk _].
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk, Hcpo, Hmap, Hsnd |- *.
+  assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+  assert (Hchild : forall r, In r roots -> r < b + n)
+    by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+  constructor.
+  + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+  + eapply ext_ok_weaken; [ | exact Hk ]. lia.
+Qed.
+
+Lemma number_toplevel_ext : forall td par role b,
+  ext_ok (snd (number_toplevel par role b td)) (fst (number_toplevel par role b td)).
+Proof.
+  intros td par role b.
+  pose proof (number_toplevel_cpo par role b td) as Hcpo.
+  pose proof (number_toplevel_span par role b td) as [n [Hmap Hsnd]].
+  unfold number_toplevel in Hcpo, Hmap, Hsnd |- *. destruct td as [d|blk].
+  - pose proof (number_decl_ext d (Some b) RPlain (S b)) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst snd] in Hc, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (S b :: nil) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + eapply ext_ok_weaken; [ | exact Hc ]. lia.
+  - pose proof (number_block_ext blk (Some b) RPlain (S b)) as Hc.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst snd] in Hc, Hcpo, Hmap, Hsnd |- *.
+    assert (Hn : 0 < n) by (apply (map_seq_pos _ n b Hmap); discriminate).
+    assert (Hchild : forall r, In r (S b :: nil) -> r < b + n)
+      by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+    constructor.
+    + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+    + eapply ext_ok_weaken; [ | exact Hc ]. lia.
+Qed.
+
+Lemma number_file_ext : forall f, ext_ok (List.length (number_file f)) (number_file f).
+Proof.
+  intro f. pose proof (number_file_cpo f) as Hcpo.
+  pose proof (number_file_positions f) as [n Hmap].
+  unfold number_file in Hcpo, Hmap |- *.
+  pose proof (number_list_span (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_span (Some 0) RPlain bb x) (Syntax.declarations f) 1) as Hsp.
+  destruct (number_list_ext (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_ext x (Some 0) RPlain bb)
+      (fun bb x => span_final_ge _ _ (number_toplevel_span (Some 0) RPlain bb x)) 1 (Syntax.declarations f)) as [Hd _].
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hcpo, Hmap, Hd, Hsp. destruct Hsp as [nd [Hmapd Hbfin]]. cbn [fst snd] in Hmapd, Hbfin.
+  assert (Hlend : List.length dc = nd).
+  { first [ rewrite <- (length_map fst) | rewrite <- (map_length fst) ]; rewrite Hmapd; first [ apply length_seq | apply seq_length ]. }
+  assert (Hnn : n = S nd).
+  { apply (f_equal (@length _)) in Hmap. cbn [map length] in Hmap.
+    first [ rewrite length_seq in Hmap | rewrite seq_length in Hmap ].
+    first [ rewrite length_map in Hmap | rewrite map_length in Hmap ].
+    rewrite Hlend in Hmap. lia. }
+  cbn [length]. rewrite Hlend.
+  assert (Hchild : forall r, In r droots -> r < 0 + n)
+    by (intros r Hr; eapply child_lt; [ exact Hmap | exact Hcpo | left; reflexivity | cbn [c_children]; exact Hr ]).
+  constructor.
+  + cbn [c_extent c_children]. split; [ lia | intros r Hr; pose proof (Hchild r Hr); lia ].
+  + eapply ext_ok_weaken; [ | exact Hd ]. lia.
+Qed.
+
+(* extent is exact: in range, at least the node's own position, and at or above every direct child *)
+Lemma number_file_extent : forall f pos cell,
+  In (pos, cell) (number_file f) ->
+  pos <= c_extent cell < List.length (number_file f) /\
+  (forall q qc, In (q, qc) (number_file f) -> c_parent qc = Some pos -> q <= c_extent cell).
+Proof.
+  intros f pos cell Hin. pose proof (number_file_ext f) as Hext.
+  unfold ext_ok in Hext. rewrite Forall_forall in Hext.
+  destruct (Hext (pos, cell) Hin) as [Hrange Hch]. split; [ exact Hrange | ].
+  intros q qc Hinq Hpar. apply Hch. exact (number_file_complete f q qc pos cell Hinq Hin Hpar).
+Qed.
+
 (* the position map domain is exactly the source-occurrence domain: its keys are the in-range ordinals *)
 Lemma domain_exact {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) :
   Collections.NodeMap.In k (cell_map fr) <-> exists pos, pos < occ_count fr /\ k = Pos.of_succ_nat pos.
