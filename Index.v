@@ -139,17 +139,6 @@ Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr
       ((b, mkCell VApplication role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
   end.
 
-(* the standalone twin of number_expr's inlined arg-numberer; number_args_unfold bridges the two for proofs *)
-Fixpoint number_args (self : nat) (i : nat) (b : nat) (es : list Syntax.Expr) {struct es}
-  : list (nat * Cell) * nat * list nat :=
-  match es with
-  | [] => ([], b, [])
-  | a :: rest =>
-      let '(ac, b') := number_expr (Some self) (RApplicationArg i) b a in
-      let '(rc, bf, roots) := number_args self (S i) b' rest in
-      (ac ++ rc, bf, b :: roots)
-  end.
-
 Definition number_typeexpr (par : option nat) (role : Role) (b : nat) (t : Syntax.TypeExpr) : list (nat * Cell) * nat :=
   number_leaf (VTypeExpr t) par role b.
 Definition number_bindingname (par : option nat) (role : Role) (b : nat) (bn : Syntax.BindingName) : list (nat * Cell) * nat :=
