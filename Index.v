@@ -2536,6 +2536,352 @@ Proof.
   intros q qc Hinq Hpar. apply Hch. exact (number_file_complete f q qc pos cell Hinq Hin Hpar).
 Qed.
 
+(* the kind a structural role commits its node to; the generic RPlain commits to none *)
+Definition role_kind_of (r : Role) : option Kind :=
+  match r with
+  | RApplicationHead | RApplicationArg _ | RUnaryOperand | RExprStatementExpr => Some ExprKind
+  | RSpecName _ | RShortLhs => Some BindingNameKind
+  | RTypeUse => Some TypeExprKind
+  | RPlain => None
+  end.
+
+Definition rv_ok (cell : Cell) : Prop :=
+  match role_kind_of (c_role cell) with Some k => kind_of_view (c_view cell) = k | None => True end.
+
+Definition role_ok_for (k : Kind) (r : Role) : Prop :=
+  match role_kind_of r with None => True | Some k' => k' = k end.
+
+Definition class_ok (occs : list (nat * Cell)) : Prop := Forall (fun '(pos, cell) => rv_ok cell) occs.
+
+Lemma class_ok_app : forall c1 c2, class_ok c1 -> class_ok c2 -> class_ok (c1 ++ c2).
+Proof. intros c1 c2 H1 H2. apply Forall_app; split; assumption. Qed.
+
+Lemma rv_ok_mk : forall v role par ext ch k,
+  kind_of_view v = k -> role_ok_for k role -> rv_ok (mkCell v role par ext ch).
+Proof.
+  intros v role par ext ch k Hk Hr. unfold rv_ok, role_ok_for in *. cbn [c_role c_view].
+  destruct (role_kind_of role) as [k'|]; [ congruence | exact I ].
+Qed.
+
+Lemma number_expr_class : forall e par role b,
+  role_ok_for ExprKind role -> class_ok (fst (number_expr par role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b Hr; cbn [number_expr].
+  - cbn [number_leaf fst]. constructor; [ apply (rv_ok_mk _ _ _ _ _ ExprKind); [ reflexivity | exact Hr ] | constructor ].
+  - cbn [number_leaf fst]. constructor; [ apply (rv_ok_mk _ _ _ _ _ ExprKind); [ reflexivity | exact Hr ] | constructor ].
+  - specialize (IHe (Some b) RUnaryOperand (S b) ltac:(reflexivity)).
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt]. cbn [fst] in IHe |- *.
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ ExprKind); [ reflexivity | exact Hr ] | exact IHe ].
+  - specialize (IHe (Some b) RApplicationHead (S b) ltac:(reflexivity)).
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1]. cbn [fst] in IHe.
+    assert (Hda : forall es, Forall (fun a => forall par role bb, role_ok_for ExprKind role ->
+                     class_ok (fst (number_expr par role bb a))) es ->
+      forall i0 bi, (let '(ac, bf, roots) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in class_ok ac)).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - constructor.
+      - specialize (Ha (Some b) (RApplicationArg i0) bi ltac:(reflexivity)).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi']. cbn [fst] in Ha.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        cbn [fst snd] in IHrest |- *. apply class_ok_app; [ exact Ha | exact IHrest ]. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    cbn [fst snd] in Hda |- *.
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ ExprKind); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact IHe | exact Hda ] ].
+Qed.
+
+Lemma number_list_class {A} (g : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x, class_ok (fst (g b x))) ->
+  forall b xs, class_ok (fst (fst (number_list g b xs))).
+Proof.
+  intros Hg b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - cbn [number_list fst snd]. constructor.
+  - cbn [number_list]. pose proof (Hg b x) as Hgx. destruct (g b x) as [xc b'].
+    specialize (IH b'). destruct (number_list g b' rest) as [[rc bfin] roots].
+    cbn [fst snd] in Hgx, IH |- *. apply class_ok_app; [ exact Hgx | exact IH ].
+Qed.
+
+Lemma number_bindingname_class : forall bn par role b,
+  role_ok_for BindingNameKind role -> class_ok (fst (number_bindingname par role b bn)).
+Proof.
+  intros. cbn [number_bindingname number_leaf fst].
+  constructor; [ apply (rv_ok_mk _ _ _ _ _ BindingNameKind); [ reflexivity | assumption ] | constructor ].
+Qed.
+
+Lemma number_typeexpr_class : forall t par role b,
+  role_ok_for TypeExprKind role -> class_ok (fst (number_typeexpr par role b t)).
+Proof.
+  intros. cbn [number_typeexpr number_leaf fst].
+  constructor; [ apply (rv_ok_mk _ _ _ _ _ TypeExprKind); [ reflexivity | assumption ] | constructor ].
+Qed.
+
+Lemma number_opttype_class : forall ot par b, class_ok (fst (fst (number_opttype par b ot))).
+Proof.
+  intros ot par b. destruct ot as [t|].
+  - cbn [number_opttype]. pose proof (number_typeexpr_class t par RTypeUse b ltac:(first [ reflexivity | exact I ])) as Ht.
+    destruct (number_typeexpr par RTypeUse b t) as [tc b']. cbn [fst] in Ht |- *. exact Ht.
+  - cbn [number_opttype fst snd]. constructor.
+Qed.
+
+Lemma number_constspec_class : forall cs par role b,
+  role_ok_for (SpecKind ConstSpecF) role -> class_ok (fst (number_constspec par role b cs)).
+Proof.
+  intros cs par role b Hr. unfold number_constspec.
+  pose proof (number_list_class (number_bindingname (Some b) (RSpecName ConstSpecF))
+      (fun bb x => number_bindingname_class x (Some b) (RSpecName ConstSpecF) bb ltac:(first [ reflexivity | exact I ]))
+      (S b) (Collections.ne_to_list (Syntax.const_names cs))) as Hnc.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc.
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - pose proof (number_opttype_class ot (Some b) b1) as Hoc.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc.
+    pose proof (number_list_class (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ]))
+        b2 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ (SpecKind ConstSpecF)); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact Hnc | apply class_ok_app; [ exact Hoc | exact Hvc ] ] ].
+  - cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ (SpecKind ConstSpecF)); [ reflexivity | exact Hr ]
+      | rewrite app_nil_r; exact Hnc ].
+Qed.
+
+Lemma number_varspec_class : forall vs par role b,
+  role_ok_for (SpecKind VarSpecF) role -> class_ok (fst (number_varspec par role b vs)).
+Proof.
+  intros vs par role b Hr. unfold number_varspec.
+  pose proof (number_list_class (number_bindingname (Some b) (RSpecName VarSpecF))
+      (fun bb x => number_bindingname_class x (Some b) (RSpecName VarSpecF) bb ltac:(first [ reflexivity | exact I ]))
+      (S b) (Collections.ne_to_list (Syntax.var_names vs))) as Hnc.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+      (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  cbn [fst snd] in Hnc.
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - pose proof (number_typeexpr_class t (Some b) RTypeUse b1 ltac:(first [ reflexivity | exact I ])) as Htc.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2]. cbn [fst] in Htc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ (SpecKind VarSpecF)); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact Hnc | exact Htc ] ].
+  - pose proof (number_opttype_class ot (Some b) b1) as Hoc.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots]. cbn [fst snd] in Hoc.
+    pose proof (number_list_class (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ]))
+        b2 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst snd] in Hvc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ (SpecKind VarSpecF)); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact Hnc | apply class_ok_app; [ exact Hoc | exact Hvc ] ] ].
+Qed.
+
+Lemma number_typespec_class : forall ts par role b,
+  role_ok_for (SpecKind TypeSpecF) role -> class_ok (fst (number_typespec par role b ts)).
+Proof.
+  intros ts par role b Hr. unfold number_typespec; destruct ts as [bn t|bn t];
+  ( pose proof (number_bindingname_class bn (Some b) (RSpecName TypeSpecF) (S b) ltac:(first [ reflexivity | exact I ])) as Hbc;
+    destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1]; cbn [fst] in Hbc;
+    pose proof (number_typeexpr_class t (Some b) RTypeUse b1 ltac:(first [ reflexivity | exact I ])) as Htc;
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin]; cbn [fst] in Htc; cbn [fst];
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ (SpecKind TypeSpecF)); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact Hbc | exact Htc ] ] ).
+Qed.
+
+Lemma number_decl_class : forall d par role b,
+  role_ok_for DeclKind role -> class_ok (fst (number_decl par role b d)).
+Proof.
+  intros d par role b Hr. unfold number_decl. destruct d as [cs|vs|ts];
+  [ pose proof (number_list_class (number_constspec (Some b) RPlain)
+        (fun bb x => number_constspec_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ])) (S b) cs) as Hk;
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots]
+  | pose proof (number_list_class (number_varspec (Some b) RPlain)
+        (fun bb x => number_varspec_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ])) (S b) vs) as Hk;
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots]
+  | pose proof (number_list_class (number_typespec (Some b) RPlain)
+        (fun bb x => number_typespec_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ])) (S b) ts) as Hk;
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots] ];
+  cbn [fst snd] in Hk; cbn [fst];
+  ( constructor; [ apply (rv_ok_mk _ _ _ _ _ DeclKind); [ reflexivity | exact Hr ] | exact Hk ] ).
+Qed.
+
+Lemma number_stmt_class : forall s par role b,
+  role_ok_for StmtKind role -> class_ok (fst (number_stmt par role b s)).
+Proof.
+  intros s par role b Hr. unfold number_stmt. destruct s as [e|d|names vals].
+  - pose proof (number_expr_class e (Some b) RExprStatementExpr (S b) ltac:(first [ reflexivity | exact I ])) as Hc.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst] in Hc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ StmtKind); [ reflexivity | exact Hr ] | exact Hc ].
+  - pose proof (number_decl_class d (Some b) RPlain (S b) ltac:(first [ reflexivity | exact I ])) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ StmtKind); [ reflexivity | exact Hr ] | exact Hc ].
+  - pose proof (number_list_class (number_bindingname (Some b) RShortLhs)
+        (fun bb x => number_bindingname_class x (Some b) RShortLhs bb ltac:(first [ reflexivity | exact I ]))
+        (S b) (Collections.ne_to_list names)) as Hnc.
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots].
+    cbn [fst snd] in Hnc.
+    pose proof (number_list_class (number_expr (Some b) RPlain)
+        (fun bb x => number_expr_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ]))
+        b1 (Collections.ne_to_list vals)) as Hvc.
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    cbn [fst snd] in Hvc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ StmtKind); [ reflexivity | exact Hr ]
+      | apply class_ok_app; [ exact Hnc | exact Hvc ] ].
+Qed.
+
+Lemma number_block_class : forall blk par role b,
+  role_ok_for BlockKind role -> class_ok (fst (number_block par role b blk)).
+Proof.
+  intros [stmts] par role b Hr. unfold number_block.
+  pose proof (number_list_class (number_stmt (Some b) RPlain)
+      (fun bb x => number_stmt_class x (Some b) RPlain bb ltac:(first [ reflexivity | exact I ])) (S b) stmts) as Hk.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst snd] in Hk. cbn [fst].
+  constructor; [ apply (rv_ok_mk _ _ _ _ _ BlockKind); [ reflexivity | exact Hr ] | exact Hk ].
+Qed.
+
+Lemma number_toplevel_class : forall td par role b,
+  role_ok_for TopKind role -> class_ok (fst (number_toplevel par role b td)).
+Proof.
+  intros td par role b Hr. unfold number_toplevel. destruct td as [d|blk].
+  - pose proof (number_decl_class d (Some b) RPlain (S b) ltac:(first [ reflexivity | exact I ])) as Hc.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ TopKind); [ reflexivity | exact Hr ] | exact Hc ].
+  - pose proof (number_block_class blk (Some b) RPlain (S b) ltac:(first [ reflexivity | exact I ])) as Hc.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst] in Hc. cbn [fst].
+    constructor; [ apply (rv_ok_mk _ _ _ _ _ TopKind); [ reflexivity | exact Hr ] | exact Hc ].
+Qed.
+
+(* §4:255 role/kind exact: every cell whose role commits to a kind carries a view of exactly that kind *)
+Lemma number_file_class : forall f, class_ok (number_file f).
+Proof.
+  intro f. unfold number_file.
+  pose proof (number_list_class (number_toplevel (Some 0) RPlain)
+      (fun bb x => number_toplevel_class x (Some 0) RPlain bb ltac:(first [ reflexivity | exact I ]))
+      1 (Syntax.declarations f)) as Hd.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [fst snd] in Hd |- *.
+  constructor; [ apply (rv_ok_mk _ _ _ _ _ FileKind); [ reflexivity | exact I ] | exact Hd ].
+Qed.
+
+(* round-trip (§4:251): each occurrence's tag is exactly its source construct's role and shallow view *)
+Lemma number_bindingname_view : forall par role b bn,
+  exists cell rest, fst (number_bindingname par role b bn) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VBindingName bn.
+Proof. intros. cbn [number_bindingname number_leaf fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ]. Qed.
+
+Lemma number_typeexpr_view : forall par role b t,
+  exists cell rest, fst (number_typeexpr par role b t) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VTypeExpr t.
+Proof. intros. cbn [number_typeexpr number_leaf fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ]. Qed.
+
+Lemma number_constspec_view : forall par role b cs,
+  exists cell rest, fst (number_constspec par role b cs) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VConstSpec (constspec_shape cs).
+Proof.
+  intros par role b cs. unfold number_constspec.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  destruct (Syntax.const_init cs) as [ot vals|].
+  - destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ].
+  - cbn [fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ].
+Qed.
+
+Lemma number_varspec_view : forall par role b vs,
+  exists cell rest, fst (number_varspec par role b vs) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VVarSpec (varspec_shape vs).
+Proof.
+  intros par role b vs. unfold number_varspec.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  destruct (Syntax.var_init vs) as [t | ot vals].
+  - destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2].
+    cbn [fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ].
+  - destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    cbn [fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ].
+Qed.
+
+Lemma number_typespec_view : forall par role b ts,
+  exists cell rest, fst (number_typespec par role b ts) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VTypeSpec (typespec_shape ts).
+Proof.
+  intros par role b ts. unfold number_typespec; destruct ts as [bn t|bn t];
+    (destruct (number_bindingname (Some b) (RSpecName TypeSpecF) (S b) bn) as [bc b1];
+     destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc bfin];
+     cbn [fst]; do 2 eexists; split; [ reflexivity | split; reflexivity ]).
+Qed.
+
+Lemma number_decl_view : forall par role b d,
+  exists cell rest, fst (number_decl par role b d) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VDecl (decl_flavor d).
+Proof.
+  intros par role b d. unfold number_decl.
+  destruct d as [cs|vs|ts];
+    [ destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots]
+    | destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots]
+    | destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots] ];
+    (cbn [fst]; do 2 eexists; split; [ reflexivity | split; reflexivity ]).
+Qed.
+
+Lemma number_stmt_view : forall par role b s,
+  exists cell rest, fst (number_stmt par role b s) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VStmt (stmt_shape s).
+Proof.
+  intros par role b s. unfold number_stmt.
+  destruct s as [e|d|names vals];
+    [ destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']
+    | destruct (number_decl (Some b) RPlain (S b) d) as [c b']
+    | destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names)) as [[nc b1] nroots];
+      destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots] ];
+    (cbn [fst]; do 2 eexists; split; [ reflexivity | split; reflexivity ]).
+Qed.
+
+Lemma number_block_view : forall par role b blk,
+  exists cell rest, fst (number_block par role b blk) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VBlock.
+Proof.
+  intros par role b [stmts]. unfold number_block.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  cbn [fst]. do 2 eexists; split; [ reflexivity | split; reflexivity ].
+Qed.
+
+Lemma number_toplevel_view : forall par role b td,
+  exists cell rest, fst (number_toplevel par role b td) = (b, cell) :: rest
+                    /\ c_role cell = role /\ c_view cell = VTop (top_shape td).
+Proof.
+  intros par role b td. unfold number_toplevel.
+  destruct td as [d|blk];
+    [ destruct (number_decl (Some b) RPlain (S b) d) as [c b']
+    | destruct (number_block (Some b) RPlain (S b) blk) as [c b'] ];
+    (cbn [fst]; do 2 eexists; split; [ reflexivity | split; reflexivity ]).
+Qed.
+
+(* main (§4:256): a Main top-level is tagged VTop TSMain and its one child is exactly the body block *)
+Lemma number_main : forall par role b blk,
+  exists cell bcell rest,
+    fst (number_toplevel par role b (Syntax.Main blk)) = (b, cell) :: rest /\
+    c_view cell = VTop TSMain /\ c_children cell = [S b] /\
+    In (S b, bcell) rest /\ c_view bcell = VBlock.
+Proof.
+  intros par role b blk. unfold number_toplevel.
+  destruct (number_block_view (Some b) RPlain (S b) blk) as [bcell [brest [Hb [_ Hbv]]]].
+  destruct (number_block (Some b) RPlain (S b) blk) as [bc b']. cbn [fst] in Hb.
+  cbn [fst]. exists (mkCell (VTop (top_shape (Syntax.Main blk))) role par (b' - 1) [S b]), bcell, bc.
+  split; [ reflexivity | split; [ reflexivity | split; [ reflexivity | split; [ rewrite Hb; left; reflexivity | exact Hbv ] ] ] ].
+Qed.
+
 (* the position map domain is exactly the source-occurrence domain: its keys are the in-range ordinals *)
 Lemma domain_exact {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) :
   Collections.NodeMap.In k (cell_map fr) <-> exists pos, pos < occ_count fr /\ k = Pos.of_succ_nat pos.
