@@ -1188,6 +1188,28 @@ Proof.
   cbn [fst snd] in Hd_cpo, Hd_res |- *. apply cpo_node; [ cbn [c_children]; exact Hd_res | exact Hd_cpo ].
 Qed.
 
+(* one root position per numbered element — the enumeration is a bijection onto the source list *)
+Lemma number_list_roots_length {A} (g : nat -> A -> list (nat * Cell) * nat) :
+  forall b xs, length (snd (number_list g b xs)) = length xs.
+Proof.
+  intros b xs; revert b; induction xs as [|x rest IH]; intro b; [ reflexivity | ].
+  cbn [number_list]. destruct (g b x) as [xc b']. specialize (IH b').
+  destruct (number_list g b' rest) as [[rc b''] roots]. cbn [snd length] in IH |- *.
+  rewrite IH. reflexivity.
+Qed.
+
+(* file roots are exact: the file cell heads the traversal and lists exactly one child per top-level decl *)
+Lemma number_file_roots_exact : forall f,
+  exists filecell dc, number_file f = (0, filecell) :: dc
+    /\ length (c_children filecell) = length (Syntax.declarations f).
+Proof.
+  intro f. unfold number_file.
+  pose proof (number_list_roots_length (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as Hlen.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  cbn [snd] in Hlen. exists (mkCell VFile RPlain None (bfin - 1) droots), dc.
+  split; [ reflexivity | cbn [c_children]; exact Hlen ].
+Qed.
+
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
