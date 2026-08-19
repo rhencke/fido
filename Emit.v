@@ -25,8 +25,8 @@ Definition CompiledOnly {p} (_ : Compilable.Program p) : Type := unit.
 Definition of_compiled {p} (cp : Compilable.Program p) : Image cp CompiledOnly tt :=
   @of_evidence p cp CompiledOnly tt.
 
-(* Transport renders ONLY the exact source index [p]; it never inspects [cp], evidence, Compilable, or Analysis. *)
-Definition transport {p} {cp : Compilable.Program p} {Evidence : Compilable.Program p -> Type} {evidence : Evidence cp}
+(* Transport renders ONLY the source index [p], never [cp]/evidence/Compilable/Analysis; polymorphic like Image. *)
+Polymorphic Definition transport {p} {cp : Compilable.Program p} {Evidence : Compilable.Program p -> Type} {evidence : Evidence cp}
   (_ : Image cp Evidence evidence) : string * list (string * string) :=
   (module_file_of p, entries_of p).
 

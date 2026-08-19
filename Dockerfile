@@ -616,6 +616,17 @@ check_pristine /workspace/generated-bytes
 check_pristine /workspace/generated-alias
 echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 
+# evidence DAG: five images over ONE compiled root (base + evidence A/B + their aggregate + a derived object),
+# each through the real Fido Materialize path; all five produce byte-identical trees (transport is
+# evidence-independent), exercising the generic Emit.Image end to end with no placeholder or generic framework.
+if ! rocq c -Q _build/default/. Fido e2e/WitnessEvidence.v > /tmp/emit-ev.log 2>&1; then cat /tmp/emit-ev.log; fail "Fido Materialize (evidence DAG) FAILED"; fi
+check_pristine /workspace/ev-base
+for d in ev-a ev-b ev-agg ev-der; do
+  check_pristine "/workspace/$d"
+  diff -r /workspace/ev-base "/workspace/$d" > /tmp/ev-diff.log 2>&1 || { cat /tmp/ev-diff.log; fail "evidence image $d did not materialize byte-identically to the base compiled image"; }
+done
+echo "fido: evidence DAG OK — base + A + B + aggregate + derived all materialize byte-identically through Fido Materialize"
+
 # provenance (1): a forged raw transport (not a Emit.Image) is rejected BEFORE any effect (Fail fixtures)
 if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
@@ -631,11 +642,11 @@ echo "fido: static rejection controls OK — the invalid-program matrix lands in
 # Materialize lines stripped, since the pristine trees already exist and the materializer refuses an occupied
 # destination), require them all, and audit — an axiom or admit in ANY fixture proof is rejected as in the theory.
 mkdir -p /tmp/e2eaudit
-for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject; do
+for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do
   grep -v '^Fido Materialize' e2e/$m.v > /tmp/e2eaudit/$m.v
   if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1; then cat /tmp/e2eaudit/$m.log; fail "e2e audit: $m did not recompile under the Fido path"; fi
 done
-printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
+printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
 if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
@@ -682,6 +693,19 @@ Definition img := Emit.of_compiled cp.
 Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
 EOF
+# axiom-dependent ADDITIONAL EVIDENCE over a CONCRETE (non-axiom) compiled root: the evidence is the sole
+# axiom, so the assumption audit rejects specifically the evidence's provenance before any filesystem effect.
+cat > /tmp/forge/Evidence.v <<'EOF'
+From Stdlib Require Import String.
+From Fido Require Import Version ModulePath Syntax Compilable Emit.
+Definition p : Syntax.Program := empty_program (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23).
+Definition cp : Compilable.Program p := Compilable.compiled_program p (ltac:(vm_compute; reflexivity)).
+Definition Ev (c : Compilable.Program p) : Prop := Compilable.diagnostics (Compilable.program_compilation c) = nil.
+Axiom bogus_ev : Ev cp.
+Definition img := @Emit.of_evidence p cp Ev bogus_ev.
+Declare ML Module "fido.emit".
+Fido Materialize img To "/workspace/e2e-forge-ev".
+EOF
 forge_reject() {   # <file> <target-dir> <label>
   if rocq c -Q _build/default/. Fido "$1" > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "$3: a forged image was NOT rejected"; fi
   grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
@@ -692,6 +716,7 @@ forge_reject /tmp/forge/Direct.v      /workspace/e2e-forge     "direct axiom"
 forge_reject /tmp/forge/Opaque.v      /workspace/e2e-forge-op  "axiom behind an opaque Qed proof"
 forge_reject /tmp/forge/Var.v         /workspace/e2e-forge-var "direct section variable"
 forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive section variable"
+forge_reject /tmp/forge/Evidence.v    /workspace/e2e-forge-ev  "axiom-dependent additional evidence"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
 # duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
