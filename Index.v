@@ -2993,6 +2993,33 @@ Proof.
     | discriminate E ].
 Qed.
 
+(* parent/child inverse: a direct child's parent edge points back exactly to its parent node *)
+Lemma node_children_inverse {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
+  In c (node_children r) -> node_parent c = Some r.
+Proof.
+  intro Hin.
+  pose proof (node_children_file r c Hin) as Hf.
+  assert (Hpos : In (nr_pos c) (c_children (occ_at r)))
+    by (rewrite <- (node_children_pos r); apply in_map; exact Hin).
+  destruct (cellmap_number_file (nr_file r)) as [f Hcr].
+  assert (Hmem : forall x, nr_file x = nr_file r -> In (nr_pos x, occ_at x) (number_file f)).
+  { intros x Hx. pose proof (occ_at_find x) as Hfx. rewrite Hx, Hcr in Hfx.
+    destruct (posmap_find_in (number_file f) (nr_key x) (occ_at x) Hfx) as [pos [Hk Hinpos]].
+    assert (pos = nr_pos x).
+    { pose proof (nr_key_pos x) as Hkp.
+      assert (Pos.of_succ_nat (nr_pos x) = Pos.of_succ_nat pos) as Hpp by (rewrite <- Hkp; exact Hk).
+      apply (f_equal Pos.to_nat) in Hpp; rewrite !SuccNat2Pos.id_succ in Hpp; lia. }
+    subst pos; exact Hinpos. }
+  destruct (number_file_cpo f (nr_pos r) (occ_at r) (Hmem r eq_refl) (nr_pos c) Hpos) as [ccell [Hincell Hpar]].
+  assert (Hcpar : c_parent (occ_at c) = Some (nr_pos r)).
+  { assert (occ_at c = ccell)
+      by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) ccell);
+          [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincell ]).
+    rewrite H; exact Hpar. }
+  destruct (node_parent_some c (nr_pos r) Hcpar) as [pc [Hnp [Hpcpos Hpcfile]]].
+  rewrite Hnp; f_equal; apply noderef_positional; [ rewrite Hpcfile; exact Hf | exact Hpcpos ].
+Qed.
+
 (* total file enumeration: every retained occurrence position becomes an exact NodeRef, none omitted *)
 Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
   refs_at_positions fr (seq 0 (occ_count fr)) (fun pp Hpp => proj2 (proj1 (in_seq (occ_count fr) 0 pp) Hpp)).
