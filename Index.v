@@ -1909,13 +1909,6 @@ Proof.
     [ intro E; injection E as <-; reflexivity | discriminate ].
 Qed.
 
-Definition node_parent {p} {idx : ProgramIndex p} (r : NodeRef idx) : option (NodeRef idx) :=
-  match c_parent (occ_at r) with Some pp => mk_noderef (nr_file r) (Pos.of_succ_nat pp) | None => None end.
-
-Definition node_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
-  fold_right (fun pp acc => match mk_noderef (nr_file r) (Pos.of_succ_nat pp) with Some c => c :: acc | None => acc end)
-             [] (c_children (occ_at r)).
-
 Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
   flat_map (fun kv => match mk_noderef fr (fst kv) with Some r => [r] | None => [] end)
            (Collections.NodeMap.elements (cell_map fr)).
@@ -2918,6 +2911,100 @@ Proof. reflexivity. Qed.
 Lemma noderef_at_pos_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat)
   (H : pos < occ_count fr) : nr_pos (noderef_at_pos fr pos H) = pos.
 Proof. unfold noderef_at_pos, nr_pos; cbn [nr_key]; rewrite SuccNat2Pos.id_succ; reflexivity. Qed.
+
+(* a listed child position is in range: coverage lifts it below the file's exact occurrence count *)
+Lemma child_in_range {p} {idx : ProgramIndex p} (r : NodeRef idx) (q : nat) :
+  In q (c_children (occ_at r)) -> q < occ_count (nr_file r).
+Proof.
+  intro Hq. destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  destruct (number_file_positions f) as [n Hpos].
+  assert (Hlen : length (number_file f) = n).
+  { apply (f_equal (@length nat)) in Hpos;
+    first [ rewrite length_map in Hpos | rewrite map_length in Hpos ];
+    first [ rewrite length_seq in Hpos | rewrite seq_length in Hpos ]; exact Hpos. }
+  rewrite Hcount, Hlen. replace n with (0 + n) by lia.
+  apply (child_lt (number_file f) n 0 (nr_pos r) (occ_at r) q);
+    [ exact Hpos | apply number_file_cpo | exact Hin | exact Hq ].
+Qed.
+
+(* a parent edge points strictly earlier, so its ordinal is in range on the same file *)
+Lemma parent_in_range {p} {idx : ProgramIndex p} (r : NodeRef idx) (pp : nat) :
+  c_parent (occ_at r) = Some pp -> pp < occ_count (nr_file r).
+Proof.
+  intro Hpar. destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  destruct (number_file_pbounds f (nr_pos r) (occ_at r) Hin pp Hpar) as [_ Hlt].
+  destruct (number_file_positions f) as [n Hpos].
+  assert (Hposr : In (nr_pos r) (map fst (number_file f)))
+    by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+  rewrite Hpos in Hposr; apply in_seq in Hposr.
+  assert (Hlen : length (number_file f) = n).
+  { apply (f_equal (@length nat)) in Hpos;
+    first [ rewrite length_map in Hpos | rewrite map_length in Hpos ];
+    first [ rewrite length_seq in Hpos | rewrite seq_length in Hpos ]; exact Hpos. }
+  rewrite Hcount, Hlen. lia.
+Qed.
+
+(* total refs: each in-range position becomes an exact NodeRef, never a dropped or optional member *)
+Fixpoint refs_at_positions {p} {idx : ProgramIndex p} (fr : FileRef idx) (ps : list nat)
+  : (forall pp, In pp ps -> pp < occ_count fr) -> list (NodeRef idx) :=
+  match ps with
+  | [] => fun _ => []
+  | pp :: rest => fun H =>
+      noderef_at_pos fr pp (H pp (or_introl eq_refl)) :: refs_at_positions fr rest (fun q Hq => H q (or_intror Hq))
+  end.
+
+(* the refs' ordinals are exactly the input positions, in order — no member dropped, none reordered *)
+Lemma refs_at_positions_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (ps : list nat)
+  (H : forall pp, In pp ps -> pp < occ_count fr) : map nr_pos (refs_at_positions fr ps H) = ps.
+Proof. revert H; induction ps as [|pp rest IH]; intro H; cbn; [ reflexivity | rewrite noderef_at_pos_pos; f_equal; apply IH ]. Qed.
+
+(* every ref built here lives on the given file *)
+Lemma refs_at_positions_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (ps : list nat)
+  (H : forall pp, In pp ps -> pp < occ_count fr) (c : NodeRef idx) : In c (refs_at_positions fr ps H) -> nr_file c = fr.
+Proof.
+  revert H; induction ps as [|pp rest IH]; intros H Hc; cbn in Hc;
+    [ destruct Hc | destruct Hc as [<-|Hin]; [ apply noderef_at_pos_file | apply (IH _ Hin) ] ].
+Qed.
+
+(* the exact parent edge: a file root has no parent (genuine absence); otherwise the parent ref is total *)
+Definition node_parent {p} {idx : ProgramIndex p} (r : NodeRef idx) : option (NodeRef idx) :=
+  (match c_parent (occ_at r) as o return (forall pp, o = Some pp -> pp < occ_count (nr_file r)) -> option (NodeRef idx) with
+   | Some pp => fun H => Some (noderef_at_pos (nr_file r) pp (H pp eq_refl))
+   | None => fun _ => None
+   end) (parent_in_range r).
+
+(* the exact ordered direct children: every listed child is a total ref, none dropped or optional *)
+Definition node_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  refs_at_positions (nr_file r) (c_children (occ_at r)) (child_in_range r).
+
+(* completeness + order + inverse: the children refs' ordinals are exactly this cell's child list *)
+Lemma node_children_pos {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  map nr_pos (node_children r) = c_children (occ_at r).
+Proof. apply refs_at_positions_pos. Qed.
+
+(* every direct child lives on its parent's file *)
+Lemma node_children_file {p} {idx : ProgramIndex p} (r : NodeRef idx) (c : NodeRef idx) :
+  In c (node_children r) -> nr_file c = nr_file r.
+Proof. apply refs_at_positions_file. Qed.
+
+(* a file root is exactly the parentless node: the parent edge is None iff the cell has no parent *)
+Lemma node_parent_none {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  node_parent r = None <-> c_parent (occ_at r) = None.
+Proof.
+  unfold node_parent; generalize (parent_in_range r); destruct (c_parent (occ_at r)) as [pp|]; intro H; cbn;
+    split; intro H2; solve [ discriminate | reflexivity ].
+Qed.
+
+(* parent soundness: a present parent edge resolves to the exact parent ordinal on the same file *)
+Lemma node_parent_some {p} {idx : ProgramIndex p} (r : NodeRef idx) (pp : nat) :
+  c_parent (occ_at r) = Some pp ->
+  exists pc, node_parent r = Some pc /\ nr_pos pc = pp /\ nr_file pc = nr_file r.
+Proof.
+  intro E. unfold node_parent; generalize (parent_in_range r); destruct (c_parent (occ_at r)) as [pp0|]; intro H;
+    [ injection E as <-; cbn; eexists;
+      split; [ reflexivity | split; [ apply noderef_at_pos_pos | apply noderef_at_pos_file ] ]
+    | discriminate E ].
+Qed.
 
 (* every node's cell obeys the first-edge law with its own file's occurrence count as the range bound *)
 Lemma occ_edge_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
