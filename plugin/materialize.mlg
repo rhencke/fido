@@ -162,9 +162,11 @@ let do_audit () =
 (* The transport boundary is exactly four ordered steps, and NOTHING else touches the term.  Steps 1-2 are
    provenance guards (kernel queries — a typecheck and an assumption-closure check, NOT program/AST/
    semantic inspection); step 3 decodes the final transport.  No effect happens before both guards pass.
-   [decode_guarded] is the SHARED guard for step 4.  There is exactly ONE Rocq consumer, [Fido Materialize],
-   which writes the certified pristine image DIRECTLY into a fresh disposable build-validation root; there is NO
-   public Rocq sink command.  The low-level publication SINK is internal handwritten OCaml (sink_test + the
+   [decode_guarded] is the SHARED guard for step 4, consumed by exactly ONE command, [Fido Materialize], which
+   writes the certified pristine image DIRECTLY into a fresh disposable build-validation root.  The test-only
+   [Fido OracleExport] (STEP 4b, below) is a separate guard-free path that decodes a raw transport into a
+   disposable oracle root; neither is a publication sink command.  The low-level publication SINK is internal
+   handwritten OCaml (sink_test + the
    `make regenerate` apply CLI); the supported `make regenerate` Docker workflow runs a fresh `go build ./...`
    BEFORE its internal apply.  A local user can invoke or reconstruct the internal sink directly — that is
    outside the cooperating-developer threat model. *)
@@ -264,10 +266,11 @@ let do_oracle_export t dir =
    foreign-Go-rejecting sibling-temp synchronizer that writes into a possibly-dirty real destination) is
    INTERNAL: it is reached ONLY from handwritten OCaml — `e2e/sink_test.ml` (the sink's own byte-exact test
    driver) and `e2e/apply.ml` (the `make regenerate` apply CLI, which the validated publication workflow
-   invokes only AFTER a fresh `go build ./...` succeeds).  The Rocq boundary exposes ONLY [Fido Materialize]
-   (the authoritative pristine export for build validation, above) and [Fido Audit Assumptions]; no Rocq
-   command publishes into a real destination.  A deliberate local invocation of the internal sink is outside
-   the cooperating-developer threat model. *)
+   invokes only AFTER a fresh `go build ./...` succeeds).  The Rocq boundary exposes [Fido Materialize] (the
+   authoritative pristine export for build validation, above), the test-only [Fido OracleExport] (a disposable
+   oracle export for the pinned-Go differential, which publishes nothing), and [Fido Audit Assumptions]; no
+   Rocq command publishes into a real destination.  A deliberate local invocation of the internal sink is
+   outside the cooperating-developer threat model. *)
 }
 
 VERNAC COMMAND EXTEND FidoMaterialize CLASSIFIED AS SIDEFF

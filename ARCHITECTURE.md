@@ -617,11 +617,17 @@ gate.
 All semantic work is proved Rocq. The **only** handwritten OCaml is the transport boundary, and it
 understands filesystems, not programs.
 
-`plugin/materialize.mlg` is the bridge, a four-step boundary: typecheck the argument's transport projection
-as the certified image type; **reject any argument whose assumption closure contains an axiom**, using the
-same kernel mechanism as the whole-theory audit; reduce and structurally decode **only** the final
-`(go.mod bytes, (path, bytes) list)` transport with exact constructors, failing loud otherwise; and hand the
-result to `Fido Materialize`, the sole Rocq transport command. **There is no public `Fido Emit`.**
+`plugin/materialize.mlg` is the bridge. Its authoritative path is a four-step boundary: typecheck the
+argument's transport projection as the certified image type; **reject any argument whose assumption closure
+contains an axiom**, using the same kernel mechanism as the whole-theory audit; reduce and structurally decode
+**only** the final `(go.mod bytes, (path, bytes) list)` transport with exact constructors, failing loud
+otherwise; and hand the result to `Fido Materialize`, the authoritative Rocq transport command for build
+validation. The same file exposes one **test-only** command, `Fido OracleExport`, which decodes a raw
+`(go.mod, entries)` transport straight into a disposable oracle tree for the pinned-Go differential: it reaches
+no capability, image, or publication sink, and skips the image-typecheck and assumption-closure guards because
+it renders only source bytes for the toolchain to judge — it decodes exactly the same final transport and
+writes through the same fresh-empty-root primitive, and names no program/AST/type. **There is no public
+`Fido Emit`.**
 
 `plugin/sink.ml`, `e2e/sink_test.ml` and `e2e/apply.ml` are the pristine writer, the foreign-rejecting
 publication sink, its test driver and the tiny `make regenerate` adapter. They walk no Rocq terms and run no
