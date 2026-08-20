@@ -109,19 +109,12 @@ Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt
 (* the exact-payload catalogue: pin each cause / requirement of the one canonical Analysis issue table *)
 Definition cbinds (p : Syntax.Program) := BN.bindings (PI.package_surface (Index.index_program p)).
 Definition dcauses (p : Syntax.Program) :=
-  map (AN.diag_cause (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
-      (AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
+  map AN.diag_cause (AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
 Definition breqs (p : Syntax.Program) :=
-  map (AN.bound_req (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
-      (AN.boundaries (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
-(* the boundary FACTS themselves; matching a fact's shape avoids the occ_req extraction that vm_computes a huge proof *)
-Definition bfacts (p : Syntax.Program) :=
-  map (AN.bound_fact (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
-      (AN.boundaries (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
-(* the diagnostic SITES; matching a site's shape avoids the diag_cause/group_cause extraction that blows up *)
+  map AN.bound_req (AN.boundaries (AN.facts (cbinds p))).
+(* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) :=
-  map (AN.diag_site (AN.facts (cbinds p)) (AN.package_facts (cbinds p)))
-      (AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
+  AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p)).
 
 Definition r_iota_cause :
   dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ].
@@ -150,19 +143,35 @@ Definition r_main_arity : Compilable.rejects (prog [ Syntax.ExprStmt (APP (OID "
 (* the invalidity is the exact application-family MainArity cause carrying the function head *)
 Definition r_main_arity_payload :
   (match dsites (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]) with
-   | [ AN.AtOcc (AN.OFApp _ (AN.AInvalid (AN.MainArity _ _ _))) ] => true | _ => false end) = true.
+   | [ AN.DOcc _ _ (AN.MainArity _ _ _) ] => true | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
 
 (* ordinary redeclaration: two var/const specs sharing one block scope and spelling is a redeclaration issue *)
 Definition r_redecl_var : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]). Proof. reject. Qed.
-(* the one diagnostic is a group-redeclaration site over an establishment spelled "x" (cause OrdinaryRedeclared) *)
+(* the one diagnostic is a redeclared-group row over the group spelled "x" (cause RedeclaredGroupCause) *)
 Definition r_redecl_payload :
   (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]) with
-   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "x")
+   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "x")
    | _ => false
    end) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* an occurrence diagnostic retains its exact family, a value invalidity projecting as FamValue *)
+Definition r_iota_family :
+  (match dsites (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) with
+   | [ d ] => match AN.diag_family d with Some AN.FamValue => true | _ => false end
+   | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* a boundary retains its own exact family too, projected from the one retained row *)
+Definition o_cx_typed_family : exists f,
+  map AN.bound_family (AN.boundaries (AN.facts (cbinds (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])))) = [ f ].
+Proof. eexists; vm_compute; reflexivity. Qed.
+(* a redeclared group retains its exact use-site contexts: a use is contextualized, not re-diagnosed per use *)
+Definition r_redecl_usecontext :
+  (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "y"))) (NE1 (VNAME "x")) ]) with
+   | [ AN.DRedeclaredGroup g (_ :: _) ] => Names.ordinary_equalb (BN.dg_name g) (OID "x")
+   | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 
 (* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
@@ -180,19 +189,19 @@ Definition c_main_only : Compilable.compiles (prog_tops [ main0 ]). Proof. compi
 Definition r_main_const_redecl : Compilable.rejects (prog_tops [ tconstmain ; main0 ]). Proof. reject. Qed.
 Definition r_main_const_redecl_payload :
   (match dsites (prog_tops [ tconstmain ; main0 ]) with
-   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "main")
+   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "main")
    | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* (c) multiple fixed mains: a redeclared group through the one authority, no first-main pick, so Rejected *)
 Definition r_main_multiple : Compilable.rejects (prog_tops [ main0 ; main0 ]). Proof. reject. Qed.
 Definition r_main_multiple_payload :
   (match dsites (prog_tops [ main0 ; main0 ]) with
-   | [ AN.AtGroup e ] => Names.ordinary_equalb (BN.est_name e) (OID "main")
+   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "main")
    | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* (d) no fixed main, an ordinary const main: MainMissing, so the missing-entry diagnostic Rejects *)
 Definition r_main_missing : Compilable.rejects (prog_tops [ tconstmain ]). Proof. reject. Qed.
 Definition r_main_missing_payload :
   (match dsites (prog_tops [ tconstmain ]) with
-   | [ AN.AtPackage _ ] => true | _ => false end) = true.
+   | [ AN.DMissingMain _ ] => true | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.

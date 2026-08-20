@@ -19,7 +19,7 @@ Inductive Disposition := Compiled | Rejected | OutsideScope.
 Definition disposition (p : Syntax.Program) : Disposition :=
   let c := c_result p in
   match nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c)) with
-  | left _ => match nil_dec (RP.boundaries (AN.res_facts c) (AN.res_pkg c)) with left _ => Compiled | right _ => OutsideScope end
+  | left _ => match nil_dec (RP.boundaries (AN.res_facts c)) with left _ => Compiled | right _ => OutsideScope end
   | right _ => Rejected
   end.
 
@@ -64,10 +64,10 @@ Module Sealed : C4_PUBLIC.
   Arguments c_res {p} _.
   Definition Compilation := CompilationR.
 
-  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
-  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
+  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_surface (c_res c)).
+  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_surface (c_res c)).
   Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
-  Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
+  Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (AN.res_facts (c_res c)).
 
   Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ boundaries c = [].
   Lemma admissible_iff_reports {p} (c : Compilation p) : Admissible c <-> diagnostics c = [] /\ boundaries c = [].
@@ -93,7 +93,7 @@ Module Sealed : C4_PUBLIC.
   Proof.
     unfold OutcomeAt, disposition. cbv zeta. set (c := c_result p).
     destruct (nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c))) as [Hd|Hd].
-    - destruct (nil_dec (RP.boundaries (AN.res_facts c) (AN.res_pkg c))) as [Hb|Hb].
+    - destruct (nil_dec (RP.boundaries (AN.res_facts c))) as [Hb|Hb].
       + exact (mkProg (mkComp c) (conj Hd Hb)).
       + exact (mkOut (mkComp c) Hd Hb).
     - exact (mkRej (mkComp c) Hd).

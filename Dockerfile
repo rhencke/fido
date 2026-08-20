@@ -429,9 +429,9 @@ typefail neg_main_est_foreign_surface "an establishment from a foreign surface a
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sq) (e : BN.Est sp) : BN.MainStatus sq pr := BN.MainOne e.'
 typefail neg_raw_node_as_source_object "a SourceObject built directly from a raw NodeRef, bypassing a proven origin" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.ObjectRef (IX.index_program p) := BN.SourceObject r.'
-# — report / analysis (R3/R4): diagnostics carry a producing proof, no self-block, no nullary requirement —
-typefail neg_free_report_record "a Diagnostic without its producing proof" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase s) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (site : AN.DiagSite s) : AN.Diagnostic fp pf := AN.diag_at fp pf site eq_refl.'
+# — report / analysis (R3/R4): each issue is an exact row retaining its cause/requirement, no nullary requirement —
+typefail neg_occ_diag_no_cause "an occurrence diagnostic row without its exact retained cause" \
+  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (r : IX.NodeRef (IX.index_program p)) : AN.Diagnostic s := AN.DOcc r AN.FamValue.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
   'Definition forged (p : Syntax.Program) : AN.Requirement (IX.index_program p) := AN.ReqComplexType.'
 # — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
@@ -485,14 +485,18 @@ Definition bytes_evidence_independent (p : Syntax.Program) (cp : Compilable.Prog
   : Emit.transport (ev_image p cp) = Emit.transport (base_image p cp)
   := Emit.transport_evidence_independent p cp (ExampleEv p) tt Emit.CompiledOnly tt (ev_image p cp) (base_image p cp).
 (* main multiplicity is a distinguished projection over the package-scope function-declaration establishments;
-   the fixed main participates in the ONE declaration-group authority, so its redeclaration is OrdinaryRedeclared,
-   and it resolves as a SourceObject over its DOFunc origin — no main-specific carrier *)
+   the fixed main participates in the ONE declaration-group authority, so its redeclaration is a RedeclaredGroup
+   diagnostic retaining the exact group, and it resolves as a SourceObject over its DOFunc origin — no carrier *)
 Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e : BN.Est s) : BN.MainStatus s pr := BN.MainOne e.
 Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : BN.MainStatus s pr := BN.MainMultiple e1 e2 rest.
 Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : AN.IssueCause s := AN.OrdinaryRedeclared e1 e2 rest.
+  (g : BN.DeclarationGroupRef s) (ctxs : list (Index.NodeRef (Index.index_program p))) : AN.Diagnostic s := AN.DRedeclaredGroup g ctxs.
+Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+  (pr : PI.PackageRef s) : AN.Diagnostic s := AN.DMissingMain pr.
+Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+  (g : BN.DeclarationGroupRef s) : AN.diag_cause (AN.DRedeclaredGroup g nil) = AN.RedeclaredGroupCause g := eq_refl.
 Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   (bp : BN.BindingPhase s) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 Definition main_as_object (p : Syntax.Program) (mo : Index.MainOccurrenceRef (Index.index_program p))
@@ -505,7 +509,7 @@ CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, OrdinaryRedeclared for a redeclared main group, and main as a SourceObject(DOFunc) — all reachable (as required)"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc) — all reachable (as required)"
 echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image) + positive control"
 SH
 
