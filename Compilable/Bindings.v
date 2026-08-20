@@ -453,11 +453,7 @@ Qed.
 
 (* the immediately-preceding sibling spec of a declaration spec, in source order — its inheritance predecessor *)
 Definition spec_predecessor {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
-  match Index.node_parent r with
-  | Some par => fold_left (fun acc c => if Nat.ltb (Index.nr_pos c) (Index.nr_pos r) then Some c else acc)
-                          (Index.node_children par) None
-  | None => None
-  end.
+  fold_left (fun _ sb => Some (Index.sb_sib sb)) (Index.preceding_children r) None.
 
 (* a spec heads its declaration exactly when it has no predecessor; a first inherited const spec is invalid *)
 Definition spec_is_first {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : bool :=
@@ -469,12 +465,8 @@ Definition is_explicit_const_spec {p} {idx : Index.ProgramIndex p} (c : Index.No
 (* the effective explicit origin of a const spec: itself if explicit, else the nearest preceding explicit spec *)
 Definition const_effective_origin {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
   if is_explicit_const_spec r then Some r
-  else match Index.node_parent r with
-       | Some par =>
-           fold_left (fun acc c => if andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos r)) (is_explicit_const_spec c)
-                                   then Some c else acc) (Index.node_children par) None
-       | None => None
-       end.
+  else fold_left (fun acc sb => if is_explicit_const_spec (Index.sb_sib sb) then Some (Index.sb_sib sb) else acc)
+                 (Index.preceding_children r) None.
 
 (* the one exact retained const-spec status: shape, effective origin, invalid chain, and name/type/value refs *)
 Record ConstSpecStatus {p} (idx : Index.ProgramIndex p) : Type := mk_const_status {
@@ -492,7 +484,8 @@ Arguments cs_predchain {p idx} _. Arguments cs_names {p idx} _. Arguments cs_typ
 
 Definition const_spec_status {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : ConstSpecStatus idx :=
   mk_const_status (is_explicit_const_spec r) (spec_is_first r) (const_effective_origin r)
-                  (Index.preceding_siblings r) (Index.spec_name_children r) (Index.type_use_child r) (Index.value_children r).
+                  (map Index.sb_sib (Index.preceding_children r)) (map Index.sn_child (Index.spec_names r))
+                  (option_map Index.rc_child (Index.spec_type_edge r)) (map Index.rc_child (Index.spec_values r)).
 
 (* a binder introduces a variable object exactly when it is a short-lhs or var-spec name *)
 Definition is_variable_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : bool :=
@@ -505,8 +498,7 @@ Definition short_first_dup {p} {idx : Index.ProgramIndex p}
   | Some stmt =>
       find (fun c => andb (Nat.ltb (Index.nr_pos c) (Index.nr_pos b))
                           (match binder_ident c with Some m => Names.ordinary_equalb m n | None => false end))
-           (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
-                   (Index.node_children stmt))
+           (map Index.rc_child (Index.short_lhs_edges stmt))
   | None => None
   end.
 
@@ -560,9 +552,7 @@ Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
 (* the exact ordered left-side statuses of a short declaration statement, in source order *)
 Definition short_lhs_statuses {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (stmt : Index.NodeRef idx) : list (ShortLhsStatus s) :=
-  map (short_lhs_status bp)
-      (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
-              (Index.node_children stmt)).
+  map (short_lhs_status bp) (map Index.rc_child (Index.short_lhs_edges stmt)).
 
 (* the exact new-nonblank evidence of a short declaration: the first ShortNew establishment, or its absence *)
 Inductive NewNonblank {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
@@ -592,7 +582,7 @@ Arguments sd_cutpoint {p idx s} _.
 Definition short_decl_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (stmt : Index.NodeRef idx) : ShortDeclStatus s :=
   let lefts := short_lhs_statuses bp stmt in
-  mk_short_status lefts (new_nonblank_of lefts) (Index.value_children stmt) (Index.nr_pos stmt).
+  mk_short_status lefts (new_nonblank_of lefts) (map Index.rc_child (Index.short_rhs_edges stmt)) (Index.nr_pos stmt).
 
 (* the first duplicate short-left name, the exact short-declaration invalidity projected from the retained status *)
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

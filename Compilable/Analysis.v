@@ -166,7 +166,7 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
   | Index.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
   | Index.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
   | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst m (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
+      match mconst m (Index.uo_operand (Index.un_operand_edge r Syntax.UnaryMinus Hv)) with
       | Some ci =>
           match TR.constant_neg (TR.ci_const ci) with
           | Some c' =>
@@ -183,9 +183,9 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
       | None => None
       end
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
+      match Index.node_view (Index.ah_head (Index.app_head_edge r Hv)) with
       | Index.VName h =>
-          match Index.arg_children r with
+          match map Index.aa_child (Index.application_args r) with
           | x :: nil =>
               match nm_at r h with
               | Some (TR.NMConversionForm t) =>
@@ -237,7 +237,7 @@ Definition value_ctx (r : Index.NodeRef idx) : bool :=
 Definition head_folds (par : Index.NodeRef idx) : bool :=
   match Index.node_view par as v return Index.node_view par = v -> bool with
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.first_edge par (f_equal Index.requires_first_edge Hv)) with
+      match Index.node_view (Index.ah_head (Index.app_head_edge par Hv)) with
       | Index.VName h =>
           match BN.resolve bp par h with
           | BN.RBound (BN.PredeclaredObject pn) =>
@@ -291,7 +291,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | None => VNonconst
       end
   | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst ctab (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
+      match mconst ctab (Index.uo_operand (Index.un_operand_edge r Syntax.UnaryMinus Hv)) with
       | Some _ =>
           match mconst ctab r with
           | Some ci => match resolve_constant_info ci with
@@ -303,11 +303,11 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | None => VNonconst
       end
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
+      match Index.node_view (Index.ah_head (Index.app_head_edge r Hv)) with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
-              match pmeaning pn, Index.arg_children r with
+              match pmeaning pn, map Index.aa_child (Index.application_args r) with
               | PMConvForm t, x :: nil =>
                   match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
@@ -348,28 +348,28 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
 Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> AppOutcome r with
   | Index.VApplication => fun Hv =>
-      let hd := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
+      let hd := Index.ah_head (Index.app_head_edge r Hv) in
       match Index.node_view hd with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
               match pmeaning pn with
-              | PMConvForm _ => match Index.arg_children r with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (Index.arg_children r))) end
+              | PMConvForm _ => match map Index.aa_child (Index.application_args r) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map Index.aa_child (Index.application_args r)))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match Index.arg_children r with
+                  match map Index.aa_child (Index.application_args r) with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity (Datatypes.length (Index.arg_children r)))
+                  | _ => AInvalid (ComplexArity (Datatypes.length (map Index.aa_child (Index.application_args r))))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
               | PMInvalidId => ADependent (DepInvalidId pn hd)
-              | PMUnmodelled => AUnmet (ReqApplication pn (Index.arg_children r))
+              | PMUnmodelled => AUnmet (ReqApplication pn (map Index.aa_child (Index.application_args r)))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
           | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
               (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
-              match Index.arg_children r with
+              match map Index.aa_child (Index.application_args r) with
               | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
@@ -395,13 +395,13 @@ Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo
 Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
   | Index.VStmt Index.SSExpr => fun Hv =>
-      let e := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
+      let e := Index.es_expr (Index.expr_stmt_edge r Hv) in
       match expr_dependency ctab e with
       | Some d => SDependent d
       | None =>
           match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
           | Index.VApplication => fun He =>
-              match Index.node_view (Index.first_edge e (f_equal Index.requires_first_edge He)) with
+              match Index.node_view (Index.ah_head (Index.app_head_edge e He)) with
               | Index.VName h =>
                   match BN.resolve bp r h with
                   | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
