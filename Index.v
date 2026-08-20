@@ -1909,19 +1909,6 @@ Proof.
     [ intro E; injection E as <-; reflexivity | discriminate ].
 Qed.
 
-Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
-  flat_map (fun kv => match mk_noderef fr (fst kv) with Some r => [r] | None => [] end)
-           (Collections.NodeMap.elements (cell_map fr)).
-
-Lemma file_nodes_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (r : NodeRef idx) :
-  In r (file_nodes fr) -> nr_file r = fr.
-Proof.
-  unfold file_nodes. intro Hin. apply in_flat_map in Hin. destruct Hin as [kv [_ Hin]].
-  destruct (mk_noderef fr (fst kv)) as [r'|] eqn:E; try rewrite E in Hin; cbn in Hin.
-  - destruct Hin as [Heq|[]]. subst r'. exact (mk_noderef_file fr (fst kv) r E).
-  - destruct Hin.
-Qed.
-
 (* fixed-main occurrence identity: one exact Syntax.Main occurrence; its body is the sibling shallow block *)
 Definition is_main_view (v : NodeView) : bool := match v with VTop TSMain => true | _ => false end.
 Definition is_block_view (v : NodeView) : bool := match v with VBlock => true | _ => false end.
@@ -3005,6 +2992,20 @@ Proof.
       split; [ reflexivity | split; [ apply noderef_at_pos_pos | apply noderef_at_pos_file ] ]
     | discriminate E ].
 Qed.
+
+(* total file enumeration: every retained occurrence position becomes an exact NodeRef, none omitted *)
+Definition file_nodes {p} {idx : ProgramIndex p} (fr : FileRef idx) : list (NodeRef idx) :=
+  refs_at_positions fr (seq 0 (occ_count fr)) (fun pp Hpp => proj2 (proj1 (in_seq (occ_count fr) 0 pp) Hpp)).
+
+(* every enumerated node lives on the given file *)
+Lemma file_nodes_file {p} {idx : ProgramIndex p} (fr : FileRef idx) (r : NodeRef idx) :
+  In r (file_nodes fr) -> nr_file r = fr.
+Proof. apply refs_at_positions_file. Qed.
+
+(* the enumeration covers exactly the file's ordinal positions in ascending order, none dropped *)
+Lemma file_nodes_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) :
+  map nr_pos (file_nodes fr) = seq 0 (occ_count fr).
+Proof. apply refs_at_positions_pos. Qed.
 
 (* every node's cell obeys the first-edge law with its own file's occurrence count as the range bound *)
 Lemma occ_edge_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
