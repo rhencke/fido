@@ -735,8 +735,30 @@ cp plugin/sink.ml e2e/sink_test.ml /tmp/
 if ! ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg sink.ml sink_test.ml -o /workspace/sink_test ) > /tmp/sink.log 2>&1; then cat /tmp/sink.log; fail "sink_test compile FAILED"; fi
 cd /workspace
 hdr=$(head -1 "$G/go.mod")     # DERIVE the ownership header from the materialized pristine output (no hardcoded literal)
-temps() { find "$1" -name '*.fido-tmp-v1' 2>/dev/null; }   # any reserved sibling temp = residue
+temps() { find "$1" -name '*.fido-tmp-v1' 2>/dev/null || echo 'TEMPS-ENUM-FAILED'; }   # enum failure fails closed as residue
 residue() { temps "$1"; }
+# a deterministic sha256 listing of a tree set: null-delimited enumeration + sort, fail-closing on any producer failure or empty enumeration
+hashtree() {
+  find "$@" -type f -print0 > /tmp/ht.paths.z || return 1
+  [ -s /tmp/ht.paths.z ] || return 1
+  sort -z /tmp/ht.paths.z > /tmp/ht.sorted.z || return 1
+  xargs -0 sha256sum < /tmp/ht.sorted.z || return 1
+}
+
+# ==================== shell producer fail-close self-tests ====================
+# a broken enumeration / hash / sort / first-result must turn the gate RED, never yield a silent empty that reads as "clean".
+( hashtree /no/such/tree ) >/dev/null 2>&1 && fail "producer self-test: hashtree did not fail-close on a missing tree" || true
+mkdir -p /tmp/stz-empty
+( hashtree /tmp/stz-empty ) >/dev/null 2>&1 && fail "producer self-test: hashtree did not fail-close on an empty enumeration" || true
+mkdir -p /tmp/stz-one; : > /tmp/stz-one/a
+htself=$(hashtree /tmp/stz-one) || fail "producer self-test: hashtree failed on a real one-file tree"
+[ -n "$htself" ] || fail "producer self-test: hashtree produced no listing for a real tree"
+: > /tmp/stz.empty.list
+if IFS= read -r _fr < /tmp/stz.empty.list; then fail "producer self-test: first-result read did not fail-close on an empty enumeration"; fi
+mkdir -p /tmp/stz-res; printf 'x\n' > /tmp/stz-res/a.fido-tmp-v1
+[ -n "$(temps /tmp/stz-res)" ] || fail "producer self-test: temps did not report a present reserved-suffix temp"
+[ -n "$(temps /no/such/residue/root)" ] || fail "producer self-test: temps did not fail-close (sentinel) on an enumeration failure"
+echo "fido: shell-producer fail-close self-tests OK — hashtree (missing/empty/real), first-result status, and temps enum-fail sentinel all enforce fail-close"
 
 # ============================ Clean / dirty sync ============================
 # clean sync → rendered go.mod + main.go + control marker; no temp residue (sink_test byte-verifies each installed file).
@@ -900,10 +922,10 @@ mkdir -p adv-git/_private; printf 'UND-A\n' > adv-git/_private/x.go; printf 'UND
 mkdir -p adv-git/.hidden; printf 'HID-A\n' > adv-git/.hidden/z.go
 mkdir -p adv-git/testdata; printf 'TD-A\n' > adv-git/testdata/t.go
 mkdir -p adv-git/vendor/pkg; printf 'VN-A\n' > adv-git/vendor/pkg/v.go
-before=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor -type f -exec sha256sum {} \; | sort)
+before=$(hashtree adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor) || fail "git: before-state enumeration failed"
 ./sink_test adv-git || fail "git: a clean sync was rejected because of hidden/VCS metadata"
 { [ -f adv-git/go.mod ] && [ -f adv-git/main.go ]; } || fail "git: the clean sync did not install the generated files"
-after=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor -type f -exec sha256sum {} \; | sort)
+after=$(hashtree adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-git/vendor) || fail "git: after-state enumeration failed"
 [ "$before" = "$after" ] || { echo "$before"; echo '---'; echo "$after"; fail "git: a byte under an opaque skipped tree was altered/removed"; }
 [ -f adv-git/.git/refs/heads/release.fido-tmp-v1 ] || fail "git: a .git suffix-named file was adopted/removed as Fido temp"
 # a Go-ignored DIRECTORY whose OWN name ends in the reserved suffix (`.cache.fido-tmp-v1`/`_priv.fido-tmp-v1`)
@@ -911,10 +933,10 @@ after=$(find adv-git/.git adv-git/_private adv-git/.hidden adv-git/testdata adv-
 # it is SKIPPED + preserved, NOT stripped-and-rejected as a non-mappable temp.
 mkdir -p adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1
 printf 'DOTDIR\n' > adv-osd/.cache.fido-tmp-v1/data; printf 'UNDDIR\n' > adv-osd/_priv.fido-tmp-v1/data
-osd_before=$(find adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1 -type f -exec sha256sum {} \; | sort)
+osd_before=$(hashtree adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1) || fail "osd: before-state enumeration failed"
 ./sink_test adv-osd || fail "osd: a clean sync was rejected because of an opaque suffix-named directory"
 { [ -f adv-osd/go.mod ] && [ -f adv-osd/main.go ]; } || fail "osd: the clean sync did not install the generated files"
-osd_after=$(find adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1 -type f -exec sha256sum {} \; | sort)
+osd_after=$(hashtree adv-osd/.cache.fido-tmp-v1 adv-osd/_priv.fido-tmp-v1) || fail "osd: after-state enumeration failed"
 [ "$osd_before" = "$osd_after" ] || fail "osd: a byte under an opaque suffix-named directory was altered/removed"
 { [ -d adv-osd/.cache.fido-tmp-v1 ] && [ -d adv-osd/_priv.fido-tmp-v1 ]; } || fail "osd: an opaque suffix-named directory was removed"
 # but a VISIBLE ordinary directory (uppercase/hyphenated name Go may still discover) IS scanned: a foreign
@@ -1010,7 +1032,7 @@ crash_recover crash-after-first-install installing
 # the write-crash specifically leaves a created-but-EMPTY partial temp, then recovers it.
 mkdir -p adv-partial; ./sink_test adv-partial || fail "partial: init"
 if ./sink_test adv-partial crash-after-create; then fail "partial: the crash did not terminate"; fi
-pt=$(temps adv-partial | head -1); [ -n "$pt" ] || fail "partial: no temp left by the write crash"
+temps adv-partial > /tmp/pt.list; IFS= read -r pt < /tmp/pt.list || fail "partial: no temp left by the write crash"
 [ ! -s "$pt" ] || fail "partial: the crash-after-create temp is not empty ($(wc -c < "$pt") bytes) — not a partial"
 [ -e adv-partial/.fido/index.lock ] || fail "partial: the lock was not left held by the crash"
 rm -f adv-partial/.fido/index.lock; ./sink_test adv-partial || fail "partial: no converge after clearing the lock"
@@ -1235,6 +1257,7 @@ fresh_go_build /e2e/multi MFRESH || { require_go_ran fresh-go-build; cat "${MFRE
 ( cd "$MFRESH" && if ! go vet ./...; then echo "fido e2e diff: go vet reported diagnostics (nonblocking)"; fi )
 # DISCOVERY: every emitted-file directory must be a package `go list ./...` actually selects (in the fresh root).
 emitted_dirs=$( cd "$MFRESH" && find . -name '*.go' -exec dirname {} \; | sort -u )
+[ -n "$emitted_dirs" ] || { echo "fido e2e diff: emitted-dir enumeration produced nothing (a multi-package tree must have .go dirs)"; rm -rf "$MFRESH"; exit 1; }
 _gl=$( cd "$MFRESH" && go list -f '{{.Dir}}' ./... ) || { echo "fido e2e diff: go list ./... failed (toolchain infra)"; rm -rf "$MFRESH"; exit 1; }
 listed_dirs=$( printf '%s\n' "$_gl" | sed "s#^$MFRESH#.#; s#^\.\$#.#" | sort -u )
 echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
