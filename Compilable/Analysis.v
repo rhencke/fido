@@ -781,40 +781,9 @@ Arguments DSucceeded {p idx s}. Arguments DAbsent {p idx s}.
 Arguments DInvalid {p idx s} _ _. Arguments DUnsupported {p idx s} _ _.
 Arguments DInvalidAndUnsupported {p idx s} _ _ _ _.
 
-(* a family lookup returns nonapplicability, an applicable independent disposition, or an exact dependent non-result *)
-Inductive FamilyResult {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| NotApplicable : FamilyResult s
-| Applicable : Disposition s -> FamilyResult s
-| Dependent : Dependency idx -> FamilyResult s.
-Arguments NotApplicable {p idx s}. Arguments Applicable {p idx s} _. Arguments Dependent {p idx s} _.
-
 Section DispositionAlgebra.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
         (fp : FactPhase bp) (pf : PackageFacts bp).
-
-Definition famres_v {r : Index.NodeRef idx} (o : ValueOutcome r) : FamilyResult s :=
-  match o with VOK _ => Applicable DSucceeded | VNonconst => Applicable DAbsent | VInvalid c => Applicable (DInvalid (OccCause c) nil) | VUnmet q => Applicable (DUnsupported q nil) | VDependent d => Dependent d end.
-Definition famres_a {r : Index.NodeRef idx} (o : AppOutcome r) : FamilyResult s :=
-  match o with AOK => Applicable DSucceeded | AInvalid c => Applicable (DInvalid (OccCause c) nil) | AUnmet q => Applicable (DUnsupported q nil) | ADependent d => Dependent d end.
-Definition famres_s {r : Index.NodeRef idx} (o : StmtOutcome r) : FamilyResult s :=
-  match o with SOK => Applicable DSucceeded | SInvalid c => Applicable (DInvalid (OccCause c) nil) | SUnmet q => Applicable (DUnsupported q nil) | SDependent d => Dependent d end.
-Definition famres_t {r : Index.NodeRef idx} (o : TypeUseOutcome r) : FamilyResult s :=
-  match o with TOK _ => Applicable DSucceeded | TInvalid c => Applicable (DInvalid (OccCause c) nil) | TUnmet q => Applicable (DUnsupported q nil) | TDependent d => Dependent d end.
-
-(* applicability-first: a family applies by role/view, then yields its exact result or dependency; else NotApplicable *)
-Definition family_lookup (r : Index.NodeRef idx) (f : Family) : FamilyResult s :=
-  let ctab := const_table bp (Index.nr_file r) in
-  match f with
-  | FamValue => match Index.node_view r with Index.VName _ | Index.VLiteral _ | Index.VUnary _ | Index.VApplication => famres_v (own_value bp ctab r) | _ => NotApplicable end
-  | FamApplication => match Index.node_view r with Index.VApplication => famres_a (own_app bp r) | _ => NotApplicable end
-  | FamStatement => match Index.node_view r with Index.VStmt Index.SSExpr => famres_s (own_stmt bp ctab r) | _ => NotApplicable end
-  | FamTypeUse => match Index.node_view r with Index.VTypeExpr _ => famres_t (own_type bp r) | _ => NotApplicable end
-  | FamDeclaration => match Index.node_view r with
-                      | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => famres_v (own_value bp ctab r)
-                      | Index.VStmt (Index.SSShort _) => famres_s (own_stmt bp ctab r)
-                      | _ => NotApplicable
-                      end
-  end.
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
 Definition program_disposition : Disposition s :=
@@ -850,11 +819,6 @@ Proof.
   - right; right; left; eexists; eexists; reflexivity.
   - left; do 8 eexists; repeat split; reflexivity.
 Qed.
-
-(* applicability: the value family does not apply to a statement occurrence — NotApplicable, never a fact *)
-Lemma value_not_applicable_to_statement (r : Index.NodeRef idx) (st : Index.StmtShape) :
-  Index.node_view r = Index.VStmt st -> family_lookup r FamValue = NotApplicable.
-Proof. intro H; unfold family_lookup; rewrite H; reflexivity. Qed.
 
 End DispositionAlgebra.
 
