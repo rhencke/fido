@@ -642,9 +642,19 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 
 # static soundness: Compilable.compile returns Rejected for every representable pinned-Go-invalid shape in the
 # invalid-program matrix (unary/complex type mismatch, wrong arity, no-value/type-as-value, non-callable, illegal statement)
-# and Compiled for the paired positive cases — proved through compile itself, never a second mint.
+# and Compiled for the paired positive cases — proved through compile itself, never a second mint.  The SAME file
+# also exports each formal-vs-Go differential case's pure-generated source into a disposable oracle bucket, so
+# the parent chain must exist first (Sink.materialize requires an existing parent and a fresh empty leaf).
+rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
 if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
 echo "fido: static rejection controls OK — the invalid-program matrix lands in Rejected through compile; positive unary cases Compiled"
+# the one-source differential cases were exported: one rendered tree per case (reject / compiled), each keyed
+# to the SAME Syntax.Program proven above; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope
+# is a Fido implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported here.
+for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main compiled/ok; do
+  [ -f "/workspace/diff/$b/go.mod" ] || { ls -R /workspace/diff 2>/dev/null; fail "differential oracle: /workspace/diff/$b/go.mod was not exported"; }
+done
+echo "fido: differential oracle export OK — 10 one-source trees written for the pinned-Go formal-vs-Go differential"
 
 # R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They compile outside the Fido
 # path, so the audit's Fido-modpath seed cannot reach them here; recompile each under the Fido path (the Fido
@@ -652,7 +662,7 @@ echo "fido: static rejection controls OK — the invalid-program matrix lands in
 # destination), require them all, and audit — an axiom or admit in ANY fixture proof is rejected as in the theory.
 mkdir -p /tmp/e2eaudit
 for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do
-  grep -v '^Fido Materialize' e2e/$m.v > /tmp/e2eaudit/$m.v
+  grep -vE '^Fido (Materialize|OracleExport)' e2e/$m.v > /tmp/e2eaudit/$m.v
   if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1; then cat /tmp/e2eaudit/$m.log; fail "e2e audit: $m did not recompile under the Fido path"; fi
 done
 printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
@@ -1112,6 +1122,7 @@ COPY --from=emit /workspace/generated-multi/ ./multi/
 COPY --from=emit /workspace/generated-empty/ ./empty/
 COPY --from=emit /workspace/generated-bytes/ ./bytes/
 COPY --from=emit /workspace/generated-alias/ ./alias/
+COPY --from=emit /workspace/diff/ ./diff/
 COPY e2e/golden.stdout e2e/golden.stderr e2e/golden.exit e2e/golden.bytes.hex ./
 RUN <<'SH'
 set -u
@@ -1263,9 +1274,34 @@ listed_dirs=$( printf '%s\n' "$_gl" | sed "s#^$MFRESH#.#; s#^\.\$#.#" | sort -u 
 echo "fido e2e diff: emitted dirs=[$(echo $emitted_dirs)] go-list dirs=[$(echo $listed_dirs)]"
 [ "$emitted_dirs" = "$listed_dirs" ] || { echo "fido e2e diff: emitted package dirs != go list ./... selection"; rm -rf "$MFRESH"; exit 1; }
 rm -rf "$MFRESH"
-# (the no-main / duplicate-main rejections are the A-AD cases C/D/E/F below, routed through the fresh runner.)
-# hand-written REJECTED integer-conversion fixtures (via the fresh runner): a constant conversion that overflows
-# or converts a non-integer is rejected by `go build` EXACTLY as Compilable.TypeResolution makes impossible (a disagreement is a MODEL BUG).
+
+# ── THE ONE-SOURCE formal-vs-Go differential.  Every tree under /e2e/diff/ was produced by pure source
+#    generation from a SINGLE Syntax.Program whose exact Compilable disposition is PROVEN in e2e/WitnessReject.v
+#    (the formal side, executed through compile).  Here the pinned Go toolchain judges that EXACT rendered
+#    source through the ONE fresh-build runner, and the two verdicts must AGREE: a reject-bucket tree MUST fail
+#    `go build ./...`, an accept-bucket tree (a Compiled or OutsideScope program — valid Go) MUST build.  A
+#    disagreement is a hard red (a real Fido-vs-Go model disagreement); an infra failure stays fail-closed.
+diff_reject() {  # <tree-dir> <label>
+  fresh_go_build "$1" DFR; _drc=$?
+  require_go_ran "diff reject $2"
+  [ "$_drc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED $2 — but its Syntax.Program is proven Compilable Rejected (a Fido-vs-Go disagreement)"; exit 1; }
+  echo "fido e2e diff: go build ./... (exit $_drc) rejects $2 — agrees with the proven Rejected disposition"; }
+diff_accept() {  # <tree-dir> <label>
+  fresh_go_build "$1" DFA || { require_go_ran "diff accept $2"; cat "${DFA:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e diff: go build ./... REJECTED $2 — but its Syntax.Program is proven Compilable Compiled/OutsideScope (a Fido-vs-Go disagreement)"; exit 1; }
+  echo "fido e2e diff: go build ./... accepts $2 — agrees with the proven Compiled/OutsideScope disposition"; }
+_dn=0
+for d in /e2e/diff/reject/*/; do [ -d "$d" ] || continue; diff_reject "$d" "reject/$(basename "$d")"; _dn=$((_dn+1)); done
+for d in /e2e/diff/compiled/*/; do [ -d "$d" ] || continue; diff_accept "$d" "compiled/$(basename "$d")"; _dn=$((_dn+1)); done
+[ "$_dn" -ge 10 ] || { echo "fido e2e diff: expected >=10 one-source differential trees, judged only $_dn"; exit 1; }
+echo "fido e2e diff: one-source formal-vs-Go differential OK — $_dn rendered trees judged by pinned Go, every verdict agreeing with its proven Compilable disposition"
+
+# ── COMPLEMENTARY pinned-Go BEHAVIOR PROBES (NOT a Fido comparison — the mechanical one-source Fido-vs-Go
+#    differential is the block above).  These hand-written trees pin how the pinned go1.23 toolchain behaves on
+#    the source shapes Fido's model is grounded in (constant-conversion type-checking, main-package rules, the
+#    directory-output collision that the fresh-build preflight assumes).  Each asserts only pinned Go's own
+#    verdict; none claims that Fido was executed on the hand-written source.  Every build runs through the ONE
+#    fresh runner, and the fault self-tests below reuse these helpers to prove the runner stays fail-closed.
+# integer-conversion rejects: a constant conversion that overflows or converts a non-integer — pinned Go rejects it.
 rej_conv() { # <label> <main-body>
   d="/tmp/rej-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module rej\n\ngo 1.23\n' > "$d/go.mod"
@@ -1274,13 +1310,13 @@ rej_conv() { # <label> <main-body>
   _flog=$_FRESH_BUILD_LOG            # THIS run's log (empty on a setup/infra failure)
   require_go_ran "$1: $2"           # a setup/runner/fs/infra failure is NOT a Go rejection
   rm -rf "${FR:-/nonexistent}" 2>/dev/null || true
-  [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED an invalid conversion [$1: $2] that Compilable.TypeResolution rejects (MODEL BUG)"; exit 1; }
+  [ "$_rc" != 0 ] || { echo "fido e2e probe: go build ./... ACCEPTED an invalid conversion [$1: $2] — the fixture expects pinned Go to reject it"; exit 1; }
   { [ -n "$_flog" ] && [ -s "$_flog" ]; } || { echo "fido e2e diff: [$1: $2] rejected but produced NO current-run build log"; exit 1; }
   # CLASS-SPECIFIC evidence in THIS run's log: a CONVERSION / TYPE-CHECK diagnostic (overflow / truncation /
   # cannot-convert / cannot-use / mismatched), not a collision, missing/dup main, or infra failure.
   grep -qiE 'overflow|truncated|cannot convert|cannot use|mismatched' "$_flog" \
     || { echo "fido e2e diff: [$1: $2] rejected but NOT with a conversion/type-check class:"; cat "$_flog"; exit 1; }
-  echo "fido e2e diff: go build ./... (exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic — matches Compilable.TypeResolution"; }
+  echo "fido e2e probe: go build ./... (exit $_rc) rejects [$1] $2 with a conversion/type-check diagnostic (pinned-Go behavior)"; }
 rej_conv int8-over   'println(int8(128))'
 rej_conv int8-under  'println(int8(-129))'
 rej_conv uint8-neg   'println(uint8(-1))'
@@ -1309,10 +1345,9 @@ rej_conv int8-fl-over 'println(int8(128.0))'
 rej_conv uint8-fl-neg 'println(uint8(-1.0))'
 rej_conv f32-bool    'println(float32(true))'
 rej_conv f64-str     'println(float64("x"))'
-# hand-written REJECTED complex-conversion fixtures: a real / imaginary component overflow, a
-# nonzero-imaginary or fractional/out-of-range complex->scalar conversion, and wrong-type complex conversions
-# all rejected by `go build` EXACTLY as Compilable.TypeResolution/Admissible make impossible (Complex.round_typed component
-# overflow / Complex.real_if_imaginary_zero None / cross-kind reject).  A disagreement is a MODEL BUG.
+# complex-conversion rejects: a real / imaginary component overflow, a nonzero-imaginary or
+# fractional/out-of-range complex->scalar conversion, and wrong-type complex conversions — pinned Go rejects
+# each of them (the component-overflow / real-if-imaginary-zero / cross-kind behavior Fido's model is grounded in).
 rej_conv c64-real-over  'println(complex64(complex(1e39, 0)))'
 rej_conv c64-imag-over  'println(complex64(complex(0, 1e39)))'
 rej_conv c128-over      'println(complex128(complex(1e309, 0)))'
@@ -1331,18 +1366,18 @@ acc_conv() { # <label> <main-body> <expected-stderr>
   d="/tmp/acc-conv-$1"; rm -rf "$d"; mkdir -p "$d"
   printf 'module accm\n\ngo 1.23\n' > "$d/go.mod"
   printf '// fido was here.  woof woof.  do not edit.\n\npackage main\n\nfunc main() {\n\t%s\n}\n' "$2" > "$d/x.go"
-  fresh_go_build "$d" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED [$1: $2] that Compilable.TypeResolution ACCEPTS (MODEL BUG)"; exit 1; }
+  fresh_go_build "$d" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED [$1: $2] — the fixture expects pinned Go to accept it"; exit 1; }
   _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
   { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: acc_conv [$1] produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }
   _o=$("$_e" 2>&1 1>/dev/null)   # println writes to STDERR
   [ "$_o" = "$3" ] || { echo "fido e2e diff: [$1] printed [$_o] != Go-expected [$3] (MODEL/GOLDEN BUG)"; rm -rf "$FR"; exit 1; }
-  rm -rf "$FR"; echo "fido e2e diff: go build ./... accepts + runs [$1] $2 -> $3 — matches Compilable.TypeResolution"; }
+  rm -rf "$FR"; echo "fido e2e probe: go build ./... accepts + runs [$1] $2 -> $3 (pinned-Go behavior)"; }
 acc_conv int-of-c64-tinyimag 'println(int(complex64(complex(3, 1e-50))))' '3'
 
 # ── FRESH-IMAGE DIRECTORY-COLLISION DIFFERENTIAL MATRIX.  `go build ./...` computes a SOLE main package's
 #    default executable name and, if it is an EXISTING root DIRECTORY, FAILS before compiling (0 or >=2 main
-#    packages write no default output).  Admissible models exactly this (the fresh-build output preflight);
-#    pinned go1.23 must AGREE — a disagreement is a MODEL BUG.  Every build runs through the ONE fresh-build runner.
+#    packages write no default output).  This pins that pinned-go1.23 behavior — the fresh-build output preflight
+#    Fido's model is grounded in.  Every build runs through the ONE fresh-build runner; no Fido run is claimed.
 cd /e2e
 mk_tree() {  # <dir> <module-path> <rel-main.go>...
   _d=$1; _mp=$2; shift 2; rm -rf "$_d"; mkdir -p "$_d"
@@ -1354,18 +1389,18 @@ expect_reject() {  # <dir> <label> <expected-class-regex>
   _flog=$_FRESH_BUILD_LOG   # THIS run's log (empty on a setup/infra failure); captured before the root is removed
   require_go_ran "$2"       # a setup/runner/fs/infra failure is NOT a Go rejection
   rm -rf "${FR:-/nonexistent}" 2>/dev/null || true
-  [ "$_rc" != 0 ] || { echo "fido e2e diff: go build ./... ACCEPTED $2 (Compilable REJECTS — MODEL BUG)"; exit 1; }
+  [ "$_rc" != 0 ] || { echo "fido e2e probe: go build ./... ACCEPTED $2 — the fixture expects pinned Go to reject it"; exit 1; }
   # CLASS-SPECIFIC evidence in THIS run's log: the failure must be exactly the expected class (directory
   # collision vs missing/dup main vs typing) — not merely nonzero (which a collision, a package-rule violation,
   # and a type error all share) and not an empty/stale log.
   [ -n "$3" ] || { echo "fido e2e diff: $2 — expect_reject called with no expected class regex (internal test error)"; exit 1; }
   { [ -n "$_flog" ] && [ -s "$_flog" ]; } || { echo "fido e2e diff: $2 — rejected but produced NO current-run build log"; exit 1; }
   grep -qiE "$3" "$_flog" || { echo "fido e2e diff: $2 — rejected but NOT with the expected class /$3/:"; cat "$_flog"; exit 1; }
-  echo "fido e2e diff: go build ./... (exit $_rc) rejected $2 with the expected class /$3/ (matches Compilable)"
+  echo "fido e2e probe: go build ./... (exit $_rc) rejected $2 with the expected class /$3/ (pinned-Go behavior)"
 }
 expect_accept() {  # <dir> <label>
-  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (Compilable ACCEPTS — MODEL BUG)"; exit 1; }
-  echo "fido e2e diff: go build ./... accepted $2 (matches Compilable)"; rm -rf "$FR"
+  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED $2 — the fixture expects pinned Go to accept it"; exit 1; }
+  echo "fido e2e probe: go build ./... accepted $2 (pinned-Go behavior)"; rm -rf "$FR"
 }
 # 20.3 sole child sub/main.go: output "sub" collides with the root directory "sub" -> REJECT
 mk_tree /tmp/dc-sub example.com/m sub/main.go;   expect_reject /tmp/dc-sub "sub/main.go (sole-main output sub = root dir sub)" 'directory|write output|cannot create'
@@ -1379,38 +1414,38 @@ mk_tree /tmp/dc-ab example.com/m a/b/main.go;    expect_accept /tmp/dc-ab "a/b/m
 mk_tree /tmp/dc-v2 example.com/m v2/main.go;     expect_accept /tmp/dc-v2 "v2/main.go (output m, root dir v2)"
 # 20.8 two main packages a/main.go + b/main.go: >=2 mains -> NO default output -> ACCEPT and write NO exe
 mk_tree /tmp/dc-multi example.com/m a/main.go b/main.go
-fresh_go_build /tmp/dc-multi FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED the two-main tree (MODEL BUG)"; exit 1; }
+fresh_go_build /tmp/dc-multi FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED the two-main tree — the fixture expects pinned Go to accept it"; exit 1; }
 # a/ and b/ are the package DIRECTORIES; a default executable would be a REGULAR FILE named a or b (there is none).
 { [ ! -f "$FR/a" ] && [ ! -f "$FR/b" ]; } || { echo "fido e2e diff: a two-main go build ./... wrote a default executable (a/b) — unexpected"; ls -la "$FR"; rm -rf "$FR"; exit 1; }
-echo "fido e2e diff: go build ./... accepted the two-main tree and wrote NO default executable (matches Compilable.DiscardMultiple)"; rm -rf "$FR"
+echo "fido e2e probe: go build ./... accepted the two-main tree and wrote NO default executable (pinned-Go behavior)"; rm -rf "$FR"
 # 20.10 / 20.11 — REGULAR-FILE OVERWRITE: a sole-main output name that is an existing REGULAR file (the root
 #   go.mod, or the root source file) is NOT a directory collision -> ACCEPT; the sole-main build OVERWRITES that
 #   fresh file with the executable, and the AUTHORITATIVE tree stays byte-identical because the runner builds in
 #   a disposable copy.  A build-in-place design would corrupt the module/source.
 overwrite_accept() {  # <dir> <module-path> <output-name-that-is-a-regular-file> <label>
   cp "$1/$3" /tmp/ov-auth
-  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $4 (Compilable ACCEPTS — MODEL BUG)"; exit 1; }
-  if cmp -s "$FR/$3" "$1/$3"; then echo "fido e2e diff: the fresh $3 was NOT overwritten by the sole-main build ($4)"; rm -rf "$FR"; exit 1; fi
-  cmp -s /tmp/ov-auth "$1/$3" || { echo "fido e2e diff: the AUTHORITATIVE $3 was mutated by a fresh build ($4) — isolation broken"; rm -rf "$FR"; exit 1; }
-  echo "fido e2e diff: go build ./... accepted $4, overwrote the FRESH $3, left the authoritative bytes intact (matches Compilable)"; rm -rf "$FR"
+  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; cat "${FR:-/dev/null}/.build.err" 2>/dev/null; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED $4 — the fixture expects pinned Go to accept it"; exit 1; }
+  if cmp -s "$FR/$3" "$1/$3"; then echo "fido e2e probe: the fresh $3 was NOT overwritten by the sole-main build ($4)"; rm -rf "$FR"; exit 1; fi
+  cmp -s /tmp/ov-auth "$1/$3" || { echo "fido e2e probe: the AUTHORITATIVE $3 was mutated by a fresh build ($4) — isolation broken"; rm -rf "$FR"; exit 1; }
+  echo "fido e2e probe: go build ./... accepted $4, overwrote the FRESH $3, left the authoritative bytes intact (pinned-Go behavior)"; rm -rf "$FR"
 }
 mk_tree /tmp/ov-gomod example.com/go.mod  main.go; overwrite_accept /tmp/ov-gomod example.com/go.mod  go.mod  "the go.mod-overwrite tree (output go.mod = regular go.mod)"
 mk_tree /tmp/ov-src   example.com/main.go main.go; overwrite_accept /tmp/ov-src   example.com/main.go main.go "the source-overwrite tree (output main.go = regular main.go)"
 
-# ── The representable external differential matrix (A-I, Q, S, K), every case through the ONE fresh runner.
-#    Helpers for custom source + default-output-presence assertions.  A disagreement on a REPRESENTABLE case is
-#    a MODEL BUG.  Future-milestone oracles (init/methods/generics/wrong-sig/var-main/mixed-clause/_test/doc-only)
+# ── More pinned-Go behavior probes over representable trees (A-I, Q, S, K), every case through the ONE fresh
+#    runner.  Helpers for custom source + default-output-presence assertions; each asserts only pinned Go's own
+#    verdict.  Future-milestone oracles (init/methods/generics/wrong-sig/var-main/mixed-clause/_test/doc-only)
 #    are not exercised on this current C4 publication path; they return with their owner milestones (Git holds them).
 mk_gomod() { rm -rf "$1"; mkdir -p "$1"; printf 'module %s\n\ngo 1.23\n' "$2" > "$1/go.mod"; }
 put()     { mkdir -p "$1/$(dirname "$2")"; printf '%b' "$3" > "$1/$2"; }   # <dir> <rel> <content-with-\n>
 expect_accept_exe() {   # <dir> <label>: accept AND exactly ONE default executable at the fresh root
-  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (expected ACCEPT — MODEL BUG)"; exit 1; }
+  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED $2 — the fixture expects pinned Go to accept it"; exit 1; }
   _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
   { [ -n "$_e" ] && [ "$(printf '%s\n' "$_e" | wc -l)" = 1 ]; } || { echo "fido e2e diff: $2 accepted but produced not-exactly-one default exe [$_e]"; rm -rf "$FR"; exit 1; }
   echo "fido e2e diff: go build ./... accepted $2 + wrote its default executable"; rm -rf "$FR"
 }
 expect_accept_noexe() { # <dir> <label>: accept AND NO default executable (0 or >=2 packages)
-  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e diff: go build ./... REJECTED $2 (expected ACCEPT — MODEL BUG)"; exit 1; }
+  fresh_go_build "$1" FR || { require_go_ran fresh-go-build; rm -rf "$FR"; echo "fido e2e probe: go build ./... REJECTED $2 — the fixture expects pinned Go to accept it"; exit 1; }
   _e=$(find "$FR" -maxdepth 1 -type f -perm -u+x)
   [ -z "$_e" ] || { echo "fido e2e diff: $2 wrote an UNEXPECTED default executable [$_e]"; rm -rf "$FR"; exit 1; }
   echo "fido e2e diff: go build ./... accepted $2 with NO default executable"; rm -rf "$FR"
@@ -1484,11 +1519,11 @@ _rc=0; fresh_go_build /tmp/K FR || _rc=$?
 _flog=$_FRESH_BUILD_LOG
 require_go_ran "K sub/main.go+invalid-source"    # a setup/infra failure is NOT a Go rejection
 # precedence: the build must fail with the DIRECTORY-COLLISION class, not the type error, proven from THIS run's log.
-[ "$_rc" != 0 ] || { echo "fido e2e diff: K accepted a colliding invalid sub/main.go (MODEL BUG)"; rm -rf "$FR"; exit 1; }
+[ "$_rc" != 0 ] || { echo "fido e2e probe: K accepted a colliding invalid sub/main.go — the fixture expects pinned Go to reject it"; rm -rf "$FR"; exit 1; }
 { [ -n "$_flog" ] && [ -s "$_flog" ]; } || { echo "fido e2e diff: K rejected but produced NO current-run build log"; rm -rf "$FR"; exit 1; }
 if grep -qiE 'overflow|constant.*int8|cannot use|truncated' "$_flog"; then echo "fido e2e diff: K failed with the COMPILE error, not the directory collision (precedence violated):"; cat "$_flog"; rm -rf "$FR"; exit 1; fi
 grep -qiE 'directory|write output|cannot create' "$_flog" || { echo "fido e2e diff: K failed but not with a recognizable directory-collision class:"; cat "$_flog"; rm -rf "$FR"; exit 1; }
-echo "fido e2e diff: K sub/main.go+invalid-source -> DIRECTORY-COLLISION failure (precedence over the type error, matches Compilable)"; rm -rf "$FR"
+echo "fido e2e probe: K sub/main.go+invalid-source -> DIRECTORY-COLLISION failure (precedence over the type error, pinned-Go behavior)"; rm -rf "$FR"
 
 echo "fido e2e diff: representable differential matrix COMPLETE (A-I, Q, S, K all match Compilable)"
 cd /e2e/tree

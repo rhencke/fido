@@ -1,6 +1,6 @@
 (* controls: representable invalid/unimplemented cases Reject or bound; the paired positive cases Compile *)
 From Stdlib Require Import List NArith ZArith String.
-From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report.
+From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
 Import ListNotations.
 
 Module PI := Compilable.PackageIdentity.
@@ -298,3 +298,41 @@ Definition d4_collision_redeclared_coexist :
   andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision_redecl))
        (existsb (fun d => match d with AN.DRedeclaredGroup _ _ => true | _ => false end) (dsites p_collision_redecl)) = true.
 Proof. vm_compute; reflexivity. Qed.
+
+(* the formal-vs-Go differential: one named program per case, proven to a disposition and exported for pinned Go *)
+Definition otransport (pp : Syntax.Program) : string * list (string * string) :=
+  (Emit.module_file_of pp, Emit.entries_of pp).
+
+Definition dp_neg_string  : Syntax.Program := prog [ PL [ NEG (SLIT "x") ] ].
+Definition dp_conv0       : Syntax.Program := prog [ PL [ APP (Names.predeclared_ordinary Names.PInt8) [] ] ].
+Definition dp_conv2       : Syntax.Program := prog [ PL [ APP (Names.predeclared_ordinary Names.PInt8) [ILIT 1; ILIT 2] ] ].
+Definition dp_uint8_neg   : Syntax.Program := prog [ PL [ NEG (CONV Names.PUint8 (ILIT 1)) ] ].
+Definition dp_type_value  : Syntax.Program := prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ].
+Definition dp_stmt_lit    : Syntax.Program := prog [ Syntax.ExprStmt (ILIT 1) ].
+Definition dp_default_ovf : Syntax.Program := prog [ PL [ ILIT ((2 ^ 63)%N) ] ].
+Definition dp_no_main     : Syntax.Program := prog_tops [ tconstmain ].
+Definition dp_multi_main  : Syntax.Program := prog_tops [ main0 ; main0 ].
+Definition dp_ok          : Syntax.Program := prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ].
+
+Definition dr_neg_string  : Compilable.rejects dp_neg_string.  Proof. reject. Qed.
+Definition dr_conv0       : Compilable.rejects dp_conv0.       Proof. reject. Qed.
+Definition dr_conv2       : Compilable.rejects dp_conv2.       Proof. reject. Qed.
+Definition dr_uint8_neg   : Compilable.rejects dp_uint8_neg.   Proof. reject. Qed.
+Definition dr_type_value  : Compilable.rejects dp_type_value.  Proof. reject. Qed.
+Definition dr_stmt_lit    : Compilable.rejects dp_stmt_lit.    Proof. reject. Qed.
+Definition dr_default_ovf : Compilable.rejects dp_default_ovf. Proof. reject. Qed.
+Definition dr_no_main     : Compilable.rejects dp_no_main.     Proof. reject. Qed.
+Definition dr_multi_main  : Compilable.rejects dp_multi_main.  Proof. reject. Qed.
+Definition dc_ok          : Compilable.compiles dp_ok.         Proof. compileok. Qed.
+
+Declare ML Module "fido.emit".
+Fido OracleExport (otransport dp_neg_string)  To "/workspace/diff/reject/neg_string".
+Fido OracleExport (otransport dp_conv0)       To "/workspace/diff/reject/conv0".
+Fido OracleExport (otransport dp_conv2)       To "/workspace/diff/reject/conv2".
+Fido OracleExport (otransport dp_uint8_neg)   To "/workspace/diff/reject/uint8_neg".
+Fido OracleExport (otransport dp_type_value)  To "/workspace/diff/reject/type_value".
+Fido OracleExport (otransport dp_stmt_lit)    To "/workspace/diff/reject/stmt_lit".
+Fido OracleExport (otransport dp_default_ovf) To "/workspace/diff/reject/default_ovf".
+Fido OracleExport (otransport dp_no_main)     To "/workspace/diff/reject/no_main".
+Fido OracleExport (otransport dp_multi_main)  To "/workspace/diff/reject/multi_main".
+Fido OracleExport (otransport dp_ok)          To "/workspace/diff/compiled/ok".
