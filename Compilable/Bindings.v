@@ -476,25 +476,6 @@ Definition const_effective_origin {p} {idx : Index.ProgramIndex p} (r : Index.No
        | None => None
        end.
 
-(* a spec's ordered binding-name children: the exact names it declares, in source order *)
-Definition spec_name_binders {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
-  filter (fun c => match Index.node_role c with Index.RSpecName _ => true | _ => false end) (Index.node_children r).
-
-(* a spec's optional type-use child; genuine absence (no type) is a real None, not a degraded edge *)
-Definition spec_type_ref {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : option (Index.NodeRef idx) :=
-  find (fun c => match Index.node_role c with Index.RTypeUse => true | _ => false end) (Index.node_children r).
-
-(* a spec's ordered value-expression children, in source order *)
-Definition spec_value_refs {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
-  filter (fun c => match Index.node_role c with Index.RPlain => true | _ => false end) (Index.node_children r).
-
-(* the ordered chain of preceding sibling specs; with no effective explicit origin this is the invalid chain *)
-Definition const_predecessor_chain {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : list (Index.NodeRef idx) :=
-  match Index.node_parent r with
-  | Some par => filter (fun c => Nat.ltb (Index.nr_pos c) (Index.nr_pos r)) (Index.node_children par)
-  | None => []
-  end.
-
 (* the one exact retained const-spec status: shape, effective origin, invalid chain, and name/type/value refs *)
 Record ConstSpecStatus {p} (idx : Index.ProgramIndex p) : Type := mk_const_status {
   cs_explicit  : bool ;
@@ -511,7 +492,7 @@ Arguments cs_predchain {p idx} _. Arguments cs_names {p idx} _. Arguments cs_typ
 
 Definition const_spec_status {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : ConstSpecStatus idx :=
   mk_const_status (is_explicit_const_spec r) (spec_is_first r) (const_effective_origin r)
-                  (const_predecessor_chain r) (spec_name_binders r) (spec_type_ref r) (spec_value_refs r).
+                  (Index.preceding_siblings r) (Index.spec_name_children r) (Index.type_use_child r) (Index.value_children r).
 
 (* a binder introduces a variable object exactly when it is a short-lhs or var-spec name *)
 Definition is_variable_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : bool :=
@@ -611,7 +592,7 @@ Arguments sd_cutpoint {p idx s} _.
 Definition short_decl_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (stmt : Index.NodeRef idx) : ShortDeclStatus s :=
   let lefts := short_lhs_statuses bp stmt in
-  mk_short_status lefts (new_nonblank_of lefts) (spec_value_refs stmt) (Index.nr_pos stmt).
+  mk_short_status lefts (new_nonblank_of lefts) (Index.value_children stmt) (Index.nr_pos stmt).
 
 (* the first duplicate short-left name, the exact short-declaration invalidity projected from the retained status *)
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

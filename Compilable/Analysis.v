@@ -154,9 +154,6 @@ Definition complex_class (cre cim : TR.ConstantInfo) : ComplexClass :=
   | _, _ => CxDefer
   end.
 
-(* the numbered argument edges: the direct children after the exact application head, no role filter *)
-Definition app_args (r : Index.NodeRef idx) (H : Index.node_view r = Index.VApplication)
-  : list (Index.NodeRef idx) := tl (Index.node_children r).
 Definition mconst (m : Collections.NodeMap.t (option TR.ConstantInfo)) (rc : Index.NodeRef idx)
   : option TR.ConstantInfo :=
   match Collections.NodeMap.find (Index.nr_key rc) m with Some oc => oc | None => None end.
@@ -188,7 +185,7 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
   | Index.VApplication => fun Hv =>
       match Index.node_view (Index.first_edge r (f_equal Index.requires_first_edge Hv)) with
       | Index.VName h =>
-          match app_args r Hv with
+          match Index.arg_children r with
           | x :: nil =>
               match nm_at r h with
               | Some (TR.NMConversionForm t) =>
@@ -310,7 +307,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
-              match pmeaning pn, app_args r Hv with
+              match pmeaning pn, Index.arg_children r with
               | PMConvForm t, x :: nil =>
                   match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
@@ -357,22 +354,22 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
               match pmeaning pn with
-              | PMConvForm _ => match app_args r Hv with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (app_args r Hv))) end
+              | PMConvForm _ => match Index.arg_children r with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (Index.arg_children r))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match app_args r Hv with
+                  match Index.arg_children r with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity (Datatypes.length (app_args r Hv)))
+                  | _ => AInvalid (ComplexArity (Datatypes.length (Index.arg_children r)))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
               | PMInvalidId => ADependent (DepInvalidId pn hd)
-              | PMUnmodelled => AUnmet (ReqApplication pn (app_args r Hv))
+              | PMUnmodelled => AUnmet (ReqApplication pn (Index.arg_children r))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
           | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
               (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
-              match app_args r Hv with
+              match Index.arg_children r with
               | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end

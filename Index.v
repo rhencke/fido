@@ -3007,6 +3007,47 @@ Lemma file_nodes_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) :
   map nr_pos (file_nodes fr) = seq 0 (occ_count fr).
 Proof. apply refs_at_positions_pos. Qed.
 
+(* the exact application-argument edges: the direct children in the argument role, in source order *)
+Definition arg_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  filter (fun c => match node_role c with RApplicationArg _ => true | _ => false end) (node_children r).
+(* the exact binding-name declaration edges of a spec: its declared names, in source order *)
+Definition spec_name_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  filter (fun c => match node_role c with RSpecName _ => true | _ => false end) (node_children r).
+(* the exact optional type-use edge of a spec: genuine absence (no declared type) is a real None *)
+Definition type_use_child {p} {idx : ProgramIndex p} (r : NodeRef idx) : option (NodeRef idx) :=
+  find (fun c => match node_role c with RTypeUse => true | _ => false end) (node_children r).
+(* the exact value-expression edges of a spec, in source order *)
+Definition value_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  filter (fun c => match node_role c with RPlain => true | _ => false end) (node_children r).
+(* the exact preceding-sibling edges: the direct siblings before r under its parent, in source order *)
+Definition preceding_siblings {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (NodeRef idx) :=
+  match node_parent r with
+  | Some par => filter (fun c => Nat.ltb (nr_pos c) (nr_pos r)) (node_children par)
+  | None => []
+  end.
+
+(* role exactness: each refined relation returns exactly the direct children carrying its role *)
+Lemma arg_children_exact {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
+  In c (arg_children r) <-> In c (node_children r) /\ exists i, node_role c = RApplicationArg i.
+Proof.
+  unfold arg_children; rewrite filter_In; split; intros [Hin Hr]; (split; [ exact Hin |]);
+    [ destruct (node_role c) as [| | i | | | | |] eqn:E; try discriminate Hr; exists i; reflexivity
+    | destruct Hr as [i Hi]; rewrite Hi; reflexivity ].
+Qed.
+Lemma spec_name_children_exact {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
+  In c (spec_name_children r) <-> In c (node_children r) /\ exists fl, node_role c = RSpecName fl.
+Proof.
+  unfold spec_name_children; rewrite filter_In; split; intros [Hin Hr]; (split; [ exact Hin |]);
+    [ destruct (node_role c) as [| | | | fl | | |] eqn:E; try discriminate Hr; exists fl; reflexivity
+    | destruct Hr as [fl Hi]; rewrite Hi; reflexivity ].
+Qed.
+Lemma value_children_exact {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
+  In c (value_children r) <-> In c (node_children r) /\ node_role c = RPlain.
+Proof.
+  unfold value_children; rewrite filter_In; split; intros [Hin Hr]; (split; [ exact Hin |]);
+    [ destruct (node_role c) eqn:E; try discriminate Hr; reflexivity | rewrite Hr; reflexivity ].
+Qed.
+
 (* every node's cell obeys the first-edge law with its own file's occurrence count as the range bound *)
 Lemma occ_edge_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   edge_wf (nr_pos r) (occ_at r) (occ_count (nr_file r)).
