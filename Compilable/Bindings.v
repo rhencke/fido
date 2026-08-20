@@ -385,20 +385,35 @@ Definition decl_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfac
   andb (is_decl_est e)
        (match group_status (decl_group bp e) with Some (GRedeclared _ _ _) => true | _ => false end).
 
+(* the exact canonical declaration group: its shared scope and spelling, and its ordered declaration members *)
+Record DeclarationGroupRef {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_decl_group {
+  dg_scope   : ScopeId s ;
+  dg_name    : Names.OrdinaryIdentifier ;
+  dg_members : list (Est s)
+}.
+Arguments mk_decl_group {p idx s} _ _ _.
+Arguments dg_scope {p idx s} _.
+Arguments dg_name {p idx s} _.
+Arguments dg_members {p idx s} _.
+
+Definition decl_group_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (e : Est s) : DeclarationGroupRef s :=
+  mk_decl_group (est_scope e) (est_name e) (decl_group bp e).
+
 Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
 | RBound      : ObjectRef idx -> Resolved bp use n
-| RRedeclared : Resolved bp use n
+| RRedeclared : DeclarationGroupRef s -> Resolved bp use n
 | RUnbound    : Resolved bp use n.
 Arguments RBound {p idx s bp use n} _.
-Arguments RRedeclared {p idx s bp use n}.
+Arguments RRedeclared {p idx s bp use n} _.
 Arguments RUnbound {p idx s bp use n}.
 
 (* resolution: one group authority; nearest binding shadows; a redeclared group is ambiguous; main no special route *)
 Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Resolved bp use n :=
   match pick_best (source_cands bp use n) with
-  | Some e => if decl_ambiguous bp e then RRedeclared else RBound (SourceObject (est_origin e))
+  | Some e => if decl_ambiguous bp e then RRedeclared (decl_group_ref bp e) else RBound (SourceObject (est_origin e))
   | None =>
       match Names.classify_predeclared (Names.ordinary_spelling n) with
       | Some pn => RBound (PredeclaredObject pn)
@@ -422,15 +437,15 @@ Theorem resolve_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
       exists e, In e (source_cands bp use n) /\ est_origin e = o /\ decl_ambiguous bp e = false
   | RBound (PredeclaredObject pn) =>
       source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = Some pn
-  | RRedeclared =>
-      exists e, pick_best (source_cands bp use n) = Some e /\ decl_ambiguous bp e = true
+  | RRedeclared g =>
+      exists e, pick_best (source_cands bp use n) = Some e /\ decl_ambiguous bp e = true /\ g = decl_group_ref bp e
   | RUnbound =>
       source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = None
   end.
 Proof.
   unfold resolve. destruct (pick_best (source_cands bp use n)) as [e|] eqn:E.
   - destruct (decl_ambiguous bp e) eqn:Ea.
-    + exists e; split; [ reflexivity | exact Ea ].
+    + exists e; split; [ reflexivity | split; [ exact Ea | reflexivity ] ].
     + exists e; split; [ apply pick_best_in; exact E | split; [ reflexivity | exact Ea ] ].
   - pose proof (pick_best_none _ E) as Hnil.
     destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.

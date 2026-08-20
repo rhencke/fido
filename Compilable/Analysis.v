@@ -43,13 +43,12 @@ Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqComplexType : Index.NodeRef idx -> Requirement idx
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
 | ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
-| ReqAmbiguousName : Index.NodeRef idx -> Requirement idx
 | ReqConstDecl : BN.ConstSpecStatus idx -> Requirement idx
 | ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _. Arguments ReqAmbiguousName {p idx} _. Arguments ReqConstDecl {p idx} _.
+Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
 
 Inductive AppResult : Type :=
 | AppValue : TR.ResolvedConstant -> AppResult
@@ -275,7 +274,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning b)
       | BN.RBound (BN.SourceObject (BN.DOFunc f)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
-      | BN.RRedeclared => VUnmet (ReqAmbiguousName r)
+      | BN.RRedeclared _ => VNonconst
       end
   | Index.VLiteral _ => fun _ =>
       match mconst ctab r with
@@ -366,7 +365,7 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | nil => AOK AppBuiltinStmt
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
-          | BN.RRedeclared => AUnmet (ReqAmbiguousName r)
+          | BN.RRedeclared _ => AOK AppBuiltinStmt
           | BN.RUnbound => AOK AppBuiltinStmt
           end
       | _ => AInvalid (NotCallableExpr hd)
@@ -428,7 +427,7 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
       | BN.RBound (BN.SourceObject (BN.DOFunc m)) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
-      | BN.RRedeclared => TUnmet (ReqAmbiguousName r)
+      | BN.RRedeclared _ => TOK TR.BoolForm
       | BN.RUnbound => TInvalid (UnresolvedName n r)
       end
   | _ => TOK TR.BoolForm
