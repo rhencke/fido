@@ -50,39 +50,48 @@ Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
 Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
 
-Inductive AppResult : Type :=
-| AppValue : TR.ResolvedConstant -> AppResult
-| AppBuiltinStmt : AppResult.
+(* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
+Inductive Dependency {p} (idx : Index.ProgramIndex p) : Type :=
+| DepRedeclaredName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
+| DepUnboundName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
+| DepInvalidId : Names.PredeclaredName -> Index.NodeRef idx -> Dependency idx
+| DepChild : Index.NodeRef idx -> Dependency idx.
+Arguments DepRedeclaredName {p idx} _ _. Arguments DepUnboundName {p idx} _ _.
+Arguments DepInvalidId {p idx} _ _. Arguments DepChild {p idx} _.
 
-(* each occurrence family is an independent per-node judgment: no cross-node blocking, so parent and child coexist *)
+(* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
 Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
 | VOK : TR.ResolvedConstant -> ValueOutcome site
 | VNonconst : ValueOutcome site
 | VInvalid : Cause idx -> ValueOutcome site
-| VUnmet : Requirement idx -> ValueOutcome site.
+| VUnmet : Requirement idx -> ValueOutcome site
+| VDependent : Dependency idx -> ValueOutcome site.
 Arguments VOK {p idx site} _. Arguments VNonconst {p idx site}.
-Arguments VInvalid {p idx site} _. Arguments VUnmet {p idx site} _.
+Arguments VInvalid {p idx site} _. Arguments VUnmet {p idx site} _. Arguments VDependent {p idx site} _.
 
 Inductive AppOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
-| AOK : AppResult -> AppOutcome site
+| AOK : AppOutcome site
 | AInvalid : Cause idx -> AppOutcome site
-| AUnmet : Requirement idx -> AppOutcome site.
-Arguments AOK {p idx site} _. Arguments AInvalid {p idx site} _.
-Arguments AUnmet {p idx site} _.
+| AUnmet : Requirement idx -> AppOutcome site
+| ADependent : Dependency idx -> AppOutcome site.
+Arguments AOK {p idx site}. Arguments AInvalid {p idx site} _.
+Arguments AUnmet {p idx site} _. Arguments ADependent {p idx site} _.
 
 Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
 | SOK : StmtOutcome site
 | SInvalid : Cause idx -> StmtOutcome site
-| SUnmet : Requirement idx -> StmtOutcome site.
+| SUnmet : Requirement idx -> StmtOutcome site
+| SDependent : Dependency idx -> StmtOutcome site.
 Arguments SOK {p idx site}. Arguments SInvalid {p idx site} _.
-Arguments SUnmet {p idx site} _.
+Arguments SUnmet {p idx site} _. Arguments SDependent {p idx site} _.
 
 Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
 | TOK : TR.TypeForm -> TypeUseOutcome site
 | TInvalid : Cause idx -> TypeUseOutcome site
-| TUnmet : Requirement idx -> TypeUseOutcome site.
+| TUnmet : Requirement idx -> TypeUseOutcome site
+| TDependent : Dependency idx -> TypeUseOutcome site.
 Arguments TOK {p idx site} _. Arguments TInvalid {p idx site} _.
-Arguments TUnmet {p idx site} _.
+Arguments TUnmet {p idx site} _. Arguments TDependent {p idx site} _.
 
 Inductive PMeaning : Type :=
 | PMConvForm : TR.TypeForm -> PMeaning
@@ -274,7 +283,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning b)
       | BN.RBound (BN.SourceObject (BN.DOFunc f)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
-      | BN.RRedeclared _ => VNonconst
+      | BN.RRedeclared _ => VDependent (DepRedeclaredName n r)
       end
   | Index.VLiteral _ => fun _ =>
       match mconst ctab r with
@@ -326,7 +335,9 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
               | PMPrintln, _ => if value_ctx r then VInvalid NoValueUsed else VNonconst
               | _, _ => VNonconst
               end
-          | _ => VNonconst
+          | BN.RBound (BN.SourceObject _) => VNonconst
+          | BN.RRedeclared _ => VDependent (DepRedeclaredName h r)
+          | BN.RUnbound => VDependent (DepUnboundName h r)
           end
       | _ => VNonconst
       end
@@ -346,67 +357,72 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
               match pmeaning pn with
-              | PMConvForm _ => match app_args r Hv with _ :: nil => AOK (AppBuiltinStmt) | _ => AInvalid (ConversionArity pn (Datatypes.length (app_args r Hv))) end
+              | PMConvForm _ => match app_args r Hv with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (app_args r Hv))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
                   match app_args r Hv with
-                  | _ :: _ :: nil => AOK AppBuiltinStmt
+                  | _ :: _ :: nil => AOK
                   | _ => AInvalid (ComplexArity (Datatypes.length (app_args r Hv)))
                   end
-              | PMPrintln => AOK AppBuiltinStmt
+              | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
-              | PMInvalidId => AOK AppBuiltinStmt
+              | PMInvalidId => ADependent (DepInvalidId pn hd)
               | PMUnmodelled => AUnmet (ReqApplication pn (app_args r Hv))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
           | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
               (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
               match app_args r Hv with
-              | nil => AOK AppBuiltinStmt
+              | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
-          | BN.RRedeclared _ => AOK AppBuiltinStmt
-          | BN.RUnbound => AOK AppBuiltinStmt
+          | BN.RRedeclared _ => ADependent (DepRedeclaredName h hd)
+          | BN.RUnbound => ADependent (DepUnboundName h hd)
           end
       | _ => AInvalid (NotCallableExpr hd)
       end
-  | _ => fun _ => AOK AppBuiltinStmt
+  | _ => fun _ => ADependent (DepChild r)
   end eq_refl.
 
-(* the statement expr already owns a diagnostic or boundary: the illegal-statement judgment is dependent, not a root *)
-Definition child_owns_issue (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : bool :=
+(* the dependency when a statement's expr already owns an invalidity, unmet requirement, or a dependent non-result *)
+Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : option (Dependency idx) :=
   match own_value ctab e with
-  | VInvalid _ | VUnmet _ => true
-  | _ => match own_app e with AInvalid _ | AUnmet _ => true | _ => false end
+  | VInvalid _ | VUnmet _ | VDependent _ => Some (DepChild e)
+  | _ => match Index.node_view e with
+         | Index.VApplication => match own_app e with AInvalid _ | AUnmet _ | ADependent _ => Some (DepChild e) | _ => None end
+         | _ => None
+         end
   end.
 
-(* an expr-statement is illegal only when its expr is otherwise valid but not a legal statement head *)
+(* an expr-statement defers to an expr that owns an issue; otherwise it is a legal call statement or an illegal one *)
 Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
   | Index.VStmt Index.SSExpr => fun Hv =>
       let e := Index.first_edge r (f_equal Index.requires_first_edge Hv) in
-      if child_owns_issue ctab e then SOK
-      else match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
-           | Index.VApplication => fun He =>
-               match Index.node_view (Index.first_edge e (f_equal Index.requires_first_edge He)) with
-               | Index.VName h =>
-                   match BN.resolve bp r h with
-                   | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
-                   | BN.RUnbound => SOK
-                   | BN.RBound (BN.SourceObject _) => SOK
-                   | _ => SInvalid IllegalStatement
-                   end
-               | _ => SInvalid IllegalStatement
-               end
-           | _ => fun _ => SInvalid IllegalStatement
-           end eq_refl
+      match expr_dependency ctab e with
+      | Some d => SDependent d
+      | None =>
+          match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
+          | Index.VApplication => fun He =>
+              match Index.node_view (Index.first_edge e (f_equal Index.requires_first_edge He)) with
+              | Index.VName h =>
+                  match BN.resolve bp r h with
+                  | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
+                  | BN.RBound (BN.SourceObject _) => SOK
+                  | _ => SInvalid IllegalStatement
+                  end
+              | _ => SInvalid IllegalStatement
+              end
+          | _ => fun _ => SInvalid IllegalStatement
+          end eq_refl
+      end
   | Index.VStmt (Index.SSShort _) => fun _ =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
       match BN.short_stmt_dup_name bp r with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
-  | _ => fun _ => SOK
+  | _ => fun _ => SDependent (DepChild r)
   end eq_refl.
 
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
@@ -427,10 +443,10 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
       | BN.RBound (BN.SourceObject (BN.DOFunc m)) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
-      | BN.RRedeclared _ => TOK TR.BoolForm
+      | BN.RRedeclared _ => TDependent (DepRedeclaredName n r)
       | BN.RUnbound => TInvalid (UnresolvedName n r)
       end
-  | _ => TOK TR.BoolForm
+  | _ => TDependent (DepChild r)
   end.
 
 End OverPhase.
@@ -460,6 +476,31 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | _ => []
   end.
 
+(* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
+Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome r') :
+  In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.VApplication.
+Proof.
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
+    solve [ reflexivity | exfalso; intuition discriminate ].
+Qed.
+(* nonapplicability: occ_facts retains a statement fact only at a statement role *)
+Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome r') :
+  In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.VStmt st.
+Proof.
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
+    solve [ eexists; reflexivity | exfalso; intuition discriminate ].
+Qed.
+(* nonapplicability: occ_facts retains a type-use fact only at a type-use role *)
+Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome r') :
+  In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.VTypeExpr t.
+Proof.
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
+    solve [ eexists; reflexivity | exfalso; intuition discriminate ].
+Qed.
+
 (* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
 Definition raw_facts : list (OccFact idx) :=
   flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
@@ -482,11 +523,21 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
 Proof. exact (proj2_sig fp). Qed.
 
-(* statement and type-use families have no Nonconst constructor: OK / invalid / unmet exhaust each *)
+(* statement and type-use families have no Nonconst constructor: OK / invalid / unmet / dependent exhaust each *)
 Lemma only_lawful_per_family (r : Index.NodeRef idx) :
-  (forall o : StmtOutcome r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q))
-  /\ (forall o : TypeUseOutcome r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q)).
-Proof. split; intro o; destruct o; eauto 7. Qed.
+  (forall o : StmtOutcome r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q) \/ (exists d, o = SDependent d))
+  /\ (forall o : TypeUseOutcome r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q) \/ (exists d, o = TDependent d)).
+Proof.
+  split; intro o; destruct o.
+  - left; reflexivity.
+  - right; left; eexists; reflexivity.
+  - right; right; left; eexists; reflexivity.
+  - right; right; right; eexists; reflexivity.
+  - left; eexists; reflexivity.
+  - right; left; eexists; reflexivity.
+  - right; right; left; eexists; reflexivity.
+  - right; right; right; eexists; reflexivity.
+Qed.
 
 End Laws.
 
@@ -699,6 +750,14 @@ Proof.
     cbn; intro H; solve [ reflexivity | exfalso; exact (H eq_refl) ].
 Qed.
 
+(* a dependent non-result is neither a diagnostic nor a boundary: it defers to its prerequisite, adding no issue *)
+Lemma dependent_no_rows (r : Index.NodeRef idx) (d : Dependency idx) :
+  occ_diag_rows (OFValue r (VDependent d)) = [] /\ occ_bound_rows (OFValue r (VDependent d)) = []
+  /\ occ_diag_rows (OFApp r (ADependent d)) = [] /\ occ_bound_rows (OFApp r (ADependent d)) = []
+  /\ occ_diag_rows (OFStmt r (SDependent d)) = [] /\ occ_bound_rows (OFStmt r (SDependent d)) = []
+  /\ occ_diag_rows (OFType r (TDependent d)) = [] /\ occ_bound_rows (OFType r (TDependent d)) = [].
+Proof. cbn; repeat split; reflexivity. Qed.
+
 End IssueTable.
 
 Arguments diagnostics {p idx s bp} fp pf.
@@ -725,36 +784,37 @@ Arguments DSucceeded {p idx s}. Arguments DAbsent {p idx s}.
 Arguments DInvalid {p idx s} _ _. Arguments DUnsupported {p idx s} _ _.
 Arguments DInvalidAndUnsupported {p idx s} _ _ _ _.
 
-(* NotApplicable is not a disposition: a generic lookup returns it or an exact applicability witness plus fact *)
+(* a family lookup returns nonapplicability, an applicable independent disposition, or an exact dependent non-result *)
 Inductive FamilyResult {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | NotApplicable : FamilyResult s
-| Applicable : Disposition s -> FamilyResult s.
-Arguments NotApplicable {p idx s}. Arguments Applicable {p idx s} _.
+| Applicable : Disposition s -> FamilyResult s
+| Dependent : Dependency idx -> FamilyResult s.
+Arguments NotApplicable {p idx s}. Arguments Applicable {p idx s} _. Arguments Dependent {p idx s} _.
 
 Section DispositionAlgebra.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
-Definition occ_disp_v {r : Index.NodeRef idx} (o : ValueOutcome r) : Disposition s :=
-  match o with VOK _ => DSucceeded | VNonconst => DAbsent | VInvalid c => DInvalid (OccCause c) nil | VUnmet q => DUnsupported q nil end.
-Definition occ_disp_a {r : Index.NodeRef idx} (o : AppOutcome r) : Disposition s :=
-  match o with AOK _ => DSucceeded | AInvalid c => DInvalid (OccCause c) nil | AUnmet q => DUnsupported q nil end.
-Definition occ_disp_s {r : Index.NodeRef idx} (o : StmtOutcome r) : Disposition s :=
-  match o with SOK => DSucceeded | SInvalid c => DInvalid (OccCause c) nil | SUnmet q => DUnsupported q nil end.
-Definition occ_disp_t {r : Index.NodeRef idx} (o : TypeUseOutcome r) : Disposition s :=
-  match o with TOK _ => DSucceeded | TInvalid c => DInvalid (OccCause c) nil | TUnmet q => DUnsupported q nil end.
+Definition famres_v {r : Index.NodeRef idx} (o : ValueOutcome r) : FamilyResult s :=
+  match o with VOK _ => Applicable DSucceeded | VNonconst => Applicable DAbsent | VInvalid c => Applicable (DInvalid (OccCause c) nil) | VUnmet q => Applicable (DUnsupported q nil) | VDependent d => Dependent d end.
+Definition famres_a {r : Index.NodeRef idx} (o : AppOutcome r) : FamilyResult s :=
+  match o with AOK => Applicable DSucceeded | AInvalid c => Applicable (DInvalid (OccCause c) nil) | AUnmet q => Applicable (DUnsupported q nil) | ADependent d => Dependent d end.
+Definition famres_s {r : Index.NodeRef idx} (o : StmtOutcome r) : FamilyResult s :=
+  match o with SOK => Applicable DSucceeded | SInvalid c => Applicable (DInvalid (OccCause c) nil) | SUnmet q => Applicable (DUnsupported q nil) | SDependent d => Dependent d end.
+Definition famres_t {r : Index.NodeRef idx} (o : TypeUseOutcome r) : FamilyResult s :=
+  match o with TOK _ => Applicable DSucceeded | TInvalid c => Applicable (DInvalid (OccCause c) nil) | TUnmet q => Applicable (DUnsupported q nil) | TDependent d => Dependent d end.
 
-(* applicability-first: a family applies by role/view, then computes its outcome; else NotApplicable, no fact *)
+(* applicability-first: a family applies by role/view, then yields its exact result or dependency; else NotApplicable *)
 Definition family_lookup (r : Index.NodeRef idx) (f : Family) : FamilyResult s :=
   let ctab := const_table bp (Index.nr_file r) in
   match f with
-  | FamValue => match Index.node_view r with Index.VName _ | Index.VLiteral _ | Index.VUnary _ | Index.VApplication => Applicable (occ_disp_v (own_value bp ctab r)) | _ => NotApplicable end
-  | FamApplication => match Index.node_view r with Index.VApplication => Applicable (occ_disp_a (own_app bp r)) | _ => NotApplicable end
-  | FamStatement => match Index.node_view r with Index.VStmt Index.SSExpr => Applicable (occ_disp_s (own_stmt bp ctab r)) | _ => NotApplicable end
-  | FamTypeUse => match Index.node_view r with Index.VTypeExpr _ => Applicable (occ_disp_t (own_type bp r)) | _ => NotApplicable end
+  | FamValue => match Index.node_view r with Index.VName _ | Index.VLiteral _ | Index.VUnary _ | Index.VApplication => famres_v (own_value bp ctab r) | _ => NotApplicable end
+  | FamApplication => match Index.node_view r with Index.VApplication => famres_a (own_app bp r) | _ => NotApplicable end
+  | FamStatement => match Index.node_view r with Index.VStmt Index.SSExpr => famres_s (own_stmt bp ctab r) | _ => NotApplicable end
+  | FamTypeUse => match Index.node_view r with Index.VTypeExpr _ => famres_t (own_type bp r) | _ => NotApplicable end
   | FamDeclaration => match Index.node_view r with
-                      | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => Applicable (occ_disp_v (own_value bp ctab r))
-                      | Index.VStmt (Index.SSShort _) => Applicable (occ_disp_s (own_stmt bp ctab r))
+                      | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => famres_v (own_value bp ctab r)
+                      | Index.VStmt (Index.SSShort _) => famres_s (own_stmt bp ctab r)
                       | _ => NotApplicable
                       end
   end.

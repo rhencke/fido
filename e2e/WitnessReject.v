@@ -115,6 +115,8 @@ Definition breqs (p : Syntax.Program) :=
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) :=
   AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p)).
+(* the raw occurrence facts of a program, for the dependent-non-result checks *)
+Definition pfacts (p : Syntax.Program) := AN.raw_facts (cbinds p).
 
 Definition r_iota_cause :
   dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ].
@@ -172,6 +174,32 @@ Definition r_redecl_usecontext :
   (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "y"))) (NE1 (VNAME "x")) ]) with
    | [ AN.DRedeclaredGroup g (_ :: _) ] => Names.ordinary_equalb (BN.dg_name g) (OID "x")
    | _ => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+
+(* an unbound application head is a dependent non-result, never a successful application fact *)
+Definition r_unbound_app_dep :
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundName _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* an invalid-identity application head (iota) is a dependent non-result, never a success *)
+Definition r_invalidid_app_dep :
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
+Definition r_child_stmt_dep :
+  existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* a redeclared application head is a dependent non-result, never a successful application fact *)
+Definition r_redecl_app_dep :
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredName _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
+Proof. vm_compute; reflexivity. Qed.
+(* a redeclared name used as a type is a dependent non-result, never a fabricated Bool type *)
+Definition r_redecl_type_dep :
+  existsb (fun f => match f with AN.OFType _ (AN.TDependent _) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "y"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "y"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "z"))) (Syntax.VarTypeOnly (Syntax.NamedType (OID "y"))) ]) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 
 (* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
