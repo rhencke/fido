@@ -440,6 +440,29 @@ typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
   'Definition forged (p : Syntax.Program) (cp : CP.Program p) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_evidence "raw"%string.'
 typefail neg_image_foreign_root "an image pairing evidence with a foreign compiled root" \
   'Definition forged (p q : Syntax.Program) (cp : CP.Program p) (cq : CP.Program q) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_compiled cq.'
+# — exact index edges (C4): each semantic child relation is a parent/role/index-indexed type, so a wrong parent,
+#   role, view, or a raw NodeRef in an edge slot fails to TYPECHECK; the positive control above proves the edge
+#   surface is reachable, so each rejection is by typing, never because the type is absent —
+typefail neg_generic_not_arg "a raw NodeRef supplied as an application-argument edge" \
+  'Definition forged (p : Syntax.Program) (app n : IX.NodeRef (IX.index_program p)) : IX.ApplicationArgEdge app := n.'
+typefail neg_head_not_arg "an application-head edge used as an argument edge" \
+  'Definition forged (p : Syntax.Program) (app : IX.NodeRef (IX.index_program p)) (h : IX.ApplicationHeadEdge app) : IX.ApplicationArgEdge app := h.'
+typefail neg_arg_cross_parent "an argument edge of one application used with another" \
+  'Definition forged (p : Syntax.Program) (a b : IX.NodeRef (IX.index_program p)) (e : IX.ApplicationArgEdge a) : IX.ApplicationArgEdge b := e.'
+typefail neg_forge_arg "an argument edge asserted for a child with no proof its role is an argument" \
+  'Definition forged (p : Syntax.Program) (app c : IX.NodeRef (IX.index_program p)) (Hof : List.In c (IX.node_children app)) : IX.ApplicationArgEdge app := IX.mkPredChild c Hof eq_refl.'
+typefail neg_specname_not_type "a spec-name edge used as a declared-type edge" \
+  'Definition forged (p : Syntax.Program) (spec : IX.NodeRef (IX.index_program p)) (e : IX.SpecNameEdge spec) : IX.RoleChildEdge spec IX.RTypeUse := e.'
+typefail neg_shortlhs_not_rhs "a short-declaration left edge used as a right-side edge" \
+  'Definition forged (p : Syntax.Program) (stmt : IX.NodeRef (IX.index_program p)) (e : IX.RoleChildEdge stmt IX.RShortLhs) : IX.RoleChildEdge stmt IX.RPlain := e.'
+typefail neg_head_wrong_view "an application-head edge required from a non-application view" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VStmt IX.SSExpr) : IX.ApplicationHeadEdge r := IX.app_head_edge r Hv.'
+# — repository-wide absence: no Bindings/Analysis consumer names a deleted generic-filter relation or navigates
+#   by first_edge; the typed edges are the only route from a parent to a semantic child —
+if grep -nE 'arg_children|spec_name_children|type_use_child|value_children|preceding_siblings|first_edge' Compilable/Bindings.v Compilable/Analysis.v; then
+  fail "edge absence control — a consumer still names a deleted generic-filter relation or first_edge"
+fi
+echo "fido: edge absence control OK — Bindings/Analysis name no deleted generic-filter relation or first_edge"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -505,12 +528,29 @@ Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Inde
   : Index.NodeRef (Index.index_program p) := BN.function_node f.
 Definition main_zero_profile (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
   : BN.fpr_params (BN.function_profile f) = nil /\ BN.fpr_results (BN.function_profile f) = nil := BN.fixed_main_profile f.
+(* the exact C4 index edges are reachable and project to NodeRef at the status boundary — so the neg_* edge
+   controls below reject by typing, not because the edge surface is absent *)
+Definition use_app_head (p : Syntax.Program) (app : Index.NodeRef (Index.index_program p))
+  (Hv : Index.node_view app = Index.VApplication) : Index.NodeRef (Index.index_program p) :=
+  Index.ah_head (Index.app_head_edge app Hv).
+Definition use_args (p : Syntax.Program) (app : Index.NodeRef (Index.index_program p))
+  : list (Index.NodeRef (Index.index_program p)) := map Index.aa_child (Index.application_args app).
+Definition use_spec_names (p : Syntax.Program) (spec : Index.NodeRef (Index.index_program p))
+  : list (Index.NodeRef (Index.index_program p)) := map Index.sn_child (Index.spec_names spec).
+Definition use_type_edge (p : Syntax.Program) (spec : Index.NodeRef (Index.index_program p))
+  : option (Index.NodeRef (Index.index_program p)) := option_map Index.rc_child (Index.spec_type_edge spec).
+Definition use_short_lhs (p : Syntax.Program) (stmt : Index.NodeRef (Index.index_program p))
+  : list (Index.NodeRef (Index.index_program p)) := map Index.rc_child (Index.short_lhs_edges stmt).
+Definition use_short_rhs (p : Syntax.Program) (stmt : Index.NodeRef (Index.index_program p))
+  : list (Index.NodeRef (Index.index_program p)) := map Index.rc_child (Index.short_rhs_edges stmt).
+Definition use_preceding (p : Syntax.Program) (r : Index.NodeRef (Index.index_program p))
+  : list (Index.NodeRef (Index.index_program p)) := map Index.sb_sib (Index.preceding_children r).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc) — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image) + positive control"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the exact C4 index edges (application head/args, spec names, declared-type, short left/right, preceding siblings) construct from the canonical Index and project to NodeRef — all reachable (as required)"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge) + exact-index-edge repository absence control + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

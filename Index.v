@@ -3319,6 +3319,70 @@ Definition preceding_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : lis
   | None => fun _ => []
   end eq_refl.
 
+(* the preceding-sibling aux projects, in exact source order, to the children strictly before r *)
+Lemma sib_before_aux_sibs {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hpar : node_parent r = Some par)
+  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children par)) :
+  map sb_sib (sib_before_aux r par Hpar l Hsub) = filter (fun c => Nat.ltb (nr_pos c) (nr_pos r)) l.
+Proof.
+  revert Hsub; induction l as [|c rest IH]; intro Hsub.
+  - reflexivity.
+  - cbn [sib_before_aux].
+    destruct (Bool.bool_dec (Nat.ltb (nr_pos c) (nr_pos r)) true) as [Hb|Hb].
+    + cbn [map sb_sib filter]. rewrite Hb. f_equal. apply IH.
+    + apply Bool.not_true_is_false in Hb. cbn [filter]. rewrite Hb. apply IH.
+Qed.
+(* order + coverage: with a real parent, the preceding siblings are exactly its children before r, in source order *)
+Lemma preceding_children_some {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hpar : node_parent r = Some par) :
+  map sb_sib (preceding_children r) = filter (fun c => Nat.ltb (nr_pos c) (nr_pos r)) (node_children par).
+Proof.
+  unfold preceding_children.
+  generalize (@eq_refl (option (NodeRef idx)) (node_parent r)).
+  destruct (node_parent r) at 2 3; intro e.
+  - pose proof (eq_trans (eq_sym Hpar) e) as Ht. injection Ht as ->. apply sib_before_aux_sibs.
+  - rewrite Hpar in e. discriminate e.
+Qed.
+(* exact absence: a root with no parent has no preceding siblings, a real emptiness, not a failed lookup *)
+Lemma preceding_children_none {p} {idx : ProgramIndex p} (r : NodeRef idx) (Hpar : node_parent r = None) :
+  preceding_children r = [].
+Proof.
+  unfold preceding_children.
+  generalize (@eq_refl (option (NodeRef idx)) (node_parent r)).
+  destruct (node_parent r) at 2 3; intro e.
+  - exfalso. pose proof (eq_trans (eq_sym e) Hpar) as Ht. discriminate Ht.
+  - reflexivity.
+Qed.
+
+(* parent round trips: every edge family's child projection points node_parent back to the exact supplied parent *)
+Lemma aa_child_parent {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) :
+  node_parent (aa_child e) = Some app.
+Proof. apply node_children_inverse, aa_of. Qed.
+Lemma sn_child_parent {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) :
+  node_parent (sn_child e) = Some spec.
+Proof. apply node_children_inverse, sn_of. Qed.
+Lemma rc_child_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {role : Role} (e : RoleChildEdge parent role) :
+  node_parent (rc_child e) = Some parent.
+Proof. apply node_children_inverse, rc_of. Qed.
+Lemma sb_sib_parent {p} {idx : ProgramIndex p} {r : NodeRef idx} (e : SiblingBefore r) :
+  node_parent (sb_sib e) = Some (sb_parent e).
+Proof. apply node_children_inverse, sb_sib_of. Qed.
+
+(* index exactness: an argument edge's index is a pure projection of its child's role, never independently fabricated *)
+Lemma aa_index_det {p} {idx : ProgramIndex p} {app : NodeRef idx} (e1 e2 : ApplicationArgEdge app) :
+  aa_child e1 = aa_child e2 -> aa_index e1 = aa_index e2.
+Proof. unfold aa_index; intro H; rewrite H; reflexivity. Qed.
+
+(* exact optional absence: the declared-type edge is None exactly when no type-use child exists, not a lookup miss *)
+Lemma spec_type_edge_none {p} {idx : ProgramIndex p} (spec : NodeRef idx) :
+  spec_type_edge spec = None <->
+  filter (fun c => if role_eq_dec (node_role c) RTypeUse then true else false) (node_children spec) = [].
+Proof.
+  unfold spec_type_edge.
+  pose proof (role_children_children spec RTypeUse) as Hrc.
+  destruct (role_children spec RTypeUse) as [|x xs].
+  - cbn in Hrc. split; intro H; [ symmetry; exact Hrc | reflexivity ].
+  - cbn in Hrc. split; intro H; [ discriminate H | rewrite <- Hrc in H; discriminate H ].
+Qed.
+
 Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
   fr_path a = fr_path b -> a = b.
 Proof.
