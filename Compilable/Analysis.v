@@ -840,3 +840,136 @@ Definition result_boundaries {p} (r : Result p) : list (Boundary (res_surface r)
 Definition result_disposition {p} (r : Result p) : Disposition (res_surface r) :=
   program_disposition (res_facts r) (res_pkg r).
 
+(* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
+Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
+
+Inductive Issue {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+| IDiag  : Diagnostic s -> Issue s
+| IBound : Boundary s -> Issue s.
+Arguments IDiag {p idx s} _.
+Arguments IBound {p idx s} _.
+
+(* the one canonical issue sequence: every diagnostic then every boundary, each kept in its own source order *)
+Definition result_issues {p} (r : Result p) : list (Issue (res_surface r)) :=
+  map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
+
+Section IssueIdentity.
+Context {p : Syntax.Program}.
+
+(* an issue's class, root, family, subject, and cause-or-requirement, projected from whichever row it is *)
+Definition issue_class {r : Result p} (i : Issue (res_surface r)) : IssueClass :=
+  match i with IDiag _ => ClassDiagnostic | IBound _ => ClassBoundary end.
+Definition issue_root {r : Result p} (i : Issue (res_surface r)) : IssueRoot (res_surface r) :=
+  match i with IDiag d => diag_root d | IBound b => bound_root b end.
+Definition issue_family {r : Result p} (i : Issue (res_surface r)) : option Family :=
+  match i with IDiag d => diag_family d | IBound b => Some (bound_family b) end.
+Definition issue_cause_or_req {r : Result p} (i : Issue (res_surface r))
+  : IssueCause (res_surface r) + Requirement (res_index r) :=
+  match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req b) end.
+Definition issue_related {r : Result p} (i : Issue (res_surface r)) : list (Index.NodeRef (res_index r)) :=
+  match i with IDiag d => diag_related d | IBound _ => [] end.
+
+(* an issue identity: an exact ordinal into result_issues, retaining the exact row it indexes there *)
+Record IssueRef (r : Result p) : Type := mkIssueRef {
+  ir_ord : nat ;
+  ir_row : Issue (res_surface r) ;
+  ir_at  : nth_error (result_issues r) ir_ord = Some ir_row
+}.
+Arguments mkIssueRef {r} _ _ _.
+Arguments ir_ord {r} _.
+Arguments ir_row {r} _.
+Arguments ir_at {r} _.
+
+(* Diagnostic and Boundary are projections of an issue ref: exactly the row it references, never a synthesis *)
+Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_surface r)) :=
+  match ir_row ref with IDiag d => Some d | IBound _ => None end.
+Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_surface r)) :=
+  match ir_row ref with IBound b => Some b | IDiag _ => None end.
+
+(* bidirectional membership: a ref is exactly a position that indexes an issue in the one sequence *)
+Lemma issue_ref_sound (r : Result p) (ref : IssueRef r) :
+  nth_error (result_issues r) (ir_ord ref) = Some (ir_row ref).
+Proof. exact (ir_at ref). Qed.
+Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_surface r)) :
+  nth_error (result_issues r) n = Some i -> exists ref : IssueRef r, ir_ord ref = n /\ ir_row ref = i.
+Proof. intro H. exists (mkIssueRef n i H). split; reflexivity. Qed.
+
+(* exact identity: the ordinal alone determines the issue a ref names *)
+Lemma issue_ref_ord_identity (r : Result p) (a b : IssueRef r) : ir_ord a = ir_ord b -> ir_row a = ir_row b.
+Proof. intro H. pose proof (ir_at a); pose proof (ir_at b); congruence. Qed.
+
+(* class partition: the sequence is exactly the diagnostics block followed by the boundaries block *)
+Lemma result_issues_class_split (r : Result p) :
+  result_issues r = map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
+Proof. reflexivity. Qed.
+
+(* the row any position names is exactly a canonical diagnostic or boundary, never a fabricated one *)
+Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_surface r)) :
+  nth_error (result_issues r) n = Some (IDiag d) -> In d (result_diagnostics r).
+Proof.
+  intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
+  destruct H as [Hd|Hb].
+  - apply in_map_iff in Hd. destruct Hd as [d' [Heq Hin]]. injection Heq as Heq. subst d'. exact Hin.
+  - apply in_map_iff in Hb. destruct Hb as [b' [Heq _]]. discriminate Heq.
+Qed.
+Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_surface r)) :
+  nth_error (result_issues r) n = Some (IBound b) -> In b (result_boundaries r).
+Proof.
+  intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
+  destruct H as [Hd|Hb].
+  - apply in_map_iff in Hd. destruct Hd as [d' [Heq _]]. discriminate Heq.
+  - apply in_map_iff in Hb. destruct Hb as [b' [Heq Hin]]. injection Heq as Heq. subst b'. exact Hin.
+Qed.
+
+(* payload: the exact row a ref names is a canonical row of its class *)
+Lemma iref_payload (r : Result p) (ref : IssueRef r) :
+  match ir_row ref with
+  | IDiag d => In d (result_diagnostics r)
+  | IBound b => In b (result_boundaries r)
+  end.
+Proof.
+  pose proof (ir_at ref) as H. set (row := ir_row ref) in *. clearbody row.
+  destruct row as [d|b].
+  - exact (idiag_in r (ir_ord ref) d H).
+  - exact (ibound_in r (ir_ord ref) b H).
+Qed.
+
+(* stable order: the k-th diagnostic sits at ordinal k; the j-th boundary at ordinal (#diagnostics + j) *)
+Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_surface r)) :
+  nth_error (result_diagnostics r) n = Some d -> nth_error (result_issues r) n = Some (IDiag d).
+Proof.
+  intro H. unfold result_issues.
+  rewrite nth_error_app1 by (rewrite <- nth_error_Some; rewrite (map_nth_error _ _ _ H); discriminate).
+  exact (map_nth_error _ _ _ H).
+Qed.
+Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_surface r)) :
+  nth_error (result_boundaries r) n = Some b ->
+  nth_error (result_issues r) ((Datatypes.length (result_diagnostics r) + n)%nat) = Some (IBound b).
+Proof.
+  intro H. unfold result_issues.
+  rewrite nth_error_app2 by (first [rewrite length_map | rewrite map_length]; apply Nat.le_add_r).
+  first [rewrite length_map | rewrite map_length]. rewrite Nat.add_comm, Nat.add_sub.
+  exact (map_nth_error _ _ _ H).
+Qed.
+
+(* no collapse: N diagnostics and M boundaries give exactly N+M distinct ordinal slots, none merged or dropped *)
+Lemma result_issues_length (r : Result p) :
+  Datatypes.length (result_issues r)
+  = (Datatypes.length (result_diagnostics r) + Datatypes.length (result_boundaries r))%nat.
+Proof.
+  unfold result_issues.
+  first [rewrite app_length | rewrite length_app];
+  first [rewrite !length_map | rewrite !map_length]; reflexivity.
+Qed.
+Lemma iref_ord_bound (r : Result p) (ref : IssueRef r) :
+  (ir_ord ref < Datatypes.length (result_issues r))%nat.
+Proof. rewrite <- nth_error_Some. rewrite (ir_at ref). discriminate. Qed.
+
+End IssueIdentity.
+
+(* the record parameters generalize over p and r on section close; keep both implicit for external readers *)
+Arguments mkIssueRef {p r} _ _ _.
+Arguments ir_ord {p r} _.
+Arguments ir_row {p r} _.
+Arguments ir_at {p r} _.
+

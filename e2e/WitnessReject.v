@@ -239,3 +239,62 @@ Definition r_main_missing_payload :
   (match dsites (prog_tops [ tconstmain ]) with
    | [ AN.DMissingMain _ ] => true | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
+
+(* exact issue identity: the ordinal-indexed sequence never collapses distinct issues and partitions by class *)
+Definition p_two_iota : Syntax.Program :=
+  prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]
+       ; PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ].
+(* two same-cause invalidities stay two distinct diagnostic-class issues in source order — no dedup, no collapse *)
+Definition d4_two_iota_no_collapse :
+  Datatypes.length (AN.result_issues (rres p_two_iota)) = 2%nat
+  /\ map AN.issue_class (AN.result_issues (rres p_two_iota)) = [ AN.ClassDiagnostic ; AN.ClassDiagnostic ].
+Proof. split; vm_compute; reflexivity. Qed.
+(* the two issues carry the SAME cause yet occupy distinct ordinals: shared cause never merges them *)
+Definition d4_two_iota_same_cause :
+  map AN.diag_cause (AN.result_diagnostics (rres p_two_iota))
+  = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ; AN.OccCause (AN.InvalidIdentity Names.PIota) ].
+Proof. vm_compute; reflexivity. Qed.
+
+(* an invalidity and an independent unsupported boundary coexist: one diagnostic-class and one boundary-class issue *)
+Definition p_invalid_unsupported : Syntax.Program :=
+  prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]
+       ; PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ].
+Definition d4_invalid_unsupported_coexist :
+  map AN.issue_class (AN.result_issues (rres p_invalid_unsupported))
+  = [ AN.ClassDiagnostic ; AN.ClassBoundary ].
+Proof. vm_compute; reflexivity. Qed.
+
+(* ordinal 0 names an exact retained row: the first diagnostic, projecting its exact retained cause *)
+Definition d4_ord0_is_first_diagnostic :
+  match nth_error (AN.result_issues (rres p_two_iota)) 0%nat with
+  | Some (AN.IDiag d) => AN.diag_cause d = AN.OccCause (AN.InvalidIdentity Names.PIota)
+  | _ => False
+  end.
+Proof. vm_compute; reflexivity. Qed.
+
+(* a default-output collision coexists with a missing main and with a redeclared group as distinct diagnostics *)
+Definition cgen_path : FilePath.T := FilePath.Make "generated/x.go" eq_refl.
+Definition cvar1 : Syntax.TopLevelDecl :=
+  Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "v"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]).
+Definition cvar2 : Syntax.TopLevelDecl :=
+  Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "v"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]).
+Definition p_collision : Syntax.Program :=
+  match Syntax.build_program rmod
+          [ Syntax.MakeFileNode rmain (Syntax.main_source [ cvar1 ])
+          ; Syntax.MakeFileNode cgen_path (Syntax.MakeFile Syntax.MainPackage [] []) ] with
+  | Some pp => pp | None => empty_program rmod end.
+(* the output collision and the missing main are two distinct diagnostics; neither suppresses the other *)
+Definition d4_collision_missing_main_coexist :
+  andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision))
+       (existsb (fun d => match d with AN.DMissingMain _ => true | _ => false end) (dsites p_collision)) = true.
+Proof. vm_compute; reflexivity. Qed.
+Definition p_collision_redecl : Syntax.Program :=
+  match Syntax.build_program rmod
+          [ Syntax.MakeFileNode rmain (Syntax.main_source [ cvar1 ; cvar2 ])
+          ; Syntax.MakeFileNode cgen_path (Syntax.MakeFile Syntax.MainPackage [] []) ] with
+  | Some pp => pp | None => empty_program rmod end.
+(* the output collision and a redeclared group coexist as distinct diagnostics through the one authority *)
+Definition d4_collision_redeclared_coexist :
+  andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision_redecl))
+       (existsb (fun d => match d with AN.DRedeclaredGroup _ _ => true | _ => false end) (dsites p_collision_redecl)) = true.
+Proof. vm_compute; reflexivity. Qed.
