@@ -3102,6 +3102,190 @@ Definition first_edge {p} {idx : ProgramIndex p} (r : NodeRef idx)
   | hp :: _ => fun Hw => noderef_at_pos (nr_file r) hp (proj2 Hw)
   end (occ_first_child_wf r H).
 
+(* an exact positional child edge: the direct child at an exact source ordinal under an exact parent *)
+Record ChildEdge {p} {idx : ProgramIndex p} (parent : NodeRef idx) : Type := mkChildEdge {
+  ce_ord   : nat ;
+  ce_child : NodeRef idx ;
+  ce_at    : nth_error (node_children parent) ce_ord = Some ce_child
+}.
+Arguments mkChildEdge {p idx parent} _ _ _.
+Arguments ce_ord {p idx parent} _.
+Arguments ce_child {p idx parent} _.
+Arguments ce_at {p idx parent} _.
+
+(* the exact parent an edge belongs to: the type's own index, a projection, never rediscovered *)
+Definition ce_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} (_ : ChildEdge parent) : NodeRef idx := parent.
+
+(* the child projection is a genuine direct child of the exact parent *)
+Lemma ce_child_is_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e : ChildEdge parent) :
+  In (ce_child e) (node_children parent).
+Proof. exact (nth_error_In _ _ (ce_at e)). Qed.
+
+(* parent round trip: the edge's child points its parent edge back to the exact parent *)
+Lemma ce_child_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e : ChildEdge parent) :
+  node_parent (ce_child e) = Some parent.
+Proof. apply node_children_inverse, ce_child_is_child. Qed.
+
+(* ordinal exactness: the source ordinal determines the child edge's child *)
+Lemma ce_ord_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e1 e2 : ChildEdge parent) :
+  ce_ord e1 = ce_ord e2 -> ce_child e1 = ce_child e2.
+Proof. intro H. pose proof (ce_at e1) as H1. pose proof (ce_at e2) as H2. rewrite H in H1. rewrite H1 in H2. injection H2 as H2. exact H2. Qed.
+
+(* the exact application-head edge: the one required first child of an application, by the application view *)
+Record ApplicationHeadEdge {p} {idx : ProgramIndex p} (app : NodeRef idx) : Type := mkAppHead {
+  ah_view : node_view app = VApplication
+}.
+Arguments mkAppHead {p idx app} _.
+Arguments ah_view {p idx app} _.
+Definition ah_head {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationHeadEdge app) : NodeRef idx :=
+  first_edge app (f_equal requires_first_edge (ah_view e)).
+Definition app_head_edge {p} {idx : ProgramIndex p} (app : NodeRef idx) (H : node_view app = VApplication)
+  : ApplicationHeadEdge app := mkAppHead H.
+
+(* the exact unary-operand edge: the one required first child of a unary expression, by the unary view *)
+Record UnaryOperandEdge {p} {idx : ProgramIndex p} (un : NodeRef idx) : Type := mkUnOperand {
+  uo_op   : Syntax.UnaryOp ;
+  uo_view : node_view un = VUnary uo_op
+}.
+Arguments mkUnOperand {p idx un} _ _.
+Arguments uo_op {p idx un} _.
+Arguments uo_view {p idx un} _.
+Definition uo_operand {p} {idx : ProgramIndex p} {un : NodeRef idx} (e : UnaryOperandEdge un) : NodeRef idx :=
+  first_edge un (f_equal requires_first_edge (uo_view e)).
+Definition un_operand_edge {p} {idx : ProgramIndex p} (un : NodeRef idx) (op : Syntax.UnaryOp)
+  (H : node_view un = VUnary op) : UnaryOperandEdge un := mkUnOperand op H.
+
+(* the exact expression-statement edge: the required expression child of an expression statement, by its view *)
+Record ExprStmtExprEdge {p} {idx : ProgramIndex p} (stmt : NodeRef idx) : Type := mkExprStmt {
+  es_view : node_view stmt = VStmt SSExpr
+}.
+Arguments mkExprStmt {p idx stmt} _.
+Arguments es_view {p idx stmt} _.
+Definition es_expr {p} {idx : ProgramIndex p} {stmt : NodeRef idx} (e : ExprStmtExprEdge stmt) : NodeRef idx :=
+  first_edge stmt (f_equal requires_first_edge (es_view e)).
+Definition expr_stmt_edge {p} {idx : ProgramIndex p} (stmt : NodeRef idx) (H : node_view stmt = VStmt SSExpr)
+  : ExprStmtExprEdge stmt := mkExprStmt H.
+
+Definition specflavor_eq_dec (a b : SpecFlavor) : {a = b} + {a <> b}.
+Proof. decide equality. Defined.
+Definition role_eq_dec (a b : Role) : {a = b} + {a <> b}.
+Proof. decide equality; [ apply Nat.eq_dec | apply specflavor_eq_dec ]. Defined.
+
+(* an exact fixed-role child edge: a direct child of an exact parent carrying an exact source role *)
+Record RoleChildEdge {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) : Type := mkRoleChild {
+  rc_child : NodeRef idx ;
+  rc_of    : In rc_child (node_children parent) ;
+  rc_role  : node_role rc_child = role
+}.
+Arguments mkRoleChild {p idx parent role} _ _ _.
+Arguments rc_child {p idx parent role} _.
+Arguments rc_of {p idx parent role} _.
+Arguments rc_role {p idx parent role} _.
+Definition rc_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {role} (_ : RoleChildEdge parent role)
+  : NodeRef idx := parent.
+
+(* the exact direct children of a parent carrying a fixed role, each a proved edge, in source order *)
+Fixpoint role_children_aux {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
+  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) {struct l}
+  : list (RoleChildEdge parent role) :=
+  match l as l0 return (forall c, In c l0 -> In c (node_children parent)) -> list (RoleChildEdge parent role) with
+  | [] => fun _ => []
+  | c :: rest => fun Hs =>
+      match role_eq_dec (node_role c) role with
+      | left Hr => mkRoleChild c (Hs c (or_introl eq_refl)) Hr
+                     :: role_children_aux parent role rest (fun c' Hc' => Hs c' (or_intror Hc'))
+      | right _ => role_children_aux parent role rest (fun c' Hc' => Hs c' (or_intror Hc'))
+      end
+  end Hsub.
+Definition role_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
+  : list (RoleChildEdge parent role) :=
+  role_children_aux parent role (node_children parent) (fun c H => H).
+
+(* the argument-role test and the intrinsic index a role carries, as total functions on Role *)
+Definition is_arg_role (r : Role) : bool := match r with RApplicationArg _ => true | _ => false end.
+Definition arg_index_of (r : Role) : nat := match r with RApplicationArg i => i | _ => 0 end.
+
+(* an exact application-argument edge: a direct child of an application in the argument role *)
+Record ApplicationArgEdge {p} {idx : ProgramIndex p} (app : NodeRef idx) : Type := mkAppArg {
+  aa_child : NodeRef idx ;
+  aa_of    : In aa_child (node_children app) ;
+  aa_isarg : is_arg_role (node_role aa_child) = true
+}.
+Arguments mkAppArg {p idx app} _ _ _.
+Arguments aa_child {p idx app} _.
+Arguments aa_of {p idx app} _.
+Arguments aa_isarg {p idx app} _.
+Definition aa_parent {p} {idx : ProgramIndex p} {app : NodeRef idx} (_ : ApplicationArgEdge app) : NodeRef idx := app.
+(* the intrinsic argument index each edge carries: the exact role index of its child *)
+Definition aa_index {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) : nat :=
+  arg_index_of (node_role (aa_child e)).
+Lemma aa_role {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) :
+  node_role (aa_child e) = RApplicationArg (aa_index e).
+Proof.
+  unfold aa_index. pose proof (aa_isarg e) as H. unfold is_arg_role in H.
+  destruct (node_role (aa_child e)); try discriminate H; reflexivity.
+Qed.
+
+Fixpoint arg_edges_aux {p} {idx : ProgramIndex p} (app : NodeRef idx) (l : list (NodeRef idx))
+  (Hsub : forall c, In c l -> In c (node_children app)) {struct l} : list (ApplicationArgEdge app) :=
+  match l as l0 return (forall c, In c l0 -> In c (node_children app)) -> list (ApplicationArgEdge app) with
+  | [] => fun _ => []
+  | c :: rest => fun Hs =>
+      match Bool.bool_dec (is_arg_role (node_role c)) true with
+      | left Hb => mkAppArg c (Hs c (or_introl eq_refl)) Hb
+                     :: arg_edges_aux app rest (fun c' Hc' => Hs c' (or_intror Hc'))
+      | right _ => arg_edges_aux app rest (fun c' Hc' => Hs c' (or_intror Hc'))
+      end
+  end Hsub.
+Definition application_args {p} {idx : ProgramIndex p} (app : NodeRef idx) : list (ApplicationArgEdge app) :=
+  arg_edges_aux app (node_children app) (fun c H => H).
+
+(* order + coverage: the fixed-role children project, in exact source order, to exactly the role-carrying children *)
+Lemma role_children_aux_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
+  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) :
+  map rc_child (role_children_aux parent role l Hsub)
+  = filter (fun c => if role_eq_dec (node_role c) role then true else false) l.
+Proof.
+  revert Hsub; induction l as [|c rest IH]; intro Hsub; cbn.
+  - reflexivity.
+  - destruct (role_eq_dec (node_role c) role); cbn; [ f_equal | ]; apply IH.
+Qed.
+Lemma role_children_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) :
+  map rc_child (role_children parent role)
+  = filter (fun c => if role_eq_dec (node_role c) role then true else false) (node_children parent).
+Proof. apply role_children_aux_children. Qed.
+
+(* every direct child carrying the role appears, exactly once with that role, as a fixed-role edge *)
+Lemma role_children_complete {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) (c : NodeRef idx) :
+  In c (node_children parent) -> node_role c = role -> In c (map rc_child (role_children parent role)).
+Proof.
+  intros Hin Hr. rewrite role_children_children, filter_In. split; [ exact Hin |].
+  destruct (role_eq_dec (node_role c) role) as [|N]; [ reflexivity | exact (match N Hr with end) ].
+Qed.
+
+(* order + coverage: the argument edges project, in exact source order, to exactly the argument-role children *)
+Lemma arg_edges_aux_children {p} {idx : ProgramIndex p} (app : NodeRef idx)
+  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children app)) :
+  map aa_child (arg_edges_aux app l Hsub) = filter (fun c => is_arg_role (node_role c)) l.
+Proof.
+  revert Hsub; induction l as [|c rest IH]; intro Hsub; cbn.
+  - reflexivity.
+  - destruct (Bool.bool_dec (is_arg_role (node_role c)) true) as [Hb|Hb]; cbn.
+    + rewrite Hb; cbn. f_equal. apply IH.
+    + apply Bool.not_true_is_false in Hb; rewrite Hb; cbn. apply IH.
+Qed.
+Lemma application_args_children {p} {idx : ProgramIndex p} (app : NodeRef idx) :
+  map aa_child (application_args app) = filter (fun c => is_arg_role (node_role c)) (node_children app).
+Proof. apply arg_edges_aux_children. Qed.
+
+(* every argument-role child appears, as an argument edge with its exact index, in the argument edges *)
+Lemma application_args_complete {p} {idx : ProgramIndex p} (app : NodeRef idx) (c : NodeRef idx) (i : nat) :
+  In c (node_children app) -> node_role c = RApplicationArg i -> In c (map aa_child (application_args app)).
+Proof.
+  intros Hin Hr. rewrite application_args_children, filter_In. split; [ exact Hin |].
+  unfold is_arg_role; rewrite Hr; reflexivity.
+Qed.
+
 Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
   fr_path a = fr_path b -> a = b.
 Proof.
