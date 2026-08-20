@@ -23,9 +23,10 @@ Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
 | DefaultOverflow : TR.Constant -> Cause idx
 | NoValueUsed : Cause idx
 | IllegalStatement : Cause idx
-| ConstMissingInit : Cause idx
+| ConstMissingInit : BN.ConstSpecStatus idx -> Cause idx
 | ResultCountMismatch : nat -> nat -> Cause idx
-| ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx.
+| ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx
+| MainArity : BN.FunctionDeclRef idx -> list (Index.NodeRef idx) -> nat -> Cause idx.
 Arguments InvalidIdentity {p idx} _. Arguments UnresolvedName {p idx} _ _.
 Arguments TypeAsValue {p idx} _. Arguments NotAType {p idx} _.
 Arguments NotCallable {p idx} _. Arguments NotCallableExpr {p idx} _.
@@ -33,7 +34,8 @@ Arguments ConversionArity {p idx} _ _. Arguments ComplexArity {p idx} _.
 Arguments ComplexMismatch {p idx} _ _. Arguments UnaryMismatch {p idx} _.
 Arguments ConversionOverflow {p idx} _ _. Arguments ConversionNotRepresentable {p idx} _ _.
 Arguments DefaultOverflow {p idx} _. Arguments NoValueUsed {p idx}. Arguments IllegalStatement {p idx}.
-Arguments ConstMissingInit {p idx}. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
+Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
+Arguments MainArity {p idx} _ _ _.
 
 Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqValueMeaning : BN.BinderRef idx -> Requirement idx
@@ -42,11 +44,12 @@ Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
 | ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
 | ReqAmbiguousName : Index.NodeRef idx -> Requirement idx
+| ReqConstDecl : BN.ConstSpecStatus idx -> Requirement idx
 | ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _. Arguments ReqAmbiguousName {p idx} _.
+Arguments ReqMainUse {p idx} _. Arguments ReqAmbiguousName {p idx} _. Arguments ReqConstDecl {p idx} _.
 
 Inductive AppResult : Type :=
 | AppValue : TR.ResolvedConstant -> AppResult
@@ -250,10 +253,12 @@ Definition fold_consumed (r : Index.NodeRef idx) : bool :=
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
 Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
+  let st := BN.const_spec_status r in
   match Index.node_view r with
   | Index.VConstSpec (Index.CSExplicit _ nn nv) =>
-      if Nat.eqb nn nv then VUnmet (ReqDeclMeaning r) else VInvalid (ResultCountMismatch nn nv)
-  | Index.VConstSpec Index.CSInherited => if BN.spec_is_first r then VInvalid ConstMissingInit else VUnmet (ReqDeclMeaning r)
+      if Nat.eqb nn nv then VUnmet (ReqConstDecl st) else VInvalid (ResultCountMismatch nn nv)
+  | Index.VConstSpec Index.CSInherited =>
+      if BN.cs_first st then VInvalid (ConstMissingInit st) else VUnmet (ReqConstDecl st)
   | _ => VNonconst
   end.
 
@@ -269,7 +274,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning b)
-      | BN.RBound (BN.SourceObject (BN.DOFunc m)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse m)
+      | BN.RBound (BN.SourceObject (BN.DOFunc f)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
       | BN.RRedeclared => VUnmet (ReqAmbiguousName r)
       end
   | Index.VLiteral _ => fun _ =>
@@ -355,7 +360,12 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | PMUnmodelled => AUnmet (ReqApplication pn (app_args r Hv))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
-          | BN.RBound (BN.SourceObject (BN.DOFunc m)) => AUnmet (ReqMainUse m)
+          | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
+              (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
+              match app_args r Hv with
+              | nil => AOK AppBuiltinStmt
+              | args => AInvalid (MainArity f args (Datatypes.length args))
+              end
           | BN.RRedeclared => AUnmet (ReqAmbiguousName r)
           | BN.RUnbound => AOK AppBuiltinStmt
           end

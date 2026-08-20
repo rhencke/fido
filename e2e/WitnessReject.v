@@ -140,14 +140,17 @@ Definition c_neg_int8_core :
   dcauses (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [] /\ breqs (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [].
 Proof. split; vm_compute; reflexivity. Qed.
 
-(* main-as-object: a use of the identifier main resolves to the package main function, or a shadowing local main *)
-Definition o_main_recursive : Compilable.outsides (prog [ Syntax.ExprStmt (APP (OID "main") []) ]). Proof. outside. Qed.
+(* the fixed main is a zero-parameter function: a zero-argument main() call succeeds as a known zero-result call *)
+Definition c_main_recursive : Compilable.compiles (prog [ Syntax.ExprStmt (APP (OID "main") []) ]). Proof. compileok. Qed.
+(* main used as a bare value (not called) is a later-root boundary *)
 Definition o_main_value : Compilable.outsides (prog [ PL [ VNAME "main" ] ]). Proof. outside. Qed.
 Definition r_main_as_type : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarTypeOnly (Syntax.NamedType (OID "main"))) ]) ]). Proof. reject. Qed.
-(* the recursive main call is the package main function object (a later-root boundary), never an unresolved name *)
-Definition o_main_recursive_payload :
-  (match bfacts (prog [ Syntax.ExprStmt (APP (OID "main") []) ]) with
-   | [ AN.OFApp _ (AN.AUnmet (AN.ReqMainUse _)) ] => true | _ => false end) = true.
+(* main(1) is an exact arity invalidity: the fixed main takes zero arguments *)
+Definition r_main_arity : Compilable.rejects (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]). Proof. reject. Qed.
+(* the invalidity is the exact application-family MainArity cause carrying the function head *)
+Definition r_main_arity_payload :
+  (match dsites (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]) with
+   | [ AN.AtOcc (AN.OFApp _ (AN.AInvalid (AN.MainArity _ _ _))) ] => true | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.

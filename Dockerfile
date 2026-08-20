@@ -420,7 +420,7 @@ typefail neg_foreign_surface_package "a package reference from a foreign surface
 # — package-main (R2): fixed Syntax.Main establishes as a package-scope function declaration (DOFunc) in the ONE
 #   declaration-group authority; MainStatus is a projection over those exact Est declarations, not a raw carrier —
 typefail neg_func_origin_needs_main "a function-declaration origin from a node not proved to be a main occurrence" \
-  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.DeclOrigin (IX.index_program p) := BN.DOFunc (IX.mkMainOccurrenceRef r eq_refl).'
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.DeclOrigin (IX.index_program p) := BN.DOFunc (BN.FixedMainFunction (IX.mkMainOccurrenceRef r eq_refl)).'
 typefail neg_raw_node_as_main_status "a raw NodeRef accepted directly by MainOne" \
   'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (pr : PI.PackageRef s) (r : IX.NodeRef (IX.index_program p)) : BN.MainStatus s pr := BN.MainOne r.'
 typefail neg_binder_as_main_status "a BinderRef accepted directly by MainOne" \
@@ -496,7 +496,11 @@ Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.inde
 Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   (bp : BN.BindingPhase s) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 Definition main_as_object (p : Syntax.Program) (mo : Index.MainOccurrenceRef (Index.index_program p))
-  : BN.ObjectRef (Index.index_program p) := BN.SourceObject (BN.DOFunc mo).
+  : BN.ObjectRef (Index.index_program p) := BN.SourceObject (BN.DOFunc (BN.FixedMainFunction mo)).
+Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
+  : Index.NodeRef (Index.index_program p) := BN.function_node f.
+Definition main_zero_profile (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
+  : BN.fpr_params (BN.function_profile f) = nil /\ BN.fpr_results (BN.function_profile f) = nil := BN.fixed_main_profile f.
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"

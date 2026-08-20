@@ -37,16 +37,40 @@ Proof.
     [ intro E; injection E as <-; reflexivity | discriminate ].
 Qed.
 
+(* a package-scope function declaration reference; the fixed main is its only current inhabitant (C9 adds funcs) *)
+Inductive FunctionDeclRef {p} (idx : Index.ProgramIndex p) : Type :=
+| FixedMainFunction : Index.MainOccurrenceRef idx -> FunctionDeclRef idx.
+Arguments FixedMainFunction {p idx} _.
+
+Definition function_occ {p} {idx : Index.ProgramIndex p} (f : FunctionDeclRef idx) : Index.MainOccurrenceRef idx :=
+  match f with FixedMainFunction mo => mo end.
+Definition function_node {p} {idx : Index.ProgramIndex p} (f : FunctionDeclRef idx) : Index.NodeRef idx :=
+  Index.mo_node (function_occ f).
+
+(* the exact function signature profile; the fixed main's profile is exactly zero parameters and zero results *)
+Record FunctionProfile {p} (idx : Index.ProgramIndex p) : Type := mk_profile {
+  fpr_params  : list (Index.NodeRef idx) ;
+  fpr_results : list (Index.NodeRef idx)
+}.
+Arguments mk_profile {p idx} _ _.
+Arguments fpr_params {p idx} _.
+Arguments fpr_results {p idx} _.
+Definition function_profile {p} {idx : Index.ProgramIndex p} (f : FunctionDeclRef idx) : FunctionProfile idx :=
+  match f with FixedMainFunction _ => mk_profile [] [] end.
+Lemma fixed_main_profile {p} {idx : Index.ProgramIndex p} (f : FunctionDeclRef idx) :
+  fpr_params (function_profile f) = [] /\ fpr_results (function_profile f) = [].
+Proof. destruct f; split; reflexivity. Qed.
+
 (* a declaration origin: a name binder or a package-scope function declaration (fixed main today; C9 extends DOFunc) *)
 Inductive DeclOrigin {p} (idx : Index.ProgramIndex p) : Type :=
 | DOBinder : BinderRef idx -> DeclOrigin idx
-| DOFunc   : Index.MainOccurrenceRef idx -> DeclOrigin idx.
+| DOFunc   : FunctionDeclRef idx -> DeclOrigin idx.
 Arguments DOBinder {p idx} _.
 Arguments DOFunc {p idx} _.
 
 (* the establishing source occurrence of a declaration origin: the binder token, or the function declaration *)
 Definition do_node {p} {idx : Index.ProgramIndex p} (o : DeclOrigin idx) : Index.NodeRef idx :=
-  match o with DOBinder b => binder_node b | DOFunc mo => Index.mo_node mo end.
+  match o with DOBinder b => binder_node b | DOFunc f => function_node f end.
 
 (* an object a name resolves to: a predeclared identity, or a source declaration (a binder or a function) *)
 Inductive ObjectRef {p} (idx : Index.ProgramIndex p) : Type :=
@@ -145,7 +169,7 @@ Definition make_main_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   (pr : PI.PackageRef s) (b : Index.NodeRef idx) : option (Est s) :=
   (match Index.is_main_view (Index.node_view b) as m
      return Index.is_main_view (Index.node_view b) = m -> option (Est s) with
-   | true => fun H => Some (mk_est (DOFunc (Index.mkMainOccurrenceRef b H)) main_ident (PackageScope pr) (Index.nr_pos b))
+   | true => fun H => Some (mk_est (DOFunc (FixedMainFunction (Index.mkMainOccurrenceRef b H))) main_ident (PackageScope pr) (Index.nr_pos b))
    | false => fun _ => None
    end) eq_refl.
 
@@ -456,6 +480,24 @@ Definition const_predecessor_chain {p} {idx : Index.ProgramIndex p} (r : Index.N
   | None => []
   end.
 
+(* the one exact retained const-spec status: shape, effective origin, invalid chain, and name/type/value refs *)
+Record ConstSpecStatus {p} (idx : Index.ProgramIndex p) : Type := mk_const_status {
+  cs_explicit  : bool ;
+  cs_first     : bool ;
+  cs_origin    : option (Index.NodeRef idx) ;
+  cs_predchain : list (Index.NodeRef idx) ;
+  cs_names     : list (Index.NodeRef idx) ;
+  cs_type      : option (Index.NodeRef idx) ;
+  cs_values    : list (Index.NodeRef idx)
+}.
+Arguments mk_const_status {p idx} _ _ _ _ _ _ _.
+Arguments cs_explicit {p idx} _. Arguments cs_first {p idx} _. Arguments cs_origin {p idx} _.
+Arguments cs_predchain {p idx} _. Arguments cs_names {p idx} _. Arguments cs_type {p idx} _. Arguments cs_values {p idx} _.
+
+Definition const_spec_status {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) : ConstSpecStatus idx :=
+  mk_const_status (is_explicit_const_spec r) (spec_is_first r) (const_effective_origin r)
+                  (const_predecessor_chain r) (spec_name_binders r) (spec_type_ref r) (spec_value_refs r).
+
 (* a binder introduces a variable object exactly when it is a short-lhs or var-spec name *)
 Definition is_variable_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) : bool :=
   match Index.node_role b with Index.RShortLhs | Index.RSpecName Index.VarSpecF => true | _ => false end.
@@ -483,12 +525,14 @@ Inductive ShortLhsStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface
 | ShortNew                 : Est s -> ShortLhsStatus s
 | ShortExistingVariable    : Est s -> ShortLhsStatus s
 | ShortExistingNonVariable : Est s -> ShortLhsStatus s
-| ShortDuplicate           : Index.NodeRef idx -> Index.NodeRef idx -> ShortLhsStatus s.
+| ShortDuplicate           : Index.NodeRef idx -> Index.NodeRef idx -> ShortLhsStatus s
+| ShortAmbiguous           : Est s -> Est s -> list (Est s) -> ShortLhsStatus s.
 Arguments ShortBlank {p idx s} _.
 Arguments ShortNew {p idx s} _.
 Arguments ShortExistingVariable {p idx s} _.
 Arguments ShortExistingNonVariable {p idx s} _.
 Arguments ShortDuplicate {p idx s} _ _.
+Arguments ShortAmbiguous {p idx s} _ _ _.
 
 Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (b : Index.NodeRef idx) : ShortLhsStatus s :=
@@ -500,13 +544,17 @@ Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
       | None =>
           match est_of_binder bp b with
           | Some eb =>
-              match find (fun e => andb (negb (est_eqb e eb))
-                                        (Nat.ltb (Index.nr_pos (est_node e)) (Index.nr_pos b)))
-                         (group_members bp eb) with
-              | Some prior =>
-                  if is_variable_binder (est_node prior)
-                  then ShortExistingVariable prior else ShortExistingNonVariable prior
-              | None => ShortNew eb
+              match group_status (decl_group bp eb) with
+              | Some (GRedeclared a c rest) => ShortAmbiguous a c rest
+              | _ =>
+                  match find (fun e => andb (negb (est_eqb e eb))
+                                            (Nat.ltb (Index.nr_pos (est_node e)) (Index.nr_pos b)))
+                             (group_members bp eb) with
+                  | Some prior =>
+                      if is_variable_binder (est_node prior)
+                      then ShortExistingVariable prior else ShortExistingNonVariable prior
+                  | None => ShortNew eb
+                  end
               end
           | None => ShortBlank b
           end
@@ -520,20 +568,38 @@ Definition short_lhs_statuses {p} {idx : Index.ProgramIndex p} {s : PI.PackageSu
       (filter (fun c => match Index.node_role c with Index.RShortLhs => true | _ => false end)
               (Index.node_children stmt)).
 
-(* an exact new-nonblank witness (the first ShortNew), or None as exact NoNewNonblank evidence *)
-Definition short_new_nonblank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (stmt : Index.NodeRef idx) : option (Est s) :=
-  fold_right (fun st acc => match st with ShortNew e => Some e | _ => acc end) None (short_lhs_statuses bp stmt).
+(* the exact new-nonblank evidence of a short declaration: the first ShortNew establishment, or its absence *)
+Inductive NewNonblank {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+| HasNewNonblank : Est s -> NewNonblank s
+| NoNewNonblank  : NewNonblank s.
+Arguments HasNewNonblank {p idx s} _.
+Arguments NoNewNonblank {p idx s}.
 
-(* the first duplicate short-left name, the exact current short-declaration invalidity from the retained statuses *)
+Definition new_nonblank_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (lefts : list (ShortLhsStatus s)) : NewNonblank s :=
+  fold_right (fun st acc => match st with ShortNew e => HasNewNonblank e | _ => acc end) NoNewNonblank lefts.
+
+(* the one exact retained short-declaration status: ordered left statuses, new-nonblank evidence, RHS refs, cutpoint *)
+Record ShortDeclStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_short_status {
+  sd_lefts    : list (ShortLhsStatus s) ;
+  sd_newnb    : NewNonblank s ;
+  sd_rhs      : list (Index.NodeRef idx) ;
+  sd_cutpoint : nat
+}.
+Arguments mk_short_status {p idx s} _ _ _ _.
+Arguments sd_lefts {p idx s} _.
+Arguments sd_newnb {p idx s} _.
+Arguments sd_rhs {p idx s} _.
+Arguments sd_cutpoint {p idx s} _.
+
+(* the RHS is evaluated at the cutpoint, before the new left objects become visible past the statement extent *)
+Definition short_decl_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (stmt : Index.NodeRef idx) : ShortDeclStatus s :=
+  let lefts := short_lhs_statuses bp stmt in
+  mk_short_status lefts (new_nonblank_of lefts) (spec_value_refs stmt) (Index.nr_pos stmt).
+
+(* the first duplicate short-left name, the exact short-declaration invalidity projected from the retained status *)
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (stmt : Index.NodeRef idx) : option Names.OrdinaryIdentifier :=
   fold_right (fun st acc => match st with ShortDuplicate _ later => binder_ident later | _ => acc end)
-             None (short_lhs_statuses bp stmt).
-
-(* the short statement's ordered right-side value-expression refs, evaluated at the pre-statement cutpoint *)
-Definition short_rhs_refs {p} {idx : Index.ProgramIndex p} (stmt : Index.NodeRef idx) : list (Index.NodeRef idx) :=
-  spec_value_refs stmt.
-
-(* the pre-statement cutpoint: the new left objects are not visible before the statement's own position *)
-Definition short_cutpoint {p} {idx : Index.ProgramIndex p} (stmt : Index.NodeRef idx) : nat := Index.nr_pos stmt.
+             None (sd_lefts (short_decl_status bp stmt)).
