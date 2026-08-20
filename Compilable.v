@@ -23,6 +23,19 @@ Definition disposition (p : Syntax.Program) : Disposition :=
   | right _ => Rejected
   end.
 
+(* empty reports of p's canonical analyze result force the Compiled disposition; the transport bridge *)
+Lemma disposition_of_admissible {p} (r : AN.Result p) (Hr : r = AN.analyze p)
+  (Hd : RP.diagnostics (AN.res_facts r) (AN.res_pkg r) = [])
+  (Hb : RP.boundaries (AN.res_facts r) = []) : disposition p = Compiled.
+Proof.
+  subst r. unfold disposition; cbv zeta.
+  change (c_result p) with (AN.analyze p).
+  destruct (nil_dec (RP.diagnostics (AN.res_facts (AN.analyze p)) (AN.res_pkg (AN.analyze p)))) as [_|Hd'];
+    [ | exfalso; exact (Hd' Hd) ].
+  destruct (nil_dec (RP.boundaries (AN.res_facts (AN.analyze p)))) as [_|Hb'];
+    [ reflexivity | exfalso; exact (Hb' Hb) ].
+Qed.
+
 Module Type C4_PUBLIC.
   Parameter Compilation : Syntax.Program -> Type.
   Parameter Program   : Syntax.Program -> Type.
@@ -41,6 +54,8 @@ Module Type C4_PUBLIC.
 
   (* the exact retained analysis result projected read-only from each compilation; it mints no capability *)
   Parameter compilation_result : forall {p}, Compilation p -> AN.Result p.
+  (* provenance: the retained result is exactly the sole analyze object, never an independently rebuilt peer *)
+  Parameter compilation_result_canonical : forall {p} (c : Compilation p), compilation_result c = AN.analyze p.
 
   Parameter Diagnostic : forall {p}, Compilation p -> Type.
   Parameter Boundary   : forall {p}, Compilation p -> Type.
@@ -55,13 +70,17 @@ Module Type C4_PUBLIC.
   Parameter rejection_has_diagnostics : forall {p} (r : Rejection p), diagnostics (rejection_compilation r) <> [].
   Parameter outside_reports :
     forall {p} (o : Outside p), diagnostics (outside_compilation o) = [] /\ boundaries (outside_compilation o) <> [].
+
+  (* substitution-resistance: a capability exists only for the Compiled disposition of p's own analyze result *)
+  Parameter program_forces_compiled : forall {p} (cp : Program p), disposition p = Compiled.
 End C4_PUBLIC.
 
 Module Sealed : C4_PUBLIC.
-  (* one retained result: the exact index-surface-bindings-facts-package chain, built once by analyze, kept whole *)
-  Record CompilationR (p : Syntax.Program) : Type := mkComp { c_res : AN.Result p }.
-  Arguments mkComp {p} _.
+  (* one retained result, with a provenance proof pinning it to the sole analyze builder; kept whole *)
+  Record CompilationR (p : Syntax.Program) : Type := mkComp { c_res : AN.Result p ; c_prov : c_res = AN.analyze p }.
+  Arguments mkComp {p} _ _.
   Arguments c_res {p} _.
+  Arguments c_prov {p} _.
   Definition Compilation := CompilationR.
 
   Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_surface (c_res c)).
@@ -74,8 +93,10 @@ Module Sealed : C4_PUBLIC.
   Proof. unfold Admissible; split; intro H; exact H. Qed.
 
   (* the sole composer, private: it binds one exact result and keeps it whole; no downstream module rebuilds it *)
-  Definition elaborate (p : Syntax.Program) : Compilation p := mkComp (AN.analyze p).
+  Definition elaborate (p : Syntax.Program) : Compilation p := mkComp (AN.analyze p) eq_refl.
   Definition compilation_result {p} (c : Compilation p) : AN.Result p := c_res c.
+  Lemma compilation_result_canonical {p} (c : Compilation p) : compilation_result c = AN.analyze p.
+  Proof. exact (c_prov c). Qed.
 
   Record ProgramR   (p : Syntax.Program) : Type := mkProg { pr_comp : Compilation p ; pr_adm  : Admissible pr_comp }.
   Record RejectionR (p : Syntax.Program) : Type := mkRej  { rj_comp : Compilation p ; rj_diag : diagnostics rj_comp <> [] }.
@@ -94,10 +115,19 @@ Module Sealed : C4_PUBLIC.
     unfold OutcomeAt, disposition. cbv zeta. set (c := c_result p).
     destruct (nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c))) as [Hd|Hd].
     - destruct (nil_dec (RP.boundaries (AN.res_facts c))) as [Hb|Hb].
-      + exact (mkProg (mkComp c) (conj Hd Hb)).
-      + exact (mkOut (mkComp c) Hd Hb).
-    - exact (mkRej (mkComp c) Hd).
+      + exact (mkProg (mkComp c eq_refl) (conj Hd Hb)).
+      + exact (mkOut (mkComp c eq_refl) Hd Hb).
+    - exact (mkRej (mkComp c eq_refl) Hd).
   Defined.
+
+  (* provenance: possessing a Program forces the Compiled disposition; no rebuilt result manufactures a capability *)
+  Lemma program_forces_compiled {p} (cp : ProgramR p) : disposition p = Compiled.
+  Proof.
+    pose proof (pr_adm cp) as Hadm.
+    unfold Admissible, diagnostics, boundaries in Hadm.
+    destruct Hadm as [Hd Hb].
+    exact (disposition_of_admissible (c_res (pr_comp cp)) (c_prov (pr_comp cp)) Hd Hb).
+  Qed.
 
   Definition program_compilation {p} (cp : Program p) : Compilation p := pr_comp cp.
   Definition rejection_compilation {p} (r : Rejection p) : Compilation p := rj_comp r.
@@ -125,6 +155,8 @@ Definition program_compilation {p} := @Sealed.program_compilation p.
 Definition rejection_compilation {p} := @Sealed.rejection_compilation p.
 Definition outside_compilation {p} := @Sealed.outside_compilation p.
 Definition compilation_result {p} := @Sealed.compilation_result p.
+Definition compilation_result_canonical {p} := @Sealed.compilation_result_canonical p.
+Definition program_forces_compiled {p} := @Sealed.program_forces_compiled p.
 Definition Diagnostic {p} := @Sealed.Diagnostic p.
 Definition Boundary {p} := @Sealed.Boundary p.
 Definition diagnostics {p} := @Sealed.diagnostics p.
@@ -139,6 +171,14 @@ Definition outside_reports {p} := @Sealed.outside_reports p.
 Definition program_result   {p} (cp : Program p)  : AN.Result p := compilation_result (program_compilation cp).
 Definition rejection_result {p} (r  : Rejection p) : AN.Result p := compilation_result (rejection_compilation r).
 Definition outside_result   {p} (o  : Outside p)   : AN.Result p := compilation_result (outside_compilation o).
+
+(* each branch object projects exactly p's one analyze result, so no reader consults a rebuilt peer chain *)
+Lemma program_result_canonical  {p} (cp : Program p)   : program_result cp = AN.analyze p.
+Proof. apply compilation_result_canonical. Qed.
+Lemma rejection_result_canonical {p} (r : Rejection p) : rejection_result r = AN.analyze p.
+Proof. apply compilation_result_canonical. Qed.
+Lemma outside_result_canonical   {p} (o : Outside p)   : outside_result o = AN.analyze p.
+Proof. apply compilation_result_canonical. Qed.
 
 (* the sanctioned compiled capability: compile (the sole source) coerced by a decidable disposition=Compiled proof *)
 Definition compiled_program (p : Syntax.Program) (H : disposition p = Compiled) : Program p :=

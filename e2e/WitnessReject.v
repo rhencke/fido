@@ -106,17 +106,23 @@ Definition r_short_dup : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collect
 (* a parent arity invalidity and an independent child requirement coexist: neither over-blocks the other *)
 Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; PL [ Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [ VNAME "x" ] ] ]). Proof. reject. Qed.
 
+(* the one retained Result these fixtures read: compile's stored object via analyze, not a peer rebuild *)
+Definition rres (p : Syntax.Program) : AN.Result p := AN.analyze p.
 (* the exact-payload catalogue: pin each cause / requirement of the one canonical Analysis issue table *)
-Definition cbinds (p : Syntax.Program) := BN.bindings (PI.package_surface (Index.index_program p)).
-Definition dcauses (p : Syntax.Program) :=
-  map AN.diag_cause (AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p))).
-Definition breqs (p : Syntax.Program) :=
-  map AN.bound_req (AN.boundaries (AN.facts (cbinds p))).
+Definition dcauses (p : Syntax.Program) := map AN.diag_cause (AN.result_diagnostics (rres p)).
+Definition breqs (p : Syntax.Program) := map AN.bound_req (AN.result_boundaries (rres p)).
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
-Definition dsites (p : Syntax.Program) :=
-  AN.diagnostics (AN.facts (cbinds p)) (AN.package_facts (cbinds p)).
+Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
 (* the raw occurrence facts of a program, for the dependent-non-result checks *)
-Definition pfacts (p : Syntax.Program) := AN.raw_facts (cbinds p).
+Definition pfacts (p : Syntax.Program) := AN.fact_list (AN.res_facts (rres p)).
+
+(* provenance: whatever branch a program yields, its projected result IS the exact Result these fixtures read *)
+Definition retained_via_program  {p} (cp : Compilable.Program p)   : Compilable.program_result cp  = rres p := Compilable.program_result_canonical cp.
+Definition retained_via_rejection {p} (r  : Compilable.Rejection p) : Compilable.rejection_result r = rres p := Compilable.rejection_result_canonical r.
+Definition retained_via_outside   {p} (o  : Compilable.Outside p)   : Compilable.outside_result o  = rres p := Compilable.outside_result_canonical o.
+(* substitution-resistance: a rejected program admits no capability, so no rebuilt Result can back one *)
+Definition no_program_for_rejected (p : Syntax.Program) (cp : Compilable.Program p) (Hrej : Compilable.rejects p) : False.
+Proof. unfold Compilable.rejects in Hrej. rewrite (Compilable.program_forces_compiled cp) in Hrej. discriminate. Qed.
 
 Definition r_iota_cause :
   dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ].
@@ -167,7 +173,7 @@ Definition r_iota_family :
 Proof. vm_compute; reflexivity. Qed.
 (* a boundary retains its own exact family too, projected from the one retained row *)
 Definition o_cx_typed_family : exists f,
-  map AN.bound_family (AN.boundaries (AN.facts (cbinds (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])))) = [ f ].
+  map AN.bound_family (AN.result_boundaries (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]))) = [ f ].
 Proof. eexists; vm_compute; reflexivity. Qed.
 (* a redeclared group retains its exact use-site contexts: a use is contextualized, not re-diagnosed per use *)
 Definition r_redecl_usecontext :
