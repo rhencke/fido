@@ -1118,6 +1118,10 @@ Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
                 end)
              None (sj_lefts sj).
 
+(* the exact pre-statement cutpoint: the statement's own retained position, projected from the ref *)
+Definition sj_cutpoint {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) : nat :=
+  Index.nr_pos (Index.sh_node st).
+
 (* the phase-level duplicate projection: the retained judgment row's views, never a recomputation *)
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=

@@ -524,6 +524,8 @@ typefail neg_new_foreign_est "a new classification carrying an establishment pin
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (eb : BN.Est sf) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVNew eb) eq_refl.'
 typefail neg_dup_arbitrary_witness "a duplicate classification with an arbitrary witness index" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVDuplicate j) eq_refl.'
+typefail neg_existing_unpinned "an existing classification with an arbitrary resolved object" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (eb prior : BN.Est sf) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVExistingVariable eb prior) eq_refl.'
 typefail neg_ambiguous_unpinned "an ambiguous classification with an arbitrary group context" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (a c : BN.Est sf) (rest : list (BN.Est sf)) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVAmbiguous a c rest) eq_refl.'
 typefail neg_deleted_newnonblank "the deleted proof-free new-nonblank constructors" \
@@ -853,6 +855,7 @@ Definition s_lhs_lookup :=
 Definition s_lhs_lookup_dup :
   match BN.slj_view s_lhs_lookup with BN.SVDuplicate j => j = 0 | _ => False end
   := ltac:(vm_compute; reflexivity).
+Definition s_cutpoint : BN.sj_cutpoint s_stref = 21 := ltac:(vm_compute; reflexivity).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
