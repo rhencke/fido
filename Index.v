@@ -5009,6 +5009,22 @@ Lemma prec_ordinal_lt {p} {idx : ProgramIndex p} {r : NodeRef idx} (se : SelfEdg
   i < se_ord se -> i < length (node_children (se_parent se)).
 Proof. intro H. pose proof (ca_ordinal_lt (se_at se)). lia. Qed.
 
+(* the ordinal below an inhabited successor ordinal is in range on the same parent *)
+Lemma ca_pred_lt {p} {idx : ProgramIndex p} {parent : NodeRef idx} {k : nat} (e : ChildAt parent (S k)) :
+  k < length (node_children parent).
+Proof. pose proof (ca_ordinal_lt e). lia. Qed.
+
+(* the typed const-spec child of a const declaration, with its exact node identity *)
+Definition spec_child_at {p} {idx : ProgramIndex p} (par : NodeRef idx) (k : nat)
+  (Hd : node_view par = VDecl ConstSpecF) (e : ChildAt par k)
+  : { cs : SpecRef idx ConstSpecF | sp_node cs = ca_child e } :=
+  (match node_view (ca_child e) as v
+         return node_view (ca_child e) = v -> spec_view_of_flavor ConstSpecF v
+                -> { cs : SpecRef idx ConstSpecF | sp_node cs = ca_child e } with
+   | VConstSpec sh => fun Hv _ => exist _ (mkSpecRef (fl := ConstSpecF) (ca_child e) sh Hv) eq_refl
+   | _ => fun _ F => match F with end
+   end) eq_refl (node_child_decl_spec par (ca_child e) ConstSpecF k Hd (ca_at e)).
+
 (* the exact preceding siblings of a target: one edge per ordinal below the target's own ordinal *)
 Definition preceding_edges {p} {idx : ProgramIndex p} (target : NodeRef idx)
   : list { i : nat & PrecedingSiblingEdge target i } :=
