@@ -4792,6 +4792,54 @@ Definition self_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx)
                        (all_children_has par r (node_parent_children r par H)) E)
    end) eq_refl.
 
+(* order and coverage per family: each collection's indices are exactly 0.. its shape-fixed total, ascending *)
+Lemma spec_name_edges_ords {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) :
+  map (@projT1 _ _) (spec_name_edges sp) = seq 0 (shape_names fl (sp_shape sp)).
+Proof. apply indexed_all_ords. Qed.
+Lemma spec_value_edges_ords {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) :
+  map (@projT1 _ _) (spec_value_edges sp) = seq 0 (shape_values fl (sp_shape sp)).
+Proof. apply indexed_all_ords. Qed.
+Lemma short_lhs_edges_ords {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) :
+  map (@projT1 _ _) (short_lhs_edges st) = seq 0 (sh_names st).
+Proof. apply indexed_all_ords. Qed.
+Lemma short_rhs_edges_ords {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) :
+  map (@projT1 _ _) (short_rhs_edges st) = seq 0 (sh_values st).
+Proof. apply indexed_all_ords. Qed.
+
+(* parent round trips per family: each retained edge's child points node_parent back to the exact parent *)
+Lemma ah_parent {p} {idx : ProgramIndex p} {a : AppRef idx} (e : ApplicationHeadEdge a) :
+  node_parent (ah_child e) = Some (app_node a).
+Proof. exact (ca_node_parent (ah_at e)). Qed.
+Lemma aa_parent {p} {idx : ProgramIndex p} {a : AppRef idx} {i : nat} (e : ApplicationArgEdge a i) :
+  node_parent (aa_child e) = Some (app_node a).
+Proof. exact (ca_node_parent (aa_at e)). Qed.
+Lemma sn_parent {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {i : nat}
+  (e : SpecNameEdge sp i) : node_parent (sn_child e) = Some (sp_node sp).
+Proof. exact (ca_node_parent (sn_at e)). Qed.
+Lemma sv_parent {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {j : nat}
+  (e : SpecValueEdge sp j) : node_parent (sv_child e) = Some (sp_node sp).
+Proof. exact (ca_node_parent (sv_at e)). Qed.
+Lemma sl_parent {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {i : nat} (e : ShortLhsEdge st i) :
+  node_parent (sl_child e) = Some (sh_node st).
+Proof. exact (ca_node_parent (sl_at e)). Qed.
+Lemma sr_parent {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {j : nat} (e : ShortRhsEdge st j) :
+  node_parent (sr_child e) = Some (sh_node st).
+Proof. exact (ca_node_parent (sr_at e)). Qed.
+Lemma mb_parent {p} {idx : ProgramIndex p} {m : MainOccurrenceRef idx} (e : MainBodyEdge m) :
+  node_parent (mb_child e) = Some (mo_node m).
+Proof. exact (ca_node_parent (mb_at e)). Qed.
+
+(* a preceding sibling and its target sit under one exact parent, and the target's parent edge names it *)
+Lemma ps_shared_parent {p} {idx : ProgramIndex p} {target : NodeRef idx} {i : nat}
+  (e : PrecedingSiblingEdge target i) :
+  node_parent (ps_sibling e) = Some (se_parent (ps_self e))
+  /\ node_parent target = Some (se_parent (ps_self e)).
+Proof.
+  split; [ exact (ca_node_parent (ps_at e)) |].
+  pose proof (ca_node_parent (se_at (ps_self e))) as H.
+  rewrite (se_child_eq (ps_self e)) in H. exact H.
+Qed.
+
 (* a canonical edge's ordinal is in range on its parent's exact child list *)
 Lemma ca_ordinal_lt {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
   (e : ChildAt parent ordinal) : ordinal < length (node_children parent).
