@@ -118,11 +118,15 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 (* the form/value meaning of a name at a use, for constant folding; None for anything without one *)
 Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : option TR.NameMeaning :=
   match BN.resolve bp use n with
-  | BN.RBound (BN.PredeclaredObject pn) =>
-      match pmeaning pn with
-      | PMConvForm t => Some (TR.NMConversionForm t)
-      | PMValue c => Some (TR.NMValueConstant c)
-      | _ => None
+  | BN.RBound o =>
+      match BN.object_view o with
+      | BN.PredeclaredObject pn =>
+          match pmeaning pn with
+          | PMConvForm t => Some (TR.NMConversionForm t)
+          | PMValue c => Some (TR.NMValueConstant c)
+          | _ => None
+          end
+      | BN.SourceObject _ => None
       end
   | _ => None
   end.
@@ -200,16 +204,16 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
               end
           | re :: im :: nil =>
               match BN.resolve bp r h with
-              | BN.RBound (BN.PredeclaredObject Names.PComplex) =>
-                  match mconst m re, mconst m im with
-                  | Some cre, Some cim =>
+              | BN.RBound o =>
+                  match BN.object_view o, mconst m re, mconst m im with
+                  | BN.PredeclaredObject Names.PComplex, Some cre, Some cim =>
                       match TR.constant_to_float (TR.ci_const cre), TR.constant_to_float (TR.ci_const cim) with
                       | Some _, Some _ =>
                           option_map (fun c => TR.mk_cinfo c TR.Untyped)
                             (TR.complex_of_constants (TR.ci_const cre) (TR.ci_const cim))
                       | _, _ => None
                       end
-                  | _, _ => None
+                  | _, _, _ => None
                   end
               | _ => None
               end
@@ -240,8 +244,12 @@ Definition head_folds (par : Index.NodeRef idx) : bool :=
       match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef par Hv))) with
       | Index.VName h =>
           match BN.resolve bp par h with
-          | BN.RBound (BN.PredeclaredObject pn) =>
-              match pmeaning pn with PMConvForm _ => true | PMComplex => true | _ => false end
+          | BN.RBound o =>
+              match BN.object_view o with
+              | BN.PredeclaredObject pn =>
+                  match pmeaning pn with PMConvForm _ => true | PMComplex => true | _ => false end
+              | BN.SourceObject _ => false
+              end
           | _ => false
           end
       | _ => false
@@ -274,15 +282,18 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.VName n => fun _ =>
       match BN.resolve bp r n with
       | BN.RUnbound => VInvalid (UnresolvedName n r)
-      | BN.RBound (BN.PredeclaredObject pn) =>
-          match pmeaning pn with
-          | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity pn) end
-          | PMInvalidId => VInvalid (InvalidIdentity pn)
-          | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
+      | BN.RBound o =>
+          match BN.object_view o with
+          | BN.PredeclaredObject pn =>
+              match pmeaning pn with
+              | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity pn) end
+              | PMInvalidId => VInvalid (InvalidIdentity pn)
+              | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
+              end
+          | BN.SourceObject (BN.DOBinder b) => VUnmet (ReqValueMeaning (BN.DOBinder b))
+          | BN.SourceObject (BN.DOShort sn) => VUnmet (ReqValueMeaning (BN.DOShort sn))
+          | BN.SourceObject (BN.DOFunc f) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
           end
-      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning (BN.DOBinder b))
-      | BN.RBound (BN.SourceObject (BN.DOShort sn)) => VUnmet (ReqValueMeaning (BN.DOShort sn))
-      | BN.RBound (BN.SourceObject (BN.DOFunc f)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
       | BN.RRedeclared _ => VDependent (DepRedeclaredName n r)
       end
   | Index.VLiteral _ => fun _ =>
@@ -309,7 +320,9 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
       | Index.VName h =>
           match BN.resolve bp r h with
-          | BN.RBound (BN.PredeclaredObject pn) =>
+          | BN.RBound o =>
+              match BN.object_view o with
+              | BN.PredeclaredObject pn =>
               match pmeaning pn, map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
               | PMConvForm t, x :: nil =>
                   match mconst ctab x with
@@ -335,7 +348,8 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
               | PMPrintln, _ => if value_ctx r then VInvalid NoValueUsed else VNonconst
               | _, _ => VNonconst
               end
-          | BN.RBound (BN.SourceObject _) => VNonconst
+              | BN.SourceObject _ => VNonconst
+              end
           | BN.RRedeclared _ => VDependent (DepRedeclaredName h r)
           | BN.RUnbound => VDependent (DepUnboundName h r)
           end
@@ -355,7 +369,9 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
       match Index.node_view hd with
       | Index.VName h =>
           match BN.resolve bp r h with
-          | BN.RBound (BN.PredeclaredObject pn) =>
+          | BN.RBound o =>
+              match BN.object_view o with
+              | BN.PredeclaredObject pn =>
               match pmeaning pn with
               | PMConvForm _ => match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))) end
               | PMComplex =>
@@ -369,13 +385,14 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | PMInvalidId => ADependent (DepInvalidId pn hd)
               | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))
               end
-          | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
-          | BN.RBound (BN.SourceObject (BN.DOShort sn)) => AInvalid (NotCallable (BN.SourceObject (BN.DOShort sn)))
-          | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
-              (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
+          | BN.SourceObject (BN.DOBinder b) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
+          | BN.SourceObject (BN.DOShort sn) => AInvalid (NotCallable (BN.SourceObject (BN.DOShort sn)))
+          | BN.SourceObject (BN.DOFunc f) =>
+              (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
               match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
               | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
+              end
               end
           | BN.RRedeclared _ => ADependent (DepRedeclaredName h hd)
           | BN.RUnbound => ADependent (DepUnboundName h hd)
@@ -408,8 +425,12 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
               match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef e He))) with
               | Index.VName h =>
                   match BN.resolve bp r h with
-                  | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
-                  | BN.RBound (BN.SourceObject _) => SOK
+                  | BN.RBound o =>
+                      match BN.object_view o with
+                      | BN.PredeclaredObject Names.PPrintln => SOK
+                      | BN.SourceObject _ => SOK
+                      | _ => SInvalid IllegalStatement
+                      end
                   | _ => SInvalid IllegalStatement
                   end
               | _ => SInvalid IllegalStatement
@@ -435,16 +456,19 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
   match Index.node_view r with
   | Index.VTypeExpr (Syntax.NamedType n) =>
       match BN.resolve bp r n with
-      | BN.RBound (BN.PredeclaredObject pn) =>
-          match TR.predeclared_meaning pn with
-          | TR.NMConversionForm t => TOK t
-          | _ => if is_unmodeled_type pn
-                 then TUnmet (ReqTypeMeaning (BN.PredeclaredObject pn))
-                 else TInvalid (NotAType (BN.PredeclaredObject pn))
+      | BN.RBound o =>
+          match BN.object_view o with
+          | BN.PredeclaredObject pn =>
+              match TR.predeclared_meaning pn with
+              | TR.NMConversionForm t => TOK t
+              | _ => if is_unmodeled_type pn
+                     then TUnmet (ReqTypeMeaning (BN.PredeclaredObject pn))
+                     else TInvalid (NotAType (BN.PredeclaredObject pn))
+              end
+          | BN.SourceObject (BN.DOBinder b) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
+          | BN.SourceObject (BN.DOShort sn) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOShort sn)))
+          | BN.SourceObject (BN.DOFunc m) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
           end
-      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
-      | BN.RBound (BN.SourceObject (BN.DOShort sn)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOShort sn)))
-      | BN.RBound (BN.SourceObject (BN.DOFunc m)) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
       | BN.RRedeclared _ => TDependent (DepRedeclaredName n r)
       | BN.RUnbound => TInvalid (UnresolvedName n r)
       end
@@ -714,12 +738,6 @@ Definition collision_rows : list (Diagnostic s) :=
 Definition main_rows : list (Diagnostic s) :=
   flat_map (fun pr => match BN.package_main bp pr with BN.MainMissing => [DMissingMain pr] | _ => [] end) (BN.PI.packages s).
 
-(* redeclaration: 2+ decl ests (spec or func) share one scope+spelling; short-lhs excluded, main included *)
-Definition group_redeclared (e : BN.Est s) : bool :=
-  andb (BN.is_decl_est e)
-    (andb (match BN.group_status (BN.decl_group bp e) with Some (BN.GRedeclared _ _ _) => true | _ => false end)
-          (match BN.decl_group bp e with m :: _ => BN.est_eqb m e | [] => false end)).
-
 (* two group refs are the same group iff they share the exact scope and spelling that key the declaration group *)
 Definition same_groupref (a b : BN.DeclarationGroupRef s) : bool :=
   andb (BN.scope_eqb (BN.dg_scope a) (BN.dg_scope b)) (Names.ordinary_equalb (BN.dg_name a) (BN.dg_name b)).
@@ -730,13 +748,13 @@ Definition name_uses : list (Index.NodeRef idx) :=
 (* the exact use-site contexts of a redeclared group: name occurrences resolving to it as an ambiguous group *)
 Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.NodeRef idx) :=
   filter (fun r => match Index.node_view r with
-                   | Index.VName n => match BN.resolve bp r n with BN.RRedeclared g' => same_groupref g' g | _ => false end
+                   | Index.VName n => match BN.resolve bp r n with
+                                      | BN.RRedeclared root => same_groupref (BN.redecl_view root) g
+                                      | _ => false end
                    | _ => false end) name_uses.
-(* one redeclared-group diagnostic per group, keyed at its first declaration member, with its exact use contexts *)
+(* one redeclared-group diagnostic per exact phase-owned group, keyed at its first member, with use contexts *)
 Definition group_rows : list (Diagnostic s) :=
-  flat_map (fun e => if group_redeclared e
-                     then [DRedeclaredGroup (BN.decl_group_ref bp e) (group_use_contexts (BN.decl_group_ref bp e))]
-                     else []) (BN.bp_ests bp).
+  map (fun g => DRedeclaredGroup g (group_use_contexts g)) (BN.redeclared_groups bp).
 
 Definition occ_diags : list (Diagnostic s) := flat_map occ_diag_rows (fact_list fp).
 

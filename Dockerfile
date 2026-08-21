@@ -483,18 +483,45 @@ typefail neg_exprstmt_wrong_view "an expression-statement ref built from a non-e
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VApplication) := IX.mkExprStmtRef r Hv.'
 typefail neg_mainbody_wrong_parent "a main-body edge requested from a non-main occurrence" \
   'Definition forged (p : Syntax.Program) (b : IX.BlockRef (IX.index_program p)) := IX.main_body b.'
-# — phase-owned source-order Binding transitions: refs are phase+subject-indexed, classifications
-#   decision-pinned against one exact pre-environment, short establishment is transition-owned; a wrong
-#   phase, subject, index, environment, classification, or forged addition fails to TYPECHECK, and every
-#   deleted prospective-establishment route fails to RESOLVE —
+# — phase-owned event/state graph: const judgments and short-left judgments are phase/subject/index/environment
+#   indexed and decision-pinned; causal STATES are typed by phase+trace+cut, EVENTS by trace+ordinal, and
+#   establishment ADDITIONS by event-site+index; a wrong phase, block, cut, subject, index, event, environment,
+#   classification, or forged member/addition/group fails to TYPECHECK, and every deleted route fails to RESOLVE —
 typefail neg_cjr_cross_phase "a const judgment ref from phase A used as one from phase B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp1 cs) : BN.ConstSpecJudgmentRef bp2 cs := r.'
-typefail neg_str_cross_phase "a transition ref from phase A used as one from phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) (r : BN.ShortTransitionRef bp1 st) : BN.ShortTransitionRef bp2 st := r.'
 typefail neg_cjr_cross_subject "a const judgment ref for spec A used for spec B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp c1) : BN.ConstSpecJudgmentRef bp c2 := r.'
-typefail neg_str_cross_subject "a transition ref for statement A used for statement B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (r : BN.ShortTransitionRef bp s1) : BN.ShortTransitionRef bp s2 := r.'
+# — 11.1 exact causal-state identity: cut/block/phase are TYPE indices; equal contents never coerce, and no raw
+#   list or caller-supplied members inhabit a state —
+typefail neg_state_cross_cut "a causal state at cut i used as the state at cut j" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (st : BN.BlockStateRef tr i) : BN.BlockStateRef tr j := st.'
+typefail neg_state_cross_block "a causal state for block A used as a state for block B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (cut : nat) (st : BN.BlockStateRef ta cut) : BN.BlockStateRef tb cut := st.'
+typefail neg_state_cross_phase "a causal state from phase A used as a state for phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (t1 : BN.BlockTraceRef bp1 b) (t2 : BN.BlockTraceRef bp2 b) (cut : nat) (st : BN.BlockStateRef t1 cut) : BN.BlockStateRef t2 cut := st.'
+typefail neg_state_as_list "a raw list of establishment refs accepted where a causal state is required" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := l.'
+typefail neg_state_forged_members "a causal state constructed with a caller-supplied member list" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := BN.mk_block_state l eq_refl.'
+# — 11.2 exact event predecessor/successor identity: an event ref is typed by trace+ordinal; its pre/succ states
+#   are pinned to cut i and S i, and an event from another trace cannot be substituted —
+typefail neg_event_cross_trace "a block event of trace A used as an event of trace B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef ta i) : BN.BlockEventRef tb i := e.'
+typefail neg_event_cross_ordinal "a block event at ordinal i used as an event at ordinal j" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (e : BN.BlockEventRef tr i) : BN.BlockEventRef tr j := e.'
+typefail neg_pre_as_succ "an event predecessor state accepted where its successor state is required" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef tr i) : BN.BlockStateRef tr (S i) := BN.ber_pre e.'
+# — 11.3 exact establishment provenance: an addition ref is typed by its exact event site and index; its retained
+#   equality cannot be forged, index 0 cannot inhabit index 1, and an addition of event A is not one of event B —
+typefail neg_addition_cross_site "an event addition at site A used as an addition at site B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sa sb : BN.EvSite) (ix : nat) (r : BN.EventAdditionRef bp sa ix) : BN.EventAdditionRef bp sb ix := r.'
+typefail neg_addition_cross_index "an event addition at index 0 used as an addition at index 1" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (site : BN.EvSite) (r : BN.EventAdditionRef bp site 0) : BN.EventAdditionRef bp site 1 := r.'
+typefail neg_addition_forged "an event addition forged without its exact retained addition equality" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (site : BN.EvSite) (ix : nat) (e0 : BN.Est sf) : BN.EventAdditionRef bp site ix := BN.mk_event_addition e0 eq_refl.'
+typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
+# — short-left classification: each view is decision-pinned to one exact statement/index/environment —
 typefail neg_slj_cross_index "a left judgment for index 0 used as the judgment for index 1" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment env st 0) : BN.ShortLhsJudgment env st 1 := j.'
 typefail neg_slj_cross_stmt "a left judgment of statement A used within statement B" \
@@ -503,16 +530,6 @@ typefail neg_slj_cross_env "a left judgment against environment A used as one ag
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env1 env2 : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment env1 st i) : BN.ShortLhsJudgment env2 st i := j.'
 typefail neg_judgment_cross_env "a complete judgment against environment A used against environment B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env1 env2 : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (sj : BN.ShortJudgment env1 st) : BN.ShortJudgment env2 st := sj.'
-typefail neg_envref_cross_env "an environment member ref of environment A used in environment B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env1 env2 : list (BN.Est sf)) (r : BN.EnvEstRef env1) : BN.EnvEstRef env2 := r.'
-typefail neg_envref_forged "an environment member ref forged without the exact retained membership" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (e : BN.Est sf) : BN.EnvEstRef env := BN.mk_env_ref 0 e eq_refl.'
-typefail neg_transition_cross_stmt "a transition for statement A reused for statement B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (t : BN.ShortTransition (s := sf) s1) : BN.ShortTransition (s := sf) s2 := t.'
-typefail neg_rhs_takes_post "a post-environment ref accepted where the RHS pre-environment is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (t : BN.ShortTransition (s := sf) st) (r : BN.EnvEstRef (BN.tr_post t)) : BN.EnvEstRef (BN.tr_rhs_env t) := r.'
-typefail neg_forged_added "a transition whose additions are an arbitrary list, not the judgment News" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (br : IX.BlockRef (IX.index_program p)) (Hp : IX.node_parent (IX.sh_node st) = Some (IX.bl_node br)) (env : list (BN.Est sf)) (sj : BN.ShortJudgment env st) (extra : list (BN.Est sf)) : BN.ShortTransition (s := sf) st := BN.mk_transition br Hp env sj extra eq_refl.'
 typefail neg_snr_cross_stmt "a ShortNew identity pairing statement A with statement B's exact edge" \
   'Definition forged (p : Syntax.Program) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge s2 i) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new s1 i e.'
 typefail neg_snr_cross_index "a ShortNew identity pairing index i with the edge at index j" \
@@ -539,12 +556,30 @@ typefail neg_new_arbitrary_name "a new classification pinned to no decision, car
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVNew n) eq_refl.'
 typefail neg_dup_arbitrary_witness "a duplicate classification with an arbitrary witness index" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVDuplicate j) eq_refl.'
-typefail neg_existing_unpinned "an existing classification with an arbitrary prior member ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (prior : BN.EnvEstRef env) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVExistingVariable prior) eq_refl.'
+typefail neg_existing_unpinned "an existing classification with an arbitrary prior member ordinal" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVExistingVariable j) eq_refl.'
 typefail neg_ambiguous_unpinned "an ambiguous classification with an arbitrary group context" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (a c : BN.Est sf) (rest : list (BN.Est sf)) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVAmbiguous a c rest) eq_refl.'
 typefail neg_est_from_short_edge "a declaration-binder establishment minted from an exact short-left edge" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (sc : BN.ScopeId sf) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) := BN.spec_name_est sc e.'
+# — 11.5/11.7 shared occupancy and resolution identity: a group is one canonical phase/scope/spelling authority;
+#   a group-at-state is cut-typed; a redeclaration root is scope-typed; and a source binding returns the exact
+#   phase-owned establishment ref, never a bare origin —
+typefail neg_group_from_raw "a binding group forged from a caller-supplied member list" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sc : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.BindingGroupRef bp sc n := BN.mk_binding_group l eq_refl.'
+typefail neg_groupstate_cross_cut "a group-at-state from cut j used as the group at cut i" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef tr j n) : BN.GroupAtStateRef tr i n := g.'
+typefail neg_groupstate_forged "a group-at-state forged from a caller-supplied member list" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef tr cut n := BN.mk_group_at_state l eq_refl.'
+typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
+typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sc : BN.ScopeId sf) (na nb : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sc na) : BN.RedeclarationRef bp sc nb := r.'
+typefail neg_bound_from_origin "a source binding object built from a bare DeclOrigin, not an establishment ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (o : BN.DeclOrigin (IX.index_program p)) : BN.BoundObject bp := BN.SourceBound o.'
+typefail neg_rbound_from_objectref "a resolution bound built from an idx-level ObjectRef, not a phase BoundObject" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (u : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (o : BN.ObjectRef (IX.index_program p)) : BN.Resolved bp u n := BN.RBound (BN.SourceObject o).'
+# — 11.8 raw/peer authority absence: every deleted prospective/transition/env route fails to RESOLVE —
 typefail neg_deleted_all_ests "the deleted prospective establishment list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.all_ests sf.'
 typefail neg_deleted_make_est "the deleted generic binder-establishment maker" \
@@ -555,6 +590,24 @@ typefail neg_deleted_short_table "the deleted on-demand whole-core judgment tabl
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) := BN.short_table core.'
 typefail neg_deleted_est_of_binder "the deleted prospective binder-establishment lookup" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (b : IX.NodeRef (IX.index_program p)) := BN.est_of_binder_core core b.'
+typefail neg_deleted_bp_ests "the deleted flat establishment-list phase authority" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.bp_ests bp.'
+typefail neg_deleted_bp_shorts "the deleted retained short-transition table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.bp_shorts bp.'
+typefail neg_deleted_short_transition "the deleted per-statement short transition lookup" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_transition bp st.'
+typefail neg_deleted_mk_transition "the deleted transition constructor" \
+  'Definition forged (p : Syntax.Program) := BN.mk_transition.'
+typefail neg_deleted_block_env "the deleted per-statement prefix-environment builder" \
+  'Definition forged (p : Syntax.Program) := BN.block_env.'
+typefail neg_deleted_envref "the deleted list-content-indexed environment member ref" \
+  'Definition forged (p : Syntax.Program) := BN.EnvEstRef.'
+typefail neg_deleted_source_cands "the deleted flat source-candidate filter" \
+  'Definition forged (p : Syntax.Program) := BN.source_cands.'
+typefail neg_deleted_pick_best "the deleted flat innermost-candidate selector" \
+  'Definition forged (p : Syntax.Program) := BN.pick_best.'
+typefail neg_deleted_decl_group "the deleted declaration-only occupancy group excluding ShortNew" \
+  'Definition forged (p : Syntax.Program) := BN.decl_group.'
 typefail neg_deleted_judgment_lookup "the deleted whole-core short judgment lookup" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_judgment bp st.'
 typefail neg_deleted_newnonblank "the deleted proof-free new-nonblank constructors" \
@@ -592,10 +645,16 @@ echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge r
 if grep -nE 'ConstSpecStatus|ShortDeclStatus|ShortLhsStatus|NewNonblank|ConstOrigin|OriginSelf|OriginPred|mk_const_status|mk_short_status|const_spec_status|short_decl_status|short_lhs_status|short_lhs_statuses|new_nonblank_of|\ball_ests\b|\bests_of_file\b|\best_of_node\b|nearest_block_table|est_scope_of|est_of_binder_core|\bmake_est\b|make_est_emit|\bshort_table\b|all_ests_has_binder|short_decl_judgment|ShortDeclJudgmentRef|\bsjr_|short_subjects|short_stmts_of_file|short_ref_emit' Compilable/Bindings.v Compilable/Analysis.v; then
   fail "status absence control — a forgeable status route or prospective establishment route still exists"
 fi
-if grep -nE 'const_judgment_of|short_judgment_of|short_lhs_decide|mk_slj|mk_short_judgment|mk_rawbp|mk_transition|raw_bindings|group_members_core|decl_group_core|find_dup|short_transition_of|short_transition_at|short_transition_bv|short_transition_fo|block_env|block_base|new_ests|new_est\b|env_scan|actual_ests|pkg_ests|short_trace|short_row_emit|spec_name_est|spec_ests|spec_emit|stmt_decl_ests|decl_ests|node_ests|node_pkg_ests' Compilable/Analysis.v; then
-  fail "status absence control — Analysis names a judgment, transition, or environment builder"
+if grep -nE 'const_judgment_of|short_judgment_of|short_lhs_decide|mk_slj|mk_short_judgment|mk_rawbp|mk_transition|raw_bindings|group_members_core|decl_group_core|find_dup|short_transition_of|short_transition_at|short_transition_bv|short_transition_fo|block_env|block_base|new_ests|new_est\b|env_scan|actual_ests|pkg_ests|short_trace|short_row_emit|spec_name_est|spec_ests|spec_emit|stmt_decl_ests|decl_ests|node_ests|node_pkg_ests|build_data|ledger_of|block_fold|traces_of_pkg|block_event|pkg_event_at|pkg_env_of' Compilable/Analysis.v; then
+  fail "status absence control — Analysis names a judgment, transition, environment, or private phase builder"
 fi
-echo "fido: status absence control OK — no forgeable status or prospective route; Analysis reads only phase rows"
+# — the ONE sealed Binding owner: the raw phase graph is built ONLY inside Module Internal; no consumer, and no
+#   part of Bindings outside Internal, names the raw builders as a route.  Analysis must not name Internal at all;
+#   within Bindings only the sealed public interface (bindings/bp_* projections) may reference Internal builders —
+if grep -nE '\bInternal\.' Compilable/Analysis.v Compilable/Report.v Render.v Emit.v; then
+  fail "internal-isolation control — a consumer names a private Binding.Internal builder"
+fi
+echo "fido: status absence control OK — no forgeable/prospective route; Analysis reads only phase rows; Internal builders are private to the sealed Binding owner"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -737,9 +796,10 @@ Definition e_lhs_ords : map (@projT1 _ _) e_lhs = cons 0 (cons 1 nil) := ltac:(v
 Definition e_rhs := Index.short_rhs_edges e_short.
 Definition e_rhs_app : map (fun x => Index.nr_pos (Index.sr_child (projT2 x))) e_rhs = cons 19 (cons 20 nil)
   := ltac:(vm_compute; reflexivity).
-(* the phase-owned judgment surface, exercised over three concrete programs with every projection
-   checked by computation: constructor tags, immediate predecessors, nearest origins, invalid chains,
-   all six left classifications, canonical-earliest duplicates, and the complete new summary *)
+(* the phase-owned event/state/trace surface, exercised over concrete represented programs: the const
+   judgment table (edge/chain programs), then the block event traces with exact classifications, additions,
+   causal states, occupancy groups, redeclaration roots, and ordinary resolution — every projection checked
+   by computation, so the neg_* controls reject by typing, never because the surface is absent *)
 Definition cj_tag {cs : Index.SpecRef eidx Index.ConstSpecF} (j : BN.ConstJudgment cs) : nat :=
   match j with BN.CJExplicit _ _ => 0 | BN.CJFirstInherited _ _ _ => 1 | BN.CJInherited _ _ _ _ _ => 2 end.
 Definition esurf := PI.package_surface eidx.
@@ -747,16 +807,6 @@ Definition ebp := BN.bindings esurf.
 Definition e_cjr1 := BN.const_spec_judgment ebp e_cs1.
 Definition e_cjr1_tag : cj_tag (projT2 (BN.cjr_row e_cjr1)) = 0 := ltac:(vm_compute; reflexivity).
 Definition e_cjr2_tag : cj_tag (projT2 (BN.cjr_row (BN.const_spec_judgment ebp e_cs2))) = 2
-  := ltac:(vm_compute; reflexivity).
-Definition e_str := BN.short_transition ebp e_short.
-Definition e_str_ord : BN.str_ord e_str = 0 := ltac:(vm_compute; reflexivity).
-Definition e_short_tags :
-  map (fun x => match BN.slj_view (projT2 x) with BN.SVBlank => 0 | _ => 9 end)
-      (BN.sj_lefts (BN.tr_judgment (projT2 (BN.str_row e_str)))) = cons 0 (cons 0 nil)
-  := ltac:(vm_compute; reflexivity).
-Definition e_no_new : BN.short_new_members (BN.tr_judgment (projT2 (BN.str_row e_str))) = nil
-  := ltac:(vm_compute; reflexivity).
-Definition e_no_added : BN.tr_added (projT2 (BN.str_row e_str)) = nil
   := ltac:(vm_compute; reflexivity).
 
 (* chain fixture: explicit/first-inherited/inherited chains with nearest and absent origins *)
@@ -799,234 +849,350 @@ Definition c_preds :
       (cons None (cons None (cons (Some 21) nil)))))))
   := ltac:(vm_compute; reflexivity).
 
-(* short fixture: new, existing variable, duplicate at the canonical earliest witness, multiple news,
-   existing nonvariable after a block const, and a redeclared-group ambiguity *)
+(* ==== block event/state trace fixtures (contract section 12) ==== *)
+(* position-free projections over the retained phase graph: an event's kind, a short event's left
+   classifications, and the exact count of its retained additions *)
+Definition ev_kind {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (ev : BN.BlockEv s) : nat :=
+  match ev with BN.BEvExpr _ => 0 | BN.BEvDecl _ _ _ _ => 1 | BN.BEvShort _ _ _ => 2 end.
+Definition sv_tag {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (BN.Est s)} (v : BN.ShortLhsView env) : nat :=
+  match v with
+  | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
+  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ _ => 5
+  end.
+Definition ev_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ev : BN.BlockEv s) : list nat :=
+  match ev with
+  | BN.BEvShort _ _ sj => map (fun x => sv_tag (BN.slj_view (projT2 x))) (BN.sj_lefts sj)
+  | _ => nil
+  end.
+Definition trace_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BN.BindingPhase s) : list (list (list nat)) :=
+  map (fun tr => map ev_lhs_tags (BN.trow_evs tr)) (BN.bp_traces bp).
+Definition trace_add_counts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BN.BindingPhase s) : list (list nat) :=
+  map (fun tr => map (fun ev => Datatypes.length (BN.bev_adds (BN.trow_block tr) ev)) (BN.trow_evs tr))
+      (BN.bp_traces bp).
 Definition mkid (str : String.string) (H : Names.identifier_ok str = true)
   (H2 : Names.is_blank str = false) : Names.OrdinaryIdentifier :=
   Names.MakeOrdinary (Names.MakeIdentifier str H) H2.
 Definition idx_ : Names.OrdinaryIdentifier := mkid "x" eq_refl eq_refl.
 Definition idy_ : Names.OrdinaryIdentifier := mkid "y" eq_refl eq_refl.
 Definition idz_ : Names.OrdinaryIdentifier := mkid "z" eq_refl eq_refl.
-Definition ida_ : Names.OrdinaryIdentifier := mkid "a" eq_refl eq_refl.
-Definition idb_ : Names.OrdinaryIdentifier := mkid "b" eq_refl eq_refl.
-Definition idc_ : Names.OrdinaryIdentifier := mkid "c" eq_refl eq_refl.
-Definition idd_ : Names.OrdinaryIdentifier := mkid "d" eq_refl eq_refl.
+Definition idq_ : Names.OrdinaryIdentifier := mkid "q" eq_refl eq_refl.
+Definition idmain_ : Names.OrdinaryIdentifier := mkid "main" eq_refl eq_refl.
 Definition bn (n : Names.OrdinaryIdentifier) : Syntax.BindingName := Syntax.BNamed n.
-Definition short_prog : Syntax.Program :=
+Definition prln (e : Syntax.Expr) : Syntax.Stmt :=
+  Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) (cons e nil)).
+(* the first VName occurrence of a given spelling in a file, found by content, not by position *)
+Definition name_use_in {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx)
+  (nm : Names.OrdinaryIdentifier) : option (Index.NodeRef idx) :=
+  find (fun r => match Index.node_view r with
+                 | Index.VName n => Names.ordinary_equalb n nm | _ => false end)
+       (Index.file_nodes fr).
+Definition file_of {p} {idx : Index.ProgramIndex p} (H : Index.all_files idx <> nil) : Index.FileRef idx :=
+  match Index.all_files idx as l return Index.all_files idx = l -> Index.FileRef idx with
+  | cons fr _ => fun _ => fr
+  | nil => fun E => False_rect _ (H E)
+  end eq_refl.
+
+(* fixture 2 (sequential short reuse) + fixture 1 (equal-content different-cut state):
+   x := 1; println(1); println(x) — the states before and after the first println have equal member
+   projections but are type-distinct (neg_state_cross_cut); the short's one left is New *)
+Definition p1_prog : Syntax.Program :=
   Syntax.singleton_program
     (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
     (FilePath.Make "main.go" eq_refl)
     (cons (Syntax.Main (Syntax.MakeBlock
       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
-       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2)))
-        (cons (Syntax.ShortVarDecl
-                 (Collections.MakeNonEmpty (bn idx_) (cons (bn idx_) (cons (bn idy_) nil)))
-                 (Collections.MakeNonEmpty (EILIT 3) (cons (EILIT 4) (cons (EILIT 5) nil))))
-         (cons (Syntax.ShortVarDecl (ne2 (bn ida_) (bn idb_)) (ne2 (EILIT 6) (EILIT 7)))
-          (cons (Syntax.ShortVarDecl
-                   (Collections.MakeNonEmpty (bn idz_) (cons (bn idz_) (cons (bn idz_) nil)))
-                   (Collections.MakeNonEmpty (EILIT 8) (cons (EILIT 9) (cons (EILIT 10) nil))))
-           (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
-                    (cons (Syntax.MakeConstSpec (ne1 (bn idc_))
-                             (Syntax.ExplicitConstInit None (ne1 (EILIT 11)))) nil)))
-            (cons (Syntax.ShortVarDecl (ne1 (bn idc_)) (ne1 (EILIT 12)))
-             (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
-                      (cons (Syntax.MakeConstSpec (ne1 (bn idd_))
-                               (Syntax.ExplicitConstInit None (ne1 (EILIT 13)))) nil)))
-              (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
-                       (cons (Syntax.MakeConstSpec (ne1 (bn idd_))
-                                (Syntax.ExplicitConstInit None (ne1 (EILIT 14)))) nil)))
-               (cons (Syntax.ShortVarDecl (ne1 (bn idd_)) (ne1 (EILIT 15))) nil)))))))))))) nil).
-Definition sidx := Index.index_program short_prog.
-Definition ssurf := PI.package_surface sidx.
-Definition sbp := BN.bindings ssurf.
-Definition sv_tag {env : list (BN.Est ssurf)} (v : BN.ShortLhsView env) : nat :=
-  match v with
-  | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
-  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ _ => 5
-  end.
-Definition s_tags :
-  map (fun row => map (fun x => sv_tag (BN.slj_view (projT2 x)))
-                      (BN.sj_lefts (BN.tr_judgment (projT2 row))))
-      (BN.bp_shorts sbp)
-  = cons (cons 2 nil) (cons (cons 3 nil)
-     (cons (cons 3 (cons 1 (cons 2 nil)))
-      (cons (cons 2 (cons 2 nil))
-       (cons (cons 2 (cons 1 (cons 1 nil)))
-        (cons (cons 4 nil) (cons (cons 5 nil) nil))))))
+       (cons (prln (EILIT 1))
+        (cons (prln (Syntax.Name idx_)) nil))))) nil).
+Definition p1idx := Index.index_program p1_prog.
+Definition p1bp := BN.bindings (PI.package_surface p1idx).
+(* one trace; three events: short(New), expr, expr *)
+Definition p1_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces p1bp)
+  = cons (cons 2 (cons 0 (cons 0 nil))) nil := ltac:(vm_compute; reflexivity).
+Definition p1_lhs : trace_lhs_tags p1bp = cons (cons (cons 2 nil) (cons nil (cons nil nil))) nil
   := ltac:(vm_compute; reflexivity).
-Definition s_dups :
-  map (fun row => map (fun x => match BN.slj_view (projT2 x) with
-                                | BN.SVDuplicate j => Some j | _ => None end)
-                      (BN.sj_lefts (BN.tr_judgment (projT2 row))))
-      (BN.bp_shorts sbp)
-  = cons (cons None nil) (cons (cons None nil)
-     (cons (cons None (cons (Some 0) (cons None nil)))
-      (cons (cons None (cons None nil))
-       (cons (cons None (cons (Some 0) (cons (Some 0) nil)))
-        (cons (cons None nil) (cons (cons None nil) nil))))))
+Definition p1_adds : trace_add_counts p1bp = cons (cons 1 (cons 0 (cons 0 nil))) nil
   := ltac:(vm_compute; reflexivity).
-Definition s_new_ab :
-  match nth_error (BN.bp_shorts sbp) 3 with
-  | Some row => map (@projT1 _ _) (BN.short_new_members (BN.tr_judgment (projT2 row))) = cons 0 (cons 1 nil)
-  | None => False
-  end := ltac:(vm_compute; reflexivity).
-Definition s_dup_name :
-  match nth_error (BN.bp_shorts sbp) 4 with
-  | Some row => BN.sj_dup_name (BN.tr_judgment (projT2 row)) = Some idz_
-  | None => False
-  end := ltac:(vm_compute; reflexivity).
-Definition sfr : Index.FileRef sidx.
-Proof. destruct (Index.all_files sidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
-Definition s_stref : Index.ShortStmtRef sidx :=
-  Index.mkShortStmtRef (Index.noderef_at_pos sfr 21 ltac:(vm_compute; lia)) 3 3
-    ltac:(vm_compute; reflexivity).
-Definition s_lookup := BN.short_transition sbp s_stref.
-Definition s_lookup_ord : BN.str_ord s_lookup = 4 := ltac:(vm_compute; reflexivity).
-Definition s_lhs_lookup :=
-  BN.short_lhs_judgment (BN.tr_judgment (projT2 (BN.str_row s_lookup))) 2 ltac:(vm_compute; lia).
-Definition s_lhs_lookup_dup :
-  match BN.slj_view s_lhs_lookup with BN.SVDuplicate j => j = 0 | _ => False end
-  := ltac:(vm_compute; reflexivity).
-Definition s_cutpoint : BN.sj_cutpoint s_stref = 21 := ltac:(vm_compute; reflexivity).
-(* the whole-fixture characterization: a left occurrence owns an actual establishment iff it is New *)
-Definition left_has_est {sf : PI.PackageSurface sidx} (bp : BN.BindingPhase sf)
-  {env : list (BN.Est sf)} {st : Index.ShortStmtRef sidx} {i : nat}
-  (j : BN.ShortLhsJudgment env st i) : bool :=
-  existsb (fun e => BN.noderef_eqb (BN.est_node e) (Index.sl_child (BN.slj_edge j))) (BN.bp_ests bp).
-Definition s_actual_iff_new :
-  forallb (fun row =>
-    forallb (fun x => match BN.slj_view (projT2 x) with
-                      | BN.SVNew _ => left_has_est sbp (projT2 x)
-                      | _ => negb (left_has_est sbp (projT2 x))
-                      end)
-            (BN.sj_lefts (BN.tr_judgment (projT2 row))))
-    (BN.bp_shorts sbp) = true
+Definition p1fr : Index.FileRef p1idx.
+Proof. destruct (Index.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p1_br : Index.BlockRef p1idx.
+Proof. destruct (BN.bp_traces p1bp) as [|tr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact (BN.trow_block tr) ]. Defined.
+Definition p1_tr := BN.trace_of_block p1bp p1_br.
+(* equal-content, different-cut: state member est-name projections agree across the first println *)
+Definition p1_equal_content :
+  map (fun er => Names.ordinary_spelling (BN.est_name (BN.es_est er)))
+      (BN.bs_members (BN.block_state p1_tr 1))
+  = map (fun er => Names.ordinary_spelling (BN.est_name (BN.es_est er)))
+      (BN.bs_members (BN.block_state p1_tr 2))
   := ltac:(vm_compute; reflexivity).
 
-(* transition fixture: mixed existing/new, blank, RHS pre-environment, and cross-block isolation *)
-Definition idq_ : Names.OrdinaryIdentifier := mkid "q" eq_refl eq_refl.
-Definition trans_prog : Syntax.Program :=
+(* fixture 3 (mixed short): x := 1; x, y := 2, 3 — second event lefts [Existing, New], adds only y *)
+Definition p3_prog : Syntax.Program :=
   Syntax.singleton_program
     (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
     (FilePath.Make "main.go" eq_refl)
     (cons (Syntax.Main (Syntax.MakeBlock
       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
-       (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3)))
-        (cons (Syntax.ShortVarDecl (ne2 eb (bn idz_)) (ne2 (EILIT 4) (Syntax.Name idx_)))
-         (cons (Syntax.ShortVarDecl (ne1 (bn idq_)) (ne1 (Syntax.Name idq_))) nil))))))
+       (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
+Definition p3idx := Index.index_program p3_prog.
+Definition p3bp := BN.bindings (PI.package_surface p3idx).
+Definition p3_lhs : trace_lhs_tags p3bp
+  = cons (cons (cons 2 nil) (cons (cons 3 (cons 2 nil)) nil)) nil := ltac:(vm_compute; reflexivity).
+Definition p3_adds : trace_add_counts p3bp = cons (cons 1 (cons 1 nil)) nil
+  := ltac:(vm_compute; reflexivity).
+
+(* fixture 4 (short existing nonvariable): const x = 1; x := 2 — the short left is ExistingNonVariable *)
+Definition p4_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
+               (cons (Syntax.MakeConstSpec (ne1 (bn idx_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1)))) nil)))
+       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2))) nil)))) nil).
+Definition p4idx := Index.index_program p4_prog.
+Definition p4bp := BN.bindings (PI.package_surface p4idx).
+Definition p4_lhs : trace_lhs_tags p4bp
+  = cons (cons nil (cons (cons 4 nil) nil)) nil := ltac:(vm_compute; reflexivity).
+Definition p4_adds : trace_add_counts p4bp = cons (cons 1 (cons 0 nil)) nil
+  := ltac:(vm_compute; reflexivity).
+
+(* fixture 5 (short then declaration conflict): x := 1; var x = 2 — THE newly represented outcome.
+   the declaration event retains the exact prior ShortNew member and extends one exact redeclared group;
+   a later use resolves RRedeclared; Analysis receives the exact group-root diagnostic *)
+Definition p5_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
+       (cons (Syntax.DeclarationStmt (Syntax.VarDecl
+                (cons (Syntax.MakeVarSpec (ne1 (bn idx_)) (Syntax.VarValues None (ne1 (EILIT 2)))) nil)))
+        (cons (prln (Syntax.Name idx_)) nil))))) nil).
+Definition p5idx := Index.index_program p5_prog.
+Definition p5bp := BN.bindings (PI.package_surface p5idx).
+(* one trace: short(New), decl, expr; the decl event adds one member (the second x) *)
+Definition p5_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces p5bp)
+  = cons (cons 2 (cons 1 (cons 0 nil))) nil := ltac:(vm_compute; reflexivity).
+Definition p5_adds : trace_add_counts p5bp = cons (cons 1 (cons 1 (cons 0 nil))) nil
+  := ltac:(vm_compute; reflexivity).
+(* exactly one redeclared group is retained over the whole phase, for the exact block scope + spelling x *)
+Definition p5_redecl_one : Datatypes.length (BN.redeclared_groups p5bp) = 1 := ltac:(vm_compute; reflexivity).
+Definition p5_redecl_group :
+  map (fun g => (Names.ordinary_spelling (BN.dg_name g), Datatypes.length (BN.dg_members g)))
+      (BN.redeclared_groups p5bp)
+  = cons ("x"%string, 2) nil := ltac:(vm_compute; reflexivity).
+Definition p5fr : Index.FileRef p5idx.
+Proof. destruct (Index.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+(* the later use of x resolves to the exact phase-owned redeclaration root, binding no source object *)
+Definition p5_use_redeclared :
+  match name_use_in p5fr idx_ with
+  | Some u => match BN.resolve p5bp u idx_ with BN.RRedeclared _ => true | _ => false end
+  | None => false
+  end = true := ltac:(vm_compute; reflexivity).
+
+(* fixture 6 (declaration then short reuse): var x = 1; x, y := 2, 3 — x is Existing, y is New *)
+Definition p6_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.DeclarationStmt (Syntax.VarDecl
+               (cons (Syntax.MakeVarSpec (ne1 (bn idx_)) (Syntax.VarValues None (ne1 (EILIT 1)))) nil)))
+       (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
+Definition p6idx := Index.index_program p6_prog.
+Definition p6bp := BN.bindings (PI.package_surface p6idx).
+Definition p6_lhs : trace_lhs_tags p6bp
+  = cons (cons nil (cons (cons 3 (cons 2 nil)) nil)) nil := ltac:(vm_compute; reflexivity).
+
+(* fixture 7 (RHS pre-state): q := q — the RHS q is unbound; the addition exists only in the successor *)
+Definition p7_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.ShortVarDecl (ne1 (bn idq_)) (ne1 (Syntax.Name idq_))) nil))) nil).
+Definition p7idx := Index.index_program p7_prog.
+Definition p7bp := BN.bindings (PI.package_surface p7idx).
+Definition p7fr : Index.FileRef p7idx.
+Proof. destruct (Index.all_files p7idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p7_rhs_unbound :
+  match name_use_in p7fr idq_ with
+  | Some u => match BN.resolve p7bp u idq_ with BN.RUnbound => true | _ => false end
+  | None => false
+  end = true := ltac:(vm_compute; reflexivity).
+Definition p7_lhs_new : trace_lhs_tags p7bp = cons (cons (cons 2 nil) nil) nil
+  := ltac:(vm_compute; reflexivity).
+
+(* fixture 8 (blank and duplicate): x, _, x := 1, 2, 3 — blank creates nothing, the repeat is Duplicate,
+   and the event adds exactly one member (the first x) *)
+Definition p8_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.ShortVarDecl
+               (Collections.MakeNonEmpty (bn idx_) (cons Syntax.BBlank (cons (bn idx_) nil)))
+               (Collections.MakeNonEmpty (EILIT 1) (cons (EILIT 2) (cons (EILIT 3) nil)))) nil))) nil).
+Definition p8idx := Index.index_program p8_prog.
+Definition p8bp := BN.bindings (PI.package_surface p8idx).
+Definition p8_lhs : trace_lhs_tags p8bp = cons (cons (cons 2 (cons 0 (cons 1 nil))) nil) nil
+  := ltac:(vm_compute; reflexivity).
+Definition p8_adds : trace_add_counts p8bp = cons (cons 1 nil) nil := ltac:(vm_compute; reflexivity).
+
+(* fixture 10 (block isolation) + fixture 12 (package main group): two main bodies each declaring x
+   yield two distinct block traces; the fixed main declared twice forms one package-scope group of main *)
+Definition p10_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1))) nil)))
      (cons (Syntax.Main (Syntax.MakeBlock
-       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 9))) nil))) nil)).
-Definition tidx := Index.index_program trans_prog.
-Definition tsurf := PI.package_surface tidx.
-Definition tbp := BN.bindings tsurf.
-Definition tv_tag {env : list (BN.Est tsurf)} (v : BN.ShortLhsView env) : nat :=
-  match v with
-  | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
-  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ _ => 5
-  end.
-(* New; ExistingVariable+New; Blank+New; New against the pre-environment; New in the second block *)
-Definition t_tags :
-  map (fun row => map (fun x => tv_tag (BN.slj_view (projT2 x)))
-                      (BN.sj_lefts (BN.tr_judgment (projT2 row))))
-      (BN.bp_shorts tbp)
-  = cons (cons 2 nil) (cons (cons 3 (cons 2 nil))
-     (cons (cons 0 (cons 2 nil)) (cons (cons 2 nil) (cons (cons 2 nil) nil))))
+       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2))) nil))) nil)).
+Definition p10idx := Index.index_program p10_prog.
+Definition p10bp := BN.bindings (PI.package_surface p10idx).
+(* two distinct block traces, one per main body *)
+Definition p10_two_traces : Datatypes.length (BN.bp_traces p10bp) = 2 := ltac:(vm_compute; reflexivity).
+(* the two block scopes are distinct occurrences, so their x-groups do not share members *)
+Definition p10_distinct_blocks :
+  match BN.bp_traces p10bp with
+  | cons t1 (cons t2 nil) =>
+      negb (BN.noderef_eqb (Index.bl_node (BN.trow_block t1)) (Index.bl_node (BN.trow_block t2)))
+  | _ => false
+  end = true := ltac:(vm_compute; reflexivity).
+Definition p10surf := PI.package_surface p10idx.
+Definition p10pr : PI.PackageRef p10surf.
+Proof. destruct (PI.packages p10surf) as [|pr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact pr ]. Defined.
+(* the fixed main declared twice: the package-scope main group carries two exact function establishments *)
+Definition p10_main_group :
+  Datatypes.length (BN.bg_members (BN.binding_group p10bp (BN.PackageScope p10pr) idmain_)) = 2
   := ltac:(vm_compute; reflexivity).
-(* the mixed statement: one pre-environment, prior x retained by exact reference, adds exactly y *)
-Definition t2opt := nth_error (BN.bp_shorts tbp) 1.
-Definition t2_transition :
-  match t2opt with
-  | Some row =>
-      (existsb (fun e => Nat.eqb (Index.nr_pos (BN.est_node e)) 4) (BN.tr_pre (projT2 row)),
-       existsb (fun e => Nat.eqb (Index.nr_pos (BN.est_node e)) 7) (BN.tr_pre (projT2 row)),
-       length (BN.tr_pre (projT2 row)),
-       length (BN.tr_post (projT2 row)),
-       map (fun e => Index.nr_pos (BN.est_node e)) (BN.tr_added (projT2 row)))
-      = (true, false, 3, 4, cons 8 nil)
-  | None => False
-  end := ltac:(vm_compute; reflexivity).
-Definition t2_prior :
-  match t2opt with
-  | Some row =>
-      match BN.sj_lefts (BN.tr_judgment (projT2 row)) with
-      | cons x0 _ =>
-          match BN.slj_view (projT2 x0) with
-          | BN.SVExistingVariable prior =>
-              (BN.er_ord prior,
-               Index.nr_pos (BN.est_node (BN.er_est prior)),
-               BN.er_ord (BN.embed_pre (projT2 row) prior)) = (2, 4, 2)
-          | _ => False
-          end
-      | nil => False
-      end
-  | None => False
-  end := ltac:(vm_compute; reflexivity).
-(* the blank statement adds only its named New; the RHS statement's own New is invisible to its RHS *)
-Definition t3_added :
-  match nth_error (BN.bp_shorts tbp) 2 with
-  | Some row => map (fun e => Index.nr_pos (BN.est_node e)) (BN.tr_added (projT2 row)) = cons 13 nil
-  | None => False
-  end := ltac:(vm_compute; reflexivity).
-Definition tfr : Index.FileRef tidx.
-Proof. destruct (Index.all_files tidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
-(* a later use of a New short variable resolves to its exact creating establishment *)
-Definition t_use_x :
-  match BN.resolve tbp (Index.noderef_at_pos tfr 15 ltac:(vm_compute; lia)) idx_ with
-  | BN.RBound (BN.SourceObject (BN.DOShort sn)) =>
-      Index.nr_pos (Index.sl_child (BN.snr_edge sn)) = 4
-  | _ => False
-  end := ltac:(vm_compute; reflexivity).
-(* the RHS cannot resolve through the post environment: q := q leaves the right q unbound *)
-Definition t_use_q :
-  match BN.resolve tbp (Index.noderef_at_pos tfr 18 ltac:(vm_compute; lia)) idq_ with
-  | BN.RUnbound => True | _ => False
-  end := ltac:(vm_compute; exact I).
-Definition t_actual_iff_new :
-  forallb (fun row =>
-    forallb (fun x => match BN.slj_view (projT2 x) with
-                      | BN.SVNew _ => existsb (fun e => BN.noderef_eqb (BN.est_node e) (Index.sl_child (BN.slj_edge (projT2 x)))) (BN.bp_ests tbp)
-                      | _ => negb (existsb (fun e => BN.noderef_eqb (BN.est_node e) (Index.sl_child (BN.slj_edge (projT2 x)))) (BN.bp_ests tbp))
-                      end)
-            (BN.sj_lefts (BN.tr_judgment (projT2 row))))
-    (BN.bp_shorts tbp) = true
+Definition p10_main_multiple :
+  match BN.package_main p10bp p10pr with BN.MainMultiple _ _ _ => true | _ => false end = true
   := ltac:(vm_compute; reflexivity).
-(* the phase-level laws are reachable exactly as stated: the hostile controls reject by typing, not absence *)
-Definition t_law_char := @BN.bp_est_short_origin.
-Definition t_law_non_new := @BN.non_new_position_no_est.
-Definition t_law_cover_spec := @BN.bp_ests_has_spec_binder.
-Definition t_law_cover_main := @BN.bp_ests_has_main.
-Definition t_law_new_in := @BN.trace_new_in_bp_ests.
-Definition t_law_embed := @BN.embed_pre_exact.
-Definition t_law_post_ref := @BN.post_new_ref_exact.
-Definition t_law_post_member := @BN.tr_post_member.
-Definition t_law_rhs := @BN.tr_rhs_pre.
-Definition t_law_rhs_invisible := @BN.tr_added_invisible_rhs.
-Definition t_law_vstart := @BN.tr_added_vstart.
-Definition t_law_step := @BN.block_env_step_short.
-Definition t_law_no_current := @BN.block_env_no_current.
-Definition t_law_earlier := @BN.earlier_news_in_env.
-Definition t_law_env_member := @BN.block_env_member.
-Definition t_law_grows := @BN.block_env_grows.
-Definition t_law_eval := @BN.short_transition_of_eval.
-Definition t_law_nodup := @BN.bp_ests_nodup.
-Definition t_law_once := @BN.bp_shorts_exactly_once.
-Definition t_law_blank := @BN.slj_blank_exact.
-Definition t_law_new := @BN.slj_new_exact.
-Definition t_law_existing := @BN.slj_existing_exact.
-Definition t_law_ambiguous := @BN.slj_ambiguous_exact.
-Definition t_law_dup := @BN.slj_dup_exact.
-Definition t_law_dup_sound := @BN.find_dup_sound.
-Definition t_law_dup_earliest := @BN.find_dup_earliest.
-Definition t_law_canonical := @BN.slj_canonical.
-Definition t_law_cands := @BN.source_cands_actual.
-Definition t_law_group := @BN.decl_group_no_short.
+
+(* fixture 11 (package final visibility): func main(){ println(x) }; const x = 1 — main resolves a
+   package declaration occurring later in source order, via the exact final package environment *)
+Definition p11_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock (cons (prln (Syntax.Name idx_)) nil)))
+     (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+              (cons (Syntax.MakeConstSpec (ne1 (bn idx_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1)))) nil)))
+      nil)).
+Definition p11idx := Index.index_program p11_prog.
+Definition p11bp := BN.bindings (PI.package_surface p11idx).
+Definition p11fr : Index.FileRef p11idx.
+Proof. destruct (Index.all_files p11idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p11_forward_visible :
+  match name_use_in p11fr idx_ with
+  | Some u => match BN.resolve p11bp u idx_ with
+              | BN.RBound (BN.SourceBound _) => true | _ => false end
+  | None => false
+  end = true := ltac:(vm_compute; reflexivity).
+
+(* fixture 13 (intra-declaration visibility): const a = 1, b = a — the second spec's RHS use of a resolves
+   to the first, demonstrating exact visibility-start (not whole-statement atomic) governance *)
+Definition ida_ : Names.OrdinaryIdentifier := mkid "a" eq_refl eq_refl.
+Definition idb_ : Names.OrdinaryIdentifier := mkid "b" eq_refl eq_refl.
+Definition p13_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+             (cons (Syntax.MakeConstSpec (ne1 (bn ida_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1))))
+              (cons (Syntax.MakeConstSpec (ne1 (bn idb_)) (Syntax.ExplicitConstInit None (ne1 (Syntax.Name ida_)))) nil))))
+     (cons (Syntax.Main (Syntax.MakeBlock nil)) nil)).
+Definition p13idx := Index.index_program p13_prog.
+Definition p13bp := BN.bindings (PI.package_surface p13idx).
+Definition p13fr : Index.FileRef p13idx.
+Proof. destruct (Index.all_files p13idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p13_intra_visible :
+  match name_use_in p13fr ida_ with
+  | Some u => match BN.resolve p13bp u ida_ with
+              | BN.RBound (BN.SourceBound _) => true | _ => false end
+  | None => false
+  end = true := ltac:(vm_compute; reflexivity).
+
+(* ==== the phase-owned laws and public types are reachable exactly as stated ==== *)
+Definition l_bp_ledgers_form := @BN.bp_ledgers_form.
+Definition l_bp_traces_form := @BN.bp_traces_form.
+Definition l_bp_consts_form := @BN.bp_consts_form.
+Definition l_bp_ledgers_at := @BN.bp_ledgers_at.
+Definition l_bp_traces_row := @BN.bp_traces_row.
+Definition l_traces_cover := @BN.traces_cover.
+Definition l_traces_nodes_nodup := @BN.traces_nodes_nodup.
+Definition l_trace_at_unique := @BN.trace_at_unique.
+Definition l_block_fold_length := @BN.block_fold_length.
+Definition l_block_event_node := @BN.block_event_node.
+Definition l_block_event_env := @BN.block_event_env.
+Definition l_state_refs_zero := @BN.state_refs_zero.
+Definition l_state_refs_succ := @BN.state_refs_succ.
+Definition l_state_refs_expr_step := @BN.state_refs_expr_step.
+Definition l_state_refs_saturates := @BN.state_refs_saturates.
+Definition l_state_member_site := @BN.state_member_site.
+Definition l_state_covers := @BN.state_covers.
+Definition l_state_ests := @BN.state_ests.
+Definition l_trace_event_env := @BN.trace_event_env.
+Definition l_pkg_env_nodup := @BN.pkg_env_nodup.
+Definition l_pkg_env_ests := @BN.package_env_ests.
+Definition l_ledger_add_scope := @BN.ledger_add_scope.
+Definition l_trace_add_scope := @BN.trace_add_scope.
+Definition l_all_sites_nodup := @BN.all_sites_nodup.
+Definition l_establishment_refs_once := @BN.establishment_refs_once.
+Definition l_refs_of_event_adds := @BN.refs_of_event_adds.
+Definition l_refs_of_event_site := @BN.refs_of_event_site.
+Definition l_short_event_cover := @BN.short_event_cover.
+Definition l_short_event_subject := @BN.short_event_subject.
+Definition l_short_cur_adds_empty := @BN.short_cur_adds_empty.
+Definition l_block_group_two := @BN.block_group_two.
+Definition l_pkg_group_two := @BN.pkg_group_two.
+Definition l_block_visible_le := @BN.block_visible_le.
+Definition l_pkg_visible_le := @BN.pkg_visible_le.
+Definition l_resolve_exact_block_unique := @BN.resolve_block_unique.
+Definition l_resolve_exact_block_redecl := @BN.resolve_block_redeclared.
+Definition l_resolve_exact_block_empty := @BN.resolve_block_empty.
+Definition l_resolve_no_block := @BN.resolve_no_block.
+Definition l_pkg_decide_unique := @BN.pkg_decide_unique.
+Definition l_pkg_decide_redeclared := @BN.pkg_decide_redeclared.
+Definition l_redecl_root_two := @BN.redecl_root_two.
+Definition l_package_main_sound := @BN.package_main_sound.
+Definition l_main_is_package_local := @BN.main_is_package_local.
+Definition l_bp_consts_exactly_once := @BN.bp_consts_exactly_once.
+Definition l_short_lhs_blank := @BN.short_lhs_blank.
+Definition l_short_lhs_new := @BN.short_lhs_new.
+Definition l_short_lhs_existing := @BN.short_lhs_existing.
+Definition l_short_lhs_duplicate := @BN.short_lhs_duplicate.
+Definition l_short_lhs_ambiguous := @BN.short_lhs_ambiguous.
+Definition l_short_lhs_cases := @BN.short_lhs_cases.
+Definition l_decl_lhs_blank := @BN.decl_lhs_blank.
+Definition l_decl_lhs_fresh := @BN.decl_lhs_fresh.
+Definition l_decl_lhs_redeclared := @BN.decl_lhs_redeclared.
+Definition l_decl_lhs_duplicate := @BN.decl_lhs_duplicate.
+Definition l_decl_lhs_ambiguous := @BN.decl_lhs_ambiguous.
+Definition l_decl_lhs_cases := @BN.decl_lhs_cases.
+Definition l_find_dup_sound := @BN.find_dup_sound.
+Definition l_find_dup_earliest := @BN.find_dup_earliest.
+Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
+Definition l_new_est_vstart := @BN.new_est_vstart.
+Definition l_object_view := @BN.object_view.
+Definition l_use_env := @BN.use_env.
+Definition l_group_at_state := @BN.group_at_state.
+Definition l_binding_group := @BN.binding_group.
+Definition l_all_establishment_refs := @BN.all_establishment_refs.
+Definition l_package_env_refs := @BN.package_env_refs.
+Definition l_redeclared_groups := @BN.redeclared_groups.
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the source-order Binding transition surface (phase-owned trace rows, exact pre/post environments, member refs, embeddings, all six decision-pinned left classifications, actual-establishment characterization, later-use resolution to the exact creating object, RHS pre-environment isolation, and cross-block isolation) computes over three concrete fixture programs — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/transition) + canonical-edge peer-authority-absence controls + repository absence control + positive control"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection over exact package-environment refs, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the phase-owned event/state/trace surface (package ledgers, per-block state traces with exact causal cuts, block event kinds, all six decision-pinned short-left classifications, exact retained additions, redeclared-group roots including short-then-declaration occupancy, and ordinary resolution to the exact establishment/redeclaration/unbound outcome) computes over the section-12 fixture programs, and every phase-owned law is reachable as stated — all reachable (as required)"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE

@@ -5170,6 +5170,31 @@ Lemma all_children_of_parent {p} {idx : ProgramIndex p} (r par : NodeRef idx) :
   exists o (e : ChildAt par o), In (existT _ o e) (all_children par) /\ ca_child e = r.
 Proof. intro Hp. exact (all_children_has par r (node_parent_children r par Hp)). Qed.
 
+(* the ordinal-edge rows are positionally exact: the row at position j is an edge at ordinal j *)
+Lemma all_children_nth {p} {idx : ProgramIndex p} (r : NodeRef idx) (j : nat) (e : ChildAt r j) :
+  exists e' : ChildAt r j, nth_error (all_children r) j = Some (existT _ j e').
+Proof.
+  assert (Hlen : length (all_children r) = length (node_children r)).
+  { pose proof (all_children_ords r) as Ho.
+    apply (f_equal (@length nat)) in Ho.
+    rewrite length_map, length_seq in Ho. exact Ho. }
+  assert (Hn : j < length (node_children r))
+    by (apply nth_error_Some; rewrite (ca_at e); discriminate).
+  assert (Hjlt : j < length (all_children r)) by (rewrite Hlen; exact Hn).
+  destruct (nth_error (all_children r) j) as [row|] eqn:Hrow.
+  2:{ exfalso. apply nth_error_Some in Hjlt. exact (Hjlt Hrow). }
+  assert (Hord : nth_error (map (@projT1 _ _) (all_children r)) j = Some (projT1 row))
+    by (exact (map_nth_error _ _ _ Hrow)).
+  rewrite (all_children_ords r) in Hord.
+  assert (Hseq : nth_error (seq 0 (length (node_children r))) j = Some j).
+  { rewrite (nth_error_nth' (seq 0 (length (node_children r))) 0);
+      [| rewrite length_seq; exact Hn ].
+    rewrite seq_nth; [ reflexivity | exact Hn ]. }
+  rewrite Hseq in Hord. injection Hord as Hord.
+  destruct row as [j' e']. cbn in Hord. subst j'.
+  exists e'. reflexivity.
+Qed.
+
 Definition self_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx)
   (H : node_parent r = Some par) : SelfEdge r :=
   (match self_scan r par (proj2 (node_parent_inv r par H)) (all_children par)

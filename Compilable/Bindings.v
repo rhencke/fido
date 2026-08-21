@@ -173,33 +173,6 @@ Definition make_main_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
    end) eq_refl.
 
 (* the package-scope establishments of one occurrence: a fixed main, or a top-level declaration's binders *)
-Definition node_pkg_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) : list (Est s) :=
-  match Index.node_view r with
-  | Index.VTop Index.TSMain => match make_main_est pr r with Some e => [e] | None => [] end
-  | Index.VTop Index.TSTopDecl => stmt_decl_ests (PackageScope pr) r
-  | _ => []
-  end.
-
-(* every package-scope establishment of the surface, in package, file, and position order *)
-Definition pkg_ests {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : list (Est s) :=
-  flat_map (fun pr => flat_map (fun fr =>
-      flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-                           | Some r => node_pkg_ests pr r
-                           | None => [] end)
-               (seq 0 (Index.occ_count fr)))
-    (PI.pkg_members pr)) (PI.packages s).
-
-(* the package-scope seed of one block's environment: exactly its own package's establishments *)
-Definition block_base {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (br : Index.BlockRef idx) : list (Est s) :=
-  filter (fun e => match est_scope e with
-                   | PackageScope pr =>
-                       PI.packageref_eqb (PI.package_of_file s (Index.nr_file (Index.bl_node br))) pr
-                   | BlockScope _ => false end)
-         (pkg_ests s).
-
-(* main multiplicity: a distinguished projection over the package-scope function declarations named main *)
 Inductive MainStatus {p} {idx : Index.ProgramIndex p}
   (s : PI.PackageSurface idx) (pr : PI.PackageRef s) : Type :=
 | MainMissing : MainStatus s pr
@@ -282,34 +255,6 @@ Definition est_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} 
   noderef_eqb (est_node a) (est_node b).
 
 (* the ordered members of e's group over an establishment list: shared exact scope and spelling, list order *)
-Definition group_members_core {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (core : list (Est s)) (e : Est s) : list (Est s) := filter (same_group e) core.
-
-(* a group's multiplicity; "ambiguous" (embedded-field/dot-import) is unrepresentable here, so absent by design *)
-Inductive GroupStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
-| GUnique     : Est s -> GroupStatus s
-| GRedeclared : Est s -> Est s -> list (Est s) -> GroupStatus s.
-Arguments GUnique {p idx s} _.
-Arguments GRedeclared {p idx s} _ _ _.
-
-Definition group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (members : list (Est s)) : option (GroupStatus s) :=
-  match members with
-  | [] => None
-  | m :: nil => Some (GUnique m)
-  | a :: b :: rest => Some (GRedeclared a b rest)
-  end.
-
-(* a declaration establishment: a declaration binder or a function declaration; short origins are excluded *)
-Definition is_decl_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
-  match est_origin e with DOShort _ => false | _ => true end.
-
-
-(* the declaration members of e's group over an establishment list *)
-Definition decl_group_core {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (core : list (Est s)) (e : Est s) : list (Est s) := filter is_decl_est (group_members_core core e).
-
-(* a block-scoped establishment: its object lives in a block, not at package scope *)
 Definition is_block_scoped {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
   match est_scope e with BlockScope _ => true | PackageScope _ => false end.
 
@@ -480,64 +425,41 @@ Definition const_table {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface i
   : list { cs : Index.SpecRef idx Index.ConstSpecF & ConstJudgment cs } :=
   map (fun cs => existT _ cs (const_judgment_of cs)) (const_subjects s).
 
-(* an exact environment member: the ordinal and the exact retained member it indexes there *)
-Record EnvEstRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) : Type := mk_env_ref {
-  er_ord : nat ;
-  er_est : Est s ;
-  er_at  : nth_error env er_ord = Some er_est
-}.
-Arguments mk_env_ref {p idx s env} _ _ _.
-Arguments er_ord {p idx s env} _.
-Arguments er_est {p idx s env} _.
-Arguments er_at {p idx s env} _.
-
-(* the first environment member satisfying a predicate, as an exact member reference *)
-Fixpoint env_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (pred : Est s -> bool) (k : nat) (l : list (Est s)) {struct l}
-  : l = skipn k env -> option (EnvEstRef env) :=
+(* the first member satisfying a predicate, with its exact ordinal *)
+Fixpoint find_ord {A} (f : A -> bool) (k : nat) (l : list A) : option (nat * A) :=
   match l with
-  | [] => fun _ => None
-  | e :: rest => fun E =>
-      if pred e
-      then Some (mk_env_ref k e (Index.skipn_head_at env rest k e E))
-      else env_scan env pred (S k) rest (Index.skipn_tail_at env rest k e E)
+  | [] => None
+  | x :: t => if f x then Some (k, x) else find_ord f (S k) t
   end.
 
-(* a refused scan means no member satisfies the predicate *)
-Lemma env_scan_none {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (pred : Est s -> bool) :
-  forall l k (E : l = skipn k env),
-  env_scan env pred k l E = None -> forall x, In x l -> pred x = false.
+Lemma find_ord_none {A} (f : A -> bool) :
+  forall l k, find_ord f k l = None -> forall x, In x l -> f x = false.
 Proof.
-  induction l as [|e rest IH]; intros k E Hs x Hin; [ destruct Hin |].
-  cbn in Hs. destruct (pred e) eqn:Hp; [ discriminate Hs |].
-  destruct Hin as [He|Hin]; [ subst x; exact Hp |].
-  exact (IH (S k) (Index.skipn_tail_at env rest k e E) Hs x Hin).
+  induction l as [|x t IH]; intros k Hf y Hin; [ destruct Hin |].
+  cbn in Hf. destruct (f x) eqn:Hx; [ discriminate Hf |].
+  destruct Hin as [<-|Hin]; [ exact Hx | exact (IH (S k) Hf y Hin) ].
 Qed.
 
-(* a found member satisfies the predicate, and every earlier in-range member refuses it *)
-Lemma env_scan_found {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (pred : Est s -> bool) :
-  forall l k (E : l = skipn k env) (ref : EnvEstRef env),
-  env_scan env pred k l E = Some ref ->
-  pred (er_est ref) = true /\ k <= er_ord ref
-  /\ (forall j x, k <= j -> j < er_ord ref -> nth_error env j = Some x -> pred x = false).
+Lemma find_ord_found {A} (f : A -> bool) :
+  forall l k j x, find_ord f k l = Some (j, x) ->
+  k <= j /\ nth_error l (j - k) = Some x /\ f x = true
+  /\ (forall j2 y, j2 < j - k -> nth_error l j2 = Some y -> f y = false).
 Proof.
-  induction l as [|e rest IH]; intros k E ref Hs; [ discriminate Hs |].
-  cbn in Hs. destruct (pred e) eqn:Hp.
-  - injection Hs as <-. cbn. split; [ exact Hp | split; [ lia |] ].
-    intros j x Hkj Hjk. lia.
-  - destruct (IH (S k) (Index.skipn_tail_at env rest k e E) ref Hs) as [Hpred [Hle Hbefore]].
-    split; [ exact Hpred | split; [ lia |] ].
-    intros j x Hkj Hjord Hnth.
-    destruct (Nat.eq_dec j k) as [->|Hne].
-    + assert (Hhead : nth_error env k = Some e) by (exact (Index.skipn_head_at env rest k e E)).
-      rewrite Hhead in Hnth. injection Hnth as <-. exact Hp.
-    + apply (Hbefore j x); [ lia | exact Hjord | exact Hnth ].
+  induction l as [|a t IH]; intros k j x Hf; [ discriminate Hf |].
+  cbn in Hf. destruct (f a) eqn:Ha.
+  - injection Hf as <- <-. rewrite Nat.sub_diag. cbn.
+    split; [ lia | split; [ reflexivity | split; [ exact Ha |] ] ].
+    intros j2 y Hj2 _. lia.
+  - destruct (IH (S k) j x Hf) as [Hle [Hnth [Hfx Hbefore]]].
+    split; [ lia |]. split.
+    + replace (j - k) with (S (j - S k)) by lia. exact Hnth.
+    + split; [ exact Hfx |].
+      intros j2 y Hj2 Hny. destruct j2 as [|j2'].
+      * cbn in Hny. injection Hny as <-. exact Ha.
+      * cbn in Hny. apply (Hbefore j2' y); [ lia | exact Hny ].
 Qed.
 
-(* the same-block match test: a block-scoped environment member spelling this exact name *)
+(* the same-block occupancy test: a block-scoped member spelling this exact name; short origins included *)
 Definition same_block_cand {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (n : Names.OrdinaryIdentifier) (e : Est s) : bool :=
   andb (is_block_scoped e) (Names.ordinary_equalb (est_name e) n).
@@ -548,8 +470,8 @@ Inductive ShortLhsView {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
 | SVBlank : ShortLhsView env
 | SVDuplicate : nat -> ShortLhsView env
 | SVNew : Names.OrdinaryIdentifier -> ShortLhsView env
-| SVExistingVariable : EnvEstRef env -> ShortLhsView env
-| SVExistingNonVariable : EnvEstRef env -> ShortLhsView env
+| SVExistingVariable : nat -> ShortLhsView env
+| SVExistingNonVariable : nat -> ShortLhsView env
 | SVAmbiguous : Est s -> Est s -> list (Est s) -> ShortLhsView env.
 Arguments SVBlank {p idx s env}.
 Arguments SVDuplicate {p idx s env} _.
@@ -558,7 +480,7 @@ Arguments SVExistingVariable {p idx s env} _.
 Arguments SVExistingNonVariable {p idx s env} _.
 Arguments SVAmbiguous {p idx s env} _ _ _.
 
-(* the one deterministic left-side classification over the exact pre-statement environment *)
+(* the one deterministic left-side classification over the exact predecessor-state members *)
 Definition short_lhs_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
   : ShortLhsView env :=
@@ -568,19 +490,17 @@ Definition short_lhs_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
       match find_dup i n (Index.short_lhs_edges st) with
       | Some (existT _ j _) => SVDuplicate j
       | None =>
-          match filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env with
+          match filter (same_block_cand n) env with
           | a :: c :: rest => SVAmbiguous a c rest
           | _ =>
-              match env_scan env (same_block_cand n) 0 env eq_refl with
-              | Some prior => if is_variable_binder (est_node (er_est prior))
-                              then SVExistingVariable prior else SVExistingNonVariable prior
+              match find_ord (same_block_cand n) 0 env with
+              | Some (j, m) => if is_variable_binder (est_node m)
+                               then SVExistingVariable j else SVExistingNonVariable j
               | None => SVNew n
               end
           end
       end
   end.
-
-(* the exact retained left judgment: the exact edge and the classification the one decision pins to it *)
 Record ShortLhsJudgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (env : list (Est s)) (st : Index.ShortStmtRef idx) (i : nat) : Type := mk_slj {
   slj_edge : Index.ShortLhsEdge st i ;
@@ -641,69 +561,118 @@ Definition new_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
                      | _ => [] end)
            (sj_lefts sj).
 
-(* one exact source-order transition: the complete pre-environment judgment and its ShortNew extension *)
-Record ShortTransition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) : Type := mk_transition {
-  tr_block    : Index.BlockRef idx ;
-  tr_at       : Index.node_parent (Index.sh_node st) = Some (Index.bl_node tr_block) ;
-  tr_pre      : list (Est s) ;
-  tr_judgment : ShortJudgment tr_pre st ;
-  tr_added    : list (Est s) ;
-  tr_added_ok : tr_added = new_ests tr_block tr_judgment
-}.
-Arguments mk_transition {p idx s st} _ _ _ _ _ _.
-Arguments tr_block {p idx s st} _.
-Arguments tr_at {p idx s st} _.
-Arguments tr_pre {p idx s st} _.
-Arguments tr_judgment {p idx s st} _.
-Arguments tr_added {p idx s st} _.
-Arguments tr_added_ok {p idx s st} _.
 
-(* the post environment is the exact monotonic extension: the pre members, then the News in left order *)
-Definition tr_post {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) : list (Est s) :=
-  tr_pre t ++ tr_added t.
+(* the declaration-binder occupancy view against the predecessor members and earlier same-event additions *)
+Inductive DeclLhsView {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) : Type :=
+| DVBlank : DeclLhsView env
+| DVFresh : DeclLhsView env
+| DVRedeclaredPrior : nat -> DeclLhsView env
+| DVDuplicateEarlier : nat -> DeclLhsView env
+| DVAlreadyAmbiguous : Est s -> Est s -> list (Est s) -> DeclLhsView env.
+Arguments DVBlank {p idx s env}.
+Arguments DVFresh {p idx s env}.
+Arguments DVRedeclaredPrior {p idx s env} _.
+Arguments DVDuplicateEarlier {p idx s env} _.
+Arguments DVAlreadyAmbiguous {p idx s env} _ _ _.
 
-(* every right-hand expression is associated with the exact pre-statement environment, never the post *)
-Definition tr_rhs_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) : list (Est s) := tr_pre t.
-
-(* the exact ordinal of a node under a parent, scanned over the canonical ordinal-edge rows *)
-Fixpoint ordinal_scan {p} {idx : Index.ProgramIndex p} (par r : Index.NodeRef idx)
-  (l : list { o : nat & Index.ChildAt par o }) {struct l} : option { o : nat & Index.ChildAt par o } :=
-  match l with
-  | [] => None
-  | existT _ o e :: rest =>
-      if noderef_eqb (Index.ca_child e) r then Some (existT _ o e) else ordinal_scan par r rest
+(* the one deterministic declaration-binder decision: same-event duplicates, then occupancy conflicts *)
+Definition decl_lhs_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) : DeclLhsView env :=
+  match binder_ident b with
+  | None => DVBlank
+  | Some n =>
+      match find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier with
+      | Some (k, _) => DVDuplicateEarlier k
+      | None =>
+          match filter (same_block_cand n) env with
+          | a :: c :: rest => DVAlreadyAmbiguous a c rest
+          | _ =>
+              match find_ord (same_block_cand n) 0 env with
+              | Some (j, _) => DVRedeclaredPrior j
+              | None => DVFresh
+              end
+          end
+      end
   end.
-Definition find_ordinal {p} {idx : Index.ProgramIndex p} (par r : Index.NodeRef idx)
-  : option { o : nat & Index.ChildAt par o } :=
-  ordinal_scan par r (Index.all_children par).
 
-(* one block child's establishment contribution over the exact environment before it *)
-Definition child_contrib {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) {k : nat} (e : Index.ChildAt (Index.bl_node br) k)
-  (env : list (Est s)) (v : Index.NodeView) (Hv : Index.node_view (Index.ca_child e) = v)
-  : list (Est s) :=
-  match v as v0 return Index.node_view (Index.ca_child e) = v0 -> list (Est s) with
-  | Index.VStmt Index.SSDecl => fun _ => stmt_decl_ests (BlockScope br) (Index.ca_child e)
-  | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
-      new_ests br (short_judgment_of env (Index.mkShortStmtRef (Index.ca_child e) nn nv Hv0))
+(* one judged declaration row: the exact binder view and the exact addition it contributes *)
+Definition DeclRow {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) : Type := (DeclLhsView env * option (Est s))%type.
+
+Definition decl_row_add {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (Est s)} (r : DeclRow env) : list (Est s) :=
+  match snd r with Some e0 => [e0] | None => [] end.
+
+(* the rows of one spec's name edges, threading the earlier same-event additions left to right *)
+Fixpoint decl_rows_edges {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) {fl : Index.SpecFlavor} {sp : Index.SpecRef idx fl}
+  (l : list { i : nat & Index.SpecNameEdge sp i }) (earlier : list (Est s)) {struct l}
+  : list (DeclRow env) :=
+  match l with
+  | [] => []
+  | x :: t =>
+      let r := (decl_lhs_decide env earlier (Index.sn_child (projT2 x)),
+                spec_name_est sc (projT2 x)) in
+      r :: decl_rows_edges env sc t (earlier ++ decl_row_add r)
+  end.
+
+(* the rows of one spec occurrence, factored over its view *)
+Definition decl_rows_spec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) (earlier : list (Est s)) : list (DeclRow env) :=
+  match v as v0 return Index.node_view r = v0 -> list (DeclRow env) with
+  | Index.VConstSpec sh => fun Hv0 =>
+      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.ConstSpecF) r sh Hv0)) earlier
+  | Index.VVarSpec sh => fun Hv0 =>
+      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.VarSpecF) r sh Hv0)) earlier
+  | Index.VTypeSpec sh => fun Hv0 =>
+      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.TypeSpecF) r sh Hv0)) earlier
   | _ => fun _ => []
   end Hv.
 
-(* the exact block environment below child ordinal k: the package seed plus every earlier binding event *)
-Fixpoint block_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k : nat) {struct k} : list (Est s) :=
-  match k with
-  | O => block_base s br
-  | S k' => let env := block_env br k' in
-            env ++ match Index.child_at_opt (Index.bl_node br) k' with
-                   | Some e => child_contrib br e env (Index.node_view (Index.ca_child e)) eq_refl
-                   | None => [] end
+Definition rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (Est s)} (rows : list (DeclRow env)) : list (Est s) :=
+  flat_map decl_row_add rows.
+
+(* the rows of one declaration's spec children, in spec order, threading additions across specs *)
+Fixpoint decl_rows_children {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) {d : Index.NodeRef idx}
+  (l : list { o : nat & Index.ChildAt d o }) (earlier : list (Est s)) {struct l}
+  : list (DeclRow env) :=
+  match l with
+  | [] => []
+  | x :: t =>
+      let rs := decl_rows_spec env sc (Index.ca_child (projT2 x))
+                  (Index.node_view (Index.ca_child (projT2 x))) eq_refl earlier in
+      rs ++ decl_rows_children env sc t (earlier ++ rows_adds rs)
   end.
 
-(* a short statement is never parentless, its parent is its block, and its own ordinal is always found *)
+(* the one deterministic judgment of a declaration statement or top declaration *)
+Definition decl_judge {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) : list (DeclRow env) :=
+  match Index.child_at_opt t 0 with
+  | Some e => decl_rows_children env sc (Index.all_children (Index.ca_child e)) []
+  | None => []
+  end.
+
+(* the exact retained declaration-event judgment, pinned to the one decision *)
+Record DeclJudgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) : Type := mk_decl_judgment {
+  dj_rows : list (DeclRow env) ;
+  dj_ok : dj_rows = decl_judge env sc t
+}.
+Arguments mk_decl_judgment {p idx s env sc t} _ _.
+Arguments dj_rows {p idx s env sc t} _.
+Arguments dj_ok {p idx s env sc t} _.
+
+Definition decl_judgment_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) : DeclJudgment env sc t :=
+  mk_decl_judgment (decl_judge env sc t) eq_refl.
+
+Definition decl_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (Est s)} {sc : ScopeId s} {t : Index.NodeRef idx}
+  (dj : DeclJudgment env sc t) : list (Est s) := rows_adds (dj_rows dj).
 Lemma stmt_has_parent {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) :
   Index.node_parent (Index.sh_node st) = None -> False.
 Proof.
@@ -727,178 +696,148 @@ Lemma stmt_parent_not_block {p} {idx : Index.ProgramIndex p} (st : Index.ShortSt
   Index.is_block_view (Index.node_view par) = false -> False.
 Proof. intros Hp Hb. rewrite (stmt_parent_block st par Hp) in Hb. discriminate Hb. Qed.
 
-Lemma ordinal_scan_finds {p} {idx : Index.ProgramIndex p} (par r : Index.NodeRef idx) :
-  forall l, (exists x, In x l /\ Index.ca_child (projT2 x) = r) -> ordinal_scan par r l <> None.
-Proof.
-  induction l as [|[o e] rest IH]; intros [x [Hin Hc]]; [ destruct Hin |].
-  cbn. destruct (noderef_eqb (Index.ca_child e) r) eqn:Hb; [ discriminate |].
-  destruct Hin as [He|Hin].
-  - exfalso. subst x. cbn in Hc.
-    rewrite Hc in Hb. rewrite (proj2 (noderef_eqb_spec r r) eq_refl) in Hb. discriminate Hb.
-  - apply IH. exists x. split; assumption.
-Qed.
 
-Lemma stmt_ordinal_found {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx)
-  (par : Index.NodeRef idx) :
-  Index.node_parent (Index.sh_node st) = Some par ->
-  find_ordinal par (Index.sh_node st) = None -> False.
-Proof.
-  intros Hp Hf.
-  destruct (Index.all_children_of_parent (Index.sh_node st) par Hp) as [o [e [Hrow Hchild]]].
-  apply (ordinal_scan_finds par (Index.sh_node st) (Index.all_children par));
-    [ exists (existT _ o e); split; [ exact Hrow | exact Hchild ] | exact Hf ].
-Qed.
+(* one retained block event: an expression statement, a judged declaration, or a judged short *)
+Inductive BlockEv {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+| BEvExpr : Index.NodeRef idx -> BlockEv s
+| BEvDecl : forall (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx),
+    DeclJudgment env sc t -> BlockEv s
+| BEvShort : forall (env : list (Est s)) (st : Index.ShortStmtRef idx),
+    ShortJudgment env st -> BlockEv s.
+Arguments BEvExpr {p idx s} _.
+Arguments BEvDecl {p idx s} _ _ _ _.
+Arguments BEvShort {p idx s} _ _ _.
 
-(* the canonical transition, staged so each stage's decision is a plain argument the laws invert exactly *)
-Definition short_transition_fo {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) (par : Index.NodeRef idx)
-  (Hp : Index.node_parent (Index.sh_node st) = Some par)
-  (Hb : Index.is_block_view (Index.node_view par) = true)
-  (fo : option { o : nat & Index.ChildAt par o })
-  (Hf : find_ordinal par (Index.sh_node st) = fo) : ShortTransition (s := s) st :=
-  match fo as fo0 return find_ordinal par (Index.sh_node st) = fo0 -> ShortTransition st with
-  | Some (existT _ o _) => fun _ =>
-      mk_transition (Index.mkBlockRef par Hb) Hp
-        (block_env (Index.mkBlockRef par Hb) o)
-        (short_judgment_of (block_env (Index.mkBlockRef par Hb) o) st)
-        (new_ests (Index.mkBlockRef par Hb)
-           (short_judgment_of (block_env (Index.mkBlockRef par Hb) o) st))
-        eq_refl
-  | None => fun Hf0 => False_rect _ (stmt_ordinal_found st par Hp Hf0)
-  end Hf.
+Definition bev_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ev : BlockEv s) : Index.NodeRef idx :=
+  match ev with
+  | BEvExpr r => r
+  | BEvDecl _ _ t _ => t
+  | BEvShort _ st _ => Index.sh_node st
+  end.
 
-Definition short_transition_bv {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) (par : Index.NodeRef idx)
-  (Hp : Index.node_parent (Index.sh_node st) = Some par)
-  (bv : bool) (Hb : Index.is_block_view (Index.node_view par) = bv) : ShortTransition (s := s) st :=
-  match bv as bv0 return Index.is_block_view (Index.node_view par) = bv0 -> ShortTransition st with
-  | true => fun Hb0 => short_transition_fo st par Hp Hb0 (find_ordinal par (Index.sh_node st)) eq_refl
-  | false => fun Hb0 => False_rect _ (stmt_parent_not_block st par Hp Hb0)
-  end Hb.
+Definition bev_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (ev : BlockEv s) : list (Est s) :=
+  match ev with
+  | BEvExpr _ => []
+  | BEvDecl env _ _ _ => env
+  | BEvShort env _ _ => env
+  end.
 
-Definition short_transition_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) (op : option (Index.NodeRef idx))
-  (Hp : Index.node_parent (Index.sh_node st) = op) : ShortTransition (s := s) st :=
-  match op as o return Index.node_parent (Index.sh_node st) = o -> ShortTransition st with
-  | Some par => fun Hp0 =>
-      short_transition_bv st par Hp0 (Index.is_block_view (Index.node_view par)) eq_refl
-  | None => fun Hp0 => False_rect _ (stmt_has_parent st Hp0)
-  end Hp.
+(* the exact ordered additions of one event; a short's News need its exact block for their scope *)
+Definition bev_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (ev : BlockEv s) : list (Est s) :=
+  match ev with
+  | BEvExpr _ => []
+  | BEvDecl _ _ _ dj => decl_adds dj
+  | BEvShort _ _ sj => new_ests br sj
+  end.
 
-Definition short_transition_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) : ShortTransition (s := s) st :=
-  short_transition_at st (Index.node_parent (Index.sh_node st)) eq_refl.
+(* one package event: the exact top occurrence and its exact ordered additions *)
+Definition PkgEv {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+  (Index.NodeRef idx * list (Est s))%type.
 
-(* the emitted transition rows of one occurrence: exactly the short statements, each with its transition *)
-Definition short_row_emit {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v)
-  : list { st : Index.ShortStmtRef idx & ShortTransition (s := s) st } :=
-  match v as v0 return Index.node_view r = v0 -> _ with
-  | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
-      [existT _ (Index.mkShortStmtRef r nn nv Hv0)
-              (short_transition_of (Index.mkShortStmtRef r nn nv Hv0))]
-  | _ => fun _ => []
-  end Hv.
+(* one block trace row: the exact block, its package position, and its events in statement order *)
+Definition TraceRow {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+  (Index.BlockRef idx * nat * list (BlockEv s))%type.
+Definition trow_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (t : TraceRow s) : Index.BlockRef idx := fst (fst t).
+Definition trow_pkg {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (t : TraceRow s) : nat := snd (fst t).
+Definition trow_evs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (t : TraceRow s) : list (BlockEv s) := snd t.
 
-(* the retained source-order trace: every short transition, in package, file, and position order *)
-Definition short_rows_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (fr : Index.FileRef idx) : list { st : Index.ShortStmtRef idx & ShortTransition (s := s) st } :=
-  flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-                       | Some r => short_row_emit r (Index.node_view r) eq_refl
-                       | None => []
-                       end)
-           (seq 0 (Index.occ_count fr)).
-Definition short_trace {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  : list { st : Index.ShortStmtRef idx & ShortTransition (s := s) st } :=
-  flat_map (fun pr => flat_map short_rows_of_file (PI.pkg_members pr)) (PI.packages s).
+(* the retained phase graph: the package ledgers, the block traces, and the const judgment table *)
+Definition PhaseData {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
+  (list (list (PkgEv s)) * list (TraceRow s)
+   * list { cs : Index.SpecRef idx Index.ConstSpecF & ConstJudgment cs })%type.
 
-(* the exact block scope of a parent occurrence, when it is a block *)
-Definition block_scope_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (par : Index.NodeRef idx) : option (ScopeId s) :=
-  (match Index.is_block_view (Index.node_view par) as bv
-         return Index.is_block_view (Index.node_view par) = bv -> option (ScopeId s) with
-   | true => fun Hb => Some (BlockScope (Index.mkBlockRef par Hb))
-   | false => fun _ => None
-   end) eq_refl.
+(* the one canonical builder; Internal is plumbing under the phase pin, never a client authority *)
+Module Internal.
+Section Build.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p}.
+Variable s : PI.PackageSurface idx.
 
-Lemma block_scope_of_some {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (par : Index.NodeRef idx) (sc : ScopeId s) :
-  block_scope_of par = Some sc -> exists br, sc = BlockScope br /\ Index.bl_node br = par.
-Proof.
-  unfold block_scope_of.
-  generalize (@eq_refl bool (Index.is_block_view (Index.node_view par))).
-  destruct (Index.is_block_view (Index.node_view par)) at 2 3; intro Hb;
-    [ intro He; injection He as <-; eexists; split; reflexivity | discriminate ].
-Qed.
+Definition pkg_event_at (pr : PI.PackageRef s) (r : Index.NodeRef idx) : option (PkgEv s) :=
+  match Index.node_view r with
+  | Index.VTop Index.TSMain =>
+      match make_main_est pr r with Some e0 => Some (r, [e0]) | None => None end
+  | Index.VTop Index.TSTopDecl => Some (r, stmt_decl_ests (PackageScope pr) r)
+  | _ => None
+  end.
 
-Lemma block_scope_of_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (par : Index.NodeRef idx) :
-  Index.node_view par = Index.VBlock -> block_scope_of (s := s) par <> None.
-Proof.
-  intro Hv. unfold block_scope_of.
-  generalize (@eq_refl bool (Index.is_block_view (Index.node_view par))).
-  destruct (Index.is_block_view (Index.node_view par)) at 2 3; intro Hb;
-    [ discriminate | exfalso; rewrite Hv in Hb; discriminate Hb ].
-Qed.
+Definition ledger_of (pr : PI.PackageRef s) : list (PkgEv s) :=
+  flat_map (fun fr =>
+    flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
+                         | Some r => match pkg_event_at pr r with Some ev => [ev] | None => [] end
+                         | None => [] end)
+             (seq 0 (Index.occ_count fr)))
+    (PI.pkg_members pr).
 
-(* the actual establishments emitted at one occurrence: mains, declaration subtrees, and short News *)
-Definition node_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx)
-  (v : Index.NodeView) (Hv : Index.node_view r = v) : list (Est s) :=
-  match v as v0 return Index.node_view r = v0 -> list (Est s) with
-  | Index.VTop Index.TSMain => fun _ => match make_main_est pr r with Some e => [e] | None => [] end
-  | Index.VTop Index.TSTopDecl => fun _ => stmt_decl_ests (PackageScope pr) r
+Definition pkg_env_of (pr : PI.PackageRef s) : list (Est s) :=
+  flat_map snd (ledger_of pr).
+
+Definition block_event (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) : BlockEv s :=
+  match v as v0 return Index.node_view c = v0 -> BlockEv s with
   | Index.VStmt Index.SSDecl => fun _ =>
-      match Index.node_parent r with
-      | Some par =>
-          match block_scope_of (s := s) par with
-          | Some sc => stmt_decl_ests sc r
-          | None => []
-          end
-      | None => []
-      end
+      BEvDecl env (BlockScope br) c (decl_judgment_of env (BlockScope br) c)
   | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
-      tr_added (short_transition_of (s := s) (Index.mkShortStmtRef r nn nv Hv0))
-  | _ => fun _ => []
+      BEvShort env (Index.mkShortStmtRef c nn nv Hv0)
+        (short_judgment_of env (Index.mkShortStmtRef c nn nv Hv0))
+  | _ => fun _ => BEvExpr c
   end Hv.
 
-(* every actual establishment of the surface, in package, file, and position order *)
-Definition actual_ests_of_file {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (fr : Index.FileRef idx) : list (Est s) :=
-  flat_map (fun pos => match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-                       | Some r => node_ests pr r (Index.node_view r) eq_refl
-                       | None => []
-                       end)
-           (seq 0 (Index.occ_count fr)).
-Definition actual_ests {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : list (Est s) :=
-  flat_map (fun pr => flat_map (actual_ests_of_file pr) (PI.pkg_members pr)) (PI.packages s).
+Fixpoint block_fold (br : Index.BlockRef idx)
+  (l : list { o : nat & Index.ChildAt (Index.bl_node br) o }) (env : list (Est s)) {struct l}
+  : list (BlockEv s) :=
+  match l with
+  | [] => []
+  | x :: t =>
+      let ev := block_event br env (Index.ca_child (projT2 x))
+                  (Index.node_view (Index.ca_child (projT2 x))) eq_refl in
+      ev :: block_fold br t (env ++ bev_adds br ev)
+  end.
 
-(* the retained binding phase, sealed to its one builder; main status is a projection over the establishments *)
+Definition traces_of_pkg (pr : PI.PackageRef s) : list (TraceRow s) :=
+  let pe := pkg_env_of pr in
+  flat_map (fun fr =>
+    flat_map (fun pos =>
+      match Index.mk_noderef fr (Pos.of_succ_nat pos) with
+      | Some r =>
+          (match Index.is_block_view (Index.node_view r) as bv
+                 return Index.is_block_view (Index.node_view r) = bv -> list (TraceRow s) with
+           | true => fun Hb =>
+               [ (Index.mkBlockRef r Hb, PI.pr_pos pr,
+                  block_fold (Index.mkBlockRef r Hb)
+                    (Index.all_children (Index.bl_node (Index.mkBlockRef r Hb))) pe) ]
+           | false => fun _ => []
+           end) eq_refl
+      | None => [] end)
+      (seq 0 (Index.occ_count fr)))
+    (PI.pkg_members pr).
 
-Record RawBP {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_rawbp {
-  rbp_ests   : list (Est s) ;
-  rbp_consts : list { cs : Index.SpecRef idx Index.ConstSpecF & ConstJudgment cs } ;
-  rbp_shorts : list { st : Index.ShortStmtRef idx & ShortTransition (s := s) st }
-}.
-Arguments mk_rawbp {p idx s} _ _ _.
-Arguments rbp_ests {p idx s} _.
-Arguments rbp_consts {p idx s} _.
-Arguments rbp_shorts {p idx s} _.
+Definition build_data : PhaseData s :=
+  (map ledger_of (PI.packages s),
+   flat_map traces_of_pkg (PI.packages s),
+   const_table s).
 
-Definition raw_bindings {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : RawBP s :=
-  mk_rawbp (actual_ests s) (const_table s) (short_trace s).
+End Build.
+End Internal.
+
+(* the one exact Binding phase: its data is pinned to the one canonical builder *)
 Definition BindingPhase {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
-  { b : RawBP s | b = raw_bindings s }.
+  { d : PhaseData s | d = Internal.build_data s }.
 Definition bindings {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : BindingPhase s :=
-  exist _ (raw_bindings s) eq_refl.
-Definition bp_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (bp : BindingPhase s) : list (Est s) :=
-  rbp_ests (proj1_sig bp).
-Definition bp_consts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (bp : BindingPhase s)
-  : list { cs : Index.SpecRef idx Index.ConstSpecF & ConstJudgment cs } :=
-  rbp_consts (proj1_sig bp).
-Definition bp_shorts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (bp : BindingPhase s)
-  : list { st : Index.ShortStmtRef idx & ShortTransition (s := s) st } :=
-  rbp_shorts (proj1_sig bp).
+  exist _ (Internal.build_data s) eq_refl.
+
+Definition bp_ledgers {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list (list (PkgEv s)) := fst (fst (proj1_sig bp)).
+Definition bp_traces {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list (TraceRow s) := snd (fst (proj1_sig bp)).
+Definition bp_consts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list { cs : Index.SpecRef idx Index.ConstSpecF & ConstJudgment cs } :=
+  snd (proj1_sig bp).
 Lemma in_seq_intro : forall i n, i < n -> In i (seq 0 n).
 Proof. intros i n H. apply in_seq. lia. Qed.
 
@@ -999,73 +938,6 @@ Proof.
   apply in_flat_map. exists (Index.nr_file r). split; [ exact Hfile | exact Hin' ].
 Qed.
 
-(* every emitted transition row names its own occurrence *)
-Lemma short_row_emit_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v)
-  (row : { st : Index.ShortStmtRef idx & ShortTransition (s := s) st }) :
-  In row (short_row_emit r v Hv) -> Index.sh_node (projT1 row) = r.
-Proof.
-  destruct v; cbn; try (intros F; exact (match F with end)).
-  match goal with sh0 : Index.StmtShape |- _ =>
-    destruct sh0; cbn; try (intros F; exact (match F with end)) end.
-  intros [He|F]; [ rewrite <- He; reflexivity | destruct F ].
-Qed.
-
-Lemma short_row_emit_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v) :
-  NoDup (short_row_emit (s := s) r v Hv).
-Proof.
-  destruct v; cbn; try (repeat constructor; intros F; destruct F).
-  match goal with sh0 : Index.StmtShape |- _ =>
-    destruct sh0; cbn; repeat constructor; intros F; destruct F end.
-Qed.
-
-Lemma short_row_emit_nodes_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v) :
-  NoDup (map (fun row => Index.sh_node (projT1 row)) (short_row_emit (s := s) r v Hv)).
-Proof.
-  destruct v; cbn; try (repeat constructor; intros F; destruct F).
-  match goal with sh0 : Index.StmtShape |- _ =>
-    destruct sh0; cbn; repeat constructor; intros F; destruct F end.
-Qed.
-
-(* the emission fires for every short view: the row exists and names the statement's occurrence *)
-Lemma short_row_emit_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v) (nn nv : nat) :
-  v = Index.VStmt (Index.SSShort nn nv) ->
-  exists row, In row (short_row_emit (s := s) r v Hv) /\ Index.sh_node (projT1 row) = r.
-Proof.
-  intro E. revert Hv. subst v. intro Hv. cbn.
-  eexists. split; [ left; reflexivity | reflexivity ].
-Qed.
-
-(* the trace covers every short statement *)
-Lemma short_trace_cover {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (st : Index.ShortStmtRef idx) :
-  exists row, In row (short_trace s) /\ Index.sh_node (projT1 row) = Index.sh_node st.
-Proof.
-  set (r := Index.sh_node st).
-  assert (Hfile : In (Index.nr_file r) (PI.pkg_members (PI.package_of_file s (Index.nr_file r))))
-    by apply PI.pkg_members_of_file.
-  assert (Hentry : exists row, In row (short_rows_of_file (s := s) (Index.nr_file r))
-                               /\ Index.sh_node (projT1 row) = r).
-  { unfold short_rows_of_file.
-    assert (Hmk : Index.mk_noderef (Index.nr_file r) (Pos.of_succ_nat (Index.nr_pos r)) = Some r)
-      by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
-    destruct (short_row_emit_cover (s := s) r (Index.node_view r) eq_refl
-                (Index.sh_names st) (Index.sh_values st) (Index.sh_ok st)) as [row [Hin' Hnode']].
-    exists row. split; [| exact Hnode' ].
-    apply in_flat_map. exists (Index.nr_pos r). split.
-    - apply in_seq. pose proof (nr_pos_lt r). lia.
-    - rewrite Hmk. exact Hin'. }
-  destruct Hentry as [row [Hin' Hnode']].
-  exists row. split; [| exact Hnode' ].
-  unfold short_trace. apply in_flat_map.
-  exists (PI.package_of_file s (Index.nr_file r)). split; [ apply PI.packages_complete |].
-  apply in_flat_map. exists (Index.nr_file r). split; [ exact Hfile | exact Hin' ].
-Qed.
-
-(* the exact phase-owned const judgment ref: one exact retained table row for one exact phase and spec *)
 Record ConstSpecJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (cs : Index.SpecRef idx Index.ConstSpecF) : Type := mk_cjr {
   cjr_ord : nat ;
@@ -1117,7 +989,7 @@ Lemma bp_consts_subjects {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   (bp : BindingPhase s) :
   map (fun row => projT1 row) (bp_consts bp) = const_subjects s.
 Proof.
-  unfold bp_consts. rewrite (proj2_sig bp). cbn [rbp_consts raw_bindings].
+  unfold bp_consts. rewrite (proj2_sig bp). cbn [Internal.build_data snd].
   unfold const_table. rewrite map_map.
   etransitivity; [ apply map_ext; intro cs; reflexivity | apply map_id ].
 Qed.
@@ -1143,74 +1015,284 @@ Definition const_spec_judgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageS
        False_rect _ (cjr_scan_finds bp cs (bp_consts bp) 0 eq_refl (bp_consts_cover bp cs) E)
    end) eq_refl.
 
-(* the exact phase-owned transition ref: one exact retained trace row for one exact phase and statement *)
-Record ShortTransitionRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : Type := mk_str {
-  str_ord : nat ;
-  str_row : { st' : Index.ShortStmtRef idx & ShortTransition (s := s) st' } ;
-  str_at  : nth_error (bp_shorts bp) str_ord = Some str_row ;
-  str_subject : projT1 str_row = st
-}.
-Arguments mk_str {p idx s bp st} _ _ _ _.
-Arguments str_ord {p idx s bp st} _.
-Arguments str_row {p idx s bp st} _.
-Arguments str_at {p idx s bp st} _.
-Arguments str_subject {p idx s bp st} _.
 
-Lemma shortref_of_nodes {p} {idx : Index.ProgramIndex p}
-  (a b : Index.ShortStmtRef idx) : noderef_eqb (Index.sh_node a) (Index.sh_node b) = true -> a = b.
-Proof. intro H. apply shortstmtref_positional. apply noderef_eqb_spec. exact H. Qed.
+(* one exact event site inside the retained phase graph *)
+Inductive EvSite : Type :=
+| PkgEventAt : nat -> nat -> EvSite
+| BlockEventAt : nat -> nat -> EvSite.
 
-Fixpoint str_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) (k : nat)
-  (l : list { st' : Index.ShortStmtRef idx & ShortTransition (s := s) st' }) {struct l}
-  : l = skipn k (bp_shorts bp) -> option (ShortTransitionRef bp st) :=
-  match l with
-  | [] => fun _ => None
-  | row :: rest => fun E =>
-      match Bool.bool_dec (noderef_eqb (Index.sh_node (projT1 row)) (Index.sh_node st)) true with
-      | left Hb => Some (mk_str k row (Index.skipn_head_at (bp_shorts bp) rest k row E)
-                                (shortref_of_nodes (projT1 row) st Hb))
-      | right _ => str_scan bp st (S k) rest (Index.skipn_tail_at (bp_shorts bp) rest k row E)
+(* the exact retained additions of the event at a site *)
+Definition event_adds_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) : option (list (Est s)) :=
+  match site with
+  | PkgEventAt pix eix =>
+      match nth_error (bp_ledgers bp) pix with
+      | Some l => match nth_error l eix with Some ev => Some (snd ev) | None => None end
+      | None => None
+      end
+  | BlockEventAt tix eix =>
+      match nth_error (bp_traces bp) tix with
+      | Some tr => match nth_error (trow_evs tr) eix with
+                   | Some ev => Some (bev_adds (trow_block tr) ev)
+                   | None => None end
+      | None => None
       end
   end.
 
-Lemma str_scan_finds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) :
-  forall l k (E : l = skipn k (bp_shorts bp)),
-  (exists row, In row l /\ Index.sh_node (projT1 row) = Index.sh_node st) ->
-  str_scan bp st k l E <> None.
+Definition addition_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (ix : nat) : option (Est s) :=
+  match event_adds_at bp site with Some adds => nth_error adds ix | None => None end.
+
+(* the exact addition identity of one event at one index *)
+Record EventAdditionRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (ix : nat) : Type := mk_event_addition {
+  ea_est : Est s ;
+  ea_ok  : addition_at bp site ix = Some ea_est
+}.
+Arguments mk_event_addition {p idx s bp site ix} _ _.
+Arguments ea_est {p idx s bp site ix} _.
+Arguments ea_ok {p idx s bp site ix} _.
+
+(* the exact phase-owned establishment identity: its creating event site and addition index *)
+Record EstablishmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : Type := mk_establishment {
+  es_site : EvSite ;
+  es_ix   : nat ;
+  es_add  : EventAdditionRef bp es_site es_ix
+}.
+Arguments mk_establishment {p idx s bp} _ _ _.
+Arguments es_site {p idx s bp} _.
+Arguments es_ix {p idx s bp} _.
+Arguments es_add {p idx s bp} _.
+
+Definition es_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (er : EstablishmentRef bp) : Est s := ea_est (es_add er).
+
+(* the event's exact retained additions, as a plain list; absent events hold none *)
+Definition event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) : list (Est s) :=
+  match event_adds_at bp site with Some adds => adds | None => [] end.
+
+Lemma addition_at_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (ix : nat) (e0 : Est s) :
+  nth_error (event_adds bp site) ix = Some e0 -> addition_at bp site ix = Some e0.
 Proof.
-  induction l as [|row rest IH]; intros k E [row0 [Hin Hnode]]; [ destruct Hin |].
-  cbn. destruct (Bool.bool_dec (noderef_eqb (Index.sh_node (projT1 row)) (Index.sh_node st)) true)
-    as [|Hne]; [ discriminate |].
-  destruct Hin as [Hhead|Hin].
-  - exfalso. apply Hne. subst row0. apply noderef_eqb_spec. exact Hnode.
-  - apply (IH (S k) (Index.skipn_tail_at (bp_shorts bp) rest k row E)).
-    exists row0. split; [ exact Hin | exact Hnode ].
+  unfold event_adds, addition_at.
+  destruct (event_adds_at bp site) as [adds|]; [ exact (fun H => H) |].
+  destruct ix; discriminate.
 Qed.
 
-(* the retained trace is exactly the canonical trace: the phase pin names the one builder *)
-Lemma bp_shorts_trace {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) : bp_shorts bp = short_trace s.
-Proof. unfold bp_shorts. rewrite (proj2_sig bp). reflexivity. Qed.
+(* the exact establishment refs of one event, one per retained addition, pinned positionally *)
+Fixpoint refs_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (k : nat) (l : list (Est s)) {struct l}
+  : l = skipn k (event_adds bp site) -> list (EstablishmentRef bp) :=
+  match l with
+  | [] => fun _ => []
+  | e0 :: rest => fun E =>
+      mk_establishment site k
+        (mk_event_addition e0
+           (addition_at_adds bp site k e0 (Index.skipn_head_at (event_adds bp site) rest k e0 E)))
+      :: refs_scan bp site (S k) rest (Index.skipn_tail_at (event_adds bp site) rest k e0 E)
+  end.
 
-Lemma bp_shorts_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) :
-  exists row, In row (bp_shorts bp) /\ Index.sh_node (projT1 row) = Index.sh_node st.
-Proof. rewrite bp_shorts_trace. exact (short_trace_cover s st). Qed.
+Definition refs_of_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) : list (EstablishmentRef bp) :=
+  refs_scan bp site 0 (event_adds bp site) (eq_sym (skipn_O _)).
 
-(* the sole ordinary transition lookup: total, returning the exact retained phase row *)
-Definition short_transition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : ShortTransitionRef bp st :=
-  (match str_scan bp st 0 (bp_shorts bp) eq_refl as o
-         return str_scan bp st 0 (bp_shorts bp) eq_refl = o -> ShortTransitionRef bp st with
-   | Some r => fun _ => r
-   | None => fun E =>
-       False_rect _ (str_scan_finds bp st (bp_shorts bp) 0 eq_refl (bp_shorts_cover bp st) E)
-   end) eq_refl.
+(* the exact retained event count at one ledger or trace ordinal; absent ordinals hold no events *)
+Definition pkg_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pix : nat) : nat :=
+  match nth_error (bp_ledgers bp) pix with Some l => length l | None => 0 end.
+Definition trace_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix : nat) : nat :=
+  match nth_error (bp_traces bp) tix with Some tr => length (trow_evs tr) | None => 0 end.
 
-(* the exact left-judgment lookup within a retained short judgment, total below the left count *)
+(* the exact event sites of one ledger and of one trace, in retained event order *)
+Definition pkg_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pix : nat) : list EvSite :=
+  map (PkgEventAt pix) (seq 0 (pkg_event_count bp pix)).
+Definition trace_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix : nat) : list EvSite :=
+  map (BlockEventAt tix) (seq 0 (trace_event_count bp tix)).
+
+(* every event site of the retained graph, ledgers first, then traces, each in exact retained order *)
+Definition all_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list EvSite :=
+  flat_map (pkg_sites bp) (seq 0 (length (bp_ledgers bp)))
+  ++ flat_map (trace_sites bp) (seq 0 (length (bp_traces bp))).
+
+(* every actual establishment of the phase, as exact event/addition refs *)
+Definition all_establishment_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list (EstablishmentRef bp) :=
+  flat_map (refs_of_event bp) (all_sites bp).
+
+(* the exact final package environment: the package's own event additions, as retained refs *)
+Definition package_env_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) : list (EstablishmentRef bp) :=
+  flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr)).
+
+(* the exact members at one causal cut: the package seed, then the exact earlier event additions *)
+Definition state_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix : nat) (cut : nat) : list (EstablishmentRef bp) :=
+  match nth_error (bp_traces bp) tix with
+  | Some tr =>
+      flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr))
+      ++ flat_map (fun eix => refs_of_event bp (BlockEventAt tix eix)) (seq 0 cut)
+  | None => []
+  end.
+
+(* the exact package ledger reference *)
+Record PackageLedgerRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) : Type := mk_package_ledger {
+  plr_evs : list (PkgEv s) ;
+  plr_at  : nth_error (bp_ledgers bp) (PI.pr_pos pr) = Some plr_evs
+}.
+Arguments mk_package_ledger {p idx s bp pr} _ _.
+Arguments plr_evs {p idx s bp pr} _.
+Arguments plr_at {p idx s bp pr} _.
+
+Record PackageEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {pr : PI.PackageRef s} (l : PackageLedgerRef bp pr) (i : nat) : Type
+  := mk_package_event {
+  per_row : PkgEv s ;
+  per_at  : nth_error (plr_evs l) i = Some per_row
+}.
+Arguments mk_package_event {p idx s bp pr l i} _ _.
+Arguments per_row {p idx s bp pr l i} _.
+Arguments per_at {p idx s bp pr l i} _.
+
+Record PackageMemberRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (pr : PI.PackageRef s) : Type := mk_package_member {
+  pm_ord : nat ;
+  pm_ref : EstablishmentRef bp ;
+  pm_at  : nth_error (package_env_refs bp pr) pm_ord = Some pm_ref
+}.
+Arguments mk_package_member {p idx s bp pr} _ _ _.
+Arguments pm_ord {p idx s bp pr} _.
+Arguments pm_ref {p idx s bp pr} _.
+Arguments pm_at {p idx s bp pr} _.
+
+(* the exact block trace reference *)
+Record BlockTraceRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (b : Index.NodeRef idx) : Type := mk_block_trace {
+  btr_ord : nat ;
+  btr_row : TraceRow s ;
+  btr_at  : nth_error (bp_traces bp) btr_ord = Some btr_row ;
+  btr_subject : Index.bl_node (trow_block btr_row) = b
+}.
+Arguments mk_block_trace {p idx s bp b} _ _ _ _.
+Arguments btr_ord {p idx s bp b} _.
+Arguments btr_row {p idx s bp b} _.
+Arguments btr_at {p idx s bp b} _.
+Arguments btr_subject {p idx s bp b} _.
+
+(* the exact causal state at one cut: its identity is the phase, trace, and cut, never its contents *)
+Record BlockStateRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat) : Type
+  := mk_block_state {
+  bs_members : list (EstablishmentRef bp) ;
+  bs_ok : bs_members = state_refs bp (btr_ord tr) cut
+}.
+Arguments mk_block_state {p idx s bp b tr cut} _ _.
+Arguments bs_members {p idx s bp b tr cut} _.
+Arguments bs_ok {p idx s bp b tr cut} _.
+
+Definition block_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
+  : BlockStateRef tr cut := mk_block_state (state_refs bp (btr_ord tr) cut) eq_refl.
+
+Record BlockMemberRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {cut : nat}
+  (st : BlockStateRef tr cut) : Type := mk_block_member {
+  bm_ord : nat ;
+  bm_ref : EstablishmentRef bp ;
+  bm_at  : nth_error (bs_members st) bm_ord = Some bm_ref
+}.
+Arguments mk_block_member {p idx s bp b tr cut st} _ _ _.
+Arguments bm_ord {p idx s bp b tr cut st} _.
+Arguments bm_ref {p idx s bp b tr cut st} _.
+Arguments bm_at {p idx s bp b tr cut st} _.
+
+(* the exact block event reference at one statement ordinal, with its exact causal states *)
+Record BlockEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (i : nat) : Type
+  := mk_block_event {
+  ber_row : BlockEv s ;
+  ber_at  : nth_error (trow_evs (btr_row tr)) i = Some ber_row
+}.
+Arguments mk_block_event {p idx s bp b tr i} _ _.
+Arguments ber_row {p idx s bp b tr i} _.
+Arguments ber_at {p idx s bp b tr i} _.
+
+Definition ber_pre {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {i : nat}
+  (e : BlockEventRef tr i) : BlockStateRef tr i := block_state tr i.
+Definition ber_post {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {i : nat}
+  (e : BlockEventRef tr i) : BlockStateRef tr (S i) := block_state tr (S i).
+
+(* the canonical occupancy group: one identity per exact phase, scope, and spelling *)
+Definition scope_name_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (sc : ScopeId s) (n : Names.OrdinaryIdentifier)
+  (er : EstablishmentRef bp) : bool :=
+  andb (scope_eqb (est_scope (es_est er)) sc) (Names.ordinary_equalb (est_name (es_est er)) n).
+
+Definition group_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (sc : ScopeId s) (n : Names.OrdinaryIdentifier)
+  : list (EstablishmentRef bp) :=
+  filter (scope_name_matches sc n) (all_establishment_refs bp).
+
+Record BindingGroupRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (sc : ScopeId s) (n : Names.OrdinaryIdentifier) : Type
+  := mk_binding_group {
+  bg_members : list (EstablishmentRef bp) ;
+  bg_ok : bg_members = group_refs bp sc n
+}.
+Arguments mk_binding_group {p idx s bp sc n} _ _.
+Arguments bg_members {p idx s bp sc n} _.
+Arguments bg_ok {p idx s bp sc n} _.
+
+Definition binding_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (sc : ScopeId s) (n : Names.OrdinaryIdentifier)
+  : BindingGroupRef bp sc n := mk_binding_group (group_refs bp sc n) eq_refl.
+
+(* the exact redeclaration root: the canonical group with its exact first two conflicting members *)
+Record RedeclarationRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (sc : ScopeId s) (n : Names.OrdinaryIdentifier) : Type
+  := mk_redeclaration {
+  rr_group : BindingGroupRef bp sc n ;
+  rr_two   : 2 <= length (bg_members rr_group)
+}.
+Arguments mk_redeclaration {p idx s bp sc n} _ _.
+Arguments rr_group {p idx s bp sc n} _.
+Arguments rr_two {p idx s bp sc n} _.
+
+(* the first-conflict event site: the exact creating event of the group's second member *)
+Definition rr_conflict_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
+  (rr : RedeclarationRef bp sc n) : option EvSite :=
+  match bg_members (rr_group rr) with
+  | _ :: m2 :: _ => Some (es_site m2)
+  | _ => None
+  end.
+
+(* the visible occupancy group at one exact causal state *)
+Record GroupAtStateRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
+  (n : Names.OrdinaryIdentifier) : Type := mk_group_at_state {
+  gs_members : list (EstablishmentRef bp) ;
+  gs_ok : gs_members
+          = filter (fun er => andb (is_block_scoped (es_est er))
+                                   (Names.ordinary_equalb (est_name (es_est er)) n))
+                   (state_refs bp (btr_ord tr) cut)
+}.
+Arguments mk_group_at_state {p idx s bp b tr cut n} _ _.
+Arguments gs_members {p idx s bp b tr cut n} _.
+Arguments gs_ok {p idx s bp b tr cut n} _.
+
+Definition group_at_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
+  (n : Names.OrdinaryIdentifier) : GroupAtStateRef tr cut n := mk_group_at_state _ eq_refl.
 Fixpoint slj_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {env : list (Est s)} {st : Index.ShortStmtRef idx} (i : nat)
   (l : list { i0 : nat & ShortLhsJudgment env st i0 }) {struct l}
@@ -1243,172 +1325,6 @@ Definition short_lhs_judgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageSu
                        (eq_ind_r (fun m => In i m) (in_seq_intro i (Index.sh_names st) H) (sj_lefts_ok sj)) E)
    end) eq_refl.
 
-
-Definition package_main {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (pr : PI.PackageRef s) : MainStatus s pr := main_status_of (bp_ests bp) pr.
-
-(* the main status is exactly the projection of the retained establishments over that package *)
-Theorem package_main_sound {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (pr : PI.PackageRef s) :
-  main_status_ests (package_main bp pr) = main_ests_of (bp_ests bp) pr.
-Proof. unfold package_main. apply main_status_ests_of. Qed.
-
-(* every main declaration in the status is a package-scope function declaration of that package *)
-Lemma main_is_package_local {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (pr : PI.PackageRef s) :
-  forall m, In m (main_status_ests (package_main bp pr)) ->
-    is_func_est m = true /\ est_scope m = PackageScope pr.
-Proof.
-  intros m Hin. rewrite package_main_sound in Hin. unfold main_ests_of in Hin.
-  apply filter_In in Hin. destruct Hin as [_ Hcond].
-  apply andb_prop in Hcond as [Hf Hrest]. apply andb_prop in Hrest as [_ Hsc].
-  split; [exact Hf|].
-  destruct (est_scope m) as [q|] eqn:E; [| discriminate Hsc].
-  apply PI.packageref_eqb_spec in Hsc; subst q; reflexivity.
-Qed.
-
-Definition contains_visible {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (e : Est s) (u : Index.NodeRef idx) : bool :=
-  match est_scope e with
-  | PackageScope pr => PI.packageref_eqb (PI.package_of_file s (Index.nr_file u)) pr
-  | BlockScope br =>
-      andb (Index.fileref_eqb (Index.nr_file (Index.bl_node br)) (Index.nr_file u))
-      (andb (Nat.ltb (Index.nr_pos (Index.bl_node br)) (Index.nr_pos u))
-      (andb (Nat.leb (Index.nr_pos u) (Index.node_extent (Index.bl_node br)))
-            (Nat.ltb (est_vstart e) (Index.nr_pos u))))
-  end.
-
-Definition source_cands {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : list (Est s) :=
-  filter (fun e => andb (Names.ordinary_equalb (est_name e) n) (contains_visible e u)) (bp_ests bp).
-
-(* prefer the innermost (block) binding; else any match; else no source binding *)
-Definition pick_best {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (cands : list (Est s)) : option (Est s) :=
-  match find is_block_scoped cands with Some e => Some e | None => hd_error cands end.
-
-Lemma pick_best_in {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (l : list (Est s)) (e : Est s) : pick_best l = Some e -> In e l.
-Proof.
-  unfold pick_best. destruct (find is_block_scoped l) as [x|] eqn:Ef.
-  - intro H; injection H as <-. apply find_some in Ef. destruct Ef as [Hin _]; exact Hin.
-  - destruct l as [|y ys]; intro H; [ discriminate H | cbn in H; injection H as <-; left; reflexivity ].
-Qed.
-Lemma pick_best_none {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (l : list (Est s)) : pick_best l = None -> l = [].
-Proof.
-  unfold pick_best. destruct (find is_block_scoped l) eqn:Ef; [ discriminate |].
-  destruct l as [|y ys]; [ reflexivity | cbn; discriminate ].
-Qed.
-
-(* the ordered members of e's group in the retained phase, in bp_ests source order *)
-Definition group_members {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (e : Est s) : list (Est s) := group_members_core (bp_ests bp) e.
-
-(* the declaration members of e's group; a redeclared declaration group is an ambiguous name *)
-Definition decl_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (e : Est s) : list (Est s) := decl_group_core (bp_ests bp) e.
-Definition decl_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (e : Est s) : bool :=
-  andb (is_decl_est e)
-       (match group_status (decl_group bp e) with Some (GRedeclared _ _ _) => true | _ => false end).
-
-(* the exact canonical declaration group: its shared scope and spelling, and its ordered declaration members *)
-Record DeclarationGroupRef {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type := mk_decl_group {
-  dg_scope   : ScopeId s ;
-  dg_name    : Names.OrdinaryIdentifier ;
-  dg_members : list (Est s)
-}.
-Arguments mk_decl_group {p idx s} _ _ _.
-Arguments dg_scope {p idx s} _.
-Arguments dg_name {p idx s} _.
-Arguments dg_members {p idx s} _.
-
-Definition decl_group_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (e : Est s) : DeclarationGroupRef s :=
-  mk_decl_group (est_scope e) (est_name e) (decl_group bp e).
-
-Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
-| RBound      : ObjectRef idx -> Resolved bp use n
-| RRedeclared : DeclarationGroupRef s -> Resolved bp use n
-| RUnbound    : Resolved bp use n.
-Arguments RBound {p idx s bp use n} _.
-Arguments RRedeclared {p idx s bp use n} _.
-Arguments RUnbound {p idx s bp use n}.
-
-(* resolution: one group authority; nearest binding shadows; a redeclared group is ambiguous; main no special route *)
-Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Resolved bp use n :=
-  match pick_best (source_cands bp use n) with
-  | Some e => if decl_ambiguous bp e then RRedeclared (decl_group_ref bp e) else RBound (SourceObject (est_origin e))
-  | None =>
-      match Names.classify_predeclared (Names.ordinary_spelling n) with
-      | Some pn => RBound (PredeclaredObject pn)
-      | None => RUnbound
-      end
-  end.
-
-Definition resolved_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {bp : BindingPhase s} {use : Index.NodeRef idx} {n : Names.OrdinaryIdentifier}
-  (_ : Resolved bp use n) : Index.NodeRef idx * Names.OrdinaryIdentifier := (use, n).
-
-Lemma resolve_retains_query {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
-  resolved_query (resolve bp use n) = (use, n).
-Proof. reflexivity. Qed.
-
-Theorem resolve_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
-  match resolve bp use n with
-  | RBound (SourceObject o) =>
-      exists e, In e (source_cands bp use n) /\ est_origin e = o /\ decl_ambiguous bp e = false
-  | RBound (PredeclaredObject pn) =>
-      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = Some pn
-  | RRedeclared g =>
-      exists e, pick_best (source_cands bp use n) = Some e /\ decl_ambiguous bp e = true /\ g = decl_group_ref bp e
-  | RUnbound =>
-      source_cands bp use n = [] /\ Names.classify_predeclared (Names.ordinary_spelling n) = None
-  end.
-Proof.
-  unfold resolve. destruct (pick_best (source_cands bp use n)) as [e|] eqn:E.
-  - destruct (decl_ambiguous bp e) eqn:Ea.
-    + exists e; split; [ reflexivity | split; [ exact Ea | reflexivity ] ].
-    + exists e; split; [ apply pick_best_in; exact E | split; [ reflexivity | exact Ea ] ].
-  - pose proof (pick_best_none _ E) as Hnil.
-    destruct (Names.classify_predeclared (Names.ordinary_spelling n)) eqn:Ec; split; try exact Hnil; try reflexivity.
-Qed.
-
-
-
-
-(* the canonical complete new-nonblank summary: exactly the retained ShortNew left judgments, in order *)
-Definition short_new_members {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {env : list (Est s)} {st : Index.ShortStmtRef idx} (sj : ShortJudgment env st)
-  : list { i : nat & ShortLhsJudgment env st i } :=
-  filter (fun x => match slj_view (projT2 x) with SVNew _ => true | _ => false end) (sj_lefts sj).
-
-(* the first duplicate short-left name, projected from the exact retained judgment views *)
-Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {env : list (Est s)} {st : Index.ShortStmtRef idx} (sj : ShortJudgment env st)
-  : option Names.OrdinaryIdentifier :=
-  fold_right (fun x acc =>
-                match slj_view (projT2 x) with
-                | SVDuplicate _ => binder_ident (Index.sl_child (slj_edge (projT2 x)))
-                | _ => acc
-                end)
-             None (sj_lefts sj).
-
-(* the exact pre-statement cutpoint: the statement's own retained position, projected from the ref *)
-Definition sj_cutpoint {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) : nat :=
-  Index.nr_pos (Index.sh_node st).
-
-(* the phase-level duplicate projection: the retained transition row's judgment, never a recomputation *)
-Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
-  sj_dup_name (tr_judgment (projT2 (str_row (short_transition bp st)))).
-
-(* a Some binder identity pins the exact named binding view *)
 Lemma binder_ident_view {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx)
   (n : Names.OrdinaryIdentifier) :
   binder_ident b = Some n -> Index.node_view b = Index.VBindingName (Syntax.BNamed n).
@@ -1427,115 +1343,6 @@ Proof.
     [ exfalso; pose proof (eq_trans (eq_sym e) Hf) as Ht; discriminate Ht | reflexivity ].
 Qed.
 
-(* the blank law: a blank classification pins exactly a blank identifier, in both directions *)
-Lemma slj_blank_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i) :
-  short_lhs_decide env e = SVBlank <-> binder_ident (Index.sl_child e) = None.
-Proof.
-  unfold short_lhs_decide. split.
-  - intro Hd.
-    destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| reflexivity ].
-    exfalso.
-    destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|]; [ discriminate Hd |].
-    destruct (filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env)
-      as [|a [|c rest]]; [ | | discriminate Hd ];
-      (destruct (env_scan env (same_block_cand n) 0 env eq_refl) as [prior|];
-       [ destruct (is_variable_binder (est_node (er_est prior))); discriminate Hd | discriminate Hd ]).
-  - intro Hb. rewrite Hb. reflexivity.
-Qed.
-
-(* the duplicate law: an exact same-name earlier left exists at the retained witness index *)
-Lemma slj_dup_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  (j : nat) :
-  short_lhs_decide env e = SVDuplicate j ->
-  exists n w, binder_ident (Index.sl_child e) = Some n
-              /\ find_dup i n (Index.short_lhs_edges st) = Some (existT _ j w).
-Proof.
-  intro Hd. unfold short_lhs_decide in Hd.
-  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate Hd ].
-  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j0 w]|] eqn:Hdup.
-  - injection Hd as <-. exists n, w. split; [ reflexivity | exact Hdup ].
-  - exfalso.
-    destruct (filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env)
-      as [|a [|c rest]]; [ | | discriminate Hd ];
-      (destruct (env_scan env (same_block_cand n) 0 env eq_refl) as [prior|];
-       [ destruct (is_variable_binder (est_node (er_est prior))); discriminate Hd | discriminate Hd ]).
-Qed.
-
-(* the new law: named, no same-statement duplicate, and no same-block match in the pre-environment *)
-Lemma slj_new_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  (n : Names.OrdinaryIdentifier) :
-  short_lhs_decide env e = SVNew n ->
-  binder_ident (Index.sl_child e) = Some n
-  /\ find_dup i n (Index.short_lhs_edges st) = None
-  /\ (forall x, In x env -> same_block_cand n x = false).
-Proof.
-  intro Hd. unfold short_lhs_decide in Hd.
-  destruct (binder_ident (Index.sl_child e)) as [n0|] eqn:Hb; [| discriminate Hd ].
-  destruct (find_dup i n0 (Index.short_lhs_edges st)) as [[j w]|] eqn:Hdup; [ discriminate Hd |].
-  destruct (filter (fun e2 => andb (same_block_cand n0 e2) (is_decl_est e2)) env)
-    as [|a [|c rest]] eqn:Hfil; [ | | discriminate Hd ];
-    (destruct (env_scan env (same_block_cand n0) 0 env eq_refl) as [prior|] eqn:Hscan;
-     [ destruct (is_variable_binder (est_node (er_est prior))); discriminate Hd |]);
-    injection Hd as <-;
-    (split; [ reflexivity | split; [ exact Hdup |] ]);
-    intros x Hin; exact (env_scan_none env (same_block_cand n0) env 0 eq_refl Hscan x Hin).
-Qed.
-
-(* the existing laws: the prior is the exact earliest same-block member reference, of the exact kind *)
-Lemma slj_existing_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  (prior : EnvEstRef env) (isvar : bool) :
-  short_lhs_decide env e
-  = (if isvar then SVExistingVariable prior else SVExistingNonVariable prior) ->
-  exists n, binder_ident (Index.sl_child e) = Some n
-  /\ find_dup i n (Index.short_lhs_edges st) = None
-  /\ same_block_cand n (er_est prior) = true
-  /\ (forall j x, j < er_ord prior -> nth_error env j = Some x -> same_block_cand n x = false)
-  /\ is_variable_binder (est_node (er_est prior)) = isvar.
-Proof.
-  intro Hd. unfold short_lhs_decide in Hd.
-  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| destruct isvar; discriminate Hd ].
-  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|] eqn:Hdup;
-    [ destruct isvar; discriminate Hd |].
-  destruct (filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env)
-    as [|a [|c rest]]; [ | | destruct isvar; discriminate Hd ];
-    (destruct (env_scan env (same_block_cand n) 0 env eq_refl) as [prior0|] eqn:Hscan;
-     [| destruct isvar; discriminate Hd ]);
-    (destruct (env_scan_found env (same_block_cand n) env 0 eq_refl prior0 Hscan)
-      as [Hcand [_ Hbefore]]);
-    (destruct (is_variable_binder (est_node (er_est prior0))) eqn:Hvar; destruct isvar;
-     try discriminate Hd; injection Hd as <-; exists n;
-     (split; [ reflexivity |
-       split; [ exact Hdup |
-         split; [ exact Hcand |
-           split; [ intros j x Hj Hnth; exact (Hbefore j x (Nat.le_0_l j) Hj Hnth)
-                  | exact Hvar ] ] ] ])).
-Qed.
-
-(* the ambiguity law: the exact canonical redeclared declaration group over the pre-environment *)
-Lemma slj_ambiguous_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  (a c : Est s) (rest : list (Est s)) :
-  short_lhs_decide env e = SVAmbiguous a c rest ->
-  exists n, binder_ident (Index.sl_child e) = Some n
-  /\ find_dup i n (Index.short_lhs_edges st) = None
-  /\ filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env = a :: c :: rest.
-Proof.
-  intro Hd. unfold short_lhs_decide in Hd.
-  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate Hd ].
-  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|] eqn:Hdup; [ discriminate Hd |].
-  destruct (filter (fun e2 => andb (same_block_cand n e2) (is_decl_est e2)) env)
-    as [|a0 [|c0 rest0]] eqn:Hfil;
-    try ((destruct (env_scan env (same_block_cand n) 0 env eq_refl) as [prior|];
-          [ destruct (is_variable_binder (est_node (er_est prior))); discriminate Hd
-          | discriminate Hd ])).
-  injection Hd as <- <- <-. exists n. split; [ reflexivity | split; [ exact Hdup | exact Hfil ] ].
-Qed.
-
-(* find_dup selects the exact earliest matching earlier left: no smaller in-range index matches *)
 Lemma find_dup_sound {p} {idx : Index.ProgramIndex p} {st : Index.ShortStmtRef idx}
   (i : nat) (n : Names.OrdinaryIdentifier) :
   forall (l : list { j0 : nat & Index.ShortLhsEdge st j0 }) (j : nat)
@@ -1865,45 +1672,6 @@ Lemma map_flat_map {A B C} (f : B -> C) (g : A -> list B) (l : list A) :
   map f (flat_map g l) = flat_map (fun x => map f (g x)) l.
 Proof. induction l as [|a t IH]; [ reflexivity | cbn; rewrite map_app, IH; reflexivity ]. Qed.
 
-(* the trace's subject occurrences are duplicate-free: one exact transition per source statement *)
-Lemma short_trace_nodes_nodup {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
-  NoDup (map (fun row => Index.sh_node (projT1 row)) (short_trace s)).
-Proof.
-  unfold short_trace. rewrite map_flat_map.
-  apply (flat_map_nodup _ (fun r0 => PI.package_of_file s (Index.nr_file r0)));
-    [ apply packages_nodup | |].
-  - intros pr _. rewrite map_flat_map.
-    apply (flat_map_nodup _ (fun r0 => Index.nr_file r0));
-      [ apply pkg_members_nodup | |].
-    + intros fr _. unfold short_rows_of_file. rewrite map_flat_map.
-      apply (flat_map_nodup _ (fun r0 => Index.nr_pos r0));
-        [ apply seq_NoDup | |].
-      * intros pos _. destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| constructor ].
-        apply short_row_emit_nodes_nodup.
-      * intros pos r0 _ Hin.
-        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
-        apply in_map_iff in Hin. destruct Hin as [row [Hf Hrow]].
-        rewrite <- Hf. rewrite (short_row_emit_node r _ _ row Hrow).
-        exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
-    + intros fr r0 _ Hin.
-      apply in_map_iff in Hin. destruct Hin as [row [Hf Hrow]].
-      unfold short_rows_of_file in Hrow. apply in_flat_map in Hrow.
-      destruct Hrow as [pos [_ Hrow]].
-      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hrow ].
-      rewrite <- Hf. rewrite (short_row_emit_node r _ _ row Hrow).
-      exact (Index.mk_noderef_file fr _ r Hmk).
-  - intros pr r0 Hpr Hin.
-    apply in_map_iff in Hin. destruct Hin as [row [Hf Hrow]].
-    apply in_flat_map in Hrow. destruct Hrow as [fr [Hfr Hrow]].
-    unfold short_rows_of_file in Hrow. apply in_flat_map in Hrow.
-    destruct Hrow as [pos [_ Hrow]].
-    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hrow ].
-    rewrite <- Hf. rewrite (short_row_emit_node r _ _ row Hrow).
-    rewrite (Index.mk_noderef_file fr _ r Hmk).
-    exact (PI.package_of_file_member s pr fr Hfr).
-Qed.
-
-(* each const subject appears exactly once: two table rows sharing a subject share the ordinal *)
 Lemma bp_consts_exactly_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (o1 o2 : nat)
   (row1 row2 : { c : Index.SpecRef idx Index.ConstSpecF & ConstJudgment c }) :
@@ -1922,28 +1690,6 @@ Proof.
   - rewrite Hm1, Hm2, He. reflexivity.
 Qed.
 
-(* each short subject appears exactly once: two trace rows sharing a subject share the ordinal *)
-Lemma bp_shorts_exactly_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (o1 o2 : nat)
-  (row1 row2 : { st : Index.ShortStmtRef idx & ShortTransition (s := s) st }) :
-  nth_error (bp_shorts bp) o1 = Some row1 -> nth_error (bp_shorts bp) o2 = Some row2 ->
-  projT1 row1 = projT1 row2 -> o1 = o2.
-Proof.
-  intros H1 H2 He.
-  assert (Hnd : NoDup (map (fun row => Index.sh_node (projT1 row)) (bp_shorts bp)))
-    by (rewrite bp_shorts_trace; apply short_trace_nodes_nodup).
-  assert (Hm1 : nth_error (map (fun row => Index.sh_node (projT1 row)) (bp_shorts bp)) o1
-                = Some (Index.sh_node (projT1 row1)))
-    by (exact (map_nth_error _ o1 _ H1)).
-  assert (Hm2 : nth_error (map (fun row => Index.sh_node (projT1 row)) (bp_shorts bp)) o2
-                = Some (Index.sh_node (projT1 row2)))
-    by (exact (map_nth_error _ o2 _ H2)).
-  apply (proj1 (NoDup_nth_error _) Hnd o1 o2).
-  - apply nth_error_Some. rewrite Hm1. discriminate.
-  - rewrite Hm1, Hm2, He. reflexivity.
-Qed.
-
-(* a keyed disjoint flat_map of per-item duplicate-free blocks is duplicate-free *)
 Lemma flat_map_nodup_key {A B K} (f : A -> list B) (key : B -> K) (akey : A -> K) (l : list A) :
   NoDup (map akey l) -> (forall a, In a l -> NoDup (f a)) ->
   (forall a b, In a l -> In b (f a) -> key b = akey a) ->
@@ -2076,7 +1822,6 @@ Proof.
   split; [ exact (Index.ca_node_parent ce) | exact (Index.ca_node_parent e0) ].
 Qed.
 
-(* a judgment's additions: exactly one exact new establishment per ShortNew left *)
 Lemma new_ests_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br : Index.BlockRef idx) {env : list (Est s)} {st : Index.ShortStmtRef idx}
   (sj : ShortJudgment env st) (e : Est s) :
@@ -2116,7 +1861,6 @@ Proof.
     destruct Hin as [He|F]; [| destruct F ]. rewrite <- He. reflexivity.
 Qed.
 
-(* the establishments emitted at one occurrence name it as their exact governing site *)
 Definition est_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (e : Est s) : option (Index.NodeRef idx) :=
   match est_origin e with
@@ -2140,40 +1884,6 @@ Proof.
     as [_ [[b Hor] [_ [sp [d [H1 [H2 H3]]]]]]].
   unfold est_site. rewrite Hor, H1, H2. exact H3.
 Qed.
-
-Lemma tr_added_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (e : Est s) :
-  In e (tr_added t) -> est_site e = Some (Index.sh_node st).
-Proof.
-  intro Hin. rewrite (tr_added_ok t) in Hin.
-  destruct (new_ests_member _ _ _ Hin) as [x [n [_ [_ He]]]].
-  rewrite He. unfold est_site. cbn.
-  exact (Index.sl_parent (slj_edge (projT2 x))).
-Qed.
-
-Lemma node_ests_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) (e : Est s) :
-  In e (node_ests pr r v Hv) -> est_site e = Some r.
-Proof.
-  destruct v; cbn; try (intros F; exact (match F with end)).
-  - match goal with sh0 : Index.StmtShape |- _ => destruct sh0 end;
-      try (intros F; exact (match F with end)).
-    + destruct (Index.node_parent r) as [par|]; [| intros F; exact (match F with end) ].
-      destruct (block_scope_of (s := s) par) as [sc|];
-        [| intros F; exact (match F with end) ].
-      apply stmt_decl_ests_site.
-    + intro Hin. exact (tr_added_site _ e Hin).
-  -
-    match goal with ts0 : Index.TopShape |- _ => destruct ts0 end.
-    + apply stmt_decl_ests_site.
-    + destruct (make_main_est pr r) as [e0|] eqn:Hm; [| intros F; exact (match F with end) ].
-      intros [He|F]; [| destruct F ]. subst e0.
-      destruct (make_main_est_some pr r e Hm) as [[f Hor] [Hnode _]].
-      unfold est_site. rewrite Hor, Hnode. reflexivity.
-Qed.
-
-(* one occurrence's emission is duplicate-free *)
 Lemma spec_ests_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {fl : Index.SpecFlavor} (sc : ScopeId s) (sp : Index.SpecRef idx fl) :
   NoDup (spec_ests sc sp).
@@ -2220,489 +1930,6 @@ Lemma stmt_decl_ests_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
 Proof.
   unfold stmt_decl_ests. destruct (Index.child_at_opt t 0); [ apply decl_ests_nodup | constructor ].
 Qed.
-
-Lemma node_ests_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) : NoDup (node_ests pr r v Hv).
-Proof.
-  destruct v; cbn; try constructor.
-  - match goal with sh0 : Index.StmtShape |- _ => destruct sh0 end; try constructor.
-    + destruct (Index.node_parent r) as [par|]; [| constructor ].
-      destruct (block_scope_of (s := s) par) as [sc|]; [ apply stmt_decl_ests_nodup | constructor ].
-    + rewrite (tr_added_ok _). apply new_ests_nodup.
-  - match goal with ts0 : Index.TopShape |- _ => destruct ts0 end.
-    + apply stmt_decl_ests_nodup.
-    + destruct (make_main_est pr r); repeat constructor; intros F; destruct F.
-Qed.
-
-(* the surface enumeration is duplicate-free: every establishment sits at one exact site *)
-Lemma actual_ests_nodup {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
-  NoDup (actual_ests s).
-Proof.
-  unfold actual_ests.
-  apply (flat_map_nodup_key _
-           (fun e => match est_site e with
-                     | Some x => PI.package_of_file s (Index.nr_file x) | None => PI.package_of_file s (Index.nr_file (est_node e)) end)
-           (fun pr => pr));
-    [ rewrite map_id; apply packages_nodup | |].
-  - intros pr _.
-    apply (flat_map_nodup_key _
-             (fun e => match est_site e with
-                       | Some x => Index.nr_file x | None => Index.nr_file (est_node e) end)
-             (fun fr => fr));
-      [ rewrite map_id; apply pkg_members_nodup | |].
-    + intros fr _. unfold actual_ests_of_file.
-      apply (flat_map_nodup_key _
-               (fun e => match est_site e with
-                         | Some x => Index.nr_pos x | None => 0 end)
-               (fun pos => pos));
-        [ rewrite map_id; apply seq_NoDup | |].
-      * intros pos _. destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| constructor ].
-        apply node_ests_nodup.
-      * intros pos e _ Hin.
-        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
-        rewrite (node_ests_site pr r _ _ e Hin).
-        exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
-    + intros fr e _ Hin.
-      unfold actual_ests_of_file in Hin. apply in_flat_map in Hin.
-      destruct Hin as [pos [_ Hin]].
-      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
-      rewrite (node_ests_site pr r _ _ e Hin).
-      exact (Index.mk_noderef_file fr _ r Hmk).
-  - intros pr e Hpr Hin.
-    apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
-    unfold actual_ests_of_file in Hin. apply in_flat_map in Hin.
-    destruct Hin as [pos [_ Hin]].
-    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
-    rewrite (node_ests_site pr r _ _ e Hin).
-    rewrite (Index.mk_noderef_file fr _ r Hmk).
-    exact (PI.package_of_file_member s pr fr Hfr).
-Qed.
-
-(* the phase's establishments are exactly the canonical actual enumeration *)
-Lemma bp_ests_actual {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) : bp_ests bp = actual_ests s.
-Proof. unfold bp_ests. rewrite (proj2_sig bp). reflexivity. Qed.
-
-Lemma bp_ests_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) : NoDup (bp_ests bp).
-Proof. rewrite bp_ests_actual. apply actual_ests_nodup. Qed.
-
-Lemma ordinal_scan_sound {p} {idx : Index.ProgramIndex p} (par r : Index.NodeRef idx) :
-  forall l o (e : Index.ChildAt par o),
-  ordinal_scan par r l = Some (existT _ o e) -> Index.ca_child e = r.
-Proof.
-  induction l as [|[o0 e0] rest IH]; intros o e Hs; [ discriminate Hs |].
-  cbn in Hs. destruct (noderef_eqb (Index.ca_child e0) r) eqn:Hb.
-  - injection Hs as He1 He2. subst o0.
-    apply Eqdep_dec.inj_pair2_eq_dec in He2; [| exact Nat.eq_dec ]. subst e0.
-    apply noderef_eqb_spec. exact Hb.
-  - exact (IH o e Hs).
-Qed.
-
-(* the canonical transition's exact block, pre-environment, and additions, at the statement's ordinal *)
-Lemma short_transition_fo_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) (br : Index.BlockRef idx) (k : nat)
-  (ek : Index.ChildAt (Index.bl_node br) k)
-  (Hp : Index.node_parent (Index.sh_node st) = Some (Index.bl_node br))
-  (Hb : Index.is_block_view (Index.node_view (Index.bl_node br)) = true) :
-  Index.ca_child ek = Index.sh_node st ->
-  forall fo (Hf : find_ordinal (Index.bl_node br) (Index.sh_node st) = fo),
-  tr_block (short_transition_fo (s := s) st (Index.bl_node br) Hp Hb fo Hf) = br
-  /\ tr_pre (short_transition_fo (s := s) st (Index.bl_node br) Hp Hb fo Hf) = block_env br k
-  /\ tr_added (short_transition_fo (s := s) st (Index.bl_node br) Hp Hb fo Hf)
-     = new_ests br (short_judgment_of (block_env br k) st).
-Proof.
-  intros Hc fo Hf. destruct fo as [[o eo]|].
-  2:{ exact (match stmt_ordinal_found st (Index.bl_node br) Hp Hf with end). }
-  assert (Ho : o = k).
-  { apply (Index.ca_ord_unique eo ek).
-    rewrite (ordinal_scan_sound (Index.bl_node br) (Index.sh_node st) _ o eo Hf), Hc.
-    reflexivity. }
-  subst o. cbn [tr_block tr_pre tr_added short_transition_fo].
-  assert (Hbr : Index.mkBlockRef (Index.bl_node br) Hb = br)
-    by (apply Index.blockref_positional; reflexivity).
-  rewrite Hbr. split; [ reflexivity | split; reflexivity ].
-Qed.
-
-Lemma short_transition_of_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (st : Index.ShortStmtRef idx) (br : Index.BlockRef idx) (k : nat)
-  (ek : Index.ChildAt (Index.bl_node br) k) :
-  Index.ca_child ek = Index.sh_node st ->
-  tr_block (short_transition_of (s := s) st) = br
-  /\ tr_pre (short_transition_of (s := s) st) = block_env br k
-  /\ tr_added (short_transition_of (s := s) st)
-     = new_ests br (short_judgment_of (block_env br k) st).
-Proof.
-  intro Hc.
-  assert (Hp : Index.node_parent (Index.sh_node st) = Some (Index.bl_node br))
-    by (rewrite <- Hc; apply Index.ca_node_parent).
-  unfold short_transition_of.
-  assert (Haux : forall op (Hop : Index.node_parent (Index.sh_node st) = op),
-    tr_block (short_transition_at (s := s) st op Hop) = br
-    /\ tr_pre (short_transition_at (s := s) st op Hop) = block_env br k
-    /\ tr_added (short_transition_at (s := s) st op Hop)
-       = new_ests br (short_judgment_of (block_env br k) st)).
-  { intros op Hop. destruct op as [par|].
-    2:{ exact (match stmt_has_parent st Hop with end). }
-    assert (Hpar : par = Index.bl_node br)
-      by (pose proof (eq_trans (eq_sym Hop) Hp) as He; injection He as He; exact He).
-    subst par. cbn [short_transition_at].
-    assert (Haux2 : forall bv (Hbv : Index.is_block_view (Index.node_view (Index.bl_node br)) = bv),
-      tr_block (short_transition_bv (s := s) st (Index.bl_node br) Hop bv Hbv) = br
-      /\ tr_pre (short_transition_bv (s := s) st (Index.bl_node br) Hop bv Hbv) = block_env br k
-      /\ tr_added (short_transition_bv (s := s) st (Index.bl_node br) Hop bv Hbv)
-         = new_ests br (short_judgment_of (block_env br k) st)).
-    { intros bv Hbv. destruct bv.
-      2:{ exact (match stmt_parent_not_block st (Index.bl_node br) Hop Hbv with end). }
-      cbn [short_transition_bv].
-      exact (short_transition_fo_eval st br k ek Hop Hbv Hc _ eq_refl). }
-    exact (Haux2 _ eq_refl). }
-  exact (Haux _ eq_refl).
-Qed.
-
-(* the short child's contribution is exactly its canonical transition's additions *)
-Lemma child_contrib_short {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) {k : nat} (e : Index.ChildAt (Index.bl_node br) k)
-  (env : list (Est s)) (nn nv : nat)
-  (Hv : Index.node_view (Index.ca_child e) = Index.VStmt (Index.SSShort nn nv)) :
-  child_contrib br e env _ Hv
-  = new_ests br (short_judgment_of env (Index.mkShortStmtRef (Index.ca_child e) nn nv Hv)).
-Proof. reflexivity. Qed.
-
-Lemma block_env_step {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k : nat) :
-  block_env (s := s) br (S k)
-  = block_env br k
-    ++ match Index.child_at_opt (Index.bl_node br) k with
-       | Some e => child_contrib br e (block_env br k) (Index.node_view (Index.ca_child e)) eq_refl
-       | None => [] end.
-Proof. reflexivity. Qed.
-
-(* the short-child contribution, evaluated at the exact known view *)
-Lemma child_contrib_short_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) {k : nat} (e : Index.ChildAt (Index.bl_node br) k)
-  (env : list (Est s)) (v : Index.NodeView) (Hv : Index.node_view (Index.ca_child e) = v)
-  (nn nv : nat) :
-  v = Index.VStmt (Index.SSShort nn nv) ->
-  exists Hv0 : Index.node_view (Index.ca_child e) = Index.VStmt (Index.SSShort nn nv),
-    child_contrib br e env v Hv
-    = new_ests br (short_judgment_of env (Index.mkShortStmtRef (Index.ca_child e) nn nv Hv0)).
-Proof. intro E. revert Hv. subst v. intro Hv. exists Hv. reflexivity. Qed.
-
-(* the exact one-step law for a short child: the next environment appends its transition's additions *)
-Lemma block_env_step_short {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k : nat) (ek : Index.ChildAt (Index.bl_node br) k)
-  (st : Index.ShortStmtRef idx) :
-  Index.ca_child ek = Index.sh_node st ->
-  block_env (s := s) br (S k) = block_env br k ++ tr_added (short_transition_of (s := s) st).
-Proof.
-  intro Hc. rewrite block_env_step.
-  destruct (Index.child_at_opt (Index.bl_node br) k) as [e|] eqn:Ho;
-    [| exact (match Index.child_at_opt_some _ _ ek Ho with end) ].
-  assert (Hce : Index.ca_child e = Index.sh_node st)
-    by (rewrite (Index.ca_det e ek); exact Hc).
-  f_equal.
-  assert (Hview : Index.node_view (Index.ca_child e)
-                  = Index.VStmt (Index.SSShort (Index.sh_names st) (Index.sh_values st)))
-    by (rewrite Hce; exact (Index.sh_ok st)).
-  destruct (child_contrib_short_eval (s := s) br e (block_env br k) _ eq_refl
-              (Index.sh_names st) (Index.sh_values st) Hview) as [Hv0 Hcc].
-  rewrite Hcc.
-  assert (Hst : Index.mkShortStmtRef (Index.ca_child e) (Index.sh_names st) (Index.sh_values st) Hv0 = st)
-    by (apply shortstmtref_positional; exact Hce).
-  rewrite Hst.
-  destruct (short_transition_of_eval (s := s) st br k ek Hc) as [_ [_ Hadded]].
-  rewrite Hadded. reflexivity.
-Qed.
-
-(* environment growth is monotone: earlier members keep their exact ordinals *)
-Lemma block_env_grows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k1 k2 : nat) :
-  k1 <= k2 ->
-  forall j x, nth_error (block_env (s := s) br k1) j = Some x ->
-              nth_error (block_env br k2) j = Some x.
-Proof.
-  induction k2 as [|k2' IH]; intros Hle j x Hnth.
-  - assert (k1 = 0) by lia. subst k1. exact Hnth.
-  - destruct (Nat.eq_dec k1 (S k2')) as [->|Hne]; [ exact Hnth |].
-    assert (Hle' : k1 <= k2') by lia.
-    rewrite block_env_step. rewrite nth_error_app1; [ exact (IH Hle' j x Hnth) |].
-    apply nth_error_Some. rewrite (IH Hle' j x Hnth). discriminate.
-Qed.
-
-Lemma block_env_incl {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k1 k2 : nat) :
-  k1 <= k2 -> incl (block_env (s := s) br k1) (block_env br k2).
-Proof.
-  intros Hle x Hin.
-  destruct (In_nth_error _ _ Hin) as [j Hj].
-  exact (nth_error_In _ _ (block_env_grows br k1 k2 Hle j x Hj)).
-Qed.
-
-(* every prior short child's exact additions are members of every later environment *)
-Lemma earlier_news_in_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k1 k2 : nat) (ek : Index.ChildAt (Index.bl_node br) k1)
-  (st : Index.ShortStmtRef idx) :
-  Index.ca_child ek = Index.sh_node st -> k1 < k2 ->
-  incl (tr_added (short_transition_of (s := s) st)) (block_env br k2).
-Proof.
-  intros Hc Hlt x Hin.
-  apply (block_env_incl br (S k1) k2 Hlt).
-  rewrite (block_env_step_short br k1 ek st Hc).
-  apply in_or_app. right. exact Hin.
-Qed.
-
-Lemma node_pkg_ests_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (e : Est s) :
-  In e (node_pkg_ests pr r) ->
-  est_scope e = PackageScope pr
-  /\ match est_origin e with DOShort _ => False | _ => True end.
-Proof.
-  unfold node_pkg_ests.
-  destruct (Index.node_view r) as [| | | | | | | | | | | |ts|]; try (intros F; exact (match F with end)).
-  destruct ts.
-  - intro Hin. destruct (stmt_decl_ests_member _ _ _ Hin) as [Hsc [[b Hor] _]].
-    split; [ exact Hsc | rewrite Hor; exact I ].
-  - destruct (make_main_est pr r) as [e0|] eqn:Hm; [| intros F; exact (match F with end) ].
-    intros [He|F]; [| destruct F ]. subst e0.
-    destruct (make_main_est_some pr r e Hm) as [[f Hor] [_ [Hsc _]]].
-    split; [ exact Hsc | rewrite Hor; exact I ].
-Qed.
-
-Lemma pkg_ests_member {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) (e : Est s) :
-  In e (pkg_ests s) ->
-  (exists pr, est_scope e = PackageScope pr)
-  /\ match est_origin e with DOShort _ => False | _ => True end.
-Proof.
-  intro Hin. unfold pkg_ests in Hin.
-  apply in_flat_map in Hin. destruct Hin as [pr [_ Hin]].
-  apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
-  apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
-  destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| destruct Hin ].
-  destruct (node_pkg_ests_member pr r e Hin) as [Hsc Hor].
-  split; [ exists pr; exact Hsc | exact Hor ].
-Qed.
-
-Lemma block_base_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (e : Est s) :
-  In e (block_base s br) ->
-  In e (pkg_ests s)
-  /\ (exists pr, est_scope e = PackageScope pr
-        /\ PI.packageref_eqb (PI.package_of_file s (Index.nr_file (Index.bl_node br))) pr = true).
-Proof.
-  intro Hin. unfold block_base in Hin. apply filter_In in Hin.
-  destruct Hin as [Hin Hcond]. split; [ exact Hin |].
-  destruct (est_scope e) as [pr0|] eqn:Hsc; [| discriminate Hcond ].
-  exists pr0. split; [ reflexivity | exact Hcond ].
-Qed.
-
-Lemma child_contrib_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) {k : nat} (e0 : Index.ChildAt (Index.bl_node br) k)
-  (env : list (Est s)) (v : Index.NodeView) (Hv : Index.node_view (Index.ca_child e0) = v)
-  (e : Est s) :
-  In e (child_contrib br e0 env v Hv) ->
-  est_scope e = BlockScope br
-  /\ ((exists b, est_origin e = DOBinder b)
-      \/ (exists sn, est_origin e = DOShort sn
-            /\ Index.sh_node (snr_stmt sn) = Index.ca_child e0)).
-Proof.
-  destruct v; cbv beta iota delta [child_contrib]; try (intros F; exact (match F with end)).
-  match goal with sh0 : Index.StmtShape |- _ => destruct sh0 end;
-    try (intros F; exact (match F with end)).
-  - intro Hin. destruct (stmt_decl_ests_member _ _ _ Hin) as [Hsc [Hor _]].
-    split; [ exact Hsc | left; exact Hor ].
-  - intro Hin. destruct (new_ests_member _ _ _ Hin) as [x [n [_ [_ He]]]].
-    subst e. cbn. split; [ reflexivity |]. right.
-    eexists. split; [ reflexivity | reflexivity ].
-Qed.
-
-(* every environment member is a package member or an exact earlier event of this exact block *)
-Lemma block_env_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k : nat) (e : Est s) :
-  In e (block_env (s := s) br k) ->
-  In e (block_base s br)
-  \/ (est_scope e = BlockScope br
-      /\ ((exists b, est_origin e = DOBinder b)
-          \/ (exists sn k' (e0 : Index.ChildAt (Index.bl_node br) k'),
-                k' < k /\ est_origin e = DOShort sn
-                /\ Index.sh_node (snr_stmt sn) = Index.ca_child e0))).
-Proof.
-  induction k as [|k' IH]; intro Hin.
-  - left. exact Hin.
-  - rewrite block_env_step in Hin. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
-    + destruct (IH Hin) as [Hb|[Hsc [Hor|[sn [k0 [e0 [Hk0 Hrest]]]]]]];
-        [ left; exact Hb
-        | right; split; [ exact Hsc | left; exact Hor ]
-        | right; split; [ exact Hsc |]; right; exists sn, k0, e0;
-          split; [ lia | exact Hrest ] ].
-    + destruct (Index.child_at_opt (Index.bl_node br) k') as [e0|] eqn:Ho; [| destruct Hin ].
-      destruct (child_contrib_member br e0 _ _ _ e Hin) as [Hsc [Hor|[sn [Hor Hnode]]]];
-        [ right; split; [ exact Hsc | left; exact Hor ]
-        | right; split; [ exact Hsc |]; right; exists sn, k', e0;
-          split; [ lia | split; [ exact Hor | exact Hnode ] ] ].
-Qed.
-
-(* the current statement's objects are absent from its exact pre-environment *)
-Lemma block_env_no_current {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (k : nat) (ek : Index.ChildAt (Index.bl_node br) k)
-  (e : Est s) (sn : ShortNewRef idx) :
-  In e (block_env (s := s) br k) -> est_origin e = DOShort sn ->
-  Index.sh_node (snr_stmt sn) = Index.ca_child ek -> False.
-Proof.
-  intros Hin Hor Hnode.
-  destruct (block_env_member br k e Hin) as [Hb|[_ [[b Hb]|[sn' [k' [e0 [Hk' [Hor' Hnode']]]]]]]].
-  - destruct (block_base_member br e Hb) as [Hpkg _].
-    destruct (pkg_ests_member s e Hpkg) as [_ Hno]. rewrite Hor in Hno. exact Hno.
-  - rewrite Hor in Hb. discriminate Hb.
-  - rewrite Hor in Hor'. injection Hor' as <-.
-    assert (He : Index.ca_child e0 = Index.ca_child ek)
-      by (rewrite <- Hnode', <- Hnode; reflexivity).
-    pose proof (Index.ca_ord_unique e0 ek He) as Hko. lia.
-Qed.
-
-(* every retained trace row is the canonical transition of its exact statement *)
-Lemma short_row_emit_canonical {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v)
-  (row : { st : Index.ShortStmtRef idx & ShortTransition (s := s) st }) :
-  In row (short_row_emit r v Hv) ->
-  exists st', row = existT _ st' (short_transition_of (s := s) st').
-Proof.
-  destruct v; cbn; try (intros F; exact (match F with end)).
-  match goal with sh0 : Index.StmtShape |- _ =>
-    destruct sh0; cbn; try (intros F; exact (match F with end)) end.
-  intros [He|F]; [| destruct F ].
-  eexists. exact (eq_sym He).
-Qed.
-
-Lemma short_trace_canonical {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (row : { st : Index.ShortStmtRef idx & ShortTransition (s := s) st }) :
-  In row (short_trace s) ->
-  exists st', row = existT _ st' (short_transition_of (s := s) st').
-Proof.
-  intro Hin. unfold short_trace in Hin.
-  apply in_flat_map in Hin. destruct Hin as [pr [_ Hin]].
-  apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
-  unfold short_rows_of_file in Hin. apply in_flat_map in Hin.
-  destruct Hin as [pos [_ Hin]].
-  destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| destruct Hin ].
-  exact (short_row_emit_canonical r _ _ row Hin).
-Qed.
-
-(* the establishment enumeration at a short statement is exactly its transition's additions *)
-Lemma node_ests_short_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) (nn nv : nat) :
-  v = Index.VStmt (Index.SSShort nn nv) ->
-  exists Hv0 : Index.node_view r = Index.VStmt (Index.SSShort nn nv),
-    node_ests pr r v Hv
-    = tr_added (short_transition_of (s := s) (Index.mkShortStmtRef r nn nv Hv0)).
-Proof. intro E. revert Hv. subst v. intro Hv. exists Hv. reflexivity. Qed.
-
-(* membership analysis of one occurrence's establishment emission *)
-Lemma node_ests_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) (e : Est s) :
-  In e (node_ests pr r v Hv) ->
-  make_main_est pr r = Some e
-  \/ (exists sc, In e (stmt_decl_ests sc r))
-  \/ (exists nn nv0 (Hv0 : Index.node_view r = Index.VStmt (Index.SSShort nn nv0)),
-        In e (tr_added (short_transition_of (s := s) (Index.mkShortStmtRef r nn nv0 Hv0)))).
-Proof.
-  destruct v; cbv beta iota delta [node_ests]; try (intros F; exact (match F with end)).
-  - match goal with sh0 : Index.StmtShape |- _ => destruct sh0 end;
-      try (intros F; exact (match F with end)).
-    + destruct (Index.node_parent r) as [par|]; [| intros F; exact (match F with end) ].
-      destruct (block_scope_of (s := s) par) as [sc|]; [| intros F; exact (match F with end) ].
-      intro Hin. right. left. exists sc. exact Hin.
-    + intro Hin. right. right. eexists. eexists. eexists. exact Hin.
-  - match goal with ts0 : Index.TopShape |- _ => destruct ts0 end.
-    + intro Hin. right. left. eexists. exact Hin.
-    + destruct (make_main_est pr r) as [e0|] eqn:Hm; [| intros F; exact (match F with end) ].
-      intros [He|F]; [| destruct F ]. subst e0. left. reflexivity.
-Qed.
-
-Lemma actual_ests_member {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) (e : Est s) :
-  In e (actual_ests s) ->
-  exists pr (r : Index.NodeRef idx),
-    In pr (PI.packages s) /\ In e (node_ests pr r (Index.node_view r) eq_refl).
-Proof.
-  intro Hin. unfold actual_ests in Hin.
-  apply in_flat_map in Hin. destruct Hin as [pr [Hpr Hin]].
-  apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
-  unfold actual_ests_of_file in Hin. apply in_flat_map in Hin.
-  destruct Hin as [pos [_ Hin]].
-  destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| destruct Hin ].
-  exists pr, r. split; [ exact Hpr | exact Hin ].
-Qed.
-
-(* a short-origin phase member is exactly a retained ShortNew of its exact statement's canonical judgment *)
-Lemma bp_est_short_origin {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (e : Est s) (sn : ShortNewRef idx) :
-  In e (bp_ests bp) -> est_origin e = DOShort sn ->
-  exists x n,
-    In x (sj_lefts (tr_judgment (short_transition_of (s := s) (snr_stmt sn))))
-    /\ slj_view (projT2 x) = SVNew n
-    /\ e = new_est (tr_block (short_transition_of (s := s) (snr_stmt sn))) (slj_edge (projT2 x)) n
-    /\ projT1 x = snr_ix sn.
-Proof.
-  intros Hin Hor. rewrite bp_ests_actual in Hin.
-  destruct (actual_ests_member s e Hin) as [pr [r [_ Hn]]].
-  destruct (node_ests_member pr r _ _ e Hn) as [Hm|[[sc Hd]|[nn [nv0 [Hv0 Ht]]]]].
-  - destruct (make_main_est_some pr r e Hm) as [[f Hf] _]. rewrite Hor in Hf. discriminate Hf.
-  - destruct (stmt_decl_ests_member sc r e Hd) as [_ [[b Hb] _]]. rewrite Hor in Hb. discriminate Hb.
-  - set (st0 := Index.mkShortStmtRef r nn nv0 Hv0) in *.
-    rewrite (tr_added_ok _) in Ht.
-    destruct (new_ests_member _ _ _ Ht) as [x [n [Hx [Hview He]]]].
-    assert (Hsn : sn = mk_short_new st0 (projT1 x) (slj_edge (projT2 x)))
-      by (rewrite He in Hor; cbn in Hor; injection Hor as Hor; exact (eq_sym Hor)).
-    assert (Hst : snr_stmt sn = st0) by (rewrite Hsn; reflexivity).
-    assert (Hix : snr_ix sn = projT1 x) by (rewrite Hsn; reflexivity).
-    rewrite Hst.
-    exists x, n. split; [ exact Hx |]. split; [ exact Hview |].
-    split; [| exact (eq_sym Hix) ].
-    rewrite He. reflexivity.
-Qed.
-
-(* every retained ShortNew is an actual phase establishment *)
-Lemma trace_new_in_bp_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (row : { st : Index.ShortStmtRef idx & ShortTransition (s := s) st })
-  (x : { i : nat & ShortLhsJudgment (tr_pre (projT2 row)) (projT1 row) i })
-  (n : Names.OrdinaryIdentifier) :
-  In row (bp_shorts bp) ->
-  In x (sj_lefts (tr_judgment (projT2 row))) ->
-  slj_view (projT2 x) = SVNew n ->
-  In (new_est (tr_block (projT2 row)) (slj_edge (projT2 x)) n) (bp_ests bp).
-Proof.
-  intros Hrow Hx Hview.
-  pose proof (new_ests_complete (tr_block (projT2 row)) (tr_judgment (projT2 row)) x n Hx Hview)
-    as Hmem.
-  rewrite <- (tr_added_ok (projT2 row)) in Hmem.
-  set (r := Index.sh_node (projT1 row)).
-  rewrite bp_ests_actual. unfold actual_ests.
-  apply in_flat_map.
-  exists (PI.package_of_file s (Index.nr_file r)). split; [ apply PI.packages_complete |].
-  apply in_flat_map. exists (Index.nr_file r). split; [ apply PI.pkg_members_of_file |].
-  unfold actual_ests_of_file. apply in_flat_map.
-  exists (Index.nr_pos r). split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
-  assert (Hmk : Index.mk_noderef (Index.nr_file r) (Pos.of_succ_nat (Index.nr_pos r)) = Some r)
-    by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
-  rewrite Hmk.
-  destruct (node_ests_short_eval (PI.package_of_file s (Index.nr_file r)) r
-              (Index.node_view r) eq_refl (Index.sh_names (projT1 row))
-              (Index.sh_values (projT1 row)) (Index.sh_ok (projT1 row))) as [Hv0 Hne].
-  rewrite Hne.
-  assert (Hst : Index.mkShortStmtRef r (Index.sh_names (projT1 row)) (Index.sh_values (projT1 row)) Hv0
-                = projT1 row)
-    by (apply shortstmtref_positional; reflexivity).
-  rewrite Hst.
-  destruct (short_trace_canonical s row) as [st' Hcan];
-    [ rewrite <- (bp_shorts_trace bp); exact Hrow |].
-  assert (Hta : tr_added (short_transition_of (s := s) (projT1 row)) = tr_added (projT2 row))
-    by (rewrite Hcan; reflexivity).
-  rewrite Hta. exact Hmem.
-Qed.
-
 Lemma shortstmtref_eq_dec {p} {idx : Index.ProgramIndex p} :
   forall a b : Index.ShortStmtRef idx, {a = b} + {a <> b}.
 Proof.
@@ -2712,67 +1939,6 @@ Proof.
   - right. intro E. apply H. subst b. apply noderef_eqb_spec. reflexivity.
 Qed.
 
-(* no ExistingVariable, ExistingNonVariable, Duplicate, Blank, or Ambiguous left has an establishment *)
-Lemma non_new_position_no_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st0 : Index.ShortStmtRef idx) (t0 : ShortTransition (s := s) st0)
-  (i : nat) (j : ShortLhsJudgment (tr_pre t0) st0 i) :
-  In (existT _ st0 t0) (bp_shorts bp) ->
-  In (existT _ i j) (sj_lefts (tr_judgment t0)) ->
-  (forall n, slj_view j <> SVNew n) ->
-  forall (e : Est s) (sn : ShortNewRef idx),
-    In e (bp_ests bp) -> est_origin e = DOShort sn ->
-    snr_stmt sn = st0 -> snr_ix sn = i -> False.
-Proof.
-  intros Hrow Hj Hnn e sn Hin Hor Hstmt Hix.
-  destruct (bp_est_short_origin bp e sn Hin Hor) as [x [n [Hx [Hview [_ Hxi]]]]].
-  destruct (short_trace_canonical s (existT _ st0 t0)) as [st' Hcan];
-    [ rewrite <- (bp_shorts_trace bp); exact Hrow |].
-  assert (Hst0 : st0 = st') by (exact (f_equal (@projT1 _ _) Hcan)).
-  cbn [projT1] in Hst0. subst st'.
-  apply Eqdep_dec.inj_pair2_eq_dec in Hcan; [| exact shortstmtref_eq_dec ].
-  subst t0.
-  destruct sn as [st1 ix1 e1]. cbn [snr_stmt snr_ix] in Hstmt, Hix, Hx, Hxi.
-  subst st1.
-  destruct x as [i' j']. cbn [projT1 projT2] in Hview, Hxi.
-  subst i'. subst ix1.
-  destruct (slj_canonical j j') as [_ Hv].
-  apply (Hnn n). rewrite Hv. exact Hview.
-Qed.
-
-(* the establishment enumeration at a fixed main, evaluated at the exact known view *)
-Lemma node_ests_main_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) :
-  v = Index.VTop Index.TSMain ->
-  node_ests pr r v Hv = match make_main_est pr r with Some e => [e] | None => [] end.
-Proof. intro E. revert Hv. subst v. intro Hv. reflexivity. Qed.
-
-(* declaration and function establishment coverage: every named spec binder establishes exactly *)
-Lemma bp_ests_has_main {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (r : Index.NodeRef idx) :
-  Index.is_main_view (Index.node_view r) = true ->
-  exists e, In e (bp_ests bp) /\ est_node e = r /\ (exists f, est_origin e = DOFunc f).
-Proof.
-  intro Hm.
-  set (pr := PI.package_of_file s (Index.nr_file r)).
-  destruct (make_main_est pr r) as [e0|] eqn:He;
-    [| exact (match make_main_est_fires pr r Hm He with end) ].
-  destruct (make_main_est_some pr r e0 He) as [Hf [Hnode _]].
-  exists e0.
-  split; [| split; [ exact Hnode | exact Hf ] ].
-  rewrite bp_ests_actual. unfold actual_ests.
-  apply in_flat_map. exists pr. split; [ apply PI.packages_complete |].
-  apply in_flat_map. exists (Index.nr_file r). split; [ apply PI.pkg_members_of_file |].
-  unfold actual_ests_of_file. apply in_flat_map.
-  exists (Index.nr_pos r). split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
-  assert (Hmk : Index.mk_noderef (Index.nr_file r) (Pos.of_succ_nat (Index.nr_pos r)) = Some r)
-    by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
-  rewrite Hmk.
-  rewrite (node_ests_main_eval pr r (Index.node_view r) eq_refl (Index.is_main_view_eq _ Hm)).
-  rewrite He. left. reflexivity.
-Qed.
-
-(* the spec emission, evaluated at the exact known spec view *)
 Lemma spec_emit_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {fl : Index.SpecFlavor} (sc : ScopeId s) (r : Index.NodeRef idx) (v : Index.NodeView)
   (Hv : Index.node_view r = v) (sh : Index.SpecShape fl) :
@@ -2784,26 +1950,6 @@ Proof.
   destruct fl; reflexivity.
 Qed.
 
-(* the establishment enumerations at declaration statements and top declarations, evaluated *)
-Lemma node_ests_topdecl_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) :
-  v = Index.VTop Index.TSTopDecl -> node_ests pr r v Hv = stmt_decl_ests (PackageScope pr) r.
-Proof. intro E. revert Hv. subst v. intro Hv. reflexivity. Qed.
-
-Lemma node_ests_ssdecl_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (v : Index.NodeView)
-  (Hv : Index.node_view r = v) :
-  v = Index.VStmt Index.SSDecl ->
-  node_ests pr r v Hv
-  = match Index.node_parent r with
-    | Some par => match block_scope_of (s := s) par with
-                  | Some sc => stmt_decl_ests sc r
-                  | None => [] end
-    | None => [] end.
-Proof. intro E. revert Hv. subst v. intro Hv. reflexivity. Qed.
-
-(* a spec's named binder is covered by the spec's own emission at any scope *)
 Lemma spec_ests_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {fl : Index.SpecFlavor} (sc : ScopeId s) (sp : Index.SpecRef idx fl) (i : nat)
   (ne : Index.SpecNameEdge sp i) (n : Names.OrdinaryIdentifier) :
@@ -2893,103 +2039,6 @@ Proof.
       destruct i; [ lia | discriminate Hrole | lia | discriminate Hrole ].
 Qed.
 
-(* every named declaration binder of the surface establishes in the phase, on its exact occurrence *)
-Lemma bp_ests_has_spec_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (b : Index.NodeRef idx) (fl : Index.SpecFlavor)
-  (n : Names.OrdinaryIdentifier) :
-  Index.node_role b = Index.RSpecName fl -> binder_ident b = Some n ->
-  exists e, In e (bp_ests bp) /\ est_node e = b.
-Proof.
-  intros Hr Hb.
-  (* the binder's parent is its exact spec *)
-  destruct (Index.node_parent b) as [sp|] eqn:Hpb.
-  2:{ exfalso. pose proof (Index.parentless_view_file b Hpb) as Hv.
-      rewrite (binder_ident_view b n Hb) in Hv. discriminate Hv. }
-  destruct (Index.all_children_of_parent b sp Hpb) as [i [eb [_ Hcb]]].
-  assert (Hrb : Index.node_role (Index.ca_child eb) = Index.RSpecName fl)
-    by (rewrite Hcb; exact Hr).
-  pose proof (Index.child_at_specname_spec eb fl Hrb) as Hspv.
-  (* the spec's parent is its exact declaration *)
-  destruct (Index.node_parent sp) as [d|] eqn:Hpsp.
-  2:{ exfalso. pose proof (Index.parentless_view_file sp Hpsp) as Hv.
-      rewrite Hv in Hspv. destruct fl; exact Hspv. }
-  destruct (Index.all_children_of_parent sp d Hpsp) as [k2 [ed [_ Hcd]]].
-  assert (Hdv : Index.node_view d = Index.VDecl fl)
-    by (apply (Index.child_at_spec_decl ed fl); rewrite Hcd; exact Hspv).
-  (* the declaration's parent is its exact statement or top declaration *)
-  destruct (Index.node_parent d) as [t|] eqn:Hpd.
-  2:{ exfalso. pose proof (Index.parentless_view_file d Hpd) as Hv.
-      rewrite Hdv in Hv. discriminate Hv. }
-  destruct (Index.all_children_of_parent d t Hpd) as [k3 [et [_ Hct]]].
-  assert (Hdt : Index.node_view (Index.ca_child et) = Index.VDecl fl) by (rewrite Hct; exact Hdv).
-  pose proof (Index.child_at_decl_parent et fl Hdt) as Htv.
-  assert (Hk3 : k3 = 0).
-  { apply (Index.singleton_child_ordinal et).
-    destruct Htv as [Htv|Htv]; rewrite Htv; reflexivity. }
-  subst k3.
-  (* the spec reference and its exact name edge at the binder's ordinal *)
-  assert (Hspv' : exists sh : Index.SpecShape fl, Index.node_view sp = Index.spec_view_of fl sh).
-  { destruct fl; cbn in Hspv; destruct (Index.node_view sp); try (exact (match Hspv with end));
-      eexists; reflexivity. }
-  destruct Hspv' as [sh Hshv].
-  assert (Hlt : i < Index.shape_names fl (Index.sp_shape (Index.mkSpecRef (fl := fl) sp sh Hshv)))
-    by (exact (specname_ordinal_lt (Index.mkSpecRef (fl := fl) sp sh Hshv) i eb Hrb)).
-  assert (Hbn : binder_ident
-                  (Index.sn_child (Index.mkSpecName (sp := Index.mkSpecRef (fl := fl) sp sh Hshv) eb Hlt))
-                = Some n)
-    by (unfold Index.sn_child; cbn [Index.sn_at Index.sp_node]; rewrite Hcb; exact Hb).
-  assert (Hpsp' : Index.node_parent (Index.sp_node (Index.mkSpecRef (fl := fl) sp sh Hshv))
-                  = Some (Index.ca_child et))
-    by (cbn [Index.sp_node]; rewrite <- Hct in Hpsp; exact Hpsp).
-  destruct Htv as [Htv|Htv].
-  - (* block-local declaration statement *)
-    destruct (Index.node_parent t) as [par|] eqn:Hpt.
-    2:{ exfalso. pose proof (Index.parentless_view_file t Hpt) as Hv.
-        rewrite Htv in Hv. discriminate Hv. }
-    assert (Hbv : Index.node_view par = Index.VBlock).
-    { destruct (Index.all_children_of_parent t par Hpt) as [k4 [e4 [_ Hc4]]].
-      apply (Index.child_at_stmt_block e4 Index.SSDecl). rewrite Hc4. exact Htv. }
-    destruct (block_scope_of (s := s) par) as [sc|] eqn:Hbs;
-      [| exact (match block_scope_of_block par Hbv Hbs with end) ].
-    destruct (stmt_decl_ests_cover sc t et (Index.mkSpecRef (fl := fl) sp sh Hshv) i
-                (Index.mkSpecName (sp := Index.mkSpecRef (fl := fl) sp sh Hshv) eb Hlt) n
-                Hpsp' Hbn) as [e0 [Hin Hnode]].
-    exists e0. split.
-    2:{ rewrite Hnode. unfold Index.sn_child. cbn [Index.sn_at Index.sp_node]. exact Hcb. }
-    rewrite bp_ests_actual. unfold actual_ests.
-    apply in_flat_map.
-    exists (PI.package_of_file s (Index.nr_file t)). split; [ apply PI.packages_complete |].
-    apply in_flat_map. exists (Index.nr_file t). split; [ apply PI.pkg_members_of_file |].
-    unfold actual_ests_of_file. apply in_flat_map.
-    exists (Index.nr_pos t). split; [ apply in_seq; pose proof (nr_pos_lt t); lia |].
-    assert (Hmk : Index.mk_noderef (Index.nr_file t) (Pos.of_succ_nat (Index.nr_pos t)) = Some t)
-      by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
-    rewrite Hmk.
-    rewrite (node_ests_ssdecl_eval (PI.package_of_file s (Index.nr_file t)) t
-               (Index.node_view t) eq_refl Htv).
-    rewrite Hpt, Hbs. exact Hin.
-  - (* top-level declaration *)
-    destruct (stmt_decl_ests_cover (PackageScope (PI.package_of_file s (Index.nr_file t)))
-                t et (Index.mkSpecRef (fl := fl) sp sh Hshv) i
-                (Index.mkSpecName (sp := Index.mkSpecRef (fl := fl) sp sh Hshv) eb Hlt) n
-                Hpsp' Hbn)
-      as [e0 [Hin Hnode]].
-    exists e0. split.
-    2:{ rewrite Hnode. unfold Index.sn_child. cbn [Index.sn_at Index.sp_node]. exact Hcb. }
-    rewrite bp_ests_actual. unfold actual_ests.
-    apply in_flat_map.
-    exists (PI.package_of_file s (Index.nr_file t)). split; [ apply PI.packages_complete |].
-    apply in_flat_map. exists (Index.nr_file t). split; [ apply PI.pkg_members_of_file |].
-    unfold actual_ests_of_file. apply in_flat_map.
-    exists (Index.nr_pos t). split; [ apply in_seq; pose proof (nr_pos_lt t); lia |].
-    assert (Hmk : Index.mk_noderef (Index.nr_file t) (Pos.of_succ_nat (Index.nr_pos t)) = Some t)
-      by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
-    rewrite Hmk.
-    rewrite (node_ests_topdecl_eval (PI.package_of_file s (Index.nr_file t)) t
-               (Index.node_view t) eq_refl Htv).
-    exact Hin.
-Qed.
-
 Lemma pre_nth_post {A} (l1 l2 : list A) (j : nat) (x : A) :
   nth_error l1 j = Some x -> nth_error (l1 ++ l2) j = Some x.
 Proof.
@@ -3004,94 +2053,2122 @@ Proof.
   rewrite (Nat.add_comm (length l1) k), Nat.add_sub. exact H.
 Qed.
 
-(* every pre-environment member embeds into the post environment at its exact ordinal *)
-Definition embed_pre {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st)
-  (ref : EnvEstRef (tr_pre t)) : EnvEstRef (tr_post t) :=
-  mk_env_ref (er_ord ref) (er_est ref) (pre_nth_post _ _ _ _ (er_at ref)).
-
-Lemma embed_pre_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (ref : EnvEstRef (tr_pre t)) :
-  er_ord (embed_pre t ref) = er_ord ref /\ er_est (embed_pre t ref) = er_est ref.
-Proof. split; reflexivity. Qed.
-
-(* every addition owns an exact post-environment reference past the pre members *)
-Definition post_new_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st)
-  (k : nat) (e : Est s) (H : nth_error (tr_added t) k = Some e) : EnvEstRef (tr_post t) :=
-  mk_env_ref (length (tr_pre t) + k) e (post_nth _ _ _ _ H).
-
-Lemma post_new_ref_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st)
-  (k : nat) (e : Est s) (H : nth_error (tr_added t) k = Some e) :
-  er_ord (post_new_ref t k e H) = length (tr_pre t) + k /\ er_est (post_new_ref t k e H) = e.
-Proof. split; reflexivity. Qed.
-
-(* the post environment adds exactly the News: no member is dropped, reconstructed, or smuggled in *)
-Lemma tr_post_member {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (x : Est s) :
-  In x (tr_post t) <-> In x (tr_pre t) \/ In x (tr_added t).
-Proof. unfold tr_post. split; [ apply in_app_or | apply in_or_app ]. Qed.
-
-(* the RHS environment is definitionally the exact pre-statement environment *)
-Lemma tr_rhs_pre {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) :
-  tr_rhs_env t = tr_pre t.
-Proof. reflexivity. Qed.
-
-(* every addition becomes visible only after the statement's exact extent *)
-Lemma tr_added_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (e : Est s) :
-  In e (tr_added t) -> est_vstart e = Index.node_extent (Index.sh_node st).
+Lemma flat_map_nil_all {A B} (f : A -> list B) (l : list A) :
+  (forall x, In x l -> f x = []) -> flat_map f l = [].
 Proof.
-  intro Hin. rewrite (tr_added_ok t) in Hin.
-  destruct (new_ests_member _ _ _ Hin) as [x [n [_ [_ He]]]].
-  subst e. cbn [new_est est_vstart].
-  unfold vis_start. rewrite (Index.sl_role (slj_edge (projT2 x))).
-  rewrite (Index.sl_parent (slj_edge (projT2 x))). reflexivity.
+  induction l as [|a t IH]; intro H; [ reflexivity |].
+  cbn. rewrite (H a (or_introl eq_refl)). apply IH. intros x Hx. exact (H x (or_intror Hx)).
 Qed.
 
-(* no addition is visible at any occurrence inside the statement: RHS resolution cannot see it *)
-Lemma tr_added_invisible_inside {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (e : Est s)
-  (u : Index.NodeRef idx) :
-  In e (tr_added t) -> Index.nr_pos u <= Index.node_extent (Index.sh_node st) ->
-  contains_visible e u = false.
+Lemma filter_all_false {A} (f : A -> bool) (l : list A) :
+  (forall x, In x l -> f x = false) -> filter f l = [].
 Proof.
-  intros Hin Hle.
-  pose proof (tr_added_vstart t e Hin) as Hvs.
-  assert (Hor : exists br0, est_scope e = BlockScope br0).
-  { rewrite (tr_added_ok t) in Hin.
-    destruct (new_ests_member _ _ _ Hin) as [x [n [_ [_ He]]]].
-    subst e. eexists. reflexivity. }
-  destruct Hor as [br0 Hsc].
-  unfold contains_visible. rewrite Hsc.
-  assert (Hltb : Nat.ltb (est_vstart e) (Index.nr_pos u) = false)
-    by (apply Nat.ltb_ge; rewrite Hvs; exact Hle).
-  rewrite Hltb. rewrite !Bool.andb_false_r. reflexivity.
+  induction l as [|a t IH]; intro H; [ reflexivity |].
+  cbn. rewrite (H a (or_introl eq_refl)). apply IH. intros x Hx. exact (H x (or_intror Hx)).
 Qed.
 
-(* a right-hand child sits inside the statement, so no addition is visible to it *)
-Lemma tr_added_invisible_rhs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (t : ShortTransition (s := s) st) (e : Est s)
-  (j : nat) (re : Index.ShortRhsEdge st j) :
-  In e (tr_added t) -> contains_visible e (Index.sr_child re) = false.
+Lemma filter_impl_le {A} (f g : A -> bool) (l : list A) :
+  (forall x, In x l -> f x = true -> g x = true) ->
+  length (filter f l) <= length (filter g l).
 Proof.
-  intro Hin. apply (tr_added_invisible_inside t e _ Hin).
-  apply Index.child_le_extent. exact (Index.sr_parent re).
+  induction l as [|a t IH]; intro H; [ cbn; lia |].
+  cbn. destruct (f a) eqn:Hf.
+  - rewrite (H a (or_introl eq_refl) Hf). cbn.
+    assert (IH' : length (filter f t) <= length (filter g t))
+      by (apply IH; intros x Hx; exact (H x (or_intror Hx))). lia.
+  - assert (IH' : length (filter f t) <= length (filter g t))
+      by (apply IH; intros x Hx; exact (H x (or_intror Hx))).
+    destruct (g a); cbn; lia.
 Qed.
 
-Lemma source_cands_actual {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) (e : Est s) :
-  In e (source_cands bp u n) -> In e (bp_ests bp).
-Proof. intro Hin. unfold source_cands in Hin. apply filter_In in Hin. exact (proj1 Hin). Qed.
-
-(* declaration groups never contain a short-origin object *)
-Lemma decl_group_no_short {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (x e : Est s) (sn : ShortNewRef idx) :
-  In e (decl_group bp x) -> est_origin e = DOShort sn -> False.
+Lemma flat_map_length_le {A B C} (f : A -> list B) (g : A -> list C) (l : list A) :
+  (forall x, In x l -> length (f x) <= length (g x)) ->
+  length (flat_map f l) <= length (flat_map g l).
 Proof.
-  intros Hin Hor. unfold decl_group, decl_group_core in Hin.
-  apply filter_In in Hin. destruct Hin as [_ Hd].
-  unfold is_decl_est in Hd. rewrite Hor in Hd. discriminate Hd.
+  induction l as [|a t IH]; intro H; [ cbn; lia |].
+  cbn. rewrite !length_app.
+  assert (IH' : length (flat_map f t) <= length (flat_map g t))
+    by (apply IH; intros x Hx; exact (H x (or_intror Hx))).
+  pose proof (H a (or_introl eq_refl)). lia.
+Qed.
+
+Lemma filter_filter {A} (f g : A -> bool) (l : list A) :
+  filter f (filter g l) = filter (fun x => andb (g x) (f x)) l.
+Proof.
+  induction l as [|a t IH]; [ reflexivity |].
+  cbn. destruct (g a) eqn:Hg; cbn; destruct (f a); cbn; rewrite IH; reflexivity.
+Qed.
+
+Lemma map_nth_error_inv {A B} (f : A -> B) (l : list A) (n : nat) (y : B) :
+  nth_error (map f l) n = Some y -> exists x, nth_error l n = Some x /\ y = f x.
+Proof.
+  revert n; induction l as [|a t IH]; intros [|n'] H; try discriminate H.
+  - injection H as <-. exists a. split; reflexivity.
+  - cbn in H. exact (IH n' H).
+Qed.
+
+Lemma nodup_map_nth {A B} (f : A -> B) (l : list A) (i j : nat) (x y : A) :
+  NoDup (map f l) -> nth_error l i = Some x -> nth_error l j = Some y ->
+  f x = f y -> i = j.
+Proof.
+  intros Hnd Hi Hj Hf.
+  assert (Hi' : nth_error (map f l) i = Some (f x)) by (apply map_nth_error; exact Hi).
+  assert (Hj' : nth_error (map f l) j = Some (f y)) by (apply map_nth_error; exact Hj).
+  rewrite Hf in Hi'.
+  apply (NoDup_nth_error (map f l)); [ exact Hnd | | congruence ].
+  apply nth_error_Some. rewrite Hi'. discriminate.
+Qed.
+
+(* a total singleton emitter enumerates positionally: position k of the image is the image of position k *)
+Lemma flatmap_singleton_nth {A B} (f : A -> option B) (l : list A) :
+  (forall x, In x l -> f x <> None) ->
+  forall k x, nth_error l k = Some x ->
+  exists y, nth_error (flat_map (fun a => match f a with Some b => [b] | None => [] end) l) k = Some y
+            /\ f x = Some y.
+Proof.
+  induction l as [|a t IH]; intros Htot k x Hk; [ destruct k; discriminate Hk |].
+  destruct (f a) as [b|] eqn:Hf;
+    [| exfalso; exact (Htot a (or_introl eq_refl) Hf) ].
+  destruct k as [|k'].
+  - injection Hk as <-. exists b. cbn. rewrite Hf. cbn.
+    split; reflexivity.
+  - cbn in Hk. cbn. rewrite Hf. cbn.
+    apply (IH (fun x Hx => Htot x (or_intror Hx)) k' x Hk).
+Qed.
+
+(* the retained package roster is positional: each package sits at its exact position *)
+Lemma packages_nth {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
+  (pr : PI.PackageRef s) :
+  nth_error (PI.packages s) (PI.pr_pos pr) = Some pr.
+Proof.
+  assert (Hseq : nth_error (seq 0 (PI.package_count s)) (PI.pr_pos pr) = Some (PI.pr_pos pr)).
+  { rewrite (nth_error_nth' (seq 0 (PI.package_count s)) 0);
+      [| rewrite length_seq; exact (PI.pr_lt pr) ].
+    rewrite seq_nth; [ reflexivity | exact (PI.pr_lt pr) ]. }
+  assert (Htot : forall n, In n (seq 0 (PI.package_count s)) -> PI.mk_packageref s n <> None).
+  { intros n Hn. apply in_seq in Hn. unfold PI.mk_packageref.
+    destruct (lt_dec n (PI.package_count s)); [ discriminate | lia ]. }
+  destruct (flatmap_singleton_nth (PI.mk_packageref s) (seq 0 (PI.package_count s)) Htot
+              (PI.pr_pos pr) (PI.pr_pos pr) Hseq) as [y [Hy Hmk]].
+  unfold PI.packages. rewrite Hy. f_equal.
+  unfold PI.mk_packageref in Hmk.
+  destruct (lt_dec (PI.pr_pos pr) (PI.package_count s)); [| discriminate Hmk ].
+  injection Hmk as <-. apply PI.pkgref_positional. reflexivity.
+Qed.
+
+(* every ref an event emits carries that exact site *)
+Lemma refs_scan_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (er : EstablishmentRef bp) :
+  forall l k (E : l = skipn k (event_adds bp site)),
+  In er (refs_scan bp site k l E) -> es_site er = site.
+Proof.
+  induction l as [|e0 rest IH]; intros k E Hin; [ destruct Hin |].
+  destruct Hin as [<-|Hin]; [ reflexivity | exact (IH _ _ Hin) ].
+Qed.
+
+Lemma refs_of_event_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (er : EstablishmentRef bp) :
+  In er (refs_of_event bp site) -> es_site er = site.
+Proof. apply refs_scan_site. Qed.
+
+(* the emitted refs project the event's exact additions, in order *)
+Lemma refs_scan_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  forall l k (E : l = skipn k (event_adds bp site)),
+  map es_est (refs_scan bp site k l E) = l.
+Proof.
+  induction l as [|e0 rest IH]; intros k E; [ reflexivity |].
+  cbn. rewrite IH. reflexivity.
+Qed.
+
+Lemma refs_of_event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  map es_est (refs_of_event bp site) = event_adds bp site.
+Proof. apply refs_scan_ests. Qed.
+
+Lemma refs_of_event_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (adds : list (Est s)) :
+  event_adds_at bp site = Some adds ->
+  map es_est (refs_of_event bp site) = adds.
+Proof.
+  intro H. rewrite refs_of_event_adds. unfold event_adds. rewrite H. reflexivity.
+Qed.
+
+(* every ref an event emits projects an exact retained addition of that event *)
+Lemma refs_of_event_est_in {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) (er : EstablishmentRef bp) :
+  In er (refs_of_event bp site) ->
+  exists adds, event_adds_at bp site = Some adds /\ In (es_est er) adds.
+Proof.
+  intro Hin.
+  assert (Hin' : In (es_est er) (event_adds bp site))
+    by (rewrite <- refs_of_event_adds; apply in_map; exact Hin).
+  revert Hin'. unfold event_adds.
+  destruct (event_adds_at bp site) as [adds|]; [| intro F; destruct F ].
+  intro Hin'. exists adds. split; [ reflexivity | exact Hin' ].
+Qed.
+
+Lemma refs_of_event_none {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  event_adds_at bp site = None -> refs_of_event bp site = [].
+Proof.
+  intro H.
+  assert (Hnil : event_adds bp site = []) by (unfold event_adds; rewrite H; reflexivity).
+  apply (f_equal (@length _)) in Hnil.
+  pose proof (refs_of_event_adds bp site) as Hm.
+  apply (f_equal (@length _)) in Hm. rewrite length_map in Hm.
+  destruct (refs_of_event bp site); [ reflexivity |].
+  cbn in Hm. unfold event_adds in *. rewrite H in Hm. cbn in Hm. discriminate Hm.
+Qed.
+
+Lemma refs_of_event_nil {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  event_adds_at bp site = Some [] -> refs_of_event bp site = [].
+Proof.
+  intro H.
+  pose proof (refs_of_event_adds bp site) as Hm.
+  unfold event_adds in Hm. rewrite H in Hm.
+  destruct (refs_of_event bp site); [ reflexivity | discriminate Hm ].
+Qed.
+
+(* the exact block lookup an event site performs *)
+Lemma event_adds_at_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix eix : nat) (tr : TraceRow s) (ev : BlockEv s) :
+  nth_error (bp_traces bp) tix = Some tr -> nth_error (trow_evs tr) eix = Some ev ->
+  event_adds_at bp (BlockEventAt tix eix) = Some (bev_adds (trow_block tr) ev).
+Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
+
+Lemma event_adds_at_block_over {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix eix : nat) (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr -> nth_error (trow_evs tr) eix = None ->
+  event_adds_at bp (BlockEventAt tix eix) = None.
+Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
+
+Lemma event_adds_at_pkg {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pix eix : nat) (l : list (PkgEv s)) (row : PkgEv s) :
+  nth_error (bp_ledgers bp) pix = Some l -> nth_error l eix = Some row ->
+  event_adds_at bp (PkgEventAt pix eix) = Some (snd row).
+Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
+
+Lemma spec_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {fl : Index.SpecFlavor} (sc : ScopeId s) (sp : Index.SpecRef idx fl) (e : Est s) :
+  In e (spec_ests sc sp) -> est_scope e = sc.
+Proof.
+  unfold spec_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  destruct (spec_name_est sc (projT2 x)) as [e0|] eqn:He0; [| destruct Hin ].
+  destruct Hin as [<-|F]; [| destruct F ].
+  exact (proj1 (spec_name_est_fields sc (projT2 x) e0 He0)).
+Qed.
+
+Lemma spec_emit_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v)
+  (e : Est s) :
+  In e (spec_emit sc r v Hv) -> est_scope e = sc.
+Proof.
+  destruct v; cbv beta iota delta [spec_emit];
+    try (intro F; destruct F); apply spec_ests_scope.
+Qed.
+
+Lemma decl_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (d : Index.NodeRef idx) (e : Est s) :
+  In e (decl_ests sc d) -> est_scope e = sc.
+Proof.
+  unfold decl_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  exact (spec_emit_scope sc _ _ eq_refl e Hin).
+Qed.
+
+Lemma stmt_decl_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (t : Index.NodeRef idx) (e : Est s) :
+  In e (stmt_decl_ests sc t) -> est_scope e = sc.
+Proof.
+  unfold stmt_decl_ests. destruct (Index.child_at_opt t 0) as [ce|];
+    [ apply decl_ests_scope | intro F; destruct F ].
+Qed.
+
+Lemma decl_rows_edges_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) {fl : Index.SpecFlavor} {sp : Index.SpecRef idx fl} :
+  forall (l : list { i : nat & Index.SpecNameEdge sp i }) (earlier : list (Est s)) (e : Est s),
+  In e (rows_adds (decl_rows_edges env sc l earlier)) -> est_scope e = sc.
+Proof.
+  induction l as [|x t IH]; intros earlier e Hin; [ destruct Hin |].
+  cbn in Hin. unfold decl_row_add at 1 in Hin. cbn [snd fst] in Hin.
+  destruct (spec_name_est sc (projT2 x)) as [e0|] eqn:He0.
+  - cbn in Hin. destruct Hin as [<-|Hin];
+      [ exact (proj1 (spec_name_est_fields sc (projT2 x) e0 He0)) | exact (IH _ e Hin) ].
+  - cbn in Hin. exact (IH _ e Hin).
+Qed.
+
+Lemma decl_rows_spec_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) (earlier : list (Est s)) (e : Est s) :
+  In e (rows_adds (decl_rows_spec env sc r v Hv earlier)) -> est_scope e = sc.
+Proof.
+  destruct v; cbv beta iota delta [decl_rows_spec];
+    try (intro F; destruct F); apply decl_rows_edges_scope.
+Qed.
+
+Lemma decl_rows_children_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (sc : ScopeId s) {d : Index.NodeRef idx} :
+  forall (l : list { o : nat & Index.ChildAt d o }) (earlier : list (Est s)) (e : Est s),
+  In e (rows_adds (decl_rows_children env sc l earlier)) -> est_scope e = sc.
+Proof.
+  induction l as [|x t IH]; intros earlier e Hin; [ destruct Hin |].
+  cbn [decl_rows_children] in Hin. unfold rows_adds in Hin.
+  rewrite flat_map_app in Hin.
+  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - exact (decl_rows_spec_scope env sc _ _ eq_refl earlier e Hin).
+  - exact (IH _ e Hin).
+Qed.
+
+Lemma decl_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (Est s)} {sc : ScopeId s} {t : Index.NodeRef idx}
+  (dj : DeclJudgment env sc t) (e : Est s) :
+  In e (decl_adds dj) -> est_scope e = sc.
+Proof.
+  unfold decl_adds. rewrite (dj_ok dj). unfold decl_judge.
+  destruct (Index.child_at_opt t 0) as [ce|]; [| intro F; destruct F ].
+  apply decl_rows_children_scope.
+Qed.
+
+Lemma new_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {env : list (Est s)} {st : Index.ShortStmtRef idx}
+  (sj : ShortJudgment env st) (e : Est s) :
+  In e (new_ests br sj) -> est_scope e = BlockScope br.
+Proof.
+  unfold new_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  destruct (slj_view (projT2 x)); try (exact (match Hin with end)).
+  destruct Hin as [<-|F]; [ reflexivity | destruct F ].
+Qed.
+
+(* dependent boolean convoys reduce under a known scrutinee value *)
+Lemma bool_convoy_true {T : Type} (X : bool) (f : X = true -> T) (g : X = false -> T) (H : X = true) :
+  (match X as b return X = b -> T with true => f | false => g end) eq_refl = f H.
+Proof.
+  destruct X; [| discriminate H ].
+  rewrite (UIP_dec Bool.bool_dec H eq_refl). reflexivity.
+Qed.
+
+Lemma bool_convoy_false {T : Type} (X : bool) (f : X = true -> T) (g : X = false -> T) (H : X = false) :
+  (match X as b return X = b -> T with true => f | false => g end) eq_refl = g H.
+Proof.
+  destruct X; [ discriminate H |].
+  rewrite (UIP_dec Bool.bool_dec H eq_refl). reflexivity.
+Qed.
+
+Lemma flat_map_map {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l as [|a t IH]; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
+
+Lemma flat_map_flat_map {A B C} (g : B -> list C) (f : A -> list B) (l : list A) :
+  flat_map g (flat_map f l) = flat_map (fun x => flat_map g (f x)) l.
+Proof.
+  induction l as [|a t IH]; [ reflexivity |].
+  cbn. rewrite flat_map_app, IH. reflexivity.
+Qed.
+
+(* a positional emitter over an exact index range enumerates the underlying rows *)
+Lemma flat_map_nth_gen {A B} (l : list A) (g : A -> list B) (F : nat -> list B) :
+  (forall k x, nth_error l k = Some x -> F k = g x) ->
+  forall t k, t = skipn k l -> flat_map F (seq k (length t)) = flat_map g t.
+Proof.
+  intros Hpt. induction t as [|x t' IH]; intros k Ht; [ reflexivity |].
+  cbn [length seq flat_map].
+  rewrite (Hpt k x (Index.skipn_head_at l t' k x Ht)).
+  rewrite (IH (S k) (Index.skipn_tail_at l t' k x Ht)). reflexivity.
+Qed.
+
+Lemma firstn_nth_error {A} (l : list A) :
+  forall n k x, nth_error (firstn n l) k = Some x -> nth_error l k = Some x.
+Proof.
+  induction l as [|a t IH]; intros [|n'] [|k'] x H; try discriminate H;
+    [ exact H | exact (IH n' k' x H) ].
+Qed.
+
+(* the retained graph is exactly the one canonical construction: the phase pin names the builder *)
+Lemma bp_ledgers_form {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : bp_ledgers bp = map (Internal.ledger_of s) (PI.packages s).
+Proof. unfold bp_ledgers. rewrite (proj2_sig bp). reflexivity. Qed.
+
+Lemma bp_traces_form {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : bp_traces bp = flat_map (Internal.traces_of_pkg s) (PI.packages s).
+Proof. unfold bp_traces. rewrite (proj2_sig bp). reflexivity. Qed.
+
+Lemma bp_consts_form {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : bp_consts bp = const_table s.
+Proof. unfold bp_consts. rewrite (proj2_sig bp). reflexivity. Qed.
+
+(* exactly one ledger per exact package, at the package's exact position *)
+Lemma bp_ledgers_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) :
+  nth_error (bp_ledgers bp) (PI.pr_pos pr) = Some (Internal.ledger_of s pr).
+Proof.
+  rewrite bp_ledgers_form. exact (map_nth_error _ _ _ (packages_nth s pr)).
+Qed.
+
+Lemma bp_ledgers_len {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : length (bp_ledgers bp) = length (PI.packages s).
+Proof. rewrite bp_ledgers_form. apply length_map. Qed.
+
+Lemma bp_ledgers_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pix : nat) (l : list (PkgEv s)) :
+  nth_error (bp_ledgers bp) pix = Some l ->
+  exists pr, nth_error (PI.packages s) pix = Some pr /\ l = Internal.ledger_of s pr.
+Proof. rewrite bp_ledgers_form. apply map_nth_error_inv. Qed.
+
+(* every retained ledger row is one exact canonical package event, and every such event is retained *)
+Lemma ledger_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (row : PkgEv s) :
+  In row (Internal.ledger_of s pr) ->
+  exists r, In (Index.nr_file r) (PI.pkg_members pr) /\ Internal.pkg_event_at s pr r = Some row.
+Proof.
+  unfold Internal.ledger_of. intro Hin.
+  apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+  apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
+  destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+  destruct (Internal.pkg_event_at s pr r) as [row0|] eqn:Hev; [| destruct Hin ].
+  destruct Hin as [<-|F]; [| destruct F ].
+  exists r. rewrite (Index.mk_noderef_file fr _ r Hmk). split; [ exact Hfr | exact Hev ].
+Qed.
+
+Lemma ledger_covers {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (row : PkgEv s) :
+  In (Index.nr_file r) (PI.pkg_members pr) ->
+  Internal.pkg_event_at s pr r = Some row ->
+  In row (Internal.ledger_of s pr).
+Proof.
+  intros Hfr Hev. unfold Internal.ledger_of.
+  apply in_flat_map. exists (Index.nr_file r). split; [ exact Hfr |].
+  apply in_flat_map. exists (Index.nr_pos r).
+  split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
+  rewrite <- Index.nr_key_pos, Index.mk_noderef_self. cbv beta iota.
+  rewrite Hev. left; reflexivity.
+Qed.
+
+(* a canonical package event carries its exact top occurrence as its site *)
+Lemma pkg_event_at_fst {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (row : PkgEv s) :
+  Internal.pkg_event_at s pr r = Some row -> fst row = r.
+Proof.
+  unfold Internal.pkg_event_at. destruct (Index.node_view r) as [| | | | | | | | | | | |ts|]; try discriminate.
+  destruct ts.
+  - intro H. injection H as <-. reflexivity.
+  - destruct (make_main_est pr r); intro H; [ injection H as <-; reflexivity | discriminate H ].
+Qed.
+
+(* every addition of a canonical package event establishes at exactly that package's scope *)
+Lemma pkg_event_at_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (row : PkgEv s) (e : Est s) :
+  Internal.pkg_event_at s pr r = Some row -> In e (snd row) ->
+  est_scope e = PackageScope pr.
+Proof.
+  unfold Internal.pkg_event_at. destruct (Index.node_view r) as [| | | | | | | | | | | |ts|]; try discriminate.
+  destruct ts.
+  - intro H. injection H as <-. cbn. apply stmt_decl_ests_scope.
+  - destruct (make_main_est pr r) as [e0|] eqn:Hm; intro H; [| discriminate H ].
+    injection H as <-. cbn. intros [<-|F]; [| destruct F ].
+    exact (proj1 (proj2 (proj2 (make_main_est_some pr r e0 Hm)))).
+Qed.
+
+(* every addition of a canonical package event sites at exactly its top occurrence *)
+Lemma pkg_event_at_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (row : PkgEv s) (e : Est s) :
+  Internal.pkg_event_at s pr r = Some row -> In e (snd row) ->
+  est_site e = Some r.
+Proof.
+  unfold Internal.pkg_event_at. destruct (Index.node_view r) as [| | | | | | | | | | | |ts|]; try discriminate.
+  destruct ts.
+  - intro H. injection H as <-. cbn. apply stmt_decl_ests_site.
+  - destruct (make_main_est pr r) as [e0|] eqn:Hm; intro H; [| discriminate H ].
+    injection H as <-. cbn. intros [<-|F]; [| destruct F ].
+    destruct (make_main_est_some pr r e0 Hm) as [[f Hf] [Hnode _]].
+    unfold est_site. rewrite Hf, Hnode. reflexivity.
+Qed.
+
+(* the refs of a package event site establish at exactly that package's scope *)
+Lemma ledger_add_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pix eix : nat) (pr : PI.PackageRef s) (er : EstablishmentRef bp) :
+  nth_error (PI.packages s) pix = Some pr ->
+  In er (refs_of_event bp (PkgEventAt pix eix)) ->
+  est_scope (es_est er) = PackageScope pr.
+Proof.
+  intros Hpr Hin.
+  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
+  cbn in Hadds.
+  destruct (nth_error (bp_ledgers bp) pix) as [l|] eqn:Hl; [| discriminate Hadds ].
+  destruct (nth_error l eix) as [row|] eqn:Hrow; [| discriminate Hadds ].
+  injection Hadds as <-.
+  destruct (bp_ledgers_row bp pix l Hl) as [pr' [Hpr' Hlf]].
+  assert (Hpe : pr' = pr) by congruence. subst pr' l.
+  destruct (ledger_row pr row (nth_error_In _ _ Hrow)) as [r [_ Hev]].
+  exact (pkg_event_at_scope pr r row (es_est er) Hev Hest).
+Qed.
+
+(* every retained trace row is the canonical fold of its exact block over its package's final environment *)
+Lemma bp_traces_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tr : TraceRow s) :
+  In tr (bp_traces bp) ->
+  exists (pr : PI.PackageRef s) (r : Index.NodeRef idx)
+         (Hb : Index.is_block_view (Index.node_view r) = true),
+    In pr (PI.packages s) /\ In (Index.nr_file r) (PI.pkg_members pr)
+    /\ tr = (Index.mkBlockRef r Hb, PI.pr_pos pr,
+             Internal.block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
+               (Internal.pkg_env_of s pr)).
+Proof.
+  rewrite bp_traces_form. intro Hin.
+  apply in_flat_map in Hin. destruct Hin as [pr [Hpr Hin]].
+  unfold Internal.traces_of_pkg in Hin. cbv zeta in Hin.
+  apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+  apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
+  destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+  destruct (Bool.bool_dec (Index.is_block_view (Index.node_view r)) true) as [Hb|Hneq].
+  - rewrite (bool_convoy_true _ _ _ Hb) in Hin.
+    destruct Hin as [He|F]; [| destruct F ].
+    exists pr, r, Hb.
+    rewrite <- (Index.mk_noderef_file fr _ r Hmk) in Hfr.
+    split; [ exact Hpr |]. split; [ exact Hfr |]. exact (eq_sym He).
+  - rewrite (bool_convoy_false _ _ _ (Bool.not_true_is_false _ Hneq)) in Hin. destruct Hin.
+Qed.
+
+(* the trace of every represented block exists in the phase *)
+Lemma traces_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (r : Index.NodeRef idx) (Hb : Index.is_block_view (Index.node_view r) = true) :
+  In (Index.mkBlockRef r Hb, PI.pr_pos (PI.package_of_file s (Index.nr_file r)),
+      Internal.block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
+        (Internal.pkg_env_of s (PI.package_of_file s (Index.nr_file r))))
+     (bp_traces bp).
+Proof.
+  rewrite bp_traces_form.
+  set (pr := PI.package_of_file s (Index.nr_file r)).
+  apply in_flat_map. exists pr. split; [ apply PI.packages_complete |].
+  unfold Internal.traces_of_pkg. cbv zeta.
+  apply in_flat_map. exists (Index.nr_file r). split; [ apply PI.pkg_members_of_file |].
+  apply in_flat_map. exists (Index.nr_pos r).
+  split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
+  rewrite <- Index.nr_key_pos, Index.mk_noderef_self. cbv beta iota.
+  rewrite (bool_convoy_true _ _ _ Hb). left; reflexivity.
+Qed.
+
+(* one event per direct statement: the canonical fold maps the block's children one to one *)
+Lemma block_fold_length {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) :
+  forall (l : list { o : nat & Index.ChildAt (Index.bl_node br) o }) (env : list (Est s)),
+  length (Internal.block_fold s br l env) = length l.
+Proof.
+  induction l as [|x t IH]; intro env; [ reflexivity |].
+  cbn. rewrite IH. reflexivity.
+Qed.
+
+Lemma block_fold_nth {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) :
+  forall (l : list { o : nat & Index.ChildAt (Index.bl_node br) o }) (env : list (Est s)) (j : nat)
+         (x : { o : nat & Index.ChildAt (Index.bl_node br) o }),
+  nth_error l j = Some x ->
+  exists env',
+    nth_error (Internal.block_fold s br l env) j
+    = Some (Internal.block_event s br env' (Index.ca_child (projT2 x))
+              (Index.node_view (Index.ca_child (projT2 x))) eq_refl).
+Proof.
+  induction l as [|x0 t IH]; intros env j x Hj; [ destruct j; discriminate Hj |].
+  destruct j as [|j'].
+  - injection Hj as <-. eexists. reflexivity.
+  - cbn in Hj. cbn. exact (IH _ j' x Hj).
+Qed.
+
+(* the exact inverse: the j-th event is the canonical event of the j-th child over the exact threaded environment *)
+Lemma block_fold_nth_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) :
+  forall (l : list { o : nat & Index.ChildAt (Index.bl_node br) o }) (env : list (Est s)) (j : nat)
+         (ev : BlockEv s),
+  nth_error (Internal.block_fold s br l env) j = Some ev ->
+  exists x,
+    nth_error l j = Some x
+    /\ ev = Internal.block_event s br
+              (env ++ flat_map (bev_adds br) (firstn j (Internal.block_fold s br l env)))
+              (Index.ca_child (projT2 x)) (Index.node_view (Index.ca_child (projT2 x))) eq_refl.
+Proof.
+  induction l as [|x0 t IH]; intros env j ev Hj; [ destruct j; discriminate Hj |].
+  destruct j as [|j'].
+  - injection Hj as <-. exists x0. split; [ reflexivity |].
+    cbn [firstn flat_map]. rewrite app_nil_r. reflexivity.
+  - cbn in Hj. destruct (IH _ j' ev Hj) as [x [Hx He]].
+    exists x. split; [ exact Hx |].
+    rewrite He. cbn [Internal.block_fold firstn flat_map].
+    rewrite app_assoc. reflexivity.
+Qed.
+
+(* the exact occurrence an event names, uniform over its kinds *)
+Lemma block_event_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) :
+  bev_node (Internal.block_event s br env c v Hv) = c.
+Proof.
+  destruct v; cbn; try reflexivity.
+  match goal with sh0 : Index.StmtShape |- _ => destruct sh0; reflexivity end.
+Qed.
+
+(* an event retains its exact judged environment, or is a no-binding expression event *)
+Lemma block_event_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) :
+  bev_env (Internal.block_event s br env c v Hv) = env
+  \/ Internal.block_event s br env c v Hv = BEvExpr c.
+Proof.
+  destruct v; cbn; try (right; reflexivity).
+  match goal with sh0 : Index.StmtShape |- _ => destruct sh0 end;
+    [ right; reflexivity | left; reflexivity | left; reflexivity ].
+Qed.
+
+(* the canonical events of a short or declaration statement, evaluated at their exact known views *)
+Lemma block_event_short_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) (nn nv : nat) :
+  v = Index.VStmt (Index.SSShort nn nv) ->
+  exists Hv0 : Index.node_view c = Index.VStmt (Index.SSShort nn nv),
+    Internal.block_event s br env c v Hv
+    = BEvShort env (Index.mkShortStmtRef c nn nv Hv0)
+        (short_judgment_of env (Index.mkShortStmtRef c nn nv Hv0)).
+Proof. intro E. revert Hv. subst v. intro Hv. exists Hv. reflexivity. Qed.
+
+Lemma block_event_decl_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) :
+  v = Index.VStmt Index.SSDecl ->
+  Internal.block_event s br env c v Hv
+  = BEvDecl env (BlockScope br) c (decl_judgment_of env (BlockScope br) c).
+Proof. intro E. revert Hv. subst v. intro Hv. reflexivity. Qed.
+
+(* every addition of a canonical block event establishes at its exact block scope *)
+Lemma block_event_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br br' : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) (e : Est s) :
+  In e (bev_adds br' (Internal.block_event s br env c v Hv)) ->
+  est_scope e = BlockScope br \/ est_scope e = BlockScope br'.
+Proof.
+  destruct v; cbn; try (intro F; destruct F).
+  match goal with sh0 : Index.StmtShape |- _ => destruct sh0 as [| |nn nv] end; cbn.
+  - intro F; destruct F.
+  - intro Hin. left.
+    exact (decl_adds_scope (decl_judgment_of env (BlockScope br) c) e Hin).
+  - intro Hin. right.
+    exact (new_ests_scope br' (short_judgment_of env (Index.mkShortStmtRef c nn nv Hv)) e Hin).
+Qed.
+
+(* the refs of a block event site establish at exactly that trace's block scope *)
+Lemma trace_add_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix eix : nat) (tr : TraceRow s) (er : EstablishmentRef bp) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  est_scope (es_est er) = BlockScope (trow_block tr).
+Proof.
+  intros Htr Hin.
+  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
+  cbn in Hadds. rewrite Htr in Hadds. cbv beta iota in Hadds.
+  destruct (nth_error (trow_evs tr) eix) as [ev|] eqn:Hev; [| discriminate Hadds ].
+  injection Hadds as <-.
+  destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
+  assert (Hevs : trow_evs tr = Internal.block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
+                                 (Internal.pkg_env_of s pr)) by (rewrite Hform; reflexivity).
+  assert (Hblk : trow_block tr = Index.mkBlockRef r Hb) by (rewrite Hform; reflexivity).
+  rewrite Hevs in Hev.
+  destruct (block_fold_nth_env _ _ _ _ _ Hev) as [x [_ He]].
+  subst ev. rewrite Hblk in Hest.
+  destruct (block_event_adds_scope _ _ _ _ _ _ _ Hest) as [Hsc|Hsc]; rewrite Hblk; exact Hsc.
+Qed.
+
+(* the final package environment is exactly the ledger's additions, with retained provenance *)
+Lemma package_env_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) :
+  map es_est (package_env_refs bp pr) = Internal.pkg_env_of s pr.
+Proof.
+  unfold package_env_refs, pkg_sites, pkg_event_count.
+  rewrite (bp_ledgers_at bp pr). cbv beta iota.
+  rewrite flat_map_map, map_flat_map.
+  assert (Hpt : forall k row, nth_error (Internal.ledger_of s pr) k = Some row ->
+            map es_est (refs_of_event bp (PkgEventAt (PI.pr_pos pr) k)) = snd row).
+  { intros k row Hk.
+    apply refs_of_event_ests.
+    exact (event_adds_at_pkg bp _ k _ row (bp_ledgers_at bp pr) Hk). }
+  exact (flat_map_nth_gen (Internal.ledger_of s pr) (fun row => snd row) _ Hpt
+           (Internal.ledger_of s pr) 0 (eq_sym (skipn_O _))).
+Qed.
+
+(* the initial state is exactly the package seed; each successor adds exactly its event's refs *)
+Lemma state_refs_zero {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix : nat) (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  state_refs bp tix 0 = flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr)).
+Proof.
+  intro H. unfold state_refs. rewrite H. cbn [seq flat_map]. apply app_nil_r.
+Qed.
+
+Lemma state_refs_succ {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix i : nat) (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  state_refs bp tix (S i) = state_refs bp tix i ++ refs_of_event bp (BlockEventAt tix i).
+Proof.
+  intro H. unfold state_refs. rewrite H. cbv beta iota.
+  rewrite seq_S. cbn [Nat.add]. rewrite flat_map_app.
+  cbn [flat_map]. rewrite app_nil_r. apply app_assoc.
+Qed.
+
+(* cuts beyond the statement count add nothing: the trace has exactly statement_count + 1 states *)
+Lemma state_refs_saturates {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix cut : nat) (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  length (trow_evs tr) <= cut ->
+  state_refs bp tix cut = state_refs bp tix (length (trow_evs tr)).
+Proof.
+  intros H Hle. unfold state_refs. rewrite H. cbv beta iota.
+  replace (seq 0 cut)
+    with (seq 0 (length (trow_evs tr)) ++ seq (length (trow_evs tr)) (cut - length (trow_evs tr)))
+    by (rewrite <- seq_app; f_equal; lia).
+  rewrite flat_map_app.
+  rewrite (flat_map_nil_all _ (seq (length (trow_evs tr)) (cut - length (trow_evs tr))));
+    [ rewrite app_nil_r; reflexivity |].
+  intros eix Hin. apply in_seq in Hin.
+  apply refs_of_event_none.
+  apply (event_adds_at_block_over bp tix eix tr H).
+  apply nth_error_None. lia.
+Qed.
+
+(* a state member is a package-seed ref or the ref of an exactly earlier event; nothing future leaks in *)
+Lemma state_member_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix cut : nat) (er : EstablishmentRef bp) :
+  In er (state_refs bp tix cut) ->
+  (exists pix eix, es_site er = PkgEventAt pix eix)
+  \/ (exists eix, es_site er = BlockEventAt tix eix /\ eix < cut).
+Proof.
+  unfold state_refs.
+  destruct (nth_error (bp_traces bp) tix) as [tr|]; [| intro F; destruct F ].
+  intro Hin. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - left. apply in_flat_map in Hin. destruct Hin as [site [Hsite Hin]].
+    unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
+    destruct Hsite as [eix [<- _]].
+    exists (trow_pkg tr), eix. exact (refs_of_event_site bp _ er Hin).
+  - right. apply in_flat_map in Hin. destruct Hin as [eix [Hseq Hin]].
+    apply in_seq in Hseq.
+    exists eix. split; [ exact (refs_of_event_site bp _ er Hin) | lia ].
+Qed.
+
+Lemma state_covers {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix cut eix : nat) (tr : TraceRow s) (er : EstablishmentRef bp) :
+  nth_error (bp_traces bp) tix = Some tr -> eix < cut ->
+  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  In er (state_refs bp tix cut).
+Proof.
+  intros Htr Hlt Hin. unfold state_refs. rewrite Htr. cbv beta iota.
+  apply in_or_app. right.
+  apply in_flat_map. exists eix. split; [ apply in_seq; lia | exact Hin ].
+Qed.
+
+(* the est projection of a state: the exact final package environment, then the earlier additions in order *)
+Lemma state_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix cut : nat) (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  cut <= length (trow_evs tr) ->
+  map es_est (state_refs bp tix cut)
+  = map es_est (flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr)))
+    ++ flat_map (bev_adds (trow_block tr)) (firstn cut (trow_evs tr)).
+Proof.
+  intros Htr Hle. unfold state_refs. rewrite Htr. cbv beta iota.
+  rewrite map_app. f_equal.
+  rewrite map_flat_map.
+  replace (seq 0 cut) with (seq 0 (length (firstn cut (trow_evs tr))))
+    by (rewrite length_firstn; f_equal; lia).
+  assert (Hpt : forall k ev, nth_error (firstn cut (trow_evs tr)) k = Some ev ->
+            map es_est (refs_of_event bp (BlockEventAt tix k)) = bev_adds (trow_block tr) ev).
+  { intros k ev Hk.
+    apply refs_of_event_ests.
+    exact (event_adds_at_block bp tix k tr ev Htr (firstn_nth_error _ _ _ _ Hk)). }
+  exact (flat_map_nth_gen (firstn cut (trow_evs tr)) (bev_adds (trow_block tr)) _ Hpt
+           (firstn cut (trow_evs tr)) 0 (eq_sym (skipn_O _))).
+Qed.
+
+(* a no-binding event moves the cut but adds nothing: distinct identities, equal member projections *)
+Lemma state_refs_expr_step {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix i : nat) (tr : TraceRow s) (r : Index.NodeRef idx) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  nth_error (trow_evs tr) i = Some (BEvExpr r) ->
+  state_refs bp tix (S i) = state_refs bp tix i.
+Proof.
+  intros Htr Hev.
+  rewrite (state_refs_succ bp tix i tr Htr).
+  rewrite (refs_of_event_nil bp _ (event_adds_at_block bp tix i tr _ Htr Hev)).
+  apply app_nil_r.
+Qed.
+
+Lemma nodup_map_inj {A B} (f : A -> B) (l : list A) :
+  (forall x y, f x = f y -> x = y) -> NoDup l -> NoDup (map f l).
+Proof.
+  intros Hinj Hnd. induction Hnd as [|x t Hx Hnd IH]; [ constructor |].
+  cbn. constructor; [| exact IH ].
+  intro Hin. apply in_map_iff in Hin. destruct Hin as [y [Hy Hin]].
+  apply Hinj in Hy. subst y. exact (Hx Hin).
+Qed.
+
+Lemma nodup_map_impl {A B C} (f : A -> B) (g : A -> C) (l : list A) :
+  (forall x y, In x l -> In y l -> f x = f y -> g x = g y) ->
+  NoDup (map g l) -> NoDup (map f l).
+Proof.
+  induction l as [|a t IH]; intros Himpl Hnd; [ constructor |].
+  cbn in Hnd |- *. inversion Hnd as [|? ? Hga Hnd']; subst.
+  constructor.
+  - intro Hin. apply in_map_iff in Hin. destruct Hin as [y [Hy Hin]].
+    apply Hga. apply in_map_iff. exists y. split; [| exact Hin ].
+    symmetry. apply (Himpl a y (or_introl eq_refl) (or_intror Hin)). symmetry. exact Hy.
+  - apply IH; [| exact Hnd' ].
+    intros x y Hx Hy. exact (Himpl x y (or_intror Hx) (or_intror Hy)).
+Qed.
+
+Lemma nodup_app_disjoint {A} (a b : list A) :
+  NoDup a -> NoDup b -> (forall x, In x a -> In x b -> False) -> NoDup (a ++ b).
+Proof.
+  induction a as [|x t IH]; intros Ha Hb Hdis; [ exact Hb |].
+  inversion Ha as [|? ? Hx Ha']; subst. cbn. constructor.
+  - intro Hin. apply in_app_or in Hin. destruct Hin as [Hin|Hin];
+      [ exact (Hx Hin) | exact (Hdis x (or_introl eq_refl) Hin) ].
+  - apply IH; [ exact Ha' | exact Hb |].
+    intros y Hy Hyb. exact (Hdis y (or_intror Hy) Hyb).
+Qed.
+
+(* a canonical package event's additions are duplicate-free *)
+Lemma pkg_event_at_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (r : Index.NodeRef idx) (row : PkgEv s) :
+  Internal.pkg_event_at s pr r = Some row -> NoDup (snd row).
+Proof.
+  unfold Internal.pkg_event_at. destruct (Index.node_view r) as [| | | | | | | | | | | |ts|]; try discriminate.
+  destruct ts.
+  - intro H. injection H as <-. apply stmt_decl_ests_nodup.
+  - destruct (make_main_est pr r) as [e0|]; intro H; [| discriminate H ].
+    injection H as <-. cbn. repeat constructor. intro F; destruct F.
+Qed.
+
+(* each package ledger names each top occurrence at most once *)
+Lemma ledger_nodes_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) : NoDup (map fst (Internal.ledger_of s pr)).
+Proof.
+  unfold Internal.ledger_of. rewrite map_flat_map.
+  apply (flat_map_nodup_key _ Index.nr_file (fun fr => fr));
+    [ rewrite map_id; apply pkg_members_nodup | |].
+  - intros fr _. rewrite map_flat_map.
+    apply (flat_map_nodup_key _ Index.nr_pos (fun pos => pos));
+      [ rewrite map_id; apply seq_NoDup | |].
+    + intros pos _.
+      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| constructor ].
+      destruct (Internal.pkg_event_at s pr r) as [row|]; cbn; repeat constructor. intro F; destruct F.
+    + intros pos rn _ Hin.
+      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+      destruct (Internal.pkg_event_at s pr r) as [row|] eqn:Hev; [| destruct Hin ].
+      destruct Hin as [<-|F]; [| destruct F ].
+      rewrite (pkg_event_at_fst pr r row Hev).
+      exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
+  - intros fr rn _ Hin. rewrite map_flat_map in Hin.
+    apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
+    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+    destruct (Internal.pkg_event_at s pr r) as [row|] eqn:Hev; [| destruct Hin ].
+    destruct Hin as [<-|F]; [| destruct F ].
+    rewrite (pkg_event_at_fst pr r row Hev).
+    exact (Index.mk_noderef_file fr _ r Hmk).
+Qed.
+
+(* the final package environment is duplicate-free: one establishment per exact source site *)
+Lemma pkg_env_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) : NoDup (Internal.pkg_env_of s pr).
+Proof.
+  unfold Internal.pkg_env_of.
+  apply (flat_map_nodup_key _ est_site (fun row => Some (fst row))).
+  - apply (nodup_map_impl _ (fun row => fst row));
+      [ intros x y _ _ H; injection H as H; exact H | apply ledger_nodes_nodup ].
+  - intros row Hin.
+    destruct (ledger_row pr row Hin) as [r [_ Hev]].
+    exact (pkg_event_at_nodup pr r row Hev).
+  - intros row e Hin He.
+    destruct (ledger_row pr row Hin) as [r [_ Hev]].
+    rewrite (pkg_event_at_site pr r row e Hev He).
+    rewrite (pkg_event_at_fst pr r row Hev). reflexivity.
+Qed.
+
+(* exactly one block trace per exact block *)
+Lemma traces_nodes_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) :
+  NoDup (map (fun tr => Index.bl_node (trow_block tr)) (bp_traces bp)).
+Proof.
+  rewrite bp_traces_form, map_flat_map.
+  apply (flat_map_nodup_key _ (fun r => PI.package_of_file s (Index.nr_file r)) (fun pr => pr));
+    [ rewrite map_id; apply packages_nodup | |].
+  - intros pr _. unfold Internal.traces_of_pkg. cbv zeta. rewrite map_flat_map.
+    apply (flat_map_nodup_key _ Index.nr_file (fun fr => fr));
+      [ rewrite map_id; apply pkg_members_nodup | |].
+    + intros fr _. rewrite map_flat_map.
+      apply (flat_map_nodup_key _ Index.nr_pos (fun pos => pos));
+        [ rewrite map_id; apply seq_NoDup | |].
+      * intros pos _.
+        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| constructor ].
+        destruct (Bool.bool_dec (Index.is_block_view (Index.node_view r)) true) as [Hb|Hneq];
+          [ rewrite (bool_convoy_true _ _ _ Hb)
+          | rewrite (bool_convoy_false _ _ _ (Bool.not_true_is_false _ Hneq)) ];
+          cbn; repeat constructor. intro F; destruct F.
+      * intros pos rn _ Hin.
+        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+        destruct (Bool.bool_dec (Index.is_block_view (Index.node_view r)) true) as [Hb|Hneq];
+          [ rewrite (bool_convoy_true _ _ _ Hb) in Hin
+          | rewrite (bool_convoy_false _ _ _ (Bool.not_true_is_false _ Hneq)) in Hin; destruct Hin ].
+        destruct Hin as [<-|F]; [| destruct F ].
+        exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
+    + intros fr rn _ Hin. rewrite map_flat_map in Hin.
+      apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
+      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+      destruct (Bool.bool_dec (Index.is_block_view (Index.node_view r)) true) as [Hb|Hneq];
+        [ rewrite (bool_convoy_true _ _ _ Hb) in Hin
+        | rewrite (bool_convoy_false _ _ _ (Bool.not_true_is_false _ Hneq)) in Hin; destruct Hin ].
+      destruct Hin as [<-|F]; [| destruct F ].
+      exact (Index.mk_noderef_file fr _ r Hmk).
+  - intros pr rn Hpr Hin.
+    apply in_map_iff in Hin. destruct Hin as [tr [Hnode Hin]].
+    unfold Internal.traces_of_pkg in Hin. cbv zeta in Hin.
+    apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+    apply in_flat_map in Hin. destruct Hin as [pos [_ Hin]].
+    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+    destruct (Bool.bool_dec (Index.is_block_view (Index.node_view r)) true) as [Hb|Hneq];
+      [ rewrite (bool_convoy_true _ _ _ Hb) in Hin
+      | rewrite (bool_convoy_false _ _ _ (Bool.not_true_is_false _ Hneq)) in Hin; destruct Hin ].
+    destruct Hin as [<-|F]; [| destruct F ].
+    cbn in Hnode. subst rn.
+    rewrite (Index.mk_noderef_file fr _ r Hmk).
+    exact (PI.package_of_file_member s pr fr Hfr).
+Qed.
+
+Lemma trace_at_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (i j : nat) (tri trj : TraceRow s) :
+  nth_error (bp_traces bp) i = Some tri -> nth_error (bp_traces bp) j = Some trj ->
+  Index.bl_node (trow_block tri) = Index.bl_node (trow_block trj) -> i = j.
+Proof.
+  intros Hi Hj He.
+  exact (nodup_map_nth _ _ i j tri trj (traces_nodes_nodup bp) Hi Hj He).
+Qed.
+
+(* one located trace: the exact ordinal, row, and retention pin of the first row satisfying a test *)
+Record TraceHit {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pred : TraceRow s -> bool) : Type := mk_trace_hit {
+  th_ord : nat ;
+  th_row : TraceRow s ;
+  th_at  : nth_error (bp_traces bp) th_ord = Some th_row ;
+  th_ok  : pred th_row = true
+}.
+Arguments mk_trace_hit {p idx s bp pred} _ _ _ _.
+Arguments th_ord {p idx s bp pred} _.
+Arguments th_row {p idx s bp pred} _.
+Arguments th_at {p idx s bp pred} _.
+Arguments th_ok {p idx s bp pred} _.
+
+Fixpoint trace_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pred : TraceRow s -> bool) (k : nat) (l : list (TraceRow s)) {struct l}
+  : l = skipn k (bp_traces bp) -> option (TraceHit bp pred) :=
+  match l with
+  | [] => fun _ => None
+  | tr :: rest => fun E =>
+      match Bool.bool_dec (pred tr) true with
+      | left Hp => Some (mk_trace_hit k tr (Index.skipn_head_at (bp_traces bp) rest k tr E) Hp)
+      | right _ => trace_scan bp pred (S k) rest (Index.skipn_tail_at (bp_traces bp) rest k tr E)
+      end
+  end.
+
+Lemma trace_scan_finds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pred : TraceRow s -> bool) :
+  forall l k (E : l = skipn k (bp_traces bp)),
+  (exists tr, In tr l /\ pred tr = true) ->
+  trace_scan bp pred k l E <> None.
+Proof.
+  induction l as [|tr rest IH]; intros k E [tr0 [Hin Hp]]; [ destruct Hin |].
+  cbn. destruct (Bool.bool_dec (pred tr) true) as [|Hne]; [ discriminate |].
+  destruct Hin as [<-|Hin]; [ exact (False_ind _ (Hne Hp)) |].
+  apply (IH (S k) (Index.skipn_tail_at (bp_traces bp) rest k tr E)).
+  exists tr0. split; [ exact Hin | exact Hp ].
+Qed.
+
+(* the total exact block lookup: every represented block has exactly one retained trace *)
+Definition block_trace {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (br : Index.BlockRef idx) : TraceHit bp
+    (fun tr => noderef_eqb (Index.bl_node (trow_block tr)) (Index.bl_node br)) :=
+  (match trace_scan bp _ 0 (bp_traces bp) (eq_sym (skipn_O _)) as o
+         return trace_scan bp _ 0 (bp_traces bp) (eq_sym (skipn_O _)) = o -> _ with
+   | Some h => fun _ => h
+   | None => fun E =>
+       False_rect _
+         (trace_scan_finds bp _ (bp_traces bp) 0 (eq_sym (skipn_O _))
+            (ex_intro _ _
+               (conj (traces_cover bp (Index.bl_node br) (Index.bl_ok br))
+                     (proj2 (noderef_eqb_spec _ _) eq_refl)))
+            E)
+   end) eq_refl.
+
+Lemma block_trace_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (br : Index.BlockRef idx) :
+  Index.bl_node (trow_block (th_row (block_trace bp br))) = Index.bl_node br.
+Proof.
+  apply noderef_eqb_spec. exact (th_ok (block_trace bp br)).
+Qed.
+
+(* the retained trace of a block, as the exact typed trace ref *)
+Definition trace_of_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (br : Index.BlockRef idx) : BlockTraceRef bp (Index.bl_node br) :=
+  mk_block_trace (th_ord (block_trace bp br)) (th_row (block_trace bp br))
+    (th_at (block_trace bp br)) (block_trace_subject bp br).
+
+(* the enclosing block of a short statement, total by the accepted statement topology *)
+Definition stmt_block {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx)
+  : Index.BlockRef idx :=
+  (match Index.node_parent (Index.sh_node st) as o
+         return Index.node_parent (Index.sh_node st) = o -> Index.BlockRef idx with
+   | Some par => fun E => Index.mkBlockRef par (f_equal Index.is_block_view (stmt_parent_block st par E))
+   | None => fun E => False_rect _ (stmt_has_parent st E)
+   end) eq_refl.
+
+Definition noderef_eq_dec {p} {idx : Index.ProgramIndex p} (a b : Index.NodeRef idx)
+  : {a = b} + {a <> b} := dec_of_eqb noderef_eqb noderef_eqb_spec a b.
+
+(* dependent option convoys reduce under a known scrutinee value over a decidable base *)
+Lemma option_convoy_some {A T : Type} (Adec : forall a b : A, {a = b} + {a <> b})
+  (X : option A) (f : forall a, X = Some a -> T) (g : X = None -> T) (a : A) (H : X = Some a) :
+  (match X as o return X = o -> T with Some a' => f a' | None => g end) eq_refl = f a H.
+Proof.
+  assert (Odec : forall x y : option A, {x = y} + {x <> y}) by (decide equality).
+  destruct X as [a0|]; [| discriminate H ].
+  assert (Ha : a0 = a) by (injection H as Ha; exact Ha). subst a0.
+  rewrite (UIP_dec Odec H eq_refl). reflexivity.
+Qed.
+
+(* the enclosing statement of a short statement points back through the retained parent relation *)
+Lemma stmt_block_parent {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) :
+  Index.node_parent (Index.sh_node st) = Some (Index.bl_node (stmt_block st)).
+Proof.
+  assert (Hex : exists par, Index.node_parent (Index.sh_node st) = Some par).
+  { destruct (Index.node_parent (Index.sh_node st)) as [par|] eqn:Hp;
+      [ exists par; reflexivity | exact (False_ind _ (stmt_has_parent st Hp)) ]. }
+  destruct Hex as [par Hp].
+  unfold stmt_block.
+  rewrite (option_convoy_some noderef_eq_dec _ _ _ par Hp).
+  exact Hp.
+Qed.
+
+(* the exact short event of every short statement exists at its statement ordinal in its block's trace *)
+Lemma short_event_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) (par : Index.NodeRef idx) (tr : TraceRow s) :
+  Index.node_parent (Index.sh_node st) = Some par ->
+  In tr (bp_traces bp) -> Index.bl_node (trow_block tr) = par ->
+  exists eix env (st'' : Index.ShortStmtRef idx) (sj : ShortJudgment env st''),
+    nth_error (trow_evs tr) eix = Some (BEvShort env st'' sj)
+    /\ Index.sh_node st'' = Index.sh_node st.
+Proof.
+  intros Hp Hin Hnode.
+  destruct (bp_traces_row bp tr Hin) as [pr [r [Hb [_ [_ Hform]]]]].
+  assert (Hr : r = par)
+    by (rewrite Hform in Hnode; cbn in Hnode; exact Hnode).
+  subst r.
+  destruct (Index.all_children_of_parent (Index.sh_node st) par Hp) as [j [e [_ Hc]]].
+  destruct (Index.all_children_nth par j e) as [e' Hrow].
+  assert (Hevs : trow_evs tr = Internal.block_fold s (Index.mkBlockRef par Hb) (Index.all_children par)
+                                 (Internal.pkg_env_of s pr)) by (rewrite Hform; reflexivity).
+  destruct (block_fold_nth (Index.mkBlockRef par Hb) (Index.all_children par)
+              (Internal.pkg_env_of s pr) j (existT _ j e') Hrow) as [env' Hnth].
+  cbn [projT2] in Hnth.
+  assert (Hcc : Index.ca_child e' = Index.sh_node st)
+    by exact (eq_trans (Index.ca_det e' e) Hc).
+  assert (Hview : Index.node_view (Index.ca_child e')
+                  = Index.VStmt (Index.SSShort (Index.sh_names st) (Index.sh_values st)))
+    by (rewrite Hcc; exact (Index.sh_ok st)).
+  destruct (block_event_short_eval (Index.mkBlockRef par Hb) env' (Index.ca_child e')
+              _ eq_refl (Index.sh_names st) (Index.sh_values st) Hview) as [Hv0 Hev].
+  pose proof (eq_trans Hnth (f_equal Some Hev)) as Hnth2.
+  exists j, env'. do 2 eexists.
+  split; [ rewrite Hevs; exact Hnth2 |].
+  cbn [Index.sh_node]. exact Hcc.
+Qed.
+
+(* one retained short event ref: the exact trace, statement ordinal, and judged event, pinned *)
+Record ShortEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : Type := mk_short_event {
+  se_block : Index.BlockRef idx ;
+  se_trace : BlockTraceRef bp (Index.bl_node se_block) ;
+  se_ord   : nat ;
+  se_env   : list (Est s) ;
+  se_stmt  : Index.ShortStmtRef idx ;
+  se_judgment : ShortJudgment se_env se_stmt ;
+  se_at : nth_error (trow_evs (btr_row se_trace)) se_ord = Some (BEvShort se_env se_stmt se_judgment) ;
+  se_subject : Index.sh_node se_stmt = Index.sh_node st
+}.
+Arguments mk_short_event {p idx s bp st} _ _ _ _ _ _ _ _.
+Arguments se_block {p idx s bp st} _.
+Arguments se_trace {p idx s bp st} _.
+Arguments se_ord {p idx s bp st} _.
+Arguments se_env {p idx s bp st} _.
+Arguments se_stmt {p idx s bp st} _.
+Arguments se_judgment {p idx s bp st} _.
+Arguments se_at {p idx s bp st} _.
+Arguments se_subject {p idx s bp st} _.
+
+Definition is_short_match {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (st : Index.ShortStmtRef idx) (ev : BlockEv s) : bool :=
+  match ev with
+  | BEvShort _ st' _ => noderef_eqb (Index.sh_node st') (Index.sh_node st)
+  | _ => false
+  end.
+
+Fixpoint short_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (br : Index.BlockRef idx) (tr0 : BlockTraceRef bp (Index.bl_node br))
+  (st : Index.ShortStmtRef idx) (k : nat) (l : list (BlockEv s)) {struct l}
+  : l = skipn k (trow_evs (btr_row tr0)) -> option (ShortEventRef bp st) :=
+  match l with
+  | [] => fun _ => None
+  | BEvShort env st' sj :: rest => fun E =>
+      match Bool.bool_dec (noderef_eqb (Index.sh_node st') (Index.sh_node st)) true with
+      | left Hn =>
+          Some (mk_short_event br tr0 k env st' sj
+                  (Index.skipn_head_at (trow_evs (btr_row tr0)) rest k (BEvShort env st' sj) E)
+                  (proj1 (noderef_eqb_spec _ _) Hn))
+      | right _ =>
+          short_scan br tr0 st (S k) rest
+            (Index.skipn_tail_at (trow_evs (btr_row tr0)) rest k (BEvShort env st' sj) E)
+      end
+  | ev :: rest => fun E =>
+      short_scan br tr0 st (S k) rest
+        (Index.skipn_tail_at (trow_evs (btr_row tr0)) rest k ev E)
+  end.
+
+Lemma short_scan_finds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (br : Index.BlockRef idx) (tr0 : BlockTraceRef bp (Index.bl_node br))
+  (st : Index.ShortStmtRef idx) :
+  forall l k (E : l = skipn k (trow_evs (btr_row tr0))),
+  (exists ev, In ev l /\ is_short_match st ev = true) ->
+  short_scan br tr0 st k l E <> None.
+Proof.
+  induction l as [|ev rest IH]; intros k E [ev0 [Hin Hm]]; [ destruct Hin |].
+  destruct ev as [r|env sc t dj|env st' sj]; cbn.
+  - destruct Hin as [He|Hin];
+      [ rewrite <- He in Hm; discriminate Hm
+      | apply IH; exists ev0; split; [ exact Hin | exact Hm ] ].
+  - destruct Hin as [He|Hin];
+      [ rewrite <- He in Hm; discriminate Hm
+      | apply IH; exists ev0; split; [ exact Hin | exact Hm ] ].
+  - destruct (Bool.bool_dec (noderef_eqb (Index.sh_node st') (Index.sh_node st)) true)
+      as [|Hne]; [ discriminate |].
+    destruct Hin as [He|Hin].
+    + rewrite <- He in Hm. cbn in Hm. exact (False_ind _ (Hne Hm)).
+    + apply IH. exists ev0. split; [ exact Hin | exact Hm ].
+Qed.
+
+Lemma short_event_present {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) :
+  exists ev, In ev (trow_evs (btr_row (trace_of_block bp (stmt_block st))))
+             /\ is_short_match st ev = true.
+Proof.
+  set (tr0 := trace_of_block bp (stmt_block st)).
+  destruct (short_event_cover bp st (Index.bl_node (stmt_block st)) (btr_row tr0)
+              (stmt_block_parent st) (nth_error_In _ _ (btr_at tr0)) (btr_subject tr0))
+    as [eix [env [st'' [sj [Hnth Hsn]]]]].
+  exists (BEvShort env st'' sj). split; [ exact (nth_error_In _ _ Hnth) |].
+  cbn. apply noderef_eqb_spec. exact Hsn.
+Qed.
+
+(* the total exact short lookup: every short statement's retained event, judgment included *)
+Definition short_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : ShortEventRef bp st :=
+  (match short_scan (stmt_block st) (trace_of_block bp (stmt_block st)) st 0
+           (trow_evs (btr_row (trace_of_block bp (stmt_block st)))) (eq_sym (skipn_O _)) as o
+         return short_scan (stmt_block st) (trace_of_block bp (stmt_block st)) st 0
+                  (trow_evs (btr_row (trace_of_block bp (stmt_block st)))) (eq_sym (skipn_O _)) = o
+                -> ShortEventRef bp st with
+   | Some se => fun _ => se
+   | None => fun E =>
+       False_rect _
+         (short_scan_finds (stmt_block st) (trace_of_block bp (stmt_block st)) st
+            (trow_evs (btr_row (trace_of_block bp (stmt_block st)))) 0 (eq_sym (skipn_O _))
+            (short_event_present bp st) E)
+   end) eq_refl.
+
+(* the retained event ref and its exact causal states, projected from the short event *)
+Definition se_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : BlockEventRef (se_trace se) (se_ord se) := mk_block_event _ (se_at se).
+
+Definition short_state_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : BlockStateRef (se_trace se) (se_ord se) := ber_pre (se_event se).
+
+Definition short_state_after {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : BlockStateRef (se_trace se) (S (se_ord se)) := ber_post (se_event se).
+
+(* the retained judgment is about the exact queried statement *)
+Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) :
+  se_stmt (short_event bp st) = st.
+Proof. apply shortstmtref_positional. exact (se_subject (short_event bp st)). Qed.
+
+(* the sole short duplicate-name projection: the exact retained judgment's first duplicate spelling *)
+Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {env : list (Est s)} {st : Index.ShortStmtRef idx} (sj : ShortJudgment env st)
+  : option Names.OrdinaryIdentifier :=
+  fold_right (fun x acc =>
+                match slj_view (projT2 x) with
+                | SVDuplicate _ => binder_ident (Index.sl_child (slj_edge (projT2 x)))
+                | _ => acc
+                end)
+             None (sj_lefts sj).
+
+Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
+  sj_dup_name (se_judgment (short_event bp st)).
+
+Lemma filter_flat_map {A B} (P : B -> bool) (g : A -> list B) (l : list A) :
+  filter P (flat_map g l) = flat_map (fun x => filter P (g x)) l.
+Proof.
+  induction l as [|a t IH]; [ reflexivity |].
+  cbn. rewrite filter_app, IH. reflexivity.
+Qed.
+
+Lemma filter_seq_member_le {B} (F : nat -> list B) (P : B -> bool) (T i : nat) :
+  i < T ->
+  length (filter P (F i)) <= length (filter P (flat_map F (seq 0 T))).
+Proof.
+  intro Hi.
+  replace (seq 0 T) with (seq 0 i ++ seq i (T - i)) by (rewrite <- seq_app; f_equal; lia).
+  replace (T - i) with (S (T - S i)) by lia.
+  cbn [seq]. rewrite flat_map_app. cbn [flat_map].
+  rewrite !filter_app, !length_app. lia.
+Qed.
+
+(* the causal cut of a use inside a block: the exact count of fully earlier direct statements *)
+Fixpoint count_while {A} (f : A -> bool) (l : list A) : nat :=
+  match l with
+  | [] => 0
+  | x :: t => if f x then S (count_while f t) else 0
+  end.
+
+Lemma count_while_le {A} (f : A -> bool) (l : list A) : count_while f l <= length l.
+Proof.
+  induction l as [|x t IH]; cbn; [ lia |]. destruct (f x); lia.
+Qed.
+
+Lemma count_while_prefix {A} (f : A -> bool) :
+  forall (l : list A) (j : nat) (x : A),
+  j < count_while f l -> nth_error l j = Some x -> f x = true.
+Proof.
+  induction l as [|a t IH]; intros j x Hj Hx; [ destruct j; discriminate Hx |].
+  cbn in Hj. destruct (f a) eqn:Ha; [| lia ].
+  destruct j as [|j']; [ injection Hx as <-; exact Ha |].
+  cbn in Hx. apply (IH j' x); [ lia | exact Hx ].
+Qed.
+
+Lemma count_while_here {A} (f : A -> bool) :
+  forall (l : list A) (x : A),
+  nth_error l (count_while f l) = Some x -> f x = false.
+Proof.
+  induction l as [|a t IH]; intros x Hx; [ destruct (count_while f []); discriminate Hx |].
+  cbn in Hx |- *. destruct (f a) eqn:Ha; [ exact (IH x Hx) | injection Hx as <-; exact Ha ].
+Qed.
+
+Definition cut_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (evs : list (BlockEv s)) (u : Index.NodeRef idx) : nat :=
+  count_while (fun ev => Nat.ltb (Index.node_extent (bev_node ev)) (Index.nr_pos u)) evs.
+
+(* the covering-block test: the exact retained source window of the old block visibility rule *)
+Definition covers_use {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (u : Index.NodeRef idx) (tr : TraceRow s) : bool :=
+  andb (Index.fileref_eqb (Index.nr_file (Index.bl_node (trow_block tr))) (Index.nr_file u))
+  (andb (Nat.ltb (Index.nr_pos (Index.bl_node (trow_block tr))) (Index.nr_pos u))
+        (Nat.leb (Index.nr_pos u) (Index.node_extent (Index.bl_node (trow_block tr))))).
+
+Definition vstart_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (u : Index.NodeRef idx) (er : EstablishmentRef bp) : bool :=
+  Nat.ltb (est_vstart (es_est er)) (Index.nr_pos u).
+
+(* the current declaration event's exactly visible additions at this use *)
+Definition cur_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (tix cut : nat) : list (EstablishmentRef bp) :=
+  filter (vstart_before u) (refs_of_event bp (BlockEventAt tix cut)).
+
+(* the exact block context of a use: covering trace, causal cut, pre-state, and gated current additions *)
+Record BlockUseCtx {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) : Type := mk_block_ctx {
+  bc_tix : nat ;
+  bc_row : TraceRow s ;
+  bc_at : nth_error (bp_traces bp) bc_tix = Some bc_row ;
+  bc_cut : nat ;
+  bc_cut_pin : bc_cut = cut_of (trow_evs bc_row) u ;
+  bc_pre : list (EstablishmentRef bp) ;
+  bc_pre_pin : bc_pre = state_refs bp bc_tix bc_cut ;
+  bc_cur : list (EstablishmentRef bp) ;
+  bc_cur_pin : bc_cur = cur_adds bp u bc_tix bc_cut
+}.
+Arguments mk_block_ctx {p idx s bp u} _ _ _ _ _ _ _ _ _.
+Arguments bc_tix {p idx s bp u} _.
+Arguments bc_row {p idx s bp u} _.
+Arguments bc_at {p idx s bp u} _.
+Arguments bc_cut {p idx s bp u} _.
+Arguments bc_cut_pin {p idx s bp u} _.
+Arguments bc_pre {p idx s bp u} _.
+Arguments bc_pre_pin {p idx s bp u} _.
+Arguments bc_cur {p idx s bp u} _.
+Arguments bc_cur_pin {p idx s bp u} _.
+
+Definition locate_block_ctx {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) : option (BlockUseCtx bp u) :=
+  match trace_scan bp (covers_use u) 0 (bp_traces bp) (eq_sym (skipn_O _)) with
+  | Some h => Some (mk_block_ctx (th_ord h) (th_row h) (th_at h)
+                      (cut_of (trow_evs (th_row h)) u) eq_refl
+                      (state_refs bp (th_ord h) (cut_of (trow_evs (th_row h)) u)) eq_refl
+                      (cur_adds bp u (th_ord h) (cut_of (trow_evs (th_row h)) u)) eq_refl)
+  | None => None
+  end.
+
+(* the one exact use-context object ordinary resolution consumes *)
+Record UseEnvironmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) : Type := mk_use_env {
+  ue_pkg : PI.PackageRef s ;
+  ue_pkg_pin : ue_pkg = PI.package_of_file s (Index.nr_file u) ;
+  ue_pkg_refs : list (EstablishmentRef bp) ;
+  ue_pkg_refs_pin : ue_pkg_refs = package_env_refs bp ue_pkg ;
+  ue_block : option (BlockUseCtx bp u) ;
+  ue_block_pin : ue_block = locate_block_ctx bp u
+}.
+Arguments mk_use_env {p idx s bp u} _ _ _ _ _ _.
+Arguments ue_pkg {p idx s bp u} _.
+Arguments ue_pkg_pin {p idx s bp u} _.
+Arguments ue_pkg_refs {p idx s bp u} _.
+Arguments ue_pkg_refs_pin {p idx s bp u} _.
+Arguments ue_block {p idx s bp u} _.
+Arguments ue_block_pin {p idx s bp u} _.
+
+Definition use_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) : UseEnvironmentRef bp u :=
+  mk_use_env (PI.package_of_file s (Index.nr_file u)) eq_refl
+    (package_env_refs bp (PI.package_of_file s (Index.nr_file u))) eq_refl
+    (locate_block_ctx bp u) eq_refl.
+
+(* the visible occupancy members at this use: block-scoped name matches of pre-state plus gated current *)
+Definition bc_visible {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (bc : BlockUseCtx bp u)
+  (n : Names.OrdinaryIdentifier) : list (EstablishmentRef bp) :=
+  filter (fun er => same_block_cand n (es_est er)) (bc_pre bc ++ bc_cur bc).
+
+Definition pkg_named {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : list (EstablishmentRef bp) :=
+  filter (fun er => Names.ordinary_equalb (est_name (es_est er)) n) (ue_pkg_refs ue).
+
+(* a block-occupancy match at a trace's event is a member of that block's canonical group *)
+Lemma block_cand_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix eix : nat) (tr : TraceRow s) (n : Names.OrdinaryIdentifier)
+  (er : EstablishmentRef bp) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  same_block_cand n (es_est er) = true ->
+  scope_name_matches (BlockScope (trow_block tr)) n er = true.
+Proof.
+  intros Htr Hin Hc. unfold same_block_cand in Hc. apply andb_prop in Hc as [_ Hname].
+  unfold scope_name_matches.
+  rewrite (trace_add_scope bp tix eix tr er Htr Hin).
+  rewrite (proj2 (scope_eqb_spec _ _) eq_refl). exact Hname.
+Qed.
+
+Lemma pkg_name_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) (eix : nat) (n : Names.OrdinaryIdentifier)
+  (er : EstablishmentRef bp) :
+  In er (refs_of_event bp (PkgEventAt (PI.pr_pos pr) eix)) ->
+  Names.ordinary_equalb (est_name (es_est er)) n = true ->
+  scope_name_matches (PackageScope pr) n er = true.
+Proof.
+  intros Hin Hname. unfold scope_name_matches.
+  rewrite (ledger_add_scope bp (PI.pr_pos pr) eix pr er (packages_nth s pr) Hin).
+  rewrite (proj2 (scope_eqb_spec _ _) eq_refl). exact Hname.
+Qed.
+
+(* two visible same-name block members witness at least two members of the canonical group *)
+Lemma block_visible_le {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (tix cut : nat) (tr : TraceRow s)
+  (n : Names.OrdinaryIdentifier) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  cut <= length (trow_evs tr) ->
+  length (filter (fun er => same_block_cand n (es_est er)) (state_refs bp tix cut))
+  + length (filter (fun er => same_block_cand n (es_est er)) (cur_adds bp u tix cut))
+  <= length (group_refs bp (BlockScope (trow_block tr)) n).
+Proof.
+  intros Htr Hcut.
+  destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
+  assert (Hpix : trow_pkg tr = PI.pr_pos pr) by (rewrite Hform; reflexivity).
+  assert (Hstate :
+    length (filter (fun er => same_block_cand n (es_est er)) (state_refs bp tix cut))
+    <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                            (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))).
+  { unfold state_refs. rewrite Htr. cbv beta iota.
+    rewrite filter_app, length_app.
+    assert (Hseed : filter (fun er => same_block_cand n (es_est er))
+                      (flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr))) = []).
+    { apply filter_all_false. intros er Hin.
+      apply in_flat_map in Hin. destruct Hin as [site [Hsite Hin]].
+      unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
+      destruct Hsite as [eix [<- _]].
+      rewrite Hpix in Hin.
+      unfold same_block_cand, is_block_scoped.
+      rewrite (ledger_add_scope bp (PI.pr_pos pr) eix pr er (packages_nth s pr) Hin).
+      reflexivity. }
+    rewrite Hseed. cbn [length].
+    rewrite filter_flat_map.
+    assert (Hle : length (flat_map (fun eix => filter (fun er => same_block_cand n (es_est er))
+                             (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))
+                  <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                                (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))).
+    { apply flat_map_length_le. intros eix _.
+      apply filter_impl_le. intros er Hin HP.
+      exact (block_cand_matches bp tix eix tr n er Htr Hin HP). }
+    lia. }
+  assert (Hcur :
+    length (filter (fun er => same_block_cand n (es_est er)) (cur_adds bp u tix cut))
+    <= length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                 (refs_of_event bp (BlockEventAt tix cut)))).
+  { unfold cur_adds. rewrite filter_filter.
+    apply filter_impl_le. intros er Hin Hand.
+    apply andb_prop in Hand as [_ HP].
+    exact (block_cand_matches bp tix cut tr n er Htr Hin HP). }
+  assert (Htrace :
+    length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                        (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))
+    + length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                (refs_of_event bp (BlockEventAt tix cut)))
+    <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                            (refs_of_event bp (BlockEventAt tix eix)))
+                 (seq 0 (length (trow_evs tr))))).
+  { destruct (Nat.eq_dec cut (length (trow_evs tr))) as [->|Hne].
+    - assert (Hnil : refs_of_event bp (BlockEventAt tix (length (trow_evs tr))) = []).
+      { apply refs_of_event_none.
+        apply (event_adds_at_block_over bp tix _ tr Htr).
+        apply nth_error_None. lia. }
+      rewrite Hnil. cbn [filter length]. lia.
+    - replace (seq 0 (length (trow_evs tr)))
+        with (seq 0 cut ++ seq cut (length (trow_evs tr) - cut))
+        by (rewrite <- seq_app; f_equal; lia).
+      replace (length (trow_evs tr) - cut) with (S (length (trow_evs tr) - S cut)) by lia.
+      cbn [seq]. rewrite flat_map_app. cbn [flat_map].
+      rewrite !length_app. lia. }
+  assert (Hgroup :
+    length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                        (refs_of_event bp (BlockEventAt tix eix)))
+             (seq 0 (length (trow_evs tr))))
+    <= length (group_refs bp (BlockScope (trow_block tr)) n)).
+  { unfold group_refs, all_establishment_refs, all_sites.
+    rewrite flat_map_app, filter_app, length_app.
+    rewrite !flat_map_flat_map, !filter_flat_map.
+    assert (Hmid :
+      length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                (flat_map (refs_of_event bp) (trace_sites bp tix)))
+      <= length (flat_map (fun tix' => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                              (flat_map (refs_of_event bp) (trace_sites bp tix')))
+                   (seq 0 (length (bp_traces bp))))).
+    { pose proof (filter_seq_member_le
+                    (fun tix' => flat_map (refs_of_event bp) (trace_sites bp tix'))
+                    (scope_name_matches (BlockScope (trow_block tr)) n)
+                    (length (bp_traces bp)) tix
+                    ltac:(apply nth_error_Some; rewrite Htr; discriminate)) as Hm.
+      rewrite filter_flat_map in Hm. exact Hm. }
+    assert (Hself :
+      length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                          (refs_of_event bp (BlockEventAt tix eix)))
+               (seq 0 (length (trow_evs tr))))
+      <= length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                   (flat_map (refs_of_event bp) (trace_sites bp tix)))).
+    { unfold trace_sites, trace_event_count. rewrite Htr. cbv beta iota.
+      rewrite flat_map_map, filter_flat_map. lia. }
+    lia. }
+  lia.
+Qed.
+
+Lemma pkg_visible_le {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) (n : Names.OrdinaryIdentifier) :
+  length (filter (fun er => Names.ordinary_equalb (est_name (es_est er)) n)
+                 (package_env_refs bp pr))
+  <= length (group_refs bp (PackageScope pr) n).
+Proof.
+  apply Nat.le_trans with
+    (m := length (filter (scope_name_matches (PackageScope pr) n) (package_env_refs bp pr))).
+  - unfold package_env_refs. rewrite !filter_flat_map.
+    apply flat_map_length_le. intros site Hsite.
+    unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
+    destruct Hsite as [eix [<- _]].
+    apply filter_impl_le. intros er Hin Hname.
+    exact (pkg_name_matches bp pr eix n er Hin Hname).
+  - unfold package_env_refs, group_refs, all_establishment_refs, all_sites.
+    rewrite flat_map_app, filter_app, length_app.
+    assert (Hchain :
+      length (filter (scope_name_matches (PackageScope pr) n)
+                (flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr))))
+      <= length (filter (scope_name_matches (PackageScope pr) n)
+                   (flat_map (refs_of_event bp)
+                      (flat_map (pkg_sites bp) (seq 0 (length (bp_ledgers bp))))))).
+    { rewrite (flat_map_flat_map (refs_of_event bp) (pkg_sites bp)
+                 (seq 0 (length (bp_ledgers bp)))).
+      apply (filter_seq_member_le (fun pix => flat_map (refs_of_event bp) (pkg_sites bp pix))
+               (scope_name_matches (PackageScope pr) n)).
+      apply nth_error_Some. rewrite (bp_ledgers_at bp pr). discriminate. }
+    lia.
+Qed.
+
+Lemma block_group_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (bc : BlockUseCtx bp u)
+  (n : Names.OrdinaryIdentifier) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
+  bc_visible bc n = er1 :: er2 :: rest ->
+  2 <= length (group_refs bp (BlockScope (trow_block (bc_row bc))) n).
+Proof.
+  intro Hv. unfold bc_visible in Hv.
+  rewrite (bc_pre_pin bc), (bc_cur_pin bc), filter_app in Hv.
+  assert (Hlen : 2 <= length (filter (fun er => same_block_cand n (es_est er))
+                                (state_refs bp (bc_tix bc) (bc_cut bc)))
+                     + length (filter (fun er => same_block_cand n (es_est er))
+                                 (cur_adds bp u (bc_tix bc) (bc_cut bc))))
+    by (rewrite <- length_app, Hv; cbn; lia).
+  eapply Nat.le_trans; [ exact Hlen |].
+  apply (block_visible_le bp u (bc_tix bc) (bc_cut bc) (bc_row bc) n (bc_at bc)).
+  rewrite (bc_cut_pin bc). apply count_while_le.
+Qed.
+
+Lemma pkg_group_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
+  pkg_named ue n = er1 :: er2 :: rest ->
+  2 <= length (group_refs bp (PackageScope (ue_pkg ue)) n).
+Proof.
+  intro Hv. unfold pkg_named in Hv. rewrite (ue_pkg_refs_pin ue) in Hv.
+  eapply Nat.le_trans; [| apply (pkg_visible_le bp (ue_pkg ue) n) ].
+  rewrite Hv. cbn. lia.
+Qed.
+
+(* a resolved object: predeclared identity, or the exact phase-owned establishment ref *)
+Inductive BoundObject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : Type :=
+| PredeclaredBound : Names.PredeclaredName -> BoundObject bp
+| SourceBound : EstablishmentRef bp -> BoundObject bp.
+Arguments PredeclaredBound {p idx s bp} _.
+Arguments SourceBound {p idx s bp} _.
+
+(* the idx-level object view Analysis payloads project; never a route back to a ref *)
+Definition object_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} (o : BoundObject bp) : ObjectRef idx :=
+  match o with
+  | PredeclaredBound pn => PredeclaredObject pn
+  | SourceBound er => SourceObject (est_origin (es_est er))
+  end.
+
+Definition RedeclRoot {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (n : Names.OrdinaryIdentifier) : Type :=
+  { sc : ScopeId s & RedeclarationRef bp sc n }.
+
+Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
+| RBound      : BoundObject bp -> Resolved bp use n
+| RRedeclared : RedeclRoot bp n -> Resolved bp use n
+| RUnbound    : Resolved bp use n.
+Arguments RBound {p idx s bp use n} _.
+Arguments RRedeclared {p idx s bp use n} _.
+Arguments RUnbound {p idx s bp use n}.
+
+Definition pkg_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : Resolved bp u n :=
+  (match pkg_named ue n as v return pkg_named ue n = v -> Resolved bp u n with
+   | [] => fun _ =>
+       match Names.classify_predeclared (Names.ordinary_spelling n) with
+       | Some pn => RBound (PredeclaredBound pn)
+       | None => RUnbound
+       end
+   | er :: rest =>
+       match rest as v2 return pkg_named ue n = er :: v2 -> Resolved bp u n with
+       | [] => fun _ => RBound (SourceBound er)
+       | er2 :: rest2 => fun Hv =>
+           RRedeclared (existT _ (PackageScope (ue_pkg ue))
+                          (mk_redeclaration (binding_group bp (PackageScope (ue_pkg ue)) n)
+                             (pkg_group_two ue n er er2 rest2 Hv)))
+       end
+   end) eq_refl.
+
+(* resolution: block visibility shadows the package; a unique visible member binds; two redeclare *)
+Definition resolve_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : Resolved bp u n :=
+  match ue_block ue with
+  | Some bc =>
+      (match bc_visible bc n as v return bc_visible bc n = v -> Resolved bp u n with
+       | [] => fun _ => pkg_decide ue n
+       | er :: rest =>
+           match rest as v2 return bc_visible bc n = er :: v2 -> Resolved bp u n with
+           | [] => fun _ => RBound (SourceBound er)
+           | er2 :: rest2 => fun Hv =>
+               RRedeclared (existT _ (BlockScope (trow_block (bc_row bc)))
+                              (mk_redeclaration
+                                 (binding_group bp (BlockScope (trow_block (bc_row bc))) n)
+                                 (block_group_two bc n er er2 rest2 Hv)))
+           end
+       end) eq_refl
+  | None => pkg_decide ue n
+  end.
+
+Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  : Resolved bp u n := resolve_env (use_env bp u) n.
+
+(* the exact inversion of resolution: each outcome names its exact visible evidence *)
+Lemma pkg_decide_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) :
+  pkg_named ue n = [] ->
+  pkg_decide ue n
+  = match Names.classify_predeclared (Names.ordinary_spelling n) with
+    | Some pn => RBound (PredeclaredBound pn)
+    | None => RUnbound
+    end.
+Proof.
+  intro H. unfold pkg_decide.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
+  destruct (pkg_named ue n) at 2 3.
+  - intro Heq. reflexivity.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+Qed.
+
+Lemma pkg_decide_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) (er : EstablishmentRef bp) :
+  pkg_named ue n = [er] ->
+  pkg_decide ue n = RBound (SourceBound er).
+Proof.
+  intro H. unfold pkg_decide.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
+  destruct (pkg_named ue n) at 2 3.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2 rest2] end.
+    + intro Heq. rewrite H in Heq. injection Heq as ->. reflexivity.
+    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
+Qed.
+
+Lemma pkg_decide_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) (er1 er2 : EstablishmentRef bp)
+  (rest : list (EstablishmentRef bp)) :
+  pkg_named ue n = er1 :: er2 :: rest ->
+  exists rr : RedeclarationRef bp (PackageScope (ue_pkg ue)) n,
+    pkg_decide ue n = RRedeclared (existT _ (PackageScope (ue_pkg ue)) rr).
+Proof.
+  intro H. unfold pkg_decide.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
+  destruct (pkg_named ue n) at 2 3.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2' rest2'] end.
+    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
+    + intro Heq. eexists. reflexivity.
+Qed.
+
+Lemma resolve_no_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  locate_block_ctx bp u = None ->
+  resolve bp u n = pkg_decide (use_env bp u) n.
+Proof.
+  intro Hloc. unfold resolve, resolve_env.
+  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
+  rewrite Hloc. reflexivity.
+Qed.
+
+Lemma resolve_block_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (bc : BlockUseCtx bp u) :
+  locate_block_ctx bp u = Some bc ->
+  bc_visible bc n = [] ->
+  resolve bp u n = pkg_decide (use_env bp u) n.
+Proof.
+  intros Hloc H. unfold resolve, resolve_env.
+  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
+  rewrite Hloc.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
+  destruct (bc_visible bc n) at 2 3.
+  - intro Heq. reflexivity.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+Qed.
+
+(* a unique visible block member binds exactly; block visibility shadows the package *)
+Lemma resolve_block_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (bc : BlockUseCtx bp u) (er : EstablishmentRef bp) :
+  locate_block_ctx bp u = Some bc ->
+  bc_visible bc n = [er] ->
+  resolve bp u n = RBound (SourceBound er).
+Proof.
+  intros Hloc H. unfold resolve, resolve_env.
+  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
+  rewrite Hloc.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
+  destruct (bc_visible bc n) at 2 3.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2 rest2] end.
+    + intro Heq. rewrite H in Heq. injection Heq as ->. reflexivity.
+    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
+Qed.
+
+(* two visible members return the exact phase-owned redeclaration root; it binds no object *)
+Lemma resolve_block_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (bc : BlockUseCtx bp u) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
+  locate_block_ctx bp u = Some bc ->
+  bc_visible bc n = er1 :: er2 :: rest ->
+  exists rr : RedeclarationRef bp (BlockScope (trow_block (bc_row bc))) n,
+    resolve bp u n = RRedeclared (existT _ (BlockScope (trow_block (bc_row bc))) rr).
+Proof.
+  intros Hloc H. unfold resolve, resolve_env.
+  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
+  rewrite Hloc.
+  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
+  destruct (bc_visible bc n) at 2 3.
+  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
+  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2' rest2'] end.
+    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
+    + intro Heq. eexists. reflexivity.
+Qed.
+
+(* every redeclaration root exposes at least two canonical group members: it can bind nothing *)
+Lemma redecl_root_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {n : Names.OrdinaryIdentifier} (root : RedeclRoot bp n) :
+  2 <= length (bg_members (rr_group (projT2 root))).
+Proof. exact (rr_two (projT2 root)). Qed.
+
+(* a short event's additions become visible only past the whole statement *)
+Lemma new_est_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {st : Index.ShortStmtRef idx} {i : nat}
+  (e : Index.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) :
+  est_vstart (new_est (s := s) br e n) = Index.node_extent (Index.sh_node st).
+Proof.
+  cbn [new_est est_vstart]. unfold vis_start.
+  rewrite (Index.sl_role e).
+  unfold Index.sl_child. rewrite (Index.ca_node_parent (Index.sl_at e)). reflexivity.
+Qed.
+
+Lemma new_ests_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {env : list (Est s)} {st : Index.ShortStmtRef idx}
+  (sj : ShortJudgment env st) (e : Est s) :
+  In e (new_ests br sj) -> est_vstart e = Index.node_extent (Index.sh_node st).
+Proof.
+  unfold new_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  destruct (slj_view (projT2 x)); try (exact (match Hin with end)).
+  destruct Hin as [<-|F]; [| destruct F ]. apply new_est_vstart.
+Qed.
+
+(* within the short statement, its own additions are gated out of every use environment *)
+Lemma short_cur_adds_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (tix cut : nat) (tr : TraceRow s)
+  (env : list (Est s)) (st' : Index.ShortStmtRef idx) (sj : ShortJudgment env st') :
+  nth_error (bp_traces bp) tix = Some tr ->
+  nth_error (trow_evs tr) cut = Some (BEvShort env st' sj) ->
+  Index.nr_pos u <= Index.node_extent (Index.sh_node st') ->
+  cur_adds bp u tix cut = [].
+Proof.
+  intros Htr Hev Hle. unfold cur_adds.
+  apply filter_all_false. intros er Hin.
+  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
+  rewrite (event_adds_at_block bp tix cut tr _ Htr Hev) in Hadds.
+  injection Hadds as <-.
+  cbn in Hest.
+  unfold vstart_before.
+  rewrite (new_ests_vstart (trow_block tr) sj _ Hest).
+  apply Nat.ltb_ge. exact Hle.
+Qed.
+
+(* the observational declaration-group view: shared scope, spelling, and ordered member projection *)
+Record DeclarationGroupRef {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type
+  := mk_decl_group {
+  dg_scope   : ScopeId s ;
+  dg_name    : Names.OrdinaryIdentifier ;
+  dg_members : list (Est s)
+}.
+Arguments mk_decl_group {p idx s} _ _ _.
+Arguments dg_scope {p idx s} _.
+Arguments dg_name {p idx s} _.
+Arguments dg_members {p idx s} _.
+
+Definition group_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
+  (rr : RedeclarationRef bp sc n) : DeclarationGroupRef s :=
+  mk_decl_group sc n (map es_est (bg_members (rr_group rr))).
+
+Definition redecl_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {bp : BindingPhase s} {n : Names.OrdinaryIdentifier} (root : RedeclRoot bp n)
+  : DeclarationGroupRef s := group_view (projT2 root).
+
+(* one exact redeclared-group projection per canonical group, keyed at its exact first member *)
+Definition redeclared_groups {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : list (DeclarationGroupRef s) :=
+  flat_map (fun er =>
+    match group_refs bp (est_scope (es_est er)) (est_name (es_est er)) with
+    | er0 :: _ :: _ =>
+        if est_eqb (es_est er0) (es_est er)
+        then [ mk_decl_group (est_scope (es_est er)) (est_name (es_est er))
+                 (map es_est (group_refs bp (est_scope (es_est er)) (est_name (es_est er)))) ]
+        else []
+    | _ => []
+    end) (all_establishment_refs bp).
+
+(* the visible group at a use: the block group when the use sits in a block, else the package group *)
+Definition group_at_use {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  : list (EstablishmentRef bp) :=
+  match ue_block (use_env bp u) with
+  | Some bc => match bc_visible bc n with [] => pkg_named (use_env bp u) n | v => v end
+  | None => pkg_named (use_env bp u) n
+  end.
+
+(* main status stays a projection over the exact retained package environment refs *)
+Definition package_main {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) : MainStatus s pr :=
+  main_status_of (map es_est (package_env_refs bp pr)) pr.
+
+Theorem package_main_sound {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) :
+  main_status_ests (package_main bp pr) = main_ests_of (map es_est (package_env_refs bp pr)) pr.
+Proof. unfold package_main. apply main_status_ests_of. Qed.
+
+Lemma main_is_package_local {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (pr : PI.PackageRef s) :
+  forall m, In m (main_status_ests (package_main bp pr)) ->
+    is_func_est m = true /\ est_scope m = PackageScope pr.
+Proof.
+  intros m Hin. rewrite package_main_sound in Hin. unfold main_ests_of in Hin.
+  apply filter_In in Hin. destruct Hin as [_ Hcond].
+  apply andb_prop in Hcond as [Hf Hrest]. apply andb_prop in Hrest as [_ Hsc].
+  split; [exact Hf|].
+  destruct (est_scope m) as [q|] eqn:E; [| discriminate Hsc].
+  apply PI.packageref_eqb_spec in Hsc; subst q; reflexivity.
+Qed.
+
+(* every event site of the graph is retained exactly once *)
+Definition site_group (site : EvSite) : nat :=
+  match site with PkgEventAt pix _ => pix | BlockEventAt tix _ => tix end.
+
+Lemma all_sites_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) : NoDup (all_sites bp).
+Proof.
+  unfold all_sites. apply nodup_app_disjoint.
+  - apply (flat_map_nodup_key _ site_group (fun pix => pix));
+      [ rewrite map_id; apply seq_NoDup | |].
+    + intros pix _. apply nodup_map_inj;
+        [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
+    + intros pix site _ Hin. unfold pkg_sites in Hin.
+      apply in_map_iff in Hin. destruct Hin as [eix [<- _]]. reflexivity.
+  - apply (flat_map_nodup_key _ site_group (fun tix => tix));
+      [ rewrite map_id; apply seq_NoDup | |].
+    + intros tix _. apply nodup_map_inj;
+        [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
+    + intros tix site _ Hin. unfold trace_sites in Hin.
+      apply in_map_iff in Hin. destruct Hin as [eix [<- _]]. reflexivity.
+  - intros site Hp Ht.
+    apply in_flat_map in Hp. destruct Hp as [pix [_ Hp]].
+    apply in_flat_map in Ht. destruct Ht as [tix [_ Ht]].
+    unfold pkg_sites in Hp. apply in_map_iff in Hp. destruct Hp as [e1 [Hp _]].
+    unfold trace_sites in Ht. apply in_map_iff in Ht. destruct Ht as [e2 [Ht _]].
+    rewrite <- Hp in Ht. discriminate Ht.
+Qed.
+
+Lemma refs_scan_keys {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  forall l k (E : l = skipn k (event_adds bp site)),
+  map (fun er => (es_site er, es_ix er)) (refs_scan bp site k l E)
+  = map (fun ix => (site, ix)) (seq k (length l)).
+Proof.
+  induction l as [|e0 rest IH]; intros k E; [ reflexivity |].
+  cbn. rewrite IH. reflexivity.
+Qed.
+
+Lemma refs_of_event_keys {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (site : EvSite) :
+  map (fun er => (es_site er, es_ix er)) (refs_of_event bp site)
+  = map (fun ix => (site, ix)) (seq 0 (length (event_adds bp site))).
+Proof. apply refs_scan_keys. Qed.
+
+(* every retained establishment is one exact event addition, exactly once (site and index key) *)
+Theorem establishment_refs_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) :
+  NoDup (map (fun er => (es_site er, es_ix er)) (all_establishment_refs bp)).
+Proof.
+  unfold all_establishment_refs. rewrite map_flat_map.
+  apply (flat_map_nodup_key _ (fun key : EvSite * nat => fst key) (fun site => site));
+    [ rewrite map_id; apply all_sites_nodup | |].
+  - intros site _. rewrite refs_of_event_keys.
+    apply nodup_map_inj; [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
+  - intros site kb _ Hin. apply in_map_iff in Hin.
+    destruct Hin as [er [<- Hin]]. cbn.
+    exact (refs_of_event_site bp site er Hin).
+Qed.
+
+(* every judged event's environment is exactly its predecessor state's member projection *)
+Lemma trace_event_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (tix i : nat) (tr : TraceRow s) (ev : BlockEv s) :
+  nth_error (bp_traces bp) tix = Some tr ->
+  nth_error (trow_evs tr) i = Some ev ->
+  bev_env ev = map es_est (state_refs bp tix i) \/ (exists r, ev = BEvExpr r).
+Proof.
+  intros Htr Hev.
+  assert (Hlt : i < length (trow_evs tr))
+    by (apply nth_error_Some; rewrite Hev; discriminate).
+  destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
+  assert (Hevs : trow_evs tr = Internal.block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
+                                 (Internal.pkg_env_of s pr)) by (rewrite Hform; reflexivity).
+  assert (Hblk : trow_block tr = Index.mkBlockRef r Hb) by (rewrite Hform; reflexivity).
+  assert (Hpix : trow_pkg tr = PI.pr_pos pr) by (rewrite Hform; reflexivity).
+  rewrite Hevs in Hev.
+  destruct (block_fold_nth_env _ _ _ _ _ Hev) as [x [_ He]].
+  destruct (block_event_env (Index.mkBlockRef r Hb)
+              (Internal.pkg_env_of s pr
+               ++ flat_map (bev_adds (Index.mkBlockRef r Hb))
+                    (firstn i (Internal.block_fold s (Index.mkBlockRef r Hb)
+                                 (Index.all_children r) (Internal.pkg_env_of s pr))))
+              (Index.ca_child (projT2 x)) _ eq_refl) as [Henv|Hexpr].
+  - left. rewrite He, Henv.
+    rewrite (state_ests bp tix i tr Htr ltac:(lia)).
+    rewrite Hpix.
+    change (flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr)))
+      with (package_env_refs bp pr).
+    rewrite (package_env_ests bp pr).
+    rewrite Hblk, Hevs. reflexivity.
+  - right. exists (Index.ca_child (projT2 x)). rewrite He. exact Hexpr.
+Qed.
+
+(* the short left-side decision inverts exactly: each view names its exact evidence *)
+Lemma short_lhs_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i) :
+  short_lhs_decide env e = SVBlank <-> binder_ident (Index.sl_child e) = None.
+Proof.
+  unfold short_lhs_decide.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb;
+    [| split; intros _; reflexivity ].
+  split; [| discriminate ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j je]|]; [ discriminate |].
+  destruct (filter (same_block_cand n) env) as [|a [|c r]]; try discriminate;
+    destruct (find_ord (same_block_cand n) 0 env) as [[j m]|]; try discriminate;
+    destruct (is_variable_binder (est_node m)); discriminate.
+Qed.
+
+Lemma short_lhs_duplicate {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (j : nat) :
+  short_lhs_decide env e = SVDuplicate j ->
+  exists n je, binder_ident (Index.sl_child e) = Some n
+  /\ find_dup i n (Index.short_lhs_edges st) = Some (existT _ j je).
+Proof.
+  unfold short_lhs_decide.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j0 je]|] eqn:Hd.
+  - intro H. injection H as <-. exists n, je. split; [ reflexivity | exact Hd ].
+  - destruct (filter (same_block_cand n) env) as [|a [|c r]]; try discriminate;
+      destruct (find_ord (same_block_cand n) 0 env) as [[j0 m]|]; try discriminate;
+      destruct (is_variable_binder (est_node m)); discriminate.
+Qed.
+
+Lemma short_lhs_new {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (n : Names.OrdinaryIdentifier) :
+  short_lhs_decide env e = SVNew n ->
+  binder_ident (Index.sl_child e) = Some n
+  /\ find_dup i n (Index.short_lhs_edges st) = None
+  /\ (forall e0, In e0 env -> same_block_cand n e0 = false).
+Proof.
+  unfold short_lhs_decide.
+  destruct (binder_ident (Index.sl_child e)) as [n0|] eqn:Hb; [| discriminate ].
+  destruct (find_dup i n0 (Index.short_lhs_edges st)) as [[j je]|] eqn:Hd; [ discriminate |].
+  destruct (filter (same_block_cand n0) env) as [|a [|c r]] eqn:Hf; try discriminate;
+    destruct (find_ord (same_block_cand n0) 0 env) as [[j m]|] eqn:Ho;
+    try (destruct (is_variable_binder (est_node m)); discriminate);
+    intro H; injection H as <-;
+    (split; [ reflexivity | split; [ exact Hd | exact (find_ord_none _ env 0 Ho) ] ]).
+Qed.
+
+Lemma short_lhs_existing {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (j : nat) (isvar : bool) :
+  short_lhs_decide env e = (if isvar then SVExistingVariable j else SVExistingNonVariable j) ->
+  exists n m, binder_ident (Index.sl_child e) = Some n
+  /\ find_dup i n (Index.short_lhs_edges st) = None
+  /\ nth_error env j = Some m /\ same_block_cand n m = true
+  /\ is_variable_binder (est_node m) = isvar
+  /\ (forall j2 y, j2 < j -> nth_error env j2 = Some y -> same_block_cand n y = false)
+  /\ length (filter (same_block_cand n) env) <= 1.
+Proof.
+  unfold short_lhs_decide.
+  destruct (binder_ident (Index.sl_child e)) as [n0|] eqn:Hb;
+    [| destruct isvar; discriminate ].
+  destruct (find_dup i n0 (Index.short_lhs_edges st)) as [[j0 je]|] eqn:Hd;
+    [ destruct isvar; discriminate |].
+  destruct (filter (same_block_cand n0) env) as [|a [|c r]] eqn:Hf;
+    try (destruct isvar; discriminate);
+    destruct (find_ord (same_block_cand n0) 0 env) as [[j0 m]|] eqn:Ho;
+    try (destruct isvar; discriminate);
+    destruct (find_ord_found _ env 0 j0 m Ho) as [_ [Hnth [Hcand Hbefore]]];
+    rewrite Nat.sub_0_r in Hnth;
+    destruct (is_variable_binder (est_node m)) eqn:Hvar; destruct isvar;
+    intro H; try discriminate H; injection H as <-;
+    (exists n0, m;
+     split; [ reflexivity |
+     split; [ exact Hd |
+     split; [ exact Hnth |
+     split; [ exact Hcand |
+     split; [ exact Hvar |
+     split; [ intros j2 y Hj2 Hny; exact (Hbefore j2 y ltac:(lia) Hny) |
+              rewrite Hf; cbn; lia ] ] ] ] ] ]).
+Qed.
+
+Lemma short_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (a c : Est s) (r : list (Est s)) :
+  short_lhs_decide env e = SVAmbiguous a c r ->
+  exists n, binder_ident (Index.sl_child e) = Some n
+  /\ find_dup i n (Index.short_lhs_edges st) = None
+  /\ filter (same_block_cand n) env = a :: c :: r.
+Proof.
+  unfold short_lhs_decide.
+  destruct (binder_ident (Index.sl_child e)) as [n0|] eqn:Hb; [| discriminate ].
+  destruct (find_dup i n0 (Index.short_lhs_edges st)) as [[j je]|] eqn:Hd; [ discriminate |].
+  destruct (filter (same_block_cand n0) env) as [|a0 [|c0 r0]] eqn:Hf;
+    try (destruct (find_ord (same_block_cand n0) 0 env) as [[j m]|];
+         [ destruct (is_variable_binder (est_node m)); discriminate | discriminate ]).
+  intro H. injection H as <- <- <-.
+  exists n0. split; [ reflexivity | split; [ exact Hd | exact Hf ] ].
+Qed.
+
+Lemma short_lhs_cases {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i) :
+  short_lhs_decide env e = SVBlank
+  \/ (exists j, short_lhs_decide env e = SVDuplicate j)
+  \/ (exists n, short_lhs_decide env e = SVNew n)
+  \/ (exists j, short_lhs_decide env e = SVExistingVariable j)
+  \/ (exists j, short_lhs_decide env e = SVExistingNonVariable j)
+  \/ (exists a c r, short_lhs_decide env e = SVAmbiguous a c r).
+Proof.
+  destruct (short_lhs_decide env e).
+  - left; reflexivity.
+  - right; left; eexists; reflexivity.
+  - right; right; left; eexists; reflexivity.
+  - right; right; right; left; eexists; reflexivity.
+  - right; right; right; right; left; eexists; reflexivity.
+  - right; right; right; right; right; do 3 eexists; reflexivity.
+Qed.
+
+(* the declaration binder decision inverts exactly *)
+Lemma decl_lhs_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
+  decl_lhs_decide env earlier b = DVBlank <-> binder_ident b = None.
+Proof.
+  unfold decl_lhs_decide.
+  destruct (binder_ident b) as [n|] eqn:Hb; [| split; intros _; reflexivity ].
+  split; [| discriminate ].
+  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier) as [[k m]|];
+    [ discriminate |].
+  destruct (filter (same_block_cand n) env) as [|a [|c r]]; try discriminate;
+    destruct (find_ord (same_block_cand n) 0 env) as [[j m]|]; discriminate.
+Qed.
+
+Lemma decl_lhs_duplicate {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) (k : nat) :
+  decl_lhs_decide env earlier b = DVDuplicateEarlier k ->
+  exists n m, binder_ident b = Some n
+  /\ nth_error earlier k = Some m /\ Names.ordinary_equalb (est_name m) n = true
+  /\ (forall k2 y, k2 < k -> nth_error earlier k2 = Some y ->
+        Names.ordinary_equalb (est_name y) n = false).
+Proof.
+  unfold decl_lhs_decide.
+  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
+  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
+    as [[k0 m]|] eqn:Ho.
+  - intro H. injection H as <-.
+    destruct (find_ord_found _ earlier 0 k0 m Ho) as [_ [Hnth [Hname Hbefore]]].
+    rewrite Nat.sub_0_r in Hnth.
+    exists n, m.
+    split; [ reflexivity |].
+    split; [ exact Hnth |].
+    split; [ exact Hname |].
+    intros k2 y Hk2 Hny. exact (Hbefore k2 y ltac:(lia) Hny).
+  - destruct (filter (same_block_cand n) env) as [|a [|c r]]; try discriminate;
+      destruct (find_ord (same_block_cand n) 0 env) as [[j m0]|]; discriminate.
+Qed.
+
+Lemma decl_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) (a c : Est s) (r : list (Est s)) :
+  decl_lhs_decide env earlier b = DVAlreadyAmbiguous a c r ->
+  exists n, binder_ident b = Some n
+  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
+  /\ filter (same_block_cand n) env = a :: c :: r.
+Proof.
+  unfold decl_lhs_decide.
+  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
+  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
+    as [[k m]|] eqn:Ho; [ discriminate |].
+  destruct (filter (same_block_cand n) env) as [|a0 [|c0 r0]] eqn:Hf;
+    try (destruct (find_ord (same_block_cand n) 0 env) as [[j m0]|]; discriminate).
+  intro H. injection H as <- <- <-.
+  exists n.
+  split; [ reflexivity |].
+  split; [ exact (find_ord_none _ earlier 0 Ho) | exact Hf ].
+Qed.
+
+Lemma decl_lhs_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) (j : nat) :
+  decl_lhs_decide env earlier b = DVRedeclaredPrior j ->
+  exists n m, binder_ident b = Some n
+  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
+  /\ nth_error env j = Some m /\ same_block_cand n m = true
+  /\ (forall j2 y, j2 < j -> nth_error env j2 = Some y -> same_block_cand n y = false)
+  /\ length (filter (same_block_cand n) env) <= 1.
+Proof.
+  unfold decl_lhs_decide.
+  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
+  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
+    as [[k m0]|] eqn:Ho; [ discriminate |].
+  destruct (filter (same_block_cand n) env) as [|a [|c r]] eqn:Hf; try discriminate;
+    destruct (find_ord (same_block_cand n) 0 env) as [[j0 m]|] eqn:Hoe; try discriminate;
+    destruct (find_ord_found _ env 0 j0 m Hoe) as [_ [Hnth [Hcand Hbefore]]];
+    rewrite Nat.sub_0_r in Hnth;
+    intro H; injection H as <-;
+    (exists n, m;
+     split; [ reflexivity |
+     split; [ exact (find_ord_none _ earlier 0 Ho) |
+     split; [ exact Hnth |
+     split; [ exact Hcand |
+     split; [ intros j2 y Hj2 Hny; exact (Hbefore j2 y ltac:(lia) Hny) |
+              rewrite Hf; cbn; lia ] ] ] ] ]).
+Qed.
+
+Lemma decl_lhs_fresh {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
+  decl_lhs_decide env earlier b = DVFresh ->
+  exists n, binder_ident b = Some n
+  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
+  /\ (forall e0, In e0 env -> same_block_cand n e0 = false).
+Proof.
+  unfold decl_lhs_decide.
+  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
+  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
+    as [[k m0]|] eqn:Ho; [ discriminate |].
+  destruct (filter (same_block_cand n) env) as [|a [|c r]] eqn:Hf; try discriminate;
+    destruct (find_ord (same_block_cand n) 0 env) as [[j m]|] eqn:Hoe; try discriminate;
+    intros _;
+    (exists n;
+     split; [ reflexivity |
+     split; [ exact (find_ord_none _ earlier 0 Ho) | exact (find_ord_none _ env 0 Hoe) ] ]).
+Qed.
+
+Lemma decl_lhs_cases {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
+  decl_lhs_decide env earlier b = DVBlank
+  \/ decl_lhs_decide env earlier b = DVFresh
+  \/ (exists j, decl_lhs_decide env earlier b = DVRedeclaredPrior j)
+  \/ (exists k, decl_lhs_decide env earlier b = DVDuplicateEarlier k)
+  \/ (exists a c r, decl_lhs_decide env earlier b = DVAlreadyAmbiguous a c r).
+Proof.
+  destruct (decl_lhs_decide env earlier b).
+  - left; reflexivity.
+  - right; left; reflexivity.
+  - right; right; left; eexists; reflexivity.
+  - right; right; right; left; eexists; reflexivity.
+  - right; right; right; right; do 3 eexists; reflexivity.
 Qed.
