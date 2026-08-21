@@ -483,16 +483,59 @@ typefail neg_exprstmt_wrong_view "an expression-statement ref built from a non-e
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VApplication) := IX.mkExprStmtRef r Hv.'
 typefail neg_mainbody_wrong_parent "a main-body edge requested from a non-main occurrence" \
   'Definition forged (p : Syntax.Program) (b : IX.BlockRef (IX.index_program p)) := IX.main_body b.'
-typefail neg_const_status_cross "a const status for spec A used as the status for spec B" \
-  'Definition forged (p : Syntax.Program) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (st : BN.ConstSpecStatus c1) : BN.ConstSpecStatus c2 := st.'
-typefail neg_short_status_cross "a short status for statement A used as the status for B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (st : BN.ShortDeclStatus sf s1) : BN.ShortDeclStatus sf s2 := st.'
-typefail neg_lhs_status_index "a left status for index 0 used as the status for index 1" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (x : BN.ShortLhsStatus sf st 0) : BN.ShortLhsStatus sf st 1 := x.'
-typefail neg_const_status_raw "raw NodeRef lists in place of the const status edge fields" \
-  'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (ns : list (IX.NodeRef (IX.index_program p))) (ty : IX.SpecTypePresence cs) : BN.ConstSpecStatus cs := BN.mk_const_status ns ns ty ns.'
-typefail neg_short_status_raw "raw NodeRef lists in place of the short status edge fields" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (ns : list (IX.NodeRef (IX.index_program p))) (nb : BN.NewNonblank sf st) : BN.ShortDeclStatus sf st := BN.mk_short_status ns nb ns.'
+# — phase-owned Binding judgments: refs are phase+subject-indexed, classifications decision-pinned,
+#   chains adjacency-forced; a wrong phase, subject, index, classification, adjacency, or raw list
+#   fails to TYPECHECK, and every deleted forgeable status route fails to RESOLVE —
+typefail neg_cjr_cross_phase "a const judgment ref from phase A used as one from phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp1 cs) : BN.ConstSpecJudgmentRef bp2 cs := r.'
+typefail neg_sjr_cross_phase "a short judgment ref from phase A used as one from phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) (r : BN.ShortDeclJudgmentRef bp1 st) : BN.ShortDeclJudgmentRef bp2 st := r.'
+typefail neg_cjr_cross_subject "a const judgment ref for spec A used for spec B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp c1) : BN.ConstSpecJudgmentRef bp c2 := r.'
+typefail neg_sjr_cross_subject "a short judgment ref for statement A used for statement B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (r : BN.ShortDeclJudgmentRef bp s1) : BN.ShortDeclJudgmentRef bp s2 := r.'
+typefail neg_slj_cross_index "a left judgment for index 0 used as the judgment for index 1" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment core st 0) : BN.ShortLhsJudgment core st 1 := j.'
+typefail neg_slj_cross_stmt "a left judgment of statement A used within statement B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment core s1 i) : BN.ShortLhsJudgment core s2 i := j.'
+typefail neg_raw_const_maker "the deleted arbitrary-field const status maker" \
+  'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (ns : list (IX.NodeRef (IX.index_program p))) := BN.mk_const_status ns.'
+typefail neg_raw_short_maker "the deleted arbitrary-field short status maker" \
+  'Definition forged (p : Syntax.Program) (ns : list (IX.NodeRef (IX.index_program p))) := BN.mk_short_status ns.'
+typefail neg_short_empty_lefts "an inhabited short statement given an empty left-judgment table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) : BN.ShortJudgment core st := BN.mk_short_judgment nil eq_refl.'
+typefail neg_short_reordered_lefts "a reordered left-judgment table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j0 : BN.ShortLhsJudgment core st 0) (j1 : BN.ShortLhsJudgment core st 1) : BN.ShortJudgment core st := BN.mk_short_judgment (cons (existT _ 1 j1) (cons (existT _ 0 j0) nil)) eq_refl.'
+typefail neg_raw_lefts_list "a raw list in place of the exact left-judgment table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgment core st := l.'
+typefail neg_explicit_for_inherited "an explicit judgment constructed for an inherited source shape" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := BN.CJExplicit _ eq_refl.'
+typefail neg_inherited_for_explicit "a first-inherited judgment constructed for an explicit source shape" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (ht : bool) (nn nv : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSExplicit ht nn nv)) (cf : BN.ConstFirst (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSExplicit ht nn nv) H)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSExplicit ht nn nv) H) := BN.CJFirstInherited _ eq_refl cf.'
+typefail neg_nonimmediate_pred "a non-adjacent earlier spec used as the immediate predecessor" \
+  'Definition forged (p : Syntax.Program) (par : IX.NodeRef (IX.index_program p)) (cs pred : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (e0 : IX.ChildAt par 0) (H0 : IX.sp_node pred = IX.ca_child e0) (e2 : IX.ChildAt par 2) (H2 : IX.sp_node cs = IX.ca_child e2) : BN.ConstAdjacency cs pred := BN.mk_const_adj par 0 e0 H0 e2 H2.'
+typefail neg_crossdecl_pred "a predecessor from another declaration used in an adjacency" \
+  'Definition forged (p : Syntax.Program) (parA parB : IX.NodeRef (IX.index_program p)) (cs pred : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (e0 : IX.ChildAt parA 0) (H0 : IX.sp_node pred = IX.ca_child e0) (e1 : IX.ChildAt parB 1) (H1 : IX.sp_node cs = IX.ca_child e1) : BN.ConstAdjacency cs pred := BN.mk_const_adj parA 0 e0 H0 e1 H1.'
+typefail neg_supplied_origin "the deleted supplied-origin constructor" \
+  'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (i : nat) (e : IX.PrecedingSiblingEdge (IX.sp_node cs) i) := BN.OriginPred i e.'
+typefail neg_blank_for_named "a blank classification pinned to an edge that names an identifier" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) (H : BN.binder_ident (IX.sl_child e) = Some n) : BN.ShortLhsJudgment core st i := BN.mk_slj e BN.SVBlank eq_refl.'
+typefail neg_new_foreign_est "a new classification carrying an establishment pinned to no decision" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (eb : BN.Est sf) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVNew eb) eq_refl.'
+typefail neg_dup_arbitrary_witness "a duplicate classification with an arbitrary witness index" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVDuplicate j) eq_refl.'
+typefail neg_ambiguous_unpinned "an ambiguous classification with an arbitrary group context" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (a c : BN.Est sf) (rest : list (BN.Est sf)) : BN.ShortLhsJudgment core st i := BN.mk_slj e (BN.SVAmbiguous a c rest) eq_refl.'
+typefail neg_deleted_newnonblank "the deleted proof-free new-nonblank constructors" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.NoNewNonblank.'
+typefail neg_deleted_status_builder "the deleted on-demand const status builder" \
+  'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) := BN.const_spec_status cs.'
+typefail neg_deleted_short_builder "the deleted on-demand short status builder" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_status bp st.'
+typefail neg_deleted_lhs_classifier "the deleted per-use left-status classifier" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.short_lhs_status bp.'
+typefail neg_forged_ref_row "a judgment ref forged without the exact retained table row" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : BN.ConstSpecJudgmentRef bp cs := BN.mk_cjr 0 (existT _ cs j) eq_refl eq_refl.'
 # — deleted peer authorities are ABSENT, not merely unused: naming any of them fails to resolve —
 typefail neg_peer_role_children "the deleted role_children peer accessor" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) := IX.role_children r IX.RTypeUse.'
@@ -513,6 +556,14 @@ if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|
   fail "edge absence control — a consumer still names a deleted edge route or raw child access"
 fi
 echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge route, node_children, or position-guess path"
+# — the forgeable status surface is deleted, and Analysis names no judgment builder or classifier —
+if grep -nE 'ConstSpecStatus|ShortDeclStatus|ShortLhsStatus|NewNonblank|ConstOrigin|OriginSelf|OriginPred|mk_const_status|mk_short_status|const_spec_status|short_decl_status|short_lhs_status|short_lhs_statuses|new_nonblank_of' Compilable/Bindings.v Compilable/Analysis.v; then
+  fail "status absence control — a forgeable status route or on-demand builder still exists"
+fi
+if grep -nE 'const_judgment_of|short_judgment_of|short_lhs_decide|mk_slj|mk_short_judgment|mk_rawbp|raw_bindings|est_of_binder_core|group_members_core|decl_group_core|find_dup' Compilable/Analysis.v; then
+  fail "status absence control — Analysis names a judgment builder, classifier, or core helper"
+fi
+echo "fido: status absence control OK — no forgeable status route; Analysis reads only phase judgments"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -654,16 +705,153 @@ Definition e_lhs_ords : map (@projT1 _ _) e_lhs = cons 0 (cons 1 nil) := ltac:(v
 Definition e_rhs := Index.short_rhs_edges e_short.
 Definition e_rhs_app : map (fun x => Index.nr_pos (Index.sr_child (projT2 x))) e_rhs = cons 19 (cons 20 nil)
   := ltac:(vm_compute; reflexivity).
-Definition e_cst1 : BN.ConstSpecStatus e_cs1 := BN.const_spec_status e_cs1.
-Definition e_cst1_first : BN.cst_first e_cst1 = true := ltac:(vm_compute; reflexivity).
-Definition e_cst2_notfirst : BN.cst_first (BN.const_spec_status e_cs2) = false := ltac:(vm_compute; reflexivity).
-Definition e_cst1_names : map (@projT1 _ _) (BN.cst_names e_cst1) = cons 0 (cons 1 nil)
-  := ltac:(vm_compute; reflexivity).
+(* the phase-owned judgment surface, exercised over three concrete programs with every projection
+   checked by computation: constructor tags, immediate predecessors, nearest origins, invalid chains,
+   all six left classifications, canonical-earliest duplicates, and the complete new summary *)
+Definition cj_tag {cs : Index.SpecRef eidx Index.ConstSpecF} (j : BN.ConstJudgment cs) : nat :=
+  match j with BN.CJExplicit _ _ => 0 | BN.CJFirstInherited _ _ _ => 1 | BN.CJInherited _ _ _ _ _ => 2 end.
 Definition esurf := PI.package_surface eidx.
 Definition ebp := BN.bindings esurf.
-Definition e_sds : BN.ShortDeclStatus esurf e_short := BN.short_decl_status ebp e_short.
-Definition e_sds_cut : BN.sd_cutpoint e_sds = 16 := ltac:(vm_compute; reflexivity).
-Definition e_sds_lefts : map (@projT1 _ _) (BN.sd_lefts e_sds) = cons 0 (cons 1 nil)
+Definition e_cjr1 := BN.const_spec_judgment ebp e_cs1.
+Definition e_cjr1_tag : cj_tag (projT2 (BN.cjr_row e_cjr1)) = 0 := ltac:(vm_compute; reflexivity).
+Definition e_cjr2_tag : cj_tag (projT2 (BN.cjr_row (BN.const_spec_judgment ebp e_cs2))) = 2
+  := ltac:(vm_compute; reflexivity).
+Definition e_sjr := BN.short_decl_judgment ebp e_short.
+Definition e_sjr_ord : BN.sjr_ord e_sjr = 0 := ltac:(vm_compute; reflexivity).
+Definition e_short_tags :
+  map (fun x => match BN.slj_view (projT2 x) with BN.SVBlank => 0 | _ => 9 end)
+      (BN.sj_lefts (projT2 (BN.sjr_row e_sjr))) = cons 0 (cons 0 nil)
+  := ltac:(vm_compute; reflexivity).
+Definition e_no_new : BN.short_new_members (projT2 (BN.sjr_row e_sjr)) = nil
+  := ltac:(vm_compute; reflexivity).
+
+(* chain fixture: explicit/first-inherited/inherited chains with nearest and absent origins *)
+Definition chain_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+             (cons (Syntax.MakeConstSpec (ne1 eb) (Syntax.ExplicitConstInit None (ne1 (EILIT 1))))
+              (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit)
+               (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit) nil)))))
+     (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+             (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit)
+              (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit) nil))))
+      (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+             (cons (Syntax.MakeConstSpec (ne1 eb) (Syntax.ExplicitConstInit None (ne1 (EILIT 20))))
+              (cons (Syntax.MakeConstSpec (ne1 eb) (Syntax.ExplicitConstInit None (ne1 (EILIT 21))))
+               (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit) nil)))))
+       (cons (Syntax.Main (Syntax.MakeBlock nil)) nil)))).
+Definition cidx := Index.index_program chain_prog.
+Definition csurf := PI.package_surface cidx.
+Definition cbp := BN.bindings csurf.
+Definition ccj_tag {cs : Index.SpecRef cidx Index.ConstSpecF} (j : BN.ConstJudgment cs) : nat :=
+  match j with BN.CJExplicit _ _ => 0 | BN.CJFirstInherited _ _ _ => 1 | BN.CJInherited _ _ _ _ _ => 2 end.
+Definition c_tags : map (fun row => ccj_tag (projT2 row)) (BN.bp_consts cbp)
+  = cons 0 (cons 2 (cons 2 (cons 1 (cons 2 (cons 0 (cons 0 (cons 2 nil)))))))
+  := ltac:(vm_compute; reflexivity).
+Definition c_origins :
+  map (fun row => match BN.const_origin (projT2 row) with
+                  | Some o => Some (Index.nr_pos (Index.sp_node (projT1 o))) | None => None end)
+      (BN.bp_consts cbp)
+  = cons (Some 3) (cons (Some 3) (cons (Some 3) (cons None (cons None
+      (cons (Some 18) (cons (Some 21) (cons (Some 21) nil)))))))
+  := ltac:(vm_compute; reflexivity).
+Definition c_preds :
+  map (fun row => match BN.const_pred (projT2 row) with
+                  | Some c0 => Some (Index.nr_pos (Index.sp_node c0)) | None => None end)
+      (BN.bp_consts cbp)
+  = cons None (cons (Some 3) (cons (Some 6) (cons None (cons (Some 12)
+      (cons None (cons None (cons (Some 21) nil)))))))
+  := ltac:(vm_compute; reflexivity).
+
+(* short fixture: new, existing variable, duplicate at the canonical earliest witness, multiple news,
+   existing nonvariable after a block const, and a redeclared-group ambiguity *)
+Definition mkid (str : String.string) (H : Names.identifier_ok str = true)
+  (H2 : Names.is_blank str = false) : Names.OrdinaryIdentifier :=
+  Names.MakeOrdinary (Names.MakeIdentifier str H) H2.
+Definition idx_ : Names.OrdinaryIdentifier := mkid "x" eq_refl eq_refl.
+Definition idy_ : Names.OrdinaryIdentifier := mkid "y" eq_refl eq_refl.
+Definition idz_ : Names.OrdinaryIdentifier := mkid "z" eq_refl eq_refl.
+Definition ida_ : Names.OrdinaryIdentifier := mkid "a" eq_refl eq_refl.
+Definition idb_ : Names.OrdinaryIdentifier := mkid "b" eq_refl eq_refl.
+Definition idc_ : Names.OrdinaryIdentifier := mkid "c" eq_refl eq_refl.
+Definition idd_ : Names.OrdinaryIdentifier := mkid "d" eq_refl eq_refl.
+Definition bn (n : Names.OrdinaryIdentifier) : Syntax.BindingName := Syntax.BNamed n.
+Definition short_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.Main (Syntax.MakeBlock
+      (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
+       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2)))
+        (cons (Syntax.ShortVarDecl
+                 (Collections.MakeNonEmpty (bn idx_) (cons (bn idx_) (cons (bn idy_) nil)))
+                 (Collections.MakeNonEmpty (EILIT 3) (cons (EILIT 4) (cons (EILIT 5) nil))))
+         (cons (Syntax.ShortVarDecl (ne2 (bn ida_) (bn idb_)) (ne2 (EILIT 6) (EILIT 7)))
+          (cons (Syntax.ShortVarDecl
+                   (Collections.MakeNonEmpty (bn idz_) (cons (bn idz_) (cons (bn idz_) nil)))
+                   (Collections.MakeNonEmpty (EILIT 8) (cons (EILIT 9) (cons (EILIT 10) nil))))
+           (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
+                    (cons (Syntax.MakeConstSpec (ne1 (bn idc_))
+                             (Syntax.ExplicitConstInit None (ne1 (EILIT 11)))) nil)))
+            (cons (Syntax.ShortVarDecl (ne1 (bn idc_)) (ne1 (EILIT 12)))
+             (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
+                      (cons (Syntax.MakeConstSpec (ne1 (bn idd_))
+                               (Syntax.ExplicitConstInit None (ne1 (EILIT 13)))) nil)))
+              (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
+                       (cons (Syntax.MakeConstSpec (ne1 (bn idd_))
+                                (Syntax.ExplicitConstInit None (ne1 (EILIT 14)))) nil)))
+               (cons (Syntax.ShortVarDecl (ne1 (bn idd_)) (ne1 (EILIT 15))) nil)))))))))))) nil).
+Definition sidx := Index.index_program short_prog.
+Definition ssurf := PI.package_surface sidx.
+Definition sbp := BN.bindings ssurf.
+Definition sv_tag {sf : PI.PackageSurface sidx} (v : BN.ShortLhsView sf) : nat :=
+  match v with
+  | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
+  | BN.SVExistingVariable _ _ => 3 | BN.SVExistingNonVariable _ _ => 4 | BN.SVAmbiguous _ _ _ => 5
+  end.
+Definition s_tags :
+  map (fun row => map (fun x => sv_tag (BN.slj_view (projT2 x))) (BN.sj_lefts (projT2 row)))
+      (BN.bp_shorts sbp)
+  = cons (cons 2 nil) (cons (cons 3 nil)
+     (cons (cons 3 (cons 1 (cons 2 nil)))
+      (cons (cons 2 (cons 2 nil))
+       (cons (cons 2 (cons 1 (cons 1 nil)))
+        (cons (cons 4 nil) (cons (cons 5 nil) nil))))))
+  := ltac:(vm_compute; reflexivity).
+Definition s_dups :
+  map (fun row => map (fun x => match BN.slj_view (projT2 x) with
+                                | BN.SVDuplicate j => Some j | _ => None end)
+                      (BN.sj_lefts (projT2 row)))
+      (BN.bp_shorts sbp)
+  = cons (cons None nil) (cons (cons None nil)
+     (cons (cons None (cons (Some 0) (cons None nil)))
+      (cons (cons None (cons None nil))
+       (cons (cons None (cons (Some 0) (cons (Some 0) nil)))
+        (cons (cons None nil) (cons (cons None nil) nil))))))
+  := ltac:(vm_compute; reflexivity).
+Definition s_new_ab :
+  match nth_error (BN.bp_shorts sbp) 3 with
+  | Some row => map (@projT1 _ _) (BN.short_new_members (projT2 row)) = cons 0 (cons 1 nil)
+  | None => False
+  end := ltac:(vm_compute; reflexivity).
+Definition s_dup_name :
+  match nth_error (BN.bp_shorts sbp) 4 with
+  | Some row => BN.sj_dup_name (projT2 row) = Some idz_
+  | None => False
+  end := ltac:(vm_compute; reflexivity).
+Definition sfr : Index.FileRef sidx.
+Proof. destruct (Index.all_files sidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition s_stref : Index.ShortStmtRef sidx :=
+  Index.mkShortStmtRef (Index.noderef_at_pos sfr 21 ltac:(vm_compute; lia)) 3 3
+    ltac:(vm_compute; reflexivity).
+Definition s_lookup := BN.short_decl_judgment sbp s_stref.
+Definition s_lookup_ord : BN.sjr_ord s_lookup = 4 := ltac:(vm_compute; reflexivity).
+Definition s_lhs_lookup :=
+  BN.short_lhs_judgment (projT2 (BN.sjr_row s_lookup)) 2 ltac:(vm_compute; lia).
+Definition s_lhs_lookup_dup :
+  match BN.slj_view s_lhs_lookup with BN.SVDuplicate j => j = 0 | _ => False end
   := ltac:(vm_compute; reflexivity).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then

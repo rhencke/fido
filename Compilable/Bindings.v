@@ -1084,153 +1084,26 @@ Proof.
 Qed.
 
 
-(* the exact effective-origin object of a const spec: itself when explicit, else a preceding-sibling edge *)
-Inductive ConstOrigin {p} {idx : Index.ProgramIndex p} (cs : Index.SpecRef idx Index.ConstSpecF) : Type :=
-| OriginSelf : cs_explicit cs = true -> ConstOrigin cs
-| OriginPred : forall i, Index.PrecedingSiblingEdge (Index.sp_node cs) i -> ConstOrigin cs.
-Arguments OriginSelf {p idx cs} _.
-Arguments OriginPred {p idx cs} _ _.
-
-(* the one exact retained const-spec status: the exact edge objects, tied to the exact spec ref *)
-Record ConstSpecStatus {p} {idx : Index.ProgramIndex p} (cs : Index.SpecRef idx Index.ConstSpecF) : Type
-  := mk_const_status {
-  cst_preds  : list { i : nat & Index.PrecedingSiblingEdge (Index.sp_node cs) i } ;
-  cst_names  : list { i : nat & Index.SpecNameEdge cs i } ;
-  cst_type   : Index.SpecTypePresence cs ;
-  cst_values : list { j : nat & Index.SpecValueEdge cs j }
-}.
-Arguments mk_const_status {p idx cs} _ _ _ _.
-Arguments cst_preds {p idx cs} _. Arguments cst_names {p idx cs} _.
-Arguments cst_type {p idx cs} _. Arguments cst_values {p idx cs} _.
-
-(* a spec heads its declaration exactly when its retained preceding-sibling edges are empty *)
-Definition cst_first {p} {idx : Index.ProgramIndex p} {cs : Index.SpecRef idx Index.ConstSpecF}
-  (st : ConstSpecStatus cs) : bool :=
-  match cst_preds st with [] => true | _ => false end.
-
-(* the exact predecessor: the last retained preceding-sibling edge, derived from the retained edges *)
-Definition cst_predecessor {p} {idx : Index.ProgramIndex p} {cs : Index.SpecRef idx Index.ConstSpecF}
-  (st : ConstSpecStatus cs) : option { i : nat & Index.PrecedingSiblingEdge (Index.sp_node cs) i } :=
-  fold_left (fun _ pe => Some pe) (cst_preds st) None.
-
-(* the exact effective origin, derived from the retained shape and preceding edges *)
-Definition cst_origin {p} {idx : Index.ProgramIndex p} {cs : Index.SpecRef idx Index.ConstSpecF}
-  (st : ConstSpecStatus cs) : option (ConstOrigin cs) :=
-  match Bool.bool_dec (cs_explicit cs) true with
-  | left H => Some (OriginSelf H)
-  | right _ =>
-      fold_left (fun acc pe =>
-                   if is_explicit_const_spec (Index.ps_sibling (projT2 pe))
-                   then Some (OriginPred (projT1 pe) (projT2 pe)) else acc)
-                (cst_preds st) None
-  end.
-
-Definition const_spec_status {p} {idx : Index.ProgramIndex p} (cs : Index.SpecRef idx Index.ConstSpecF)
-  : ConstSpecStatus cs :=
-  mk_const_status (Index.preceding_edges (Index.sp_node cs)) (Index.spec_name_edges cs)
-                  (Index.spec_type_status cs) (Index.spec_value_edges cs).
 
 
+(* the canonical complete new-nonblank summary: exactly the retained ShortNew left judgments, in order *)
+Definition short_new_members {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {core : list (Est s)} {st : Index.ShortStmtRef idx} (sj : ShortJudgment core st)
+  : list { i : nat & ShortLhsJudgment core st i } :=
+  filter (fun x => match slj_view (projT2 x) with SVNew _ => true | _ => false end) (sj_lefts sj).
 
-(* the establishment carried by a binder occurrence, when it establishes one *)
-Definition est_of_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (b : Index.NodeRef idx) : option (Est s) :=
-  est_of_binder_core (bp_ests bp) b.
-
-(* the exact left-side status of one short-declaration name, tied to the exact left edge it classifies *)
-Inductive ShortLhsStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (st : Index.ShortStmtRef idx) (i : nat) : Type :=
-| ShortBlank               : Index.ShortLhsEdge st i -> ShortLhsStatus s st i
-| ShortNew                 : Index.ShortLhsEdge st i -> Est s -> ShortLhsStatus s st i
-| ShortExistingVariable    : Index.ShortLhsEdge st i -> Est s -> ShortLhsStatus s st i
-| ShortExistingNonVariable : Index.ShortLhsEdge st i -> Est s -> ShortLhsStatus s st i
-| ShortDuplicate           : Index.ShortLhsEdge st i ->
-                             forall j, Index.ShortLhsEdge st j -> j < i -> ShortLhsStatus s st i
-| ShortAmbiguous           : Index.ShortLhsEdge st i -> Est s -> Est s -> list (Est s) -> ShortLhsStatus s st i.
-Arguments ShortBlank {p idx s st i} _.
-Arguments ShortNew {p idx s st i} _ _.
-Arguments ShortExistingVariable {p idx s st i} _ _.
-Arguments ShortExistingNonVariable {p idx s st i} _ _.
-Arguments ShortDuplicate {p idx s st i} _ _ _ _.
-Arguments ShortAmbiguous {p idx s st i} _ _ _ _.
-
-Definition short_lhs_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  : ShortLhsStatus s st i :=
-  let b := Index.sl_child e in
-  match binder_ident b with
-  | None => ShortBlank e
-  | Some n =>
-      match find_dup i n (Index.short_lhs_edges st) with
-      | Some (existT _ j (pair e' Hj)) => ShortDuplicate e j e' Hj
-      | None =>
-          match est_of_binder bp b with
-          | Some eb =>
-              match group_status (decl_group bp eb) with
-              | Some (GRedeclared a c rest) => ShortAmbiguous e a c rest
-              | _ =>
-                  match find (fun e2 => andb (negb (est_eqb e2 eb))
-                                             (Nat.ltb (Index.nr_pos (est_node e2)) (Index.nr_pos b)))
-                             (group_members bp eb) with
-                  | Some prior =>
-                      if is_variable_binder (est_node prior)
-                      then ShortExistingVariable e prior else ShortExistingNonVariable e prior
-                  | None => ShortNew e eb
-                  end
-              end
-          | None => ShortBlank e
-          end
-      end
-  end.
-
-(* the exact ordered left-side statuses of a short statement, one per exact left edge, in source order *)
-Definition short_lhs_statuses {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : list { i : nat & ShortLhsStatus s st i } :=
-  map (fun x => match x with existT _ i e => existT _ i (short_lhs_status bp e) end)
-      (Index.short_lhs_edges st).
-
-(* the exact new-nonblank evidence: the establishing left edge and its establishment, or a real absence *)
-Inductive NewNonblank {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (st : Index.ShortStmtRef idx) : Type :=
-| HasNewNonblank : forall i, Index.ShortLhsEdge st i -> Est s -> NewNonblank s st
-| NoNewNonblank  : NewNonblank s st.
-Arguments HasNewNonblank {p idx s st} _ _ _.
-Arguments NoNewNonblank {p idx s st}.
-
-Definition new_nonblank_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (lefts : list { i : nat & ShortLhsStatus s st i }) : NewNonblank s st :=
+(* the first duplicate short-left name, projected from the exact retained judgment views *)
+Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {core : list (Est s)} {st : Index.ShortStmtRef idx} (sj : ShortJudgment core st)
+  : option Names.OrdinaryIdentifier :=
   fold_right (fun x acc =>
-                match x with existT _ i stx =>
-                  match stx with ShortNew e est => HasNewNonblank i e est | _ => acc end
+                match slj_view (projT2 x) with
+                | SVDuplicate _ => binder_ident (Index.sl_child (slj_edge (projT2 x)))
+                | _ => acc
                 end)
-             NoNewNonblank lefts.
+             None (sj_lefts sj).
 
-(* the one exact retained short-declaration status, tied to the exact statement ref *)
-Record ShortDeclStatus {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
-  (st : Index.ShortStmtRef idx) : Type := mk_short_status {
-  sd_lefts : list { i : nat & ShortLhsStatus s st i } ;
-  sd_newnb : NewNonblank s st ;
-  sd_rhs   : list { j : nat & Index.ShortRhsEdge st j }
-}.
-Arguments mk_short_status {p idx s st} _ _ _.
-Arguments sd_lefts {p idx s st} _.
-Arguments sd_newnb {p idx s st} _.
-Arguments sd_rhs {p idx s st} _.
-
-(* the RHS cutpoint: the exact statement position, projected from the exact ref, never re-stored *)
-Definition sd_cutpoint {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {st : Index.ShortStmtRef idx} (_ : ShortDeclStatus s st) : nat := Index.nr_pos (Index.sh_node st).
-
-Definition short_decl_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : ShortDeclStatus s st :=
-  let lefts := short_lhs_statuses bp st in
-  mk_short_status lefts (new_nonblank_of lefts) (Index.short_rhs_edges st).
-
-(* the first duplicate short-left name, the exact short-declaration invalidity projected from the retained status *)
+(* the phase-level duplicate projection: the retained judgment row's views, never a recomputation *)
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
-  fold_right (fun x acc =>
-                match x with existT _ i stx =>
-                  match stx with ShortDuplicate self _ _ _ => binder_ident (Index.sl_child self) | _ => acc end
-                end)
-             None (sd_lefts (short_decl_status bp st)).
+  sj_dup_name (projT2 (sjr_row (short_decl_judgment bp st))).

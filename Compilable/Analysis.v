@@ -23,7 +23,7 @@ Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
 | DefaultOverflow : TR.Constant -> Cause idx
 | NoValueUsed : Cause idx
 | IllegalStatement : Cause idx
-| ConstMissingInit : forall cs : Index.SpecRef idx Index.ConstSpecF, BN.ConstSpecStatus cs -> Cause idx
+| ConstMissingInit : { c : Index.SpecRef idx Index.ConstSpecF & BN.ConstJudgment c } -> Cause idx
 | ResultCountMismatch : nat -> nat -> Cause idx
 | ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx
 | MainArity : BN.FunctionDeclRef idx -> list (Index.NodeRef idx) -> nat -> Cause idx.
@@ -34,7 +34,7 @@ Arguments ConversionArity {p idx} _ _. Arguments ComplexArity {p idx} _.
 Arguments ComplexMismatch {p idx} _ _. Arguments UnaryMismatch {p idx} _.
 Arguments ConversionOverflow {p idx} _ _. Arguments ConversionNotRepresentable {p idx} _ _.
 Arguments DefaultOverflow {p idx} _. Arguments NoValueUsed {p idx}. Arguments IllegalStatement {p idx}.
-Arguments ConstMissingInit {p idx} _ _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
+Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
 Arguments MainArity {p idx} _ _ _.
 
 Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
@@ -43,12 +43,12 @@ Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqComplexType : Index.NodeRef idx -> Requirement idx
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
 | ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
-| ReqConstDecl : forall cs : Index.SpecRef idx Index.ConstSpecF, BN.ConstSpecStatus cs -> Requirement idx
+| ReqConstDecl : { c : Index.SpecRef idx Index.ConstSpecF & BN.ConstJudgment c } -> Requirement idx
 | ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _ _.
+Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
 Inductive Dependency {p} (idx : Index.ProgramIndex p) : Type :=
@@ -258,12 +258,15 @@ Definition fold_consumed (r : Index.NodeRef idx) : bool :=
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
 Definition const_spec_disposition (cs : Index.SpecRef idx Index.ConstSpecF) : ValueOutcome (Index.sp_node cs) :=
-  let st := BN.const_spec_status cs in
+  let row := BN.cjr_row (BN.const_spec_judgment bp cs) in
   match Index.sp_shape cs with
   | Index.CSExplicit _ nn nv =>
-      if Nat.eqb nn nv then VUnmet (ReqConstDecl cs st) else VInvalid (ResultCountMismatch nn nv)
+      if Nat.eqb nn nv then VUnmet (ReqConstDecl row) else VInvalid (ResultCountMismatch nn nv)
   | Index.CSInherited _ =>
-      if BN.cst_first st then VInvalid (ConstMissingInit cs st) else VUnmet (ReqConstDecl cs st)
+      match projT2 row with
+      | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit row)
+      | _ => VUnmet (ReqConstDecl row)
+      end
   end.
 
 Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
