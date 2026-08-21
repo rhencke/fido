@@ -23,7 +23,7 @@ Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
 | DefaultOverflow : TR.Constant -> Cause idx
 | NoValueUsed : Cause idx
 | IllegalStatement : Cause idx
-| ConstMissingInit : BN.ConstSpecStatus idx -> Cause idx
+| ConstMissingInit : forall cs : Index.SpecRef idx Index.ConstSpecF, BN.ConstSpecStatus cs -> Cause idx
 | ResultCountMismatch : nat -> nat -> Cause idx
 | ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx
 | MainArity : BN.FunctionDeclRef idx -> list (Index.NodeRef idx) -> nat -> Cause idx.
@@ -34,7 +34,7 @@ Arguments ConversionArity {p idx} _ _. Arguments ComplexArity {p idx} _.
 Arguments ComplexMismatch {p idx} _ _. Arguments UnaryMismatch {p idx} _.
 Arguments ConversionOverflow {p idx} _ _. Arguments ConversionNotRepresentable {p idx} _ _.
 Arguments DefaultOverflow {p idx} _. Arguments NoValueUsed {p idx}. Arguments IllegalStatement {p idx}.
-Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
+Arguments ConstMissingInit {p idx} _ _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
 Arguments MainArity {p idx} _ _ _.
 
 Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
@@ -43,12 +43,12 @@ Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
 | ReqComplexType : Index.NodeRef idx -> Requirement idx
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
 | ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
-| ReqConstDecl : BN.ConstSpecStatus idx -> Requirement idx
+| ReqConstDecl : forall cs : Index.SpecRef idx Index.ConstSpecF, BN.ConstSpecStatus cs -> Requirement idx
 | ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
+Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _ _.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
 Inductive Dependency {p} (idx : Index.ProgramIndex p) : Type :=
@@ -166,7 +166,7 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
   | Index.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
   | Index.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
   | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst m (Index.uo_operand (Index.un_operand_edge r Syntax.UnaryMinus Hv)) with
+      match mconst m (Index.uo_child (Index.unary_operand (Index.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some ci =>
           match TR.constant_neg (TR.ci_const ci) with
           | Some c' =>
@@ -183,9 +183,9 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
       | None => None
       end
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_head (Index.app_head_edge r Hv)) with
+      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
       | Index.VName h =>
-          match map Index.aa_child (Index.application_args r) with
+          match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
           | x :: nil =>
               match nm_at r h with
               | Some (TR.NMConversionForm t) =>
@@ -237,7 +237,7 @@ Definition value_ctx (r : Index.NodeRef idx) : bool :=
 Definition head_folds (par : Index.NodeRef idx) : bool :=
   match Index.node_view par as v return Index.node_view par = v -> bool with
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_head (Index.app_head_edge par Hv)) with
+      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef par Hv))) with
       | Index.VName h =>
           match BN.resolve bp par h with
           | BN.RBound (BN.PredeclaredObject pn) =>
@@ -257,14 +257,13 @@ Definition fold_consumed (r : Index.NodeRef idx) : bool :=
 
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
-Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
-  let st := BN.const_spec_status r in
-  match Index.node_view r with
-  | Index.VConstSpec (Index.CSExplicit _ nn nv) =>
-      if Nat.eqb nn nv then VUnmet (ReqConstDecl st) else VInvalid (ResultCountMismatch nn nv)
-  | Index.VConstSpec (Index.CSInherited _) =>
-      if BN.cs_first st then VInvalid (ConstMissingInit st) else VUnmet (ReqConstDecl st)
-  | _ => VNonconst
+Definition const_spec_disposition (cs : Index.SpecRef idx Index.ConstSpecF) : ValueOutcome (Index.sp_node cs) :=
+  let st := BN.const_spec_status cs in
+  match Index.sp_shape cs with
+  | Index.CSExplicit _ nn nv =>
+      if Nat.eqb nn nv then VUnmet (ReqConstDecl cs st) else VInvalid (ResultCountMismatch nn nv)
+  | Index.CSInherited _ =>
+      if BN.cst_first st then VInvalid (ConstMissingInit cs st) else VUnmet (ReqConstDecl cs st)
   end.
 
 Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
@@ -291,7 +290,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | None => VNonconst
       end
   | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst ctab (Index.uo_operand (Index.un_operand_edge r Syntax.UnaryMinus Hv)) with
+      match mconst ctab (Index.uo_child (Index.unary_operand (Index.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some _ =>
           match mconst ctab r with
           | Some ci => match resolve_constant_info ci with
@@ -303,11 +302,11 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | None => VNonconst
       end
   | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_head (Index.app_head_edge r Hv)) with
+      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
-              match pmeaning pn, map Index.aa_child (Index.application_args r) with
+              match pmeaning pn, map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
               | PMConvForm t, x :: nil =>
                   match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
@@ -339,7 +338,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | _ => VNonconst
       end
   (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
-  | Index.VConstSpec _ => fun _ => const_spec_disposition r
+  | Index.VConstSpec sh => fun Hv => const_spec_disposition (Index.mkSpecRef (fl := Index.ConstSpecF) r sh Hv)
   | Index.VVarSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
   | Index.VTypeSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
   | _ => fun _ => VNonconst
@@ -348,28 +347,28 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
 Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> AppOutcome r with
   | Index.VApplication => fun Hv =>
-      let hd := Index.ah_head (Index.app_head_edge r Hv) in
+      let hd := Index.ah_child (Index.app_head (Index.mkAppRef r Hv)) in
       match Index.node_view hd with
       | Index.VName h =>
           match BN.resolve bp r h with
           | BN.RBound (BN.PredeclaredObject pn) =>
               match pmeaning pn with
-              | PMConvForm _ => match map Index.aa_child (Index.application_args r) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map Index.aa_child (Index.application_args r)))) end
+              | PMConvForm _ => match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match map Index.aa_child (Index.application_args r) with
+                  match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity (Datatypes.length (map Index.aa_child (Index.application_args r))))
+                  | _ => AInvalid (ComplexArity (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)))))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
               | PMInvalidId => ADependent (DepInvalidId pn hd)
-              | PMUnmodelled => AUnmet (ReqApplication pn (map Index.aa_child (Index.application_args r)))
+              | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
           | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
               (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
-              match map Index.aa_child (Index.application_args r) with
+              match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
               | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
@@ -395,13 +394,13 @@ Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo
 Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
   | Index.VStmt Index.SSExpr => fun Hv =>
-      let e := Index.es_expr (Index.expr_stmt_edge r Hv) in
+      let e := Index.ee_child (Index.exprstmt_expr (Index.mkExprStmtRef r Hv)) in
       match expr_dependency ctab e with
       | Some d => SDependent d
       | None =>
           match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
           | Index.VApplication => fun He =>
-              match Index.node_view (Index.ah_head (Index.app_head_edge e He)) with
+              match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef e He))) with
               | Index.VName h =>
                   match BN.resolve bp r h with
                   | BN.RBound (BN.PredeclaredObject Names.PPrintln) => SOK
@@ -413,9 +412,9 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           | _ => fun _ => SInvalid IllegalStatement
           end eq_refl
       end
-  | Index.VStmt (Index.SSShort _) => fun _ =>
+  | Index.VStmt (Index.SSShort nn nv) => fun Hv =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
-      match BN.short_stmt_dup_name bp r with
+      match BN.short_stmt_dup_name bp (Index.mkShortStmtRef r nn nv Hv) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
@@ -467,7 +466,7 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.VName _ | Index.VLiteral _ | Index.VUnary _ => [OFValue r (own_value bp ctab r)]
   | Index.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
   | Index.VStmt Index.SSExpr => [OFStmt r (own_stmt bp ctab r)]
-  | Index.VStmt (Index.SSShort _) => [OFStmt r (own_stmt bp ctab r)]
+  | Index.VStmt (Index.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
   | Index.VTypeExpr _ => [OFType r (own_type bp r)]
   | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
   | _ => []
@@ -677,7 +676,7 @@ Definition occ_family (o : OccFact idx) : Family :=
   match o with
   | OFApp _ _ => FamApplication
   | OFType _ _ => FamTypeUse
-  | OFStmt r _ => match Index.node_view r with Index.VStmt (Index.SSShort _) => FamDeclaration | _ => FamStatement end
+  | OFStmt r _ => match Index.node_view r with Index.VStmt (Index.SSShort _ _) => FamDeclaration | _ => FamStatement end
   | OFValue r _ => match Index.node_view r with Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => FamDeclaration | _ => FamValue end
   end.
 

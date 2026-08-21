@@ -10,7 +10,7 @@ Inductive SpecFlavor := ConstSpecF | VarSpecF | TypeSpecF.
 Inductive ConstShape    := CSExplicit (has_type : bool) (n_names n_values : nat) | CSInherited (n_names : nat).
 Inductive VarShape       := VSTypeOnly (n_names : nat) | VSValues (has_type : bool) (n_names n_values : nat).
 Inductive TypeSpecShape  := TSAlias | TSDef.
-Inductive StmtShape      := SSExpr | SSDecl | SSShort (n_names : nat).
+Inductive StmtShape      := SSExpr | SSDecl | SSShort (n_names n_values : nat).
 Inductive TopShape       := TSTopDecl | TSMain.
 
 (* the occurrence view: one shallow local cell — the head constructor and only immediate scalars, no descendants *)
@@ -117,7 +117,8 @@ Definition decl_flavor (d : Syntax.Declaration) : SpecFlavor :=
   match d with Syntax.ConstDecl _ => ConstSpecF | Syntax.VarDecl _ => VarSpecF | Syntax.TypeDecl _ => TypeSpecF end.
 Definition stmt_shape (s : Syntax.Stmt) : StmtShape :=
   match s with Syntax.ExprStmt _ => SSExpr | Syntax.DeclarationStmt _ => SSDecl
-             | Syntax.ShortVarDecl names _ => SSShort (List.length (Collections.ne_to_list names)) end.
+             | Syntax.ShortVarDecl names vals => SSShort (List.length (Collections.ne_to_list names))
+                                                        (List.length (Collections.ne_to_list vals)) end.
 Definition top_shape (td : Syntax.TopLevelDecl) : TopShape :=
   match td with Syntax.TopDeclaration _ => TSTopDecl | Syntax.Main _ => TSMain end.
 
@@ -2870,7 +2871,7 @@ Definition layout_role (v : NodeView) (k : nat) : Role :=
   | VApplication => match k with 0 => RApplicationHead | S i => RApplicationArg i end
   | VUnary _ => RUnaryOperand
   | VStmt SSExpr => RExprStatementExpr
-  | VStmt (SSShort nn) => if k <? nn then RShortLhs else RPlain
+  | VStmt (SSShort nn _) => if k <? nn then RShortLhs else RPlain
   | VConstSpec (CSExplicit ht nn _) =>
       if k <? nn then RSpecName ConstSpecF else if andb ht (k =? nn) then RTypeUse else RPlain
   | VConstSpec (CSInherited _) => RSpecName ConstSpecF
@@ -2887,6 +2888,7 @@ Definition layout_count (v : NodeView) : option nat :=
   | VName _ | VLiteral _ | VTypeExpr _ | VBindingName _ => Some 0
   | VUnary _ => Some 1
   | VStmt SSExpr | VStmt SSDecl => Some 1
+  | VStmt (SSShort nn nv) => Some (nn + nv)
   | VTop _ => Some 1
   | VConstSpec (CSExplicit ht nn nv) => Some (nn + (if ht then 1 else 0) + nv)
   | VConstSpec (CSInherited nn) => Some nn
@@ -3284,7 +3286,7 @@ Proof.
                   (S b) (Collections.ne_to_list names)) as Hns.
     destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names))
       as [[nc b1] nroots].
-    destruct Hnr as [_ [Hnasc [Hnbnd _]]]. cbn [fst snd] in Hns.
+    destruct Hnr as [Hnlen [Hnasc [Hnbnd _]]]. cbn [fst snd] in Hns.
     pose proof (number_list_roots (number_expr (Some b) RPlain) (fun _ => True)
                   (fun bb x => number_expr_spans x (Some b) RPlain bb)
                   (fun bb x => match number_expr_root x (Some b) RPlain bb with
@@ -3296,12 +3298,13 @@ Proof.
                   (fun bb x => number_expr_shape x (Some b) RPlain bb)
                   b1 (Collections.ne_to_list vals)) as Hvs.
     destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
-    destruct Hvr as [_ [Hvasc [Hvbnd _]]]. cbn [fst snd] in Hvs.
+    destruct Hvr as [Hvlen [Hvasc [Hvbnd _]]]. cbn [fst snd] in Hvs.
     cbn [fst]. constructor.
     + cbn [snd]. split.
       * cbn [c_children]. apply asc_app; [ exact Hnasc | exact Hvasc |].
         intros x y Hx Hy. destruct (Hnbnd x Hx). destruct (Hvbnd y Hy). lia.
-      * cbn [c_view]. unfold stmt_shape. cbn [layout_count]. exact I.
+      * cbn [c_view]. unfold stmt_shape. cbn [layout_count].
+        cbn [c_children]. rewrite length_app, Hnlen, Hvlen. reflexivity.
     + apply shape_ok_app; [ exact Hns | exact Hvs ].
 Qed.
 
@@ -4152,336 +4155,662 @@ Proof.
   rewrite H in He. exact He.
 Qed.
 
-(* the total refined first-edge reference: no filter, no fallback — a required edge resolves exactly *)
-Definition first_edge {p} {idx : ProgramIndex p} (r : NodeRef idx)
-  (H : requires_first_edge (node_view r) = true) : NodeRef idx :=
-  match c_children (occ_at r) as ch
-    return first_child_wf ch (nr_pos r) (occ_count (nr_file r)) -> NodeRef idx with
-  | [] => fun Hw => False_rect _ Hw
-  | hp :: _ => fun Hw => noderef_at_pos (nr_file r) hp (proj2 Hw)
-  end (occ_first_child_wf r H).
-
-(* an exact positional child edge: the direct child at an exact source ordinal under an exact parent *)
-Record ChildEdge {p} {idx : ProgramIndex p} (parent : NodeRef idx) : Type := mkChildEdge {
-  ce_ord   : nat ;
-  ce_child : NodeRef idx ;
-  ce_at    : nth_error (node_children parent) ce_ord = Some ce_child
+(* the one canonical positional direct-child identity: exact parent and source ordinal in the type *)
+Record ChildAt {p} {idx : ProgramIndex p} (parent : NodeRef idx) (ordinal : nat) : Type := mkChildAt {
+  ca_child : NodeRef idx ;
+  ca_at    : nth_error (node_children parent) ordinal = Some ca_child
 }.
-Arguments mkChildEdge {p idx parent} _ _ _.
-Arguments ce_ord {p idx parent} _.
-Arguments ce_child {p idx parent} _.
-Arguments ce_at {p idx parent} _.
+Arguments mkChildAt {p idx parent ordinal} _ _.
+Arguments ca_child {p idx parent ordinal} _.
+Arguments ca_at {p idx parent ordinal} _.
+Definition ca_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (_ : ChildAt parent ordinal) : NodeRef idx := parent.
+Definition ca_ordinal {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (_ : ChildAt parent ordinal) : nat := ordinal.
 
-(* the exact parent an edge belongs to: the type's own index, a projection, never rediscovered *)
-Definition ce_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} (_ : ChildEdge parent) : NodeRef idx := parent.
+(* parent and ordinal determine the child: the canonical edge is a function of its type indices *)
+Lemma ca_det {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (e1 e2 : ChildAt parent ordinal) : ca_child e1 = ca_child e2.
+Proof. pose proof (ca_at e1) as H1. pose proof (ca_at e2) as H2. rewrite H1 in H2. injection H2 as H2. exact H2. Qed.
 
-(* the child projection is a genuine direct child of the exact parent *)
-Lemma ce_child_is_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e : ChildEdge parent) :
-  In (ce_child e) (node_children parent).
-Proof. exact (nth_error_In _ _ (ce_at e)). Qed.
+(* the child is a genuine direct child of the exact parent *)
+Lemma ca_in {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat} (e : ChildAt parent ordinal) :
+  In (ca_child e) (node_children parent).
+Proof. exact (nth_error_In _ _ (ca_at e)). Qed.
 
-(* parent round trip: the edge's child points its parent edge back to the exact parent *)
-Lemma ce_child_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e : ChildEdge parent) :
-  node_parent (ce_child e) = Some parent.
-Proof. apply node_children_inverse, ce_child_is_child. Qed.
+(* parent round trip: the retained Index parent relation points the child back to the exact parent *)
+Lemma ca_node_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (e : ChildAt parent ordinal) : node_parent (ca_child e) = Some parent.
+Proof. apply node_children_inverse, ca_in. Qed.
 
-(* ordinal exactness: the source ordinal determines the child edge's child *)
-Lemma ce_ord_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} (e1 e2 : ChildEdge parent) :
-  ce_ord e1 = ce_ord e2 -> ce_child e1 = ce_child e2.
-Proof. intro H. pose proof (ce_at e1) as H1. pose proof (ce_at e2) as H2. rewrite H in H1. rewrite H1 in H2. injection H2 as H2. exact H2. Qed.
+(* the child's role is exactly the layout role its parent's view fixes at this ordinal *)
+Lemma ca_role {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (e : ChildAt parent ordinal) : node_role (ca_child e) = layout_role (node_view parent) ordinal.
+Proof. exact (node_child_role parent (ca_child e) ordinal (ca_at e)). Qed.
 
-(* the exact application-head edge: the one required first child of an application, by the application view *)
-Record ApplicationHeadEdge {p} {idx : ProgramIndex p} (app : NodeRef idx) : Type := mkAppHead {
-  ah_view : node_view app = VApplication
-}.
-Arguments mkAppHead {p idx app} _.
-Arguments ah_view {p idx app} _.
-Definition ah_head {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationHeadEdge app) : NodeRef idx :=
-  first_edge app (f_equal requires_first_edge (ah_view e)).
-Definition app_head_edge {p} {idx : ProgramIndex p} (app : NodeRef idx) (H : node_view app = VApplication)
-  : ApplicationHeadEdge app := mkAppHead H.
+(* ordinal order is source order across the canonical edges of one parent *)
+Lemma ca_pos_lt {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (ei : ChildAt parent i) (ej : ChildAt parent j) : i < j -> nr_pos (ca_child ei) < nr_pos (ca_child ej).
+Proof. intro H. exact (node_children_asc parent _ _ i j H (ca_at ei) (ca_at ej)). Qed.
 
-(* the exact unary-operand edge: the one required first child of a unary expression, by the unary view *)
-Record UnaryOperandEdge {p} {idx : ProgramIndex p} (un : NodeRef idx) : Type := mkUnOperand {
-  uo_op   : Syntax.UnaryOp ;
-  uo_view : node_view un = VUnary uo_op
-}.
-Arguments mkUnOperand {p idx un} _ _.
-Arguments uo_op {p idx un} _.
-Arguments uo_view {p idx un} _.
-Definition uo_operand {p} {idx : ProgramIndex p} {un : NodeRef idx} (e : UnaryOperandEdge un) : NodeRef idx :=
-  first_edge un (f_equal requires_first_edge (uo_view e)).
-Definition un_operand_edge {p} {idx : ProgramIndex p} (un : NodeRef idx) (op : Syntax.UnaryOp)
-  (H : node_view un = VUnary op) : UnaryOperandEdge un := mkUnOperand op H.
+(* every direct child has a canonical positional identity *)
+Lemma ca_exists {p} {idx : ProgramIndex p} (parent c : NodeRef idx) :
+  In c (node_children parent) -> exists (k : nat) (e : ChildAt parent k), ca_child e = c.
+Proof.
+  intro Hin. destruct (In_nth_error _ _ Hin) as [k Hk]. exists k, (mkChildAt c Hk). reflexivity.
+Qed.
 
-(* the exact expression-statement edge: the required expression child of an expression statement, by its view *)
-Record ExprStmtExprEdge {p} {idx : ProgramIndex p} (stmt : NodeRef idx) : Type := mkExprStmt {
-  es_view : node_view stmt = VStmt SSExpr
-}.
-Arguments mkExprStmt {p idx stmt} _.
-Arguments es_view {p idx stmt} _.
-Definition es_expr {p} {idx : ProgramIndex p} {stmt : NodeRef idx} (e : ExprStmtExprEdge stmt) : NodeRef idx :=
-  first_edge stmt (f_equal requires_first_edge (es_view e)).
-Definition expr_stmt_edge {p} {idx : ProgramIndex p} (stmt : NodeRef idx) (H : node_view stmt = VStmt SSExpr)
-  : ExprStmtExprEdge stmt := mkExprStmt H.
+(* ...and exactly one: two canonical edges sharing a child share the ordinal *)
+Lemma ca_ord_unique {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (ei : ChildAt parent i) (ej : ChildAt parent j) : ca_child ei = ca_child ej -> i = j.
+Proof.
+  intro H. apply (node_child_ord_unique parent (ca_child ej) i j); [ rewrite <- H; exact (ca_at ei) | exact (ca_at ej) ].
+Qed.
 
-Definition specflavor_eq_dec (a b : SpecFlavor) : {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-Definition role_eq_dec (a b : Role) : {a = b} + {a <> b}.
-Proof. decide equality; [ apply Nat.eq_dec | apply specflavor_eq_dec ]. Defined.
+(* index transport along a proven ordinal equality; never a silent renumbering *)
+Definition ca_cast {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (E : i = j) (e : ChildAt parent i) : ChildAt parent j :=
+  match E in _ = j0 return ChildAt parent j0 with eq_refl => e end.
 
-(* an exact fixed-role child edge: a direct child of an exact parent carrying an exact source role *)
-Record RoleChildEdge {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) : Type := mkRoleChild {
-  rc_child : NodeRef idx ;
-  rc_of    : In rc_child (node_children parent) ;
-  rc_role  : node_role rc_child = role
-}.
-Arguments mkRoleChild {p idx parent role} _ _ _.
-Arguments rc_child {p idx parent role} _.
-Arguments rc_of {p idx parent role} _.
-Arguments rc_role {p idx parent role} _.
-Definition rc_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {role} (_ : RoleChildEdge parent role)
-  : NodeRef idx := parent.
+(* the total in-range constructor: an ordinal below the children length resolves without option *)
+Definition child_at_lt {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat)
+  (H : k < length (node_children r)) : ChildAt r k :=
+  mkChildAt (nth_lt (node_children r) k H) (nth_lt_nth_error (node_children r) k H).
 
-(* the exact direct children of a parent carrying a fixed role, each a proved edge, in source order *)
-Fixpoint role_children_aux {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) {struct l}
-  : list (RoleChildEdge parent role) :=
-  match l as l0 return (forall c, In c l0 -> In c (node_children parent)) -> list (RoleChildEdge parent role) with
+Lemma skipn_nth : forall {A} (k : nat) (l : list A) (j : nat), nth_error (skipn k l) j = nth_error l (k + j).
+Proof.
+  intros A k; induction k as [|k' IH]; intros l j; [ reflexivity |].
+  destruct l as [|x xs]; cbn; [ destruct j; reflexivity | apply IH ].
+Qed.
+
+Lemma skipn_head_at : forall {A} (l l' : list A) (k : nat) (c : A),
+  c :: l' = skipn k l -> nth_error l k = Some c.
+Proof.
+  intros A l l' k c E. pose proof (skipn_nth k l 0) as H.
+  rewrite <- E in H. cbn in H. rewrite Nat.add_0_r in H. symmetry. exact H.
+Qed.
+
+Lemma skipn_succ : forall {A} (k : nat) (l : list A), skipn (S k) l = tl (skipn k l).
+Proof.
+  intros A k; induction k as [|k' IH]; intros [|x xs]; cbn; try reflexivity. exact (IH xs).
+Qed.
+
+Lemma skipn_tail_at : forall {A} (l l' : list A) (k : nat) (c : A),
+  c :: l' = skipn k l -> l' = skipn (S k) l.
+Proof. intros A l l' k c E. rewrite skipn_succ, <- E. reflexivity. Qed.
+
+(* the total canonical enumeration: one exact edge per direct child, ordinal-ascending, no filter *)
+Fixpoint children_from {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat) (l : list (NodeRef idx))
+  {struct l} : l = skipn k (node_children r) -> list { o : nat & ChildAt r o } :=
+  match l with
   | [] => fun _ => []
-  | c :: rest => fun Hs =>
-      match role_eq_dec (node_role c) role with
-      | left Hr => mkRoleChild c (Hs c (or_introl eq_refl)) Hr
-                     :: role_children_aux parent role rest (fun c' Hc' => Hs c' (or_intror Hc'))
-      | right _ => role_children_aux parent role rest (fun c' Hc' => Hs c' (or_intror Hc'))
-      end
-  end Hsub.
-Definition role_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
-  : list (RoleChildEdge parent role) :=
-  role_children_aux parent role (node_children parent) (fun c H => H).
+  | c :: rest => fun E =>
+      existT _ k (mkChildAt c (skipn_head_at (node_children r) rest k c E))
+      :: children_from r (S k) rest (skipn_tail_at (node_children r) rest k c E)
+  end.
+Definition all_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list { o : nat & ChildAt r o } :=
+  children_from r 0 (node_children r) eq_refl.
 
-(* order + coverage: the fixed-role children project, in exact source order, to exactly the role-carrying children *)
-Lemma role_children_aux_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) :
-  map rc_child (role_children_aux parent role l Hsub)
-  = filter (fun c => if role_eq_dec (node_role c) role then true else false) l.
+Lemma children_from_ords {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  forall l k E, map (@projT1 _ _) (children_from r k l E) = seq k (length l).
 Proof.
-  revert Hsub; induction l as [|c rest IH]; intro Hsub; cbn.
-  - reflexivity.
-  - destruct (role_eq_dec (node_role c) role); cbn; [ f_equal | ]; apply IH.
-Qed.
-Lemma role_children_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) :
-  map rc_child (role_children parent role)
-  = filter (fun c => if role_eq_dec (node_role c) role then true else false) (node_children parent).
-Proof. apply role_children_aux_children. Qed.
-
-(* every direct child carrying the role appears, exactly once with that role, as a fixed-role edge *)
-Lemma role_children_complete {p} {idx : ProgramIndex p} (parent : NodeRef idx) (role : Role) (c : NodeRef idx) :
-  In c (node_children parent) -> node_role c = role -> In c (map rc_child (role_children parent role)).
-Proof.
-  intros Hin Hr. rewrite role_children_children, filter_In. split; [ exact Hin |].
-  destruct (role_eq_dec (node_role c) role) as [|N]; [ reflexivity | exact (match N Hr with end) ].
+  induction l as [|c rest IH]; intros k E; cbn; [ reflexivity | f_equal; apply IH ].
 Qed.
 
-(* an exact predicate-refined child edge: a direct child of an exact parent whose role passes a role test *)
-Record PredChildEdge {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool) : Type := mkPredChild {
-  pc_child : NodeRef idx ;
-  pc_of    : In pc_child (node_children parent) ;
-  pc_true  : pred (node_role pc_child) = true
+Lemma children_from_childs {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  forall l k E, map (fun x => ca_child (projT2 x)) (children_from r k l E) = l.
+Proof.
+  induction l as [|c rest IH]; intros k E; cbn; [ reflexivity | f_equal; apply IH ].
+Qed.
+
+(* the canonical enumeration covers exactly the direct children, in exact source order *)
+Lemma all_children_ords {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  map (@projT1 _ _) (all_children r) = seq 0 (length (node_children r)).
+Proof. apply children_from_ords. Qed.
+Lemma all_children_childs {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  map (fun x => ca_child (projT2 x)) (all_children r) = node_children r.
+Proof. apply children_from_childs. Qed.
+
+
+(* exact refined parents: each edge family is requested only from a parent proven to be its exact kind *)
+Record AppRef {p} (idx : ProgramIndex p) : Type := mkAppRef {
+  app_node : NodeRef idx ;
+  app_ok   : node_view app_node = VApplication
 }.
-Arguments mkPredChild {p idx parent pred} _ _ _.
-Arguments pc_child {p idx parent pred} _.
-Arguments pc_of {p idx parent pred} _.
-Arguments pc_true {p idx parent pred} _.
-Definition pc_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {pred} (_ : PredChildEdge parent pred) : NodeRef idx := parent.
+Arguments mkAppRef {p idx} _ _.
+Arguments app_node {p idx} _.
+Arguments app_ok {p idx} _.
 
-Fixpoint pred_children_aux {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) {struct l}
-  : list (PredChildEdge parent pred) :=
-  match l as l0 return (forall c, In c l0 -> In c (node_children parent)) -> list (PredChildEdge parent pred) with
-  | [] => fun _ => []
-  | c :: rest => fun Hs =>
-      match Bool.bool_dec (pred (node_role c)) true with
-      | left Hb => mkPredChild c (Hs c (or_introl eq_refl)) Hb
-                     :: pred_children_aux parent pred rest (fun c' Hc' => Hs c' (or_intror Hc'))
-      | right _ => pred_children_aux parent pred rest (fun c' Hc' => Hs c' (or_intror Hc'))
-      end
-  end Hsub.
-Definition pred_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool)
-  : list (PredChildEdge parent pred) :=
-  pred_children_aux parent pred (node_children parent) (fun c H => H).
-
-(* order + coverage: the predicate-refined edges project, in exact source order, to exactly the passing children *)
-Lemma pred_children_aux_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children parent)) :
-  map pc_child (pred_children_aux parent pred l Hsub) = filter (fun c => pred (node_role c)) l.
-Proof.
-  revert Hsub; induction l as [|c rest IH]; intro Hsub; cbn.
-  - reflexivity.
-  - destruct (Bool.bool_dec (pred (node_role c)) true) as [Hb|Hb]; cbn.
-    + rewrite Hb; cbn. f_equal. apply IH.
-    + apply Bool.not_true_is_false in Hb; rewrite Hb; cbn. apply IH.
-Qed.
-Lemma pred_children_children {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool) :
-  map pc_child (pred_children parent pred) = filter (fun c => pred (node_role c)) (node_children parent).
-Proof. apply pred_children_aux_children. Qed.
-Lemma pred_children_complete {p} {idx : ProgramIndex p} (parent : NodeRef idx) (pred : Role -> bool) (c : NodeRef idx) :
-  In c (node_children parent) -> pred (node_role c) = true -> In c (map pc_child (pred_children parent pred)).
-Proof. intros Hin Ht. rewrite pred_children_children, filter_In. split; [ exact Hin | exact Ht ]. Qed.
-
-(* the argument-role test and the intrinsic index a role carries, as total functions on Role *)
-Definition is_arg_role (r : Role) : bool := match r with RApplicationArg _ => true | _ => false end.
-Definition arg_index_of (r : Role) : nat := match r with RApplicationArg i => i | _ => 0 end.
-Lemma is_arg_role_index (r : Role) : is_arg_role r = true -> r = RApplicationArg (arg_index_of r).
-Proof. destruct r; cbn; intro H; solve [ discriminate H | reflexivity ]. Qed.
-
-(* an exact application-argument edge and the ordered argument list, refined over the argument-role predicate *)
-Definition ApplicationArgEdge {p} {idx : ProgramIndex p} (app : NodeRef idx) : Type := PredChildEdge app is_arg_role.
-Definition aa_child {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) : NodeRef idx := pc_child e.
-Definition aa_of {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) : In (aa_child e) (node_children app) := pc_of e.
-Definition aa_parent {p} {idx : ProgramIndex p} {app : NodeRef idx} (_ : ApplicationArgEdge app) : NodeRef idx := app.
-Definition aa_index {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) : nat :=
-  arg_index_of (node_role (aa_child e)).
-Definition application_args {p} {idx : ProgramIndex p} (app : NodeRef idx) : list (ApplicationArgEdge app) :=
-  pred_children app is_arg_role.
-Lemma aa_role {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) :
-  node_role (aa_child e) = RApplicationArg (aa_index e).
-Proof. exact (is_arg_role_index (node_role (aa_child e)) (pc_true e)). Qed.
-Lemma application_args_children {p} {idx : ProgramIndex p} (app : NodeRef idx) :
-  map aa_child (application_args app) = filter (fun c => is_arg_role (node_role c)) (node_children app).
-Proof. apply pred_children_children. Qed.
-Lemma application_args_complete {p} {idx : ProgramIndex p} (app : NodeRef idx) (c : NodeRef idx) (i : nat) :
-  In c (node_children app) -> node_role c = RApplicationArg i -> In c (map aa_child (application_args app)).
-Proof. intros Hin Hr. apply pred_children_complete; [ exact Hin | unfold is_arg_role; rewrite Hr; reflexivity ]. Qed.
-
-(* the spec-name test and the flavor a role carries, as total functions on Role *)
-Definition is_spec_name_role (r : Role) : bool := match r with RSpecName _ => true | _ => false end.
-Definition spec_flavor_of (r : Role) : SpecFlavor := match r with RSpecName fl => fl | _ => ConstSpecF end.
-Lemma is_spec_name_flavor (r : Role) : is_spec_name_role r = true -> r = RSpecName (spec_flavor_of r).
-Proof. destruct r; cbn; intro H; solve [ discriminate H | reflexivity ]. Qed.
-
-(* an exact spec declared-name edge and the ordered name list, refined over the spec-name predicate *)
-Definition SpecNameEdge {p} {idx : ProgramIndex p} (spec : NodeRef idx) : Type := PredChildEdge spec is_spec_name_role.
-Definition sn_child {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) : NodeRef idx := pc_child e.
-Definition sn_of {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) : In (sn_child e) (node_children spec) := pc_of e.
-Definition sn_parent {p} {idx : ProgramIndex p} {spec : NodeRef idx} (_ : SpecNameEdge spec) : NodeRef idx := spec.
-Definition sn_flavor {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) : SpecFlavor :=
-  spec_flavor_of (node_role (sn_child e)).
-Definition spec_names {p} {idx : ProgramIndex p} (spec : NodeRef idx) : list (SpecNameEdge spec) :=
-  pred_children spec is_spec_name_role.
-Lemma sn_role {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) :
-  node_role (sn_child e) = RSpecName (sn_flavor e).
-Proof. exact (is_spec_name_flavor (node_role (sn_child e)) (pc_true e)). Qed.
-Lemma spec_names_children {p} {idx : ProgramIndex p} (spec : NodeRef idx) :
-  map sn_child (spec_names spec) = filter (fun c => is_spec_name_role (node_role c)) (node_children spec).
-Proof. apply pred_children_children. Qed.
-
-(* the exact fixed-role spec/short accessors: declared type (exact absence), values, and short left/right sides *)
-Definition spec_type_edge {p} {idx : ProgramIndex p} (spec : NodeRef idx) : option (RoleChildEdge spec RTypeUse) :=
-  hd_error (role_children spec RTypeUse).
-Definition spec_values {p} {idx : ProgramIndex p} (spec : NodeRef idx) : list (RoleChildEdge spec RPlain) :=
-  role_children spec RPlain.
-Definition short_lhs_edges {p} {idx : ProgramIndex p} (stmt : NodeRef idx) : list (RoleChildEdge stmt RShortLhs) :=
-  role_children stmt RShortLhs.
-Definition short_rhs_edges {p} {idx : ProgramIndex p} (stmt : NodeRef idx) : list (RoleChildEdge stmt RPlain) :=
-  role_children stmt RPlain.
-
-(* an exact preceding-sibling edge: a direct child of r's exact parent that precedes r in source order *)
-Record SiblingBefore {p} {idx : ProgramIndex p} (r : NodeRef idx) : Type := mkSibBefore {
-  sb_parent : NodeRef idx ;
-  sb_par_of : node_parent r = Some sb_parent ;
-  sb_sib    : NodeRef idx ;
-  sb_sib_of : In sb_sib (node_children sb_parent) ;
-  sb_before : Nat.ltb (nr_pos sb_sib) (nr_pos r) = true
+Record UnaryRef {p} (idx : ProgramIndex p) : Type := mkUnaryRef {
+  un_node : NodeRef idx ;
+  un_op   : Syntax.UnaryOp ;
+  un_ok   : node_view un_node = VUnary un_op
 }.
-Arguments mkSibBefore {p idx r} _ _ _ _ _.
-Arguments sb_parent {p idx r} _.
-Arguments sb_par_of {p idx r} _.
-Arguments sb_sib {p idx r} _.
-Arguments sb_sib_of {p idx r} _.
-Arguments sb_before {p idx r} _.
+Arguments mkUnaryRef {p idx} _ _ _.
+Arguments un_node {p idx} _.
+Arguments un_op {p idx} _.
+Arguments un_ok {p idx} _.
 
-Fixpoint sib_before_aux {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hpar : node_parent r = Some par)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children par)) {struct l} : list (SiblingBefore r) :=
-  match l as l0 return (forall c, In c l0 -> In c (node_children par)) -> list (SiblingBefore r) with
-  | [] => fun _ => []
-  | c :: rest => fun Hs =>
-      match Bool.bool_dec (Nat.ltb (nr_pos c) (nr_pos r)) true with
-      | left Hb => mkSibBefore par Hpar c (Hs c (or_introl eq_refl)) Hb
-                     :: sib_before_aux r par Hpar rest (fun c' Hc' => Hs c' (or_intror Hc'))
-      | right _ => sib_before_aux r par Hpar rest (fun c' Hc' => Hs c' (or_intror Hc'))
+Record ExprStmtRef {p} (idx : ProgramIndex p) : Type := mkExprStmtRef {
+  exs_node : NodeRef idx ;
+  exs_ok   : node_view exs_node = VStmt SSExpr
+}.
+Arguments mkExprStmtRef {p idx} _ _.
+Arguments exs_node {p idx} _.
+Arguments exs_ok {p idx} _.
+
+Record ShortStmtRef {p} (idx : ProgramIndex p) : Type := mkShortStmtRef {
+  sh_node   : NodeRef idx ;
+  sh_names  : nat ;
+  sh_values : nat ;
+  sh_ok     : node_view sh_node = VStmt (SSShort sh_names sh_values)
+}.
+Arguments mkShortStmtRef {p idx} _ _ _ _.
+Arguments sh_node {p idx} _.
+Arguments sh_names {p idx} _.
+Arguments sh_values {p idx} _.
+Arguments sh_ok {p idx} _.
+
+(* one flavor-indexed spec parent: the exact shape is retained, so every field formula reads it *)
+Definition SpecShape (fl : SpecFlavor) : Type :=
+  match fl with ConstSpecF => ConstShape | VarSpecF => VarShape | TypeSpecF => TypeSpecShape end.
+Definition spec_view_of (fl : SpecFlavor) : SpecShape fl -> NodeView :=
+  match fl with ConstSpecF => VConstSpec | VarSpecF => VVarSpec | TypeSpecF => VTypeSpec end.
+Record SpecRef {p} (idx : ProgramIndex p) (fl : SpecFlavor) : Type := mkSpecRef {
+  sp_node  : NodeRef idx ;
+  sp_shape : SpecShape fl ;
+  sp_ok    : node_view sp_node = spec_view_of fl sp_shape
+}.
+Arguments mkSpecRef {p idx fl} _ _ _.
+Arguments sp_node {p idx fl} _.
+Arguments sp_shape {p idx fl} _.
+Arguments sp_ok {p idx fl} _.
+
+(* the scalar layout each spec shape fixes: name count, declared-type presence, value count *)
+Definition shape_names (fl : SpecFlavor) : SpecShape fl -> nat :=
+  match fl with
+  | ConstSpecF => fun sh => match sh with CSExplicit _ nn _ => nn | CSInherited nn => nn end
+  | VarSpecF   => fun sh => match sh with VSTypeOnly nn => nn | VSValues _ nn _ => nn end
+  | TypeSpecF  => fun _ => 1
+  end.
+Definition shape_has_type (fl : SpecFlavor) : SpecShape fl -> bool :=
+  match fl with
+  | ConstSpecF => fun sh => match sh with CSExplicit ht _ _ => ht | CSInherited _ => false end
+  | VarSpecF   => fun sh => match sh with VSTypeOnly _ => true | VSValues ht _ _ => ht end
+  | TypeSpecF  => fun _ => true
+  end.
+Definition shape_values (fl : SpecFlavor) : SpecShape fl -> nat :=
+  match fl with
+  | ConstSpecF => fun sh => match sh with CSExplicit _ _ nv => nv | CSInherited _ => 0 end
+  | VarSpecF   => fun sh => match sh with VSValues _ _ nv => nv | VSTypeOnly _ => 0 end
+  | TypeSpecF  => fun _ => 0
+  end.
+Definition type_ordinal (fl : SpecFlavor) (sh : SpecShape fl) : nat := shape_names fl sh.
+Definition value_ordinal (fl : SpecFlavor) (sh : SpecShape fl) (j : nat) : nat :=
+  shape_names fl sh + (if shape_has_type fl sh then 1 else 0) + j.
+
+(* the shape-fixed count IS the layout count of the spec's view: the two authorities agree by computation *)
+Lemma spec_layout_count : forall fl (sh : SpecShape fl),
+  layout_count (spec_view_of fl sh)
+  = Some (shape_names fl sh + (if shape_has_type fl sh then 1 else 0) + shape_values fl sh).
+Proof. destruct fl; destruct sh; cbn; try reflexivity; f_equal; lia. Qed.
+
+(* the specialized edges: each retains the one canonical ChildAt at its exact formula ordinal *)
+Record ApplicationHeadEdge {p} {idx : ProgramIndex p} (a : AppRef idx) : Type := mkAppHead {
+  ah_at : ChildAt (app_node a) 0
+}.
+Arguments mkAppHead {p idx a} _.
+Arguments ah_at {p idx a} _.
+Definition ah_child {p} {idx : ProgramIndex p} {a : AppRef idx} (e : ApplicationHeadEdge a) : NodeRef idx :=
+  ca_child (ah_at e).
+
+Record ApplicationArgEdge {p} {idx : ProgramIndex p} (a : AppRef idx) (i : nat) : Type := mkAppArg {
+  aa_at : ChildAt (app_node a) (S i)
+}.
+Arguments mkAppArg {p idx a i} _.
+Arguments aa_at {p idx a i} _.
+Definition aa_child {p} {idx : ProgramIndex p} {a : AppRef idx} {i : nat} (e : ApplicationArgEdge a i)
+  : NodeRef idx := ca_child (aa_at e).
+
+Record UnaryOperandEdge {p} {idx : ProgramIndex p} (u : UnaryRef idx) : Type := mkUnOperand {
+  uo_at : ChildAt (un_node u) 0
+}.
+Arguments mkUnOperand {p idx u} _.
+Arguments uo_at {p idx u} _.
+Definition uo_child {p} {idx : ProgramIndex p} {u : UnaryRef idx} (e : UnaryOperandEdge u) : NodeRef idx :=
+  ca_child (uo_at e).
+
+Record ExprStmtExprEdge {p} {idx : ProgramIndex p} (s : ExprStmtRef idx) : Type := mkExprStmtE {
+  ee_at : ChildAt (exs_node s) 0
+}.
+Arguments mkExprStmtE {p idx s} _.
+Arguments ee_at {p idx s} _.
+Definition ee_child {p} {idx : ProgramIndex p} {s : ExprStmtRef idx} (e : ExprStmtExprEdge s) : NodeRef idx :=
+  ca_child (ee_at e).
+
+Record MainBodyEdge {p} {idx : ProgramIndex p} (m : MainOccurrenceRef idx) : Type := mkMainBody {
+  mb_at : ChildAt (mo_node m) 0
+}.
+Arguments mkMainBody {p idx m} _.
+Arguments mb_at {p idx m} _.
+Definition mb_child {p} {idx : ProgramIndex p} {m : MainOccurrenceRef idx} (e : MainBodyEdge m) : NodeRef idx :=
+  ca_child (mb_at e).
+
+Record SpecNameEdge {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (i : nat) : Type := mkSpecName {
+  sn_at : ChildAt (sp_node sp) i ;
+  sn_lt : i < shape_names fl (sp_shape sp)
+}.
+Arguments mkSpecName {p idx fl sp i} _ _.
+Arguments sn_at {p idx fl sp i} _.
+Arguments sn_lt {p idx fl sp i} _.
+Definition sn_child {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {i : nat}
+  (e : SpecNameEdge sp i) : NodeRef idx := ca_child (sn_at e).
+
+Record SpecValueEdge {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (j : nat) : Type := mkSpecValue {
+  sv_at : ChildAt (sp_node sp) (value_ordinal fl (sp_shape sp) j) ;
+  sv_lt : j < shape_values fl (sp_shape sp)
+}.
+Arguments mkSpecValue {p idx fl sp j} _ _.
+Arguments sv_at {p idx fl sp j} _.
+Arguments sv_lt {p idx fl sp j} _.
+Definition sv_child {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {j : nat}
+  (e : SpecValueEdge sp j) : NodeRef idx := ca_child (sv_at e).
+
+(* exact optional presence: absence is a shape fact, never a failed lookup; presence is the exact edge *)
+Inductive SpecTypePresence {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) : Type :=
+| SpecTypePresent : shape_has_type fl (sp_shape sp) = true
+                    -> ChildAt (sp_node sp) (type_ordinal fl (sp_shape sp)) -> SpecTypePresence sp
+| SpecTypeAbsent  : shape_has_type fl (sp_shape sp) = false -> SpecTypePresence sp.
+Arguments SpecTypePresent {p idx fl sp} _ _.
+Arguments SpecTypeAbsent {p idx fl sp} _.
+
+Record ShortLhsEdge {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (i : nat) : Type := mkShortLhs {
+  sl_at : ChildAt (sh_node st) i ;
+  sl_lt : i < sh_names st
+}.
+Arguments mkShortLhs {p idx st i} _ _.
+Arguments sl_at {p idx st i} _.
+Arguments sl_lt {p idx st i} _.
+Definition sl_child {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {i : nat} (e : ShortLhsEdge st i)
+  : NodeRef idx := ca_child (sl_at e).
+
+Record ShortRhsEdge {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (j : nat) : Type := mkShortRhs {
+  sr_at : ChildAt (sh_node st) (sh_names st + j) ;
+  sr_lt : j < sh_values st
+}.
+Arguments mkShortRhs {p idx st j} _ _.
+Arguments sr_at {p idx st j} _.
+Arguments sr_lt {p idx st j} _.
+Definition sr_child {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {j : nat} (e : ShortRhsEdge st j)
+  : NodeRef idx := ca_child (sr_at e).
+
+(* a node's own canonical edge under its exact parent: the retained identity preceding-sibling edges refine *)
+Record SelfEdge {p} {idx : ProgramIndex p} (r : NodeRef idx) : Type := mkSelfEdge {
+  se_parent   : NodeRef idx ;
+  se_ord      : nat ;
+  se_at       : ChildAt se_parent se_ord ;
+  se_child_eq : ca_child se_at = r
+}.
+Arguments mkSelfEdge {p idx r} _ _ _ _.
+Arguments se_parent {p idx r} _.
+Arguments se_ord {p idx r} _.
+Arguments se_at {p idx r} _.
+Arguments se_child_eq {p idx r} _.
+
+(* an exact preceding sibling: the canonical edges of target and sibling under one parent, ordinal below ordinal *)
+Record PrecedingSiblingEdge {p} {idx : ProgramIndex p} (target : NodeRef idx) (i : nat) : Type := mkPrecSib {
+  ps_self : SelfEdge target ;
+  ps_at   : ChildAt (se_parent ps_self) i ;
+  ps_lt   : i < se_ord ps_self
+}.
+Arguments mkPrecSib {p idx target i} _ _ _.
+Arguments ps_self {p idx target i} _.
+Arguments ps_at {p idx target i} _.
+Arguments ps_lt {p idx target i} _.
+Definition ps_sibling {p} {idx : ProgramIndex p} {target : NodeRef idx} {i : nat}
+  (e : PrecedingSiblingEdge target i) : NodeRef idx := ca_child (ps_at e).
+
+(* per-family role laws: each edge's child carries exactly the role the parent's shape fixes at its ordinal *)
+Lemma layout_role_name : forall fl (sh : SpecShape fl) i,
+  i < shape_names fl sh -> layout_role (spec_view_of fl sh) i = RSpecName fl.
+Proof.
+  destruct fl; intros sh i H; destruct sh; cbn [spec_view_of shape_names layout_role] in H |- *;
+    try (rewrite (proj2 (Nat.ltb_lt _ _) H); reflexivity); try reflexivity;
+    try (destruct i; [ reflexivity | lia ]).
+Qed.
+
+Lemma layout_role_type : forall fl (sh : SpecShape fl),
+  shape_has_type fl sh = true -> layout_role (spec_view_of fl sh) (type_ordinal fl sh) = RTypeUse.
+Proof.
+  destruct fl; intros sh Ht; destruct sh;
+    cbn [spec_view_of shape_has_type shape_names type_ordinal layout_role] in Ht |- *;
+    try discriminate Ht; subst; try rewrite Nat.ltb_irrefl; try rewrite Nat.eqb_refl; reflexivity.
+Qed.
+
+Lemma layout_role_value : forall fl (sh : SpecShape fl) j,
+  j < shape_values fl sh -> layout_role (spec_view_of fl sh) (value_ordinal fl sh j) = RPlain.
+Proof.
+  destruct fl; intros sh j H; destruct sh;
+    cbn [spec_view_of shape_values shape_names shape_has_type value_ordinal layout_role] in H |- *; try lia.
+  - destruct has_type; unfold value_ordinal; cbn [shape_names shape_has_type]; cbv beta iota zeta.
+    + assert (E1 : (n_names + 1 + j <? n_names) = false) by (apply Nat.ltb_ge; lia).
+      assert (E2 : (n_names + 1 + j =? n_names) = false) by (apply Nat.eqb_neq; lia).
+      rewrite E1, E2. reflexivity.
+    + assert (E1 : (n_names + 0 + j <? n_names) = false) by (apply Nat.ltb_ge; lia).
+      rewrite E1. reflexivity.
+  - destruct has_type; unfold value_ordinal; cbn [shape_names shape_has_type]; cbv beta iota zeta.
+    + assert (E1 : (n_names + 1 + j <? n_names) = false) by (apply Nat.ltb_ge; lia).
+      assert (E2 : (n_names + 1 + j =? n_names) = false) by (apply Nat.eqb_neq; lia).
+      rewrite E1, E2. reflexivity.
+    + assert (E1 : (n_names + 0 + j <? n_names) = false) by (apply Nat.ltb_ge; lia).
+      rewrite E1. reflexivity.
+Qed.
+
+Lemma ah_role {p} {idx : ProgramIndex p} {a : AppRef idx} (e : ApplicationHeadEdge a) :
+  node_role (ah_child e) = RApplicationHead.
+Proof. unfold ah_child. rewrite (ca_role (ah_at e)), (app_ok a). reflexivity. Qed.
+
+Lemma aa_role {p} {idx : ProgramIndex p} {a : AppRef idx} {i : nat} (e : ApplicationArgEdge a i) :
+  node_role (aa_child e) = RApplicationArg i.
+Proof. unfold aa_child. rewrite (ca_role (aa_at e)), (app_ok a). reflexivity. Qed.
+
+Lemma uo_role {p} {idx : ProgramIndex p} {u : UnaryRef idx} (e : UnaryOperandEdge u) :
+  node_role (uo_child e) = RUnaryOperand.
+Proof. unfold uo_child. rewrite (ca_role (uo_at e)), (un_ok u). reflexivity. Qed.
+
+Lemma ee_role {p} {idx : ProgramIndex p} {s : ExprStmtRef idx} (e : ExprStmtExprEdge s) :
+  node_role (ee_child e) = RExprStatementExpr.
+Proof. unfold ee_child. rewrite (ca_role (ee_at e)), (exs_ok s). reflexivity. Qed.
+
+Lemma sn_role {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {i : nat}
+  (e : SpecNameEdge sp i) : node_role (sn_child e) = RSpecName fl.
+Proof. unfold sn_child. rewrite (ca_role (sn_at e)), (sp_ok sp). apply layout_role_name. exact (sn_lt e). Qed.
+
+Lemma sv_role {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl} {j : nat}
+  (e : SpecValueEdge sp j) : node_role (sv_child e) = RPlain.
+Proof. unfold sv_child. rewrite (ca_role (sv_at e)), (sp_ok sp). apply layout_role_value. exact (sv_lt e). Qed.
+
+Lemma type_edge_role {p} {idx : ProgramIndex p} {fl : SpecFlavor} {sp : SpecRef idx fl}
+  (Ht : shape_has_type fl (sp_shape sp) = true) (e : ChildAt (sp_node sp) (type_ordinal fl (sp_shape sp))) :
+  node_role (ca_child e) = RTypeUse.
+Proof. rewrite (ca_role e), (sp_ok sp). apply layout_role_type. exact Ht. Qed.
+
+Lemma sl_role {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {i : nat} (e : ShortLhsEdge st i) :
+  node_role (sl_child e) = RShortLhs.
+Proof.
+  unfold sl_child. rewrite (ca_role (sl_at e)), (sh_ok st). cbn [layout_role].
+  rewrite (proj2 (Nat.ltb_lt _ _) (sl_lt e)). reflexivity.
+Qed.
+
+Lemma sr_role {p} {idx : ProgramIndex p} {st : ShortStmtRef idx} {j : nat} (e : ShortRhsEdge st j) :
+  node_role (sr_child e) = RPlain.
+Proof.
+  unfold sr_child. rewrite (ca_role (sr_at e)), (sh_ok st). cbn [layout_role].
+  assert (E1 : (sh_names st + j <? sh_names st) = false) by (apply Nat.ltb_ge; lia).
+  rewrite E1. reflexivity.
+Qed.
+
+(* the fixed-main body is exactly a block, and projects an exact BlockRef *)
+Lemma is_main_view_eq : forall v, is_main_view v = true -> v = VTop TSMain.
+Proof. destruct v; cbn; intro H; try discriminate H. destruct t; [ discriminate H | reflexivity ]. Qed.
+
+Lemma mb_block {p} {idx : ProgramIndex p} {m : MainOccurrenceRef idx} (e : MainBodyEdge m) :
+  node_view (mb_child e) = VBlock.
+Proof.
+  exact (node_child_main_block (mo_node m) (mb_child e) 0
+           (is_main_view_eq _ (mo_ok m)) (ca_at (mb_at e))).
+Qed.
+
+Definition mb_body {p} {idx : ProgramIndex p} {m : MainOccurrenceRef idx} (e : MainBodyEdge m) : BlockRef idx :=
+  mkBlockRef (mb_child e) (f_equal is_block_view (mb_block e)).
+
+(* totality: each required singleton edge resolves exactly, with no option and no fallback *)
+Lemma singleton_child_lt {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  requires_first_edge (node_view r) = true -> 0 < length (node_children r).
+Proof.
+  intro H. pose proof (occ_first_child_wf r H) as Hw. unfold first_child_wf in Hw.
+  rewrite node_children_length. destruct (c_children (occ_at r)); [ destruct Hw | cbn; lia ].
+Qed.
+
+Definition app_head {p} {idx : ProgramIndex p} (a : AppRef idx) : ApplicationHeadEdge a :=
+  mkAppHead (child_at_lt (app_node a) 0 (singleton_child_lt (app_node a) (f_equal requires_first_edge (app_ok a)))).
+
+Definition unary_operand {p} {idx : ProgramIndex p} (u : UnaryRef idx) : UnaryOperandEdge u :=
+  mkUnOperand (child_at_lt (un_node u) 0 (singleton_child_lt (un_node u) (f_equal requires_first_edge (un_ok u)))).
+
+Definition exprstmt_expr {p} {idx : ProgramIndex p} (s : ExprStmtRef idx) : ExprStmtExprEdge s :=
+  mkExprStmtE (child_at_lt (exs_node s) 0 (singleton_child_lt (exs_node s) (f_equal requires_first_edge (exs_ok s)))).
+
+Lemma main_child_lt {p} {idx : ProgramIndex p} (m : MainOccurrenceRef idx) :
+  0 < length (node_children (mo_node m)).
+Proof.
+  rewrite (node_children_count (mo_node m) 1); [ lia |].
+  rewrite (is_main_view_eq _ (mo_ok m)). reflexivity.
+Qed.
+
+Definition main_body {p} {idx : ProgramIndex p} (m : MainOccurrenceRef idx) : MainBodyEdge m :=
+  mkMainBody (child_at_lt (mo_node m) 0 (main_child_lt m)).
+
+(* the spec children length is the exact shape formula, so every formula ordinal is in range *)
+Lemma spec_children_len {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) :
+  length (node_children (sp_node sp))
+  = shape_names fl (sp_shape sp) + (if shape_has_type fl (sp_shape sp) then 1 else 0)
+    + shape_values fl (sp_shape sp).
+Proof. apply node_children_count. rewrite (sp_ok sp). apply spec_layout_count. Qed.
+
+Lemma name_ordinal_lt {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (i : nat) :
+  i < shape_names fl (sp_shape sp) -> i < length (node_children (sp_node sp)).
+Proof. intro H. rewrite (spec_children_len sp). lia. Qed.
+
+Lemma type_ordinal_lt {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) :
+  shape_has_type fl (sp_shape sp) = true ->
+  type_ordinal fl (sp_shape sp) < length (node_children (sp_node sp)).
+Proof. intro Ht. rewrite (spec_children_len sp), Ht. unfold type_ordinal. lia. Qed.
+
+Lemma value_ordinal_lt {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (j : nat) :
+  j < shape_values fl (sp_shape sp) ->
+  value_ordinal fl (sp_shape sp) j < length (node_children (sp_node sp)).
+Proof.
+  intro H. rewrite (spec_children_len sp). unfold value_ordinal.
+  destruct (shape_has_type fl (sp_shape sp)); lia.
+Qed.
+
+Lemma short_children_len {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) :
+  length (node_children (sh_node st)) = sh_names st + sh_values st.
+Proof. apply node_children_count. rewrite (sh_ok st). reflexivity. Qed.
+
+Lemma lhs_ordinal_lt {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (i : nat) :
+  i < sh_names st -> i < length (node_children (sh_node st)).
+Proof. intro H. rewrite (short_children_len st). lia. Qed.
+
+Lemma rhs_ordinal_lt {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (j : nat) :
+  j < sh_values st -> sh_names st + j < length (node_children (sh_node st)).
+Proof. intro H. rewrite (short_children_len st). lia. Qed.
+
+(* the exact type-presence status, decided by the shape and carrying the exact edge when present *)
+Definition spec_type_status {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl)
+  : SpecTypePresence sp :=
+  match Bool.bool_dec (shape_has_type fl (sp_shape sp)) true with
+  | left Ht => SpecTypePresent Ht (child_at_lt (sp_node sp) (type_ordinal fl (sp_shape sp)) (type_ordinal_lt sp Ht))
+  | right Hf => SpecTypeAbsent (Bool.not_true_is_false _ Hf)
+  end.
+
+(* one indexed-collection builder: every index below the exact total, in ascending order, none missing *)
+Lemma ctr_lt : forall total i rem, i + S rem = total -> i < total.
+Proof. intros; lia. Qed.
+Lemma ctr_succ : forall total i rem, i + S rem = total -> S i + rem = total.
+Proof. intros; lia. Qed.
+
+Fixpoint indexed_upto {T : nat -> Type} (total : nat) (build : forall i, i < total -> T i)
+  (i rem : nat) {struct rem} : i + rem = total -> list { i0 : nat & T i0 } :=
+  match rem with
+  | 0 => fun _ => []
+  | S rem' => fun E =>
+      existT _ i (build i (ctr_lt total i rem' E))
+      :: indexed_upto total build (S i) rem' (ctr_succ total i rem' E)
+  end.
+Definition indexed_all {T : nat -> Type} (total : nat) (build : forall i, i < total -> T i)
+  : list { i : nat & T i } := indexed_upto total build 0 total eq_refl.
+
+Lemma indexed_upto_ords {T : nat -> Type} (total : nat) (build : forall i, i < total -> T i) :
+  forall rem i E, map (@projT1 _ _) (indexed_upto total build i rem E) = seq i rem.
+Proof. induction rem as [|rem' IH]; intros i E; cbn; [ reflexivity | f_equal; apply IH ]. Qed.
+Lemma indexed_all_ords {T : nat -> Type} (total : nat) (build : forall i, i < total -> T i) :
+  map (@projT1 _ _) (indexed_all total build) = seq 0 total.
+Proof. apply indexed_upto_ords. Qed.
+
+(* the exact indexed collections, one member per shape-fixed index, ascending, complete by construction *)
+Definition spec_name_edges {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl)
+  : list { i : nat & SpecNameEdge sp i } :=
+  indexed_all (shape_names fl (sp_shape sp))
+    (fun i H => mkSpecName (child_at_lt (sp_node sp) i (name_ordinal_lt sp i H)) H).
+
+Definition spec_value_edges {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl)
+  : list { j : nat & SpecValueEdge sp j } :=
+  indexed_all (shape_values fl (sp_shape sp))
+    (fun j H => mkSpecValue (child_at_lt (sp_node sp) (value_ordinal fl (sp_shape sp) j) (value_ordinal_lt sp j H)) H).
+
+Definition short_lhs_edges {p} {idx : ProgramIndex p} (st : ShortStmtRef idx)
+  : list { i : nat & ShortLhsEdge st i } :=
+  indexed_all (sh_names st) (fun i H => mkShortLhs (child_at_lt (sh_node st) i (lhs_ordinal_lt st i H)) H).
+
+Definition short_rhs_edges {p} {idx : ProgramIndex p} (st : ShortStmtRef idx)
+  : list { j : nat & ShortRhsEdge st j } :=
+  indexed_all (sh_values st) (fun j H => mkShortRhs (child_at_lt (sh_node st) (sh_names st + j) (rhs_ordinal_lt st j H)) H).
+
+(* the ordered argument collection: every canonical non-head child, reindexed by its exact argument index *)
+Definition application_args {p} {idx : ProgramIndex p} (a : AppRef idx)
+  : list { i : nat & ApplicationArgEdge a i } :=
+  flat_map (fun oe => match oe with existT _ o e =>
+      match o as o0 return ChildAt (app_node a) o0 -> list { i : nat & ApplicationArgEdge a i } with
+      | 0 => fun _ => []
+      | S i => fun e0 => [ existT _ i (mkAppArg e0) ]
+      end e end)
+    (all_children (app_node a)).
+
+Lemma args_of_children_from {p} {idx : ProgramIndex p} (a : AppRef idx) :
+  forall l k E,
+  map (@projT1 _ _)
+      (flat_map (fun oe => match oe with existT _ o e =>
+          match o as o0 return ChildAt (app_node a) o0 -> list { i : nat & ApplicationArgEdge a i } with
+          | 0 => fun _ => []
+          | S i => fun e0 => [ existT _ i (mkAppArg e0) ]
+          end e end)
+        (children_from (app_node a) (S k) l E)) = seq k (length l)
+  /\ map (fun x => aa_child (projT2 x))
+      (flat_map (fun oe => match oe with existT _ o e =>
+          match o as o0 return ChildAt (app_node a) o0 -> list { i : nat & ApplicationArgEdge a i } with
+          | 0 => fun _ => []
+          | S i => fun e0 => [ existT _ i (mkAppArg e0) ]
+          end e end)
+        (children_from (app_node a) (S k) l E)) = l.
+Proof.
+  induction l as [|c rest IH]; intros k E; cbn; [ split; reflexivity |].
+  destruct (IH (S k) (skipn_tail_at (node_children (app_node a)) rest (S k) c E)) as [H1 H2].
+  split; f_equal; [ exact H1 | exact H2 ].
+Qed.
+
+(* argument order, index and coverage are exact: ordinals 0.. over exactly the non-head children *)
+Lemma application_args_exact {p} {idx : ProgramIndex p} (a : AppRef idx) :
+  map (@projT1 _ _) (application_args a) = seq 0 (pred (length (node_children (app_node a))))
+  /\ map (fun x => aa_child (projT2 x)) (application_args a) = tl (node_children (app_node a)).
+Proof.
+  unfold application_args, all_children.
+  assert (Hgen : forall (l : list (NodeRef idx)) (E : l = skipn 0 (node_children (app_node a))),
+    map (@projT1 _ _)
+        (flat_map (fun oe => match oe with existT _ o e =>
+            match o as o0 return ChildAt (app_node a) o0 -> list { i : nat & ApplicationArgEdge a i } with
+            | 0 => fun _ => []
+            | S i => fun e0 => [ existT _ i (mkAppArg e0) ]
+            end e end)
+          (children_from (app_node a) 0 l E)) = seq 0 (pred (length l))
+    /\ map (fun x => aa_child (projT2 x))
+        (flat_map (fun oe => match oe with existT _ o e =>
+            match o as o0 return ChildAt (app_node a) o0 -> list { i : nat & ApplicationArgEdge a i } with
+            | 0 => fun _ => []
+            | S i => fun e0 => [ existT _ i (mkAppArg e0) ]
+            end e end)
+          (children_from (app_node a) 0 l E)) = tl l).
+  { destruct l as [|c rest]; intro E.
+    - cbn. split; reflexivity.
+    - cbn [children_from flat_map].
+      destruct (args_of_children_from a rest 0
+                  (skipn_tail_at (node_children (app_node a)) rest 0 c E)) as [H1 H2].
+      cbn [app pred length tl]. split; [ exact H1 | exact H2 ]. }
+  exact (Hgen (node_children (app_node a)) eq_refl).
+Qed.
+
+(* the target's own canonical edge, recovered exactly; the scan cannot miss a real child *)
+Lemma child_eq_of {p} {idx : ProgramIndex p} {par : NodeRef idx} {o : nat} (r : NodeRef idx)
+  (e : ChildAt par o) : nr_pos (ca_child e) = nr_pos r -> nr_file par = nr_file r -> ca_child e = r.
+Proof.
+  intros Hp Hf. apply noderef_positional; [| exact Hp ].
+  rewrite (node_children_file par _ (ca_in e)). exact Hf.
+Qed.
+
+Fixpoint self_scan {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hf : nr_file par = nr_file r)
+  (l : list { o : nat & ChildAt par o }) {struct l} : option (SelfEdge r) :=
+  match l with
+  | [] => None
+  | existT _ o e :: rest =>
+      match Nat.eq_dec (nr_pos (ca_child e)) (nr_pos r) with
+      | left Hp => Some (mkSelfEdge par o e (child_eq_of r e Hp Hf))
+      | right _ => self_scan r par Hf rest
       end
-  end Hsub.
-(* the exact preceding siblings of r, in source order, from its parent's canonical child list *)
-Definition preceding_children {p} {idx : ProgramIndex p} (r : NodeRef idx) : list (SiblingBefore r) :=
-  match node_parent r as o return node_parent r = o -> list (SiblingBefore r) with
-  | Some par => fun Hpar => sib_before_aux r par Hpar (node_children par) (fun c H => H)
-  | None => fun _ => []
-  end eq_refl.
+  end.
 
-(* the preceding-sibling aux projects, in exact source order, to the children strictly before r *)
-Lemma sib_before_aux_sibs {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hpar : node_parent r = Some par)
-  (l : list (NodeRef idx)) (Hsub : forall c, In c l -> In c (node_children par)) :
-  map sb_sib (sib_before_aux r par Hpar l Hsub) = filter (fun c => Nat.ltb (nr_pos c) (nr_pos r)) l.
+Lemma self_scan_finds {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hf : nr_file par = nr_file r) :
+  forall l, (exists o (e : ChildAt par o), In (existT _ o e) l /\ ca_child e = r) ->
+  self_scan r par Hf l <> None.
 Proof.
-  revert Hsub; induction l as [|c rest IH]; intro Hsub.
-  - reflexivity.
-  - cbn [sib_before_aux].
-    destruct (Bool.bool_dec (Nat.ltb (nr_pos c) (nr_pos r)) true) as [Hb|Hb].
-    + cbn [map sb_sib filter]. rewrite Hb. f_equal. apply IH.
-    + apply Bool.not_true_is_false in Hb. cbn [filter]. rewrite Hb. apply IH.
-Qed.
-(* order + coverage: with a real parent, the preceding siblings are exactly its children before r, in source order *)
-Lemma preceding_children_some {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hpar : node_parent r = Some par) :
-  map sb_sib (preceding_children r) = filter (fun c => Nat.ltb (nr_pos c) (nr_pos r)) (node_children par).
-Proof.
-  unfold preceding_children.
-  generalize (@eq_refl (option (NodeRef idx)) (node_parent r)).
-  destruct (node_parent r) at 2 3; intro e.
-  - pose proof (eq_trans (eq_sym Hpar) e) as Ht. injection Ht as ->. apply sib_before_aux_sibs.
-  - rewrite Hpar in e. discriminate e.
-Qed.
-(* exact absence: a root with no parent has no preceding siblings, a real emptiness, not a failed lookup *)
-Lemma preceding_children_none {p} {idx : ProgramIndex p} (r : NodeRef idx) (Hpar : node_parent r = None) :
-  preceding_children r = [].
-Proof.
-  unfold preceding_children.
-  generalize (@eq_refl (option (NodeRef idx)) (node_parent r)).
-  destruct (node_parent r) at 2 3; intro e.
-  - exfalso. pose proof (eq_trans (eq_sym e) Hpar) as Ht. discriminate Ht.
-  - reflexivity.
+  induction l as [|[o e] rest IH]; intros [o0 [e0 [Hin Heq]]]; [ destruct Hin |].
+  cbn. destruct (Nat.eq_dec (nr_pos (ca_child e)) (nr_pos r)) as [|Hne]; [ discriminate |].
+  destruct Hin as [Hhead|Hin].
+  - exfalso. apply Hne. injection Hhead as Ho He. subst o0.
+    apply Eqdep_dec.inj_pair2_eq_dec in He; [| exact Nat.eq_dec ]. subst e0.
+    rewrite Heq. reflexivity.
+  - apply IH. exists o0, e0. split; [ exact Hin | exact Heq ].
 Qed.
 
-(* parent round trips: every edge family's child projection points node_parent back to the exact supplied parent *)
-Lemma aa_child_parent {p} {idx : ProgramIndex p} {app : NodeRef idx} (e : ApplicationArgEdge app) :
-  node_parent (aa_child e) = Some app.
-Proof. apply node_children_inverse, aa_of. Qed.
-Lemma sn_child_parent {p} {idx : ProgramIndex p} {spec : NodeRef idx} (e : SpecNameEdge spec) :
-  node_parent (sn_child e) = Some spec.
-Proof. apply node_children_inverse, sn_of. Qed.
-Lemma rc_child_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {role : Role} (e : RoleChildEdge parent role) :
-  node_parent (rc_child e) = Some parent.
-Proof. apply node_children_inverse, rc_of. Qed.
-Lemma sb_sib_parent {p} {idx : ProgramIndex p} {r : NodeRef idx} (e : SiblingBefore r) :
-  node_parent (sb_sib e) = Some (sb_parent e).
-Proof. apply node_children_inverse, sb_sib_of. Qed.
-
-(* index exactness: an argument edge's index is a pure projection of its child's role, never independently fabricated *)
-Lemma aa_index_det {p} {idx : ProgramIndex p} {app : NodeRef idx} (e1 e2 : ApplicationArgEdge app) :
-  aa_child e1 = aa_child e2 -> aa_index e1 = aa_index e2.
-Proof. unfold aa_index; intro H; rewrite H; reflexivity. Qed.
-
-(* exact optional absence: the declared-type edge is None exactly when no type-use child exists, not a lookup miss *)
-Lemma spec_type_edge_none {p} {idx : ProgramIndex p} (spec : NodeRef idx) :
-  spec_type_edge spec = None <->
-  filter (fun c => if role_eq_dec (node_role c) RTypeUse then true else false) (node_children spec) = [].
+Lemma all_children_has {p} {idx : ProgramIndex p} (par c : NodeRef idx) :
+  In c (node_children par) -> exists o (e : ChildAt par o), In (existT _ o e) (all_children par) /\ ca_child e = c.
 Proof.
-  unfold spec_type_edge.
-  pose proof (role_children_children spec RTypeUse) as Hrc.
-  destruct (role_children spec RTypeUse) as [|x xs].
-  - cbn in Hrc. split; intro H; [ symmetry; exact Hrc | reflexivity ].
-  - cbn in Hrc. split; intro H; [ discriminate H | rewrite <- Hrc in H; discriminate H ].
+  intro Hin.
+  assert (Hmap : In c (map (fun x => ca_child (projT2 x)) (all_children par)))
+    by (rewrite all_children_childs; exact Hin).
+  apply in_map_iff in Hmap. destruct Hmap as [[o e] [Hc Hine]].
+  exists o, e. split; [ exact Hine | exact Hc ].
 Qed.
+
+Definition self_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx)
+  (H : node_parent r = Some par) : SelfEdge r :=
+  (match self_scan r par (proj2 (node_parent_inv r par H)) (all_children par)
+         as o return self_scan r par (proj2 (node_parent_inv r par H)) (all_children par) = o -> SelfEdge r with
+   | Some se => fun _ => se
+   | None => fun E =>
+       False_rect _ (self_scan_finds r par (proj2 (node_parent_inv r par H)) (all_children par)
+                       (all_children_has par r (node_parent_children r par H)) E)
+   end) eq_refl.
+
+(* a canonical edge's ordinal is in range on its parent's exact child list *)
+Lemma ca_ordinal_lt {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (e : ChildAt parent ordinal) : ordinal < length (node_children parent).
+Proof. apply nth_error_Some. rewrite (ca_at e). discriminate. Qed.
+
+Lemma prec_ordinal_lt {p} {idx : ProgramIndex p} {r : NodeRef idx} (se : SelfEdge r) (i : nat) :
+  i < se_ord se -> i < length (node_children (se_parent se)).
+Proof. intro H. pose proof (ca_ordinal_lt (se_at se)). lia. Qed.
+
+(* the exact preceding siblings of a target: one edge per ordinal below the target's own ordinal *)
+Definition preceding_edges {p} {idx : ProgramIndex p} (target : NodeRef idx)
+  : list { i : nat & PrecedingSiblingEdge target i } :=
+  (match node_parent target as o return node_parent target = o -> list { i : nat & PrecedingSiblingEdge target i } with
+   | Some par => fun H =>
+       let se := self_edge_of target par H in
+       indexed_all (se_ord se)
+         (fun i Hi => mkPrecSib se (child_at_lt (se_parent se) i (prec_ordinal_lt se i Hi)) Hi)
+   | None => fun _ => []
+   end) eq_refl.
 
 Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
   fr_path a = fr_path b -> a = b.

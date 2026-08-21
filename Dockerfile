@@ -440,34 +440,84 @@ typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
   'Definition forged (p : Syntax.Program) (cp : CP.Program p) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_evidence "raw"%string.'
 typefail neg_image_foreign_root "an image pairing evidence with a foreign compiled root" \
   'Definition forged (p q : Syntax.Program) (cp : CP.Program p) (cq : CP.Program q) : Emit.Image cp Emit.CompiledOnly tt := Emit.of_compiled cq.'
-# — exact index edges (C4): each semantic child relation is a parent/role/index-indexed type, so a wrong parent,
-#   role, view, or a raw NodeRef in an edge slot fails to TYPECHECK; the positive control above proves the edge
-#   surface is reachable, so each rejection is by typing, never because the type is absent —
-typefail neg_generic_not_arg "a raw NodeRef supplied as an application-argument edge" \
-  'Definition forged (p : Syntax.Program) (app n : IX.NodeRef (IX.index_program p)) : IX.ApplicationArgEdge app := n.'
+# — canonical child edges (C4): every source relation refines ChildAt with parent/ordinal/index/flavor/side in
+#   the type, so a wrong index, parent, kind, side, or absence claim fails to TYPECHECK; the positive control
+#   below constructs the whole surface for a concrete program, so each rejection is by typing, never absence —
+typefail neg_arg_index "an argument edge at index 0 used at index 1" \
+  'Definition forged (p : Syntax.Program) (a : IX.AppRef (IX.index_program p)) (e : IX.ApplicationArgEdge a 0) : IX.ApplicationArgEdge a 1 := e.'
+typefail neg_args_generic_parent "application arguments requested from a raw NodeRef" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) := IX.application_args n.'
+typefail neg_spec_generic_parent "spec name edges requested from a raw NodeRef" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) := IX.spec_name_edges n.'
+typefail neg_short_generic_parent "short left edges requested from a raw NodeRef" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) := IX.short_lhs_edges n.'
+typefail neg_arg_cross_parent "argument i of application A used as argument i of B" \
+  'Definition forged (p : Syntax.Program) (a b : IX.AppRef (IX.index_program p)) (i : nat) (e : IX.ApplicationArgEdge a i) : IX.ApplicationArgEdge b i := e.'
 typefail neg_head_not_arg "an application-head edge used as an argument edge" \
-  'Definition forged (p : Syntax.Program) (app : IX.NodeRef (IX.index_program p)) (h : IX.ApplicationHeadEdge app) : IX.ApplicationArgEdge app := h.'
-typefail neg_arg_cross_parent "an argument edge of one application used with another" \
-  'Definition forged (p : Syntax.Program) (a b : IX.NodeRef (IX.index_program p)) (e : IX.ApplicationArgEdge a) : IX.ApplicationArgEdge b := e.'
-typefail neg_forge_arg "an argument edge asserted for a child with no proof its role is an argument" \
-  'Definition forged (p : Syntax.Program) (app c : IX.NodeRef (IX.index_program p)) (Hof : List.In c (IX.node_children app)) : IX.ApplicationArgEdge app := IX.mkPredChild c Hof eq_refl.'
-typefail neg_specname_not_type "a spec-name edge used as a declared-type edge" \
-  'Definition forged (p : Syntax.Program) (spec : IX.NodeRef (IX.index_program p)) (e : IX.SpecNameEdge spec) : IX.RoleChildEdge spec IX.RTypeUse := e.'
-typefail neg_shortlhs_not_rhs "a short-declaration left edge used as a right-side edge" \
-  'Definition forged (p : Syntax.Program) (stmt : IX.NodeRef (IX.index_program p)) (e : IX.RoleChildEdge stmt IX.RShortLhs) : IX.RoleChildEdge stmt IX.RPlain := e.'
-typefail neg_head_wrong_view "an application-head edge required from a non-application view" \
-  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VStmt IX.SSExpr) : IX.ApplicationHeadEdge r := IX.app_head_edge r Hv.'
-# — repository-wide absence: no Bindings/Analysis consumer names a deleted generic-filter relation or navigates
-#   by first_edge; the typed edges are the only route from a parent to a semantic child —
-if grep -nE 'arg_children|spec_name_children|type_use_child|value_children|preceding_siblings|first_edge' Compilable/Bindings.v Compilable/Analysis.v; then
-  fail "edge absence control — a consumer still names a deleted generic-filter relation or first_edge"
+  'Definition forged (p : Syntax.Program) (a : IX.AppRef (IX.index_program p)) (i : nat) (h : IX.ApplicationHeadEdge a) : IX.ApplicationArgEdge a i := h.'
+typefail neg_name_index "a spec-name edge at index 0 used at index 1" \
+  'Definition forged (p : Syntax.Program) (sp : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (e : IX.SpecNameEdge sp 0) : IX.SpecNameEdge sp 1 := e.'
+typefail neg_name_cross_flavor "a const-spec name edge used as a var-spec name edge" \
+  'Definition forged (p : Syntax.Program) (c : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (v : IX.SpecRef (IX.index_program p) IX.VarSpecF) (i : nat) (e : IX.SpecNameEdge c i) : IX.SpecNameEdge v i := e.'
+typefail neg_name_not_value "a spec-name edge used as a value edge" \
+  'Definition forged (p : Syntax.Program) (sp : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (i : nat) (e : IX.SpecNameEdge sp i) : IX.SpecValueEdge sp i := e.'
+typefail neg_name_not_type "a spec-name edge used as the type-presence status" \
+  'Definition forged (p : Syntax.Program) (sp : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (i : nat) (e : IX.SpecNameEdge sp i) : IX.SpecTypePresence sp := e.'
+typefail neg_lhs_index "a short-left edge at index 0 used at index 1" \
+  'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) (e : IX.ShortLhsEdge st 0) : IX.ShortLhsEdge st 1 := e.'
+typefail neg_lhs_not_rhs "a short-left edge used as a short-right edge" \
+  'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) (j : nat) (e : IX.ShortLhsEdge st j) : IX.ShortRhsEdge st j := e.'
+typefail neg_lhs_cross_stmt "a left edge of short statement A used with statement B" \
+  'Definition forged (p : Syntax.Program) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge s1 i) : IX.ShortLhsEdge s2 i := e.'
+typefail neg_absent_generic "a no-type status stated for a raw NodeRef" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) : IX.SpecTypePresence n := IX.SpecTypeAbsent eq_refl.'
+typefail neg_absent_when_typed "a no-type status constructed for a shape that presents a type" \
+  'Definition forged (p : Syntax.Program) (sp : IX.SpecRef (IX.index_program p) IX.TypeSpecF) : IX.SpecTypePresence sp := IX.SpecTypeAbsent eq_refl.'
+typefail neg_present_when_absent "a present-type edge constructed for a shape that omits it" \
+  'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) (e : IX.ChildAt n nn) : IX.SpecTypePresence (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := IX.SpecTypePresent eq_refl e.'
+typefail neg_head_wrong_view "an application ref built from a non-application view" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VStmt IX.SSExpr) := IX.mkAppRef r Hv.'
+typefail neg_unary_wrong_view "a unary ref built from a non-unary view" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VApplication) := IX.mkUnaryRef r Syntax.UnaryMinus Hv.'
+typefail neg_exprstmt_wrong_view "an expression-statement ref built from a non-expression statement" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (Hv : IX.node_view r = IX.VApplication) := IX.mkExprStmtRef r Hv.'
+typefail neg_mainbody_wrong_parent "a main-body edge requested from a non-main occurrence" \
+  'Definition forged (p : Syntax.Program) (b : IX.BlockRef (IX.index_program p)) := IX.main_body b.'
+typefail neg_const_status_cross "a const status for spec A used as the status for spec B" \
+  'Definition forged (p : Syntax.Program) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (st : BN.ConstSpecStatus c1) : BN.ConstSpecStatus c2 := st.'
+typefail neg_short_status_cross "a short status for statement A used as the status for B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (st : BN.ShortDeclStatus sf s1) : BN.ShortDeclStatus sf s2 := st.'
+typefail neg_lhs_status_index "a left status for index 0 used as the status for index 1" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (x : BN.ShortLhsStatus sf st 0) : BN.ShortLhsStatus sf st 1 := x.'
+typefail neg_const_status_raw "raw NodeRef lists in place of the const status edge fields" \
+  'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (ns : list (IX.NodeRef (IX.index_program p))) (ty : IX.SpecTypePresence cs) : BN.ConstSpecStatus cs := BN.mk_const_status ns ns ty ns.'
+typefail neg_short_status_raw "raw NodeRef lists in place of the short status edge fields" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (ns : list (IX.NodeRef (IX.index_program p))) (nb : BN.NewNonblank sf st) : BN.ShortDeclStatus sf st := BN.mk_short_status ns nb ns.'
+# — deleted peer authorities are ABSENT, not merely unused: naming any of them fails to resolve —
+typefail neg_peer_role_children "the deleted role_children peer accessor" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) := IX.role_children r IX.RTypeUse.'
+typefail neg_peer_pred_children "the deleted pred_children peer accessor" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) := IX.pred_children r.'
+typefail neg_peer_first_edge "the deleted first_edge navigation route" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (H : IX.requires_first_edge (IX.node_view r) = true) := IX.first_edge r H.'
+typefail neg_peer_rolechildedge "the deleted RoleChildEdge peer authority" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.RoleChildEdge r IX.RTypeUse) := e.'
+typefail neg_peer_predchildedge "the deleted PredChildEdge peer authority" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.PredChildEdge r (fun _ => true)) := e.'
+typefail neg_peer_siblingbefore "the deleted SiblingBefore position-comparison route" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.SiblingBefore r) := e.'
+typefail neg_peer_childedge "the deleted ordinal-field ChildEdge form" \
+  'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.ChildEdge r) := e.'
+# — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
+if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
+  fail "edge absence control — a consumer still names a deleted edge route or raw child access"
 fi
-echo "fido: edge absence control OK — Bindings/Analysis name no deleted generic-filter relation or first_edge"
+echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge route, node_children, or position-guess path"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
-From Stdlib Require Import String List.
-From Fido Require Import Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
+From Stdlib Require Import String List NArith Lia.
+From Fido Require Import FilePath ModulePath Version Names Collections Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
 Import ListNotations.
 Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis.
 (* the disposition is a PUBLIC transparent tag; compile is the sole source of every branch object *)
@@ -528,29 +578,99 @@ Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Inde
   : Index.NodeRef (Index.index_program p) := BN.function_node f.
 Definition main_zero_profile (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
   : BN.fpr_params (BN.function_profile f) = nil /\ BN.fpr_results (BN.function_profile f) = nil := BN.fixed_main_profile f.
-(* the exact C4 index edges are reachable and project to NodeRef at the status boundary — so the neg_* edge
-   controls below reject by typing, not because the edge surface is absent *)
-Definition use_app_head (p : Syntax.Program) (app : Index.NodeRef (Index.index_program p))
-  (Hv : Index.node_view app = Index.VApplication) : Index.NodeRef (Index.index_program p) :=
-  Index.ah_head (Index.app_head_edge app Hv).
-Definition use_args (p : Syntax.Program) (app : Index.NodeRef (Index.index_program p))
-  : list (Index.NodeRef (Index.index_program p)) := map Index.aa_child (Index.application_args app).
-Definition use_spec_names (p : Syntax.Program) (spec : Index.NodeRef (Index.index_program p))
-  : list (Index.NodeRef (Index.index_program p)) := map Index.sn_child (Index.spec_names spec).
-Definition use_type_edge (p : Syntax.Program) (spec : Index.NodeRef (Index.index_program p))
-  : option (Index.NodeRef (Index.index_program p)) := option_map Index.rc_child (Index.spec_type_edge spec).
-Definition use_short_lhs (p : Syntax.Program) (stmt : Index.NodeRef (Index.index_program p))
-  : list (Index.NodeRef (Index.index_program p)) := map Index.rc_child (Index.short_lhs_edges stmt).
-Definition use_short_rhs (p : Syntax.Program) (stmt : Index.NodeRef (Index.index_program p))
-  : list (Index.NodeRef (Index.index_program p)) := map Index.rc_child (Index.short_rhs_edges stmt).
-Definition use_preceding (p : Syntax.Program) (r : Index.NodeRef (Index.index_program p))
-  : list (Index.NodeRef (Index.index_program p)) := map Index.sb_sib (Index.preceding_children r).
+(* the canonical child-edge surface, constructed for ONE CONCRETE source file: an application with two
+   arguments, a const spec with two names + type + two values, an inherited spec with exact no-type,
+   a two-left two-right short declaration, a unary, an expression statement, the fixed main body, and
+   preceding-spec edges — every projection checked by computation, so the neg_* edge controls reject
+   by typing, never because the surface is absent or was never exercised *)
+Local Notation EILIT n := (Syntax.LiteralExpr (Syntax.IntegerLiteral n)).
+Definition eb : Syntax.BindingName := Syntax.BBlank.
+Definition ne1 {A} (x : A) : Collections.NonEmpty A := Collections.MakeNonEmpty x nil.
+Definition ne2 {A} (x y : A) : Collections.NonEmpty A := Collections.MakeNonEmpty x (cons y nil).
+Definition ecx : Syntax.Expr :=
+  Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex))
+                     (cons (EILIT 1) (cons (EILIT 2) nil)).
+Definition edge_prog : Syntax.Program :=
+  Syntax.singleton_program
+    (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23)
+    (FilePath.Make "main.go" eq_refl)
+    (cons (Syntax.TopDeclaration (Syntax.ConstDecl
+             (cons (Syntax.MakeConstSpec (ne2 eb eb)
+                      (Syntax.ExplicitConstInit
+                         (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PInt8)))
+                         (ne2 (EILIT 1) (EILIT 2))))
+              (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit) nil))))
+     (cons (Syntax.Main (Syntax.MakeBlock
+             (cons (Syntax.ExprStmt (Syntax.Unary Syntax.UnaryMinus (EILIT 1)))
+              (cons (Syntax.ShortVarDecl (ne2 eb eb) (ne2 (EILIT 3) ecx)) nil))))
+      nil)).
+Definition eidx := Index.index_program edge_prog.
+Definition efr : Index.FileRef eidx.
+Proof. destruct (Index.all_files eidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition enode (pos : nat) (H : pos < Index.occ_count efr) : Index.NodeRef eidx := Index.noderef_at_pos efr pos H.
+Definition e_app : Index.AppRef eidx := Index.mkAppRef (enode 20 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
+Definition e_head := Index.app_head e_app.
+Definition e_head_role : Index.node_role (Index.ah_child e_head) = Index.RApplicationHead := Index.ah_role e_head.
+Definition e_head_name : Index.node_view (Index.ah_child e_head)
+  = Index.VName (Names.predeclared_ordinary Names.PComplex) := ltac:(vm_compute; reflexivity).
+Definition e_args := Index.application_args e_app.
+Definition e_arg_ords : map (@projT1 _ _) e_args = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
+Definition e_un : Index.UnaryRef eidx :=
+  Index.mkUnaryRef (enode 14 ltac:(vm_compute; lia)) Syntax.UnaryMinus ltac:(vm_compute; reflexivity).
+Definition e_operand := Index.unary_operand e_un.
+Definition e_operand_role : Index.node_role (Index.uo_child e_operand) = Index.RUnaryOperand := Index.uo_role e_operand.
+Definition e_es : Index.ExprStmtRef eidx :=
+  Index.mkExprStmtRef (enode 13 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
+Definition e_expr := Index.exprstmt_expr e_es.
+Definition e_expr_is_unary : Index.node_view (Index.ee_child e_expr) = Index.VUnary Syntax.UnaryMinus
+  := ltac:(vm_compute; reflexivity).
+Definition e_main : Index.MainOccurrenceRef eidx :=
+  Index.mkMainOccurrenceRef (enode 11 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
+Definition e_body := Index.main_body e_main.
+Definition e_body_block : Index.BlockRef eidx := Index.mb_body e_body.
+Definition e_cs1 : Index.SpecRef eidx Index.ConstSpecF :=
+  Index.mkSpecRef (fl := Index.ConstSpecF) (enode 3 ltac:(vm_compute; lia))
+    (Index.CSExplicit true 2 2) ltac:(vm_compute; reflexivity).
+Definition e_cs2 : Index.SpecRef eidx Index.ConstSpecF :=
+  Index.mkSpecRef (fl := Index.ConstSpecF) (enode 9 ltac:(vm_compute; lia))
+    (Index.CSInherited 1) ltac:(vm_compute; reflexivity).
+Definition e_names1 := Index.spec_name_edges e_cs1.
+Definition e_name_ords : map (@projT1 _ _) e_names1 = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
+Definition e_vals1 := Index.spec_value_edges e_cs1.
+Definition e_val_ords : map (@projT1 _ _) e_vals1 = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
+Definition e_type1_present : match Index.spec_type_status e_cs1 with
+                             | Index.SpecTypePresent _ _ => True | Index.SpecTypeAbsent _ => False end
+  := ltac:(vm_compute; exact I).
+Definition e_type2_absent : match Index.spec_type_status e_cs2 with
+                            | Index.SpecTypePresent _ _ => False | Index.SpecTypeAbsent _ => True end
+  := ltac:(vm_compute; exact I).
+Definition e_preds2 := Index.preceding_edges (Index.sp_node e_cs2).
+Definition e_pred_sib : map (fun x => Index.nr_pos (Index.ps_sibling (projT2 x))) e_preds2 = cons 3 nil
+  := ltac:(vm_compute; reflexivity).
+Definition e_short : Index.ShortStmtRef eidx :=
+  Index.mkShortStmtRef (enode 16 ltac:(vm_compute; lia)) 2 2 ltac:(vm_compute; reflexivity).
+Definition e_lhs := Index.short_lhs_edges e_short.
+Definition e_lhs_ords : map (@projT1 _ _) e_lhs = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
+Definition e_rhs := Index.short_rhs_edges e_short.
+Definition e_rhs_app : map (fun x => Index.nr_pos (Index.sr_child (projT2 x))) e_rhs = cons 19 (cons 20 nil)
+  := ltac:(vm_compute; reflexivity).
+Definition e_cst1 : BN.ConstSpecStatus e_cs1 := BN.const_spec_status e_cs1.
+Definition e_cst1_first : BN.cst_first e_cst1 = true := ltac:(vm_compute; reflexivity).
+Definition e_cst2_notfirst : BN.cst_first (BN.const_spec_status e_cs2) = false := ltac:(vm_compute; reflexivity).
+Definition e_cst1_names : map (@projT1 _ _) (BN.cst_names e_cst1) = cons 0 (cons 1 nil)
+  := ltac:(vm_compute; reflexivity).
+Definition esurf := PI.package_surface eidx.
+Definition ebp := BN.bindings esurf.
+Definition e_sds : BN.ShortDeclStatus esurf e_short := BN.short_decl_status ebp e_short.
+Definition e_sds_cut : BN.sd_cutpoint e_sds = 16 := ltac:(vm_compute; reflexivity).
+Definition e_sds_lefts : map (@projT1 _ _) (BN.sd_lefts e_sds) = cons 0 (cons 1 nil)
+  := ltac:(vm_compute; reflexivity).
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
-echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the exact C4 index edges (application head/args, spec names, declared-type, short left/right, preceding siblings) construct from the canonical Index and project to NodeRef — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge) + exact-index-edge repository absence control + positive control"
+echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed head/arg/operand/expr/name/value/type/short/main-body/preceding edges + edge-retaining Binding statuses) constructs and projects for a concrete source file, every ordinal checked by computation — all reachable (as required)"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/status) + canonical-edge peer-authority-absence controls + repository absence control + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
