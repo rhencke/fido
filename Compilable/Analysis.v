@@ -262,7 +262,7 @@ Definition const_spec_disposition (r : Index.NodeRef idx) : ValueOutcome r :=
   match Index.node_view r with
   | Index.VConstSpec (Index.CSExplicit _ nn nv) =>
       if Nat.eqb nn nv then VUnmet (ReqConstDecl st) else VInvalid (ResultCountMismatch nn nv)
-  | Index.VConstSpec Index.CSInherited =>
+  | Index.VConstSpec (Index.CSInherited _) =>
       if BN.cs_first st then VInvalid (ConstMissingInit st) else VUnmet (ReqConstDecl st)
   | _ => VNonconst
   end.
