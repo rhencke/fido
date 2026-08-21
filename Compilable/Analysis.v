@@ -38,7 +38,7 @@ Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _.
 Arguments MainArity {p idx} _ _ _.
 
 Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
-| ReqValueMeaning : BN.BinderRef idx -> Requirement idx
+| ReqValueMeaning : BN.DeclOrigin idx -> Requirement idx
 | ReqTypeMeaning : BN.ObjectRef idx -> Requirement idx
 | ReqComplexType : Index.NodeRef idx -> Requirement idx
 | ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
@@ -280,7 +280,8 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           | PMInvalidId => VInvalid (InvalidIdentity pn)
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
           end
-      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning b)
+      | BN.RBound (BN.SourceObject (BN.DOBinder b)) => VUnmet (ReqValueMeaning (BN.DOBinder b))
+      | BN.RBound (BN.SourceObject (BN.DOShort sn)) => VUnmet (ReqValueMeaning (BN.DOShort sn))
       | BN.RBound (BN.SourceObject (BN.DOFunc f)) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
       | BN.RRedeclared _ => VDependent (DepRedeclaredName n r)
       end
@@ -369,6 +370,7 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))
               end
           | BN.RBound (BN.SourceObject (BN.DOBinder b)) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
+          | BN.RBound (BN.SourceObject (BN.DOShort sn)) => AInvalid (NotCallable (BN.SourceObject (BN.DOShort sn)))
           | BN.RBound (BN.SourceObject (BN.DOFunc f)) =>
               (* the fixed main is a zero-parameter function: a zero-argument call succeeds as a known zero-result call *)
               match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
@@ -441,6 +443,7 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
                  else TInvalid (NotAType (BN.PredeclaredObject pn))
           end
       | BN.RBound (BN.SourceObject (BN.DOBinder b)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
+      | BN.RBound (BN.SourceObject (BN.DOShort sn)) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOShort sn)))
       | BN.RBound (BN.SourceObject (BN.DOFunc m)) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
       | BN.RRedeclared _ => TDependent (DepRedeclaredName n r)
       | BN.RUnbound => TInvalid (UnresolvedName n r)

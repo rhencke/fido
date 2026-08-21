@@ -2943,7 +2943,49 @@ Definition spec_view_of_flavor (fl : SpecFlavor) (v : NodeView) : Prop :=
   | _, _ => False
   end.
 
-(* per-parent layout: each child has the exact layout role; main bodies, decl specs, const parents exact *)
+(* the reverse layout clauses: a spec, statement, or declaration child pins its parent's exact view class *)
+Definition reverse_clauses (pv cv : NodeView) : Prop :=
+  (forall fl, spec_view_of_flavor fl cv -> pv = VDecl fl)
+  /\ (forall sh, cv = VStmt sh -> pv = VBlock)
+  /\ (forall fl, cv = VDecl fl -> pv = VStmt SSDecl \/ pv = VTop TSTopDecl).
+
+(* a child view that is no spec, statement, or declaration discharges every reverse clause *)
+Definition no_reverse (v : NodeView) : Prop :=
+  match v with VConstSpec _ | VVarSpec _ | VTypeSpec _ | VStmt _ | VDecl _ => False | _ => True end.
+
+Lemma no_reverse_clauses : forall pv cv, no_reverse cv -> reverse_clauses pv cv.
+Proof.
+  intros pv cv H. destruct cv; try (exact (match H with end));
+    (split; [ intros fl Hs; destruct fl; exact (match Hs with end)
+            | split; intros ? He; discriminate He ]).
+Qed.
+
+Lemma stmt_reverse_clauses : forall sh, reverse_clauses VBlock (VStmt sh).
+Proof.
+  intro sh. split; [ intros fl Hs; destruct fl; exact (match Hs with end) |].
+  split; [ intros ? _; reflexivity | intros ? He; discriminate He ].
+Qed.
+
+Lemma spec_reverse_clauses : forall fl0 v, spec_view_of_flavor fl0 v -> reverse_clauses (VDecl fl0) v.
+Proof.
+  intros fl0 v Hv. destruct fl0; destruct v; try (exact (match Hv with end));
+    (split; [ intros fl Hs; destruct fl; try (exact (match Hs with end)); reflexivity
+            | split; intros ? He; discriminate He ]).
+Qed.
+
+Lemma decl_stmt_reverse_clauses : forall fl, reverse_clauses (VStmt SSDecl) (VDecl fl).
+Proof.
+  intro fl. split; [ intros fl0 Hs; destruct fl0; exact (match Hs with end) |].
+  split; [ intros ? He; discriminate He | intros ? _; left; reflexivity ].
+Qed.
+
+Lemma decl_top_reverse_clauses : forall fl, reverse_clauses (VTop TSTopDecl) (VDecl fl).
+Proof.
+  intro fl. split; [ intros fl0 Hs; destruct fl0; exact (match Hs with end) |].
+  split; [ intros ? He; discriminate He | intros ? _; right; reflexivity ].
+Qed.
+
+(* per-parent layout: exact child roles; main, spec, statement and declaration adjacency in both directions *)
 Definition child_layout_ok (occs : list (nat * Cell)) : Prop :=
   forall pos cell, In (pos, cell) occs ->
     forall k cp, nth_error (c_children cell) k = Some cp ->
@@ -2951,7 +2993,7 @@ Definition child_layout_ok (occs : list (nat * Cell)) : Prop :=
                  /\ c_role cc = layout_role (c_view cell) k
                  /\ (c_view cell = VTop TSMain -> c_view cc = VBlock)
                  /\ (forall fl, c_view cell = VDecl fl -> spec_view_of_flavor fl (c_view cc))
-                 /\ (forall sh, c_view cc = VConstSpec sh -> exists fl, c_view cell = VDecl fl).
+                 /\ reverse_clauses (c_view cell) (c_view cc).
 
 Lemma child_layout_ok_app : forall c1 c2, child_layout_ok c1 -> child_layout_ok c2 -> child_layout_ok (c1 ++ c2).
 Proof.
@@ -2968,7 +3010,7 @@ Lemma child_layout_ok_node : forall self cell kids,
                 /\ c_role cc = layout_role (c_view cell) k
                 /\ (c_view cell = VTop TSMain -> c_view cc = VBlock)
                 /\ (forall fl, c_view cell = VDecl fl -> spec_view_of_flavor fl (c_view cc))
-                /\ (forall sh, c_view cc = VConstSpec sh -> exists fl, c_view cell = VDecl fl)) ->
+                /\ reverse_clauses (c_view cell) (c_view cc)) ->
   child_layout_ok kids -> child_layout_ok ((self, cell) :: kids).
 Proof.
   intros self cell kids Hself Hkids pos c Hin k cp Hcp. destruct Hin as [Heq|Hin].
@@ -3106,7 +3148,7 @@ Lemma number_opttype_roots : forall self b ot,
   /\ asc roots /\ b <= b' /\ (forall r, In r roots -> b <= r < b')
   /\ (forall k r0, nth_error roots k = Some r0 ->
         exists cell, In (r0, cell) c /\ c_role cell = RTypeUse
-                     /\ (forall sh, c_view cell = VConstSpec sh -> False)).
+                     /\ no_reverse (c_view cell)).
 Proof.
   intros self b [t|]; cbn [number_opttype].
   - destruct (number_typeexpr_view (Some self) RTypeUse b t) as [cell [rest [Hf [Hr Hv]]]].
@@ -3117,7 +3159,7 @@ Proof.
     + intros r [Hr0|[]]; subst r; lia.
     + intros k r0 Hk. destruct k as [|k']; [| destruct k'; discriminate Hk ].
       injection Hk as <-. exists cell. split; [ rewrite Hf; left; reflexivity |].
-      split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ].
+      split; [ exact Hr | rewrite Hv; exact I ].
   - split; [ reflexivity | split; [ exact I | split; [ lia | split; [ intros r [] | intros k r0 Hk; destruct k; discriminate Hk ] ] ] ].
 Qed.
 
@@ -3373,6 +3415,9 @@ Qed.
 Lemma expr_view_not_const : forall e sh, expr_view e = VConstSpec sh -> False.
 Proof. intros e sh H; destruct e; cbn in H; discriminate H. Qed.
 
+Lemma expr_view_no_reverse : forall e, no_reverse (expr_view e).
+Proof. intro e; destruct e; exact I. Qed.
+
 Lemma number_leaf_layout : forall v par role b, child_layout_ok (fst (number_leaf v par role b)).
 Proof.
   intros v par role b pos c Hin k cp Hcp. destruct Hin as [Heq|[]].
@@ -3395,7 +3440,7 @@ Proof.
       split; [ rewrite Hurole; reflexivity |].
       split; [ intro He; discriminate He |].
       split; [ intros fl He; discriminate He |].
-      intros sh Hc. rewrite Huview in Hc. exact (match expr_view_not_const _ _ Hc with end).
+      rewrite Huview. apply no_reverse_clauses, expr_view_no_reverse.
     + exact IHe.
   - specialize (IHe (Some b) RApplicationHead (S b)).
     pose proof (number_expr_root e (Some b) RApplicationHead (S b)) as [hrest [hrc [Hhroot [Hhrole [Hhview _]]]]].
@@ -3415,7 +3460,7 @@ Proof.
         child_layout_ok ac /\
         (forall k r0, nth_error roots k = Some r0 ->
            exists cc, In (r0, cc) ac /\ c_role cc = RApplicationArg (i0 + k)
-                      /\ (forall sh, c_view cc = VConstSpec sh -> False)))).
+                      /\ no_reverse (c_view cc)))).
     { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
       - split; [ intros pos c Hin; destruct Hin | intros k r0 Hk; destruct k; discriminate Hk ].
       - pose proof (number_expr_root a (Some b) (RApplicationArg i0) bi) as [arest [arc [Haroot [Harole [Haview _]]]]].
@@ -3431,7 +3476,7 @@ Proof.
         + injection Hk as <-. exists arc.
           split; [ apply in_or_app; left; rewrite Haroot; left; reflexivity |].
           split; [ rewrite Harole, Nat.add_0_r; reflexivity |].
-          intros sh Hc. rewrite Haview in Hc. exact (match expr_view_not_const _ _ Hc with end).
+          rewrite Haview. apply expr_view_no_reverse.
         + cbn in Hk. destruct (Hroots k' r0 Hk) as [cc [Hcc [Hccrole Hccnc]]]. exists cc.
           split; [ apply in_or_app; right; exact Hcc |].
           split; [ rewrite Hccrole; rewrite Nat.add_succ_comm; reflexivity | exact Hccnc ]. }
@@ -3446,13 +3491,13 @@ Proof.
         split; [ rewrite Hhrole; reflexivity |].
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh Hc. rewrite Hhview in Hc. exact (match expr_view_not_const _ _ Hc with end).
+        rewrite Hhview. apply no_reverse_clauses, expr_view_no_reverse.
       * cbn in Hcp. destruct (Haroots i cp Hcp) as [cc [Hcc [Hccrole Hccnc]]]. exists cc.
         split; [ right; apply in_or_app; right; exact Hcc |].
         split; [ rewrite Hccrole; reflexivity |].
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh Hc. exact (match Hccnc sh Hc with end).
+        apply no_reverse_clauses, Hccnc.
     + apply child_layout_ok_app; [ exact IHe | exact Hacok ].
 Qed.
 
@@ -3474,13 +3519,13 @@ Proof.
   intros par role b cs. unfold number_constspec.
   assert (Hnroot : forall bb x, exists cell rest,
             fst (number_bindingname (Some b) (RSpecName ConstSpecF) bb x) = (bb, cell) :: rest
-            /\ (c_role cell = RSpecName ConstSpecF /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+            /\ (c_role cell = RSpecName ConstSpecF /\ no_reverse (c_view cell))).
   { intros bb x. destruct (number_bindingname_view (Some b) (RSpecName ConstSpecF) bb x)
       as [cell [rest [Hf [Hr Hv]]]].
     exists cell, rest. split; [ exact Hf |].
-    split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ]. }
+    split; [ exact Hr | rewrite Hv; exact I ]. }
   pose proof (number_list_roots (number_bindingname (Some b) (RSpecName ConstSpecF))
-                (fun cell => c_role cell = RSpecName ConstSpecF /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                (fun cell => c_role cell = RSpecName ConstSpecF /\ no_reverse (c_view cell))
                 (fun bb x => number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x)
                 Hnroot
                 (Collections.ne_to_list (Syntax.const_names cs)) (S b)) as Hnr.
@@ -3502,12 +3547,12 @@ Proof.
     destruct Hor as [Holen [_ [_ [_ Honth]]]]. cbn [fst snd] in Hol.
     assert (Hvroot : forall bb x, exists cell rest,
               fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
-              /\ (c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+              /\ (c_role cell = RPlain /\ no_reverse (c_view cell))).
     { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [Hr [Hv _]]]]].
       exists rc, rest. split; [ exact Hf |].
-      split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; exact (expr_view_not_const _ _ Hc) ]. }
+      split; [ exact Hr | rewrite Hv; apply expr_view_no_reverse ]. }
     pose proof (number_list_roots (number_expr (Some b) RPlain)
-                  (fun cell => c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                  (fun cell => c_role cell = RPlain /\ no_reverse (c_view cell))
                   (fun bb x => number_expr_spans x (Some b) RPlain bb)
                   Hvroot
                   (Collections.ne_to_list vals) b2) as Hvr.
@@ -3529,7 +3574,7 @@ Proof.
           rewrite Hlt. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+        apply no_reverse_clauses, Hnc.
       * rewrite nth_error_app2 in Hcp by exact Hk.
         destruct (Nat.lt_ge_cases (k - length nroots) (length oroots)) as [Hk2|Hk2].
         -- rewrite nth_error_app1 in Hcp by exact Hk2.
@@ -3544,7 +3589,7 @@ Proof.
              rewrite Hltb, Heqb. reflexivity. }
            split; [ intro He; discriminate He |].
            split; [ intros fl He; discriminate He |].
-           intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+           apply no_reverse_clauses, Hnc.
         -- rewrite nth_error_app2 in Hcp by exact Hk2.
            destruct (Hvnth (k - length nroots - length oroots) cp Hcp) as [cell [Hcell [Hrole Hnc]]].
            exists cell. split; [ right; apply in_or_app; right; apply in_or_app; right; exact Hcell |].
@@ -3558,7 +3603,7 @@ Proof.
              rewrite Heqb. cbn [andb]. destruct (k <? NN); reflexivity. }
            split; [ intro He; discriminate He |].
            split; [ intros fl He; discriminate He |].
-           intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+           apply no_reverse_clauses, Hnc.
     + apply child_layout_ok_app; [ exact Hnl | apply child_layout_ok_app; [ exact Hol | exact Hvl ] ].
   - cbn [fst]. apply child_layout_ok_node.
     + cbn [c_children c_view].
@@ -3571,7 +3616,7 @@ Proof.
       split; [ rewrite Hrole; reflexivity |].
       split; [ intro He; discriminate He |].
       split; [ intros fl He; discriminate He |].
-      intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+      apply no_reverse_clauses, Hnc.
     + rewrite app_nil_r. exact Hnl.
 Qed.
 
@@ -3580,13 +3625,13 @@ Proof.
   intros par role b vs. unfold number_varspec.
   assert (Hnroot : forall bb x, exists cell rest,
             fst (number_bindingname (Some b) (RSpecName VarSpecF) bb x) = (bb, cell) :: rest
-            /\ (c_role cell = RSpecName VarSpecF /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+            /\ (c_role cell = RSpecName VarSpecF /\ no_reverse (c_view cell))).
   { intros bb x. destruct (number_bindingname_view (Some b) (RSpecName VarSpecF) bb x)
       as [cell [rest [Hf [Hr Hv]]]].
     exists cell, rest. split; [ exact Hf |].
-    split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ]. }
+    split; [ exact Hr | rewrite Hv; exact I ]. }
   pose proof (number_list_roots (number_bindingname (Some b) (RSpecName VarSpecF))
-                (fun cell => c_role cell = RSpecName VarSpecF /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                (fun cell => c_role cell = RSpecName VarSpecF /\ no_reverse (c_view cell))
                 (fun bb x => number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x)
                 Hnroot
                 (Collections.ne_to_list (Syntax.var_names vs)) (S b)) as Hnr.
@@ -3616,7 +3661,7 @@ Proof.
           rewrite Hlt. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+        apply no_reverse_clauses, Hnc.
       * rewrite nth_error_app2 in Hcp by exact Hk.
         destruct (k - length nroots) as [|k2] eqn:Hk2; [| destruct k2; discriminate Hcp ].
         injection Hcp as <-. exists tcell.
@@ -3627,7 +3672,7 @@ Proof.
           rewrite Hltb. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. rewrite Htv in Hc. discriminate Hc.
+        rewrite Htv. apply no_reverse_clauses. exact I.
     + apply child_layout_ok_app; [ exact Hnl | exact Htl ].
   - assert (Hsh : varspec_shape vs
                   = VSValues (match ot with Some _ => true | None => false end)
@@ -3640,12 +3685,12 @@ Proof.
     destruct Hor as [Holen [_ [_ [_ Honth]]]]. cbn [fst snd] in Hol.
     assert (Hvroot : forall bb x, exists cell rest,
               fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
-              /\ (c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+              /\ (c_role cell = RPlain /\ no_reverse (c_view cell))).
     { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [Hr [Hv _]]]]].
       exists rc, rest. split; [ exact Hf |].
-      split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; exact (expr_view_not_const _ _ Hc) ]. }
+      split; [ exact Hr | rewrite Hv; apply expr_view_no_reverse ]. }
     pose proof (number_list_roots (number_expr (Some b) RPlain)
-                  (fun cell => c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                  (fun cell => c_role cell = RPlain /\ no_reverse (c_view cell))
                   (fun bb x => number_expr_spans x (Some b) RPlain bb)
                   Hvroot
                   (Collections.ne_to_list vals) b2) as Hvr.
@@ -3667,7 +3712,7 @@ Proof.
           rewrite Hlt. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+        apply no_reverse_clauses, Hnc.
       * rewrite nth_error_app2 in Hcp by exact Hk.
         destruct (Nat.lt_ge_cases (k - length nroots) (length oroots)) as [Hk2|Hk2].
         -- rewrite nth_error_app1 in Hcp by exact Hk2.
@@ -3682,7 +3727,7 @@ Proof.
              rewrite Hltb, Heqb. reflexivity. }
            split; [ intro He; discriminate He |].
            split; [ intros fl He; discriminate He |].
-           intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+           apply no_reverse_clauses, Hnc.
         -- rewrite nth_error_app2 in Hcp by exact Hk2.
            destruct (Hvnth (k - length nroots - length oroots) cp Hcp) as [cell [Hcell [Hrole Hnc]]].
            exists cell. split; [ right; apply in_or_app; right; apply in_or_app; right; exact Hcell |].
@@ -3696,7 +3741,7 @@ Proof.
              rewrite Heqb. cbn [andb]. destruct (k <? NN); reflexivity. }
            split; [ intro He; discriminate He |].
            split; [ intros fl He; discriminate He |].
-           intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+           apply no_reverse_clauses, Hnc.
     + apply child_layout_ok_app; [ exact Hnl | apply child_layout_ok_app; [ exact Hol | exact Hvl ] ].
 Qed.
 
@@ -3716,13 +3761,13 @@ Proof.
          split; [ cbn [c_role]; reflexivity |];
          split; [ intro He; discriminate He |];
          split; [ intros fl He; discriminate He |];
-         intros sh0 Hc; cbn [c_view] in Hc; discriminate Hc
+         cbn [c_view]; apply no_reverse_clauses; exact I
        | injection Hcp as <-; exists tcell;
          split; [ right; right; rewrite Htf; left; reflexivity |];
          split; [ rewrite Htr; reflexivity |];
          split; [ intro He; discriminate He |];
          split; [ intros fl He; discriminate He |];
-         intros sh0 Hc; rewrite Htv in Hc; discriminate Hc ]
+         rewrite Htv; apply no_reverse_clauses; exact I ]
      | apply child_layout_ok_node;
        [ cbn [c_children]; intros k cp Hcp; destruct k; discriminate Hcp
        | exact Htl ] ]).
@@ -3751,7 +3796,7 @@ Proof.
         split; [ rewrite Hrole; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; injection He as He; subst fl; rewrite Hv; exact I |];
-        intros sh1 Hc; exists ConstSpecF; reflexivity
+        rewrite Hv; apply spec_reverse_clauses; exact I
       | exact Hl ].
   - assert (Hroot : forall bb x, exists cell rest,
               fst (number_varspec (Some b) RPlain bb x) = (bb, cell) :: rest
@@ -3772,7 +3817,7 @@ Proof.
         split; [ rewrite Hrole; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; injection He as He; subst fl; rewrite Hv; exact I |];
-        intros sh1 Hc; rewrite Hv in Hc; discriminate Hc
+        rewrite Hv; apply spec_reverse_clauses; exact I
       | exact Hl ].
   - assert (Hroot : forall bb x, exists cell rest,
               fst (number_typespec (Some b) RPlain bb x) = (bb, cell) :: rest
@@ -3793,7 +3838,7 @@ Proof.
         split; [ rewrite Hrole; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; injection He as He; subst fl; rewrite Hv; exact I |];
-        intros sh1 Hc; rewrite Hv in Hc; discriminate Hc
+        rewrite Hv; apply spec_reverse_clauses; exact I
       | exact Hl ].
 Qed.
 
@@ -3812,7 +3857,7 @@ Proof.
         split; [ rewrite Herole; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; discriminate He |];
-        intros sh0 Hc; rewrite Heview in Hc; exact (match expr_view_not_const _ _ Hc with end)
+        rewrite Heview; apply no_reverse_clauses, expr_view_no_reverse
       | exact Hel ].
   - pose proof (number_decl_view (Some b) RPlain (S b) d) as [dcell [drest [Hdf [Hdr Hdv]]]].
     pose proof (number_decl_layout (Some b) RPlain (S b) d) as Hdl.
@@ -3825,16 +3870,16 @@ Proof.
         split; [ rewrite Hdr; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; discriminate He |];
-        intros sh0 Hc; rewrite Hdv in Hc; discriminate Hc
+        cbn [stmt_shape]; rewrite Hdv; apply decl_stmt_reverse_clauses
       | exact Hdl ].
   - assert (Hnroot : forall bb x, exists cell rest,
               fst (number_bindingname (Some b) RShortLhs bb x) = (bb, cell) :: rest
-              /\ (c_role cell = RShortLhs /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+              /\ (c_role cell = RShortLhs /\ no_reverse (c_view cell))).
     { intros bb x. destruct (number_bindingname_view (Some b) RShortLhs bb x) as [cell [rest [Hf [Hr Hv]]]].
       exists cell, rest. split; [ exact Hf |].
-      split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ]. }
+      split; [ exact Hr | rewrite Hv; exact I ]. }
     pose proof (number_list_roots (number_bindingname (Some b) RShortLhs)
-                  (fun cell => c_role cell = RShortLhs /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                  (fun cell => c_role cell = RShortLhs /\ no_reverse (c_view cell))
                   (fun bb x => number_bindingname_spans (Some b) RShortLhs bb x)
                   Hnroot
                   (Collections.ne_to_list names) (S b)) as Hnr.
@@ -3846,12 +3891,12 @@ Proof.
     destruct Hnr as [Hnlen [_ [_ Hnnth]]]. cbn [fst snd] in Hnl.
     assert (Hvroot : forall bb x, exists cell rest,
               fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
-              /\ (c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+              /\ (c_role cell = RPlain /\ no_reverse (c_view cell))).
     { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [Hr [Hv _]]]]].
       exists rc, rest. split; [ exact Hf |].
-      split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; exact (expr_view_not_const _ _ Hc) ]. }
+      split; [ exact Hr | rewrite Hv; apply expr_view_no_reverse ]. }
     pose proof (number_list_roots (number_expr (Some b) RPlain)
-                  (fun cell => c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                  (fun cell => c_role cell = RPlain /\ no_reverse (c_view cell))
                   (fun bb x => number_expr_spans x (Some b) RPlain bb)
                   Hvroot
                   (Collections.ne_to_list vals) b1) as Hvr.
@@ -3873,7 +3918,7 @@ Proof.
           rewrite Hlt. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+        apply no_reverse_clauses, Hnc.
       * rewrite nth_error_app2 in Hcp by exact Hk.
         destruct (Hvnth (k - length nroots) cp Hcp) as [cell [Hcell [Hrole Hnc]]].
         exists cell. split; [ right; apply in_or_app; right; exact Hcell |].
@@ -3883,7 +3928,7 @@ Proof.
           rewrite Hltb. reflexivity. }
         split; [ intro He; discriminate He |].
         split; [ intros fl He; discriminate He |].
-        intros sh0 Hc. exact (match Hnc sh0 Hc with end).
+        apply no_reverse_clauses, Hnc.
     + apply child_layout_ok_app; [ exact Hnl | exact Hvl ].
 Qed.
 
@@ -3892,12 +3937,12 @@ Proof.
   intros par role b [stmts]. unfold number_block.
   assert (Hroot : forall bb x, exists cell rest,
             fst (number_stmt (Some b) RPlain bb x) = (bb, cell) :: rest
-            /\ (c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+            /\ (c_role cell = RPlain /\ (exists sh, c_view cell = VStmt sh))).
   { intros bb x. destruct (number_stmt_view (Some b) RPlain bb x) as [cell [rest [Hf [Hr Hv]]]].
     exists cell, rest. split; [ exact Hf |].
-    split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ]. }
+    split; [ exact Hr | exists (stmt_shape x); exact Hv ]. }
   pose proof (number_list_roots (number_stmt (Some b) RPlain)
-                (fun cell => c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                (fun cell => c_role cell = RPlain /\ (exists sh, c_view cell = VStmt sh))
                 (fun bb x => number_stmt_span (Some b) RPlain bb x) Hroot stmts (S b)) as Hr.
   pose proof (number_list_layout (number_stmt (Some b) RPlain)
                 (fun bb x => number_stmt_layout (Some b) RPlain bb x) (S b) stmts) as Hl.
@@ -3905,12 +3950,12 @@ Proof.
   destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
   cbn [fst]. apply child_layout_ok_node;
     [ cbn [c_children c_view]; intros k cp Hcp;
-      destruct (Hnth k cp Hcp) as [cell [Hcell [Hrole Hnc]]];
+      destruct (Hnth k cp Hcp) as [cell [Hcell [Hrole [sh0 Hv]]]];
       exists cell; split; [ right; exact Hcell |];
       split; [ rewrite Hrole; reflexivity |];
       split; [ intro He; discriminate He |];
       split; [ intros fl He; discriminate He |];
-      intros sh0 Hc; exact (match Hnc sh0 Hc with end)
+      rewrite Hv; apply stmt_reverse_clauses
     | exact Hl ].
 Qed.
 
@@ -3929,7 +3974,7 @@ Proof.
         split; [ rewrite Hdr; reflexivity |];
         split; [ intro He; discriminate He |];
         split; [ intros fl He; discriminate He |];
-        intros sh0 Hc; rewrite Hdv in Hc; discriminate Hc
+        cbn [top_shape]; rewrite Hdv; apply decl_top_reverse_clauses
       | exact Hdl ].
   - pose proof (number_block_view (Some b) RPlain (S b) blk) as [bcell [brest [Hbf [Hbr Hbv]]]].
     pose proof (number_block_layout (Some b) RPlain (S b) blk) as Hbl.
@@ -3942,7 +3987,7 @@ Proof.
         split; [ rewrite Hbr; reflexivity |];
         split; [ intros _; exact Hbv |];
         split; [ intros fl He; discriminate He |];
-        intros sh0 Hc; rewrite Hbv in Hc; discriminate Hc
+        rewrite Hbv; apply no_reverse_clauses; exact I
       | exact Hbl ].
 Qed.
 
@@ -3951,12 +3996,12 @@ Proof.
   intro f. unfold number_file.
   assert (Hroot : forall bb x, exists cell rest,
             fst (number_toplevel (Some 0) RPlain bb x) = (bb, cell) :: rest
-            /\ (c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))).
+            /\ (c_role cell = RPlain /\ no_reverse (c_view cell))).
   { intros bb x. destruct (number_toplevel_view (Some 0) RPlain bb x) as [cell [rest [Hf [Hr Hv]]]].
     exists cell, rest. split; [ exact Hf |].
-    split; [ exact Hr | intros sh Hc; rewrite Hv in Hc; discriminate Hc ]. }
+    split; [ exact Hr | rewrite Hv; exact I ]. }
   pose proof (number_list_roots (number_toplevel (Some 0) RPlain)
-                (fun cell => c_role cell = RPlain /\ (forall sh, c_view cell = VConstSpec sh -> False))
+                (fun cell => c_role cell = RPlain /\ no_reverse (c_view cell))
                 (fun bb x => number_toplevel_span (Some 0) RPlain bb x) Hroot (Syntax.declarations f) 1) as Hr.
   pose proof (number_list_layout (number_toplevel (Some 0) RPlain)
                 (fun bb x => number_toplevel_layout (Some 0) RPlain bb x) 1 (Syntax.declarations f)) as Hl.
@@ -3969,7 +4014,7 @@ Proof.
       split; [ rewrite Hrole; reflexivity |];
       split; [ intro He; discriminate He |];
       split; [ intros fl He; discriminate He |];
-      intros sh0 Hc; exact (match Hnc sh0 Hc with end)
+      apply no_reverse_clauses, Hnc
     | exact Hl ].
 Qed.
 
@@ -4165,6 +4210,65 @@ Proof.
   subst c'. exact Hin'.
 Qed.
 
+(* the numbering's head is the file root cell at position zero *)
+Lemma number_file_root : forall f, exists ext ch, In (0, mkCell VFile RPlain None ext ch) (number_file f).
+Proof.
+  intro f. unfold number_file.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  eexists. eexists. left. reflexivity.
+Qed.
+
+(* only the file root is parentless: every other occurrence is some cell's exact child *)
+Lemma parentless_view_file {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  node_parent r = None -> node_view r = VFile.
+Proof.
+  intro Hn. apply node_parent_none in Hn.
+  destruct (cellmap_number_file (nr_file r)) as [f Hcr].
+  pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
+  pose proof (Hmem r eq_refl) as Hin.
+  destruct (Nat.eq_dec (nr_pos r) 0) as [H0|Hpos].
+  - destruct (number_file_root f) as [ext [ch Hroot]].
+    assert (Hocc : occ_at r = mkCell VFile RPlain None ext ch)
+      by (apply (occ_unique (number_file f) (nr_pos r));
+          [ apply occurrences_distinct | exact Hin | rewrite H0; exact Hroot ]).
+    unfold node_view. rewrite Hocc. reflexivity.
+  - exfalso.
+    pose proof (number_file_positions f) as [count Hposs].
+    assert (Hinp : In (nr_pos r) (map fst (number_file f)))
+      by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+    rewrite Hposs in Hinp. apply in_seq in Hinp.
+    assert (Hlen : List.length (number_file f) = count).
+    { first [ rewrite <- (length_map fst (number_file f)) | rewrite <- (map_length fst (number_file f)) ].
+      rewrite Hposs. first [ apply length_seq | apply seq_length ]. }
+    destruct (number_file_cover f (nr_pos r) ltac:(lia)) as [q [qcell [Hinq Hch]]].
+    destruct (number_file_cpo f q qcell Hinq (nr_pos r) Hch) as [ccell [Hinc Hpar]].
+    assert (Hocc : ccell = occ_at r)
+      by (apply (occ_unique (number_file f) (nr_pos r));
+          [ apply occurrences_distinct | exact Hinc | exact Hin ]).
+    rewrite Hocc in Hpar. rewrite Hn in Hpar. discriminate Hpar.
+Qed.
+
+(* a child's position never exceeds its parent's exact extent, and a node's extent covers its position *)
+Lemma child_le_extent {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
+  node_parent c = Some r -> nr_pos c <= node_extent r.
+Proof.
+  intro Hp. destruct (node_parent_inv c r Hp) as [Hcp Hf].
+  destruct (cellmap_number_file (nr_file c)) as [f Hcr].
+  pose proof (same_file_member (nr_file c) f Hcr) as Hmem.
+  pose proof (Hmem c eq_refl) as Hinc.
+  assert (Hinr : In (nr_pos r, occ_at r) (number_file f)) by (apply Hmem; exact Hf).
+  destruct (number_file_extent f (nr_pos r) (occ_at r) Hinr) as [_ Hch].
+  exact (Hch (nr_pos c) (occ_at c) Hinc Hcp).
+Qed.
+
+Lemma node_extent_ge {p} {idx : ProgramIndex p} (r : NodeRef idx) : nr_pos r <= node_extent r.
+Proof.
+  destruct (cellmap_number_file (nr_file r)) as [f Hcr].
+  pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
+  destruct (number_file_extent f (nr_pos r) (occ_at r) (Hmem r eq_refl)) as [[Hle _] _].
+  exact Hle.
+Qed.
+
 (* the children refs' length matches the stored child list *)
 Lemma node_children_length {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   length (node_children r) = length (c_children (occ_at r)).
@@ -4266,21 +4370,74 @@ Proof.
   unfold node_view in Hd |- *. rewrite Hocc. exact (Hdecl fl Hd).
 Qed.
 
-Lemma node_child_const_parent {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (sh : ConstShape) :
-  nth_error (node_children r) k = Some c -> node_view c = VConstSpec sh ->
-  exists fl, node_view r = VDecl fl.
+(* the shared reverse-clause extraction: the child's exact cell and the parent's reverse clauses *)
+Lemma node_child_reverse {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) :
+  nth_error (node_children r) k = Some c -> reverse_clauses (node_view r) (node_view c).
 Proof.
-  intros H Hc.
+  intro H.
   assert (Hf : nr_file c = nr_file r) by (apply node_children_file; exact (nth_error_In _ _ H)).
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
   destruct (number_file_layout f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
-    as [cc [Hincc [_ [_ [_ Hconst]]]]].
+    as [cc [Hincc [_ [_ [_ Hrev]]]]].
   assert (Hocc : occ_at c = cc)
     by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
         [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_view in Hc |- *. apply (Hconst sh). rewrite <- Hocc. exact Hc.
+  unfold node_view. rewrite Hocc. exact Hrev.
+Qed.
+
+Lemma node_child_const_parent {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (sh : ConstShape) :
+  nth_error (node_children r) k = Some c -> node_view c = VConstSpec sh ->
+  exists fl, node_view r = VDecl fl.
+Proof.
+  intros H Hc. destruct (node_child_reverse r c k H) as [Hspec _].
+  exists ConstSpecF. apply Hspec. rewrite Hc. exact I.
+Qed.
+
+(* a spec's parent is its exact flavor's declaration *)
+Lemma node_child_spec_decl {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (fl : SpecFlavor) :
+  nth_error (node_children r) k = Some c -> spec_view_of_flavor fl (node_view c) ->
+  node_view r = VDecl fl.
+Proof.
+  intros H Hv. destruct (node_child_reverse r c k H) as [Hspec _]. exact (Hspec fl Hv).
+Qed.
+
+(* a statement's parent is its block: statements arise only as block children *)
+Lemma node_child_stmt_block {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (sh : StmtShape) :
+  nth_error (node_children r) k = Some c -> node_view c = VStmt sh -> node_view r = VBlock.
+Proof.
+  intros H Hv. destruct (node_child_reverse r c k H) as [_ [Hstmt _]]. exact (Hstmt sh Hv).
+Qed.
+
+(* a declaration's parent is a declaration statement or a top-level declaration *)
+Lemma node_child_decl_parent {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (fl : SpecFlavor) :
+  nth_error (node_children r) k = Some c -> node_view c = VDecl fl ->
+  node_view r = VStmt SSDecl \/ node_view r = VTop TSTopDecl.
+Proof.
+  intros H Hv. destruct (node_child_reverse r c k H) as [_ [_ Hdecl]]. exact (Hdecl fl Hv).
+Qed.
+
+(* a spec-name-roled child sits under its exact flavor's spec: the layout role pins the parent view class *)
+Lemma node_child_specname_spec {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (fl : SpecFlavor) :
+  nth_error (node_children r) k = Some c -> node_role c = RSpecName fl ->
+  spec_view_of_flavor fl (node_view r).
+Proof.
+  intros H Hr. pose proof (node_child_role r c k H) as Hrole. rewrite Hr in Hrole.
+  destruct (node_view r) as [n|l|u| |t|bn|csh|vsh|tsh|dfl|ssh| |ts|]; cbn [layout_role] in Hrole;
+    try discriminate Hrole.
+  - destruct k; discriminate Hrole.
+  - destruct csh as [ht nn nv|nn]; cbn [layout_role] in Hrole.
+    + destruct (k <? nn); [ injection Hrole as ->; exact I |].
+      destruct (andb ht (k =? nn)); discriminate Hrole.
+    + injection Hrole as ->; exact I.
+  - destruct vsh as [nn|ht nn nv]; cbn [layout_role] in Hrole.
+    + destruct (k <? nn); [ injection Hrole as ->; exact I | discriminate Hrole ].
+    + destruct (k <? nn); [ injection Hrole as ->; exact I |].
+      destruct (andb ht (k =? nn)); discriminate Hrole.
+  - destruct k; [ injection Hrole as ->; exact I | discriminate Hrole ].
+  - destruct ssh as [| |nn nv]; cbn [layout_role] in Hrole; try discriminate Hrole.
+    destruct (k <? nn); discriminate Hrole.
 Qed.
 
 (* total file enumeration: every retained occurrence position becomes an exact NodeRef, none omitted *)
@@ -4376,6 +4533,71 @@ Definition ca_cast {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
 Definition child_at_lt {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat)
   (H : k < length (node_children r)) : ChildAt r k :=
   mkChildAt (nth_lt (node_children r) k H) (nth_lt_nth_error (node_children r) k H).
+
+(* total ordinal-indexed child access: the exact canonical edge below the child count, None beyond it *)
+Definition child_at_opt {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat) : option (ChildAt r k) :=
+  (match nth_error (node_children r) k as o
+         return nth_error (node_children r) k = o -> option (ChildAt r k) with
+   | Some c => fun H => Some (mkChildAt c H)
+   | None => fun _ => None
+   end) eq_refl.
+
+(* an inhabited ordinal is never refused: any canonical edge at k forces the total access to answer *)
+Lemma child_at_opt_some {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat) (e : ChildAt r k) :
+  child_at_opt r k <> None.
+Proof.
+  unfold child_at_opt.
+  generalize (@eq_refl (option (NodeRef idx)) (nth_error (node_children r) k)).
+  destruct (nth_error (node_children r) k) at 2 3; intro H; [ discriminate |].
+  exfalso. pose proof (ca_at e) as He. rewrite H in He. discriminate He.
+Qed.
+
+(* a refused ordinal is out of range: None answers exactly beyond the retained child list *)
+Lemma child_at_opt_none {p} {idx : ProgramIndex p} (r : NodeRef idx) (k : nat) :
+  child_at_opt r k = None -> nth_error (node_children r) k = None.
+Proof.
+  unfold child_at_opt.
+  generalize (@eq_refl (option (NodeRef idx)) (nth_error (node_children r) k)).
+  destruct (nth_error (node_children r) k) at 2 3; intro H; [ discriminate | intros _; exact H ].
+Qed.
+
+(* the edge form of the statement-parent law: a statement edge's parent is a block *)
+Lemma child_at_stmt_block {p} {idx : ProgramIndex p} {par : NodeRef idx} {k : nat}
+  (e : ChildAt par k) (sh : StmtShape) :
+  node_view (ca_child e) = VStmt sh -> node_view par = VBlock.
+Proof. intro Hv. exact (node_child_stmt_block par (ca_child e) k sh (ca_at e) Hv). Qed.
+
+(* the edge forms of the spec-parent, declaration-parent, and spec-name-parent laws *)
+Lemma child_at_spec_decl {p} {idx : ProgramIndex p} {par : NodeRef idx} {k : nat}
+  (e : ChildAt par k) (fl : SpecFlavor) :
+  spec_view_of_flavor fl (node_view (ca_child e)) -> node_view par = VDecl fl.
+Proof. intro Hv. exact (node_child_spec_decl par (ca_child e) k fl (ca_at e) Hv). Qed.
+
+Lemma child_at_decl_parent {p} {idx : ProgramIndex p} {par : NodeRef idx} {k : nat}
+  (e : ChildAt par k) (fl : SpecFlavor) :
+  node_view (ca_child e) = VDecl fl -> node_view par = VStmt SSDecl \/ node_view par = VTop TSTopDecl.
+Proof. intro Hv. exact (node_child_decl_parent par (ca_child e) k fl (ca_at e) Hv). Qed.
+
+Lemma child_at_specname_spec {p} {idx : ProgramIndex p} {par : NodeRef idx} {k : nat}
+  (e : ChildAt par k) (fl : SpecFlavor) :
+  node_role (ca_child e) = RSpecName fl -> spec_view_of_flavor fl (node_view par).
+Proof. intro Hr. exact (node_child_specname_spec par (ca_child e) k fl (ca_at e) Hr). Qed.
+
+(* an edge ordinal is bounded by the parent shape's exact child count *)
+Lemma child_at_count_lt {p} {idx : ProgramIndex p} {r : NodeRef idx} {k : nat}
+  (e : ChildAt r k) (m : nat) : layout_count (node_view r) = Some m -> k < m.
+Proof.
+  intro Hc.
+  assert (Hlt : k < length (node_children r))
+    by (apply nth_error_Some; rewrite (ca_at e); discriminate).
+  rewrite (node_children_count r m Hc) in Hlt. exact Hlt.
+Qed.
+
+(* a one-child parent admits child edges at ordinal zero alone *)
+Lemma singleton_child_ordinal {p} {idx : ProgramIndex p} {r : NodeRef idx} {k : nat}
+  (e : ChildAt r k) : layout_count (node_view r) = Some 1 -> k = 0.
+Proof. intro Hc. pose proof (child_at_count_lt e 1 Hc). lia. Qed.
+
 
 Lemma skipn_nth : forall {A} (k : nat) (l : list A) (j : nat), nth_error (skipn k l) j = nth_error l (k + j).
 Proof.
@@ -4941,6 +5163,12 @@ Proof.
   apply in_map_iff in Hmap. destruct Hmap as [[o e] [Hc Hine]].
   exists o, e. split; [ exact Hine | exact Hc ].
 Qed.
+
+(* a parent edge yields the exact canonical child row under that parent *)
+Lemma all_children_of_parent {p} {idx : ProgramIndex p} (r par : NodeRef idx) :
+  node_parent r = Some par ->
+  exists o (e : ChildAt par o), In (existT _ o e) (all_children par) /\ ca_child e = r.
+Proof. intro Hp. exact (all_children_has par r (node_parent_children r par Hp)). Qed.
 
 Definition self_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx)
   (H : node_parent r = Some par) : SelfEdge r :=
