@@ -150,19 +150,34 @@ Arguments est_vstart {p idx s} _.
 Definition est_node {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : Index.NodeRef idx :=
   do_node (est_origin e).
 
+(* the binder emission of one occurrence, factored over its role so laws can invert it exactly *)
+Definition make_est_emit {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (ro : Index.Role) (H : Index.node_role b = ro) : option (Est s) :=
+  match ro as r return Index.node_role b = r -> option (Est s) with
+  | Index.RSpecName fl => fun H0 => Some (mk_est (DOBinder (binder_ref b (spec_binder b fl H0))) n (est_scope_of pr nbt b) (vis_start b))
+  | Index.RShortLhs    => fun H0 => Some (mk_est (DOBinder (binder_ref b (short_binder b H0))) n (est_scope_of pr nbt b) (vis_start b))
+  | _ => fun _ => None
+  end H.
+
 (* an ordinary name binder establishes its name at its scope *)
 Definition make_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
   : option (Est s) :=
   match binder_ident b with
-  | Some n =>
-      (match Index.node_role b as r return Index.node_role b = r -> option (Est s) with
-       | Index.RSpecName fl => fun H => Some (mk_est (DOBinder (binder_ref b (spec_binder b fl H))) n (est_scope_of pr nbt b) (vis_start b))
-       | Index.RShortLhs    => fun H => Some (mk_est (DOBinder (binder_ref b (short_binder b H))) n (est_scope_of pr nbt b) (vis_start b))
-       | _ => fun _ => None
-       end) eq_refl
+  | Some n => make_est_emit pr nbt b n (Index.node_role b) eq_refl
   | None => None
   end.
+
+Lemma make_est_emit_binder {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (nbt : Collections.NodeMap.t (option (Index.BlockRef idx))) (b : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (ro : Index.Role) (H : Index.node_role b = ro) :
+  is_binder_role ro = true ->
+  exists est, make_est_emit pr nbt b n ro H = Some est /\ est_node est = b.
+Proof.
+  intro Hb. revert H. destruct ro; try discriminate Hb; intro H;
+    eexists; split; reflexivity.
+Qed.
 
 (* a package-scope function declaration: the fixed main establishes the name main at package scope *)
 Definition make_main_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -1107,3 +1122,605 @@ Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
 Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (bp : BindingPhase s) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
   sj_dup_name (projT2 (sjr_row (short_decl_judgment bp st))).
+
+(* a Some binder identity pins the exact named binding view *)
+Lemma binder_ident_view {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) :
+  binder_ident b = Some n -> Index.node_view b = Index.VBindingName (Syntax.BNamed n).
+Proof.
+  unfold binder_ident. destruct (Index.node_view b) as [| | | | |bn| | | | | | | |]; try discriminate.
+  destruct bn; [| discriminate ]. intro H. injection H as <-. reflexivity.
+Qed.
+
+Lemma make_main_est_none {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) (b : Index.NodeRef idx) :
+  Index.is_main_view (Index.node_view b) = false -> make_main_est pr b = None.
+Proof.
+  intro Hf. unfold make_main_est.
+  generalize (@eq_refl bool (Index.is_main_view (Index.node_view b))).
+  destruct (Index.is_main_view (Index.node_view b)) at 2 3; intro e;
+    [ exfalso; pose proof (eq_trans (eq_sym e) Hf) as Ht; discriminate Ht | reflexivity ].
+Qed.
+
+(* est existence: every nonblank binder occurrence of the surface establishes in the retained core *)
+Lemma all_ests_has_binder {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
+  (b : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  binder_ident b = Some n -> is_binder_role (Index.node_role b) = true ->
+  exists est, In est (all_ests s) /\ est_node est = b.
+Proof.
+  intros Hb Hr.
+  set (fr := Index.nr_file b).
+  set (pr := PI.package_of_file s fr).
+  set (nbt := nearest_block_table fr).
+  assert (Hmk : Index.mk_noderef fr (Pos.of_succ_nat (Index.nr_pos b)) = Some b)
+    by (rewrite <- Index.nr_key_pos; apply Index.mk_noderef_self).
+  assert (Hmain : make_main_est pr b = None).
+  { apply make_main_est_none. rewrite (binder_ident_view b n Hb). reflexivity. }
+  destruct (make_est_emit_binder pr nbt b n (Index.node_role b) eq_refl Hr) as [est [Hemit Hnode]].
+  assert (Hnodee : est_of_node pr nbt b = Some est).
+  { unfold est_of_node. rewrite Hmain. unfold make_est. rewrite Hb. exact Hemit. }
+  exists est. split; [| exact Hnode ].
+  unfold all_ests. apply in_flat_map.
+  exists pr. split; [ apply PI.packages_complete |].
+  apply in_flat_map. exists fr. split; [ apply PI.pkg_members_of_file |].
+  unfold ests_of_file. apply in_flat_map. exists (Index.nr_pos b). split.
+  - apply in_seq. pose proof (nr_pos_lt b). unfold fr. lia.
+  - rewrite Hmk. fold nbt. rewrite Hnodee. left. reflexivity.
+Qed.
+
+(* the retained-core lookup succeeds for every nonblank binder *)
+Lemma est_of_binder_core_some {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (b : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  binder_ident b = Some n -> is_binder_role (Index.node_role b) = true ->
+  exists est, est_of_binder_core (bp_ests bp) b = Some est.
+Proof.
+  intros Hb Hr.
+  assert (Hcore : bp_ests bp = all_ests s)
+    by (unfold bp_ests; rewrite (proj2_sig bp); reflexivity).
+  destruct (all_ests_has_binder s b n Hb Hr) as [est [Hin Hnode]].
+  unfold est_of_binder_core.
+  destruct (find (fun e => noderef_eqb (est_node e) b) (bp_ests bp)) as [e0|] eqn:Hf.
+  - exists e0. reflexivity.
+  - exfalso.
+    pose proof (find_none _ _ Hf est) as Hno.
+    rewrite Hcore in Hno. specialize (Hno Hin).
+    rewrite Hnode in Hno. rewrite (proj2 (noderef_eqb_spec b b) eq_refl) in Hno. discriminate Hno.
+Qed.
+
+(* the blank law: a retained-core blank classification pins a genuinely blank identifier *)
+Lemma slj_blank_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i) :
+  short_lhs_decide (bp_ests bp) e = SVBlank -> binder_ident (Index.sl_child e) = None.
+Proof.
+  intro Hd. unfold short_lhs_decide in Hd.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| reflexivity ].
+  exfalso.
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|]; [ discriminate Hd |].
+  destruct (est_of_binder_core (bp_ests bp) (Index.sl_child e)) as [eb|] eqn:He.
+  - destruct (group_status (decl_group_core (bp_ests bp) eb)) as [[?|? ? ?]|];
+      [ | discriminate Hd | ];
+      (destruct (find (fun e2 => andb (negb (est_eqb e2 eb))
+                                      (Nat.ltb (Index.nr_pos (est_node e2))
+                                               (Index.nr_pos (Index.sl_child e))))
+                      (group_members_core (bp_ests bp) eb)) as [prior|];
+       [ destruct (is_variable_binder (est_node prior)); discriminate Hd | discriminate Hd ]).
+  - assert (Hrole : is_binder_role (Index.node_role (Index.sl_child e)) = true)
+      by (rewrite (Index.sl_role e); reflexivity).
+    destruct (est_of_binder_core_some bp (Index.sl_child e) n Hb Hrole) as [est Hs].
+    rewrite He in Hs. discriminate Hs.
+Qed.
+
+(* the new law: the establishment is a retained-core member whose exact source origin is this edge *)
+Lemma slj_new_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (eb : Est s) :
+  short_lhs_decide (bp_ests bp) e = SVNew eb ->
+  In eb (bp_ests bp) /\ est_node eb = Index.sl_child e
+  /\ exists n, binder_ident (Index.sl_child e) = Some n
+               /\ find_dup i n (Index.short_lhs_edges st) = None.
+Proof.
+  intro Hd. unfold short_lhs_decide in Hd.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate Hd ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|] eqn:Hdup; [ discriminate Hd |].
+  destruct (est_of_binder_core (bp_ests bp) (Index.sl_child e)) as [eb0|] eqn:He; [| discriminate Hd ].
+  unfold est_of_binder_core in He.
+  pose proof (find_some _ _ He) as [Hin Heqb].
+  apply noderef_eqb_spec in Heqb.
+  destruct (group_status (decl_group_core (bp_ests bp) eb0)) as [[?|? ? ?]|];
+    try discriminate Hd;
+    (destruct (find (fun e2 => andb (negb (est_eqb e2 eb0))
+                                    (Nat.ltb (Index.nr_pos (est_node e2))
+                                             (Index.nr_pos (Index.sl_child e))))
+                    (group_members_core (bp_ests bp) eb0)) as [prior|];
+     [ destruct (is_variable_binder (est_node prior)); discriminate Hd
+     | injection Hd as <-; split; [ exact Hin | split; [ exact Heqb | exists n; split; [ reflexivity | exact Hdup ] ] ] ]).
+Qed.
+
+(* the existing laws: the prior is a same-group retained member, strictly earlier, of the exact kind *)
+Lemma slj_existing_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (eb prior : Est s) (isvar : bool) :
+  short_lhs_decide (bp_ests bp) e
+  = (if isvar then SVExistingVariable eb prior else SVExistingNonVariable eb prior) ->
+  In prior (group_members_core (bp_ests bp) eb)
+  /\ Nat.ltb (Index.nr_pos (est_node prior)) (Index.nr_pos (Index.sl_child e)) = true
+  /\ est_eqb prior eb = false
+  /\ is_variable_binder (est_node prior) = isvar.
+Proof.
+  intro Hd. unfold short_lhs_decide in Hd.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| destruct isvar; discriminate Hd ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|]; [ destruct isvar; discriminate Hd |].
+  destruct (est_of_binder_core (bp_ests bp) (Index.sl_child e)) as [eb0|] eqn:He;
+    [| destruct isvar; discriminate Hd ].
+  destruct (group_status (decl_group_core (bp_ests bp) eb0)) as [[?|? ? ?]|];
+    try (destruct isvar; discriminate Hd);
+    (destruct (find (fun e2 => andb (negb (est_eqb e2 eb0))
+                                    (Nat.ltb (Index.nr_pos (est_node e2))
+                                             (Index.nr_pos (Index.sl_child e))))
+                    (group_members_core (bp_ests bp) eb0)) as [prior0|] eqn:Hfind;
+    try (destruct isvar; discriminate Hd);
+    (pose proof (find_some _ _ Hfind) as [Hin Hcond];
+     apply Bool.andb_true_iff in Hcond; destruct Hcond as [Hne Hlt];
+     destruct (is_variable_binder (est_node prior0)) eqn:Hvar; destruct isvar;
+     try discriminate Hd;
+     injection Hd as <- <-;
+     (split; [ exact Hin
+             | split; [ exact Hlt
+                      | split; [ apply Bool.negb_true_iff in Hne; exact Hne | exact Hvar ] ] ]))).
+Qed.
+
+(* the ambiguity law: the exact redeclared declaration group of the resolved establishment *)
+Lemma slj_ambiguous_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (a c : Est s) (rest : list (Est s)) :
+  short_lhs_decide (bp_ests bp) e = SVAmbiguous a c rest ->
+  exists eb, est_of_binder_core (bp_ests bp) (Index.sl_child e) = Some eb
+             /\ group_status (decl_group_core (bp_ests bp) eb) = Some (GRedeclared a c rest).
+Proof.
+  intro Hd. unfold short_lhs_decide in Hd.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate Hd ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j w]|]; [ discriminate Hd |].
+  destruct (est_of_binder_core (bp_ests bp) (Index.sl_child e)) as [eb0|] eqn:He; [| discriminate Hd ].
+  destruct (group_status (decl_group_core (bp_ests bp) eb0)) as [[?|a0 c0 rest0]|] eqn:Hg;
+    try (destruct (find (fun e2 => andb (negb (est_eqb e2 eb0))
+                                        (Nat.ltb (Index.nr_pos (est_node e2))
+                                                 (Index.nr_pos (Index.sl_child e))))
+                        (group_members_core (bp_ests bp) eb0)) as [prior|];
+         [ destruct (is_variable_binder (est_node prior)); discriminate Hd | discriminate Hd ]).
+  injection Hd as <- <- <-. exists eb0. split; [ reflexivity | exact Hg ].
+Qed.
+
+(* the duplicate law: an exact same-name earlier left exists at the retained witness index *)
+Lemma slj_dup_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
+  (j : nat) :
+  short_lhs_decide (bp_ests bp) e = SVDuplicate j ->
+  exists n w, binder_ident (Index.sl_child e) = Some n
+              /\ find_dup i n (Index.short_lhs_edges st) = Some (existT _ j w).
+Proof.
+  intro Hd. unfold short_lhs_decide in Hd.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hb; [| discriminate Hd ].
+  destruct (find_dup i n (Index.short_lhs_edges st)) as [[j0 w]|] eqn:Hdup.
+  - injection Hd as <-. exists n, w. split; [ reflexivity | exact Hdup ].
+  - destruct (est_of_binder_core (bp_ests bp) (Index.sl_child e)) as [eb0|]; [| discriminate Hd ].
+    destruct (group_status (decl_group_core (bp_ests bp) eb0)) as [[?|? ? ?]|];
+      try (destruct (find (fun e2 => andb (negb (est_eqb e2 eb0))
+                                          (Nat.ltb (Index.nr_pos (est_node e2))
+                                                   (Index.nr_pos (Index.sl_child e))))
+                          (group_members_core (bp_ests bp) eb0)) as [prior|];
+           [ destruct (is_variable_binder (est_node prior)); discriminate Hd | discriminate Hd ]).
+Qed.
+
+(* find_dup selects the exact earliest matching earlier left: no smaller in-range index matches *)
+Lemma find_dup_sound {p} {idx : Index.ProgramIndex p} {st : Index.ShortStmtRef idx}
+  (i : nat) (n : Names.OrdinaryIdentifier) :
+  forall (l : list { j0 : nat & Index.ShortLhsEdge st j0 }) (j : nat)
+         (w : (Index.ShortLhsEdge st j * (j < i))%type),
+  find_dup i n l = Some (existT _ j w) ->
+  In (existT _ j (fst w)) l
+  /\ match binder_ident (Index.sl_child (fst w)) with
+     | Some m => Names.ordinary_equalb m n | None => false end = true.
+Proof.
+  induction l as [|[k ek] rest IH]; intros j w Hf; [ discriminate Hf |].
+  cbn in Hf. destruct (lt_dec k i) as [Hk|Hk].
+  - destruct (match binder_ident (Index.sl_child ek) with
+              | Some m => Names.ordinary_equalb m n | None => false end) eqn:Ht.
+    + injection Hf as He H2. subst j.
+      apply Eqdep_dec.inj_pair2_eq_dec in H2; [| exact Nat.eq_dec ]. subst w.
+      split; [ left; reflexivity | exact Ht ].
+    + destruct (IH j w Hf) as [Hin Hm]. split; [ right; exact Hin | exact Hm ].
+  - destruct (IH j w Hf) as [Hin Hm]. split; [ right; exact Hin | exact Hm ].
+Qed.
+
+Lemma find_dup_earliest {p} {idx : Index.ProgramIndex p} {st : Index.ShortStmtRef idx}
+  (i : nat) (n : Names.OrdinaryIdentifier) :
+  forall (l : list { j0 : nat & Index.ShortLhsEdge st j0 }) (a m : nat),
+  map (@projT1 _ _) l = seq a m ->
+  forall (j : nat) (w : (Index.ShortLhsEdge st j * (j < i))%type),
+  find_dup i n l = Some (existT _ j w) ->
+  forall (k : nat) (ek : Index.ShortLhsEdge st k),
+  In (existT _ k ek) l -> k < j -> k < i ->
+  match binder_ident (Index.sl_child ek) with
+  | Some m0 => Names.ordinary_equalb m0 n | None => false end = false.
+Proof.
+  induction l as [|[k0 e0] rest IH]; intros a m Hords j w Hf k ek Hin Hkj Hki; [ destruct Hin |].
+  cbn in Hords. destruct m as [|m']; [ discriminate Hords |].
+  injection Hords as Hk0 Hrest. subst k0.
+  cbn in Hf. destruct (lt_dec a i) as [Ha|Ha].
+  - destruct (match binder_ident (Index.sl_child e0) with
+              | Some m0 => Names.ordinary_equalb m0 n | None => false end) eqn:Ht.
+    + injection Hf as He H2. subst j.
+      destruct Hin as [Hhead|Hin].
+      * injection Hhead as Hke. lia.
+      * exfalso.
+        assert (Hkin : In k (map (@projT1 _ _) rest))
+          by (apply in_map_iff; exists (existT _ k ek); split; [ reflexivity | exact Hin ]).
+        rewrite Hrest in Hkin. apply in_seq in Hkin. lia.
+    + destruct Hin as [Hhead|Hin].
+      * injection Hhead as Hke He. subst k.
+        apply Eqdep_dec.inj_pair2_eq_dec in He; [| exact Nat.eq_dec ]. subst ek. exact Ht.
+      * exact (IH (S a) m' Hrest j w Hf k ek Hin Hkj Hki).
+  - destruct Hin as [Hhead|Hin].
+    + injection Hhead as Hke He. subst k. lia.
+    + exact (IH (S a) m' Hrest j w Hf k ek Hin Hkj Hki).
+Qed.
+
+Lemma option_noderef_eq_dec {p} {idx : Index.ProgramIndex p} :
+  forall a b : option (Index.NodeRef idx), {a = b} + {a <> b}.
+Proof. decide equality. apply (dec_of_eqb noderef_eqb noderef_eqb_spec). Qed.
+
+(* one canonical edge inhabitant per parent and ordinal *)
+Lemma childat_unique {p} {idx : Index.ProgramIndex p} {par : Index.NodeRef idx} {k : nat}
+  (a b : Index.ChildAt par k) : a = b.
+Proof.
+  destruct a as [ca Ha], b as [cb Hb].
+  assert (E : ca = cb) by (rewrite Ha in Hb; injection Hb as Hb; exact Hb).
+  subst cb. f_equal. apply (UIP_dec option_noderef_eq_dec).
+Qed.
+
+Lemma shortlhsedge_unique {p} {idx : Index.ProgramIndex p} {st : Index.ShortStmtRef idx} {i : nat}
+  (a b : Index.ShortLhsEdge st i) : a = b.
+Proof.
+  destruct a as [ea la], b as [eb lb].
+  assert (E : ea = eb) by apply childat_unique. subst eb.
+  f_equal. apply Index.lt_unique.
+Qed.
+
+(* no alternative classification can inhabit the same core, statement, and left index *)
+Lemma slj_canonical {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {core : list (Est s)} {st : Index.ShortStmtRef idx} {i : nat}
+  (j1 j2 : ShortLhsJudgment core st i) :
+  slj_edge j1 = slj_edge j2 /\ slj_view j1 = slj_view j2.
+Proof.
+  assert (E : slj_edge j1 = slj_edge j2) by apply shortlhsedge_unique.
+  split; [ exact E |].
+  rewrite (slj_ok j1), (slj_ok j2), E. reflexivity.
+Qed.
+
+(* a self edge names the exact parent the parent relation retains *)
+Lemma selfedge_parent {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx}
+  (se : Index.SelfEdge r) : Index.node_parent r = Some (Index.se_parent se).
+Proof.
+  pose proof (Index.ca_node_parent (Index.se_at se)) as H.
+  rewrite (Index.se_child_eq se) in H. exact H.
+Qed.
+
+Lemma selfedge_ord_unique {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx}
+  (se1 se2 : Index.SelfEdge r) : Index.se_ord se1 = Index.se_ord se2.
+Proof.
+  pose proof (selfedge_parent se1) as H1. pose proof (selfedge_parent se2) as H2.
+  rewrite H1 in H2. injection H2 as E.
+  destruct se2 as [par2 o2 at2 eq2]; cbn in *.
+  revert at2 eq2. rewrite <- E. intros at2 eq2.
+  apply (Index.ca_ord_unique (Index.se_at se1) at2).
+  rewrite (Index.se_child_eq se1), eq2. reflexivity.
+Qed.
+
+(* the first and adjacent cases are exact and disjoint *)
+Lemma const_first_not_adjacent {p} {idx : Index.ProgramIndex p}
+  (cs pred : Index.SpecRef idx Index.ConstSpecF)
+  (cf : ConstFirst cs) (adj : ConstAdjacency cs pred) : False.
+Proof.
+  pose (se' := Index.mkSelfEdge (cad_parent adj) (S (cad_ord adj)) (cad_self_at adj)
+                 (eq_sym (cad_self_eq adj))).
+  destruct cf as [Hp|se H0].
+  - pose proof (selfedge_parent se') as Hsp. rewrite Hp in Hsp. discriminate Hsp.
+  - pose proof (selfedge_ord_unique se se') as He. rewrite H0 in He. cbn in He. discriminate He.
+Qed.
+
+(* the immediate predecessor is unique *)
+Lemma const_pred_exact {p} {idx : Index.ProgramIndex p}
+  (cs pred1 pred2 : Index.SpecRef idx Index.ConstSpecF)
+  (a1 : ConstAdjacency cs pred1) (a2 : ConstAdjacency cs pred2) : pred1 = pred2.
+Proof.
+  pose proof (selfedge_parent (Index.mkSelfEdge (cad_parent a1) (S (cad_ord a1)) (cad_self_at a1)
+                (eq_sym (cad_self_eq a1)))) as H1.
+  pose proof (selfedge_parent (Index.mkSelfEdge (cad_parent a2) (S (cad_ord a2)) (cad_self_at a2)
+                (eq_sym (cad_self_eq a2)))) as H2.
+  pose proof (selfedge_ord_unique
+                (Index.mkSelfEdge (cad_parent a1) (S (cad_ord a1)) (cad_self_at a1)
+                   (eq_sym (cad_self_eq a1)))
+                (Index.mkSelfEdge (cad_parent a2) (S (cad_ord a2)) (cad_self_at a2)
+                   (eq_sym (cad_self_eq a2)))) as Eord.
+  cbn in H1, H2, Eord. rewrite H1 in H2. injection H2 as Epar. injection Eord as Eord.
+  destruct a1 as [par1 o1 pat1 peq1 sat1 seq1], a2 as [par2 o2 pat2 peq2 sat2 seq2]; cbn in *.
+  subst par2 o2.
+  apply specref_positional.
+  rewrite peq1, peq2. f_equal. apply childat_unique.
+Qed.
+
+(* the origin projection follows the exact retained chain, one constructor at a time *)
+Lemma const_origin_explicit {p} {idx : Index.ProgramIndex p}
+  (cs : Index.SpecRef idx Index.ConstSpecF) (He : cs_explicit cs = true) :
+  const_origin (CJExplicit cs He) = Some (existT _ cs He).
+Proof. reflexivity. Qed.
+Lemma const_origin_first {p} {idx : Index.ProgramIndex p}
+  (cs : Index.SpecRef idx Index.ConstSpecF) (Hne : cs_explicit cs = false) (cf : ConstFirst cs) :
+  const_origin (CJFirstInherited cs Hne cf) = None.
+Proof. reflexivity. Qed.
+Lemma const_origin_inherited {p} {idx : Index.ProgramIndex p}
+  (cs pred : Index.SpecRef idx Index.ConstSpecF) (Hne : cs_explicit cs = false)
+  (adj : ConstAdjacency cs pred) (jp : ConstJudgment pred) :
+  const_origin (CJInherited cs pred Hne adj jp) = const_origin jp.
+Proof. reflexivity. Qed.
+
+(* the judgment constructor is forced by the exact source shape *)
+Lemma const_judgment_forms {p} {idx : Index.ProgramIndex p}
+  (cs : Index.SpecRef idx Index.ConstSpecF) (j : ConstJudgment cs) :
+  match j with CJExplicit _ _ => cs_explicit cs = true | _ => cs_explicit cs = false end.
+Proof. destruct j as [c He|c Hne cf|c pred Hne adj jp]; assumption. Qed.
+
+(* no alternative predecessor decision can inhabit the same spec *)
+Lemma const_pred_unique {p} {idx : Index.ProgramIndex p}
+  (cs : Index.SpecRef idx Index.ConstSpecF) (j1 j2 : ConstJudgment cs) :
+  const_pred j1 = const_pred j2.
+Proof.
+  pose proof (const_judgment_forms cs j1) as F1. pose proof (const_judgment_forms cs j2) as F2.
+  destruct j1 as [c1 He1|c1 Hne1 cf1|c1 pred1 Hne1 adj1 jp1];
+    destruct j2 as [c2 He2|c2 Hne2 cf2|c2 pred2 Hne2 adj2 jp2];
+    cbn; try reflexivity; try congruence.
+  - exact (match const_first_not_adjacent _ _ cf1 adj2 with end).
+  - exact (match const_first_not_adjacent _ _ cf2 adj1 with end).
+  - f_equal. exact (const_pred_exact _ _ _ adj1 adj2).
+Qed.
+
+Lemma mk_noderef_key {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx) (k : positive)
+  (r : Index.NodeRef idx) : Index.mk_noderef fr k = Some r -> Index.nr_key r = k.
+Proof.
+  unfold Index.mk_noderef.
+  generalize (@eq_refl bool (Collections.NodeMap.mem k (Index.cell_map fr))).
+  destruct (Collections.NodeMap.mem k (Index.cell_map fr)) at 2 3; intro e;
+    [ intro H; injection H as <-; reflexivity | discriminate ].
+Qed.
+
+Lemma app_nodup_disjoint {A} (l1 l2 : list A) :
+  NoDup l1 -> NoDup l2 -> (forall x, In x l1 -> In x l2 -> False) -> NoDup (l1 ++ l2).
+Proof.
+  induction l1 as [|x t IH]; intros H1 H2 Hdisj; [ exact H2 |].
+  apply NoDup_cons_iff in H1. destruct H1 as [Hnx H1'].
+  cbn [app]. constructor.
+  - intro Hin. apply in_app_or in Hin. destruct Hin as [Hin|Hin];
+      [ exact (Hnx Hin) | exact (Hdisj x (or_introl eq_refl) Hin) ].
+  - apply IH; [ exact H1' | exact H2 | intros y Hy1 Hy2; exact (Hdisj y (or_intror Hy1) Hy2) ].
+Qed.
+
+(* a disjoint tagged flat_map of per-item duplicate-free blocks is duplicate-free *)
+Lemma flat_map_nodup {A B} (f : A -> list B) (tag : B -> A) (l : list A) :
+  NoDup l -> (forall a, In a l -> NoDup (f a)) ->
+  (forall a b, In a l -> In b (f a) -> tag b = a) ->
+  NoDup (flat_map f l).
+Proof.
+  induction l as [|a0 rest IH]; intros Hnd Hblocks Htags; [ constructor |].
+  cbn [flat_map]. apply NoDup_cons_iff in Hnd. destruct Hnd as [Hnotin Hnd'].
+  apply app_nodup_disjoint.
+  - apply Hblocks. left. reflexivity.
+  - apply IH; [ exact Hnd' | intros a Ha; apply Hblocks; right; exact Ha
+              | intros a b Ha Hb; apply Htags; [ right; exact Ha | exact Hb ] ].
+  - intros b Hb0 Hbr.
+    apply in_flat_map in Hbr. destruct Hbr as [a [Ha Hbin]].
+    apply Hnotin.
+    rewrite <- (Htags a0 b (or_introl eq_refl) Hb0).
+    rewrite (Htags a b (or_intror Ha) Hbin). exact Ha.
+Qed.
+
+(* the file enumeration is duplicate-free: one file per retained path key *)
+Lemma files_emit_paths_nodup {p} {idx : Index.ProgramIndex p} :
+  forall l : list (FilePath.T * Index.FileInfo),
+  NoDup (map fst l) ->
+  NoDup (map Index.fr_path
+           (flat_map (fun kv => match Index.mk_fileref idx (fst kv) with
+                                | Some fr => [fr] | None => [] end) l)).
+Proof.
+  induction l as [|kv rest IH]; intro Hk; [ constructor |].
+  cbn [map] in Hk. apply NoDup_cons_iff in Hk. destruct Hk as [Hnotin Hk'].
+  specialize (IH Hk'). cbn [flat_map].
+  destruct (Index.mk_fileref idx (fst kv)) as [fr|] eqn:Hmk; [| cbn [app]; exact IH ].
+  cbn [app map]. constructor; [| exact IH ].
+  intro Hin. apply Hnotin.
+  rewrite (Index.mk_fileref_path idx (fst kv) fr Hmk) in Hin.
+  clear -Hin. induction rest as [|kv' rest' IH']; [ destruct Hin |].
+  cbn [flat_map] in Hin. cbn [map].
+  destruct (Index.mk_fileref idx (fst kv')) as [fr'|] eqn:Hmk'.
+  - cbn [app map] in Hin. destruct Hin as [He|Hin];
+      [ left; rewrite <- (Index.mk_fileref_path idx (fst kv') fr' Hmk'); exact He
+      | right; exact (IH' Hin) ].
+  - cbn [app] in Hin. right. exact (IH' Hin).
+Qed.
+
+Lemma all_files_paths_nodup {p} {idx : Index.ProgramIndex p} :
+  NoDup (map Index.fr_path (Index.all_files idx)).
+Proof.
+  exact (files_emit_paths_nodup (Collections.FileMap.elements (Index.prog_map idx))
+           (Collections.file_map_elements_keys_nodup (Index.prog_map idx))).
+Qed.
+
+Lemma all_files_nodup {p} {idx : Index.ProgramIndex p} : NoDup (Index.all_files idx).
+Proof. exact (NoDup_map_inv _ _ all_files_paths_nodup). Qed.
+
+Lemma pkg_members_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (pr : PI.PackageRef s) : NoDup (PI.pkg_members pr).
+Proof. unfold PI.pkg_members. apply NoDup_filter. apply all_files_nodup. Qed.
+
+Lemma mk_packageref_pos {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (n : nat) (pr : PI.PackageRef s) : PI.mk_packageref s n = Some pr -> PI.pr_pos pr = n.
+Proof.
+  unfold PI.mk_packageref. destruct (lt_dec n (PI.package_count s));
+    [ intro H; injection H as <-; reflexivity | discriminate ].
+Qed.
+
+Lemma packages_nodup {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
+  NoDup (PI.packages s).
+Proof.
+  unfold PI.packages.
+  apply (flat_map_nodup _ PI.pr_pos); [ apply seq_NoDup | |].
+  - intros n _. destruct (PI.mk_packageref s n); [ apply NoDup_cons; [ intro F; destruct F | constructor ] | constructor ].
+  - intros n pr _ Hin. destruct (PI.mk_packageref s n) as [pr0|] eqn:Hmk; [| destruct Hin ].
+    destruct Hin as [He|F]; [| destruct F ]. subst pr0.
+    exact (mk_packageref_pos n pr Hmk).
+Qed.
+
+(* every emitted const ref names its own occurrence *)
+Lemma const_ref_emit_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) (cs : Index.SpecRef idx Index.ConstSpecF) :
+  In cs (const_ref_emit r v Hv) -> Index.sp_node cs = r.
+Proof.
+  destruct v; cbn; try (intros F; exact (match F with end)).
+  intros [He|F]; [ rewrite <- He; reflexivity | destruct F ].
+Qed.
+
+Lemma short_ref_emit_node {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) (st : Index.ShortStmtRef idx) :
+  In st (short_ref_emit r v Hv) -> Index.sh_node st = r.
+Proof.
+  destruct v; cbn; try (intros F; exact (match F with end)).
+  match goal with sh0 : Index.StmtShape |- _ =>
+    destruct sh0; cbn; try (intros F; exact (match F with end)) end.
+  intros [He|F]; [ rewrite <- He; reflexivity | destruct F ].
+Qed.
+
+Lemma const_ref_emit_nodup {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) : NoDup (const_ref_emit r v Hv).
+Proof. destruct v; cbn; repeat constructor; intros F; destruct F. Qed.
+
+Lemma short_ref_emit_nodup {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view r = v) : NoDup (short_ref_emit r v Hv).
+Proof.
+  destruct v; cbn; try (repeat constructor; intros F; destruct F).
+  match goal with sh0 : Index.StmtShape |- _ =>
+    destruct sh0; cbn; repeat constructor; intros F; destruct F end.
+Qed.
+
+Lemma noderef_pos_of_key {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) (pos : nat) :
+  Index.nr_key r = Pos.of_succ_nat pos -> Index.nr_pos r = pos.
+Proof.
+  intro H. pose proof (Index.nr_key_pos r) as Hk. rewrite H in Hk.
+  apply (f_equal Pos.to_nat) in Hk. rewrite !SuccNat2Pos.id_succ in Hk. lia.
+Qed.
+
+(* the const subjects are duplicate-free: one exact subject per source occurrence *)
+Lemma const_subjects_nodup {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
+  NoDup (const_subjects s).
+Proof.
+  unfold const_subjects.
+  apply (flat_map_nodup _ (fun cs => PI.package_of_file s (Index.nr_file (Index.sp_node cs))));
+    [ apply packages_nodup | |].
+  - intros pr _.
+    apply (flat_map_nodup _ (fun cs => Index.nr_file (Index.sp_node cs)));
+      [ apply pkg_members_nodup | |].
+    + intros fr _. unfold const_specs_of_file.
+      apply (flat_map_nodup _ (fun cs => Index.nr_pos (Index.sp_node cs)));
+        [ apply seq_NoDup | |].
+      * intros pos _. destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| constructor ].
+        apply const_ref_emit_nodup.
+      * intros pos cs _ Hin.
+        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+        rewrite (const_ref_emit_node r _ _ cs Hin).
+        exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
+    + intros fr cs _ Hin.
+      unfold const_specs_of_file in Hin. apply in_flat_map in Hin.
+      destruct Hin as [pos [_ Hin]].
+      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+      rewrite (const_ref_emit_node r _ _ cs Hin).
+      exact (Index.mk_noderef_file _ _ _ Hmk).
+  - intros pr cs Hpr Hin.
+    apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+    unfold const_specs_of_file in Hin. apply in_flat_map in Hin.
+    destruct Hin as [pos [_ Hin]].
+    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+    rewrite (const_ref_emit_node r _ _ cs Hin).
+    rewrite (Index.mk_noderef_file _ _ _ Hmk).
+    exact (PI.package_of_file_member s pr fr Hfr).
+Qed.
+
+(* the short subjects are duplicate-free: one exact subject per source statement *)
+Lemma short_subjects_nodup {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) :
+  NoDup (short_subjects s).
+Proof.
+  unfold short_subjects.
+  apply (flat_map_nodup _ (fun st => PI.package_of_file s (Index.nr_file (Index.sh_node st))));
+    [ apply packages_nodup | |].
+  - intros pr _.
+    apply (flat_map_nodup _ (fun st => Index.nr_file (Index.sh_node st)));
+      [ apply pkg_members_nodup | |].
+    + intros fr _. unfold short_stmts_of_file.
+      apply (flat_map_nodup _ (fun st => Index.nr_pos (Index.sh_node st)));
+        [ apply seq_NoDup | |].
+      * intros pos _. destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|]; [| constructor ].
+        apply short_ref_emit_nodup.
+      * intros pos st _ Hin.
+        destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+        rewrite (short_ref_emit_node r _ _ st Hin).
+        exact (noderef_pos_of_key r pos (mk_noderef_key fr _ r Hmk)).
+    + intros fr st _ Hin.
+      unfold short_stmts_of_file in Hin. apply in_flat_map in Hin.
+      destruct Hin as [pos [_ Hin]].
+      destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+      rewrite (short_ref_emit_node r _ _ st Hin).
+      exact (Index.mk_noderef_file fr _ r Hmk).
+  - intros pr st Hpr Hin.
+    apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+    unfold short_stmts_of_file in Hin. apply in_flat_map in Hin.
+    destruct Hin as [pos [_ Hin]].
+    destruct (Index.mk_noderef fr (Pos.of_succ_nat pos)) as [r|] eqn:Hmk; [| destruct Hin ].
+    rewrite (short_ref_emit_node r _ _ st Hin).
+    rewrite (Index.mk_noderef_file fr _ r Hmk).
+    exact (PI.package_of_file_member s pr fr Hfr).
+Qed.
+
+(* each const subject appears exactly once: two table rows sharing a subject share the ordinal *)
+Lemma bp_consts_exactly_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (o1 o2 : nat)
+  (row1 row2 : { c : Index.SpecRef idx Index.ConstSpecF & ConstJudgment c }) :
+  nth_error (bp_consts bp) o1 = Some row1 -> nth_error (bp_consts bp) o2 = Some row2 ->
+  projT1 row1 = projT1 row2 -> o1 = o2.
+Proof.
+  intros H1 H2 He.
+  assert (Hnd : NoDup (map (fun row => projT1 row) (bp_consts bp)))
+    by (rewrite bp_consts_subjects; apply const_subjects_nodup).
+  assert (Hm1 : nth_error (map (fun row => projT1 row) (bp_consts bp)) o1 = Some (projT1 row1))
+    by (exact (map_nth_error _ o1 _ H1)).
+  assert (Hm2 : nth_error (map (fun row => projT1 row) (bp_consts bp)) o2 = Some (projT1 row2))
+    by (exact (map_nth_error _ o2 _ H2)).
+  apply (proj1 (NoDup_nth_error _) Hnd o1 o2).
+  - apply nth_error_Some. rewrite Hm1. discriminate.
+  - rewrite Hm1, Hm2, He. reflexivity.
+Qed.
+
+(* each short subject appears exactly once *)
+Lemma bp_shorts_exactly_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (bp : BindingPhase s) (o1 o2 : nat)
+  (row1 row2 : { st : Index.ShortStmtRef idx & ShortJudgment (bp_ests bp) st }) :
+  nth_error (bp_shorts bp) o1 = Some row1 -> nth_error (bp_shorts bp) o2 = Some row2 ->
+  projT1 row1 = projT1 row2 -> o1 = o2.
+Proof.
+  intros H1 H2 He.
+  assert (Hnd : NoDup (map (fun row => projT1 row) (bp_shorts bp)))
+    by (rewrite bp_shorts_subjects; apply short_subjects_nodup).
+  assert (Hm1 : nth_error (map (fun row => projT1 row) (bp_shorts bp)) o1 = Some (projT1 row1))
+    by (exact (map_nth_error _ o1 _ H1)).
+  assert (Hm2 : nth_error (map (fun row => projT1 row) (bp_shorts bp)) o2 = Some (projT1 row2))
+    by (exact (map_nth_error _ o2 _ H2)).
+  apply (proj1 (NoDup_nth_error _) Hnd o1 o2).
+  - apply nth_error_Some. rewrite Hm1. discriminate.
+  - rewrite Hm1, Hm2, He. reflexivity.
+Qed.
