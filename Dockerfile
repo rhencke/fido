@@ -556,25 +556,22 @@ typefail neg_evsite_block_invalid "a block event site at an ordinal without an i
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (tix eix : nat) : BN.EvSite bp := BN.BlockEventAt tix eix eq_refl.'
 typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
-# — short-left classification: each view is decision-pinned to one exact statement/index/environment —
+# — short-left classification: each view is pinned to one exact statement and index (its correctness against the
+#   exact predecessor state is a phase-level projection, exercised in the positive fixture, not a stored field) —
 typefail neg_slj_cross_index "a left judgment for index 0 used as the judgment for index 1" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment env st 0) : BN.ShortLhsJudgment env st 1 := j.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment sf st 0) : BN.ShortLhsJudgment sf st 1 := j.'
 typefail neg_slj_cross_stmt "a left judgment of statement A used within statement B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment env s1 i) : BN.ShortLhsJudgment env s2 i := j.'
-typefail neg_slj_cross_env "a left judgment against environment A used as one against environment B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env1 env2 : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment env1 st i) : BN.ShortLhsJudgment env2 st i := j.'
-typefail neg_judgment_cross_env "a complete judgment against environment A used against environment B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env1 env2 : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (sj : BN.ShortJudgment env1 st) : BN.ShortJudgment env2 st := sj.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment sf s1 i) : BN.ShortLhsJudgment sf s2 i := j.'
 typefail neg_snr_cross_stmt "a ShortNew identity pairing statement A with statement B's exact edge" \
   'Definition forged (p : Syntax.Program) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge s2 i) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new s1 i e.'
 typefail neg_snr_cross_index "a ShortNew identity pairing index i with the edge at index j" \
   'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (H : i <> j) (e : IX.ShortLhsEdge st j) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new st i e.'
 typefail neg_short_empty_lefts "an inhabited short statement given an empty left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) : BN.ShortJudgment env st := BN.mk_short_judgment nil eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) : BN.ShortJudgment sf st := BN.mk_short_judgment nil eq_refl.'
 typefail neg_short_reordered_lefts "a reordered left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j0 : BN.ShortLhsJudgment env st 0) (j1 : BN.ShortLhsJudgment env st 1) : BN.ShortJudgment env st := BN.mk_short_judgment (cons (existT _ 1 j1) (cons (existT _ 0 j0) nil)) eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (j0 : BN.ShortLhsJudgment sf st 0) (j1 : BN.ShortLhsJudgment sf st 1) : BN.ShortJudgment sf st := BN.mk_short_judgment (cons (existT _ 1 j1) (cons (existT _ 0 j0) nil)) eq_refl.'
 typefail neg_raw_lefts_list "a raw list in place of the exact left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgment env st := l.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgment sf st := l.'
 typefail neg_explicit_for_inherited "an explicit judgment constructed for an inherited source shape" \
   'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := BN.CJExplicit _ eq_refl.'
 typefail neg_inherited_for_explicit "a first-inherited judgment constructed for an explicit source shape" \
@@ -585,16 +582,11 @@ typefail neg_crossdecl_pred "a predecessor from another declaration used in an a
   'Definition forged (p : Syntax.Program) (parA parB : IX.NodeRef (IX.index_program p)) (cs pred : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (e0 : IX.ChildAt parA 0) (H0 : IX.sp_node pred = IX.ca_child e0) (e1 : IX.ChildAt parB 1) (H1 : IX.sp_node cs = IX.ca_child e1) : BN.ConstAdjacency cs pred := BN.mk_const_adj parA 0 e0 H0 e1 H1.'
 typefail neg_supplied_origin "the deleted supplied-origin constructor" \
   'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (i : nat) (e : IX.PrecedingSiblingEdge (IX.sp_node cs) i) := BN.OriginPred i e.'
-typefail neg_blank_for_named "a blank classification pinned to an edge that names an identifier" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) (H : BN.binder_ident (IX.sl_child e) = Some n) : BN.ShortLhsJudgment env st i := BN.mk_slj e BN.SVBlank eq_refl.'
-typefail neg_new_arbitrary_name "a new classification pinned to no decision, carrying an arbitrary name" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVNew n) eq_refl.'
-typefail neg_dup_arbitrary_witness "a duplicate classification with an arbitrary witness index" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVDuplicate j) eq_refl.'
-typefail neg_existing_unpinned "an existing classification with an arbitrary prior member ordinal" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (e : IX.ShortLhsEdge st i) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVExistingVariable j) eq_refl.'
-typefail neg_ambiguous_unpinned "an ambiguous classification with an arbitrary group context" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (a c : BN.Est sf) (rest : list (BN.Est sf)) : BN.ShortLhsJudgment env st i := BN.mk_slj e (BN.SVAmbiguous a c rest) eq_refl.'
+# the raw predecessor-environment field is DELETED from the event payload: no `bev_env` accessor exists, so no
+# consumer can read a raw predecessor list beside the exact state (the classification's correctness against the
+# exact predecessor state is the phase-level projection theorem, not a stored env).
+typefail neg_bev_env "the deleted raw predecessor-environment field of a block event" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (ev : BN.BlockEv sf) := BN.bev_env ev.'
 typefail neg_est_from_short_edge "a declaration-binder establishment minted from an exact short-left edge" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (sc : BN.ScopeId sf) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) := BN.spec_name_est sc e.'
 # — 11.5/11.7 shared occupancy and resolution identity: a group is one canonical phase/scope/spelling authority;
@@ -889,17 +881,17 @@ Definition c_preds :
 (* position-free projections over the retained phase graph: an event's kind, a short event's left
    classifications, and the exact count of its retained additions *)
 Definition ev_kind {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (ev : BN.BlockEv s) : nat :=
-  match ev with BN.BEvExpr _ => 0 | BN.BEvDecl _ _ _ _ => 1 | BN.BEvShort _ _ _ => 2 end.
+  match ev with BN.BEvExpr _ => 0 | BN.BEvDecl _ _ _ => 1 | BN.BEvShort _ _ => 2 end.
 Definition sv_tag {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {env : list (BN.Est s)} (v : BN.ShortLhsView env) : nat :=
+  (v : BN.ShortLhsView s) : nat :=
   match v with
   | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
-  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ _ => 5
+  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ => 5
   end.
 Definition ev_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (ev : BN.BlockEv s) : list nat :=
   match ev with
-  | BN.BEvShort _ _ sj => map (fun x => sv_tag (BN.slj_view (projT2 x))) (BN.sj_lefts sj)
+  | BN.BEvShort _ sj => map (fun x => sv_tag (BN.slj_view (projT2 x))) (BN.sj_lefts sj)
   | _ => nil
   end.
 Definition trace_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -1176,7 +1168,6 @@ Definition l_traces_nodes_nodup := @BN.traces_nodes_nodup.
 Definition l_trace_at_unique := @BN.trace_at_unique.
 Definition l_block_fold_length := @BN.block_fold_length.
 Definition l_block_event_node := @BN.block_event_node.
-Definition l_block_event_env := @BN.block_event_env.
 Definition l_state_refs_zero := @BN.state_refs_zero.
 Definition l_state_refs_succ := @BN.state_refs_succ.
 Definition l_state_refs_expr_step := @BN.state_refs_expr_step.
@@ -1184,7 +1175,6 @@ Definition l_state_refs_saturates := @BN.state_refs_saturates.
 Definition l_state_member_site := @BN.state_member_site.
 Definition l_state_covers := @BN.state_covers.
 Definition l_state_ests := @BN.state_ests.
-Definition l_trace_event_env := @BN.trace_event_env.
 Definition l_pkg_env_nodup := @BN.pkg_env_nodup.
 Definition l_pkg_env_ests := @BN.package_env_ests.
 Definition l_ledger_add_scope := @BN.ledger_add_scope.
