@@ -3251,6 +3251,59 @@ Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfac
   se_stmt (short_event bp st) = st.
 Proof. apply shortstmtref_positional. exact (se_subject (short_event bp st)). Qed.
 
+(* the retained short judgment is the decision against the exact predecessor-state members, not a stored env *)
+Theorem short_judgment_pre_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) :
+  se_judgment (short_event bp st)
+  = short_judgment_of (map es_est (bs_members (short_state_before (short_event bp st))))
+      (se_stmt (short_event bp st)).
+Proof.
+  set (se := short_event bp st).
+  set (tr := btr_row (se_trace se)).
+  assert (Htr : nth_error (bp_traces bp) (btr_ord (se_trace se)) = Some tr) by apply btr_at.
+  assert (Hcut : se_ord se <= length (trow_evs tr)) by
+    (apply Nat.lt_le_incl; exact (nth_error_lt _ _ _ (se_at se))).
+  assert (Hmembers : map es_est (bs_members (short_state_before se))
+                     = map es_est (state_refs bp (btr_ord (se_trace se)) (se_ord se)))
+    by reflexivity.
+  rewrite Hmembers.
+  pose proof (se_at se) as Hat. fold tr in Hat.
+  destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
+  set (br := Index.mkBlockRef r Hb).
+  assert (Hevs : trow_evs tr = block_fold s br (Index.all_children r) (pkg_env_of s pr))
+    by (rewrite Hform; reflexivity).
+  assert (Hpix : trow_pkg tr = PI.pr_pos pr) by (rewrite Hform; reflexivity).
+  assert (Hblk : trow_block tr = br) by (rewrite Hform; reflexivity).
+  rewrite Hevs in Hat.
+  destruct (block_fold_nth_env br (Index.all_children r) (pkg_env_of s pr) (se_ord se) _ Hat)
+    as [x [_ Hev]].
+  set (env' := pkg_env_of s pr ++ flat_map (bev_adds br)
+                 (firstn (se_ord se) (block_fold s br (Index.all_children r) (pkg_env_of s pr)))) in *.
+  assert (Henv : map es_est (state_refs bp (btr_ord (se_trace se)) (se_ord se)) = env').
+  { rewrite (state_ests bp (btr_ord (se_trace se)) (se_ord se) tr Htr Hcut).
+    unfold env'. f_equal.
+    - rewrite Hpix. change (ledger_refs bp (PI.pr_pos pr)) with (package_env_refs bp pr).
+      apply package_env_ests.
+    - rewrite Hblk, Hevs. reflexivity. }
+  rewrite Henv.
+  set (c := Index.ca_child (projT2 x)) in *.
+  assert (Hc : Index.sh_node (se_stmt se) = c).
+  { pose proof (f_equal bev_node Hev) as Hn. cbn [bev_node] in Hn.
+    rewrite block_event_node in Hn. exact Hn. }
+  assert (Hview : Index.node_view c
+                  = Index.VStmt (Index.SSShort (Index.sh_names (se_stmt se)) (Index.sh_values (se_stmt se))))
+    by (rewrite <- Hc; exact (Index.sh_ok (se_stmt se))).
+  destruct (block_event_short_eval br env' c _ eq_refl
+              (Index.sh_names (se_stmt se)) (Index.sh_values (se_stmt se)) Hview) as [Hv0 Heval].
+  rewrite Heval in Hev.
+  set (st' := Index.mkShortStmtRef c (Index.sh_names (se_stmt se)) (Index.sh_values (se_stmt se)) Hv0) in *.
+  assert (Hst : se_stmt se = st') by (apply shortstmtref_positional; cbn [Index.sh_node]; exact Hc).
+  rewrite <- Hst in Hev.
+  injection Hev as Hev'.
+  apply (Eqdep_dec.inj_pair2_eq_dec _ shortstmtref_eq_dec) in Hev'.
+  exact Hev'.
+Qed.
+
 (* the sole short duplicate-name projection: the exact retained judgment's first duplicate spelling *)
 Definition sj_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {st : Index.ShortStmtRef idx} (sj : ShortJudgment s st)

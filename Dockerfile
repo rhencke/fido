@@ -1218,6 +1218,7 @@ Definition l_decl_lhs_cases := @BN.decl_lhs_cases.
 Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
+Definition l_short_judgment_pre_state := @BN.short_judgment_pre_state.
 Definition l_new_est_vstart := @BN.new_est_vstart.
 Definition l_object_view := @BN.object_view.
 Definition l_use_env := @BN.use_env.
