@@ -163,6 +163,34 @@ Definition stmt_decl_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfac
   | None => []
   end.
 
+(* one spec's binder nodes, one per exact name edge in name order — blank and named alike *)
+Definition spec_binder_nodes {p} {idx : Index.ProgramIndex p}
+  {fl : Index.SpecFlavor} (sp : Index.SpecRef idx fl) : list (Index.NodeRef idx) :=
+  map (fun x => Index.sn_child (projT2 x)) (Index.spec_name_edges sp).
+
+(* the binder nodes of one spec occurrence, factored over its view *)
+Definition spec_binders_view {p} {idx : Index.ProgramIndex p}
+  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v) : list (Index.NodeRef idx) :=
+  match v as v0 return Index.node_view r = v0 -> list (Index.NodeRef idx) with
+  | Index.VConstSpec sh => fun Hv0 => spec_binder_nodes (Index.mkSpecRef (fl := Index.ConstSpecF) r sh Hv0)
+  | Index.VVarSpec sh => fun Hv0 => spec_binder_nodes (Index.mkSpecRef (fl := Index.VarSpecF) r sh Hv0)
+  | Index.VTypeSpec sh => fun Hv0 => spec_binder_nodes (Index.mkSpecRef (fl := Index.TypeSpecF) r sh Hv0)
+  | _ => fun _ => []
+  end Hv.
+
+(* one declaration's binder nodes: each child spec's binders, in spec order *)
+Definition decl_binder_nodes {p} {idx : Index.ProgramIndex p} (d : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  flat_map (fun x => spec_binders_view (Index.ca_child (projT2 x))
+                       (Index.node_view (Index.ca_child (projT2 x))) eq_refl)
+           (Index.all_children d).
+
+(* a declaration statement's or top declaration's flat binder sequence, in source order *)
+Definition decl_binders {p} {idx : Index.ProgramIndex p} (t : Index.NodeRef idx) : list (Index.NodeRef idx) :=
+  match Index.child_at_opt t 0 with
+  | Some e => decl_binder_nodes (Index.ca_child e)
+  | None => []
+  end.
+
 (* a package-scope function declaration: the fixed main establishes the name main at package scope *)
 Definition make_main_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) (b : Index.NodeRef idx) : option (Est s) :=
@@ -529,114 +557,6 @@ Proof.
   destruct Hin as [<-|F]; [ reflexivity | destruct F ].
 Qed.
 
-(* the declaration-binder occupancy view: a decision plus, where relevant, exact predecessor-state ordinals *)
-Inductive DeclLhsView {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
-| DVBlank : DeclLhsView s
-| DVFresh : DeclLhsView s
-| DVRedeclaredPrior : nat -> DeclLhsView s
-| DVDuplicateEarlier : nat -> DeclLhsView s
-| DVAlreadyAmbiguous : nat -> nat -> DeclLhsView s.
-Arguments DVBlank {p idx s}.
-Arguments DVFresh {p idx s}.
-Arguments DVRedeclaredPrior {p idx s} _.
-Arguments DVDuplicateEarlier {p idx s} _.
-Arguments DVAlreadyAmbiguous {p idx s} _ _.
-
-(* the one deterministic declaration-binder decision: same-event duplicates, then occupancy conflicts *)
-Definition decl_lhs_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) : DeclLhsView s :=
-  match binder_ident b with
-  | None => DVBlank
-  | Some n =>
-      match find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier with
-      | Some (k, _) => DVDuplicateEarlier k
-      | None =>
-          match find_two_ord (same_block_cand n) 0 env with
-          | Some (j, k) => DVAlreadyAmbiguous j k
-          | None =>
-              match find_ord (same_block_cand n) 0 env with
-              | Some (j, _) => DVRedeclaredPrior j
-              | None => DVFresh
-              end
-          end
-      end
-  end.
-
-(* one judged declaration row: the exact binder view and the exact addition it contributes *)
-Definition DeclRow {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
-  (DeclLhsView s * option (Est s))%type.
-
-Definition decl_row_add {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (r : DeclRow s) : list (Est s) :=
-  match snd r with Some e0 => [e0] | None => [] end.
-
-(* the rows of one spec's name edges, threading the earlier same-event additions left to right *)
-Fixpoint decl_rows_edges {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) {fl : Index.SpecFlavor} {sp : Index.SpecRef idx fl}
-  (l : list { i : nat & Index.SpecNameEdge sp i }) (earlier : list (Est s)) {struct l}
-  : list (DeclRow s) :=
-  match l with
-  | [] => []
-  | x :: t =>
-      let r := (decl_lhs_decide env earlier (Index.sn_child (projT2 x)),
-                spec_name_est sc (projT2 x)) in
-      r :: decl_rows_edges env sc t (earlier ++ decl_row_add r)
-  end.
-
-(* the rows of one spec occurrence, factored over its view *)
-Definition decl_rows_spec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) (r : Index.NodeRef idx)
-  (v : Index.NodeView) (Hv : Index.node_view r = v) (earlier : list (Est s)) : list (DeclRow s) :=
-  match v as v0 return Index.node_view r = v0 -> list (DeclRow s) with
-  | Index.VConstSpec sh => fun Hv0 =>
-      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.ConstSpecF) r sh Hv0)) earlier
-  | Index.VVarSpec sh => fun Hv0 =>
-      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.VarSpecF) r sh Hv0)) earlier
-  | Index.VTypeSpec sh => fun Hv0 =>
-      decl_rows_edges env sc (Index.spec_name_edges (Index.mkSpecRef (fl := Index.TypeSpecF) r sh Hv0)) earlier
-  | _ => fun _ => []
-  end Hv.
-
-Definition rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (rows : list (DeclRow s)) : list (Est s) :=
-  flat_map decl_row_add rows.
-
-(* the rows of one declaration's spec children, in spec order, threading additions across specs *)
-Fixpoint decl_rows_children {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) {d : Index.NodeRef idx}
-  (l : list { o : nat & Index.ChildAt d o }) (earlier : list (Est s)) {struct l}
-  : list (DeclRow s) :=
-  match l with
-  | [] => []
-  | x :: t =>
-      let rs := decl_rows_spec env sc (Index.ca_child (projT2 x))
-                  (Index.node_view (Index.ca_child (projT2 x))) eq_refl earlier in
-      rs ++ decl_rows_children env sc t (earlier ++ rows_adds rs)
-  end.
-
-(* the one deterministic judgment of a declaration statement or top declaration *)
-Definition decl_judge {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) : list (DeclRow s) :=
-  match Index.child_at_opt t 0 with
-  | Some e => decl_rows_children env sc (Index.all_children (Index.ca_child e)) []
-  | None => []
-  end.
-
-(* the exact retained declaration-event judgment rows *)
-Record DeclJudgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (sc : ScopeId s) (t : Index.NodeRef idx) : Type := mk_decl_judgment {
-  dj_rows : list (DeclRow s)
-}.
-Arguments mk_decl_judgment {p idx s sc t} _.
-Arguments dj_rows {p idx s sc t} _.
-
-Definition decl_judgment_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) : DeclJudgment sc t :=
-  mk_decl_judgment (decl_judge env sc t).
-
-Definition decl_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {sc : ScopeId s} {t : Index.NodeRef idx}
-  (dj : DeclJudgment sc t) : list (Est s) := rows_adds (dj_rows dj).
 Lemma stmt_has_parent {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) :
   Index.node_parent (Index.sh_node st) = None -> False.
 Proof.
@@ -664,7 +584,7 @@ Proof. intros Hp Hb. rewrite (stmt_parent_block st par Hp) in Hb. discriminate H
 (* one retained block event: expr statement, judged declaration, or judged short — no raw predecessor env stored *)
 Inductive BlockEv {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | BEvExpr : Index.NodeRef idx -> BlockEv s
-| BEvDecl : forall (sc : ScopeId s) (t : Index.NodeRef idx), DeclJudgment sc t -> BlockEv s
+| BEvDecl : forall (sc : ScopeId s) (t : Index.NodeRef idx), list (Est s) -> BlockEv s
 | BEvShort : forall (st : Index.ShortStmtRef idx), list (Est s) -> BlockEv s.
 Arguments BEvExpr {p idx s} _.
 Arguments BEvDecl {p idx s} _ _ _.
@@ -683,7 +603,7 @@ Definition bev_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br : Index.BlockRef idx) (ev : BlockEv s) : list (Est s) :=
   match ev with
   | BEvExpr _ => []
-  | BEvDecl _ _ dj => decl_adds dj
+  | BEvDecl _ _ adds => adds
   | BEvShort _ adds => adds
   end.
 
@@ -734,7 +654,7 @@ Definition block_event (br : Index.BlockRef idx) (env : list (Est s)) (c : Index
   (v : Index.NodeView) (Hv : Index.node_view c = v) : BlockEv s :=
   match v as v0 return Index.node_view c = v0 -> BlockEv s with
   | Index.VStmt Index.SSDecl => fun _ =>
-      BEvDecl (BlockScope br) c (decl_judgment_of env (BlockScope br) c)
+      BEvDecl (BlockScope br) c (stmt_decl_ests (BlockScope br) c)
   | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
       BEvShort (Index.mkShortStmtRef c nn nv Hv0)
         (short_new_ests br env (Index.mkShortStmtRef c nn nv Hv0))
@@ -2228,50 +2148,6 @@ Proof.
     [ apply decl_ests_scope | intro F; destruct F ].
 Qed.
 
-Lemma decl_rows_edges_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) {fl : Index.SpecFlavor} {sp : Index.SpecRef idx fl} :
-  forall (l : list { i : nat & Index.SpecNameEdge sp i }) (earlier : list (Est s)) (e : Est s),
-  In e (rows_adds (decl_rows_edges env sc l earlier)) -> est_scope e = sc.
-Proof.
-  induction l as [|x t IH]; intros earlier e Hin; [ destruct Hin |].
-  cbn in Hin. unfold decl_row_add at 1 in Hin. cbn [snd fst] in Hin.
-  destruct (spec_name_est sc (projT2 x)) as [e0|] eqn:He0.
-  - cbn in Hin. destruct Hin as [<-|Hin];
-      [ exact (proj1 (spec_name_est_fields sc (projT2 x) e0 He0)) | exact (IH _ e Hin) ].
-  - cbn in Hin. exact (IH _ e Hin).
-Qed.
-
-Lemma decl_rows_spec_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) (r : Index.NodeRef idx)
-  (v : Index.NodeView) (Hv : Index.node_view r = v) (earlier : list (Est s)) (e : Est s) :
-  In e (rows_adds (decl_rows_spec env sc r v Hv earlier)) -> est_scope e = sc.
-Proof.
-  destruct v; cbv beta iota delta [decl_rows_spec];
-    try (intro F; destruct F); apply decl_rows_edges_scope.
-Qed.
-
-Lemma decl_rows_children_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) {d : Index.NodeRef idx} :
-  forall (l : list { o : nat & Index.ChildAt d o }) (earlier : list (Est s)) (e : Est s),
-  In e (rows_adds (decl_rows_children env sc l earlier)) -> est_scope e = sc.
-Proof.
-  induction l as [|x t IH]; intros earlier e Hin; [ destruct Hin |].
-  cbn [decl_rows_children] in Hin. unfold rows_adds in Hin.
-  rewrite flat_map_app in Hin.
-  apply in_app_or in Hin. destruct Hin as [Hin|Hin].
-  - exact (decl_rows_spec_scope env sc _ _ eq_refl earlier e Hin).
-  - exact (IH _ e Hin).
-Qed.
-
-Lemma decl_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env : list (Est s)) (sc : ScopeId s) (t : Index.NodeRef idx) (e : Est s) :
-  In e (decl_adds (decl_judgment_of env sc t)) -> est_scope e = sc.
-Proof.
-  unfold decl_adds, decl_judgment_of. cbn [dj_rows]. unfold decl_judge.
-  destruct (Index.child_at_opt t 0) as [ce|]; [| intro F; destruct F ].
-  apply decl_rows_children_scope.
-Qed.
-
 (* dependent boolean convoys reduce under a known scrutinee value *)
 Lemma bool_convoy_true {T : Type} (X : bool) (f : X = true -> T) (g : X = false -> T) (H : X = true) :
   (match X as b return X = b -> T with true => f | false => g end) eq_refl = f H.
@@ -2562,7 +2438,7 @@ Proof.
   match goal with sh0 : Index.StmtShape |- _ => destruct sh0 as [| |nn nv] end; cbn.
   - intro F; destruct F.
   - intro Hin. left.
-    exact (decl_adds_scope env (BlockScope br) c e Hin).
+    exact (stmt_decl_ests_scope (BlockScope br) c e Hin).
   - intro Hin. left.
     exact (short_new_ests_scope br env (Index.mkShortStmtRef c nn nv Hv) e Hin).
 Qed.
@@ -3282,6 +3158,130 @@ Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} (st : Index.Shor
      | Some n => match find_dup i n (Index.short_lhs_edges st) with Some _ => Some n | None => acc end
      | None => acc end end)
    None (Index.short_lhs_edges st).
+
+(* a positional hit inside a prefix is an in-range hit of the whole list *)
+Lemma nth_error_firstn_some {A} (l : list A) (i j : nat) (x : A) :
+  nth_error (firstn i l) j = Some x -> j < i /\ nth_error l j = Some x.
+Proof.
+  revert i j x. induction l as [|a l IH]; intros i j x H.
+  - destruct i; cbn in H; destruct j; discriminate.
+  - destruct i as [|i']; cbn in H; [ destruct j; discriminate |].
+    destruct j as [|j']; cbn in H.
+    + injection H as <-. split; [ lia | reflexivity ].
+    + destruct (IH i' j' x H) as [Hlt Hnth]. split; [ lia | exact Hnth ].
+Qed.
+
+(* the exact declaration event ref: the exact trace, ordinal, scope, and retained additions, pinned *)
+Record DeclEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (t : Index.NodeRef idx) : Type := mk_decl_event {
+  de_block : Index.BlockRef idx ;
+  de_trace : BlockTraceRef bp (Index.bl_node de_block) ;
+  de_ord   : nat ;
+  de_sc    : ScopeId s ;
+  de_adds  : list (Est s) ;
+  de_at : nth_error (trow_evs (btr_row de_trace)) de_ord = Some (BEvDecl de_sc t de_adds)
+}.
+Arguments mk_decl_event {p idx s d bp t} _ _ _ _ _ _.
+Arguments de_block {p idx s d bp t} _.
+Arguments de_trace {p idx s d bp t} _.
+Arguments de_ord {p idx s d bp t} _.
+Arguments de_sc {p idx s d bp t} _.
+Arguments de_adds {p idx s d bp t} _.
+Arguments de_at {p idx s d bp t} _.
+
+Definition de_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  : BlockEventRef (de_trace de) := mk_block_event (de_ord de) (nth_error_lt _ _ _ (de_at de)).
+
+Definition decl_state_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  : BlockStateRef (ber_pre (de_event de)) := block_state (ber_pre (de_event de)).
+
+(* whether a binder node spells a given name *)
+Definition binder_name_matches {p} {idx : Index.ProgramIndex p}
+  (n : Names.OrdinaryIdentifier) (b : Index.NodeRef idx) : bool :=
+  match binder_ident b with Some m => Names.ordinary_equalb m n | None => false end.
+
+(* the exact declaration-binder classification against the predecessor state and earlier same-event binders *)
+Inductive DeclLhsClass {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) : Type :=
+| DCBlank : binder_ident bd = None -> DeclLhsClass pre t i bd
+| DCDuplicateEarlier : forall (n : Names.OrdinaryIdentifier) (j : nat) (bj : Index.NodeRef idx),
+    binder_ident bd = Some n -> j < i -> nth_error (decl_binders t) j = Some bj ->
+    binder_ident bj = Some n -> DeclLhsClass pre t i bd
+| DCRedeclaredPrior : forall (n : Names.OrdinaryIdentifier) (mr : BlockMemberRef pre),
+    binder_ident bd = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
+    same_block_cand n (es_est (bm_ref mr)) = true -> DeclLhsClass pre t i bd
+| DCAlreadyAmbiguous : forall (n : Names.OrdinaryIdentifier) (grp : LocalGroupRef pre n)
+    (mr1 mr2 : BlockMemberRef pre),
+    binder_ident bd = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
+    bm_ord mr1 < bm_ord mr2 -> same_block_cand n (es_est (bm_ref mr1)) = true ->
+    same_block_cand n (es_est (bm_ref mr2)) = true -> DeclLhsClass pre t i bd
+| DCFresh : forall (n : Names.OrdinaryIdentifier),
+    binder_ident bd = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
+    (forall mr : BlockMemberRef pre, same_block_cand n (es_est (bm_ref mr)) = false) ->
+    DeclLhsClass pre t i bd.
+Arguments DCBlank {p idx s d bp b0 tr c pre t i bd} _.
+Arguments DCDuplicateEarlier {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _.
+Arguments DCRedeclaredPrior {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _.
+Arguments DCAlreadyAmbiguous {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _ _ _.
+Arguments DCFresh {p idx s d bp b0 tr c pre t i bd} _ _ _ _.
+
+(* the one deterministic exact declaration-binder classification *)
+Definition decl_lhs_class {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  : DeclLhsClass pre t i bd.
+Proof.
+  destruct (binder_ident bd) as [n|] eqn:Hb; [| exact (DCBlank Hb) ].
+  destruct (find_ord (binder_name_matches n) 0 (firstn i (decl_binders t))) as [[j bj]|] eqn:Hdup.
+  { destruct (find_ord_found (binder_name_matches n) (firstn i (decl_binders t)) 0 j bj Hdup)
+      as [_ [Hnth [Hbm _]]].
+    rewrite Nat.sub_0_r in Hnth.
+    destruct (nth_error_firstn_some (decl_binders t) i j bj Hnth) as [Hlt Hjn].
+    unfold binder_name_matches in Hbm.
+    destruct (binder_ident bj) as [m|] eqn:Hbj; [| discriminate Hbm].
+    apply Names.ordinary_equalb_spec in Hbm. subst m.
+    exact (DCDuplicateEarlier n j bj Hb Hlt Hjn Hbj). }
+  destruct (find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre))) as [[j0 j1]|] eqn:Hft.
+  { destruct (find_two_ord_found (same_block_cand n) (map es_est (bs_members pre)) 0 j0 j1 Hft)
+      as [_ [Hlt [Hex0 Hex1]]].
+    destruct (nth_error (map es_est (bs_members pre)) j0) as [m0|] eqn:Hm0;
+      [| exfalso; destruct Hex0 as [x0 [Hnx _]]; rewrite Nat.sub_0_r, Hm0 in Hnx; discriminate ].
+    destruct (nth_error (map es_est (bs_members pre)) j1) as [m1|] eqn:Hm1;
+      [| exfalso; destruct Hex1 as [x1 [Hnx _]]; rewrite Nat.sub_0_r, Hm1 in Hnx; discriminate ].
+    destruct (state_member_ref pre j0 m0 Hm0) as [mr0 [He0 Ho0]].
+    destruct (state_member_ref pre j1 m1 Hm1) as [mr1 [He1 Ho1]].
+    apply (DCAlreadyAmbiguous n (local_group pre n) mr0 mr1 Hb Hdup).
+    - rewrite Ho0, Ho1. exact Hlt.
+    - rewrite He0. destruct Hex0 as [x0 [Hnx Hfx]]. rewrite Nat.sub_0_r, Hm0 in Hnx.
+      injection Hnx as <-. exact Hfx.
+    - rewrite He1. destruct Hex1 as [x1 [Hnx Hfx]]. rewrite Nat.sub_0_r, Hm1 in Hnx.
+      injection Hnx as <-. exact Hfx. }
+  destruct (find_ord (same_block_cand n) 0 (map es_est (bs_members pre))) as [[j m]|] eqn:Ho.
+  { destruct (find_ord_found (same_block_cand n) (map es_est (bs_members pre)) 0 j m Ho)
+      as [_ [Hn' [Hf _]]].
+    rewrite Nat.sub_0_r in Hn'.
+    destruct (state_member_ref pre j m Hn') as [mr [He Hoo]].
+    apply (DCRedeclaredPrior n mr Hb Hdup). rewrite He. exact Hf. }
+  { apply (DCFresh n Hb Hdup). intro mr.
+    apply (find_ord_none (same_block_cand n) (map es_est (bs_members pre)) 0 Ho).
+    apply (nth_error_In _ (bm_ord mr)). rewrite nth_error_map, (bm_at mr). reflexivity. }
+Defined.
+
+(* the exact declaration judgment: every flat binder classified against the exact predecessor state *)
+Definition DeclJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) : Type :=
+  forall (i : nat) (bd : Index.NodeRef idx), nth_error (decl_binders t) i = Some bd ->
+    DeclLhsClass (decl_state_before de) t i bd.
+
+Definition decl_judgment_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  : DeclJudgmentRef de := fun i bd _ => decl_lhs_class (decl_state_before de) t i bd.
 
 Lemma filter_flat_map {A B} (P : B -> bool) (g : A -> list B) (l : list A) :
   filter P (flat_map g l) = flat_map (fun x => filter P (g x)) l.
@@ -4097,119 +4097,77 @@ Proof.
   split; [exact Hb | split; [exact Hlt | split; [exact Hs1 | split; [exact Hs2 | exact (lg_ok grp)]]]].
 Qed.
 
-(* the declaration binder decision inverts exactly *)
+(* the exact declaration-binder classification inverts: each constructor names its exact evidence (contract §9.4) *)
 Lemma decl_lhs_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
-  decl_lhs_decide env earlier b = DVBlank <-> binder_ident b = None.
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  binder_ident bd = None
+  <-> match decl_lhs_class pre t i bd with DCBlank _ => True | _ => False end.
 Proof.
-  unfold decl_lhs_decide.
-  destruct (binder_ident b) as [n|] eqn:Hb; [| split; intros _; reflexivity ].
-  split; [| discriminate ].
-  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier) as [[k m]|];
-    [ discriminate |].
-  destruct (find_two_ord (same_block_cand n) 0 env) as [[j k]|]; [ discriminate |].
-  destruct (find_ord (same_block_cand n) 0 env) as [[j m]|]; discriminate.
+  split.
+  - intro Hn. destruct (decl_lhs_class pre t i bd) as
+      [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
+      try exact I; rewrite Hn in Hb; discriminate Hb.
+  - intro Hm. destruct (decl_lhs_class pre t i bd) as
+      [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm2];
+      solve [ exact Hbl | destruct Hm ].
 Qed.
 
 Lemma decl_lhs_duplicate {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) (k : nat) :
-  decl_lhs_decide env earlier b = DVDuplicateEarlier k ->
-  exists n m, binder_ident b = Some n
-  /\ nth_error earlier k = Some m /\ Names.ordinary_equalb (est_name m) n = true
-  /\ (forall k2 y, k2 < k -> nth_error earlier k2 = Some y ->
-        Names.ordinary_equalb (est_name y) n = false).
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  match decl_lhs_class pre t i bd with
+  | DCDuplicateEarlier n j bj _ _ _ _ =>
+      binder_ident bd = Some n /\ j < i /\ nth_error (decl_binders t) j = Some bj
+      /\ binder_ident bj = Some n
+  | _ => True end.
 Proof.
-  unfold decl_lhs_decide.
-  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
-  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
-    as [[k0 m]|] eqn:Ho.
-  - intro H. injection H as <-.
-    destruct (find_ord_found _ earlier 0 k0 m Ho) as [_ [Hnth [Hname Hbefore]]].
-    rewrite Nat.sub_0_r in Hnth.
-    exists n, m.
-    split; [ reflexivity |].
-    split; [ exact Hnth |].
-    split; [ exact Hname |].
-    intros k2 y Hk2 Hny. exact (Hbefore k2 y ltac:(lia) Hny).
-  - destruct (find_two_ord (same_block_cand n) 0 env) as [[j0 k0]|]; [ discriminate |].
-    destruct (find_ord (same_block_cand n) 0 env) as [[j0 m0]|]; discriminate.
-Qed.
-
-Lemma decl_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) (j k : nat) :
-  decl_lhs_decide env earlier b = DVAlreadyAmbiguous j k ->
-  exists n, binder_ident b = Some n
-  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
-  /\ find_two_ord (same_block_cand n) 0 env = Some (j, k).
-Proof.
-  unfold decl_lhs_decide.
-  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
-  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
-    as [[k0 m]|] eqn:Ho; [ discriminate |].
-  destruct (find_two_ord (same_block_cand n) 0 env) as [[j0 k0]|] eqn:Hft;
-    [| destruct (find_ord (same_block_cand n) 0 env) as [[j1 m0]|]; discriminate ].
-  intro H. injection H as <- <-.
-  exists n.
-  split; [ reflexivity |].
-  split; [ exact (find_ord_none _ earlier 0 Ho) | exact Hft ].
+  destruct (decl_lhs_class pre t i bd) as
+    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
+    try exact I. split; [exact Hb | split; [exact Hlt | split; [exact Hjn | exact Hbj]]].
 Qed.
 
 Lemma decl_lhs_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) (j : nat) :
-  decl_lhs_decide env earlier b = DVRedeclaredPrior j ->
-  exists n m, binder_ident b = Some n
-  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
-  /\ nth_error env j = Some m /\ same_block_cand n m = true
-  /\ (forall j2 y, j2 < j -> nth_error env j2 = Some y -> same_block_cand n y = false).
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  match decl_lhs_class pre t i bd with
+  | DCRedeclaredPrior n mr _ _ _ =>
+      binder_ident bd = Some n /\ same_block_cand n (es_est (bm_ref mr)) = true
+  | _ => True end.
 Proof.
-  unfold decl_lhs_decide.
-  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
-  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
-    as [[k m0]|] eqn:Ho; [ discriminate |].
-  destruct (find_two_ord (same_block_cand n) 0 env) as [[j0 k0]|]; [ discriminate |].
-  destruct (find_ord (same_block_cand n) 0 env) as [[j0 m]|] eqn:Hoe; [| discriminate ].
-  destruct (find_ord_found _ env 0 j0 m Hoe) as [_ [Hnth [Hcand Hbefore]]];
-    rewrite Nat.sub_0_r in Hnth.
-  intro H; injection H as <-.
-  exists n, m.
-  split; [ reflexivity |
-  split; [ exact (find_ord_none _ earlier 0 Ho) |
-  split; [ exact Hnth |
-  split; [ exact Hcand |
-           intros j2 y Hj2 Hny; exact (Hbefore j2 y ltac:(lia) Hny) ] ] ] ].
+  destruct (decl_lhs_class pre t i bd) as
+    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
+    try exact I. split; [exact Hb | exact Hs].
+Qed.
+
+Lemma decl_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  match decl_lhs_class pre t i bd with
+  | DCAlreadyAmbiguous n grp mr1 mr2 _ _ _ _ _ =>
+      binder_ident bd = Some n /\ bm_ord mr1 < bm_ord mr2
+      /\ same_block_cand n (es_est (bm_ref mr1)) = true
+      /\ same_block_cand n (es_est (bm_ref mr2)) = true
+      /\ lg_members grp = local_group_refs pre n
+  | _ => True end.
+Proof.
+  destruct (decl_lhs_class pre t i bd) as
+    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
+    try exact I.
+  split; [exact Hb | split; [exact Hlt | split; [exact Hs1 | split; [exact Hs2 | exact (lg_ok grp)]]]].
 Qed.
 
 Lemma decl_lhs_fresh {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
-  decl_lhs_decide env earlier b = DVFresh ->
-  exists n, binder_ident b = Some n
-  /\ (forall y, In y earlier -> Names.ordinary_equalb (est_name y) n = false)
-  /\ (forall e0, In e0 env -> same_block_cand n e0 = false).
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  match decl_lhs_class pre t i bd with
+  | DCFresh n _ _ _ =>
+      binder_ident bd = Some n
+      /\ find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None
+      /\ (forall mr : BlockMemberRef pre, same_block_cand n (es_est (bm_ref mr)) = false)
+  | _ => True end.
 Proof.
-  unfold decl_lhs_decide.
-  destruct (binder_ident b) as [n|] eqn:Hb; [| discriminate ].
-  destruct (find_ord (fun e0 => Names.ordinary_equalb (est_name e0) n) 0 earlier)
-    as [[k m0]|] eqn:Ho; [ discriminate |].
-  destruct (find_two_ord (same_block_cand n) 0 env) as [[j k]|]; [ discriminate |].
-  destruct (find_ord (same_block_cand n) 0 env) as [[j m]|] eqn:Hoe; [ discriminate |].
-  intros _.
-  exists n.
-  split; [ reflexivity |
-  split; [ exact (find_ord_none _ earlier 0 Ho) | exact (find_ord_none _ env 0 Hoe) ] ].
-Qed.
-
-Lemma decl_lhs_cases {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (env earlier : list (Est s)) (b : Index.NodeRef idx) :
-  decl_lhs_decide env earlier b = DVBlank
-  \/ decl_lhs_decide env earlier b = DVFresh
-  \/ (exists j, decl_lhs_decide env earlier b = DVRedeclaredPrior j)
-  \/ (exists k, decl_lhs_decide env earlier b = DVDuplicateEarlier k)
-  \/ (exists j k, decl_lhs_decide env earlier b = DVAlreadyAmbiguous j k).
-Proof.
-  destruct (decl_lhs_decide env earlier b).
-  - left; reflexivity.
-  - right; left; reflexivity.
-  - right; right; left; eexists; reflexivity.
-  - right; right; right; left; eexists; reflexivity.
-  - right; right; right; right; do 2 eexists; reflexivity.
+  destruct (decl_lhs_class pre t i bd) as
+    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
+    try exact I. split; [exact Hb | split; [exact Hfnd | exact Hm]].
 Qed.

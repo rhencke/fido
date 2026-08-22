@@ -572,6 +572,11 @@ typefail neg_jref_raw_list "a raw node list in place of the exact left-classific
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {st : IX.ShortStmtRef (IX.index_program p)} (se : BN.ShortEventRef bp st) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgmentRef se := BN.mk_short_jref l eq_refl.'
 typefail neg_member_cross_cut "a predecessor-state member at cut A used as a member at cut B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (mr : BN.BlockMemberRef (BN.block_state c1)) : BN.BlockMemberRef (BN.block_state c2) := mr.'
+# — declaration-binder classification: indexed by exact predecessor state AND exact binder; neither cut nor binder can be crossed —
+typefail neg_declclass_cross_cut "a declaration-binder classification against predecessor cut A used against cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (t bd : IX.NodeRef (IX.index_program p)) (i : nat) (cl : BN.DeclLhsClass (BN.block_state c1) t i bd) : BN.DeclLhsClass (BN.block_state c2) t i bd := cl.'
+typefail neg_declclass_cross_binder "a declaration-binder classification for binder A used as binder B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (t bd1 bd2 : IX.NodeRef (IX.index_program p)) (i : nat) (cl : BN.DeclLhsClass pre t i bd1) : BN.DeclLhsClass pre t i bd2 := cl.'
 typefail neg_explicit_for_inherited "an explicit judgment constructed for an inherited source shape" \
   'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := BN.CJExplicit _ eq_refl.'
 typefail neg_inherited_for_explicit "a first-inherited judgment constructed for an explicit source shape" \
@@ -1188,7 +1193,9 @@ Definition l_decl_lhs_fresh := @BN.decl_lhs_fresh.
 Definition l_decl_lhs_redeclared := @BN.decl_lhs_redeclared.
 Definition l_decl_lhs_duplicate := @BN.decl_lhs_duplicate.
 Definition l_decl_lhs_ambiguous := @BN.decl_lhs_ambiguous.
-Definition l_decl_lhs_cases := @BN.decl_lhs_cases.
+Definition l_decl_lhs_class := @BN.decl_lhs_class.
+Definition l_decl_judgment_ref := @BN.decl_judgment_ref.
+Definition l_decl_state_before := @BN.decl_state_before.
 Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
