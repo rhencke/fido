@@ -1035,47 +1035,73 @@ Definition const_spec_judgment {p} {idx : Index.ProgramIndex p} {s : PI.PackageS
    end) eq_refl.
 
 
-(* one exact event site inside the retained phase graph *)
-Inductive EvSite : Type :=
-| PkgEventAt : nat -> nat -> EvSite
-| BlockEventAt : nat -> nat -> EvSite.
+(* the exact retained event count at one ledger or trace ordinal; absent ordinals hold no events *)
+Definition pkg_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix : nat) : nat :=
+  match nth_error (bp_ledgers bp) pix with Some l => length l | None => 0 end.
+Definition trace_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) : nat :=
+  match nth_error (bp_traces bp) tix with Some tr => length (trow_evs tr) | None => 0 end.
 
-(* the exact retained additions of the event at a site *)
-Definition event_adds_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) : option (list (Est s)) :=
+(* the exact retained package event at a valid ordinal: total, no option — the bound forces the ledger present *)
+Definition pkg_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) (H : eix < pkg_event_count bp pix) : PkgEv s :=
+  (match nth_error (bp_ledgers bp) pix as o
+         return eix < (match o with Some l => length l | None => 0 end) -> PkgEv s with
+   | Some l => fun H' => Index.nth_lt l eix H'
+   | None => fun H' => False_rect _ (Nat.nlt_0_r eix H')
+   end) H.
+Definition trace_row_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) (H : nth_error (bp_traces bp) tix <> None) : TraceRow s :=
+  (match nth_error (bp_traces bp) tix as o return o <> None -> TraceRow s with
+   | Some tr => fun _ => tr
+   | None => fun H' => False_rect _ (H' eq_refl)
+   end) H.
+Definition blk_ev_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (H : eix < trace_event_count bp tix) : BlockEv s :=
+  (match nth_error (bp_traces bp) tix as o
+         return eix < (match o with Some tr => length (trow_evs tr) | None => 0 end) -> BlockEv s with
+   | Some tr => fun H' => Index.nth_lt (trow_evs tr) eix H'
+   | None => fun H' => False_rect _ (Nat.nlt_0_r eix H')
+   end) H.
+Definition blk_ev_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (H : eix < trace_event_count bp tix) : Index.BlockRef idx :=
+  (match nth_error (bp_traces bp) tix as o
+         return eix < (match o with Some tr => length (trow_evs tr) | None => 0 end) -> Index.BlockRef idx with
+   | Some tr => fun _ => trow_block tr
+   | None => fun H' => False_rect _ (Nat.nlt_0_r eix H')
+   end) H.
+
+(* one exact VALID event site: ledger/trace + in-range ordinal; invalid coordinates unrepresentable, lookups total *)
+Inductive EvSite {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) : Type :=
+| PkgEventAt : forall (pix eix : nat), eix < pkg_event_count bp pix -> EvSite bp
+| BlockEventAt : forall (tix eix : nat), eix < trace_event_count bp tix -> EvSite bp.
+Arguments PkgEventAt {p idx s d bp} _ _ _.
+Arguments BlockEventAt {p idx s d bp} _ _ _.
+
+(* the exact retained additions of the event at a valid site — total *)
+Definition event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) : list (Est s) :=
   match site with
-  | PkgEventAt pix eix =>
-      match nth_error (bp_ledgers bp) pix with
-      | Some l => match nth_error l eix with Some ev => Some (snd ev) | None => None end
-      | None => None
-      end
-  | BlockEventAt tix eix =>
-      match nth_error (bp_traces bp) tix with
-      | Some tr => match nth_error (trow_evs tr) eix with
-                   | Some ev => Some (bev_adds (trow_block tr) ev)
-                   | None => None end
-      | None => None
-      end
+  | PkgEventAt pix eix H => snd (pkg_row bp pix eix H)
+  | BlockEventAt tix eix H => bev_adds (blk_ev_block bp tix eix H) (blk_ev_row bp tix eix H)
   end.
 
-Definition addition_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (ix : nat) : option (Est s) :=
-  match event_adds_at bp site with Some adds => nth_error adds ix | None => None end.
-
-(* the exact addition identity of one event at one index *)
+(* one exact in-range addition of an event, pinned to its retained payload; its site and index are TYPE indices *)
 Record EventAdditionRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (ix : nat) : Type := mk_event_addition {
+  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite bp) (ix : nat) : Type := mk_event_addition {
   ea_est : Est s ;
-  ea_ok  : addition_at bp site ix = Some ea_est
+  ea_at  : nth_error (event_adds site) ix = Some ea_est
 }.
 Arguments mk_event_addition {p idx s d bp site ix} _ _.
 Arguments ea_est {p idx s d bp site ix} _.
-Arguments ea_ok {p idx s d bp site ix} _.
+Arguments ea_at {p idx s d bp site ix} _.
 
-(* the exact phase-owned establishment identity: its creating event site and addition index *)
+(* the exact phase-owned establishment identity: its creating event and its exact in-range addition there *)
 Record EstablishmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) : Type := mk_establishment {
-  es_site : EvSite ;
+  es_site : EvSite bp ;
   es_ix   : nat ;
   es_add  : EventAdditionRef bp es_site es_ix
 }.
@@ -1085,78 +1111,72 @@ Arguments es_ix {p idx s d bp} _.
 Arguments es_add {p idx s d bp} _.
 
 Definition es_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} (er : EstablishmentRef bp) : Est s := ea_est (es_add er).
+  {d : PhaseData s} {bp : BindingPhase s d} (er : EstablishmentRef bp) : Est s :=
+  ea_est (es_add er).
 
-(* the event's exact retained additions, as a plain list; absent events hold none *)
-Definition event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) : list (Est s) :=
-  match event_adds_at bp site with Some adds => adds | None => [] end.
+(* a total in-range witness from a successful positional lookup *)
+Lemma nth_error_lt {A} (l : list A) (k : nat) (e : A) : nth_error l k = Some e -> k < length l.
+Proof. intro H. apply nth_error_Some. rewrite H. discriminate. Qed.
 
-Lemma addition_at_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (ix : nat) (e0 : Est s) :
-  nth_error (event_adds bp site) ix = Some e0 -> addition_at bp site ix = Some e0.
-Proof.
-  unfold event_adds, addition_at.
-  destruct (event_adds_at bp site) as [adds|]; [ exact (fun H => H) |].
-  destruct ix; discriminate.
-Qed.
+(* the addition of an establishment sits at an intrinsically in-range index of its event *)
+Definition es_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (er : EstablishmentRef bp)
+  : es_ix er < length (event_adds (es_site er)) :=
+  nth_error_lt (event_adds (es_site er)) (es_ix er) (es_est er) (ea_at (es_add er)).
 
-(* the exact establishment refs of one event, one per retained addition, pinned positionally *)
+(* the exact establishment refs of one event: one per retained addition, positionally enumerated, no invalid index *)
 Fixpoint refs_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (k : nat) (l : list (Est s)) {struct l}
-  : l = skipn k (event_adds bp site) -> list (EstablishmentRef bp) :=
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) (k : nat) (l : list (Est s)) {struct l}
+  : l = skipn k (event_adds site) -> list (EstablishmentRef bp) :=
   match l with
   | [] => fun _ => []
   | e0 :: rest => fun E =>
       mk_establishment site k
-        (mk_event_addition e0
-           (addition_at_adds bp site k e0 (Index.skipn_head_at (event_adds bp site) rest k e0 E)))
-      :: refs_scan bp site (S k) rest (Index.skipn_tail_at (event_adds bp site) rest k e0 E)
+        (mk_event_addition e0 (Index.skipn_head_at (event_adds site) rest k e0 E))
+      :: refs_scan site (S k) rest (Index.skipn_tail_at (event_adds site) rest k e0 E)
+  end.
+Definition refs_of_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) : list (EstablishmentRef bp) :=
+  refs_scan site 0 (event_adds site) (eq_sym (skipn_O _)).
+
+(* the establishment refs of the package event at one ordinal — the event's additions when in range, else none *)
+Definition pkg_ev_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) : list (EstablishmentRef bp) :=
+  match lt_dec eix (pkg_event_count bp pix) with
+  | left H => refs_of_event (PkgEventAt pix eix H)
+  | right _ => []
+  end.
+Definition block_ev_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) : list (EstablishmentRef bp) :=
+  match lt_dec eix (trace_event_count bp tix) with
+  | left H => refs_of_event (BlockEventAt tix eix H)
+  | right _ => []
   end.
 
-Definition refs_of_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) : list (EstablishmentRef bp) :=
-  refs_scan bp site 0 (event_adds bp site) (eq_sym (skipn_O _)).
-
-(* the exact retained event count at one ledger or trace ordinal; absent ordinals hold no events *)
-Definition pkg_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (pix : nat) : nat :=
-  match nth_error (bp_ledgers bp) pix with Some l => length l | None => 0 end.
-Definition trace_event_count {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) : nat :=
-  match nth_error (bp_traces bp) tix with Some tr => length (trow_evs tr) | None => 0 end.
-
-(* the exact event sites of one ledger and of one trace, in retained event order *)
-Definition pkg_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (pix : nat) : list EvSite :=
-  map (PkgEventAt pix) (seq 0 (pkg_event_count bp pix)).
-Definition trace_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) : list EvSite :=
-  map (BlockEventAt tix) (seq 0 (trace_event_count bp tix)).
-
-(* every event site of the retained graph, ledgers first, then traces, each in exact retained order *)
-Definition all_sites {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) : list EvSite :=
-  flat_map (pkg_sites bp) (seq 0 (length (bp_ledgers bp)))
-  ++ flat_map (trace_sites bp) (seq 0 (length (bp_traces bp))).
-
-(* every actual establishment of the phase, as exact event/addition refs *)
+(* every ledger's / trace's events in order; every actual establishment of the phase *)
+Definition ledger_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix : nat) : list (EstablishmentRef bp) :=
+  flat_map (pkg_ev_refs bp pix) (seq 0 (pkg_event_count bp pix)).
+Definition trace_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) : list (EstablishmentRef bp) :=
+  flat_map (block_ev_refs bp tix) (seq 0 (trace_event_count bp tix)).
 Definition all_establishment_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) : list (EstablishmentRef bp) :=
-  flat_map (refs_of_event bp) (all_sites bp).
+  flat_map (ledger_refs bp) (seq 0 (length (bp_ledgers bp)))
+  ++ flat_map (trace_refs bp) (seq 0 (length (bp_traces bp))).
 
 (* the exact final package environment: the package's own event additions, as retained refs *)
 Definition package_env_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (pr : PI.PackageRef s) : list (EstablishmentRef bp) :=
-  flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr)).
+  ledger_refs bp (PI.pr_pos pr).
 
-(* the exact members at one causal cut: the package seed, then the exact earlier event additions *)
+(* the exact members at one causal cut: the package seed then the additions of strictly-earlier block events *)
 Definition state_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) (cut : nat) : list (EstablishmentRef bp) :=
   match nth_error (bp_traces bp) tix with
   | Some tr =>
-      flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr))
-      ++ flat_map (fun eix => refs_of_event bp (BlockEventAt tix eix)) (seq 0 cut)
+      ledger_refs bp (trow_pkg tr)
+      ++ flat_map (block_ev_refs bp tix) (seq 0 cut)
   | None => []
   end.
 
@@ -1171,14 +1191,12 @@ Arguments plr_evs {p idx s d bp pr} _.
 Arguments plr_at {p idx s d bp pr} _.
 
 Record PackageEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {pr : PI.PackageRef s} (l : PackageLedgerRef bp pr) (i : nat) : Type
-  := mk_package_event {
-  per_row : PkgEv s ;
-  per_at  : nth_error (plr_evs l) i = Some per_row
+  {d : PhaseData s} {bp : BindingPhase s d} {pr : PI.PackageRef s} (l : PackageLedgerRef bp pr)
+  (i : nat) : Type := mk_package_event {
+  per_lt  : i < length (plr_evs l)
 }.
-Arguments mk_package_event {p idx s d bp pr l i} _ _.
-Arguments per_row {p idx s d bp pr l i} _.
-Arguments per_at {p idx s d bp pr l i} _.
+Arguments mk_package_event {p idx s d bp pr l i} _.
+Arguments per_lt {p idx s d bp pr l i} _.
 
 Record PackageMemberRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} (pr : PI.PackageRef s) : Type := mk_package_member {
@@ -1205,50 +1223,66 @@ Arguments btr_row {p idx s d bp b} _.
 Arguments btr_at {p idx s d bp b} _.
 Arguments btr_subject {p idx s d bp b} _.
 
-(* the exact causal state at one cut: its identity is the phase, trace, and cut, never its contents *)
-Record BlockStateRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat) : Type
-  := mk_block_state {
-  bs_members : list (EstablishmentRef bp) ;
-  bs_ok : bs_members = state_refs bp (btr_ord tr) cut
+(* the exact finite causal cut: an ordinal at most the event count; an n-event trace has exactly cuts 0..n *)
+Record BlockCutRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) : Type
+  := mk_block_cut {
+  bc_ord : nat ;
+  bc_le  : bc_ord <= length (trow_evs (btr_row tr))
 }.
-Arguments mk_block_state {p idx s d bp b tr cut} _ _.
-Arguments bs_members {p idx s d bp b tr cut} _.
-Arguments bs_ok {p idx s d bp b tr cut} _.
+Arguments mk_block_cut {p idx s d bp b tr} _ _.
+Arguments bc_ord {p idx s d bp b tr} _.
+Arguments bc_le {p idx s d bp b tr} _.
+
+(* the exact causal state at one finite cut: its identity is the phase, trace, and cut, never its contents *)
+Record BlockStateRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) : Type := mk_block_state {
+  bs_members : list (EstablishmentRef bp) ;
+  bs_ok : bs_members = state_refs bp (btr_ord tr) (bc_ord c)
+}.
+Arguments mk_block_state {p idx s d bp b tr c} _ _.
+Arguments bs_members {p idx s d bp b tr c} _.
+Arguments bs_ok {p idx s d bp b tr c} _.
 
 Definition block_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
-  : BlockStateRef tr cut := mk_block_state (state_refs bp (btr_ord tr) cut) eq_refl.
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) : BlockStateRef c := mk_block_state (state_refs bp (btr_ord tr) (bc_ord c)) eq_refl.
 
 Record BlockMemberRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {cut : nat}
-  (st : BlockStateRef tr cut) : Type := mk_block_member {
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  {c : BlockCutRef tr} (st : BlockStateRef c) : Type := mk_block_member {
   bm_ord : nat ;
   bm_ref : EstablishmentRef bp ;
   bm_at  : nth_error (bs_members st) bm_ord = Some bm_ref
 }.
-Arguments mk_block_member {p idx s d bp b tr cut st} _ _ _.
-Arguments bm_ord {p idx s d bp b tr cut st} _.
-Arguments bm_ref {p idx s d bp b tr cut st} _.
-Arguments bm_at {p idx s d bp b tr cut st} _.
+Arguments mk_block_member {p idx s d bp b tr c st} _ _ _.
+Arguments bm_ord {p idx s d bp b tr c st} _.
+Arguments bm_ref {p idx s d bp b tr c st} _.
+Arguments bm_at {p idx s d bp b tr c st} _.
 
-(* the exact block event reference at one statement ordinal, with its exact causal states *)
+(* the exact block event reference at an intrinsically in-range ordinal, with its exact causal pre/post cuts *)
 Record BlockEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (i : nat) : Type
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) : Type
   := mk_block_event {
-  ber_row : BlockEv s ;
-  ber_at  : nth_error (trow_evs (btr_row tr)) i = Some ber_row
+  ber_ix : nat ;
+  ber_lt : ber_ix < length (trow_evs (btr_row tr))
 }.
-Arguments mk_block_event {p idx s d bp b tr i} _ _.
-Arguments ber_row {p idx s d bp b tr i} _.
-Arguments ber_at {p idx s d bp b tr i} _.
+Arguments mk_block_event {p idx s d bp b tr} _ _.
+Arguments ber_ix {p idx s d bp b tr} _.
+Arguments ber_lt {p idx s d bp b tr} _.
 
+Definition ber_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (e : BlockEventRef tr) : BlockEv s := Index.nth_lt (trow_evs (btr_row tr)) (ber_ix e) (ber_lt e).
+
+(* the exact predecessor cut (the event's ordinal) and successor cut (its ordinal + 1), both in range *)
 Definition ber_pre {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {i : nat}
-  (e : BlockEventRef tr i) : BlockStateRef tr i := block_state tr i.
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (e : BlockEventRef tr) : BlockCutRef tr := mk_block_cut (ber_ix e) (Nat.lt_le_incl _ _ (ber_lt e)).
 Definition ber_post {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b} {i : nat}
-  (e : BlockEventRef tr i) : BlockStateRef tr (S i) := block_state tr (S i).
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (e : BlockEventRef tr) : BlockCutRef tr := mk_block_cut (S (ber_ix e)) (ber_lt e).
 
 (* the canonical occupancy group: one identity per exact phase, scope, and spelling *)
 Definition scope_name_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -1286,10 +1320,10 @@ Arguments mk_redeclaration {p idx s d bp sc n} _ _.
 Arguments rr_group {p idx s d bp sc n} _.
 Arguments rr_two {p idx s d bp sc n} _.
 
-(* the first-conflict event site: the exact creating event of the group's second member *)
+(* the first-conflict event: the exact creating event of the group's second member *)
 Definition rr_conflict_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
-  (rr : RedeclarationRef bp sc n) : option EvSite :=
+  (rr : RedeclarationRef bp sc n) : option (EvSite bp) :=
   match bg_members (rr_group rr) with
   | _ :: m2 :: _ => Some (es_site m2)
   | _ => None
@@ -1297,21 +1331,21 @@ Definition rr_conflict_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
 
 (* the visible occupancy group at one exact causal state *)
 Record GroupAtStateRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
-  (n : Names.OrdinaryIdentifier) : Type := mk_group_at_state {
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (n : Names.OrdinaryIdentifier) : Type := mk_group_at_state {
   gs_members : list (EstablishmentRef bp) ;
   gs_ok : gs_members
           = filter (fun er => andb (is_block_scoped (es_est er))
                                    (Names.ordinary_equalb (est_name (es_est er)) n))
-                   (state_refs bp (btr_ord tr) cut)
+                   (state_refs bp (btr_ord tr) (bc_ord c))
 }.
-Arguments mk_group_at_state {p idx s d bp b tr cut n} _ _.
-Arguments gs_members {p idx s d bp b tr cut n} _.
-Arguments gs_ok {p idx s d bp b tr cut n} _.
+Arguments mk_group_at_state {p idx s d bp b tr c n} _ _.
+Arguments gs_members {p idx s d bp b tr c n} _.
+Arguments gs_ok {p idx s d bp b tr c n} _.
 
 Definition group_at_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} (tr : BlockTraceRef bp b) (cut : nat)
-  (n : Names.OrdinaryIdentifier) : GroupAtStateRef tr cut n := mk_group_at_state _ eq_refl.
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (n : Names.OrdinaryIdentifier) : GroupAtStateRef c n := mk_group_at_state _ eq_refl.
 Fixpoint slj_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {env : list (Est s)} {st : Index.ShortStmtRef idx} (i : nat)
   (l : list { i0 : nat & ShortLhsJudgment env st i0 }) {struct l}
@@ -2177,97 +2211,115 @@ Qed.
 
 (* every ref an event emits carries that exact site *)
 Lemma refs_scan_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (er : EstablishmentRef bp) :
-  forall l k (E : l = skipn k (event_adds bp site)),
-  In er (refs_scan bp site k l E) -> es_site er = site.
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) (er : EstablishmentRef bp) :
+  forall l k (E : l = skipn k (event_adds site)),
+  In er (refs_scan site k l E) -> es_site er = site.
 Proof.
   induction l as [|e0 rest IH]; intros k E Hin; [ destruct Hin |].
   destruct Hin as [<-|Hin]; [ reflexivity | exact (IH _ _ Hin) ].
 Qed.
 
 Lemma refs_of_event_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (er : EstablishmentRef bp) :
-  In er (refs_of_event bp site) -> es_site er = site.
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) (er : EstablishmentRef bp) :
+  In er (refs_of_event site) -> es_site er = site.
 Proof. apply refs_scan_site. Qed.
 
 (* the emitted refs project the event's exact additions, in order *)
 Lemma refs_scan_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  forall l k (E : l = skipn k (event_adds bp site)),
-  map es_est (refs_scan bp site k l E) = l.
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  forall l k (E : l = skipn k (event_adds site)),
+  map es_est (refs_scan site k l E) = l.
 Proof.
   induction l as [|e0 rest IH]; intros k E; [ reflexivity |].
-  cbn. rewrite IH. reflexivity.
+  cbn [refs_scan map]. f_equal. exact (IH (S k) _).
 Qed.
 
 Lemma refs_of_event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  map es_est (refs_of_event bp site) = event_adds bp site.
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  map es_est (refs_of_event site) = event_adds site.
 Proof. apply refs_scan_ests. Qed.
-
-Lemma refs_of_event_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (adds : list (Est s)) :
-  event_adds_at bp site = Some adds ->
-  map es_est (refs_of_event bp site) = adds.
-Proof.
-  intro H. rewrite refs_of_event_adds. unfold event_adds. rewrite H. reflexivity.
-Qed.
 
 (* every ref an event emits projects an exact retained addition of that event *)
 Lemma refs_of_event_est_in {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) (er : EstablishmentRef bp) :
-  In er (refs_of_event bp site) ->
-  exists adds, event_adds_at bp site = Some adds /\ In (es_est er) adds.
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) (er : EstablishmentRef bp) :
+  In er (refs_of_event site) -> In (es_est er) (event_adds site).
 Proof.
-  intro Hin.
-  assert (Hin' : In (es_est er) (event_adds bp site))
-    by (rewrite <- refs_of_event_adds; apply in_map; exact Hin).
-  revert Hin'. unfold event_adds.
-  destruct (event_adds_at bp site) as [adds|]; [| intro F; destruct F ].
-  intro Hin'. exists adds. split; [ reflexivity | exact Hin' ].
+  intro Hin. rewrite <- refs_of_event_adds. apply in_map. exact Hin.
 Qed.
 
-Lemma refs_of_event_none {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  event_adds_at bp site = None -> refs_of_event bp site = [].
+Lemma refs_of_event_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  event_adds site = [] -> refs_of_event site = [].
 Proof.
-  intro H.
-  assert (Hnil : event_adds bp site = []) by (unfold event_adds; rewrite H; reflexivity).
-  apply (f_equal (@length _)) in Hnil.
-  pose proof (refs_of_event_adds bp site) as Hm.
-  apply (f_equal (@length _)) in Hm. rewrite length_map in Hm.
-  destruct (refs_of_event bp site); [ reflexivity |].
-  cbn in Hm. unfold event_adds in *. rewrite H in Hm. cbn in Hm. discriminate Hm.
+  intro H. pose proof (refs_of_event_adds site) as Hm. rewrite H in Hm.
+  destruct (refs_of_event site); [ reflexivity | discriminate Hm ].
 Qed.
 
-Lemma refs_of_event_nil {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  event_adds_at bp site = Some [] -> refs_of_event bp site = [].
-Proof.
-  intro H.
-  pose proof (refs_of_event_adds bp site) as Hm.
-  unfold event_adds in Hm. rewrite H in Hm.
-  destruct (refs_of_event bp site); [ reflexivity | discriminate Hm ].
-Qed.
-
-(* the exact block lookup an event site performs *)
-Lemma event_adds_at_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (tr : TraceRow s) (ev : BlockEv s) :
+(* the exact additions of one block event: total, no option — the eix-th event's ordered additions *)
+Lemma blk_ev_row_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (H : eix < trace_event_count bp tix)
+  (tr : TraceRow s) (ev : BlockEv s) :
   nth_error (bp_traces bp) tix = Some tr -> nth_error (trow_evs tr) eix = Some ev ->
-  event_adds_at bp (BlockEventAt tix eix) = Some (bev_adds (trow_block tr) ev).
-Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
+  blk_ev_row bp tix eix H = ev.
+Proof.
+  intros Htr Hev. unfold blk_ev_row.
+  set (o := nth_error (bp_traces bp) tix) in *.
+  change (trace_event_count bp tix)
+    with (match o with Some tr0 => length (trow_evs tr0) | None => 0 end) in H.
+  clearbody o. destruct o as [tr0|]; [| discriminate Htr ].
+  injection Htr as ->.
+  assert (Heq : Some (Index.nth_lt (trow_evs tr) eix H) = Some ev)
+    by (rewrite <- (Index.nth_lt_nth_error (trow_evs tr) eix H); exact Hev).
+  injection Heq as Heq. exact Heq.
+Qed.
+Lemma blk_ev_block_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (H : eix < trace_event_count bp tix)
+  (tr : TraceRow s) :
+  nth_error (bp_traces bp) tix = Some tr -> blk_ev_block bp tix eix H = trow_block tr.
+Proof.
+  intro Htr. unfold blk_ev_block.
+  set (o := nth_error (bp_traces bp) tix) in *.
+  change (trace_event_count bp tix)
+    with (match o with Some tr0 => length (trow_evs tr0) | None => 0 end) in H.
+  clearbody o. destruct o as [tr0|]; [| discriminate Htr ].
+  injection Htr as ->. reflexivity.
+Qed.
+Lemma event_adds_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (H : eix < trace_event_count bp tix)
+  (tr : TraceRow s) (ev : BlockEv s) :
+  nth_error (bp_traces bp) tix = Some tr -> nth_error (trow_evs tr) eix = Some ev ->
+  event_adds (BlockEventAt tix eix H) = bev_adds (trow_block tr) ev.
+Proof.
+  intros Htr Hev. cbn [event_adds].
+  rewrite (blk_ev_block_eq bp tix eix H tr Htr).
+  rewrite (blk_ev_row_eq bp tix eix H tr ev Htr Hev). reflexivity.
+Qed.
 
-Lemma event_adds_at_block_over {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (tr : TraceRow s) :
-  nth_error (bp_traces bp) tix = Some tr -> nth_error (trow_evs tr) eix = None ->
-  event_adds_at bp (BlockEventAt tix eix) = None.
-Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
-
-Lemma event_adds_at_pkg {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) (l : list (PkgEv s)) (row : PkgEv s) :
+(* the exact additions of one package event: total, the eix-th ledger event's additions *)
+Lemma pkg_row_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) (H : eix < pkg_event_count bp pix)
+  (l : list (PkgEv s)) (row : PkgEv s) :
   nth_error (bp_ledgers bp) pix = Some l -> nth_error l eix = Some row ->
-  event_adds_at bp (PkgEventAt pix eix) = Some (snd row).
-Proof. intros H1 H2. cbn. rewrite H1. cbv beta iota. rewrite H2. reflexivity. Qed.
+  pkg_row bp pix eix H = row.
+Proof.
+  intros Hl Hrow. unfold pkg_row.
+  set (o := nth_error (bp_ledgers bp) pix) in *.
+  change (pkg_event_count bp pix)
+    with (match o with Some l0 => length l0 | None => 0 end) in H.
+  clearbody o. destruct o as [l0|]; [| discriminate Hl ].
+  injection Hl as ->.
+  assert (Heq : Some (Index.nth_lt l eix H) = Some row)
+    by (rewrite <- (Index.nth_lt_nth_error l eix H); exact Hrow).
+  injection Heq as Heq. exact Heq.
+Qed.
+Lemma event_adds_pkg {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) (H : eix < pkg_event_count bp pix)
+  (l : list (PkgEv s)) (row : PkgEv s) :
+  nth_error (bp_ledgers bp) pix = Some l -> nth_error l eix = Some row ->
+  event_adds (PkgEventAt pix eix H) = snd row.
+Proof.
+  intros Hl Hrow. cbn [event_adds]. rewrite (pkg_row_eq bp pix eix H l row Hl Hrow). reflexivity.
+Qed.
 
 Lemma spec_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {fl : Index.SpecFlavor} (sc : ScopeId s) (sp : Index.SpecRef idx fl) (e : Est s) :
@@ -2503,21 +2555,23 @@ Proof.
     unfold est_site. rewrite Hf, Hnode. reflexivity.
 Qed.
 
-(* the refs of a package event site establish at exactly that package's scope *)
+(* the refs of a package event establish at exactly that package's scope *)
 Lemma ledger_add_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (pix eix : nat) (pr : PI.PackageRef s) (er : EstablishmentRef bp) :
   nth_error (PI.packages s) pix = Some pr ->
-  In er (refs_of_event bp (PkgEventAt pix eix)) ->
+  In er (pkg_ev_refs bp pix eix) ->
   est_scope (es_est er) = PackageScope pr.
 Proof.
-  intros Hpr Hin.
-  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
-  cbn in Hadds.
-  destruct (nth_error (bp_ledgers bp) pix) as [l|] eqn:Hl; [| discriminate Hadds ].
-  destruct (nth_error l eix) as [row|] eqn:Hrow; [| discriminate Hadds ].
-  injection Hadds as <-.
-  destruct (bp_ledgers_row bp pix l Hl) as [pr' [Hpr' Hlf]].
-  assert (Hpe : pr' = pr) by congruence. subst pr' l.
+  intros Hpr Hin. unfold pkg_ev_refs in Hin. revert Hin.
+  destruct (lt_dec eix (pkg_event_count bp pix)) as [H|]; intro Hin; [| destruct Hin ].
+  pose proof (refs_of_event_est_in (PkgEventAt pix eix H) er Hin) as Hest.
+  assert (Hl : nth_error (bp_ledgers bp) pix = Some (ledger_of s pr))
+    by (rewrite bp_ledgers_form; exact (map_nth_error _ _ _ Hpr)).
+  assert (Heix : eix < length (ledger_of s pr)).
+  { pose proof H as H'. unfold pkg_event_count in H'. rewrite Hl in H'. exact H'. }
+  set (row := Index.nth_lt (ledger_of s pr) eix Heix).
+  assert (Hrow : nth_error (ledger_of s pr) eix = Some row) by (apply Index.nth_lt_nth_error).
+  rewrite (event_adds_pkg bp pix eix H (ledger_of s pr) row Hl Hrow) in Hest.
   destruct (ledger_row pr row (nth_error_In _ _ Hrow)) as [r [_ Hev]].
   exact (pkg_event_at_scope pr r row (es_est er) Hev Hest).
 Qed.
@@ -2672,25 +2726,28 @@ Proof.
     exact (new_ests_scope br' (short_judgment_of env (Index.mkShortStmtRef c nn nv Hv)) e Hin).
 Qed.
 
-(* the refs of a block event site establish at exactly that trace's block scope *)
+(* the refs of a block event establish at exactly that trace's block scope *)
 Lemma trace_add_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (tr : TraceRow s) (er : EstablishmentRef bp) :
   nth_error (bp_traces bp) tix = Some tr ->
-  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  In er (block_ev_refs bp tix eix) ->
   est_scope (es_est er) = BlockScope (trow_block tr).
 Proof.
-  intros Htr Hin.
-  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
-  cbn in Hadds. rewrite Htr in Hadds. cbv beta iota in Hadds.
-  destruct (nth_error (trow_evs tr) eix) as [ev|] eqn:Hev; [| discriminate Hadds ].
-  injection Hadds as <-.
+  intros Htr Hin. unfold block_ev_refs in Hin. revert Hin.
+  destruct (lt_dec eix (trace_event_count bp tix)) as [Hlt|]; intro Hin; [| destruct Hin ].
+  pose proof (refs_of_event_est_in (BlockEventAt tix eix Hlt) er Hin) as Hest.
+  assert (Heix : eix < length (trow_evs tr)).
+  { pose proof Hlt as Hlt'. unfold trace_event_count in Hlt'. rewrite Htr in Hlt'. exact Hlt'. }
+  remember (Index.nth_lt (trow_evs tr) eix Heix) as ev eqn:Hevdef.
+  assert (Hev : nth_error (trow_evs tr) eix = Some ev) by (rewrite Hevdef; apply Index.nth_lt_nth_error).
+  rewrite (event_adds_block bp tix eix Hlt tr ev Htr Hev) in Hest.
   destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
   assert (Hevs : trow_evs tr = block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
                                  (pkg_env_of s pr)) by (rewrite Hform; reflexivity).
   assert (Hblk : trow_block tr = Index.mkBlockRef r Hb) by (rewrite Hform; reflexivity).
   rewrite Hevs in Hev.
   destruct (block_fold_nth_env _ _ _ _ _ Hev) as [x [_ He]].
-  subst ev. rewrite Hblk in Hest.
+  rewrite He in Hest. rewrite Hblk in Hest.
   destruct (block_event_adds_scope _ _ _ _ _ _ _ Hest) as [Hsc|Hsc]; rewrite Hblk; exact Hsc.
 Qed.
 
@@ -2699,14 +2756,17 @@ Lemma package_env_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
   {d : PhaseData s} (bp : BindingPhase s d) (pr : PI.PackageRef s) :
   map es_est (package_env_refs bp pr) = pkg_env_of s pr.
 Proof.
-  unfold package_env_refs, pkg_sites, pkg_event_count.
-  rewrite (bp_ledgers_at bp pr). cbv beta iota.
-  rewrite flat_map_map, map_flat_map.
+  unfold package_env_refs, ledger_refs, pkg_env_of.
+  assert (Hl : nth_error (bp_ledgers bp) (PI.pr_pos pr) = Some (ledger_of s pr)) by (apply bp_ledgers_at).
+  assert (Hcount : pkg_event_count bp (PI.pr_pos pr) = length (ledger_of s pr))
+    by (unfold pkg_event_count; rewrite Hl; reflexivity).
+  rewrite Hcount, map_flat_map.
   assert (Hpt : forall k row, nth_error (ledger_of s pr) k = Some row ->
-            map es_est (refs_of_event bp (PkgEventAt (PI.pr_pos pr) k)) = snd row).
+            map es_est (pkg_ev_refs bp (PI.pr_pos pr) k) = snd row).
   { intros k row Hk.
-    apply refs_of_event_ests.
-    exact (event_adds_at_pkg bp _ k _ row (bp_ledgers_at bp pr) Hk). }
+    unfold pkg_ev_refs. destruct (lt_dec k (pkg_event_count bp (PI.pr_pos pr))) as [H|Hno].
+    - rewrite refs_of_event_adds. exact (event_adds_pkg bp (PI.pr_pos pr) k H (ledger_of s pr) row Hl Hk).
+    - exfalso. apply Hno. rewrite Hcount. exact (nth_error_lt _ _ _ Hk). }
   exact (flat_map_nth_gen (ledger_of s pr) (fun row => snd row) _ Hpt
            (ledger_of s pr) 0 (eq_sym (skipn_O _))).
 Qed.
@@ -2715,7 +2775,7 @@ Qed.
 Lemma state_refs_zero {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) (tr : TraceRow s) :
   nth_error (bp_traces bp) tix = Some tr ->
-  state_refs bp tix 0 = flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr)).
+  state_refs bp tix 0 = ledger_refs bp (trow_pkg tr).
 Proof.
   intro H. unfold state_refs. rewrite H. cbn [seq flat_map]. apply app_nil_r.
 Qed.
@@ -2723,9 +2783,9 @@ Qed.
 Lemma state_refs_succ {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix i : nat) (tr : TraceRow s) :
   nth_error (bp_traces bp) tix = Some tr ->
-  state_refs bp tix (S i) = state_refs bp tix i ++ refs_of_event bp (BlockEventAt tix i).
+  state_refs bp tix (S i) = state_refs bp tix i ++ block_ev_refs bp tix i.
 Proof.
-  intro H. unfold state_refs. rewrite H. cbv beta iota.
+  intro H. unfold state_refs. rewrite H.
   rewrite seq_S. cbn [Nat.add]. rewrite flat_map_app.
   cbn [flat_map]. rewrite app_nil_r. apply app_assoc.
 Qed.
@@ -2737,7 +2797,7 @@ Lemma state_refs_saturates {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
   length (trow_evs tr) <= cut ->
   state_refs bp tix cut = state_refs bp tix (length (trow_evs tr)).
 Proof.
-  intros H Hle. unfold state_refs. rewrite H. cbv beta iota.
+  intros H Hle. unfold state_refs. rewrite H.
   replace (seq 0 cut)
     with (seq 0 (length (trow_evs tr)) ++ seq (length (trow_evs tr)) (cut - length (trow_evs tr)))
     by (rewrite <- seq_app; f_equal; lia).
@@ -2745,37 +2805,37 @@ Proof.
   rewrite (flat_map_nil_all _ (seq (length (trow_evs tr)) (cut - length (trow_evs tr))));
     [ rewrite app_nil_r; reflexivity |].
   intros eix Hin. apply in_seq in Hin.
-  apply refs_of_event_none.
-  apply (event_adds_at_block_over bp tix eix tr H).
-  apply nth_error_None. lia.
+  unfold block_ev_refs. destruct (lt_dec eix (trace_event_count bp tix)) as [Hlt|]; [| reflexivity ].
+  exfalso. revert Hlt. unfold trace_event_count. rewrite H. lia.
 Qed.
 
 (* a state member is a package-seed ref or the ref of an exactly earlier event; nothing future leaks in *)
 Lemma state_member_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix cut : nat) (er : EstablishmentRef bp) :
   In er (state_refs bp tix cut) ->
-  (exists pix eix, es_site er = PkgEventAt pix eix)
-  \/ (exists eix, es_site er = BlockEventAt tix eix /\ eix < cut).
+  (exists pix eix (H : eix < pkg_event_count bp pix), es_site er = PkgEventAt pix eix H)
+  \/ (exists eix (H : eix < trace_event_count bp tix), es_site er = BlockEventAt tix eix H /\ eix < cut).
 Proof.
   unfold state_refs.
   destruct (nth_error (bp_traces bp) tix) as [tr|]; [| intro F; destruct F ].
   intro Hin. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
-  - left. apply in_flat_map in Hin. destruct Hin as [site [Hsite Hin]].
-    unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
-    destruct Hsite as [eix [<- _]].
-    exists (trow_pkg tr), eix. exact (refs_of_event_site bp _ er Hin).
-  - right. apply in_flat_map in Hin. destruct Hin as [eix [Hseq Hin]].
-    apply in_seq in Hseq.
-    exists eix. split; [ exact (refs_of_event_site bp _ er Hin) | lia ].
+  - left. unfold ledger_refs in Hin. apply in_flat_map in Hin. destruct Hin as [eix [_ Hin]].
+    unfold pkg_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (pkg_event_count bp (trow_pkg tr))) as [Hpk|]; intro Hin; [| destruct Hin ].
+    exists (trow_pkg tr), eix, Hpk. exact (refs_of_event_site _ er Hin).
+  - right. apply in_flat_map in Hin. destruct Hin as [eix [Hseq Hin]]. apply in_seq in Hseq.
+    unfold block_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (trace_event_count bp tix)) as [Hbk|]; intro Hin; [| destruct Hin ].
+    exists eix, Hbk. split; [ exact (refs_of_event_site _ er Hin) | lia ].
 Qed.
 
 Lemma state_covers {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix cut eix : nat) (tr : TraceRow s) (er : EstablishmentRef bp) :
   nth_error (bp_traces bp) tix = Some tr -> eix < cut ->
-  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  In er (block_ev_refs bp tix eix) ->
   In er (state_refs bp tix cut).
 Proof.
-  intros Htr Hlt Hin. unfold state_refs. rewrite Htr. cbv beta iota.
+  intros Htr Hlt Hin. unfold state_refs. rewrite Htr.
   apply in_or_app. right.
   apply in_flat_map. exists eix. split; [ apply in_seq; lia | exact Hin ].
 Qed.
@@ -2786,19 +2846,21 @@ Lemma state_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   nth_error (bp_traces bp) tix = Some tr ->
   cut <= length (trow_evs tr) ->
   map es_est (state_refs bp tix cut)
-  = map es_est (flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr)))
+  = map es_est (ledger_refs bp (trow_pkg tr))
     ++ flat_map (bev_adds (trow_block tr)) (firstn cut (trow_evs tr)).
 Proof.
-  intros Htr Hle. unfold state_refs. rewrite Htr. cbv beta iota.
+  intros Htr Hle. unfold state_refs. rewrite Htr.
   rewrite map_app. f_equal.
   rewrite map_flat_map.
   replace (seq 0 cut) with (seq 0 (length (firstn cut (trow_evs tr))))
     by (rewrite length_firstn; f_equal; lia).
   assert (Hpt : forall k ev, nth_error (firstn cut (trow_evs tr)) k = Some ev ->
-            map es_est (refs_of_event bp (BlockEventAt tix k)) = bev_adds (trow_block tr) ev).
+            map es_est (block_ev_refs bp tix k) = bev_adds (trow_block tr) ev).
   { intros k ev Hk.
-    apply refs_of_event_ests.
-    exact (event_adds_at_block bp tix k tr ev Htr (firstn_nth_error _ _ _ _ Hk)). }
+    pose proof (firstn_nth_error _ _ _ _ Hk) as Hk'.
+    unfold block_ev_refs. destruct (lt_dec k (trace_event_count bp tix)) as [Hlt|Hno].
+    - rewrite refs_of_event_adds. exact (event_adds_block bp tix k Hlt tr ev Htr Hk').
+    - exfalso. apply Hno. unfold trace_event_count. rewrite Htr. exact (nth_error_lt _ _ _ Hk'). }
   exact (flat_map_nth_gen (firstn cut (trow_evs tr)) (bev_adds (trow_block tr)) _ Hpt
            (firstn cut (trow_evs tr)) 0 (eq_sym (skipn_O _))).
 Qed.
@@ -2812,8 +2874,13 @@ Lemma state_refs_expr_step {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
 Proof.
   intros Htr Hev.
   rewrite (state_refs_succ bp tix i tr Htr).
-  rewrite (refs_of_event_nil bp _ (event_adds_at_block bp tix i tr _ Htr Hev)).
-  apply app_nil_r.
+  assert (Hlt : i < trace_event_count bp tix)
+    by (unfold trace_event_count; rewrite Htr; apply (nth_error_lt _ _ _ Hev)).
+  assert (Hempty : block_ev_refs bp tix i = []).
+  { unfold block_ev_refs. destruct (lt_dec i (trace_event_count bp tix)) as [Hlt'|]; [| reflexivity ].
+    apply refs_of_event_empty.
+    rewrite (event_adds_block bp tix i Hlt' tr (BEvExpr r) Htr Hev). reflexivity. }
+  rewrite Hempty. apply app_nil_r.
 Qed.
 
 Lemma nodup_map_inj {A B} (f : A -> B) (l : list A) :
@@ -3208,15 +3275,16 @@ Definition short_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
 (* the retained event ref and its exact causal states, projected from the short event *)
 Definition se_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  : BlockEventRef (se_trace se) (se_ord se) := mk_block_event _ (se_at se).
+  : BlockEventRef (se_trace se) :=
+  mk_block_event (se_ord se) (nth_error_lt _ _ _ (se_at se)).
 
 Definition short_state_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  : BlockStateRef (se_trace se) (se_ord se) := ber_pre (se_event se).
+  : BlockStateRef (ber_pre (se_event se)) := block_state (ber_pre (se_event se)).
 
 Definition short_state_after {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  : BlockStateRef (se_trace se) (S (se_ord se)) := ber_post (se_event se).
+  : BlockStateRef (ber_post (se_event se)) := block_state (ber_post (se_event se)).
 
 (* the retained judgment is about the exact queried statement *)
 Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -3305,7 +3373,7 @@ Definition vstart_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
 (* the current declaration event's exactly visible additions at this use *)
 Definition cur_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (tix cut : nat) : list (EstablishmentRef bp) :=
-  filter (vstart_before u) (refs_of_event bp (BlockEventAt tix cut)).
+  filter (vstart_before u) (block_ev_refs bp tix cut).
 
 (* the exact block context of a use: covering trace, causal cut, pre-state, and gated current additions *)
 Record BlockUseCtx {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -3381,7 +3449,7 @@ Lemma block_cand_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (tr : TraceRow s) (n : Names.OrdinaryIdentifier)
   (er : EstablishmentRef bp) :
   nth_error (bp_traces bp) tix = Some tr ->
-  In er (refs_of_event bp (BlockEventAt tix eix)) ->
+  In er (block_ev_refs bp tix eix) ->
   same_block_cand n (es_est er) = true ->
   scope_name_matches (BlockScope (trow_block tr)) n er = true.
 Proof.
@@ -3394,7 +3462,7 @@ Qed.
 Lemma pkg_name_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (pr : PI.PackageRef s) (eix : nat) (n : Names.OrdinaryIdentifier)
   (er : EstablishmentRef bp) :
-  In er (refs_of_event bp (PkgEventAt (PI.pr_pos pr) eix)) ->
+  In er (pkg_ev_refs bp (PI.pr_pos pr) eix) ->
   Names.ordinary_equalb (est_name (es_est er)) n = true ->
   scope_name_matches (PackageScope pr) n er = true.
 Proof.
@@ -3419,85 +3487,57 @@ Proof.
   assert (Hstate :
     length (filter (fun er => same_block_cand n (es_est er)) (state_refs bp tix cut))
     <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                            (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))).
-  { unfold state_refs. rewrite Htr. cbv beta iota.
-    rewrite filter_app, length_app.
-    assert (Hseed : filter (fun er => same_block_cand n (es_est er))
-                      (flat_map (refs_of_event bp) (pkg_sites bp (trow_pkg tr))) = []).
+                            (block_ev_refs bp tix eix)) (seq 0 cut))).
+  { unfold state_refs. rewrite Htr. rewrite filter_app, length_app.
+    assert (Hseed : filter (fun er => same_block_cand n (es_est er)) (ledger_refs bp (trow_pkg tr)) = []).
     { apply filter_all_false. intros er Hin.
-      apply in_flat_map in Hin. destruct Hin as [site [Hsite Hin]].
-      unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
-      destruct Hsite as [eix [<- _]].
-      rewrite Hpix in Hin.
-      unfold same_block_cand, is_block_scoped.
-      rewrite (ledger_add_scope bp (PI.pr_pos pr) eix pr er (packages_nth s pr) Hin).
-      reflexivity. }
-    rewrite Hseed. cbn [length].
-    rewrite filter_flat_map.
-    assert (Hle : length (flat_map (fun eix => filter (fun er => same_block_cand n (es_est er))
-                             (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))
-                  <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                                (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))).
-    { apply flat_map_length_le. intros eix _.
-      apply filter_impl_le. intros er Hin HP.
-      exact (block_cand_matches bp tix eix tr n er Htr Hin HP). }
-    lia. }
+      unfold ledger_refs in Hin. apply in_flat_map in Hin. destruct Hin as [eix [_ Hin]].
+      rewrite Hpix in Hin. unfold same_block_cand, is_block_scoped.
+      rewrite (ledger_add_scope bp (PI.pr_pos pr) eix pr er (packages_nth s pr) Hin). reflexivity. }
+    rewrite Hseed. cbn [length]. rewrite filter_flat_map.
+    apply flat_map_length_le. intros eix _.
+    apply filter_impl_le. intros er Hin HP.
+    exact (block_cand_matches bp tix eix tr n er Htr Hin HP). }
   assert (Hcur :
     length (filter (fun er => same_block_cand n (es_est er)) (cur_adds bp u tix cut))
-    <= length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                 (refs_of_event bp (BlockEventAt tix cut)))).
+    <= length (filter (scope_name_matches (BlockScope (trow_block tr)) n) (block_ev_refs bp tix cut))).
   { unfold cur_adds. rewrite filter_filter.
     apply filter_impl_le. intros er Hin Hand.
     apply andb_prop in Hand as [_ HP].
     exact (block_cand_matches bp tix cut tr n er Htr Hin HP). }
   assert (Htrace :
     length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                        (refs_of_event bp (BlockEventAt tix eix))) (seq 0 cut))
-    + length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                (refs_of_event bp (BlockEventAt tix cut)))
+                        (block_ev_refs bp tix eix)) (seq 0 cut))
+    + length (filter (scope_name_matches (BlockScope (trow_block tr)) n) (block_ev_refs bp tix cut))
     <= length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                            (refs_of_event bp (BlockEventAt tix eix)))
-                 (seq 0 (length (trow_evs tr))))).
+                            (block_ev_refs bp tix eix)) (seq 0 (length (trow_evs tr))))).
   { destruct (Nat.eq_dec cut (length (trow_evs tr))) as [->|Hne].
-    - assert (Hnil : refs_of_event bp (BlockEventAt tix (length (trow_evs tr))) = []).
-      { apply refs_of_event_none.
-        apply (event_adds_at_block_over bp tix _ tr Htr).
-        apply nth_error_None. lia. }
+    - assert (Hnil : block_ev_refs bp tix (length (trow_evs tr)) = []).
+      { unfold block_ev_refs.
+        destruct (lt_dec (length (trow_evs tr)) (trace_event_count bp tix)) as [Hlt|]; [| reflexivity ].
+        exfalso. revert Hlt. unfold trace_event_count. rewrite Htr. lia. }
       rewrite Hnil. cbn [filter length]. lia.
     - replace (seq 0 (length (trow_evs tr)))
         with (seq 0 cut ++ seq cut (length (trow_evs tr) - cut))
         by (rewrite <- seq_app; f_equal; lia).
       replace (length (trow_evs tr) - cut) with (S (length (trow_evs tr) - S cut)) by lia.
-      cbn [seq]. rewrite flat_map_app. cbn [flat_map].
-      rewrite !length_app. lia. }
+      cbn [seq]. rewrite flat_map_app. cbn [flat_map]. rewrite !length_app. lia. }
   assert (Hgroup :
     length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                        (refs_of_event bp (BlockEventAt tix eix)))
-             (seq 0 (length (trow_evs tr))))
+                        (block_ev_refs bp tix eix)) (seq 0 (length (trow_evs tr))))
     <= length (group_refs bp (BlockScope (trow_block tr)) n)).
-  { unfold group_refs, all_establishment_refs, all_sites.
-    rewrite flat_map_app, filter_app, length_app.
-    rewrite !flat_map_flat_map, !filter_flat_map.
-    assert (Hmid :
-      length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                (flat_map (refs_of_event bp) (trace_sites bp tix)))
-      <= length (flat_map (fun tix' => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                              (flat_map (refs_of_event bp) (trace_sites bp tix')))
-                   (seq 0 (length (bp_traces bp))))).
-    { pose proof (filter_seq_member_le
-                    (fun tix' => flat_map (refs_of_event bp) (trace_sites bp tix'))
-                    (scope_name_matches (BlockScope (trow_block tr)) n)
-                    (length (bp_traces bp)) tix
-                    ltac:(apply nth_error_Some; rewrite Htr; discriminate)) as Hm.
-      rewrite filter_flat_map in Hm. exact Hm. }
-    assert (Hself :
-      length (flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                          (refs_of_event bp (BlockEventAt tix eix)))
-               (seq 0 (length (trow_evs tr))))
+  { unfold group_refs, all_establishment_refs. rewrite filter_app, length_app.
+    assert (Hself : flat_map (fun eix => filter (scope_name_matches (BlockScope (trow_block tr)) n)
+                        (block_ev_refs bp tix eix)) (seq 0 (length (trow_evs tr)))
+                  = filter (scope_name_matches (BlockScope (trow_block tr)) n) (trace_refs bp tix)).
+    { unfold trace_refs, trace_event_count. rewrite Htr. rewrite filter_flat_map. reflexivity. }
+    rewrite Hself.
+    assert (Hmid : length (filter (scope_name_matches (BlockScope (trow_block tr)) n) (trace_refs bp tix))
       <= length (filter (scope_name_matches (BlockScope (trow_block tr)) n)
-                   (flat_map (refs_of_event bp) (trace_sites bp tix)))).
-    { unfold trace_sites, trace_event_count. rewrite Htr. cbv beta iota.
-      rewrite flat_map_map, filter_flat_map. lia. }
+                   (flat_map (trace_refs bp) (seq 0 (length (bp_traces bp)))))).
+    { apply (filter_seq_member_le (fun tix' => trace_refs bp tix')
+               (scope_name_matches (BlockScope (trow_block tr)) n)).
+      apply nth_error_Some. rewrite Htr. discriminate. }
     lia. }
   lia.
 Qed.
@@ -3510,24 +3550,19 @@ Lemma pkg_visible_le {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx
 Proof.
   apply Nat.le_trans with
     (m := length (filter (scope_name_matches (PackageScope pr) n) (package_env_refs bp pr))).
-  - unfold package_env_refs. rewrite !filter_flat_map.
-    apply flat_map_length_le. intros site Hsite.
-    unfold pkg_sites in Hsite. apply in_map_iff in Hsite.
-    destruct Hsite as [eix [<- _]].
+  - unfold package_env_refs, ledger_refs. rewrite !filter_flat_map.
+    apply flat_map_length_le. intros eix _.
     apply filter_impl_le. intros er Hin Hname.
     exact (pkg_name_matches bp pr eix n er Hin Hname).
-  - unfold package_env_refs, group_refs, all_establishment_refs, all_sites.
-    rewrite flat_map_app, filter_app, length_app.
-    assert (Hchain :
-      length (filter (scope_name_matches (PackageScope pr) n)
-                (flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr))))
+  - unfold group_refs, all_establishment_refs. rewrite filter_app, length_app.
+    assert (Hself : filter (scope_name_matches (PackageScope pr) n) (package_env_refs bp pr)
+                  = filter (scope_name_matches (PackageScope pr) n) (ledger_refs bp (PI.pr_pos pr)))
+      by reflexivity.
+    rewrite Hself.
+    assert (Hmid : length (filter (scope_name_matches (PackageScope pr) n) (ledger_refs bp (PI.pr_pos pr)))
       <= length (filter (scope_name_matches (PackageScope pr) n)
-                   (flat_map (refs_of_event bp)
-                      (flat_map (pkg_sites bp) (seq 0 (length (bp_ledgers bp))))))).
-    { rewrite (flat_map_flat_map (refs_of_event bp) (pkg_sites bp)
-                 (seq 0 (length (bp_ledgers bp)))).
-      apply (filter_seq_member_le (fun pix => flat_map (refs_of_event bp) (pkg_sites bp pix))
-               (scope_name_matches (PackageScope pr) n)).
+                   (flat_map (ledger_refs bp) (seq 0 (length (bp_ledgers bp)))))).
+    { apply (filter_seq_member_le (fun pix => ledger_refs bp pix) (scope_name_matches (PackageScope pr) n)).
       apply nth_error_Some. rewrite (bp_ledgers_at bp pr). discriminate. }
     lia.
 Qed.
@@ -3787,10 +3822,11 @@ Lemma short_cur_adds_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
 Proof.
   intros Htr Hev Hle. unfold cur_adds.
   apply filter_all_false. intros er Hin.
-  destruct (refs_of_event_est_in bp _ er Hin) as [adds [Hadds Hest]].
-  rewrite (event_adds_at_block bp tix cut tr _ Htr Hev) in Hadds.
-  injection Hadds as <-.
-  cbn in Hest.
+  unfold block_ev_refs in Hin. revert Hin.
+  destruct (lt_dec cut (trace_event_count bp tix)) as [Hlt|]; intro Hin; [| destruct Hin ].
+  pose proof (refs_of_event_est_in (BlockEventAt tix cut Hlt) er Hin) as Hest.
+  rewrite (event_adds_block bp tix cut Hlt tr _ Htr Hev) in Hest.
+  cbn [bev_adds] in Hest.
   unfold vstart_before.
   rewrite (new_ests_vstart (trow_block tr) sj _ Hest).
   apply Nat.ltb_ge. exact Hle.
@@ -3862,38 +3898,18 @@ Proof.
   apply PI.packageref_eqb_spec in Hsc; subst q; reflexivity.
 Qed.
 
-(* every event site of the graph is retained exactly once *)
-Definition site_group (site : EvSite) : nat :=
-  match site with PkgEventAt pix _ => pix | BlockEventAt tix _ => tix end.
-
-Lemma all_sites_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) : NoDup (all_sites bp).
-Proof.
-  unfold all_sites. apply nodup_app_disjoint.
-  - apply (flat_map_nodup_key _ site_group (fun pix => pix));
-      [ rewrite map_id; apply seq_NoDup | |].
-    + intros pix _. apply nodup_map_inj;
-        [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
-    + intros pix site _ Hin. unfold pkg_sites in Hin.
-      apply in_map_iff in Hin. destruct Hin as [eix [<- _]]. reflexivity.
-  - apply (flat_map_nodup_key _ site_group (fun tix => tix));
-      [ rewrite map_id; apply seq_NoDup | |].
-    + intros tix _. apply nodup_map_inj;
-        [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
-    + intros tix site _ Hin. unfold trace_sites in Hin.
-      apply in_map_iff in Hin. destruct Hin as [eix [<- _]]. reflexivity.
-  - intros site Hp Ht.
-    apply in_flat_map in Hp. destruct Hp as [pix [_ Hp]].
-    apply in_flat_map in Ht. destruct Ht as [tix [_ Ht]].
-    unfold pkg_sites in Hp. apply in_map_iff in Hp. destruct Hp as [e1 [Hp _]].
-    unfold trace_sites in Ht. apply in_map_iff in Ht. destruct Ht as [e2 [Ht _]].
-    rewrite <- Hp in Ht. discriminate Ht.
-Qed.
+(* the ledger/trace ordinal and the event ordinal of a valid site *)
+Definition site_outer {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) : nat :=
+  match site with PkgEventAt pix _ _ => pix | BlockEventAt tix _ _ => tix end.
+Definition site_eix {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) : nat :=
+  match site with PkgEventAt _ eix _ => eix | BlockEventAt _ eix _ => eix end.
 
 Lemma refs_scan_keys {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  forall l k (E : l = skipn k (event_adds bp site)),
-  map (fun er => (es_site er, es_ix er)) (refs_scan bp site k l E)
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  forall l k (E : l = skipn k (event_adds site)),
+  map (fun er => (es_site er, es_ix er)) (refs_scan site k l E)
   = map (fun ix => (site, ix)) (seq k (length l)).
 Proof.
   induction l as [|e0 rest IH]; intros k E; [ reflexivity |].
@@ -3901,24 +3917,89 @@ Proof.
 Qed.
 
 Lemma refs_of_event_keys {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (site : EvSite) :
-  map (fun er => (es_site er, es_ix er)) (refs_of_event bp site)
-  = map (fun ix => (site, ix)) (seq 0 (length (event_adds bp site))).
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  map (fun er => (es_site er, es_ix er)) (refs_of_event site)
+  = map (fun ix => (site, ix)) (seq 0 (length (event_adds site))).
 Proof. apply refs_scan_keys. Qed.
+
+(* the keys of one event's refs are distinct: they share the site and carry distinct addition indices *)
+Lemma event_keys_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (site : EvSite bp) :
+  NoDup (map (fun er => (es_site er, es_ix er)) (refs_of_event site)).
+Proof.
+  rewrite refs_of_event_keys. apply nodup_map_inj;
+    [ intros x y H; congruence | apply seq_NoDup ].
+Qed.
+
+(* one ledger's establishment keys are distinct, every one carrying that ledger's package ordinal *)
+Lemma ledger_keys_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (pix : nat) :
+  NoDup (map (fun er => (es_site er, es_ix er)) (ledger_refs bp pix)).
+Proof.
+  unfold ledger_refs. rewrite map_flat_map.
+  apply (flat_map_nodup_key _ (fun kp => site_eix (fst kp)) (fun eix => eix));
+    [ rewrite map_id; apply seq_NoDup | | ].
+  - intros eix _. unfold pkg_ev_refs.
+    destruct (lt_dec eix (pkg_event_count bp pix)) as [H|]; [ apply event_keys_nodup | cbn; constructor ].
+  - intros eix kp _ Hin. apply in_map_iff in Hin. destruct Hin as [er [<- Hin]].
+    unfold pkg_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (pkg_event_count bp pix)) as [H|]; intro Hin; [| destruct Hin ].
+    cbn [fst]. rewrite (refs_of_event_site (PkgEventAt pix eix H) er Hin). reflexivity.
+Qed.
+
+(* one trace's establishment keys are distinct, every one carrying that trace's ordinal *)
+Lemma trace_keys_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (tix : nat) :
+  NoDup (map (fun er => (es_site er, es_ix er)) (trace_refs bp tix)).
+Proof.
+  unfold trace_refs. rewrite map_flat_map.
+  apply (flat_map_nodup_key _ (fun kp => site_eix (fst kp)) (fun eix => eix));
+    [ rewrite map_id; apply seq_NoDup | | ].
+  - intros eix _. unfold block_ev_refs.
+    destruct (lt_dec eix (trace_event_count bp tix)) as [H|]; [ apply event_keys_nodup | cbn; constructor ].
+  - intros eix kp _ Hin. apply in_map_iff in Hin. destruct Hin as [er [<- Hin]].
+    unfold block_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (trace_event_count bp tix)) as [H|]; intro Hin; [| destruct Hin ].
+    cbn [fst]. rewrite (refs_of_event_site (BlockEventAt tix eix H) er Hin). reflexivity.
+Qed.
 
 (* every retained establishment is one exact event addition, exactly once (site and index key) *)
 Theorem establishment_refs_once {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) :
   NoDup (map (fun er => (es_site er, es_ix er)) (all_establishment_refs bp)).
 Proof.
-  unfold all_establishment_refs. rewrite map_flat_map.
-  apply (flat_map_nodup_key _ (fun key : EvSite * nat => fst key) (fun site => site));
-    [ rewrite map_id; apply all_sites_nodup | |].
-  - intros site _. rewrite refs_of_event_keys.
-    apply nodup_map_inj; [ intros x y H; injection H as H; exact H | apply seq_NoDup ].
-  - intros site kb _ Hin. apply in_map_iff in Hin.
-    destruct Hin as [er [<- Hin]]. cbn.
-    exact (refs_of_event_site bp site er Hin).
+  unfold all_establishment_refs. rewrite map_app. apply nodup_app_disjoint.
+  - rewrite map_flat_map.
+    apply (flat_map_nodup_key _ (fun kp => site_outer (fst kp)) (fun pix => pix));
+      [ rewrite map_id; apply seq_NoDup | intros pix _; apply ledger_keys_nodup | ].
+    intros pix kp _ Hin. apply in_map_iff in Hin. destruct Hin as [er [<- Hin]].
+    unfold ledger_refs in Hin. apply in_flat_map in Hin. destruct Hin as [eix [_ Hin]].
+    unfold pkg_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (pkg_event_count bp pix)) as [H|]; intro Hin; [| destruct Hin ].
+    cbn [fst]. rewrite (refs_of_event_site (PkgEventAt pix eix H) er Hin). reflexivity.
+  - rewrite map_flat_map.
+    apply (flat_map_nodup_key _ (fun kp => site_outer (fst kp)) (fun tix => tix));
+      [ rewrite map_id; apply seq_NoDup | intros tix _; apply trace_keys_nodup | ].
+    intros tix kp _ Hin. apply in_map_iff in Hin. destruct Hin as [er [<- Hin]].
+    unfold trace_refs in Hin. apply in_flat_map in Hin. destruct Hin as [eix [_ Hin]].
+    unfold block_ev_refs in Hin. revert Hin.
+    destruct (lt_dec eix (trace_event_count bp tix)) as [H|]; intro Hin; [| destruct Hin ].
+    cbn [fst]. rewrite (refs_of_event_site (BlockEventAt tix eix H) er Hin). reflexivity.
+  - intros kp Hpk Htk.
+    apply in_map_iff in Hpk. destruct Hpk as [erp [Hkp Hinp]].
+    apply in_map_iff in Htk. destruct Htk as [ert [Hkt Hint]].
+    apply in_flat_map in Hinp. destruct Hinp as [pix [_ Hinp]].
+    unfold ledger_refs in Hinp. apply in_flat_map in Hinp. destruct Hinp as [peix [_ Hinp]].
+    unfold pkg_ev_refs in Hinp. revert Hinp.
+    destruct (lt_dec peix (pkg_event_count bp pix)) as [Hp|]; intro Hinp; [| destruct Hinp ].
+    apply in_flat_map in Hint. destruct Hint as [tix [_ Hint]].
+    unfold trace_refs in Hint. apply in_flat_map in Hint. destruct Hint as [teix [_ Hint]].
+    unfold block_ev_refs in Hint. revert Hint.
+    destruct (lt_dec teix (trace_event_count bp tix)) as [Ht|]; intro Hint; [| destruct Hint ].
+    pose proof (refs_of_event_site (PkgEventAt pix peix Hp) erp Hinp) as Hsp.
+    pose proof (refs_of_event_site (BlockEventAt tix teix Ht) ert Hint) as Hst.
+    rewrite <- Hkp in Hkt. injection Hkt as Hsite _.
+    rewrite Hst, Hsp in Hsite. discriminate Hsite.
 Qed.
 
 (* every judged event's environment is exactly its predecessor state's member projection *)
@@ -3947,8 +4028,7 @@ Proof.
   - left. rewrite He, Henv.
     rewrite (state_ests bp tix i tr Htr ltac:(lia)).
     rewrite Hpix.
-    change (flat_map (refs_of_event bp) (pkg_sites bp (PI.pr_pos pr)))
-      with (package_env_refs bp pr).
+    change (ledger_refs bp (PI.pr_pos pr)) with (package_env_refs bp pr).
     rewrite (package_env_ests bp pr).
     rewrite Hblk, Hevs. reflexivity.
   - right. exists (Index.ca_child (projT2 x)). rewrite He. exact Hexpr.

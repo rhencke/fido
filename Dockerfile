@@ -506,34 +506,45 @@ typefail neg_cjr_cross_phase "a const judgment ref from phase A used as one from
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp1 : BN.BindingPhase sf d1) (bp2 : BN.BindingPhase sf d2) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp1 cs) : BN.ConstSpecJudgmentRef bp2 cs := r.'
 typefail neg_cjr_cross_subject "a const judgment ref for spec A used for spec B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp c1) : BN.ConstSpecJudgmentRef bp c2 := r.'
-# — 11.1 exact causal-state identity: cut/block/phase are TYPE indices; equal contents never coerce, and no raw
-#   list or caller-supplied members inhabit a state —
+# — 11.1a exact finite cuts: a cut carries an intrinsic in-range proof; a post-end cut and a bare nat are
+#   uninhabitable (the only inhabitable cuts of an n-event trace are 0..n) —
+typefail neg_cut_post_end "a block cut one past the final cut, whose in-range proof cannot exist" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) : BN.BlockCutRef tr := BN.mk_block_cut (S (Datatypes.length (BN.trow_evs (BN.btr_row tr)))) eq_refl.'
+typefail neg_cut_from_nat "a raw natural number accepted as a block cut" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (n : nat) : BN.BlockCutRef tr := n.'
+# — 11.1b exact causal-state identity: the cut ref is a TYPE index, so cross-cut/block/phase never coerce even
+#   when projected contents are equal, and no raw list or caller-supplied members inhabit a state —
 typefail neg_state_cross_cut "a causal state at cut i used as the state at cut j" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (st : BN.BlockStateRef tr i) : BN.BlockStateRef tr j := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (ci cj : BN.BlockCutRef tr) (H : ci <> cj) (st : BN.BlockStateRef ci) : BN.BlockStateRef cj := st.'
 typefail neg_state_cross_block "a causal state for block A used as a state for block B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (cut : nat) (st : BN.BlockStateRef ta cut) : BN.BlockStateRef tb cut := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (ca : BN.BlockCutRef ta) (cb : BN.BlockCutRef tb) (st : BN.BlockStateRef ca) : BN.BlockStateRef cb := st.'
 typefail neg_state_cross_phase "a causal state from phase A used as a state for phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp1 : BN.BindingPhase sf d1) (bp2 : BN.BindingPhase sf d2) (b : IX.NodeRef (IX.index_program p)) (t1 : BN.BlockTraceRef bp1 b) (t2 : BN.BlockTraceRef bp2 b) (cut : nat) (st : BN.BlockStateRef t1 cut) : BN.BlockStateRef t2 cut := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp1 : BN.BindingPhase sf d1) (bp2 : BN.BindingPhase sf d2) (b : IX.NodeRef (IX.index_program p)) (t1 : BN.BlockTraceRef bp1 b) (t2 : BN.BlockTraceRef bp2 b) (c1 : BN.BlockCutRef t1) (c2 : BN.BlockCutRef t2) (st : BN.BlockStateRef c1) : BN.BlockStateRef c2 := st.'
 typefail neg_state_as_list "a raw list of establishment refs accepted where a causal state is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := l.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (c : BN.BlockCutRef tr) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef c := l.'
 typefail neg_state_forged_members "a causal state constructed with a caller-supplied member list" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := BN.mk_block_state l eq_refl.'
-# — 11.2 exact event predecessor/successor identity: an event ref is typed by trace+ordinal; its pre/succ states
-#   are pinned to cut i and S i, and an event from another trace cannot be substituted —
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (c : BN.BlockCutRef tr) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef c := BN.mk_block_state l eq_refl.'
+# — 11.2 exact finite events: an event ref carries an intrinsic in-range proof (an event at event_count and a
+#   bare nat are uninhabitable) and is typed by its trace, so an event of trace A is not an event of trace B —
+typefail neg_event_at_count "a block event at the event count, one past the last event" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) : BN.BlockEventRef tr := BN.mk_block_event (Datatypes.length (BN.trow_evs (BN.btr_row tr))) eq_refl.'
+typefail neg_event_from_nat "a raw natural number accepted as a block event" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (n : nat) : BN.BlockEventRef tr := n.'
 typefail neg_event_cross_trace "a block event of trace A used as an event of trace B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef ta i) : BN.BlockEventRef tb i := e.'
-typefail neg_event_cross_ordinal "a block event at ordinal i used as an event at ordinal j" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (e : BN.BlockEventRef tr i) : BN.BlockEventRef tr j := e.'
-typefail neg_pre_as_succ "an event predecessor state accepted where its successor state is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef tr i) : BN.BlockStateRef tr (S i) := BN.ber_pre e.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (e : BN.BlockEventRef ta) : BN.BlockEventRef tb := e.'
 # — 11.3 exact establishment provenance: an addition ref is typed by its exact event site and index; its retained
-#   equality cannot be forged, index 0 cannot inhabit index 1, and an addition of event A is not one of event B —
+#   equality cannot be forged, index 0 cannot inhabit index 1, an addition of event A is not one of event B, and
+#   an event site at an unproven ordinal is uninhabitable —
 typefail neg_addition_cross_site "an event addition at site A used as an addition at site B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.EvSite) (ix : nat) (r : BN.EventAdditionRef bp sa ix) : BN.EventAdditionRef bp sb ix := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.EvSite bp) (ix : nat) (r : BN.EventAdditionRef bp sa ix) : BN.EventAdditionRef bp sb ix := r.'
 typefail neg_addition_cross_index "an event addition at index 0 used as an addition at index 1" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite) (r : BN.EventAdditionRef bp site 0) : BN.EventAdditionRef bp site 1 := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite bp) (r : BN.EventAdditionRef bp site 0) : BN.EventAdditionRef bp site 1 := r.'
 typefail neg_addition_forged "an event addition forged without its exact retained addition equality" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite) (ix : nat) (e0 : BN.Est sf) : BN.EventAdditionRef bp site ix := BN.mk_event_addition e0 eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite bp) (ix : nat) (e0 : BN.Est sf) : BN.EventAdditionRef bp site ix := BN.mk_event_addition e0 eq_refl.'
+typefail neg_evsite_pkg_invalid "a package event site at an ordinal without an in-range proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pix eix : nat) : BN.EvSite bp := BN.PkgEventAt pix eix eq_refl.'
+typefail neg_evsite_block_invalid "a block event site at an ordinal without an in-range proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (tix eix : nat) : BN.EvSite bp := BN.BlockEventAt tix eix eq_refl.'
 typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
 # — short-left classification: each view is decision-pinned to one exact statement/index/environment —
@@ -583,9 +594,9 @@ typefail neg_est_from_short_edge "a declaration-binder establishment minted from
 typefail neg_group_from_raw "a binding group forged from a caller-supplied member list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sc : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.BindingGroupRef bp sc n := BN.mk_binding_group l eq_refl.'
 typefail neg_groupstate_cross_cut "a group-at-state from cut j used as the group at cut i" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef tr j n) : BN.GroupAtStateRef tr i n := g.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (ci cj : BN.BlockCutRef tr) (H : ci <> cj) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef cj n) : BN.GroupAtStateRef ci n := g.'
 typefail neg_groupstate_forged "a group-at-state forged from a caller-supplied member list" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef tr cut n := BN.mk_group_at_state l eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (c : BN.BlockCutRef tr) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef c n := BN.mk_group_at_state l eq_refl.'
 typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
 typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
@@ -936,12 +947,17 @@ Proof. destruct (Index.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compu
 Definition p1_br : Index.BlockRef p1idx.
 Proof. destruct (BN.bp_traces p1bp) as [|tr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact (BN.trow_block tr) ]. Defined.
 Definition p1_tr := BN.trace_of_block p1bp p1_br.
+(* the exact finite causal cuts 1 and 2 — an over-end cut is unrepresentable, so each carries its in-range proof *)
+Definition p1_cut1_le : 1 <= length (BN.trow_evs (BN.btr_row p1_tr)) := ltac:(vm_compute; lia).
+Definition p1_cut2_le : 2 <= length (BN.trow_evs (BN.btr_row p1_tr)) := ltac:(vm_compute; lia).
+Definition p1_cut1 : BN.BlockCutRef p1_tr := BN.mk_block_cut 1 p1_cut1_le.
+Definition p1_cut2 : BN.BlockCutRef p1_tr := BN.mk_block_cut 2 p1_cut2_le.
 (* equal-content, different-cut: state member est-name projections agree across the first println *)
 Definition p1_equal_content :
   map (fun er => Names.ordinary_spelling (BN.est_name (BN.es_est er)))
-      (BN.bs_members (BN.block_state p1_tr 1))
+      (BN.bs_members (BN.block_state p1_cut1))
   = map (fun er => Names.ordinary_spelling (BN.est_name (BN.es_est er)))
-      (BN.bs_members (BN.block_state p1_tr 2))
+      (BN.bs_members (BN.block_state p1_cut2))
   := ltac:(vm_compute; reflexivity).
 
 (* fixture 3 (mixed short): x := 1; x, y := 2, 3 — second event lefts [Existing, New], adds only y *)
@@ -1158,10 +1174,13 @@ Definition l_pkg_env_nodup := @BN.pkg_env_nodup.
 Definition l_pkg_env_ests := @BN.package_env_ests.
 Definition l_ledger_add_scope := @BN.ledger_add_scope.
 Definition l_trace_add_scope := @BN.trace_add_scope.
-Definition l_all_sites_nodup := @BN.all_sites_nodup.
+Definition l_ledger_keys_nodup := @BN.ledger_keys_nodup.
+Definition l_trace_keys_nodup := @BN.trace_keys_nodup.
 Definition l_establishment_refs_once := @BN.establishment_refs_once.
 Definition l_refs_of_event_adds := @BN.refs_of_event_adds.
 Definition l_refs_of_event_site := @BN.refs_of_event_site.
+Definition l_es_addition := @BN.es_add.
+Definition l_ea_at := @BN.ea_at.
 Definition l_short_event_cover := @BN.short_event_cover.
 Definition l_short_event_subject := @BN.short_event_subject.
 Definition l_short_cur_adds_empty := @BN.short_cur_adds_empty.
