@@ -311,30 +311,30 @@ SEALED_PRELUDE='From Fido Require Import Syntax Index Compilable Emit.'
 # The stage-1 load check is determined ENTIRELY by (prelude, sentinel), so it runs once per distinct pair.
 # Twenty-five controls name only four such pairs; recompiling a byte-identical file against the same _build
 # in the same stage re-establishes the fact it already established and proves nothing further.  The KEY must
-# carry the prelude, not just the sentinel: the meta-controls call this helper with a prelude that omits the
-# module under test precisely so stage 1 FAILS, and keying on the sentinel alone would skip that failure and
-# silently turn those controls green.  Every stage-2 sealing probe still runs, one per control.
-sealed_proven=''
-sealed() { # <label> <public sentinel in the module under test> <qualified term that must NOT resolve>
-  case "$sealed_proven" in
-    *"<$SEALED_PRELUDE|$2>"*) ;;
-    *)
-      printf '%s\nDefinition sentinel := %s.\n' "$SEALED_PRELUDE" "$2" > /tmp/sealed_load.v
-      if ! rocq c -Q _build/default/. Fido /tmp/sealed_load.v > /tmp/sealed_load.log 2>&1; then
-        cat /tmp/sealed_load.log
-        fail "sealed self-test $1: the module under test did not load or its public sentinel $2 did not resolve — this control would have proved nothing"
-      fi
-      sealed_proven="$sealed_proven<$SEALED_PRELUDE|$2>" ;;
-  esac
-  printf '%s\nDefinition sentinel := %s.\nDefinition probe := %s.\n' "$SEALED_PRELUDE" "$2" "$3" > /tmp/sealed.v
-  if rocq c -Q _build/default/. Fido /tmp/sealed.v > /tmp/sealed.log 2>&1; then
-    cat /tmp/sealed.log; fail "sealed self-test $1: $3 IS reachable — that constructor is not sealed"
-  fi
-  grep -qE 'was not found|Unbound|Cannot find|No such' /tmp/sealed.log \
-    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but NOT because a name is absent"; }
-  grep -qF "$3" /tmp/sealed.log \
-    || { cat /tmp/sealed.log; fail "sealed self-test $1: rejected, but the error does not name $3 — it may be an unrelated failure"; }
-  echo "fido: sealed self-test $1 — $2 resolved (module loaded), $3 unreachable (as required)"; }
+# Every sealed-constructor absence loads the SAME certified library, so the probes ACCUMULATE into one module
+# checked in a single load (via `rocq top`, which prints each command's outcome): each hidden maker is wrapped
+# in `Fail`, so the module compiles iff every one is UNREACHABLE; the count of rejections must equal the control
+# count; every rejection must be a name-absence that NAMES its exact maker; and two public sentinels prove the
+# module actually loaded (so the absence is real, not a load failure).
+: > /tmp/sealed_defs.v
+sealed_n=0; sealed_terms=''
+sealed() { # <label> <public sentinel, informational> <qualified term that must NOT resolve>
+  printf 'Fail Definition probe_%d := %s.\n' "$sealed_n" "$3" >> /tmp/sealed_defs.v
+  sealed_terms="$sealed_terms $3"; sealed_n=$((sealed_n + 1)); }
+sealed_run() {
+  { printf '%s\n' "$SEALED_PRELUDE";
+    printf 'Definition sentinel_compilable := Compilable.compile.\n';
+    printf 'Definition sentinel_emit := Emit.module_file_of.\n';
+    cat /tmp/sealed_defs.v; } > /tmp/sealed.v
+  rocq top -q -Q _build/default/. Fido < /tmp/sealed.v > /tmp/sealed.log 2>&1 || true
+  { grep -q 'sentinel_compilable is defined' /tmp/sealed.log && grep -q 'sentinel_emit is defined' /tmp/sealed.log; } \
+    || { cat /tmp/sealed.log; fail "sealed controls: a public sentinel did not resolve — the module did not load, so these controls would prove nothing"; }
+  got=$(grep -c 'The command has indeed failed' /tmp/sealed.log || true)
+  [ "$got" = "$sealed_n" ] || { cat /tmp/sealed.log; fail "sealed controls: expected $sealed_n unreachable makers, observed $got — a sealed constructor IS reachable or the module failed to load"; }
+  bad=$(awk 'BEGIN{RS="The command has indeed failed"} NR>1 && $0 !~ /was not found|Unbound|Cannot find|No such/ {c++} END{print c+0}' /tmp/sealed.log)
+  [ "$bad" = 0 ] || { cat /tmp/sealed.log; fail "sealed controls: $bad rejection(s) not by name-absence"; }
+  for t in $sealed_terms; do grep -qF "$t" /tmp/sealed.log || { cat /tmp/sealed.log; fail "sealed controls: no rejection names the hidden maker $t"; }; done
+  echo "fido: sealed controls OK — $sealed_n sealed constructors each unreachable by name-absence in one library load (as required)"; }
 # The three-way disposition (Compiled/Rejected/OutsideScope) is a PUBLIC transparent tag; the branch objects
 # Program/Rejection/Outside and the Compilation are genuinely ABSTRACT (`Module Sealed : C4_PUBLIC` — opaque
 # ascription).  Their record makers (mkComp/mkProg/mkRej/mkOut and the CompilationR/ProgramR/RejectionR/OutsideR
@@ -362,39 +362,48 @@ sealed Z  Emit.module_file_of     Emit.Token
 sealed AA Emit.module_file_of     Emit.Pack
 sealed AB Emit.module_file_of     Emit.MakeImage
 sealed AC Emit.module_file_of     Emit.module_bytes
-# ADVERSARIAL CONTROLS ON THE HELPER ITSELF.  A sealed-constructor test is only evidence if it could have
-# failed for the right reason, so the helper must reject its own bad evidence.  Each runs in a subshell,
-# because `fail` exits.
-meta_reject() { # <label> <prelude> <sentinel> <hidden term> <expected rejection fragment>
-  if out=$( SEALED_PRELUDE="$2"; sealed "meta-$1" "$3" "$4" 2>&1 ); then
-    echo "$out"; fail "sealed meta-control $1: the helper ACCEPTED evidence it must reject"
-  fi
-  case "$out" in
-    *"$5"*) echo "fido: sealed meta-control $1 — helper rejected it, as required ($5)" ;;
-    *) echo "$out"; fail "sealed meta-control $1: helper rejected for the WRONG reason (wanted: $5)" ;;
-  esac; }
-# (1) a prelude that never loads the module under test.  The helper must call that invalid evidence,
-#     rather than reporting a sealed constructor.
-meta_reject omitted-compilable 'From Fido Require Import Syntax Index.' Compilable.compile Compilable.Sealed.mkProg \
-  'did not load or its public sentinel'
-meta_reject omitted-emit 'From Fido Require Import Syntax Index Compilable.' Emit.module_file_of Emit.Pack \
-  'did not load or its public sentinel'
-# (2) a REACHABLE public term must make the helper fail its own expectation — otherwise a seal that quietly
-#     became public would still report green.
-meta_reject reachable "$SEALED_PRELUDE" Compilable.compile Compilable.compile 'IS reachable'
+sealed_run
+# ADVERSARIAL META-CONTROLS on the batched harness: it must reject its own bad evidence, or it proves nothing.
+# (1) with a prelude that never imports the module under test, its public sentinel must NOT resolve — otherwise
+#     a load failure would masquerade as a sealed constructor.
+{ printf 'From Fido Require Import Syntax Index.\n'; printf 'Definition sentinel_compilable := Compilable.compile.\n'; } > /tmp/sealed_meta.v
+if rocq top -q -Q _build/default/. Fido < /tmp/sealed_meta.v 2>&1 | grep -q 'sentinel_compilable is defined'; then
+  fail "sealed meta-control: a public sentinel resolved under a prelude that never imported its module — the load check proves nothing"
+fi
+echo "fido: sealed meta-control omitted-module — the load sentinel does not resolve without its import (as required)"
+# (2) a REACHABLE term must yield NO rejection — otherwise a seal that quietly became public would still pass.
+{ printf '%s\n' "$SEALED_PRELUDE"; printf 'Fail Definition probe_0 := Compilable.compile.\n'; } > /tmp/sealed_meta2.v
+if rocq top -q -Q _build/default/. Fido < /tmp/sealed_meta2.v 2>&1 | grep -q 'The command has indeed failed'; then
+  fail "sealed meta-control: Fail reported a rejection for the REACHABLE term Compilable.compile — the unreachability check proves nothing"
+fi
+echo "fido: sealed meta-control reachable — a reachable term yields no rejection (as required)"
 # …and a type that forces its own contents rejects a forged inhabitant.  These must fail to TYPECHECK, not
 # merely be absent, so each gets its own control with its own expected reason.
-typefail() {  # <label> <what> <definition text>
+# Every intrinsic-unforgeability control loads the SAME certified library, so instead of one `rocq c` per
+# control (dozens of full library loads) they ACCUMULATE into one module and are checked in a single load.
+# Each forged construction is wrapped in `Fail`: the module compiles iff EVERY forged construction is rejected
+# (a `Fail` over a command that unexpectedly succeeds is itself an error, so a constructible forgery fails the
+# build), and every rejection message is then verified to be a typing/absence error, never a syntax slip.
+: > /tmp/typefail_defs.v
+typefail_n=0
+typefail() {  # <label> <what> <definition text> — accumulate one forged construction
+  printf 'Fail %s\n' "$3" >> /tmp/typefail_defs.v
+  typefail_n=$((typefail_n + 1)); }
+typefail_run() {  # one library load: every accumulated forgery must be rejected, each by typing or absence
   { printf 'From Stdlib Require Import String List.\n';
     printf 'From Fido Require Import FilePath Collections ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.\n';
     printf 'Module IX := Index. Module PI := Compilable.PackageIdentity. Module BN := Compilable.Bindings. Module AN := Compilable.Analysis. Module RP := Compilable.Report. Module CP := Compilable.\n';
-    printf 'Import ListNotations.\nLocal Open Scope string_scope.\n%s\n' "$3"; } > /tmp/typefail.v
-  if rocq c -Q _build/default/. Fido /tmp/typefail.v > /tmp/typefail.log 2>&1; then
-    cat /tmp/typefail.log; fail "typing control $1: $2 WAS constructible — its type does not force the constraint"
-  fi
-  grep -qE 'has type|cannot be applied|Unable to unify|expected to have type|not found' /tmp/typefail.log \
-    || { cat /tmp/typefail.log; fail "typing control $1: rejected, but not by typing"; }
-  echo "fido: typing control $1 — $2 unconstructible (as required)"; }
+    printf 'Import ListNotations.\nLocal Open Scope string_scope.\n';
+    cat /tmp/typefail_defs.v; } > /tmp/typefail.v
+  # `rocq top` processes each `Fail` and prints its outcome (batch `rocq c` swallows them); a rejected forgery
+  # prints "The command has indeed failed with message: <err>", a CONSTRUCTIBLE one prints "not failed" instead,
+  # so the count of rejections must equal the control count and every rejection must be a typing/absence error.
+  rocq top -q -Q _build/default/. Fido < /tmp/typefail.v > /tmp/typefail.log 2>&1 || true
+  got=$(grep -c 'The command has indeed failed' /tmp/typefail.log || true)
+  [ "$got" = "$typefail_n" ] || { cat /tmp/typefail.log; fail "typing controls: expected $typefail_n rejections, observed $got — a forged construction was CONSTRUCTIBLE or the module failed to load"; }
+  bad=$(awk 'BEGIN{RS="The command has indeed failed"} NR>1 && $0 !~ /has type|cannot be applied|Unable to unify|expected to have type|not found|was not found|Unbound|Illegal application|not a function/ {c++} END{print c+0}' /tmp/typefail.log)
+  [ "$bad" = 0 ] || { cat /tmp/typefail.log; fail "typing controls: $bad rejection(s) not by typing or absence"; }
+  echo "fido: typing controls OK — $typefail_n forged constructions each rejected by typing or absence in one library load (as required)"; }
 # R5/R1/R2/R3 intrinsic-unforgeability negative CLIENTS.  Each is positive-load-guarded by the shared prelude
 # (the positive control below fails loudly if that prelude does not load) and must fail for the intended TYPING
 # reason, never because a prerequisite is absent.
@@ -661,6 +670,7 @@ typefail neg_peer_siblingbefore "the deleted SiblingBefore position-comparison r
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.SiblingBefore r) := e.'
 typefail neg_peer_childedge "the deleted ordinal-field ChildEdge form" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.ChildEdge r) := e.'
+typefail_run
 # — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
 if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
   fail "edge absence control — a consumer still names a deleted edge route or raw child access"
@@ -944,8 +954,13 @@ Definition p1_adds : trace_add_counts p1bp = cons (cons 1 (cons 0 (cons 0 nil)))
   := ltac:(vm_compute; reflexivity).
 Definition p1fr : Index.FileRef p1idx.
 Proof. destruct (Index.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
-Definition p1_br : Index.BlockRef p1idx.
-Proof. destruct (BN.bp_traces p1bp) as [|tr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact (BN.trow_block tr) ]. Defined.
+Lemma p1_traces_ne : BN.bp_traces p1bp <> nil.
+Proof. intro H. pose proof p1_kinds as Hk. rewrite H in Hk. discriminate Hk. Qed.
+Definition p1_br : Index.BlockRef p1idx :=
+  match BN.bp_traces p1bp as t return BN.bp_traces p1bp = t -> Index.BlockRef p1idx with
+  | tr :: _ => fun _ => BN.trow_block tr
+  | nil => fun E => False_rect _ (p1_traces_ne E)
+  end eq_refl.
 Definition p1_tr := BN.trace_of_block p1bp p1_br.
 (* the exact finite causal cuts 1 and 2 — an over-end cut is unrepresentable, so each carries its in-range proof *)
 Definition p1_cut1_le : 1 <= length (BN.trow_evs (BN.btr_row p1_tr)) := ltac:(vm_compute; lia).
@@ -1232,7 +1247,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
 echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection over exact package-environment refs, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the phase-owned event/state/trace surface (package ledgers, per-block state traces with exact causal cuts, block event kinds, all six decision-pinned short-left classifications, exact retained additions, redeclared-group roots including short-then-declaration occupancy, and ordinary resolution to the exact establishment/redeclaration/unbound outcome) computes over the section-12 fixture programs, and every phase-owned law is reachable as stated — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence probes F-S (Sealed makers + private composer + top-level) and Emit route probes Y-AC (each load-guarded, every probe runs) + helper meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
@@ -1383,10 +1398,16 @@ echo "fido: differential oracle export OK — 10 one-source trees written for th
 # Materialize lines stripped, since the pristine trees already exist and the materializer refuses an occupied
 # destination), require them all, and audit — an axiom or admit in ANY fixture proof is rejected as in the theory.
 mkdir -p /tmp/e2eaudit
+# these recompiles are independent (each writes its own .vo), so run them concurrently — one load's wall time
+audit_pids=''
 for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do
   grep -vE '^Fido (Materialize|OracleExport)' e2e/$m.v > /tmp/e2eaudit/$m.v
-  if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1; then cat /tmp/e2eaudit/$m.log; fail "e2e audit: $m did not recompile under the Fido path"; fi
+  rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1 &
+  audit_pids="$audit_pids $!"
 done
+audit_fail=0
+for pid in $audit_pids; do wait "$pid" || audit_fail=1; done
+[ "$audit_fail" = 0 ] || { for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do echo "== $m =="; cat /tmp/e2eaudit/$m.log; done; fail "e2e audit: a witness did not recompile under the Fido path"; }
 printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
 if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
@@ -1447,17 +1468,26 @@ Definition img := @Emit.of_evidence p cp Ev bogus_ev.
 Declare ML Module "fido.emit".
 Fido Materialize img To "/workspace/e2e-forge-ev".
 EOF
-forge_reject() {   # <file> <target-dir> <label>
-  if rocq c -Q _build/default/. Fido "$1" > /tmp/emit-forge.log 2>&1; then cat /tmp/emit-forge.log; fail "$3: a forged image was NOT rejected"; fi
-  grep -q 'provenance depends on an axiom' /tmp/emit-forge.log || { cat /tmp/emit-forge.log; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
+# each forged materialize is independent, so launch them concurrently (each to its own log), then check every
+# one: rocq must FAIL, by the assumption-closure reason, with NO target directory created.
+forge_launch() { rocq c -Q _build/default/. Fido "$1" > "$2" 2>&1; echo $? > "$2.rc"; }
+forge_launch /tmp/forge/Direct.v      /tmp/forge/Direct.log      &
+forge_launch /tmp/forge/Opaque.v      /tmp/forge/Opaque.log      &
+forge_launch /tmp/forge/Var.v         /tmp/forge/Var.log         &
+forge_launch /tmp/forge/VarIndirect.v /tmp/forge/VarIndirect.log &
+forge_launch /tmp/forge/Evidence.v    /tmp/forge/Evidence.log    &
+wait
+forge_reject() {   # <logfile> <target-dir> <label>
+  [ "$(cat "$1.rc")" != 0 ] || { cat "$1"; fail "$3: a forged image was NOT rejected"; }
+  grep -q 'provenance depends on an axiom' "$1" || { cat "$1"; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
   [ ! -e "$2" ] || fail "$3: a rejected forged materialize still created its target directory"
   echo "fido: provenance enforced — $3 rejected before any effect"
 }
-forge_reject /tmp/forge/Direct.v      /workspace/e2e-forge     "direct axiom"
-forge_reject /tmp/forge/Opaque.v      /workspace/e2e-forge-op  "axiom behind an opaque Qed proof"
-forge_reject /tmp/forge/Var.v         /workspace/e2e-forge-var "direct section variable"
-forge_reject /tmp/forge/VarIndirect.v /workspace/e2e-forge-vi  "transitive section variable"
-forge_reject /tmp/forge/Evidence.v    /workspace/e2e-forge-ev  "axiom-dependent additional evidence"
+forge_reject /tmp/forge/Direct.log      /workspace/e2e-forge     "direct axiom"
+forge_reject /tmp/forge/Opaque.log      /workspace/e2e-forge-op  "axiom behind an opaque Qed proof"
+forge_reject /tmp/forge/Var.log         /workspace/e2e-forge-var "direct section variable"
+forge_reject /tmp/forge/VarIndirect.log /workspace/e2e-forge-vi  "transitive section variable"
+forge_reject /tmp/forge/Evidence.log    /workspace/e2e-forge-ev  "axiom-dependent additional evidence"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
 # duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
