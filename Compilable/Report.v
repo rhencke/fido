@@ -10,7 +10,7 @@ Module AN := Compilable.Analysis.
 
 (* Report owns no cause, severity, order, or fallback: every member and its order is exactly Analysis's. *)
 Section Project.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bp : BN.BindingPhase s}
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp).
 
 Definition Diagnostic : Type := AN.Diagnostic s.

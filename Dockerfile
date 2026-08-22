@@ -409,7 +409,22 @@ typefail neg_outside_as_program "an Outside branch used where a Program is requi
 typefail neg_moved_program "a Program moved to a foreign source program" \
   'Definition forged (p q : Syntax.Program) (cp : CP.Program p) : CP.Program q := cp.'
 typefail neg_foreign_lower_phase "a binding phase from a foreign surface" \
-  'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (bp : BN.BindingPhase sp) : BN.BindingPhase sq := bp.'
+  'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (dp : BN.PhaseData sp) (dq : BN.PhaseData sq) (bp : BN.BindingPhase sp dp) : BN.BindingPhase sq dq := bp.'
+# — Z authority sealing: PhaseData is transparent (inspectable/constructible, carries NO authority); the
+#   certificate BindingPhase s d is an ABSTRACT proof that d is the canonical phase, mintable ONLY by [bindings].
+#   A client cannot certify arbitrary data, inhabit the abstract certificate, cross data indices, or name a raw builder —
+typefail neg_certify_arbitrary_data "the canonical certificate applied to caller-chosen phase data" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} : BN.BindingPhase sf d := BN.bindings sf.'
+typefail neg_cert_from_eqrefl "the abstract certificate inhabited by a bare reflexivity, exposing its hidden body" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} : BN.BindingPhase sf d := eq_refl.'
+typefail neg_cert_cross_data "a certificate for data d1 used as the certificate for data d2" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp : BN.BindingPhase sf d1) : BN.BindingPhase sf d2 := bp.'
+typefail neg_deleted_raw_bindings "the deleted raw sigma phase acquisition" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.raw_bindings sf.'
+typefail neg_deleted_build_data "the deleted publicly-nameable canonical builder" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.build_data sf.'
+typefail neg_deleted_rawbp_maker "the deleted raw phase-record maker" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.mk_rawbp.'
 # — index / occurrence / selector (R1) —
 typefail neg_foreign_index_occurrence "an occurrence used at a foreign index" \
   'Definition forged (p q : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : IX.NodeRef (IX.index_program q) := r.'
@@ -488,39 +503,39 @@ typefail neg_mainbody_wrong_parent "a main-body edge requested from a non-main o
 #   establishment ADDITIONS by event-site+index; a wrong phase, block, cut, subject, index, event, environment,
 #   classification, or forged member/addition/group fails to TYPECHECK, and every deleted route fails to RESOLVE —
 typefail neg_cjr_cross_phase "a const judgment ref from phase A used as one from phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp1 cs) : BN.ConstSpecJudgmentRef bp2 cs := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp1 : BN.BindingPhase sf d1) (bp2 : BN.BindingPhase sf d2) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp1 cs) : BN.ConstSpecJudgmentRef bp2 cs := r.'
 typefail neg_cjr_cross_subject "a const judgment ref for spec A used for spec B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp c1) : BN.ConstSpecJudgmentRef bp c2 := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (c1 c2 : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (r : BN.ConstSpecJudgmentRef bp c1) : BN.ConstSpecJudgmentRef bp c2 := r.'
 # — 11.1 exact causal-state identity: cut/block/phase are TYPE indices; equal contents never coerce, and no raw
 #   list or caller-supplied members inhabit a state —
 typefail neg_state_cross_cut "a causal state at cut i used as the state at cut j" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (st : BN.BlockStateRef tr i) : BN.BlockStateRef tr j := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (st : BN.BlockStateRef tr i) : BN.BlockStateRef tr j := st.'
 typefail neg_state_cross_block "a causal state for block A used as a state for block B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (cut : nat) (st : BN.BlockStateRef ta cut) : BN.BlockStateRef tb cut := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (cut : nat) (st : BN.BlockStateRef ta cut) : BN.BlockStateRef tb cut := st.'
 typefail neg_state_cross_phase "a causal state from phase A used as a state for phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp1 bp2 : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (t1 : BN.BlockTraceRef bp1 b) (t2 : BN.BlockTraceRef bp2 b) (cut : nat) (st : BN.BlockStateRef t1 cut) : BN.BlockStateRef t2 cut := st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d1 d2 : BN.PhaseData sf) (bp1 : BN.BindingPhase sf d1) (bp2 : BN.BindingPhase sf d2) (b : IX.NodeRef (IX.index_program p)) (t1 : BN.BlockTraceRef bp1 b) (t2 : BN.BlockTraceRef bp2 b) (cut : nat) (st : BN.BlockStateRef t1 cut) : BN.BlockStateRef t2 cut := st.'
 typefail neg_state_as_list "a raw list of establishment refs accepted where a causal state is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := l.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := l.'
 typefail neg_state_forged_members "a causal state constructed with a caller-supplied member list" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := BN.mk_block_state l eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (l : list (BN.EstablishmentRef bp)) : BN.BlockStateRef tr cut := BN.mk_block_state l eq_refl.'
 # — 11.2 exact event predecessor/successor identity: an event ref is typed by trace+ordinal; its pre/succ states
 #   are pinned to cut i and S i, and an event from another trace cannot be substituted —
 typefail neg_event_cross_trace "a block event of trace A used as an event of trace B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef ta i) : BN.BlockEventRef tb i := e.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ta : BN.BlockTraceRef bp a) (tb : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef ta i) : BN.BlockEventRef tb i := e.'
 typefail neg_event_cross_ordinal "a block event at ordinal i used as an event at ordinal j" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (e : BN.BlockEventRef tr i) : BN.BlockEventRef tr j := e.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (e : BN.BlockEventRef tr i) : BN.BlockEventRef tr j := e.'
 typefail neg_pre_as_succ "an event predecessor state accepted where its successor state is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef tr i) : BN.BlockStateRef tr (S i) := BN.ber_pre e.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i : nat) (e : BN.BlockEventRef tr i) : BN.BlockStateRef tr (S i) := BN.ber_pre e.'
 # — 11.3 exact establishment provenance: an addition ref is typed by its exact event site and index; its retained
 #   equality cannot be forged, index 0 cannot inhabit index 1, and an addition of event A is not one of event B —
 typefail neg_addition_cross_site "an event addition at site A used as an addition at site B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sa sb : BN.EvSite) (ix : nat) (r : BN.EventAdditionRef bp sa ix) : BN.EventAdditionRef bp sb ix := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.EvSite) (ix : nat) (r : BN.EventAdditionRef bp sa ix) : BN.EventAdditionRef bp sb ix := r.'
 typefail neg_addition_cross_index "an event addition at index 0 used as an addition at index 1" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (site : BN.EvSite) (r : BN.EventAdditionRef bp site 0) : BN.EventAdditionRef bp site 1 := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite) (r : BN.EventAdditionRef bp site 0) : BN.EventAdditionRef bp site 1 := r.'
 typefail neg_addition_forged "an event addition forged without its exact retained addition equality" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (site : BN.EvSite) (ix : nat) (e0 : BN.Est sf) : BN.EventAdditionRef bp site ix := BN.mk_event_addition e0 eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (site : BN.EvSite) (ix : nat) (e0 : BN.Est sf) : BN.EventAdditionRef bp site ix := BN.mk_event_addition e0 eq_refl.'
 typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
 # — short-left classification: each view is decision-pinned to one exact statement/index/environment —
 typefail neg_slj_cross_index "a left judgment for index 0 used as the judgment for index 1" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (env : list (BN.Est sf)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment env st 0) : BN.ShortLhsJudgment env st 1 := j.'
@@ -566,19 +581,19 @@ typefail neg_est_from_short_edge "a declaration-binder establishment minted from
 #   a group-at-state is cut-typed; a redeclaration root is scope-typed; and a source binding returns the exact
 #   phase-owned establishment ref, never a bare origin —
 typefail neg_group_from_raw "a binding group forged from a caller-supplied member list" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sc : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.BindingGroupRef bp sc n := BN.mk_binding_group l eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sc : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.BindingGroupRef bp sc n := BN.mk_binding_group l eq_refl.'
 typefail neg_groupstate_cross_cut "a group-at-state from cut j used as the group at cut i" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef tr j n) : BN.GroupAtStateRef tr i n := g.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (i j : nat) (H : i <> j) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef tr j n) : BN.GroupAtStateRef tr i n := g.'
 typefail neg_groupstate_forged "a group-at-state forged from a caller-supplied member list" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef tr cut n := BN.mk_group_at_state l eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (cut : nat) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef tr cut n := BN.mk_group_at_state l eq_refl.'
 typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
 typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (sc : BN.ScopeId sf) (na nb : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sc na) : BN.RedeclarationRef bp sc nb := r.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sc : BN.ScopeId sf) (na nb : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sc na) : BN.RedeclarationRef bp sc nb := r.'
 typefail neg_bound_from_origin "a source binding object built from a bare DeclOrigin, not an establishment ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (o : BN.DeclOrigin (IX.index_program p)) : BN.BoundObject bp := BN.SourceBound o.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.BoundObject bp := BN.SourceBound o.'
 typefail neg_rbound_from_objectref "a resolution bound built from an idx-level ObjectRef, not a phase BoundObject" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (u : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (o : BN.ObjectRef (IX.index_program p)) : BN.Resolved bp u n := BN.RBound (BN.SourceObject o).'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (u : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (o : BN.ObjectRef (IX.index_program p)) : BN.Resolved bp u n := BN.RBound (BN.SourceObject o).'
 # — 11.8 raw/peer authority absence: every deleted prospective/transition/env route fails to RESOLVE —
 typefail neg_deleted_all_ests "the deleted prospective establishment list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.all_ests sf.'
@@ -591,11 +606,11 @@ typefail neg_deleted_short_table "the deleted on-demand whole-core judgment tabl
 typefail neg_deleted_est_of_binder "the deleted prospective binder-establishment lookup" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (b : IX.NodeRef (IX.index_program p)) := BN.est_of_binder_core core b.'
 typefail neg_deleted_bp_ests "the deleted flat establishment-list phase authority" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.bp_ests bp.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.bp_ests bp.'
 typefail neg_deleted_bp_shorts "the deleted retained short-transition table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.bp_shorts bp.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.bp_shorts bp.'
 typefail neg_deleted_short_transition "the deleted per-statement short transition lookup" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_transition bp st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_transition bp st.'
 typefail neg_deleted_mk_transition "the deleted transition constructor" \
   'Definition forged (p : Syntax.Program) := BN.mk_transition.'
 typefail neg_deleted_block_env "the deleted per-statement prefix-environment builder" \
@@ -609,17 +624,17 @@ typefail neg_deleted_pick_best "the deleted flat innermost-candidate selector" \
 typefail neg_deleted_decl_group "the deleted declaration-only occupancy group excluding ShortNew" \
   'Definition forged (p : Syntax.Program) := BN.decl_group.'
 typefail neg_deleted_judgment_lookup "the deleted whole-core short judgment lookup" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_judgment bp st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_judgment bp st.'
 typefail neg_deleted_newnonblank "the deleted proof-free new-nonblank constructors" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.NoNewNonblank.'
 typefail neg_deleted_status_builder "the deleted on-demand const status builder" \
   'Definition forged (p : Syntax.Program) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) := BN.const_spec_status cs.'
 typefail neg_deleted_short_builder "the deleted on-demand short status builder" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_status bp st.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_decl_status bp st.'
 typefail neg_deleted_lhs_classifier "the deleted per-use left-status classifier" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) := BN.short_lhs_status bp.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.short_lhs_status bp.'
 typefail neg_forged_ref_row "a judgment ref forged without the exact retained table row" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (bp : BN.BindingPhase sf) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : BN.ConstSpecJudgmentRef bp cs := BN.mk_cjr 0 (existT _ cs j) eq_refl eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : BN.ConstSpecJudgmentRef bp cs := BN.mk_cjr 0 (existT _ cs j) eq_refl eq_refl.'
 # — deleted peer authorities are ABSENT, not merely unused: naming any of them fails to resolve —
 typefail neg_peer_role_children "the deleted role_children peer accessor" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) := IX.role_children r IX.RTypeUse.'
@@ -651,10 +666,10 @@ fi
 # — the ONE sealed Binding owner: the raw phase graph is built ONLY inside Module Internal; no consumer, and no
 #   part of Bindings outside Internal, names the raw builders as a route.  Analysis must not name Internal at all;
 #   within Bindings only the sealed public interface (bindings/bp_* projections) may reference Internal builders —
-if grep -nE '\bInternal\.' Compilable/Analysis.v Compilable/Report.v Render.v Emit.v; then
-  fail "internal-isolation control — a consumer names a private Binding.Internal builder"
+if grep -nE '\bPhaseCert\.' Compilable/Analysis.v Compilable/Report.v Render.v Emit.v; then
+  fail "certificate-isolation control — a consumer names the sealed PhaseCert authority module directly"
 fi
-echo "fido: status absence control OK — no forgeable/prospective route; Analysis reads only phase rows; Internal builders are private to the sealed Binding owner"
+echo "fido: status absence control OK — no forgeable/prospective route; Analysis reads only phase rows; the sealed PhaseCert certificate authority is unnamed outside the Binding owner"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
@@ -713,7 +728,7 @@ Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.in
 Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   (g : BN.DeclarationGroupRef s) : AN.diag_cause (AN.DRedeclaredGroup g nil) = AN.RedeclaredGroupCause g := eq_refl.
 Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  (bp : BN.BindingPhase s) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 Definition main_as_object (p : Syntax.Program) (mo : Index.MainOccurrenceRef (Index.index_program p))
   : BN.ObjectRef (Index.index_program p) := BN.SourceObject (BN.DOFunc (BN.FixedMainFunction mo)).
 Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
@@ -867,10 +882,10 @@ Definition ev_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface i
   | _ => nil
   end.
 Definition trace_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BN.BindingPhase s) : list (list (list nat)) :=
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d) : list (list (list nat)) :=
   map (fun tr => map ev_lhs_tags (BN.trow_evs tr)) (BN.bp_traces bp).
 Definition trace_add_counts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (bp : BN.BindingPhase s) : list (list nat) :=
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d) : list (list nat) :=
   map (fun tr => map (fun ev => Datatypes.length (BN.bev_adds (BN.trow_block tr) ev)) (BN.trow_evs tr))
       (BN.bp_traces bp).
 Definition mkid (str : String.string) (H : Names.identifier_ok str = true)
@@ -1187,6 +1202,12 @@ Definition l_binding_group := @BN.binding_group.
 Definition l_all_establishment_refs := @BN.all_establishment_refs.
 Definition l_package_env_refs := @BN.package_env_refs.
 Definition l_redeclared_groups := @BN.redeclared_groups.
+(* Z authority: transparent phase data is nameable/computable; the canonical certificate is reachable ONLY via
+   [bindings]; and the certificate projects the canonicity of its exact data (the authority-to-data bridge) *)
+Definition zc_data (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p)) : BN.PhaseData sf := BN.phase_data sf.
+Definition zc_cert (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p)) : BN.BindingPhase sf (BN.phase_data sf) := BN.bindings sf.
+Definition zc_canonical (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p))
+  {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) : d = BN.phase_data sf := BN.bp_canonical bp.
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"

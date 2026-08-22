@@ -113,7 +113,7 @@ Definition pmeaning (n : Names.PredeclaredName) : PMeaning :=
   end.
 
 Section OverPhase.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the form/value meaning of a name at a use, for constant folding; None for anything without one *)
 Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : option TR.NameMeaning :=
@@ -488,7 +488,7 @@ Arguments OFValue {p idx} _ _. Arguments OFApp {p idx} _ _.
 Arguments OFStmt {p idx} _ _. Arguments OFType {p idx} _ _.
 
 Section Retain.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
 Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact idx) :=
@@ -538,12 +538,12 @@ Definition fact_list (fp : FactPhase) : list (OccFact idx) := proj1_sig fp.
 
 End Retain.
 
-Arguments FactPhase {p idx s} bp.
-Arguments facts {p idx s} bp.
-Arguments fact_list {p idx s bp} _.
+Arguments FactPhase {p idx s bd} bp.
+Arguments facts {p idx s bd} bp.
+Arguments fact_list {p idx s bd bp} _.
 
 Section Laws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the phase content is built once; every phase carries exactly the canonical classification, none caller-supplied *)
 Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
@@ -577,7 +577,7 @@ Arguments FreshCollision {p idx s} _ _.
 
 (* collision applicability is exactly OneSelected, independent of any package's main multiplicity *)
 Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  (bp : BN.BindingPhase s) : FreshBuildDisposition s :=
+  {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : FreshBuildDisposition s :=
   let _ := bp in
   match BN.PI.package_selection s with
   | BN.PI.OneSelected pr =>
@@ -591,40 +591,42 @@ Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
   end.
 
 Definition PackageFacts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  (bp : BN.BindingPhase s) : Type := { d : FreshBuildDisposition s | d = raw_preflight bp }.
+  {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : Type := { d : FreshBuildDisposition s | d = raw_preflight bp }.
 Definition package_facts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  (bp : BN.BindingPhase s) : PackageFacts bp := exist _ (raw_preflight bp) eq_refl.
-Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
+  {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : PackageFacts bp := exist _ (raw_preflight bp) eq_refl.
+Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) : FreshBuildDisposition s := proj1_sig pf.
-Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
+Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 
 Lemma package_rule_is_projection {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  {bp : BN.BindingPhase s} (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) :
+  {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) :
   package_rule pf pr = BN.package_main bp pr.
 Proof. reflexivity. Qed.
 
 Lemma packages_consume_one_surface {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  {bp : BN.BindingPhase s} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
+  {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
 Proof. exact (proj2_sig pf). Qed.
 
 (* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
 Record Result (p : Syntax.Program) : Type := mk_result {
-  res_index   : Index.ProgramIndex p ;
-  res_surface : BN.PI.PackageSurface res_index ;
-  res_binds   : BN.BindingPhase res_surface ;
-  res_facts   : FactPhase res_binds ;
-  res_pkg     : PackageFacts res_binds
+  res_index     : Index.ProgramIndex p ;
+  res_surface   : BN.PI.PackageSurface res_index ;
+  res_bind_data : BN.PhaseData res_surface ;
+  res_binds     : BN.BindingPhase res_surface res_bind_data ;
+  res_facts     : FactPhase res_binds ;
+  res_pkg       : PackageFacts res_binds
 }.
-Arguments mk_result {p} _ _ _ _ _.
-Arguments res_index {p} _. Arguments res_surface {p} _. Arguments res_binds {p} _.
+Arguments mk_result {p} _ _ _ _ _ _.
+Arguments res_index {p} _. Arguments res_surface {p} _.
+Arguments res_bind_data {p} _. Arguments res_binds {p} _.
 Arguments res_facts {p} _. Arguments res_pkg {p} _.
 
 Definition analyze (p : Syntax.Program) : Result p :=
   let i := Index.index_program p in
   let s := BN.PI.package_surface i in
   let b := BN.bindings s in
-  mk_result i s b (facts b) (package_facts b).
+  mk_result i s (BN.phase_data s) b (facts b) (package_facts b).
 
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
@@ -698,7 +700,7 @@ Definition bound_root (b : Boundary s) : IssueRoot s := match b with BOcc r _ _ 
 End IssueProjections.
 
 Section IssueTable.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the semantic family of an occurrence fact: a declaration spec or short-decl statement, else its plain family *)
@@ -780,8 +782,8 @@ Proof. cbn; repeat split; reflexivity. Qed.
 
 End IssueTable.
 
-Arguments diagnostics {p idx s bp} fp pf.
-Arguments boundaries {p idx s bp} fp.
+Arguments diagnostics {p idx s bd bp} fp pf.
+Arguments boundaries {p idx s bd bp} fp.
 
 Section IssueLaws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
@@ -805,7 +807,7 @@ Arguments DInvalid {p idx s} _ _. Arguments DUnsupported {p idx s} _ _.
 Arguments DInvalidAndUnsupported {p idx s} _ _ _ _.
 
 Section DispositionAlgebra.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bp : BN.BindingPhase s}
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
@@ -847,7 +849,7 @@ End DispositionAlgebra.
 
 (* §11 structural progress + cost: every construction is structural recursion over finite maps, no fuel or budget *)
 Section Cost.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} (bp : BN.BindingPhase s).
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* one structural pass: each node contributes the facts of its applicable families via a single flat_map, no fuel *)
 Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
