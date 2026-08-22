@@ -3346,42 +3346,128 @@ Definition vstart_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   {d : PhaseData s} {bp : BindingPhase s d} (u : Index.NodeRef idx) (er : EstablishmentRef bp) : bool :=
   Nat.ltb (est_vstart (es_est er)) (Index.nr_pos u).
 
-(* the current declaration event's exactly visible additions at this use *)
+(* the current declaration event's exactly visible additions at this use — a private builder helper only *)
 Definition cur_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (tix cut : nat) : list (EstablishmentRef bp) :=
   filter (vstart_before u) (block_ev_refs bp tix cut).
 
-(* the exact block context of a use: covering trace, causal cut, pre-state, and gated current additions *)
-Record BlockUseCtx {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : Type := mk_block_ctx {
-  bc_tix : nat ;
-  bc_row : TraceRow s ;
-  bc_at : nth_error (bp_traces bp) bc_tix = Some bc_row ;
-  bc_cut : nat ;
-  bc_cut_pin : bc_cut = cut_of (trow_evs bc_row) u ;
-  bc_pre : list (EstablishmentRef bp) ;
-  bc_pre_pin : bc_pre = state_refs bp bc_tix bc_cut ;
-  bc_cur : list (EstablishmentRef bp) ;
-  bc_cur_pin : bc_cur = cur_adds bp u bc_tix bc_cut
+(* one exact current-event addition visible at a use: a not-yet-visible addition cannot inhabit this type *)
+Record CurAddRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (u : Index.NodeRef idx) : Type := mk_cur_add {
+  ca_ref : EstablishmentRef bp ;
+  ca_in  : In ca_ref (block_ev_refs bp (btr_ord tr) (bc_ord c)) ;
+  ca_vis : vstart_before u ca_ref = true
 }.
-Arguments mk_block_ctx {p idx s d bp u} _ _ _ _ _ _ _ _ _.
-Arguments bc_tix {p idx s d bp u} _.
-Arguments bc_row {p idx s d bp u} _.
-Arguments bc_at {p idx s d bp u} _.
-Arguments bc_cut {p idx s d bp u} _.
-Arguments bc_cut_pin {p idx s d bp u} _.
-Arguments bc_pre {p idx s d bp u} _.
-Arguments bc_pre_pin {p idx s d bp u} _.
-Arguments bc_cur {p idx s d bp u} _.
-Arguments bc_cur_pin {p idx s d bp u} _.
+Arguments mk_cur_add {p idx s d bp b tr c u} _ _ _.
+Arguments ca_ref {p idx s d bp b tr c u} _.
+Arguments ca_in {p idx s d bp b tr c u} _.
+Arguments ca_vis {p idx s d bp b tr c u} _.
+
+(* build the exact visible current additions from a sublist of the current event's refs, threading membership *)
+Fixpoint cur_add_scan {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (u : Index.NodeRef idx) (l : list (EstablishmentRef bp)) {struct l}
+  : (forall er, In er l -> In er (block_ev_refs bp (btr_ord tr) (bc_ord c))) -> list (CurAddRef c u) :=
+  match l with
+  | [] => fun _ => []
+  | er :: rest => fun Hsub =>
+      let tail := cur_add_scan c u rest (fun er' Hin => Hsub er' (or_intror Hin)) in
+      match Bool.bool_dec (vstart_before u er) true with
+      | left Hvis => mk_cur_add er (Hsub er (or_introl eq_refl)) Hvis :: tail
+      | right _ => tail
+      end
+  end.
+Definition cur_add_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (u : Index.NodeRef idx) : list (CurAddRef c u) :=
+  cur_add_scan c u (block_ev_refs bp (btr_ord tr) (bc_ord c)) (fun er H => H).
+
+(* the visible current additions project back to exactly the filtered current-event refs *)
+Lemma cur_add_scan_proj {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (u : Index.NodeRef idx) (l : list (EstablishmentRef bp))
+  (H : forall er, In er l -> In er (block_ev_refs bp (btr_ord tr) (bc_ord c))) :
+  map ca_ref (cur_add_scan c u l H) = filter (vstart_before u) l.
+Proof.
+  revert H. induction l as [|er rest IH]; intro H; [ reflexivity |].
+  cbn [cur_add_scan filter]. destruct (Bool.bool_dec (vstart_before u er) true) as [Hvis|Hvis].
+  - cbn [map ca_ref]. rewrite Hvis. rewrite (IH (fun er' Hin => H er' (or_intror Hin))). reflexivity.
+  - apply Bool.not_true_is_false in Hvis. rewrite Hvis.
+    rewrite (IH (fun er' Hin => H er' (or_intror Hin))). reflexivity.
+Qed.
+Lemma cur_add_refs_proj {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
+  (c : BlockCutRef tr) (u : Index.NodeRef idx) :
+  map ca_ref (cur_add_refs c u) = cur_adds bp u (btr_ord tr) (bc_ord c).
+Proof. unfold cur_add_refs, cur_adds. apply cur_add_scan_proj. Qed.
+
+Lemma cut_of_le {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (evs : list (BlockEv s)) (u : Index.NodeRef idx) : cut_of evs u <= length evs.
+Proof. unfold cut_of. apply count_while_le. Qed.
+
+(* the exact block use context: covering trace, cut, predecessor state, and visible current-event additions *)
+Record BlockUseRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : Type := mk_block_use {
+  bu_block : Index.BlockRef idx ;
+  bu_trace : BlockTraceRef bp (Index.bl_node bu_block) ;
+  bu_cut   : BlockCutRef bu_trace ;
+  bu_covers : covers_use u (btr_row bu_trace) = true ;
+  bu_cut_at : bc_ord bu_cut = cut_of (trow_evs (btr_row bu_trace)) u ;
+  bu_cur   : list (CurAddRef bu_cut u) ;
+  bu_cur_ok : map ca_ref bu_cur = cur_adds bp u (btr_ord bu_trace) (bc_ord bu_cut)
+}.
+Arguments mk_block_use {p idx s d bp u} _ _ _ _ _ _ _.
+Arguments bu_block {p idx s d bp u} _.
+Arguments bu_trace {p idx s d bp u} _.
+Arguments bu_cut {p idx s d bp u} _.
+Arguments bu_covers {p idx s d bp u} _.
+Arguments bu_cut_at {p idx s d bp u} _.
+Arguments bu_cur {p idx s d bp u} _.
+Arguments bu_cur_ok {p idx s d bp u} _.
+
+(* projections keeping the resolution surface stable: the trace ordinal, cut, row, state, and current members *)
+Definition bc_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u) : TraceRow s :=
+  btr_row (bu_trace bc).
+Definition bc_tix {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u) : nat :=
+  btr_ord (bu_trace bc).
+Definition bc_cut {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u) : nat :=
+  bc_ord (bu_cut bc).
+Definition bc_state {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : BlockStateRef (bu_cut bc) := block_state (bu_cut bc).
+Definition bc_pre {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : list (EstablishmentRef bp) := bs_members (bc_state bc).
+Definition bc_cur {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : list (EstablishmentRef bp) := map ca_ref (bu_cur bc).
+
+(* the retained pins, now derived over the exact projections *)
+Definition bc_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : nth_error (bp_traces bp) (bc_tix bc) = Some (bc_row bc) := btr_at (bu_trace bc).
+Definition bc_cut_pin {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : bc_cut bc = cut_of (trow_evs (bc_row bc)) u := bu_cut_at bc.
+Definition bc_pre_pin {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : bc_pre bc = state_refs bp (bc_tix bc) (bc_cut bc) := eq_refl.
+Definition bc_cur_pin {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
+  : bc_cur bc = cur_adds bp u (bc_tix bc) (bc_cut bc) := bu_cur_ok bc.
 
 Definition locate_block_ctx {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : option (BlockUseCtx bp u) :=
+  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : option (BlockUseRef bp u) :=
   match trace_scan bp (covers_use u) 0 (bp_traces bp) (eq_sym (skipn_O _)) with
-  | Some h => Some (mk_block_ctx (th_ord h) (th_row h) (th_at h)
-                      (cut_of (trow_evs (th_row h)) u) eq_refl
-                      (state_refs bp (th_ord h) (cut_of (trow_evs (th_row h)) u)) eq_refl
-                      (cur_adds bp u (th_ord h) (cut_of (trow_evs (th_row h)) u)) eq_refl)
+  | Some h =>
+      let tr := mk_block_trace (th_ord h) (th_row h) (th_at h) eq_refl in
+      let c := mk_block_cut (tr := tr) (cut_of (trow_evs (th_row h)) u) (cut_of_le _ u) in
+      Some (mk_block_use (trow_block (th_row h)) tr c (th_ok h) eq_refl
+              (cur_add_refs c u) (cur_add_refs_proj c u))
   | None => None
   end.
 
@@ -3390,28 +3476,29 @@ Record UseEnvironmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : Type := mk_use_env {
   ue_pkg : PI.PackageRef s ;
   ue_pkg_pin : ue_pkg = PI.package_of_file s (Index.nr_file u) ;
-  ue_pkg_refs : list (EstablishmentRef bp) ;
-  ue_pkg_refs_pin : ue_pkg_refs = package_env_refs bp ue_pkg ;
-  ue_block : option (BlockUseCtx bp u) ;
+  ue_block : option (BlockUseRef bp u) ;
   ue_block_pin : ue_block = locate_block_ctx bp u
 }.
-Arguments mk_use_env {p idx s d bp u} _ _ _ _ _ _.
+Arguments mk_use_env {p idx s d bp u} _ _ _ _.
 Arguments ue_pkg {p idx s d bp u} _.
 Arguments ue_pkg_pin {p idx s d bp u} _.
-Arguments ue_pkg_refs {p idx s d bp u} _.
-Arguments ue_pkg_refs_pin {p idx s d bp u} _.
 Arguments ue_block {p idx s d bp u} _.
 Arguments ue_block_pin {p idx s d bp u} _.
 
+Definition ue_pkg_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  : list (EstablishmentRef bp) := package_env_refs bp (ue_pkg ue).
+Definition ue_pkg_refs_pin {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  : ue_pkg_refs ue = package_env_refs bp (ue_pkg ue) := eq_refl.
+
 Definition use_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) : UseEnvironmentRef bp u :=
-  mk_use_env (PI.package_of_file s (Index.nr_file u)) eq_refl
-    (package_env_refs bp (PI.package_of_file s (Index.nr_file u))) eq_refl
-    (locate_block_ctx bp u) eq_refl.
+  mk_use_env (PI.package_of_file s (Index.nr_file u)) eq_refl (locate_block_ctx bp u) eq_refl.
 
 (* the visible occupancy members at this use: block-scoped name matches of pre-state plus gated current *)
 Definition bc_visible {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseCtx bp u)
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
   (n : Names.OrdinaryIdentifier) : list (EstablishmentRef bp) :=
   filter (fun er => same_block_cand n (es_est er)) (bc_pre bc ++ bc_cur bc).
 
@@ -3419,6 +3506,35 @@ Definition pkg_named {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx
   {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
   (n : Names.OrdinaryIdentifier) : list (EstablishmentRef bp) :=
   filter (fun er => Names.ordinary_equalb (est_name (es_est er)) n) (ue_pkg_refs ue).
+
+(* the exact visible groups over a use environment: local block-visible members and package members (§7.7) *)
+Record LocalVisibleGroupRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : Type := mk_local_visible {
+  lvg_members : list (EstablishmentRef bp) ;
+  lvg_ok : lvg_members = match ue_block ue with Some bc => bc_visible bc n | None => [] end
+}.
+Arguments mk_local_visible {p idx s d bp u ue n} _ _.
+Arguments lvg_members {p idx s d bp u ue n} _.
+Arguments lvg_ok {p idx s d bp u ue n} _.
+Definition local_visible_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : LocalVisibleGroupRef ue n :=
+  mk_local_visible _ eq_refl.
+
+Record PackageVisibleGroupRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : Type := mk_pkg_visible {
+  pvg_members : list (EstablishmentRef bp) ;
+  pvg_ok : pvg_members = pkg_named ue n
+}.
+Arguments mk_pkg_visible {p idx s d bp u ue n} _ _.
+Arguments pvg_members {p idx s d bp u ue n} _.
+Arguments pvg_ok {p idx s d bp u ue n} _.
+Definition package_visible_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : PackageVisibleGroupRef ue n :=
+  mk_pkg_visible _ eq_refl.
 
 (* a block-occupancy match at a trace's event is a member of that block's canonical group *)
 Lemma block_cand_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -3544,7 +3660,7 @@ Proof.
 Qed.
 
 Lemma block_group_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseCtx bp u)
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (bc : BlockUseRef bp u)
   (n : Names.OrdinaryIdentifier) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
   bc_visible bc n = er1 :: er2 :: rest ->
   2 <= length (group_refs bp (BlockScope (trow_block (bc_row bc))) n).
@@ -3707,7 +3823,7 @@ Qed.
 
 Lemma resolve_block_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseCtx bp u) :
+  (bc : BlockUseRef bp u) :
   locate_block_ctx bp u = Some bc ->
   bc_visible bc n = [] ->
   resolve bp u n = pkg_decide (use_env bp u) n.
@@ -3724,7 +3840,7 @@ Qed.
 (* a unique visible block member binds exactly; block visibility shadows the package *)
 Lemma resolve_block_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseCtx bp u) (er : EstablishmentRef bp) :
+  (bc : BlockUseRef bp u) (er : EstablishmentRef bp) :
   locate_block_ctx bp u = Some bc ->
   bc_visible bc n = [er] ->
   resolve bp u n = RBound (SourceBound er).
@@ -3743,7 +3859,7 @@ Qed.
 (* two visible members return the exact phase-owned redeclaration root; it binds no object *)
 Lemma resolve_block_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseCtx bp u) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
+  (bc : BlockUseRef bp u) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
   locate_block_ctx bp u = Some bc ->
   bc_visible bc n = er1 :: er2 :: rest ->
   exists rr : RedeclarationRef bp (BlockScope (trow_block (bc_row bc))) n,

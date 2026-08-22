@@ -609,6 +609,15 @@ typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spe
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sc : BN.ScopeId sf) (na nb : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sc na) : BN.RedeclarationRef bp sc nb := r.'
 typefail neg_bound_from_origin "a source binding object built from a bare DeclOrigin, not an establishment ref" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.BoundObject bp := BN.SourceBound o.'
+# — use-context and resolution identity: the exact use context, environment, current addition, and resolution are each pinned to their exact use/cut; none can be crossed —
+typefail neg_blockuse_cross_use "an exact block use context for use A used at use B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (bc : BN.BlockUseRef bp ua) : BN.BlockUseRef bp ub := bc.'
+typefail neg_useenv_cross_use "an exact use environment for use A used at use B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (ue : BN.UseEnvironmentRef bp ua) : BN.UseEnvironmentRef bp ub := ue.'
+typefail neg_resolved_cross_use "a resolution result for use A used at use B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.Resolved bp ua n) : BN.Resolved bp ub n := r.'
+typefail neg_curadd_cross_cut "a visible current addition at cut A used at cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (ca cb : BN.BlockCutRef tr) (u : IX.NodeRef (IX.index_program p)) (x : BN.CurAddRef ca u) : BN.CurAddRef cb u := x.'
 typefail neg_rbound_from_objectref "a resolution bound built from an idx-level ObjectRef, not a phase BoundObject" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (u : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (o : BN.ObjectRef (IX.index_program p)) : BN.Resolved bp u n := BN.RBound (BN.SourceObject o).'
 # — 11.8 raw/peer authority absence: every deleted prospective/transition/env route fails to RESOLVE —
@@ -1196,6 +1205,9 @@ Definition l_decl_lhs_ambiguous := @BN.decl_lhs_ambiguous.
 Definition l_decl_lhs_class := @BN.decl_lhs_class.
 Definition l_decl_judgment_ref := @BN.decl_judgment_ref.
 Definition l_decl_state_before := @BN.decl_state_before.
+Definition l_local_visible_group := @BN.local_visible_group.
+Definition l_package_visible_group := @BN.package_visible_group.
+Definition l_cur_add_refs := @BN.cur_add_refs.
 Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
