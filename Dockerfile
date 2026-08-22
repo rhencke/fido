@@ -556,22 +556,22 @@ typefail neg_evsite_block_invalid "a block event site at an ordinal without an i
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (tix eix : nat) : BN.EvSite bp := BN.BlockEventAt tix eix eq_refl.'
 typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
-# — short-left classification: each view is pinned to one exact statement and index (its correctness against the
-#   exact predecessor state is a phase-level projection, exercised in the positive fixture, not a stored field) —
-typefail neg_slj_cross_index "a left judgment for index 0 used as the judgment for index 1" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (j : BN.ShortLhsJudgment sf st 0) : BN.ShortLhsJudgment sf st 1 := j.'
-typefail neg_slj_cross_stmt "a left judgment of statement A used within statement B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (j : BN.ShortLhsJudgment sf s1 i) : BN.ShortLhsJudgment sf s2 i := j.'
+# — short-left classification: the exact classification is indexed by its exact left edge AND its exact
+#   predecessor state; a classification for one edge, or against one cut, cannot inhabit another's type —
+typefail neg_class_cross_edge "a short-left classification for one left edge used as another's" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (st : IX.ShortStmtRef (IX.index_program p)) (e0 : IX.ShortLhsEdge st 0) (e1 : IX.ShortLhsEdge st 1) (cl : BN.ShortLhsClass pre e0) : BN.ShortLhsClass pre e1 := cl.'
+typefail neg_class_cross_cut "a short-left classification against predecessor cut A used against cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (cl : BN.ShortLhsClass (BN.block_state c1) e) : BN.ShortLhsClass (BN.block_state c2) e := cl.'
 typefail neg_snr_cross_stmt "a ShortNew identity pairing statement A with statement B's exact edge" \
   'Definition forged (p : Syntax.Program) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge s2 i) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new s1 i e.'
 typefail neg_snr_cross_index "a ShortNew identity pairing index i with the edge at index j" \
   'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (H : i <> j) (e : IX.ShortLhsEdge st j) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new st i e.'
-typefail neg_short_empty_lefts "an inhabited short statement given an empty left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) : BN.ShortJudgment sf st := BN.mk_short_judgment nil eq_refl.'
-typefail neg_short_reordered_lefts "a reordered left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (j0 : BN.ShortLhsJudgment sf st 0) (j1 : BN.ShortLhsJudgment sf st 1) : BN.ShortJudgment sf st := BN.mk_short_judgment (cons (existT _ 1 j1) (cons (existT _ 0 j0) nil)) eq_refl.'
-typefail neg_raw_lefts_list "a raw list in place of the exact left-judgment table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (st : IX.ShortStmtRef (IX.index_program p)) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgment sf st := l.'
+typefail neg_jref_empty "an inhabited short statement's exact judgment given an empty left table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {st : IX.ShortStmtRef (IX.index_program p)} (se : BN.ShortEventRef bp st) : BN.ShortJudgmentRef se := BN.mk_short_jref nil eq_refl.'
+typefail neg_jref_raw_list "a raw node list in place of the exact left-classification table" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {st : IX.ShortStmtRef (IX.index_program p)} (se : BN.ShortEventRef bp st) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgmentRef se := BN.mk_short_jref l eq_refl.'
+typefail neg_member_cross_cut "a predecessor-state member at cut A used as a member at cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (mr : BN.BlockMemberRef (BN.block_state c1)) : BN.BlockMemberRef (BN.block_state c2) := mr.'
 typefail neg_explicit_for_inherited "an explicit judgment constructed for an inherited source shape" \
   'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := BN.CJExplicit _ eq_refl.'
 typefail neg_inherited_for_explicit "a first-inherited judgment constructed for an explicit source shape" \
@@ -882,21 +882,8 @@ Definition c_preds :
    classifications, and the exact count of its retained additions *)
 Definition ev_kind {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (ev : BN.BlockEv s) : nat :=
   match ev with BN.BEvExpr _ => 0 | BN.BEvDecl _ _ _ => 1 | BN.BEvShort _ _ => 2 end.
-Definition sv_tag {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (v : BN.ShortLhsView s) : nat :=
-  match v with
-  | BN.SVBlank => 0 | BN.SVDuplicate _ => 1 | BN.SVNew _ => 2
-  | BN.SVExistingVariable _ => 3 | BN.SVExistingNonVariable _ => 4 | BN.SVAmbiguous _ _ => 5
-  end.
-Definition ev_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (ev : BN.BlockEv s) : list nat :=
-  match ev with
-  | BN.BEvShort _ sj => map (fun x => sv_tag (BN.slj_view (projT2 x))) (BN.sj_lefts sj)
-  | _ => nil
-  end.
-Definition trace_lhs_tags {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : BN.PhaseData s} (bp : BN.BindingPhase s d) : list (list (list nat)) :=
-  map (fun tr => map ev_lhs_tags (BN.trow_evs tr)) (BN.bp_traces bp).
+(* short-left classification tags: verified type-level in the exact-judgment controls (contract section 11);
+   the exact judgment carries proof-bearing state refs, so vm_compute tagging over it is not used here *)
 Definition trace_add_counts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : BN.PhaseData s} (bp : BN.BindingPhase s d) : list (list nat) :=
   map (fun tr => map (fun ev => Datatypes.length (BN.bev_adds (BN.trow_block tr) ev)) (BN.trow_evs tr))
@@ -940,8 +927,6 @@ Definition p1bp := BN.bindings (PI.package_surface p1idx).
 (* one trace; three events: short(New), expr, expr *)
 Definition p1_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces p1bp)
   = cons (cons 2 (cons 0 (cons 0 nil))) nil := ltac:(vm_compute; reflexivity).
-Definition p1_lhs : trace_lhs_tags p1bp = cons (cons (cons 2 nil) (cons nil (cons nil nil))) nil
-  := ltac:(vm_compute; reflexivity).
 Definition p1_adds : trace_add_counts p1bp = cons (cons 1 (cons 0 (cons 0 nil))) nil
   := ltac:(vm_compute; reflexivity).
 Definition p1fr : Index.FileRef p1idx.
@@ -977,8 +962,6 @@ Definition p3_prog : Syntax.Program :=
        (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
 Definition p3idx := Index.index_program p3_prog.
 Definition p3bp := BN.bindings (PI.package_surface p3idx).
-Definition p3_lhs : trace_lhs_tags p3bp
-  = cons (cons (cons 2 nil) (cons (cons 3 (cons 2 nil)) nil)) nil := ltac:(vm_compute; reflexivity).
 Definition p3_adds : trace_add_counts p3bp = cons (cons 1 (cons 1 nil)) nil
   := ltac:(vm_compute; reflexivity).
 
@@ -993,8 +976,6 @@ Definition p4_prog : Syntax.Program :=
        (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2))) nil)))) nil).
 Definition p4idx := Index.index_program p4_prog.
 Definition p4bp := BN.bindings (PI.package_surface p4idx).
-Definition p4_lhs : trace_lhs_tags p4bp
-  = cons (cons nil (cons (cons 4 nil) nil)) nil := ltac:(vm_compute; reflexivity).
 Definition p4_adds : trace_add_counts p4bp = cons (cons 1 (cons 0 nil)) nil
   := ltac:(vm_compute; reflexivity).
 
@@ -1043,8 +1024,6 @@ Definition p6_prog : Syntax.Program :=
        (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
 Definition p6idx := Index.index_program p6_prog.
 Definition p6bp := BN.bindings (PI.package_surface p6idx).
-Definition p6_lhs : trace_lhs_tags p6bp
-  = cons (cons nil (cons (cons 3 (cons 2 nil)) nil)) nil := ltac:(vm_compute; reflexivity).
 
 (* fixture 7 (RHS pre-state): q := q — the RHS q is unbound; the addition exists only in the successor *)
 Definition p7_prog : Syntax.Program :=
@@ -1062,8 +1041,6 @@ Definition p7_rhs_unbound :
   | Some u => match BN.resolve p7bp u idq_ with BN.RUnbound => true | _ => false end
   | None => false
   end = true := ltac:(vm_compute; reflexivity).
-Definition p7_lhs_new : trace_lhs_tags p7bp = cons (cons (cons 2 nil) nil) nil
-  := ltac:(vm_compute; reflexivity).
 
 (* fixture 8 (blank and duplicate): x, _, x := 1, 2, 3 — blank creates nothing, the repeat is Duplicate,
    and the event adds exactly one member (the first x) *)
@@ -1077,8 +1054,6 @@ Definition p8_prog : Syntax.Program :=
                (Collections.MakeNonEmpty (EILIT 1) (cons (EILIT 2) (cons (EILIT 3) nil)))) nil))) nil).
 Definition p8idx := Index.index_program p8_prog.
 Definition p8bp := BN.bindings (PI.package_surface p8idx).
-Definition p8_lhs : trace_lhs_tags p8bp = cons (cons (cons 2 (cons 0 (cons 1 nil))) nil) nil
-  := ltac:(vm_compute; reflexivity).
 Definition p8_adds : trace_add_counts p8bp = cons (cons 1 nil) nil := ltac:(vm_compute; reflexivity).
 
 (* fixture 10 (block isolation) + fixture 12 (package main group): two main bodies each declaring x
@@ -1208,7 +1183,6 @@ Definition l_short_lhs_new := @BN.short_lhs_new.
 Definition l_short_lhs_existing := @BN.short_lhs_existing.
 Definition l_short_lhs_duplicate := @BN.short_lhs_duplicate.
 Definition l_short_lhs_ambiguous := @BN.short_lhs_ambiguous.
-Definition l_short_lhs_cases := @BN.short_lhs_cases.
 Definition l_decl_lhs_blank := @BN.decl_lhs_blank.
 Definition l_decl_lhs_fresh := @BN.decl_lhs_fresh.
 Definition l_decl_lhs_redeclared := @BN.decl_lhs_redeclared.
@@ -1218,7 +1192,8 @@ Definition l_decl_lhs_cases := @BN.decl_lhs_cases.
 Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
-Definition l_short_judgment_pre_state := @BN.short_judgment_pre_state.
+Definition l_short_judgment_ref := @BN.short_judgment_ref.
+Definition l_short_lhs_class := @BN.short_lhs_class.
 Definition l_new_est_vstart := @BN.new_est_vstart.
 Definition l_object_view := @BN.object_view.
 Definition l_use_env := @BN.use_env.

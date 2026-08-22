@@ -440,7 +440,7 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
       end
   | Index.VStmt (Index.SSShort nn nv) => fun Hv =>
       (* a short declaration: a repeated left name is invalid; otherwise its later meaning is a boundary *)
-      match BN.short_stmt_dup_name bp (Index.mkShortStmtRef r nn nv Hv) with
+      match BN.short_stmt_dup_name (Index.mkShortStmtRef r nn nv Hv) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
