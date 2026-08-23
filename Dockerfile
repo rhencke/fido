@@ -605,6 +605,12 @@ typefail neg_groupstate_cross_cut "a group-at-state from cut j used as the group
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (ci cj : BN.BlockCutRef tr) (H : ci <> cj) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef cj n) : BN.GroupAtStateRef ci n := g.'
 typefail neg_groupstate_forged "a group-at-state forged from a caller-supplied member list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (c : BN.BlockCutRef tr) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef c n := BN.mk_group_at_state l eq_refl.'
+typefail neg_groupstatus_absent_nonempty "a nonempty visible group forged as absent" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m :: rest) := BN.GroupAbsent.'
+typefail neg_groupstatus_unique_two "a two-member visible group forged as a unique member" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m1 m2 : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m1 :: m2 :: rest) := BN.GroupUnique m1.'
+typefail neg_groupstatus_redecl_singleton "a singleton visible group forged as redeclared" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m m1 m2 : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m :: nil) := BN.GroupRedeclared m1 m2 rest.'
 typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
 typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
