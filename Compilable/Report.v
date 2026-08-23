@@ -10,7 +10,7 @@ Module AN := Compilable.Analysis.
 
 (* Report owns no cause, severity, order, or fallback: every member and its order is exactly Analysis's. *)
 Section Project.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp).
 
 Definition Diagnostic : Type := AN.Diagnostic s.
@@ -20,7 +20,7 @@ Definition boundaries : list Boundary := AN.boundaries fp.
 
 (* member projections: each reads the exact field the Analysis row already retains, never a reread or reconstruction *)
 Definition diag_cause (d : Diagnostic) : AN.IssueCause s := AN.diag_cause d.
-Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) := AN.diag_related d.
+Definition diag_related (d : Diagnostic) : list (Index.Core.NodeRef idx) := AN.diag_related d.
 Definition diag_root (d : Diagnostic) : AN.IssueRoot s := AN.diag_root d.
 Definition bound_req (b : Boundary) : AN.Requirement idx := AN.bound_req b.
 Definition bound_root (b : Boundary) : AN.IssueRoot s := AN.bound_root b.
@@ -56,7 +56,7 @@ Definition issue_root {r : AN.Result p} (i : AN.Issue (AN.res_surface r)) : AN.I
 Definition issue_family {r : AN.Result p} (i : AN.Issue (AN.res_surface r)) : option AN.Family := AN.issue_family i.
 Definition issue_cause_or_req {r : AN.Result p} (i : AN.Issue (AN.res_surface r))
   : AN.IssueCause (AN.res_surface r) + AN.Requirement (AN.res_index r) := AN.issue_cause_or_req i.
-Definition issue_related {r : AN.Result p} (i : AN.Issue (AN.res_surface r)) : list (Index.NodeRef (AN.res_index r)) := AN.issue_related i.
+Definition issue_related {r : AN.Result p} (i : AN.Issue (AN.res_surface r)) : list (Index.Core.NodeRef (AN.res_index r)) := AN.issue_related i.
 Definition iref_diagnostic {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Diagnostic (AN.res_surface r)) := AN.iref_diagnostic ref.
 Definition iref_boundary {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Boundary (AN.res_surface r)) := AN.iref_boundary ref.
 

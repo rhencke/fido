@@ -7,26 +7,26 @@ Import ListNotations.
 Module TR := Compilable.TypeResolution.
 Module BN := Compilable.Bindings.
 
-Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
+Inductive Cause {p} (idx : Index.Core.ProgramIndex p) : Type :=
 | InvalidIdentity : Names.PredeclaredName -> Cause idx
-| UnresolvedName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Cause idx
+| UnresolvedName : Names.OrdinaryIdentifier -> Index.Core.NodeRef idx -> Cause idx
 | TypeAsValue : BN.ObjectRef idx -> Cause idx
 | NotAType : BN.ObjectRef idx -> Cause idx
 | NotCallable : BN.ObjectRef idx -> Cause idx
-| NotCallableExpr : Index.NodeRef idx -> Cause idx
+| NotCallableExpr : Index.Core.NodeRef idx -> Cause idx
 | ConversionArity : Names.PredeclaredName -> nat -> Cause idx
 | ComplexArity : nat -> Cause idx
-| ComplexMismatch : Index.NodeRef idx -> Index.NodeRef idx -> Cause idx
-| UnaryMismatch : Index.NodeRef idx -> Cause idx
-| ConversionOverflow : TR.TypeForm -> Index.NodeRef idx -> Cause idx
-| ConversionNotRepresentable : TR.TypeForm -> Index.NodeRef idx -> Cause idx
+| ComplexMismatch : Index.Core.NodeRef idx -> Index.Core.NodeRef idx -> Cause idx
+| UnaryMismatch : Index.Core.NodeRef idx -> Cause idx
+| ConversionOverflow : TR.TypeForm -> Index.Core.NodeRef idx -> Cause idx
+| ConversionNotRepresentable : TR.TypeForm -> Index.Core.NodeRef idx -> Cause idx
 | DefaultOverflow : TR.Constant -> Cause idx
 | NoValueUsed : Cause idx
 | IllegalStatement : Cause idx
-| ConstMissingInit : { c : Index.SpecRef idx Index.ConstSpecF & BN.ConstJudgment c } -> Cause idx
+| ConstMissingInit : { c : Index.Refs.SpecRef idx Index.Model.ConstSpecF & BN.ConstJudgment c } -> Cause idx
 | ResultCountMismatch : nat -> nat -> Cause idx
 | ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx
-| MainArity : BN.FunctionDeclRef idx -> list (Index.NodeRef idx) -> nat -> Cause idx.
+| MainArity : BN.FunctionDeclRef idx -> list (Index.Core.NodeRef idx) -> nat -> Cause idx.
 Arguments InvalidIdentity {p idx} _. Arguments UnresolvedName {p idx} _ _.
 Arguments TypeAsValue {p idx} _. Arguments NotAType {p idx} _.
 Arguments NotCallable {p idx} _. Arguments NotCallableExpr {p idx} _.
@@ -37,30 +37,30 @@ Arguments DefaultOverflow {p idx} _. Arguments NoValueUsed {p idx}. Arguments Il
 Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
 Arguments MainArity {p idx} _ _ _.
 
-Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
+Inductive Requirement {p} (idx : Index.Core.ProgramIndex p) : Type :=
 | ReqValueMeaning : BN.DeclOrigin idx -> Requirement idx
 | ReqTypeMeaning : BN.ObjectRef idx -> Requirement idx
-| ReqComplexType : Index.NodeRef idx -> Requirement idx
-| ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
-| ReqMainUse : Index.MainOccurrenceRef idx -> Requirement idx
-| ReqConstDecl : { c : Index.SpecRef idx Index.ConstSpecF & BN.ConstJudgment c } -> Requirement idx
-| ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
+| ReqComplexType : Index.Core.NodeRef idx -> Requirement idx
+| ReqApplication : Names.PredeclaredName -> list (Index.Core.NodeRef idx) -> Requirement idx
+| ReqMainUse : Index.Refs.MainOccurrenceRef idx -> Requirement idx
+| ReqConstDecl : { c : Index.Refs.SpecRef idx Index.Model.ConstSpecF & BN.ConstJudgment c } -> Requirement idx
+| ReqDeclMeaning : Index.Core.NodeRef idx -> Requirement idx.
 Arguments ReqDeclMeaning {p idx} _.
 Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
 Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
 Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
-Inductive Dependency {p} (idx : Index.ProgramIndex p) : Type :=
-| DepRedeclaredName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
-| DepUnboundName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
-| DepInvalidId : Names.PredeclaredName -> Index.NodeRef idx -> Dependency idx
-| DepChild : Index.NodeRef idx -> Dependency idx.
+Inductive Dependency {p} (idx : Index.Core.ProgramIndex p) : Type :=
+| DepRedeclaredName : Names.OrdinaryIdentifier -> Index.Core.NodeRef idx -> Dependency idx
+| DepUnboundName : Names.OrdinaryIdentifier -> Index.Core.NodeRef idx -> Dependency idx
+| DepInvalidId : Names.PredeclaredName -> Index.Core.NodeRef idx -> Dependency idx
+| DepChild : Index.Core.NodeRef idx -> Dependency idx.
 Arguments DepRedeclaredName {p idx} _ _. Arguments DepUnboundName {p idx} _ _.
 Arguments DepInvalidId {p idx} _ _. Arguments DepChild {p idx} _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
-Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
+Inductive ValueOutcome {p} {idx : Index.Core.ProgramIndex p} (site : Index.Core.NodeRef idx) : Type :=
 | VOK : TR.ResolvedConstant -> ValueOutcome site
 | VNonconst : ValueOutcome site
 | VInvalid : Cause idx -> ValueOutcome site
@@ -69,7 +69,7 @@ Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef id
 Arguments VOK {p idx site} _. Arguments VNonconst {p idx site}.
 Arguments VInvalid {p idx site} _. Arguments VUnmet {p idx site} _. Arguments VDependent {p idx site} _.
 
-Inductive AppOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
+Inductive AppOutcome {p} {idx : Index.Core.ProgramIndex p} (site : Index.Core.NodeRef idx) : Type :=
 | AOK : AppOutcome site
 | AInvalid : Cause idx -> AppOutcome site
 | AUnmet : Requirement idx -> AppOutcome site
@@ -77,7 +77,7 @@ Inductive AppOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx)
 Arguments AOK {p idx site}. Arguments AInvalid {p idx site} _.
 Arguments AUnmet {p idx site} _. Arguments ADependent {p idx site} _.
 
-Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
+Inductive StmtOutcome {p} {idx : Index.Core.ProgramIndex p} (site : Index.Core.NodeRef idx) : Type :=
 | SOK : StmtOutcome site
 | SInvalid : Cause idx -> StmtOutcome site
 | SUnmet : Requirement idx -> StmtOutcome site
@@ -85,7 +85,7 @@ Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx
 Arguments SOK {p idx site}. Arguments SInvalid {p idx site} _.
 Arguments SUnmet {p idx site} _. Arguments SDependent {p idx site} _.
 
-Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
+Inductive TypeUseOutcome {p} {idx : Index.Core.ProgramIndex p} (site : Index.Core.NodeRef idx) : Type :=
 | TOK : TR.TypeForm -> TypeUseOutcome site
 | TInvalid : Cause idx -> TypeUseOutcome site
 | TUnmet : Requirement idx -> TypeUseOutcome site
@@ -113,10 +113,10 @@ Definition pmeaning (n : Names.PredeclaredName) : PMeaning :=
   end.
 
 Section OverPhase.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the form/value meaning of a name at a use, for constant folding; None for anything without one *)
-Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : option TR.NameMeaning :=
+Definition nm_at (use : Index.Core.NodeRef idx) (n : Names.OrdinaryIdentifier) : option TR.NameMeaning :=
   match BN.resolution_object_view (BN.resolve bp use n) with
   | Some o =>
       match o with
@@ -158,19 +158,19 @@ Definition complex_class (cre cim : TR.ConstantInfo) : ComplexClass :=
   | _, _ => CxDefer
   end.
 
-Definition mconst (m : Collections.NodeMap.t (option TR.ConstantInfo)) (rc : Index.NodeRef idx)
+Definition mconst (m : Collections.NodeMap.t (option TR.ConstantInfo)) (rc : Index.Core.NodeRef idx)
   : option TR.ConstantInfo :=
-  match Collections.NodeMap.find (Index.nr_key rc) m with Some oc => oc | None => None end.
-Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  match Collections.NodeMap.find (Index.Core.nr_key rc) m with Some oc => oc | None => None end.
+Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.Core.NodeRef idx)
   : option TR.ConstantInfo :=
-  match Index.node_view r as v return Index.node_view r = v -> option TR.ConstantInfo with
-  | Index.VName n => fun _ =>
+  match Index.Core.node_view r as v return Index.Core.node_view r = v -> option TR.ConstantInfo with
+  | Index.Model.VName n => fun _ =>
       match nm_at r n with Some (TR.NMValueConstant c) => Some (TR.mk_cinfo c TR.Untyped) | _ => None end
-  | Index.VLiteral (Syntax.IntegerLiteral k) => fun _ => Some (TR.mk_cinfo (TR.CInt (Z.of_N k)) TR.Untyped)
-  | Index.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
-  | Index.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
-  | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst m (Index.uo_child (Index.unary_operand (Index.mkUnaryRef r Syntax.UnaryMinus Hv))) with
+  | Index.Model.VLiteral (Syntax.IntegerLiteral k) => fun _ => Some (TR.mk_cinfo (TR.CInt (Z.of_N k)) TR.Untyped)
+  | Index.Model.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
+  | Index.Model.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
+  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
+      match mconst m (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some ci =>
           match TR.constant_neg (TR.ci_const ci) with
           | Some c' =>
@@ -186,10 +186,10 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
           end
       | None => None
       end
-  | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
-      | Index.VName h =>
-          match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
+  | Index.Model.VApplication => fun Hv =>
+      match Index.Core.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) with
+      | Index.Model.VName h =>
+          match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
           | x :: nil =>
               match nm_at r h with
               | Some (TR.NMConversionForm t) =>
@@ -224,25 +224,25 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
   | _ => fun _ => None
   end eq_refl.
 (* the file's constants folded in descending position order — children before parents (file_nodes is trie order) *)
-Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t (option TR.ConstantInfo) :=
+Definition const_table (fr : Index.Core.FileRef idx) : Collections.NodeMap.t (option TR.ConstantInfo) :=
   fold_left (fun m pos =>
-               match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-               | Some r => Collections.NodeMap.add (Index.nr_key r) (node_const m r) m
+               match Index.Core.mk_noderef fr (Pos.of_succ_nat pos) with
+               | Some r => Collections.NodeMap.add (Index.Core.nr_key r) (node_const m r) m
                | None => m
                end)
-            (rev (seq 0 (Index.occ_count fr))) (Collections.NodeMap.empty _).
+            (rev (seq 0 (Index.Core.occ_count fr))) (Collections.NodeMap.empty _).
 (* role decides value-use: an application head is a callee, not a value; expr-statement exprs go to own_stmt *)
-Definition is_app_head (r : Index.NodeRef idx) : bool :=
-  match Index.node_role r with Index.RApplicationHead => true | _ => false end.
-Definition value_ctx (r : Index.NodeRef idx) : bool :=
-  match Index.node_role r with Index.RApplicationHead => false | Index.RExprStatementExpr => false | _ => true end.
+Definition is_app_head (r : Index.Core.NodeRef idx) : bool :=
+  match Index.Core.node_role r with Index.Model.RApplicationHead => true | _ => false end.
+Definition value_ctx (r : Index.Core.NodeRef idx) : bool :=
+  match Index.Core.node_role r with Index.Model.RApplicationHead => false | Index.Model.RExprStatementExpr => false | _ => true end.
 
 (* a conversion/complex head folds its argument, so a folded value's default-int type is never forced *)
-Definition head_folds (par : Index.NodeRef idx) : bool :=
-  match Index.node_view par as v return Index.node_view par = v -> bool with
-  | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef par Hv))) with
-      | Index.VName h =>
+Definition head_folds (par : Index.Core.NodeRef idx) : bool :=
+  match Index.Core.node_view par as v return Index.Core.node_view par = v -> bool with
+  | Index.Model.VApplication => fun Hv =>
+      match Index.Core.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef par Hv))) with
+      | Index.Model.VName h =>
           match BN.resolution_object_view (BN.resolve bp par h) with
           | Some o =>
               match o with
@@ -256,30 +256,30 @@ Definition head_folds (par : Index.NodeRef idx) : bool :=
       end
   | _ => fun _ => false
   end eq_refl.
-Definition fold_consumed (r : Index.NodeRef idx) : bool :=
-  match Index.node_role r with
-  | Index.RUnaryOperand => true
-  | Index.RApplicationArg _ => match Index.node_parent r with Some par => head_folds par | None => false end
+Definition fold_consumed (r : Index.Core.NodeRef idx) : bool :=
+  match Index.Core.node_role r with
+  | Index.Model.RUnaryOperand => true
+  | Index.Model.RApplicationArg _ => match Index.Core.node_parent r with Some par => head_folds par | None => false end
   | _ => false
   end.
 
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
-Definition const_spec_disposition (cs : Index.SpecRef idx Index.ConstSpecF) : ValueOutcome (Index.sp_node cs) :=
+Definition const_spec_disposition (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF) : ValueOutcome (Index.Refs.sp_node cs) :=
   let row := BN.cjr_row (BN.const_spec_judgment bp cs) in
-  match Index.sp_shape cs with
-  | Index.CSExplicit _ nn nv =>
+  match Index.Refs.sp_shape cs with
+  | Index.Model.CSExplicit _ nn nv =>
       if Nat.eqb nn nv then VUnmet (ReqConstDecl row) else VInvalid (ResultCountMismatch nn nv)
-  | Index.CSInherited _ =>
+  | Index.Model.CSInherited _ =>
       match projT2 row with
       | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit row)
       | _ => VUnmet (ReqConstDecl row)
       end
   end.
 
-Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> ValueOutcome r with
-  | Index.VName n => fun _ =>
+Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.Core.NodeRef idx) : ValueOutcome r :=
+  match Index.Core.node_view r as v return Index.Core.node_view r = v -> ValueOutcome r with
+  | Index.Model.VName n => fun _ =>
       let r0 := BN.resolve bp r n in
       match BN.resolution_object_view r0 with
       | Some o =>
@@ -300,7 +300,7 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           | None => VInvalid (UnresolvedName n r)
           end
       end
-  | Index.VLiteral _ => fun _ =>
+  | Index.Model.VLiteral _ => fun _ =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
@@ -308,8 +308,8 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
                    end
       | None => VNonconst
       end
-  | Index.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst ctab (Index.uo_child (Index.unary_operand (Index.mkUnaryRef r Syntax.UnaryMinus Hv))) with
+  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
+      match mconst ctab (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some _ =>
           match mconst ctab r with
           | Some ci => match resolve_constant_info ci with
@@ -320,15 +320,15 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           end
       | None => VNonconst
       end
-  | Index.VApplication => fun Hv =>
-      match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
-      | Index.VName h =>
+  | Index.Model.VApplication => fun Hv =>
+      match Index.Core.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) with
+      | Index.Model.VName h =>
           let r0 := BN.resolve bp r h in
           match BN.resolution_object_view r0 with
           | Some o =>
               match o with
               | BN.PredeclaredObject pn =>
-              match pmeaning pn, map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
+              match pmeaning pn, map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
               | PMConvForm t, x :: nil =>
                   match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
@@ -364,41 +364,41 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       | _ => VNonconst
       end
   (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
-  | Index.VConstSpec sh => fun Hv => const_spec_disposition (Index.mkSpecRef (fl := Index.ConstSpecF) r sh Hv)
-  | Index.VVarSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
-  | Index.VTypeSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
+  | Index.Model.VConstSpec sh => fun Hv => const_spec_disposition (Index.Refs.mkSpecRef (fl := Index.Model.ConstSpecF) r sh Hv)
+  | Index.Model.VVarSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
+  | Index.Model.VTypeSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
   | _ => fun _ => VNonconst
   end eq_refl.
 
-Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> AppOutcome r with
-  | Index.VApplication => fun Hv =>
-      let hd := Index.ah_child (Index.app_head (Index.mkAppRef r Hv)) in
-      match Index.node_view hd with
-      | Index.VName h =>
+Definition own_app (r : Index.Core.NodeRef idx) : AppOutcome r :=
+  match Index.Core.node_view r as v return Index.Core.node_view r = v -> AppOutcome r with
+  | Index.Model.VApplication => fun Hv =>
+      let hd := Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv)) in
+      match Index.Core.node_view hd with
+      | Index.Model.VName h =>
           let r0 := BN.resolve bp r h in
           match BN.resolution_object_view r0 with
           | Some o =>
               match o with
               | BN.PredeclaredObject pn =>
               match pmeaning pn with
-              | PMConvForm _ => match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))) end
+              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)))))
+                  | _ => AInvalid (ComplexArity (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)))))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
               | PMInvalidId => ADependent (DepInvalidId pn hd)
-              | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))
+              | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))
               end
           | BN.SourceObject (BN.DOBinder b) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
           | BN.SourceObject (BN.DOShort sn) => AInvalid (NotCallable (BN.SourceObject (BN.DOShort sn)))
           | BN.SourceObject (BN.DOFunc f) =>
               (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
-              match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
+              match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
               | nil => AOK
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
@@ -415,27 +415,27 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
   end eq_refl.
 
 (* the dependency when a statement's expr already owns an invalidity, unmet requirement, or a dependent non-result *)
-Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : option (Dependency idx) :=
+Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.Core.NodeRef idx) : option (Dependency idx) :=
   match own_value ctab e with
   | VInvalid _ | VUnmet _ | VDependent _ => Some (DepChild e)
-  | _ => match Index.node_view e with
-         | Index.VApplication => match own_app e with AInvalid _ | AUnmet _ | ADependent _ => Some (DepChild e) | _ => None end
+  | _ => match Index.Core.node_view e with
+         | Index.Model.VApplication => match own_app e with AInvalid _ | AUnmet _ | ADependent _ => Some (DepChild e) | _ => None end
          | _ => None
          end
   end.
 
 (* an expr-statement defers to an expr that owns an issue; otherwise it is a legal call statement or an illegal one *)
-Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
-  | Index.VStmt Index.SSExpr => fun Hv =>
-      let e := Index.ee_child (Index.exprstmt_expr (Index.mkExprStmtRef r Hv)) in
+Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.Core.NodeRef idx) : StmtOutcome r :=
+  match Index.Core.node_view r as v return Index.Core.node_view r = v -> StmtOutcome r with
+  | Index.Model.VStmt Index.Model.SSExpr => fun Hv =>
+      let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
       match expr_dependency ctab e with
       | Some d => SDependent d
       | None =>
-          match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
-          | Index.VApplication => fun He =>
-              match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef e He))) with
-              | Index.VName h =>
+          match Index.Core.node_view e as ve return Index.Core.node_view e = ve -> StmtOutcome r with
+          | Index.Model.VApplication => fun He =>
+              match Index.Core.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef e He))) with
+              | Index.Model.VName h =>
                   match BN.resolution_object_view (BN.resolve bp r h) with
                   | Some o =>
                       match o with
@@ -450,9 +450,9 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           | _ => fun _ => SInvalid IllegalStatement
           end eq_refl
       end
-  | Index.VStmt (Index.SSShort nn nv) => fun Hv =>
+  | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
       (* a short declaration: the exact duplicate decision names any repeated left as invalid *)
-      match BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.mkShortStmtRef r nn nv Hv))) with
+      match BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
@@ -464,9 +464,9 @@ Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
   match pn with Names.PUintptr | Names.PAny | Names.PComparable | Names.PError => true | _ => false end.
 
 (* a type use resolves its name: modelled type is its form, unmodelled real type a boundary, else invalid *)
-Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
-  match Index.node_view r with
-  | Index.VTypeExpr (Syntax.NamedType n) =>
+Definition own_type (r : Index.Core.NodeRef idx) : TypeUseOutcome r :=
+  match Index.Core.node_view r with
+  | Index.Model.VTypeExpr (Syntax.NamedType n) =>
       let r0 := BN.resolve bp r n in
       match BN.resolution_object_view r0 with
       | Some o =>
@@ -494,58 +494,58 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
 End OverPhase.
 
 (* one applicability-first fact per applicable family; an application carries disjoint callability and value facts *)
-Inductive OccFact {p} {idx : Index.ProgramIndex p} : Type :=
-| OFValue : forall r : Index.NodeRef idx, ValueOutcome r -> OccFact
-| OFApp   : forall r : Index.NodeRef idx, AppOutcome r -> OccFact
-| OFStmt  : forall r : Index.NodeRef idx, StmtOutcome r -> OccFact
-| OFType  : forall r : Index.NodeRef idx, TypeUseOutcome r -> OccFact.
+Inductive OccFact {p} {idx : Index.Core.ProgramIndex p} : Type :=
+| OFValue : forall r : Index.Core.NodeRef idx, ValueOutcome r -> OccFact
+| OFApp   : forall r : Index.Core.NodeRef idx, AppOutcome r -> OccFact
+| OFStmt  : forall r : Index.Core.NodeRef idx, StmtOutcome r -> OccFact
+| OFType  : forall r : Index.Core.NodeRef idx, TypeUseOutcome r -> OccFact.
 Arguments OccFact {p} idx.
 Arguments OFValue {p idx} _ _. Arguments OFApp {p idx} _ _.
 Arguments OFStmt {p idx} _ _. Arguments OFType {p idx} _ _.
 
 Section Retain.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
-Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact idx) :=
-  match Index.node_view r with
-  | Index.VName _ | Index.VLiteral _ | Index.VUnary _ => [OFValue r (own_value bp ctab r)]
-  | Index.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
-  | Index.VStmt Index.SSExpr => [OFStmt r (own_stmt bp ctab r)]
-  | Index.VStmt (Index.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
-  | Index.VTypeExpr _ => [OFType r (own_type bp r)]
-  | Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
+Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.Core.NodeRef idx) : list (OccFact idx) :=
+  match Index.Core.node_view r with
+  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
+  | Index.Model.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
+  | Index.Model.VStmt Index.Model.SSExpr => [OFStmt r (own_stmt bp ctab r)]
+  | Index.Model.VStmt (Index.Model.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
+  | Index.Model.VTypeExpr _ => [OFType r (own_type bp r)]
+  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
   | _ => []
   end.
 
 (* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
-Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome r') :
-  In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.VApplication.
+Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.Core.NodeRef idx) (o : AppOutcome r') :
+  In (OFApp r' o) (occ_facts ctab r) -> Index.Core.node_view r = Index.Model.VApplication.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.Core.node_view r); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ reflexivity | exfalso; intuition discriminate ].
 Qed.
 (* nonapplicability: occ_facts retains a statement fact only at a statement role *)
-Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome r') :
-  In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.VStmt st.
+Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.Core.NodeRef idx) (o : StmtOutcome r') :
+  In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.Core.node_view r = Index.Model.VStmt st.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.Core.node_view r); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
 (* nonapplicability: occ_facts retains a type-use fact only at a type-use role *)
-Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome r') :
-  In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.VTypeExpr t.
+Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.Core.NodeRef idx) (o : TypeUseOutcome r') :
+  In (OFType r' o) (occ_facts ctab r) -> exists t, Index.Core.node_view r = Index.Model.VTypeExpr t.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.Core.node_view r); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
 
 (* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
 Definition raw_facts : list (OccFact idx) :=
-  flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
+  flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.Core.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
 Definition FactPhase : Type := { m : list (OccFact idx) | m = raw_facts }.
@@ -559,14 +559,14 @@ Arguments facts {p idx s bd} bp.
 Arguments fact_list {p idx s bd bp} _.
 
 Section Laws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the phase content is built once; every phase carries exactly the canonical classification, none caller-supplied *)
 Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
 Proof. exact (proj2_sig fp). Qed.
 
 (* statement and type-use families have no Nonconst constructor: OK / invalid / unmet / dependent exhaust each *)
-Lemma only_lawful_per_family (r : Index.NodeRef idx) :
+Lemma only_lawful_per_family (r : Index.Core.NodeRef idx) :
   (forall o : StmtOutcome r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q) \/ (exists d, o = SDependent d))
   /\ (forall o : TypeUseOutcome r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q) \/ (exists d, o = TDependent d)).
 Proof.
@@ -585,14 +585,14 @@ End Laws.
 
 (* the fresh-build preflight: naming and root entries are PackageIdentity facts; Analysis owns only the collision *)
 
-Inductive FreshBuildDisposition {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+Inductive FreshBuildDisposition {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | FreshOk : FreshBuildDisposition s
 | FreshCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> FreshBuildDisposition s.
 Arguments FreshOk {p idx s}.
 Arguments FreshCollision {p idx s} _ _.
 
 (* collision applicability is exactly OneSelected, independent of any package's main multiplicity *)
-Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Definition raw_preflight {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : FreshBuildDisposition s :=
   let _ := bp in
   match BN.PI.package_selection s with
@@ -606,27 +606,27 @@ Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
   | _ => FreshOk
   end.
 
-Definition PackageFacts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Definition PackageFacts {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : Type := { d : FreshBuildDisposition s | d = raw_preflight bp }.
-Definition package_facts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Definition package_facts {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : PackageFacts bp := exist _ (raw_preflight bp) eq_refl.
-Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Definition preflight {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) : FreshBuildDisposition s := proj1_sig pf.
-Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Definition package_rule {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 
-Lemma package_rule_is_projection {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Lemma package_rule_is_projection {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) :
   package_rule pf pr = BN.package_main bp pr.
 Proof. reflexivity. Qed.
 
-Lemma packages_consume_one_surface {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Lemma packages_consume_one_surface {p} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
 Proof. exact (proj2_sig pf). Qed.
 
 (* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
 Record Result (p : Syntax.Program) : Type := mk_result {
-  res_index     : Index.ProgramIndex p ;
+  res_index     : Index.Core.ProgramIndex p ;
   res_surface   : BN.PI.PackageSurface res_index ;
   res_bind_data : BN.PhaseData res_surface ;
   res_binds     : BN.BindingPhase res_surface res_bind_data ;
@@ -639,7 +639,7 @@ Arguments res_bind_data {p} _. Arguments res_binds {p} _.
 Arguments res_facts {p} _. Arguments res_pkg {p} _.
 
 Definition analyze (p : Syntax.Program) : Result p :=
-  let i := Index.index_program p in
+  let i := Index.Core.index_program p in
   let s := BN.PI.package_surface i in
   let b := BN.bindings s in
   mk_result i s (BN.phase_data s) b (facts b) (package_facts b).
@@ -648,8 +648,8 @@ Definition analyze (p : Syntax.Program) : Result p :=
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
 
 (* an issue roots at an exact node, an exact package, or an exact declaration group; never a self-fallback *)
-Inductive IssueRoot {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| RootNode : Index.NodeRef idx -> IssueRoot s
+Inductive IssueRoot {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+| RootNode : Index.Core.NodeRef idx -> IssueRoot s
 | RootPackage : BN.PI.PackageRef s -> IssueRoot s
 | RootGroup : BN.DeclarationGroupRef s -> IssueRoot s.
 Arguments RootNode {p idx s} _.
@@ -657,23 +657,23 @@ Arguments RootPackage {p idx s} _.
 Arguments RootGroup {p idx s} _.
 
 (* the exact diagnostics: an occurrence invalidity, a missing fixed main, an output collision, a redeclared group *)
-Inductive Diagnostic {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| DOcc : Index.NodeRef idx -> Family -> Cause idx -> Diagnostic s
+Inductive Diagnostic {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+| DOcc : Index.Core.NodeRef idx -> Family -> Cause idx -> Diagnostic s
 | DMissingMain : BN.PI.PackageRef s -> Diagnostic s
 | DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic s
-| DRedeclaredGroup : BN.DeclarationGroupRef s -> list (Index.NodeRef idx) -> Diagnostic s.
+| DRedeclaredGroup : BN.DeclarationGroupRef s -> list (Index.Core.NodeRef idx) -> Diagnostic s.
 Arguments DOcc {p idx s} _ _ _.
 Arguments DMissingMain {p idx s} _.
 Arguments DOutputCollision {p idx s} _ _.
 Arguments DRedeclaredGroup {p idx s} _ _.
 
 (* the exact boundaries: an occurrence-family unmet requirement, retaining its subject, family, and requirement *)
-Inductive Boundary {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| BOcc : Index.NodeRef idx -> Family -> Requirement idx -> Boundary s.
+Inductive Boundary {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+| BOcc : Index.Core.NodeRef idx -> Family -> Requirement idx -> Boundary s.
 Arguments BOcc {p idx s} _ _ _.
 
 (* the issue cause a reader projects from a diagnostic row, exactly as retained, never re-derived from a weaker site *)
-Inductive IssueCause {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+Inductive IssueCause {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | OccCause : Cause idx -> IssueCause s
 | MissingMainCause : BN.PI.PackageRef s -> IssueCause s
 | OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause s
@@ -684,7 +684,7 @@ Arguments OutputCollisionCause {p idx s} _ _.
 Arguments RedeclaredGroupCause {p idx s} _.
 
 Section IssueProjections.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
 
 (* the cause a row retains: a plain field read of the exact object stored at construction, not a reconstruction *)
 Definition diag_cause (d : Diagnostic s) : IssueCause s :=
@@ -696,7 +696,7 @@ Definition diag_cause (d : Diagnostic s) : IssueCause s :=
   end.
 Definition diag_family (d : Diagnostic s) : option Family := match d with DOcc _ f _ => Some f | _ => None end.
 (* the exact related nodes a row retains: a complex mismatch's two sides, or a group's members and use contexts *)
-Definition diag_related (d : Diagnostic s) : list (Index.NodeRef idx) :=
+Definition diag_related (d : Diagnostic s) : list (Index.Core.NodeRef idx) :=
   match d with
   | DOcc _ _ (ComplexMismatch a b) => [a; b]
   | DRedeclaredGroup g ctxs => map BN.est_node (BN.dg_members g) ++ ctxs
@@ -716,7 +716,7 @@ Definition bound_root (b : Boundary s) : IssueRoot s := match b with BOcc r _ _ 
 End IssueProjections.
 
 Section IssueTable.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the semantic family of an occurrence fact: a declaration spec or short-decl statement, else its plain family *)
@@ -724,8 +724,8 @@ Definition occ_family (o : OccFact idx) : Family :=
   match o with
   | OFApp _ _ => FamApplication
   | OFType _ _ => FamTypeUse
-  | OFStmt r _ => match Index.node_view r with Index.VStmt (Index.SSShort _ _) => FamDeclaration | _ => FamStatement end
-  | OFValue r _ => match Index.node_view r with Index.VConstSpec _ | Index.VVarSpec _ | Index.VTypeSpec _ => FamDeclaration | _ => FamValue end
+  | OFStmt r _ => match Index.Core.node_view r with Index.Model.VStmt (Index.Model.SSShort _ _) => FamDeclaration | _ => FamStatement end
+  | OFValue r _ => match Index.Core.node_view r with Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => FamDeclaration | _ => FamValue end
   end.
 
 (* one occurrence fact yields one diagnostic exactly when its family outcome is invalid, retaining that exact cause *)
@@ -760,13 +760,13 @@ Definition main_rows : list (Diagnostic s) :=
 Definition same_groupref (a b : BN.DeclarationGroupRef s) : bool :=
   andb (BN.scope_eqb (BN.dg_scope a) (BN.dg_scope b)) (Names.ordinary_equalb (BN.dg_name a) (BN.dg_name b)).
 (* every package-member name occurrence: the use sites a redeclared group can contextualize *)
-Definition name_uses : list (Index.NodeRef idx) :=
-  filter (fun r => match Index.node_view r with Index.VName _ => true | _ => false end)
-         (flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s))).
+Definition name_uses : list (Index.Core.NodeRef idx) :=
+  filter (fun r => match Index.Core.node_view r with Index.Model.VName _ => true | _ => false end)
+         (flat_map Index.Core.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s))).
 (* the exact use-site contexts of a redeclared group: name occurrences resolving to it as an ambiguous group *)
-Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.NodeRef idx) :=
-  filter (fun r => match Index.node_view r with
-                   | Index.VName n => match BN.resolution_redecl_root (BN.resolve bp r n) with
+Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.Core.NodeRef idx) :=
+  filter (fun r => match Index.Core.node_view r with
+                   | Index.Model.VName n => match BN.resolution_redecl_root (BN.resolve bp r n) with
                                       | Some root => same_groupref (BN.redecl_view root) g
                                       | None => false end
                    | _ => false end) name_uses.
@@ -789,7 +789,7 @@ Proof.
 Qed.
 
 (* a dependent non-result is neither a diagnostic nor a boundary: it defers to its prerequisite, adding no issue *)
-Lemma dependent_no_rows (r : Index.NodeRef idx) (d : Dependency idx) :
+Lemma dependent_no_rows (r : Index.Core.NodeRef idx) (d : Dependency idx) :
   occ_diag_rows (OFValue r (VDependent d)) = [] /\ occ_bound_rows (OFValue r (VDependent d)) = []
   /\ occ_diag_rows (OFApp r (ADependent d)) = [] /\ occ_bound_rows (OFApp r (ADependent d)) = []
   /\ occ_diag_rows (OFStmt r (SDependent d)) = [] /\ occ_bound_rows (OFStmt r (SDependent d)) = []
@@ -802,7 +802,7 @@ Arguments diagnostics {p idx s bd bp} fp pf.
 Arguments boundaries {p idx s bd bp} fp.
 
 Section IssueLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
 
 (* the root algebra is total: every diagnostic roots at an exact node, package, or group, never a self-fallback *)
 Lemma root_algebra_total (d : Diagnostic s) :
@@ -812,7 +812,7 @@ Proof. destruct d; cbn; eauto 6. Qed.
 End IssueLaws.
 
 (* §6 the complete disposition algebra + applicability before judgment *)
-Inductive Disposition {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+Inductive Disposition {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | DSucceeded : Disposition s
 | DAbsent : Disposition s
 | DInvalid : IssueCause s -> list (IssueCause s) -> Disposition s
@@ -823,7 +823,7 @@ Arguments DInvalid {p idx s} _ _. Arguments DUnsupported {p idx s} _ _.
 Arguments DInvalidAndUnsupported {p idx s} _ _ _ _.
 
 Section DispositionAlgebra.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
@@ -865,7 +865,7 @@ End DispositionAlgebra.
 
 (* §11 structural progress + cost: every construction is structural recursion over finite maps, no fuel or budget *)
 Section Cost.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
+Context {p : Syntax.Program} {idx : Index.Core.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* one structural pass: each node contributes the facts of its applicable families via a single flat_map, no fuel *)
 Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
@@ -884,7 +884,7 @@ Definition result_disposition {p} (r : Result p) : Disposition (res_surface r) :
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
 
-Inductive Issue {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
+Inductive Issue {p} {idx : Index.Core.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
 | IDiag  : Diagnostic s -> Issue s
 | IBound : Boundary s -> Issue s.
 Arguments IDiag {p idx s} _.
@@ -907,7 +907,7 @@ Definition issue_family {r : Result p} (i : Issue (res_surface r)) : option Fami
 Definition issue_cause_or_req {r : Result p} (i : Issue (res_surface r))
   : IssueCause (res_surface r) + Requirement (res_index r) :=
   match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req b) end.
-Definition issue_related {r : Result p} (i : Issue (res_surface r)) : list (Index.NodeRef (res_index r)) :=
+Definition issue_related {r : Result p} (i : Issue (res_surface r)) : list (Index.Core.NodeRef (res_index r)) :=
   match i with IDiag d => diag_related d | IBound _ => [] end.
 
 (* an issue identity: an exact ordinal into result_issues, retaining the exact row it indexes there *)

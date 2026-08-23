@@ -158,7 +158,14 @@ Version:
 Collections: FilePath
 Names:
 Syntax: Collections FilePath Float ModulePath Names Version
-Index: Collections FilePath Names Syntax
+Index.Model: Names Syntax
+Index.Build: Collections Index.Model Syntax
+Index.BuildLaws: Collections Index.Build Index.Model Syntax
+Index.Core: Collections FilePath Index.Build Index.BuildLaws Index.Model Syntax
+Index.Child: Index.Core Index.Model
+Index.Refs: Index.Core Index.Model Syntax
+Index.Edges: Collections FilePath Index.Child Index.Core Index.Model Index.Refs
+Index: Index.Build Index.BuildLaws Index.Child Index.Core Index.Edges Index.Model Index.Refs
 Compilable.TypeResolution: Complex Float Integer Names
 Compilable.PackageIdentity: FilePath Index ModulePath Syntax
 Compilable.Bindings: Compilable.PackageIdentity Index Names Syntax
