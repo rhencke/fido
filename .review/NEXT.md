@@ -1,6 +1,13 @@
-# Active task: the C4 evidence-DAG re-architecture candidate
+# Active task: the C4 Index mechanical physical-split candidate
 
 Review: none
+
+The current frozen candidate is the **mechanical physical split of `Index`**: the 5338-line monolith becomes a
+thin aggregate `Index.v` (pure re-export) over seven dependency-ordered owners
+(`Model → Build → BuildLaws → Core → { Child, Refs } → Edges`), plus the repository-owned 120-second warmed
+`make check` budget. It is move-only — no semantic definition, theorem strength, proof assumption, generated
+byte, execution path, or trusted boundary changed; `make check` is green and the generated Go bytes are
+byte-identical. The C4 evidence-DAG semantics it reorganizes are described below and are unchanged.
 
 The C4 static-authority subsystem is rebuilt as an exact-evidence DAG rooted at one `Compilable.Program p`:
 

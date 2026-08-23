@@ -337,8 +337,23 @@ conversion naming a **source** type. Anything else is unrepresentable, not rejec
 ### Index — structural identity
 
 `Index` is the one structural occurrence-identity and navigation authority, derived from one immutable
-`Syntax.Program` snapshot. It imports only `Syntax`, `Collections` and `FilePath`; it knows no semantic types,
-admissibility, rendering or diagnostics.
+`Syntax.Program` snapshot. It knows no semantic types, admissibility, rendering or diagnostics. It is a thin
+aggregate `Index.v` — pure re-export, no definition, no theorem, no wrapper — over seven dependency-ordered
+owners, each a permanent internal layer with one change trigger:
+
+```text
+Index.Model       shallow vocabulary — flavors, shapes, NodeView, Kind, Role, Cell, generic positional support
+Index.Build       the one canonical executable numbering/build algorithm, its FileInfo/posmap_of/raw_index
+Index.BuildLaws   the laws of that numbering — spans, roots, coverage, layout, shape, completeness
+Index.Core        ProgramIndex, FileRef/NodeRef, node lookup/projections, generic parent/child, enumeration
+Index.Child       the one canonical direct-child identity ChildAt and its generic laws
+Index.Refs        exact refined source-occurrence refs (main/block/app/unary/exprstmt/short/spec) + positional laws
+Index.Edges       specialized ChildAt refinements — the edge families and indexed collections
+```
+
+The one-way graph is `Model → Build → BuildLaws → Core → { Child, Refs } → Edges`, its exact direct edges named
+in the layer policy above; a consumer imports the aggregate and reads `Index.Owner.name`. The theory's external
+foundations are `Names`, `Syntax`, `Collections` and `FilePath`.
 
 One transparent terminating fold (`flat`, over `file_occs`) builds each file's ordered occurrence list once,
 assigning each represented occurrence its canonical file-local `nat` position by deterministic preorder, file
