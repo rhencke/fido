@@ -531,29 +531,55 @@ Definition new_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (e : Index.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) : Est s :=
   mk_est (DOShort (mk_short_new st i e)) n (BlockScope br) (vis_start (Index.sl_child e)).
 
-(* the private New-detector and additions of a short statement against a predecessor list — builder plumbing only *)
-Definition short_new_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the canonical short-left decision as cheap descriptive data, retained in the event, authoritative only as a row *)
+Inductive ShortLeftDecisionData : Type :=
+| ShortBlankData
+| ShortDuplicateData (earlier : nat)
+| ShortNewData (n : Names.OrdinaryIdentifier)
+| ShortExistingVariableData (member : nat)
+| ShortExistingNonVariableData (member : nat)
+| ShortAmbiguousData (first second : nat).
+
+(* the one canonical decision per left, in fixed precedence: blank, earliest duplicate, ambiguous, existing, new *)
+Definition short_left_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (env : list (Est s)) {st : Index.ShortStmtRef idx} {i : nat} (e : Index.ShortLhsEdge st i)
-  : option Names.OrdinaryIdentifier :=
+  : ShortLeftDecisionData :=
   match binder_ident (Index.sl_child e) with
-  | None => None
+  | None => ShortBlankData
   | Some n =>
       match find_dup i n (Index.short_lhs_edges st) with
-      | Some _ => None
-      | None => match find_ord (same_block_cand n) 0 env with Some _ => None | None => Some n end
+      | Some (existT _ j _) => ShortDuplicateData j
+      | None =>
+          match find_two_ord (same_block_cand n) 0 env with
+          | Some (j, k) => ShortAmbiguousData j k
+          | None =>
+              match find_ord (same_block_cand n) 0 env with
+              | Some (j, m) => if is_variable_binder (est_node m)
+                               then ShortExistingVariableData j else ShortExistingNonVariableData j
+              | None => ShortNewData n
+              end
+          end
       end
   end.
-Definition short_new_ests {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (env : list (Est s)) (st : Index.ShortStmtRef idx) : list (Est s) :=
+
+(* one retained decision row per exact left, in source order *)
+Definition short_decide_rows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (st : Index.ShortStmtRef idx) : list ShortLeftDecisionData :=
+  map (fun x => match x with existT _ i e => short_left_decide env e end) (Index.short_lhs_edges st).
+
+(* event additions as the ordered projection of the retained New rows — the one and only source of short additions *)
+Definition short_rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) : list (Est s) :=
   flat_map (fun x => match x with existT _ i e =>
-              match short_new_name env e with Some n => [new_est br e n] | None => [] end end)
-           (Index.short_lhs_edges st).
-Lemma short_new_ests_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (env : list (Est s)) (st : Index.ShortStmtRef idx) (e : Est s) :
-  In e (short_new_ests br env st) -> est_scope e = BlockScope br.
+     match nth_error rows i with Some (ShortNewData n) => [new_est br e n] | _ => [] end end)
+    (Index.short_lhs_edges st).
+Lemma short_rows_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) (e : Est s) :
+  In e (short_rows_adds br st rows) -> est_scope e = BlockScope br.
 Proof.
-  unfold short_new_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
-  destruct x as [i ed]. destruct (short_new_name env ed); try (exact (match Hin with end)).
+  unfold short_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  destruct x as [i ed]. destruct (nth_error rows i) as [row|]; try (exact (match Hin with end)).
+  destruct row; try (exact (match Hin with end)).
   destruct Hin as [<-|F]; [ reflexivity | destruct F ].
 Qed.
 
@@ -585,7 +611,7 @@ Proof. intros Hp Hb. rewrite (stmt_parent_block st par Hp) in Hb. discriminate H
 Inductive BlockEv {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | BEvExpr : Index.NodeRef idx -> BlockEv s
 | BEvDecl : forall (sc : ScopeId s) (t : Index.NodeRef idx), list (Est s) -> BlockEv s
-| BEvShort : forall (st : Index.ShortStmtRef idx), list (Est s) -> BlockEv s.
+| BEvShort : forall (st : Index.ShortStmtRef idx), list ShortLeftDecisionData -> BlockEv s.
 Arguments BEvExpr {p idx s} _.
 Arguments BEvDecl {p idx s} _ _ _.
 Arguments BEvShort {p idx s} _ _.
@@ -604,7 +630,7 @@ Definition bev_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   match ev with
   | BEvExpr _ => []
   | BEvDecl _ _ adds => adds
-  | BEvShort _ adds => adds
+  | BEvShort st rows => short_rows_adds br st rows
   end.
 
 (* one package event: the exact top occurrence and its exact ordered additions *)
@@ -657,7 +683,7 @@ Definition block_event (br : Index.BlockRef idx) (env : list (Est s)) (c : Index
       BEvDecl (BlockScope br) c (stmt_decl_ests (BlockScope br) c)
   | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
       BEvShort (Index.mkShortStmtRef c nn nv Hv0)
-        (short_new_ests br env (Index.mkShortStmtRef c nn nv Hv0))
+        (short_decide_rows env (Index.mkShortStmtRef c nn nv Hv0))
   | _ => fun _ => BEvExpr c
   end Hv.
 
@@ -2424,7 +2450,7 @@ Lemma block_event_short_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   exists Hv0 : Index.node_view c = Index.VStmt (Index.SSShort nn nv),
     block_event s br env c v Hv
     = BEvShort (Index.mkShortStmtRef c nn nv Hv0)
-        (short_new_ests br env (Index.mkShortStmtRef c nn nv Hv0)).
+        (short_decide_rows env (Index.mkShortStmtRef c nn nv Hv0)).
 Proof. intro E. revert Hv. subst v. intro Hv. exists Hv. reflexivity. Qed.
 
 (* every addition of a canonical block event establishes at its exact block scope *)
@@ -2439,8 +2465,8 @@ Proof.
   - intro F; destruct F.
   - intro Hin. left.
     exact (stmt_decl_ests_scope (BlockScope br) c e Hin).
-  - intro Hin. left.
-    exact (short_new_ests_scope br env (Index.mkShortStmtRef c nn nv Hv) e Hin).
+  - intro Hin. right.
+    exact (short_rows_adds_scope br' _ _ e Hin).
 Qed.
 
 (* the refs of a block event establish at exactly that trace's block scope *)
@@ -2859,8 +2885,8 @@ Lemma short_event_cover {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface 
   {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) (par : Index.NodeRef idx) (tr : TraceRow s) :
   Index.node_parent (Index.sh_node st) = Some par ->
   In tr (bp_traces bp) -> Index.bl_node (trow_block tr) = par ->
-  exists eix (st'' : Index.ShortStmtRef idx) (adds : list (Est s)),
-    nth_error (trow_evs tr) eix = Some (BEvShort st'' adds)
+  exists eix (st'' : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData),
+    nth_error (trow_evs tr) eix = Some (BEvShort st'' rows)
     /\ Index.sh_node st'' = Index.sh_node st.
 Proof.
   intros Hp Hin Hnode.
@@ -2895,8 +2921,8 @@ Record ShortEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx
   se_trace : BlockTraceRef bp (Index.bl_node se_block) ;
   se_ord   : nat ;
   se_stmt  : Index.ShortStmtRef idx ;
-  se_adds  : list (Est s) ;
-  se_at : nth_error (trow_evs (btr_row se_trace)) se_ord = Some (BEvShort se_stmt se_adds) ;
+  se_rows  : list ShortLeftDecisionData ;
+  se_at : nth_error (trow_evs (btr_row se_trace)) se_ord = Some (BEvShort se_stmt se_rows) ;
   se_subject : Index.sh_node se_stmt = Index.sh_node st
 }.
 Arguments mk_short_event {p idx s d bp st} _ _ _ _ _ _ _.
@@ -2904,7 +2930,7 @@ Arguments se_block {p idx s d bp st} _.
 Arguments se_trace {p idx s d bp st} _.
 Arguments se_ord {p idx s d bp st} _.
 Arguments se_stmt {p idx s d bp st} _.
-Arguments se_adds {p idx s d bp st} _.
+Arguments se_rows {p idx s d bp st} _.
 Arguments se_at {p idx s d bp st} _.
 Arguments se_subject {p idx s d bp st} _.
 
@@ -3893,56 +3919,23 @@ Proof.
   unfold Index.sl_child. rewrite (Index.ca_node_parent (Index.sl_at e)). reflexivity.
 Qed.
 
-Lemma short_new_ests_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  (br : Index.BlockRef idx) (env : list (Est s)) (st : Index.ShortStmtRef idx) (e : Est s) :
-  In e (short_new_ests br env st) -> est_vstart e = Index.node_extent (Index.sh_node st).
+(* every short addition becomes visible only past the whole statement, a pure fact of the projected New rows *)
+Lemma short_rows_adds_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) (e : Est s) :
+  In e (short_rows_adds br st rows) -> est_vstart e = Index.node_extent (Index.sh_node st).
 Proof.
-  unfold short_new_ests. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
-  destruct x as [i ed]. destruct (short_new_name env ed); try (exact (match Hin with end)).
+  unfold short_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  destruct x as [i ed]. destruct (nth_error rows i) as [row|]; try (exact (match Hin with end)).
+  destruct row; try (exact (match Hin with end)).
   destruct Hin as [<-|F]; [| destruct F ]. apply new_est_vstart.
-Qed.
-
-(* the additions a short event retains all become visible only past the whole statement *)
-Lemma block_short_adds_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (tix cut : nat) (tr : TraceRow s)
-  (st' : Index.ShortStmtRef idx) (adds : list (Est s)) (e : Est s) :
-  nth_error (bp_traces bp) tix = Some tr ->
-  nth_error (trow_evs tr) cut = Some (BEvShort st' adds) ->
-  In e adds -> est_vstart e = Index.node_extent (Index.sh_node st').
-Proof.
-  intros Htr Hev Hin.
-  destruct (bp_traces_row bp tr (nth_error_In _ _ Htr)) as [pr [r [Hb [_ [_ Hform]]]]].
-  set (br := Index.mkBlockRef r Hb).
-  assert (Hevs : trow_evs tr = block_fold s br (Index.all_children r) (pkg_env_of s pr))
-    by (rewrite Hform; reflexivity).
-  rewrite Hevs in Hev.
-  destruct (block_fold_nth_env br (Index.all_children r) (pkg_env_of s pr) cut _ Hev) as [x [_ Hbe]].
-  set (env' := pkg_env_of s pr ++ flat_map (bev_adds br)
-                 (firstn cut (block_fold s br (Index.all_children r) (pkg_env_of s pr)))) in *.
-  set (c := Index.ca_child (projT2 x)) in *.
-  assert (Hc : Index.sh_node st' = c).
-  { pose proof (f_equal bev_node Hbe) as Hn. cbn [bev_node] in Hn.
-    rewrite block_event_node in Hn. exact Hn. }
-  assert (Hview : Index.node_view c
-                  = Index.VStmt (Index.SSShort (Index.sh_names st') (Index.sh_values st')))
-    by (rewrite <- Hc; exact (Index.sh_ok st')).
-  destruct (block_event_short_eval br env' c _ eq_refl
-              (Index.sh_names st') (Index.sh_values st') Hview) as [Hv0 Heval].
-  rewrite Heval in Hbe.
-  set (st'' := Index.mkShortStmtRef c (Index.sh_names st') (Index.sh_values st') Hv0) in *.
-  assert (Hst : st' = st'') by (apply shortstmtref_positional; cbn [Index.sh_node]; exact Hc).
-  rewrite <- Hst in Hbe.
-  injection Hbe as Hbe'.
-  rewrite Hbe' in Hin.
-  exact (short_new_ests_vstart br env' st' e Hin).
 Qed.
 
 (* within the short statement, its own additions are gated out of every use environment *)
 Lemma short_cur_adds_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (tix cut : nat) (tr : TraceRow s)
-  (st' : Index.ShortStmtRef idx) (adds : list (Est s)) :
+  (st' : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) :
   nth_error (bp_traces bp) tix = Some tr ->
-  nth_error (trow_evs tr) cut = Some (BEvShort st' adds) ->
+  nth_error (trow_evs tr) cut = Some (BEvShort st' rows) ->
   Index.nr_pos u <= Index.node_extent (Index.sh_node st') ->
   cur_adds bp u tix cut = [].
 Proof.
@@ -3954,7 +3947,7 @@ Proof.
   rewrite (event_adds_block bp tix cut Hlt tr _ Htr Hev) in Hest.
   cbn [bev_adds] in Hest.
   unfold vstart_before.
-  rewrite (block_short_adds_vstart bp tix cut tr st' adds (es_est er) Htr Hev Hest).
+  rewrite (short_rows_adds_vstart _ st' rows (es_est er) Hest).
   apply Nat.ltb_ge. exact Hle.
 Qed.
 
