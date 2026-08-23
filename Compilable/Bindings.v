@@ -572,17 +572,22 @@ Definition short_decide_rows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   (env : list (Est s)) (st : Index.ShortStmtRef idx) : list ShortLeftDecisionData :=
   map (fun x => match x with existT _ i e => short_left_decide env e end) (Index.short_lhs_edges st).
 
+(* the one canonical per-edge addition body: a New row's establishment, or nothing *)
+Definition short_add_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {st : Index.ShortStmtRef idx} (rows : list ShortLeftDecisionData)
+  (x : {i : nat & Index.ShortLhsEdge st i}) : list (Est s) :=
+  match x with existT _ i e =>
+    match nth_error rows i with Some (ShortNewData n) => [new_est br e n] | _ => [] end end.
+
 (* event additions as the ordered projection of the retained New rows — the one and only source of short additions *)
 Definition short_rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) : list (Est s) :=
-  flat_map (fun x => match x with existT _ i e =>
-     match nth_error rows i with Some (ShortNewData n) => [new_est br e n] | _ => [] end end)
-    (Index.short_lhs_edges st).
+  flat_map (short_add_at br rows) (Index.short_lhs_edges st).
 Lemma short_rows_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) (e : Est s) :
   In e (short_rows_adds br st rows) -> est_scope e = BlockScope br.
 Proof.
-  unfold short_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  unfold short_rows_adds, short_add_at. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
   destruct x as [i ed]. destruct (nth_error rows i) as [row|]; try (exact (match Hin with end)).
   destruct row; try (exact (match Hin with end)).
   destruct Hin as [<-|F]; [ reflexivity | destruct F ].
@@ -3326,6 +3331,70 @@ Proof.
   destruct a as [aa Ha], b as [ba Hb]. f_equal; [ apply childat_unique | apply le_unique ].
 Qed.
 
+(* decidable equality on the establishment key types: a decidable key plus an hProp proof, the basis for ref UIP *)
+Definition ordinary_eq_dec (a b : Names.OrdinaryIdentifier) : {a = b} + {a <> b} :=
+  dec_of_eqb Names.ordinary_equalb Names.ordinary_equalb_spec a b.
+Definition scope_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : ScopeId s)
+  : {a = b} + {a <> b} := dec_of_eqb scope_eqb scope_eqb_spec a b.
+Definition binderref_eq_dec {p} {idx : Index.ProgramIndex p} (a b : BinderRef idx) : {a = b} + {a <> b}.
+Proof.
+  destruct (noderef_eq_dec (binder_node a) (binder_node b)) as [E|E];
+    [ left; apply binderref_positional; exact E | right; intro H; apply E; exact (f_equal binder_node H) ].
+Defined.
+Definition mainocc_eq_dec {p} {idx : Index.ProgramIndex p} (a b : Index.MainOccurrenceRef idx)
+  : {a = b} + {a <> b}.
+Proof.
+  destruct (noderef_eq_dec (Index.mo_node a) (Index.mo_node b)) as [E|E];
+    [ left; apply Index.mainocc_positional; exact E | right; intro H; apply E; exact (f_equal Index.mo_node H) ].
+Defined.
+Definition functiondeclref_eq_dec {p} {idx : Index.ProgramIndex p} (a b : FunctionDeclRef idx)
+  : {a = b} + {a <> b}.
+Proof.
+  destruct a as [ma], b as [mb]. destruct (mainocc_eq_dec ma mb) as [E|E];
+    [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
+Defined.
+Definition shortnewref_eq_dec {p} {idx : Index.ProgramIndex p} (a b : ShortNewRef idx) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [sta ia ea], b as [stb ib eb].
+  destruct (shortstmtref_eq_dec sta stb) as [Es|Es]; [| right; intro H; apply Es; exact (f_equal snr_stmt H) ].
+  subst stb. destruct (Nat.eq_dec ia ib) as [Ei|Ei]; [| right; intro H; apply Ei; exact (f_equal snr_ix H) ].
+  subst ib. left. f_equal. apply shortlhsedge_positional.
+Defined.
+Definition declorigin_eq_dec {p} {idx : Index.ProgramIndex p} (a b : DeclOrigin idx) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [ba|fa|sa], b as [bb|fb|sb]; try (right; discriminate).
+  - destruct (binderref_eq_dec ba bb) as [E|E]; [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
+  - destruct (functiondeclref_eq_dec fa fb) as [E|E]; [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
+  - destruct (shortnewref_eq_dec sa sb) as [E|E]; [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
+Defined.
+Definition est_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s)
+  : {a = b} + {a <> b}.
+Proof.
+  destruct a as [oa na sca va], b as [ob nb scb vb].
+  destruct (declorigin_eq_dec oa ob) as [Eo|Eo]; [| right; intro H; apply Eo; exact (f_equal est_origin H) ].
+  destruct (ordinary_eq_dec na nb) as [En|En]; [| right; intro H; apply En; exact (f_equal est_name H) ].
+  destruct (scope_eq_dec sca scb) as [Es|Es]; [| right; intro H; apply Es; exact (f_equal est_scope H) ].
+  destruct (Nat.eq_dec va vb) as [Ev|Ev]; [| right; intro H; apply Ev; exact (f_equal est_vstart H) ].
+  subst; left; reflexivity.
+Defined.
+
+Definition option_est_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (a b : option (Est s)) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [x|], b as [y|]; try (right; discriminate); try (left; reflexivity).
+  destruct (est_eq_dec x y) as [E|E]; [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
+Defined.
+
+(* exact addition refs are positionally unique: same site and index force the same ref (Est is an hSet) *)
+Lemma eventadditionref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {site : EvSite bp} {ix : nat}
+  (a b : EventAdditionRef bp site ix) : a = b.
+Proof.
+  destruct a as [ea pa], b as [eb pb].
+  assert (Hest : ea = eb) by (pose proof (eq_trans (eq_sym pa) pb) as E; injection E as E; exact E).
+  subst eb. f_equal. apply (UIP_dec option_est_eq_dec).
+Qed.
+
 (* the exact per-left short decision-row ref: transparent row + edge, Prop-pinned to the retained event *)
 Record ShortDecisionRowRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
@@ -3420,7 +3489,7 @@ Lemma short_new_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface
   (Hrow : nth_error (se_rows se) i = Some (ShortNewData n)) :
   In (new_est (s:=s) (se_block se) e n) (bev_adds (se_block se) (BEvShort (se_stmt se) (se_rows se))).
 Proof.
-  cbn [bev_adds]. unfold short_rows_adds. apply in_flat_map.
+  cbn [bev_adds]. unfold short_rows_adds, short_add_at. apply in_flat_map.
   exists (existT _ i e). split; [ exact (nth_error_In _ _ He) |].
   rewrite Hrow. left. reflexivity.
 Qed.
@@ -3433,7 +3502,7 @@ Lemma short_addition_is_new {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   exists (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) (n : Names.OrdinaryIdentifier),
     nth_error (se_rows se) i = Some (ShortNewData n) /\ e' = new_est (s:=s) (se_block se) e n.
 Proof.
-  cbn [bev_adds]. unfold short_rows_adds. intro Hin. apply in_flat_map in Hin.
+  cbn [bev_adds]. unfold short_rows_adds, short_add_at. intro Hin. apply in_flat_map in Hin.
   destruct Hin as [x [_ Hin]]. destruct x as [i e].
   destruct (nth_error (se_rows se) i) as [row|] eqn:Hrow; [| destruct Hin].
   destruct row; try (exact (match Hin with end)).
@@ -3474,6 +3543,45 @@ Definition is_new_row (r : ShortLeftDecisionData) : bool :=
 Definition short_new_rank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
   (i : nat) : nat := length (filter is_new_row (firstn i (se_rows se))).
+
+(* the count of contributing (nonempty-output) elements among the first k of a list *)
+Definition adds_before {A B : Type} (f : A -> list B) (l : list A) (k : nat) : nat :=
+  length (filter (fun x => match f x with [] => false | _ => true end) (firstn k l)).
+
+(* a flat_map of empty-or-singleton outputs: the k-th contributor's value sits at the count of prior contributors *)
+Lemma flat_map_opt_nth {A B : Type} (f : A -> list B) :
+  (forall x, f x = [] \/ exists b, f x = [b]) ->
+  forall (l : list A) (k : nat) (a : A) (b : B),
+  nth_error l k = Some a -> f a = [b] ->
+  nth_error (flat_map f l) (adds_before f l k) = Some b.
+Proof.
+  intro Hf. unfold adds_before. induction l as [|x xs IH]; intros k a b Hk Ha; [ destruct k; discriminate |].
+  destruct k as [|k']; cbn [firstn].
+  - cbn in Hk. injection Hk as <-. cbn [flat_map]. rewrite Ha. reflexivity.
+  - cbn in Hk. cbn [filter flat_map]. destruct (Hf x) as [Hfx | [y Hfx]]; rewrite Hfx; cbn [app length].
+    + exact (IH k' a b Hk Ha).
+    + cbn [nth_error]. exact (IH k' a b Hk Ha).
+Qed.
+
+(* the inverse: element k of the flat_map is the singleton output of the (k+1)-th contributor, at its exact index *)
+Lemma flat_map_opt_source {A B : Type} (f : A -> list B) :
+  (forall x, f x = [] \/ exists b, f x = [b]) ->
+  forall (l : list A) (k : nat) (b : B),
+  nth_error (flat_map f l) k = Some b ->
+  exists (j : nat) (a : A), nth_error l j = Some a /\ f a = [b] /\ adds_before f l j = k.
+Proof.
+  intro Hf. unfold adds_before. induction l as [|x xs IH]; intros k b Hk; [ destruct k; discriminate Hk |].
+  cbn [flat_map] in Hk. destruct (Hf x) as [Hfx | [y Hfx]]; rewrite Hfx in Hk.
+  - cbn [app] in Hk. destruct (IH k b Hk) as [j [a [Hj [Ha Hcnt]]]].
+    exists (S j), a. cbn [firstn filter]. rewrite Hfx.
+    split; [ exact Hj | split; [ exact Ha | exact Hcnt ] ].
+  - destruct k as [|k']; cbn [app nth_error] in Hk.
+    + injection Hk as <-. exists 0, x. cbn [firstn filter length].
+      split; [ reflexivity | split; [ exact Hfx | reflexivity ] ].
+    + destruct (IH k' b Hk) as [j [a [Hj [Ha Hcnt]]]].
+      exists (S j), a. cbn [firstn filter]. rewrite Hfx. cbn [length].
+      split; [ exact Hj | split; [ exact Ha | rewrite Hcnt; reflexivity ] ].
+Qed.
 
 (* the retained judgment is about the exact queried statement *)
 Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -4350,7 +4458,7 @@ Lemma short_rows_adds_vstart {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   (br : Index.BlockRef idx) (st : Index.ShortStmtRef idx) (rows : list ShortLeftDecisionData) (e : Est s) :
   In e (short_rows_adds br st rows) -> est_vstart e = Index.node_extent (Index.sh_node st).
 Proof.
-  unfold short_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  unfold short_rows_adds, short_add_at. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
   destruct x as [i ed]. destruct (nth_error rows i) as [row|]; try (exact (match Hin with end)).
   destruct row; try (exact (match Hin with end)).
   destruct Hin as [<-|F]; [| destruct F ]. apply new_est_vstart.
