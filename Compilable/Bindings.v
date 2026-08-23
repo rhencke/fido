@@ -3523,77 +3523,32 @@ Proof.
   rewrite seq_nth in Ho; [| exact Hlt]. cbn in Ho. injection Ho as Ho. exact Ho.
 Qed.
 
-(* whether a retained short row is a same-statement duplicate *)
-Definition is_dup_row (r : ShortLeftDecisionData) : bool :=
-  match r with ShortDuplicateData _ => true | _ => false end.
-
-(* the first list element satisfying P, with proof its prefix has none, or proof the whole list has none *)
-Definition find_first {A : Type} (P : A -> bool) (l : list A) :
-  { i : nat & { a : A | nth_error l i = Some a /\ P a = true /\ filter P (firstn i l) = [] } }
-  + { filter P l = [] }.
-Proof.
-  induction l as [|x xs IH].
-  - right. reflexivity.
-  - destruct (P x) eqn:Hx.
-    + left. exists 0, x. cbn [nth_error firstn filter].
-      split; [ reflexivity | split; [ exact Hx | reflexivity ] ].
-    + destruct IH as [[i [a [Hnth [Ha Hf]]]] | Hnone].
-      * left. exists (S i), a. cbn [nth_error firstn filter]. rewrite Hx.
-        split; [ exact Hnth | split; [ exact Ha | exact Hf ] ].
-      * right. cbn [filter]. rewrite Hx. exact Hnone.
-Defined.
-
-(* the duplicate test on a source edge, read through its exact decision-row ref: kept transparent for vm *)
-Definition dup_edge {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  (x : {i : nat & Index.ShortLhsEdge (se_stmt se) i}) : bool :=
-  match x with existT _ i e => is_dup_row (row_decision (short_decision_row se i e)) end.
-
-(* the exact short duplicate summary: no retained duplicate, or the first duplicate row in source order *)
-Inductive ShortDuplicateStatus {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the one live transparent short-duplicate decision: the first duplicate's exact row, index, and name, or none *)
+Inductive ShortDuplicateDecision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) : Type :=
-| NoShortDuplicate (Hnone : filter (dup_edge se) (Index.short_lhs_edges (se_stmt se)) = [])
-| HasShortDuplicate (i : nat) (r : ShortDecisionRowRef se i) (earlier : nat)
-    (Hd : row_decision r = ShortDuplicateData earlier)
-    (Hfirst : filter (dup_edge se) (firstn i (Index.short_lhs_edges (se_stmt se))) = []).
-Arguments NoShortDuplicate {p idx s d bp st se} _.
-Arguments HasShortDuplicate {p idx s d bp st se} _ _ _ _ _.
+| ShortNoDup
+| ShortDup (i : nat) (r : ShortDecisionRowRef se i) (earlier : nat) (n : Names.OrdinaryIdentifier).
+Arguments ShortNoDup {p idx s d bp st se}.
+Arguments ShortDup {p idx s d bp st se} _ _ _ _.
 
-(* the one canonical duplicate summary of an event: the first duplicate row in source order, or none *)
-Definition short_duplicate_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the canonical duplicate decision, folded left-to-right over the exact rows: the leftmost duplicate wins *)
+Definition short_duplicate_decision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  : ShortDuplicateStatus se.
-Proof.
-  destruct (find_first (dup_edge se) (Index.short_lhs_edges (se_stmt se)))
-    as [[pos [x [Hnth [Hdup Hfirst]]]] | Hnone]; [| exact (NoShortDuplicate Hnone) ].
-  pose proof (short_edge_projT1 (se_stmt se) pos x Hnth) as Hpi.
-  destruct x as [i e]. cbn in Hpi. subst pos.
-  cbn [dup_edge] in Hdup.
-  remember (row_decision (short_decision_row se i e)) as rd eqn:Hrd.
-  destruct rd as [| earlier | n | m1 | m2 | a1 a2]; try (cbn in Hdup; discriminate Hdup).
-  exact (HasShortDuplicate i (short_decision_row se i e) earlier (eq_sym Hrd) Hfirst).
-Defined.
-
-(* the duplicate name a live consumer projects one-way from the exact duplicate row's subject *)
-Definition short_dup_status_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st}
-  (status : ShortDuplicateStatus se) : option Names.OrdinaryIdentifier :=
-  match status with
-  | NoShortDuplicate _ => None
-  | HasShortDuplicate i r earlier _ _ => binder_ident (Index.sl_child (row_subject r))
-  end.
-
-(* the leftmost duplicated left name, projected from each exact decision-row ref (transparent row + subject) *)
-Definition short_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
-  let se := short_event bp st in
+  : ShortDuplicateDecision se :=
   fold_right (fun x acc => match x with existT _ i e =>
      let r := short_decision_row se i e in
      match row_decision r with
-     | ShortDuplicateData _ =>
-         match binder_ident (Index.sl_child (row_subject r)) with Some n => Some n | None => acc end
+     | ShortDuplicateData earlier =>
+         match binder_ident (Index.sl_child (row_subject r)) with
+         | Some n => ShortDup i r earlier n | None => acc end
      | _ => acc end end)
-   None (Index.short_lhs_edges (se_stmt se)).
+   ShortNoDup (Index.short_lhs_edges (se_stmt se)).
+
+(* the duplicate name a live consumer reads one-way from the exact decision, retained with the row it names *)
+Definition short_dup_decision_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st}
+  (dd : ShortDuplicateDecision se) : option Names.OrdinaryIdentifier :=
+  match dd with ShortNoDup => None | ShortDup _ _ _ n => Some n end.
 
 (* every retained New row causes exactly its one event addition, the new establishment for that exact left *)
 Lemma short_new_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

@@ -451,8 +451,8 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           end eq_refl
       end
   | Index.VStmt (Index.SSShort nn nv) => fun Hv =>
-      (* a short declaration: a repeated left name (the exact duplicate row's binder) is invalid *)
-      match BN.short_dup_name bp (Index.mkShortStmtRef r nn nv Hv) with
+      (* a short declaration: the exact duplicate decision names any repeated left as invalid *)
+      match BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.mkShortStmtRef r nn nv Hv))) with
       | Some n => SInvalid (ShortDuplicate n)
       | None => SUnmet (ReqDeclMeaning r)
       end
