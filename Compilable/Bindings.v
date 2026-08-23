@@ -3623,39 +3623,82 @@ Proof.
     apply (nth_error_In _ (bm_ord mr)). rewrite nth_error_map, (bm_at mr). reflexivity. }
 Defined.
 
-(* the exact per-binder decl fact ref: the retained decision row and its tag-indexed fact, pinned to the event *)
-Record DeclBinderFactRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
-  (i : nat) (bd : Index.NodeRef idx) : Type := mk_decl_fact {
-  dbf_row  : DeclBinderDecisionData ;
-  dbf_at   : nth_error (de_rows de) i = Some dbf_row ;
-  dbf_fact : DeclBinderFact (decl_state_before de) t i bd dbf_row
-}.
-Arguments mk_decl_fact {p idx s d bp t de i bd} _ _ _.
-Arguments dbf_row {p idx s d bp t de i bd} _.
-Arguments dbf_at {p idx s d bp t de i bd} _.
-Arguments dbf_fact {p idx s d bp t de i bd} _.
+(* the length of the retained decl rows is exactly the binder count *)
+Lemma de_rows_length {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) :
+  length (de_rows de) = length (decl_binders t).
+Proof.
+  rewrite de_rows_decide. unfold decl_decide_rows. rewrite length_map, combine_length, length_seq. lia.
+Qed.
 
-(* the one canonical per-binder fact: the retained row is exactly the canonical decision, and the fact is pinned *)
-Definition decl_binder_fact_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the exact declaration binder occurrence: the node is PINNED to the source at index i, never supplied free *)
+Record DeclBinderAt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) : Type := mk_decl_binder_at {
+  dba_node : Index.NodeRef idx ;
+  dba_at   : nth_error (decl_binders t) i = Some dba_node
+}.
+Arguments mk_decl_binder_at {p idx s d bp t de i} _ _.
+Arguments dba_node {p idx s d bp t de i} _.
+Arguments dba_at {p idx s d bp t de i} _.
+
+(* the exact per-binder decl decision-row ref: the exact binder occurrence + transparent retained row, Prop-pinned *)
+Record DeclDecisionRowRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) : Type := mk_decl_row {
+  ddr_binder : DeclBinderAt de i ;
+  ddr_row    : DeclBinderDecisionData ;
+  ddr_at     : nth_error (de_rows de) i = Some ddr_row
+}.
+Arguments mk_decl_row {p idx s d bp t de i} _ _ _.
+Arguments ddr_binder {p idx s d bp t de i} _.
+Arguments ddr_row {p idx s d bp t de i} _.
+Arguments ddr_at {p idx s d bp t de i} _.
+
+(* transparent, proof-insensitive projections a live consumer reads *)
+Definition decl_row_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} {de : DeclEventRef bp t} {i}
+  (r : DeclDecisionRowRef de i) : Index.NodeRef idx := dba_node (ddr_binder r).
+Definition decl_row_decision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} {de : DeclEventRef bp t} {i}
+  (r : DeclDecisionRowRef de i) : DeclBinderDecisionData := ddr_row r.
+
+(* the one canonical per-binder decision-row ref, built cheaply: the exact occurrence + retained row lookup *)
+Definition decl_decision_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
   (i : nat) (bd : Index.NodeRef idx) (H : nth_error (decl_binders t) i = Some bd)
-  : DeclBinderFactRef de i bd.
+  : DeclDecisionRowRef de i.
 Proof.
-  apply (mk_decl_fact (decl_binder_decide (map es_est (bs_members (decl_state_before de))) t i bd)).
-  - rewrite de_rows_decide. exact (decl_decide_rows_nth _ t i bd H).
-  - exact (decl_binder_fact (decl_state_before de) t i bd).
+  destruct (nth_error (de_rows de) i) as [row|] eqn:Hrow.
+  - exact (mk_decl_row (mk_decl_binder_at bd H) row Hrow).
+  - exfalso. apply nth_error_None in Hrow. rewrite de_rows_length in Hrow.
+    assert (Hlt : i < length (decl_binders t)) by (apply nth_error_Some; rewrite H; discriminate).
+    lia.
 Defined.
 
-(* the exact declaration judgment: a view giving each binder's canonical fact, never a caller table *)
+(* the derived proof-bearing case fact for a decl row ref: authority for the laws, off every live path *)
+Definition decl_row_fact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (r : DeclDecisionRowRef de i)
+  : DeclBinderFact (decl_state_before de) t i (dba_node (ddr_binder r)) (ddr_row r).
+Proof.
+  assert (Hcanon : ddr_row r
+    = decl_binder_decide (map es_est (bs_members (decl_state_before de))) t i (dba_node (ddr_binder r))).
+  { pose proof (ddr_at r) as Ha. rewrite de_rows_decide in Ha.
+    rewrite (decl_decide_rows_nth _ t i (dba_node (ddr_binder r)) (dba_at (ddr_binder r))) in Ha.
+    injection Ha as Ha. exact (eq_sym Ha). }
+  rewrite Hcanon. exact (decl_binder_fact (decl_state_before de) t i (dba_node (ddr_binder r))).
+Defined.
+
+(* the exact declaration judgment: a view giving each binder's canonical decision-row ref, never a table *)
 Definition DeclJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) : Type :=
   forall (i : nat) (bd : Index.NodeRef idx), nth_error (decl_binders t) i = Some bd ->
-    DeclBinderFactRef de i bd.
+    DeclDecisionRowRef de i.
 
 Definition decl_judgment_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
-  : DeclJudgmentRef de := fun i bd H => decl_binder_fact_ref de i bd H.
+  : DeclJudgmentRef de := fun i bd H => decl_decision_row de i bd H.
 
 (* two lists paired index-wise: a common index that both hit lands in the pairing *)
 Lemma nth_error_combine {A B : Type} (l1 : list A) (l2 : list B) (i : nat) (a : A) (b : B) :
