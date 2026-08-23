@@ -556,19 +556,19 @@ typefail neg_evsite_block_invalid "a block event site at an ordinal without an i
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (tix eix : nat) : BN.EvSite bp := BN.BlockEventAt tix eix eq_refl.'
 typefail neg_estref_from_origin "an establishment ref built from a raw DeclOrigin, bypassing its creating event" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.EstablishmentRef bp := o.'
-# — short-left classification: the exact classification is indexed by its exact left edge AND its exact
-#   predecessor state; a classification for one edge, or against one cut, cannot inhabit another's type —
-typefail neg_class_cross_edge "a short-left classification for one left edge used as another's" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (st : IX.ShortStmtRef (IX.index_program p)) (e0 : IX.ShortLhsEdge st 0) (e1 : IX.ShortLhsEdge st 1) (cl : BN.ShortLhsClass pre e0) : BN.ShortLhsClass pre e1 := cl.'
-typefail neg_class_cross_cut "a short-left classification against predecessor cut A used against cut B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (cl : BN.ShortLhsClass (BN.block_state c1) e) : BN.ShortLhsClass (BN.block_state c2) e := cl.'
+# — short-left fact: the exact fact is indexed by its exact left edge, its exact predecessor state, AND the
+#   retained decision row; a fact for one edge, against one cut, or for one tag cannot inhabit another's type —
+typefail neg_fact_cross_edge "a short-left fact for one left edge used as another's" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (st : IX.ShortStmtRef (IX.index_program p)) (e0 : IX.ShortLhsEdge st 0) (e1 : IX.ShortLhsEdge st 1) (row : BN.ShortLeftDecisionData) (f0 : BN.ShortLhsFact pre e0 row) : BN.ShortLhsFact pre e1 row := f0.'
+typefail neg_fact_cross_cut "a short-left fact against predecessor cut A used against cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (row : BN.ShortLeftDecisionData) (f : BN.ShortLhsFact (BN.block_state c1) e row) : BN.ShortLhsFact (BN.block_state c2) e row := f.'
 typefail neg_snr_cross_stmt "a ShortNew identity pairing statement A with statement B's exact edge" \
   'Definition forged (p : Syntax.Program) (s1 s2 : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge s2 i) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new s1 i e.'
 typefail neg_snr_cross_index "a ShortNew identity pairing index i with the edge at index j" \
   'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) (i j : nat) (H : i <> j) (e : IX.ShortLhsEdge st j) : BN.ShortNewRef (IX.index_program p) := BN.mk_short_new st i e.'
-typefail neg_jref_empty "an inhabited short statement's exact judgment given an empty left table" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {st : IX.ShortStmtRef (IX.index_program p)} (se : BN.ShortEventRef bp st) : BN.ShortJudgmentRef se := BN.mk_short_jref nil eq_refl.'
-typefail neg_jref_raw_list "a raw node list in place of the exact left-classification table" \
+typefail neg_fact_tag_mismatch "a blank fact where the retained row is New — the case cannot be chosen off-tag" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (st : IX.ShortStmtRef (IX.index_program p)) (i : nat) (e : IX.ShortLhsEdge st i) (n : Names.OrdinaryIdentifier) (H : BN.binder_ident (IX.sl_child e) = None) : BN.ShortLhsFact pre e (BN.ShortNewData n) := BN.ShortBlankFact H.'
+typefail neg_jref_maker_absent "the deleted caller-row judgment maker mk_short_jref" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {st : IX.ShortStmtRef (IX.index_program p)} (se : BN.ShortEventRef bp st) (l : list (IX.NodeRef (IX.index_program p))) : BN.ShortJudgmentRef se := BN.mk_short_jref l eq_refl.'
 typefail neg_member_cross_cut "a predecessor-state member at cut A used as a member at cut B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (mr : BN.BlockMemberRef (BN.block_state c1)) : BN.BlockMemberRef (BN.block_state c2) := mr.'
@@ -1214,7 +1214,11 @@ Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
 Definition l_short_judgment_ref := @BN.short_judgment_ref.
-Definition l_short_lhs_class := @BN.short_lhs_class.
+Definition l_short_lhs_fact := @BN.short_lhs_fact.
+Definition l_short_lhs_fact_ref := @BN.short_lhs_fact_ref.
+Definition l_se_rows_decide := @BN.se_rows_decide.
+Definition l_short_new_addition := @BN.short_new_addition.
+Definition l_short_addition_is_new := @BN.short_addition_is_new.
 Definition l_new_est_vstart := @BN.new_est_vstart.
 Definition l_object_view := @BN.object_view.
 Definition l_use_env := @BN.use_env.
