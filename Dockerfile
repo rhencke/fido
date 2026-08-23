@@ -573,10 +573,12 @@ typefail neg_jref_maker_absent "the deleted caller-row judgment maker mk_short_j
 typefail neg_member_cross_cut "a predecessor-state member at cut A used as a member at cut B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (mr : BN.BlockMemberRef (BN.block_state c1)) : BN.BlockMemberRef (BN.block_state c2) := mr.'
 # — declaration-binder classification: indexed by exact predecessor state AND exact binder; neither cut nor binder can be crossed —
-typefail neg_declclass_cross_cut "a declaration-binder classification against predecessor cut A used against cut B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (t bd : IX.NodeRef (IX.index_program p)) (i : nat) (cl : BN.DeclLhsClass (BN.block_state c1) t i bd) : BN.DeclLhsClass (BN.block_state c2) t i bd := cl.'
-typefail neg_declclass_cross_binder "a declaration-binder classification for binder A used as binder B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (t bd1 bd2 : IX.NodeRef (IX.index_program p)) (i : nat) (cl : BN.DeclLhsClass pre t i bd1) : BN.DeclLhsClass pre t i bd2 := cl.'
+typefail neg_declfact_cross_cut "a declaration-binder fact against predecessor cut A used against cut B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c1 c2 : BN.BlockCutRef tr) (t bd : IX.NodeRef (IX.index_program p)) (i : nat) (row : BN.DeclBinderDecisionData) (f : BN.DeclBinderFact (BN.block_state c1) t i bd row) : BN.DeclBinderFact (BN.block_state c2) t i bd row := f.'
+typefail neg_declfact_cross_binder "a declaration-binder fact for binder A used as binder B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (t bd1 bd2 : IX.NodeRef (IX.index_program p)) (i : nat) (row : BN.DeclBinderDecisionData) (f : BN.DeclBinderFact pre t i bd1 row) : BN.DeclBinderFact pre t i bd2 row := f.'
+typefail neg_declfact_tag_mismatch "a blank decl fact where the retained row is fresh — the case cannot be chosen off-tag" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} {c : BN.BlockCutRef tr} (pre : BN.BlockStateRef c) (t bd : IX.NodeRef (IX.index_program p)) (i : nat) (H : BN.binder_ident bd = None) : BN.DeclBinderFact pre t i bd BN.DeclFreshData := BN.DeclBlankFact H.'
 typefail neg_explicit_for_inherited "an explicit judgment constructed for an inherited source shape" \
   'Definition forged (p : Syntax.Program) (n : IX.NodeRef (IX.index_program p)) (nn : nat) (H : IX.node_view n = IX.VConstSpec (IX.CSInherited nn)) : BN.ConstJudgment (IX.mkSpecRef (fl := IX.ConstSpecF) n (IX.CSInherited nn) H) := BN.CJExplicit _ eq_refl.'
 typefail neg_inherited_for_explicit "a first-inherited judgment constructed for an explicit source shape" \
@@ -1204,7 +1206,11 @@ Definition l_decl_lhs_fresh := @BN.decl_lhs_fresh.
 Definition l_decl_lhs_redeclared := @BN.decl_lhs_redeclared.
 Definition l_decl_lhs_duplicate := @BN.decl_lhs_duplicate.
 Definition l_decl_lhs_ambiguous := @BN.decl_lhs_ambiguous.
-Definition l_decl_lhs_class := @BN.decl_lhs_class.
+Definition l_decl_binder_fact := @BN.decl_binder_fact.
+Definition l_decl_binder_fact_ref := @BN.decl_binder_fact_ref.
+Definition l_de_rows_decide := @BN.de_rows_decide.
+Definition l_decl_nonblank_addition := @BN.decl_nonblank_addition.
+Definition l_decl_addition_source := @BN.decl_addition_source.
 Definition l_decl_judgment_ref := @BN.decl_judgment_ref.
 Definition l_decl_state_before := @BN.decl_state_before.
 Definition l_local_visible_group := @BN.local_visible_group.

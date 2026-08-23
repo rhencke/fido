@@ -2535,6 +2535,23 @@ Lemma block_event_short_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
         (short_decide_rows env (Index.mkShortStmtRef c nn nv Hv0)).
 Proof. intro E. revert Hv. subst v. intro Hv. exists Hv. reflexivity. Qed.
 
+Lemma block_event_decl_eval {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) :
+  v = Index.VStmt Index.SSDecl ->
+  block_event s br env c v Hv = BEvDecl (BlockScope br) c (decl_decide_rows env c).
+Proof. intro E. revert Hv. subst v. intro Hv. reflexivity. Qed.
+
+Lemma block_event_decl_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
+  (v : Index.NodeView) (Hv : Index.node_view c = v) (sc : ScopeId s) (t : Index.NodeRef idx)
+  (rows : list DeclBinderDecisionData) :
+  block_event s br env c v Hv = BEvDecl sc t rows -> v = Index.VStmt Index.SSDecl.
+Proof.
+  intro H. destruct v; try discriminate H.
+  match goal with sh : Index.StmtShape |- _ => destruct sh end; try discriminate H. reflexivity.
+Qed.
+
 (* every addition of a canonical block event establishes at its exact block scope *)
 Lemma block_event_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br br' : Index.BlockRef idx) (env : list (Est s)) (c : Index.NodeRef idx)
@@ -3422,42 +3439,105 @@ Definition decl_state_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
   : BlockStateRef (ber_pre (de_event de)) := block_state (ber_pre (de_event de)).
 
-(* the exact declaration-binder classification against the predecessor state and earlier same-event binders *)
-Inductive DeclLhsClass {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the retained decl rows are exactly the canonical decision over the exact predecessor state's members *)
+Lemma de_rows_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) :
+  de_rows de = decl_decide_rows (map es_est (bs_members (decl_state_before de))) t.
+Proof.
+  pose proof (de_at de) as Hat.
+  set (tr := btr_row (de_trace de)) in *.
+  destruct (bp_traces_row bp tr (nth_error_In _ _ (btr_at (de_trace de)))) as [pr [r [Hb [_ [_ Hform]]]]].
+  assert (Hevs : trow_evs tr = block_fold s (Index.mkBlockRef r Hb) (Index.all_children r) (pkg_env_of s pr))
+    by (rewrite Hform; reflexivity).
+  pose proof Hat as Hat2. rewrite Hevs in Hat2.
+  destruct (block_fold_nth_env (Index.mkBlockRef r Hb) (Index.all_children r) (pkg_env_of s pr)
+              (de_ord de) _ Hat2) as [x [_ He]].
+  set (c := Index.ca_child (projT2 x)) in *.
+  assert (Hview : Index.node_view c = Index.VStmt Index.SSDecl)
+    by exact (block_event_decl_view _ _ _ _ _ _ _ _ (eq_sym He)).
+  rewrite (block_event_decl_eval (Index.mkBlockRef r Hb)
+             (pkg_env_of s pr ++ flat_map (bev_adds (Index.mkBlockRef r Hb))
+                (firstn (de_ord de) (block_fold s (Index.mkBlockRef r Hb) (Index.all_children r)
+                   (pkg_env_of s pr)))) c _ eq_refl Hview) in He.
+  injection He as _ Ht Herows.
+  rewrite <- Ht in Herows. rewrite Herows.
+  f_equal.
+  assert (Hbs : bs_members (decl_state_before de) = state_refs bp (btr_ord (de_trace de)) (de_ord de))
+    by reflexivity.
+  rewrite Hbs.
+  rewrite (state_ests bp (btr_ord (de_trace de)) (de_ord de) tr (btr_at (de_trace de))
+             (Nat.lt_le_incl _ _ (nth_error_lt _ _ _ Hat))).
+  assert (Hpkg : map es_est (ledger_refs bp (trow_pkg tr)) = pkg_env_of s pr).
+  { replace (trow_pkg tr) with (PI.pr_pos pr) by (rewrite Hform; reflexivity).
+    exact (package_env_ests bp pr). }
+  rewrite Hpkg.
+  replace (trow_block tr) with (Index.mkBlockRef r Hb) by (rewrite Hform; reflexivity).
+  rewrite Hevs. reflexivity.
+Qed.
+
+(* one indexed row of a map over combine (seq 0 len) l projects the element and its index *)
+Lemma combine_seq_nth {A : Type} (l : list A) (start i : nat) (a : A) :
+  nth_error l i = Some a -> nth_error (combine (seq start (length l)) l) i = Some (start + i, a).
+Proof.
+  revert start i. induction l as [|x xs IH]; intros start i H; [ destruct i; discriminate H |].
+  destruct i as [|i']; cbn in H |- *.
+  - injection H as <-. rewrite Nat.add_0_r. reflexivity.
+  - rewrite (IH (S start) i' H). rewrite <- plus_n_Sm. reflexivity.
+Qed.
+
+(* the retained decl row at an exact binder index is the canonical decision over that binder *)
+Lemma decl_decide_rows_nth {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
+  nth_error (decl_binders t) i = Some bd ->
+  nth_error (decl_decide_rows env t) i = Some (decl_binder_decide env t i bd).
+Proof.
+  intro H. unfold decl_decide_rows. rewrite nth_error_map.
+  rewrite (combine_seq_nth (decl_binders t) 0 i bd H). reflexivity.
+Qed.
+
+(* the exact decl-binder fact, INDEXED by the retained decision row: for a given row exactly one case inhabits *)
+Inductive DeclBinderFact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) : Type :=
-| DCBlank : binder_ident bd = None -> DeclLhsClass pre t i bd
-| DCDuplicateEarlier : forall (n : Names.OrdinaryIdentifier) (j : nat) (bj : Index.NodeRef idx),
-    binder_ident bd = Some n -> j < i -> nth_error (decl_binders t) j = Some bj ->
-    binder_ident bj = Some n -> DeclLhsClass pre t i bd
-| DCRedeclaredPrior : forall (n : Names.OrdinaryIdentifier) (mr : BlockMemberRef pre),
-    binder_ident bd = Some n ->
-    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
-    same_block_cand n (es_est (bm_ref mr)) = true -> DeclLhsClass pre t i bd
-| DCAlreadyAmbiguous : forall (n : Names.OrdinaryIdentifier) (grp : LocalGroupRef pre n)
-    (mr1 mr2 : BlockMemberRef pre),
-    binder_ident bd = Some n ->
-    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
-    bm_ord mr1 < bm_ord mr2 -> same_block_cand n (es_est (bm_ref mr1)) = true ->
-    same_block_cand n (es_est (bm_ref mr2)) = true -> DeclLhsClass pre t i bd
-| DCFresh : forall (n : Names.OrdinaryIdentifier),
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  : DeclBinderDecisionData -> Type :=
+| DeclBlankFact : binder_ident bd = None -> DeclBinderFact pre t i bd DeclBlankData
+| DeclDuplicateFact : forall (n : Names.OrdinaryIdentifier) (j : nat) (bj : Index.NodeRef idx),
+    binder_ident bd = Some n -> j < i -> nth_error (decl_binders t) j = Some bj -> binder_ident bj = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = Some (j, bj) ->
+    DeclBinderFact pre t i bd (DeclDuplicateEarlierData j)
+| DeclFreshFact : forall (n : Names.OrdinaryIdentifier),
     binder_ident bd = Some n ->
     find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
     (forall mr : BlockMemberRef pre, same_block_cand n (es_est (bm_ref mr)) = false) ->
-    DeclLhsClass pre t i bd.
-Arguments DCBlank {p idx s d bp b0 tr c pre t i bd} _.
-Arguments DCDuplicateEarlier {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _.
-Arguments DCRedeclaredPrior {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _.
-Arguments DCAlreadyAmbiguous {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _ _ _.
-Arguments DCFresh {p idx s d bp b0 tr c pre t i bd} _ _ _ _.
+    DeclBinderFact pre t i bd DeclFreshData
+| DeclRedeclaredFact : forall (n : Names.OrdinaryIdentifier) (mr : BlockMemberRef pre),
+    binder_ident bd = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
+    find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = None ->
+    find_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = Some (bm_ord mr, es_est (bm_ref mr)) ->
+    DeclBinderFact pre t i bd (DeclRedeclaredPriorData (bm_ord mr))
+| DeclAmbiguousFact : forall (n : Names.OrdinaryIdentifier) (grp : LocalGroupRef pre n)
+    (mr1 mr2 : BlockMemberRef pre),
+    binder_ident bd = Some n ->
+    find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None ->
+    find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = Some (bm_ord mr1, bm_ord mr2) ->
+    lg_members grp = local_group_refs pre n ->
+    same_block_cand n (es_est (bm_ref mr1)) = true -> same_block_cand n (es_est (bm_ref mr2)) = true ->
+    DeclBinderFact pre t i bd (DeclAlreadyAmbiguousData (bm_ord mr1) (bm_ord mr2)).
+Arguments DeclBlankFact {p idx s d bp b0 tr c pre t i bd} _.
+Arguments DeclDuplicateFact {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _ _.
+Arguments DeclFreshFact {p idx s d bp b0 tr c pre t i bd} _ _ _ _.
+Arguments DeclRedeclaredFact {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _.
+Arguments DeclAmbiguousFact {p idx s d bp b0 tr c pre t i bd} _ _ _ _ _ _ _ _ _.
 
-(* the one deterministic exact declaration-binder classification *)
-Definition decl_lhs_class {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the one canonical decl-binder fact, indexed by its canonical decision over the exact state *)
+Definition decl_binder_fact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
   {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
-  : DeclLhsClass pre t i bd.
+  : DeclBinderFact pre t i bd (decl_binder_decide (map es_est (bs_members pre)) t i bd).
 Proof.
-  destruct (binder_ident bd) as [n|] eqn:Hb; [| exact (DCBlank Hb) ].
+  unfold decl_binder_decide.
+  destruct (binder_ident bd) as [n|] eqn:Hb; [| exact (DeclBlankFact Hb) ].
   destruct (find_ord (binder_name_matches n) 0 (firstn i (decl_binders t))) as [[j bj]|] eqn:Hdup.
   { destruct (find_ord_found (binder_name_matches n) (firstn i (decl_binders t)) 0 j bj Hdup)
       as [_ [Hnth [Hbm _]]].
@@ -3466,7 +3546,7 @@ Proof.
     unfold binder_name_matches in Hbm.
     destruct (binder_ident bj) as [m|] eqn:Hbj; [| discriminate Hbm].
     apply Names.ordinary_equalb_spec in Hbm. subst m.
-    exact (DCDuplicateEarlier n j bj Hb Hlt Hjn Hbj). }
+    exact (DeclDuplicateFact n j bj Hb Hlt Hjn Hbj Hdup). }
   destruct (find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre))) as [[j0 j1]|] eqn:Hft.
   { destruct (find_two_ord_found (same_block_cand n) (map es_est (bs_members pre)) 0 j0 j1 Hft)
       as [_ [Hlt [Hex0 Hex1]]].
@@ -3476,8 +3556,10 @@ Proof.
       [| exfalso; destruct Hex1 as [x1 [Hnx _]]; rewrite Nat.sub_0_r, Hm1 in Hnx; discriminate ].
     destruct (state_member_ref pre j0 m0 Hm0) as [mr0 [He0 Ho0]].
     destruct (state_member_ref pre j1 m1 Hm1) as [mr1 [He1 Ho1]].
-    apply (DCAlreadyAmbiguous n (local_group pre n) mr0 mr1 Hb Hdup).
-    - rewrite Ho0, Ho1. exact Hlt.
+    rewrite <- Ho0, <- Ho1.
+    apply (DeclAmbiguousFact n (local_group pre n) mr0 mr1 Hb Hdup).
+    - rewrite Ho0, Ho1. exact Hft.
+    - exact (lg_ok (local_group pre n)).
     - rewrite He0. destruct Hex0 as [x0 [Hnx Hfx]]. rewrite Nat.sub_0_r, Hm0 in Hnx.
       injection Hnx as <-. exact Hfx.
     - rewrite He1. destruct Hex1 as [x1 [Hnx Hfx]]. rewrite Nat.sub_0_r, Hm1 in Hnx.
@@ -3487,21 +3569,86 @@ Proof.
       as [_ [Hn' [Hf _]]].
     rewrite Nat.sub_0_r in Hn'.
     destruct (state_member_ref pre j m Hn') as [mr [He Hoo]].
-    apply (DCRedeclaredPrior n mr Hb Hdup). rewrite He. exact Hf. }
-  { apply (DCFresh n Hb Hdup). intro mr.
+    rewrite <- Hoo.
+    apply (DeclRedeclaredFact n mr Hb Hdup Hft).
+    rewrite Hoo, He. exact Ho. }
+  { apply (DeclFreshFact n Hb Hdup). intro mr.
     apply (find_ord_none (same_block_cand n) (map es_est (bs_members pre)) 0 Ho).
     apply (nth_error_In _ (bm_ord mr)). rewrite nth_error_map, (bm_at mr). reflexivity. }
 Defined.
 
-(* the exact declaration judgment: every flat binder classified against the exact predecessor state *)
+(* the exact per-binder decl fact ref: the retained decision row and its tag-indexed fact, pinned to the event *)
+Record DeclBinderFactRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (bd : Index.NodeRef idx) : Type := mk_decl_fact {
+  dbf_row  : DeclBinderDecisionData ;
+  dbf_at   : nth_error (de_rows de) i = Some dbf_row ;
+  dbf_fact : DeclBinderFact (decl_state_before de) t i bd dbf_row
+}.
+Arguments mk_decl_fact {p idx s d bp t de i bd} _ _ _.
+Arguments dbf_row {p idx s d bp t de i bd} _.
+Arguments dbf_at {p idx s d bp t de i bd} _.
+Arguments dbf_fact {p idx s d bp t de i bd} _.
+
+(* the one canonical per-binder fact: the retained row is exactly the canonical decision, and the fact is pinned *)
+Definition decl_binder_fact_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (bd : Index.NodeRef idx) (H : nth_error (decl_binders t) i = Some bd)
+  : DeclBinderFactRef de i bd.
+Proof.
+  apply (mk_decl_fact (decl_binder_decide (map es_est (bs_members (decl_state_before de))) t i bd)).
+  - rewrite de_rows_decide. exact (decl_decide_rows_nth _ t i bd H).
+  - exact (decl_binder_fact (decl_state_before de) t i bd).
+Defined.
+
+(* the exact declaration judgment: a view giving each binder's canonical fact, never a caller table *)
 Definition DeclJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) : Type :=
   forall (i : nat) (bd : Index.NodeRef idx), nth_error (decl_binders t) i = Some bd ->
-    DeclLhsClass (decl_state_before de) t i bd.
+    DeclBinderFactRef de i bd.
 
 Definition decl_judgment_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
-  : DeclJudgmentRef de := fun i bd _ => decl_lhs_class (decl_state_before de) t i bd.
+  : DeclJudgmentRef de := fun i bd H => decl_binder_fact_ref de i bd H.
+
+(* two lists paired index-wise: a common index that both hit lands in the pairing *)
+Lemma nth_error_combine {A B : Type} (l1 : list A) (l2 : list B) (i : nat) (a : A) (b : B) :
+  nth_error l1 i = Some a -> nth_error l2 i = Some b -> nth_error (combine l1 l2) i = Some (a, b).
+Proof.
+  revert l2 i. induction l1 as [|x xs IH]; intros l2 i H1 H2; [ destruct i; discriminate H1 |].
+  destruct l2 as [|y ys]; [ destruct i; discriminate H2 |].
+  destruct i as [|i']; cbn in *; [ injection H1 as <-; injection H2 as <-; reflexivity | exact (IH ys i' H1 H2) ].
+Qed.
+
+(* every nonblank retained decl row causes exactly its one event addition, the establishment for that binder *)
+Lemma decl_nonblank_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (row : DeclBinderDecisionData) (bd : Index.NodeRef idx) (e' : Est s) :
+  nth_error (de_rows de) i = Some row -> row <> DeclBlankData ->
+  nth_error (decl_binders t) i = Some bd -> node_binder_est (de_sc de) bd = Some e' ->
+  In e' (bev_adds (de_block de) (BEvDecl (de_sc de) t (de_rows de))).
+Proof.
+  intros Hrow Hnb Hbd Hnbe. cbn [bev_adds]. unfold decl_rows_adds. apply in_flat_map.
+  exists (row, bd). split; [ exact (nth_error_In _ _ (nth_error_combine _ _ i _ _ Hrow Hbd)) |].
+  destruct row; [ exfalso; apply Hnb; reflexivity | rewrite Hnbe; left; reflexivity ..].
+Qed.
+
+(* and every event addition is caused by exactly one nonblank retained decl row *)
+Lemma decl_addition_source {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (e' : Est s) :
+  In e' (bev_adds (de_block de) (BEvDecl (de_sc de) t (de_rows de))) ->
+  exists (row : DeclBinderDecisionData) (bd : Index.NodeRef idx),
+    In (row, bd) (combine (de_rows de) (decl_binders t)) /\ row <> DeclBlankData
+    /\ node_binder_est (de_sc de) bd = Some e'.
+Proof.
+  cbn [bev_adds]. unfold decl_rows_adds. intro Hin. apply in_flat_map in Hin.
+  destruct Hin as [rb [Hrb Hin]]. destruct rb as [row bd]. exists row, bd.
+  destruct row;
+    [ destruct Hin
+    | destruct (node_binder_est (de_sc de) bd) as [e0|]; [| destruct Hin];
+      destruct Hin as [<-|F]; [| destruct F];
+      (split; [ exact Hrb | split; [ discriminate | reflexivity ] ]) ..].
+Qed.
 
 Lemma filter_flat_map {A B} (P : B -> bool) (g : A -> list B) (l : list A) :
   filter P (flat_map g l) = flat_map (fun x => filter P (g x)) l.
@@ -4400,77 +4547,79 @@ Proof.
   exists n, grp, mr1, mr2. repeat split; solve [ reflexivity | assumption ].
 Qed.
 
-(* the exact declaration-binder classification inverts: each constructor names its exact evidence (contract §9.4) *)
+(* each decl fact case names its exact evidence, keyed by the retained decision row (contract §9.4) *)
 Lemma decl_lhs_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
-  binder_ident bd = None
-  <-> match decl_lhs_class pre t i bd with DCBlank _ => True | _ => False end.
-Proof.
-  split.
-  - intro Hn. destruct (decl_lhs_class pre t i bd) as
-      [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
-      try exact I; rewrite Hn in Hb; discriminate Hb.
-  - intro Hm. destruct (decl_lhs_class pre t i bd) as
-      [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm2];
-      solve [ exact Hbl | destruct Hm ].
-Qed.
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  (row : DeclBinderDecisionData) (f : DeclBinderFact pre t i bd row) :
+  match row with DeclBlankData => binder_ident bd = None | _ => True end.
+Proof. destruct f; cbn; solve [ exact I | assumption ]. Qed.
 
 Lemma decl_lhs_duplicate {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
-  match decl_lhs_class pre t i bd with
-  | DCDuplicateEarlier n j bj _ _ _ _ =>
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  (row : DeclBinderDecisionData) (f : DeclBinderFact pre t i bd row) :
+  match row with
+  | DeclDuplicateEarlierData j => exists (n : Names.OrdinaryIdentifier) (bj : Index.NodeRef idx),
       binder_ident bd = Some n /\ j < i /\ nth_error (decl_binders t) j = Some bj
       /\ binder_ident bj = Some n
+      /\ find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = Some (j, bj)
   | _ => True end.
 Proof.
-  destruct (decl_lhs_class pre t i bd) as
-    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
-    try exact I. split; [exact Hb | split; [exact Hlt | split; [exact Hjn | exact Hbj]]].
-Qed.
-
-Lemma decl_lhs_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
-  match decl_lhs_class pre t i bd with
-  | DCRedeclaredPrior n mr _ _ _ =>
-      binder_ident bd = Some n /\ same_block_cand n (es_est (bm_ref mr)) = true
-  | _ => True end.
-Proof.
-  destruct (decl_lhs_class pre t i bd) as
-    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
-    try exact I. split; [exact Hb | exact Hs].
-Qed.
-
-Lemma decl_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
-  match decl_lhs_class pre t i bd with
-  | DCAlreadyAmbiguous n grp mr1 mr2 _ _ _ _ _ =>
-      binder_ident bd = Some n /\ bm_ord mr1 < bm_ord mr2
-      /\ same_block_cand n (es_est (bm_ref mr1)) = true
-      /\ same_block_cand n (es_est (bm_ref mr2)) = true
-      /\ lg_members grp = local_group_refs pre n
-  | _ => True end.
-Proof.
-  destruct (decl_lhs_class pre t i bd) as
-    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
-    try exact I.
-  split; [exact Hb | split; [exact Hlt | split; [exact Hs1 | split; [exact Hs2 | exact (lg_ok grp)]]]].
+  destruct f as [H | n j bj Hb Hlt Hjn Hbj Hdup | n Hb Hfnd Hm | n mr Hb Hfnd Hft Ho
+                | n grp mr1 mr2 Hb Hfnd Hft Hlg Hs1 Hs2]; cbn; try exact I.
+  exists n, bj. repeat split; assumption.
 Qed.
 
 Lemma decl_lhs_fresh {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
-  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) :
-  match decl_lhs_class pre t i bd with
-  | DCFresh n _ _ _ =>
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  (row : DeclBinderDecisionData) (f : DeclBinderFact pre t i bd row) :
+  match row with
+  | DeclFreshData => exists (n : Names.OrdinaryIdentifier),
       binder_ident bd = Some n
       /\ find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None
       /\ (forall mr : BlockMemberRef pre, same_block_cand n (es_est (bm_ref mr)) = false)
   | _ => True end.
 Proof.
-  destruct (decl_lhs_class pre t i bd) as
-    [Hbl|n j bj Hb Hlt Hjn Hbj|n mr Hb Hfnd Hs|n grp mr1 mr2 Hb Hfnd Hlt Hs1 Hs2|n Hb Hfnd Hm];
-    try exact I. split; [exact Hb | split; [exact Hfnd | exact Hm]].
+  destruct f as [H | n j bj Hb Hlt Hjn Hbj Hdup | n Hb Hfnd Hm | n mr Hb Hfnd Hft Ho
+                | n grp mr1 mr2 Hb Hfnd Hft Hlg Hs1 Hs2]; cbn; try exact I.
+  exists n. repeat split; assumption.
+Qed.
+
+Lemma decl_lhs_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  (row : DeclBinderDecisionData) (f : DeclBinderFact pre t i bd row) :
+  match row with
+  | DeclRedeclaredPriorData m => exists (n : Names.OrdinaryIdentifier) (mr : BlockMemberRef pre),
+      bm_ord mr = m /\ binder_ident bd = Some n
+      /\ find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None
+      /\ find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = None
+      /\ find_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = Some (bm_ord mr, es_est (bm_ref mr))
+  | _ => True end.
+Proof.
+  destruct f as [H | n j bj Hb Hlt Hjn Hbj Hdup | n Hb Hfnd Hm | n mr Hb Hfnd Hft Ho
+                | n grp mr1 mr2 Hb Hfnd Hft Hlg Hs1 Hs2]; cbn; try exact I.
+  exists n, mr. repeat split; solve [ reflexivity | assumption ].
+Qed.
+
+Lemma decl_lhs_ambiguous {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}
+  {c : BlockCutRef tr} (pre : BlockStateRef c) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx)
+  (row : DeclBinderDecisionData) (f : DeclBinderFact pre t i bd row) :
+  match row with
+  | DeclAlreadyAmbiguousData j k => exists (n : Names.OrdinaryIdentifier) (grp : LocalGroupRef pre n)
+      (mr1 mr2 : BlockMemberRef pre),
+      bm_ord mr1 = j /\ bm_ord mr2 = k /\ binder_ident bd = Some n
+      /\ find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) = None
+      /\ find_two_ord (same_block_cand n) 0 (map es_est (bs_members pre)) = Some (bm_ord mr1, bm_ord mr2)
+      /\ lg_members grp = local_group_refs pre n
+      /\ same_block_cand n (es_est (bm_ref mr1)) = true
+      /\ same_block_cand n (es_est (bm_ref mr2)) = true
+  | _ => True end.
+Proof.
+  destruct f as [H | n j bj Hb Hlt Hjn Hbj Hdup | n Hb Hfnd Hm | n mr Hb Hfnd Hft Ho
+                | n grp mr1 mr2 Hb Hfnd Hft Hlg Hs1 Hs2]; cbn; try exact I.
+  exists n, grp, mr1, mr2. repeat split; solve [ reflexivity | assumption ].
 Qed.
