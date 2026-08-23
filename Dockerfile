@@ -609,21 +609,21 @@ typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
 typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sc : BN.ScopeId sf) (na nb : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sc na) : BN.RedeclarationRef bp sc nb := r.'
-typefail neg_bound_from_origin "a source binding object built from a bare DeclOrigin, not an establishment ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.DeclOrigin (IX.index_program p)) : BN.BoundObject bp := BN.SourceBound o.'
+typefail neg_resolvedlocal_forge "a local bound resolution forged without its exact visibility proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {u : IX.NodeRef (IX.index_program p)} (ue : BN.UseEnvironmentRef bp u) (n : Names.OrdinaryIdentifier) (m : BN.EstablishmentRef bp) : BN.ResolutionRef ue n := BN.ResolvedLocal m eq_refl.'
 # — use-context and resolution identity: the exact use context, environment, current addition, and resolution are each pinned to their exact use/cut; none can be crossed —
 typefail neg_blockuse_cross_use "an exact block use context for use A used at use B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (bc : BN.BlockUseRef bp ua) : BN.BlockUseRef bp ub := bc.'
 typefail neg_useenv_cross_use "an exact use environment for use A used at use B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (ue : BN.UseEnvironmentRef bp ua) : BN.UseEnvironmentRef bp ub := ue.'
-typefail neg_resolved_cross_use "a resolution result for use A used at use B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.Resolved bp ua n) : BN.Resolved bp ub n := r.'
+typefail neg_resolution_cross_use "a resolution result for use A used at use B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (ua ub : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp ua) n) : BN.ResolutionRef (BN.use_env bp ub) n := r.'
 typefail neg_curadd_cross_cut "a visible current addition at cut A used at cut B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (ca cb : BN.BlockCutRef tr) (u : IX.NodeRef (IX.index_program p)) (x : BN.CurAddRef ca u) : BN.CurAddRef cb u := x.'
 typefail neg_curadd_no_vis "a current addition forged into the visible type without its visibility proof" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {b : IX.NodeRef (IX.index_program p)} {tr : BN.BlockTraceRef bp b} (c : BN.BlockCutRef tr) (u : IX.NodeRef (IX.index_program p)) (er : BN.EstablishmentRef bp) (Hin : List.In er (BN.block_ev_refs bp (BN.btr_ord tr) (BN.bc_ord c))) : BN.CurAddRef c u := BN.mk_cur_add er Hin eq_refl.'
-typefail neg_rbound_from_objectref "a resolution bound built from an idx-level ObjectRef, not a phase BoundObject" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (u : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (o : BN.ObjectRef (IX.index_program p)) : BN.Resolved bp u n := BN.RBound (BN.SourceObject o).'
+typefail neg_unbound_forge "an unbound resolution forged without its exact local/package/predeclared absence" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {u : IX.NodeRef (IX.index_program p)} (ue : BN.UseEnvironmentRef bp u) (n : Names.OrdinaryIdentifier) : BN.ResolutionRef ue n := BN.ResolutionUnbound eq_refl eq_refl eq_refl.'
 # — 11.8 raw/peer authority absence: every deleted prospective/transition/env route fails to RESOLVE —
 typefail neg_deleted_all_ests "the deleted prospective establishment list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.all_ests sf.'
@@ -1027,7 +1027,7 @@ Proof. destruct (Index.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compu
 (* the later use of x resolves to the exact phase-owned redeclaration root, binding no source object *)
 Definition p5_use_redeclared :
   match name_use_in p5fr idx_ with
-  | Some u => match BN.resolve p5bp u idx_ with BN.RRedeclared _ => true | _ => false end
+  | Some u => match BN.resolution_redecl_root (BN.resolve p5bp u idx_) with Some _ => true | _ => false end
   | None => false
   end = true := ltac:(vm_compute; reflexivity).
 
@@ -1056,7 +1056,7 @@ Definition p7fr : Index.FileRef p7idx.
 Proof. destruct (Index.all_files p7idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p7_rhs_unbound :
   match name_use_in p7fr idq_ with
-  | Some u => match BN.resolve p7bp u idq_ with BN.RUnbound => true | _ => false end
+  | Some u => match BN.resolution_object_view (BN.resolve p7bp u idq_) with Some _ => false | None => match BN.resolution_redecl_root (BN.resolve p7bp u idq_) with Some _ => false | None => true end end
   | None => false
   end = true := ltac:(vm_compute; reflexivity).
 
@@ -1122,8 +1122,8 @@ Definition p11fr : Index.FileRef p11idx.
 Proof. destruct (Index.all_files p11idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p11_forward_visible :
   match name_use_in p11fr idx_ with
-  | Some u => match BN.resolve p11bp u idx_ with
-              | BN.RBound (BN.SourceBound _) => true | _ => false end
+  | Some u => match BN.resolution_object_view (BN.resolve p11bp u idx_) with
+              | Some (BN.SourceObject _) => true | _ => false end
   | None => false
   end = true := ltac:(vm_compute; reflexivity).
 
@@ -1145,8 +1145,8 @@ Definition p13fr : Index.FileRef p13idx.
 Proof. destruct (Index.all_files p13idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p13_intra_visible :
   match name_use_in p13fr ida_ with
-  | Some u => match BN.resolve p13bp u ida_ with
-              | BN.RBound (BN.SourceBound _) => true | _ => false end
+  | Some u => match BN.resolution_object_view (BN.resolve p13bp u ida_) with
+              | Some (BN.SourceObject _) => true | _ => false end
   | None => false
   end = true := ltac:(vm_compute; reflexivity).
 
@@ -1186,12 +1186,12 @@ Definition l_block_group_two := @BN.block_group_two.
 Definition l_pkg_group_two := @BN.pkg_group_two.
 Definition l_block_visible_le := @BN.block_visible_le.
 Definition l_pkg_visible_le := @BN.pkg_visible_le.
-Definition l_resolve_exact_block_unique := @BN.resolve_block_unique.
-Definition l_resolve_exact_block_redecl := @BN.resolve_block_redeclared.
-Definition l_resolve_exact_block_empty := @BN.resolve_block_empty.
-Definition l_resolve_no_block := @BN.resolve_no_block.
-Definition l_pkg_decide_unique := @BN.pkg_decide_unique.
-Definition l_pkg_decide_redeclared := @BN.pkg_decide_redeclared.
+Definition l_resolution_ref := @BN.resolution_ref.
+Definition l_resolve := @BN.resolve.
+Definition l_resolution_object_view := @BN.resolution_object_view.
+Definition l_resolution_redecl_root := @BN.resolution_redecl_root.
+Definition l_local_group_status := @BN.local_group_status.
+Definition l_package_group_status := @BN.package_group_status.
 Definition l_redecl_root_two := @BN.redecl_root_two.
 Definition l_package_main_sound := @BN.package_main_sound.
 Definition l_main_is_package_local := @BN.main_is_package_local.
@@ -1226,7 +1226,6 @@ Definition l_se_rows_decide := @BN.se_rows_decide.
 Definition l_short_new_addition := @BN.short_new_addition.
 Definition l_short_addition_is_new := @BN.short_addition_is_new.
 Definition l_new_est_vstart := @BN.new_est_vstart.
-Definition l_object_view := @BN.object_view.
 Definition l_use_env := @BN.use_env.
 Definition l_group_at_state := @BN.group_at_state.
 Definition l_binding_group := @BN.binding_group.

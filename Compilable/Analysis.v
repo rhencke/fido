@@ -117,9 +117,9 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 
 (* the form/value meaning of a name at a use, for constant folding; None for anything without one *)
 Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : option TR.NameMeaning :=
-  match BN.resolve bp use n with
-  | BN.RBound o =>
-      match BN.object_view o with
+  match BN.resolution_object_view (BN.resolve bp use n) with
+  | Some o =>
+      match o with
       | BN.PredeclaredObject pn =>
           match pmeaning pn with
           | PMConvForm t => Some (TR.NMConversionForm t)
@@ -128,7 +128,7 @@ Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : opti
           end
       | BN.SourceObject _ => None
       end
-  | _ => None
+  | None => None
   end.
 
 Definition resolve_constant_info (ci : TR.ConstantInfo) : option TR.ResolvedConstant :=
@@ -203,9 +203,9 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
               | _ => None
               end
           | re :: im :: nil =>
-              match BN.resolve bp r h with
-              | BN.RBound o =>
-                  match BN.object_view o, mconst m re, mconst m im with
+              match BN.resolution_object_view (BN.resolve bp r h) with
+              | Some o =>
+                  match o, mconst m re, mconst m im with
                   | BN.PredeclaredObject Names.PComplex, Some cre, Some cim =>
                       match TR.constant_to_float (TR.ci_const cre), TR.constant_to_float (TR.ci_const cim) with
                       | Some _, Some _ =>
@@ -215,7 +215,7 @@ Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : 
                       end
                   | _, _, _ => None
                   end
-              | _ => None
+              | None => None
               end
           | _ => None
           end
@@ -243,14 +243,14 @@ Definition head_folds (par : Index.NodeRef idx) : bool :=
   | Index.VApplication => fun Hv =>
       match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef par Hv))) with
       | Index.VName h =>
-          match BN.resolve bp par h with
-          | BN.RBound o =>
-              match BN.object_view o with
+          match BN.resolution_object_view (BN.resolve bp par h) with
+          | Some o =>
+              match o with
               | BN.PredeclaredObject pn =>
                   match pmeaning pn with PMConvForm _ => true | PMComplex => true | _ => false end
               | BN.SourceObject _ => false
               end
-          | _ => false
+          | None => false
           end
       | _ => false
       end
@@ -280,10 +280,10 @@ Definition const_spec_disposition (cs : Index.SpecRef idx Index.ConstSpecF) : Va
 Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
   match Index.node_view r as v return Index.node_view r = v -> ValueOutcome r with
   | Index.VName n => fun _ =>
-      match BN.resolve bp r n with
-      | BN.RUnbound => VInvalid (UnresolvedName n r)
-      | BN.RBound o =>
-          match BN.object_view o with
+      let r0 := BN.resolve bp r n in
+      match BN.resolution_object_view r0 with
+      | Some o =>
+          match o with
           | BN.PredeclaredObject pn =>
               match pmeaning pn with
               | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity pn) end
@@ -294,7 +294,11 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           | BN.SourceObject (BN.DOShort sn) => VUnmet (ReqValueMeaning (BN.DOShort sn))
           | BN.SourceObject (BN.DOFunc f) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
           end
-      | BN.RRedeclared _ => VDependent (DepRedeclaredName n r)
+      | None =>
+          match BN.resolution_redecl_root r0 with
+          | Some _ => VDependent (DepRedeclaredName n r)
+          | None => VInvalid (UnresolvedName n r)
+          end
       end
   | Index.VLiteral _ => fun _ =>
       match mconst ctab r with
@@ -319,9 +323,10 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.VApplication => fun Hv =>
       match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef r Hv))) with
       | Index.VName h =>
-          match BN.resolve bp r h with
-          | BN.RBound o =>
-              match BN.object_view o with
+          let r0 := BN.resolve bp r h in
+          match BN.resolution_object_view r0 with
+          | Some o =>
+              match o with
               | BN.PredeclaredObject pn =>
               match pmeaning pn, map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with
               | PMConvForm t, x :: nil =>
@@ -350,8 +355,11 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
               end
               | BN.SourceObject _ => VNonconst
               end
-          | BN.RRedeclared _ => VDependent (DepRedeclaredName h r)
-          | BN.RUnbound => VDependent (DepUnboundName h r)
+          | None =>
+              match BN.resolution_redecl_root r0 with
+              | Some _ => VDependent (DepRedeclaredName h r)
+              | None => VDependent (DepUnboundName h r)
+              end
           end
       | _ => VNonconst
       end
@@ -368,9 +376,10 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
       let hd := Index.ah_child (Index.app_head (Index.mkAppRef r Hv)) in
       match Index.node_view hd with
       | Index.VName h =>
-          match BN.resolve bp r h with
-          | BN.RBound o =>
-              match BN.object_view o with
+          let r0 := BN.resolve bp r h in
+          match BN.resolution_object_view r0 with
+          | Some o =>
+              match o with
               | BN.PredeclaredObject pn =>
               match pmeaning pn with
               | PMConvForm _ => match map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.aa_child (projT2 x)) (Index.application_args (Index.mkAppRef r Hv))))) end
@@ -394,8 +403,11 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
               | args => AInvalid (MainArity f args (Datatypes.length args))
               end
               end
-          | BN.RRedeclared _ => ADependent (DepRedeclaredName h hd)
-          | BN.RUnbound => ADependent (DepUnboundName h hd)
+          | None =>
+              match BN.resolution_redecl_root r0 with
+              | Some _ => ADependent (DepRedeclaredName h hd)
+              | None => ADependent (DepUnboundName h hd)
+              end
           end
       | _ => AInvalid (NotCallableExpr hd)
       end
@@ -424,14 +436,14 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           | Index.VApplication => fun He =>
               match Index.node_view (Index.ah_child (Index.app_head (Index.mkAppRef e He))) with
               | Index.VName h =>
-                  match BN.resolve bp r h with
-                  | BN.RBound o =>
-                      match BN.object_view o with
+                  match BN.resolution_object_view (BN.resolve bp r h) with
+                  | Some o =>
+                      match o with
                       | BN.PredeclaredObject Names.PPrintln => SOK
                       | BN.SourceObject _ => SOK
                       | _ => SInvalid IllegalStatement
                       end
-                  | _ => SInvalid IllegalStatement
+                  | None => SInvalid IllegalStatement
                   end
               | _ => SInvalid IllegalStatement
               end
@@ -455,9 +467,10 @@ Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
 Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
   match Index.node_view r with
   | Index.VTypeExpr (Syntax.NamedType n) =>
-      match BN.resolve bp r n with
-      | BN.RBound o =>
-          match BN.object_view o with
+      let r0 := BN.resolve bp r n in
+      match BN.resolution_object_view r0 with
+      | Some o =>
+          match o with
           | BN.PredeclaredObject pn =>
               match TR.predeclared_meaning pn with
               | TR.NMConversionForm t => TOK t
@@ -469,8 +482,11 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
           | BN.SourceObject (BN.DOShort sn) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOShort sn)))
           | BN.SourceObject (BN.DOFunc m) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
           end
-      | BN.RRedeclared _ => TDependent (DepRedeclaredName n r)
-      | BN.RUnbound => TInvalid (UnresolvedName n r)
+      | None =>
+          match BN.resolution_redecl_root r0 with
+          | Some _ => TDependent (DepRedeclaredName n r)
+          | None => TInvalid (UnresolvedName n r)
+          end
       end
   | _ => TDependent (DepChild r)
   end.
@@ -750,9 +766,9 @@ Definition name_uses : list (Index.NodeRef idx) :=
 (* the exact use-site contexts of a redeclared group: name occurrences resolving to it as an ambiguous group *)
 Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.NodeRef idx) :=
   filter (fun r => match Index.node_view r with
-                   | Index.VName n => match BN.resolve bp r n with
-                                      | BN.RRedeclared root => same_groupref (BN.redecl_view root) g
-                                      | _ => false end
+                   | Index.VName n => match BN.resolution_redecl_root (BN.resolve bp r n) with
+                                      | Some root => same_groupref (BN.redecl_view root) g
+                                      | None => false end
                    | _ => false end) name_uses.
 (* one redeclared-group diagnostic per exact phase-owned group, keyed at its first member, with use contexts *)
 Definition group_rows : list (Diagnostic s) :=

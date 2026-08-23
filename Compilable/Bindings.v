@@ -3903,6 +3903,37 @@ Definition package_visible_group {p} {idx : Index.ProgramIndex p} {s : PI.Packag
   (n : Names.OrdinaryIdentifier) : PackageVisibleGroupRef ue n :=
   mk_pkg_visible _ eq_refl.
 
+(* the exact status of a visible group, INDEXED by its member list: absent, unique, or redeclared by shape *)
+Inductive VisibleGroupStatus {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} : list (EstablishmentRef bp) -> Type :=
+| GroupAbsent : VisibleGroupStatus []
+| GroupUnique : forall (m : EstablishmentRef bp), VisibleGroupStatus [m]
+| GroupRedeclared : forall (m1 m2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)),
+    VisibleGroupStatus (m1 :: m2 :: rest).
+Arguments GroupAbsent {p idx s d bp}.
+Arguments GroupUnique {p idx s d bp} _.
+Arguments GroupRedeclared {p idx s d bp} _ _ _.
+
+(* the one canonical status of any exact member list, forced by the list's own shape *)
+Definition group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (members : list (EstablishmentRef bp))
+  : VisibleGroupStatus members :=
+  match members with
+  | [] => GroupAbsent
+  | [m] => GroupUnique m
+  | m1 :: m2 :: rest => GroupRedeclared m1 m2 rest
+  end.
+
+(* the canonical status of the exact local and package visible groups at a use environment and name *)
+Definition local_group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : VisibleGroupStatus (lvg_members (local_visible_group ue n)) :=
+  group_status (lvg_members (local_visible_group ue n)).
+Definition package_group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
+  (n : Names.OrdinaryIdentifier) : VisibleGroupStatus (pvg_members (package_visible_group ue n)) :=
+  group_status (pvg_members (package_visible_group ue n)).
+
 (* a block-occupancy match at a trace's event is a member of that block's canonical group *)
 Lemma block_cand_matches {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (tix eix : nat) (tr : TraceRow s) (n : Names.OrdinaryIdentifier)
@@ -4055,194 +4086,97 @@ Proof.
   rewrite Hv. cbn. lia.
 Qed.
 
-(* a resolved object: predeclared identity, or the exact phase-owned establishment ref *)
-Inductive BoundObject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) : Type :=
-| PredeclaredBound : Names.PredeclaredName -> BoundObject bp
-| SourceBound : EstablishmentRef bp -> BoundObject bp.
-Arguments PredeclaredBound {p idx s d bp} _.
-Arguments SourceBound {p idx s d bp} _.
-
-(* the idx-level object view Analysis payloads project; never a route back to a ref *)
-Definition object_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} (o : BoundObject bp) : ObjectRef idx :=
-  match o with
-  | PredeclaredBound pn => PredeclaredObject pn
-  | SourceBound er => SourceObject (est_origin (es_est er))
-  end.
-
 Definition RedeclRoot {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (n : Names.OrdinaryIdentifier) : Type :=
   { sc : ScopeId s & RedeclarationRef bp sc n }.
 
-Inductive Resolved {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : Type :=
-| RBound      : BoundObject bp -> Resolved bp use n
-| RRedeclared : RedeclRoot bp n -> Resolved bp use n
-| RUnbound    : Resolved bp use n.
-Arguments RBound {p idx s d bp use n} _.
-Arguments RRedeclared {p idx s d bp use n} _.
-Arguments RUnbound {p idx s d bp use n}.
-
-Definition pkg_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the exact canonical resolution result: one outcome per case, each pinned to the exact use and visible-group *)
+Inductive ResolutionRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) : Resolved bp u n :=
-  (match pkg_named ue n as v return pkg_named ue n = v -> Resolved bp u n with
-   | [] => fun _ =>
-       match Names.classify_predeclared (Names.ordinary_spelling n) with
-       | Some pn => RBound (PredeclaredBound pn)
-       | None => RUnbound
-       end
-   | er :: rest =>
-       match rest as v2 return pkg_named ue n = er :: v2 -> Resolved bp u n with
-       | [] => fun _ => RBound (SourceBound er)
-       | er2 :: rest2 => fun Hv =>
-           RRedeclared (existT _ (PackageScope (ue_pkg ue))
-                          (mk_redeclaration (binding_group bp (PackageScope (ue_pkg ue)) n)
-                             (pkg_group_two ue n er er2 rest2 Hv)))
-       end
-   end) eq_refl.
+  (n : Names.OrdinaryIdentifier) : Type :=
+| ResolvedLocal : forall (m : EstablishmentRef bp),
+    lvg_members (local_visible_group ue n) = [m] -> ResolutionRef ue n
+| ResolvedPackage : forall (m : EstablishmentRef bp),
+    lvg_members (local_visible_group ue n) = [] ->
+    pvg_members (package_visible_group ue n) = [m] -> ResolutionRef ue n
+| ResolvedPredeclared : forall (pn : Names.PredeclaredName),
+    lvg_members (local_visible_group ue n) = [] ->
+    pvg_members (package_visible_group ue n) = [] ->
+    Names.classify_predeclared (Names.ordinary_spelling n) = Some pn -> ResolutionRef ue n
+| ResolutionRedeclaredLocal : forall (rr : RedeclRoot bp n)
+    (m1 m2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)),
+    lvg_members (local_visible_group ue n) = m1 :: m2 :: rest -> ResolutionRef ue n
+| ResolutionRedeclaredPackage : forall (rr : RedeclRoot bp n)
+    (m1 m2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)),
+    lvg_members (local_visible_group ue n) = [] ->
+    pvg_members (package_visible_group ue n) = m1 :: m2 :: rest -> ResolutionRef ue n
+| ResolutionUnbound :
+    lvg_members (local_visible_group ue n) = [] ->
+    pvg_members (package_visible_group ue n) = [] ->
+    Names.classify_predeclared (Names.ordinary_spelling n) = None -> ResolutionRef ue n.
+Arguments ResolvedLocal {p idx s d bp u ue n} _ _.
+Arguments ResolvedPackage {p idx s d bp u ue n} _ _ _.
+Arguments ResolvedPredeclared {p idx s d bp u ue n} _ _ _ _.
+Arguments ResolutionRedeclaredLocal {p idx s d bp u ue n} _ _ _ _ _.
+Arguments ResolutionRedeclaredPackage {p idx s d bp u ue n} _ _ _ _ _ _.
+Arguments ResolutionUnbound {p idx s d bp u ue n} _ _ _.
 
-(* resolution: block visibility shadows the package; a unique visible member binds; two redeclare *)
-Definition resolve_env {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+(* the one canonical resolution: block visibility shadows the package; a unique member binds, two redeclare *)
+Definition resolution_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) : Resolved bp u n :=
-  match ue_block ue with
-  | Some bc =>
-      (match bc_visible bc n as v return bc_visible bc n = v -> Resolved bp u n with
-       | [] => fun _ => pkg_decide ue n
-       | er :: rest =>
-           match rest as v2 return bc_visible bc n = er :: v2 -> Resolved bp u n with
-           | [] => fun _ => RBound (SourceBound er)
-           | er2 :: rest2 => fun Hv =>
-               RRedeclared (existT _ (BlockScope (trow_block (bc_row bc)))
-                              (mk_redeclaration
-                                 (binding_group bp (BlockScope (trow_block (bc_row bc))) n)
-                                 (block_group_two bc n er er2 rest2 Hv)))
-           end
-       end) eq_refl
-  | None => pkg_decide ue n
+  (n : Names.OrdinaryIdentifier) : ResolutionRef ue n.
+Proof.
+  destruct (lvg_members (local_visible_group ue n)) as [|m rest] eqn:Hl.
+  - destruct (pvg_members (package_visible_group ue n)) as [|pm prest] eqn:Hp.
+    + destruct (Names.classify_predeclared (Names.ordinary_spelling n)) as [pn|] eqn:Hc.
+      * exact (ResolvedPredeclared pn Hl Hp Hc).
+      * exact (ResolutionUnbound Hl Hp Hc).
+    + destruct prest as [|pm2 prest2].
+      * exact (ResolvedPackage pm Hl Hp).
+      * assert (Hpn : pkg_named ue n = pm :: pm2 :: prest2)
+          by (rewrite <- (pvg_ok (package_visible_group ue n)); exact Hp).
+        exact (ResolutionRedeclaredPackage
+                 (existT _ (PackageScope (ue_pkg ue))
+                    (mk_redeclaration (binding_group bp (PackageScope (ue_pkg ue)) n)
+                       (pkg_group_two ue n pm pm2 prest2 Hpn)))
+                 pm pm2 prest2 Hl Hp).
+  - destruct rest as [|m2 rest2].
+    + exact (ResolvedLocal m Hl).
+    + destruct (ue_block ue) as [bc|] eqn:Hb.
+      * assert (Hbv : bc_visible bc n = m :: m2 :: rest2).
+        { pose proof Hl as Hl'. rewrite (lvg_ok (local_visible_group ue n)) in Hl'.
+          rewrite Hb in Hl'. exact Hl'. }
+        exact (ResolutionRedeclaredLocal
+                 (existT _ (BlockScope (trow_block (bc_row bc)))
+                    (mk_redeclaration (binding_group bp (BlockScope (trow_block (bc_row bc))) n)
+                       (block_group_two bc n m m2 rest2 Hbv)))
+                 m m2 rest2 Hl).
+      * exfalso. rewrite (lvg_ok (local_visible_group ue n)) in Hl. rewrite Hb in Hl. discriminate Hl.
+Defined.
+
+(* one-way projections a consumer reads: the bound object as an idx-level ref, and the redeclaration root *)
+Definition resolution_object_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} {ue : UseEnvironmentRef bp u}
+  {n : Names.OrdinaryIdentifier} (r : ResolutionRef ue n) : option (ObjectRef idx) :=
+  match r with
+  | ResolvedLocal m _ => Some (SourceObject (est_origin (es_est m)))
+  | ResolvedPackage m _ _ => Some (SourceObject (est_origin (es_est m)))
+  | ResolvedPredeclared pn _ _ _ => Some (PredeclaredObject pn)
+  | _ => None
+  end.
+
+Definition resolution_redecl_root {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} {ue : UseEnvironmentRef bp u}
+  {n : Names.OrdinaryIdentifier} (r : ResolutionRef ue n) : option (RedeclRoot bp n) :=
+  match r with
+  | ResolutionRedeclaredLocal rr _ _ _ _ => Some rr
+  | ResolutionRedeclaredPackage rr _ _ _ _ _ => Some rr
+  | _ => None
   end.
 
 Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  : Resolved bp u n := resolve_env (use_env bp u) n.
-
-(* the exact inversion of resolution: each outcome names its exact visible evidence *)
-Lemma pkg_decide_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) :
-  pkg_named ue n = [] ->
-  pkg_decide ue n
-  = match Names.classify_predeclared (Names.ordinary_spelling n) with
-    | Some pn => RBound (PredeclaredBound pn)
-    | None => RUnbound
-    end.
-Proof.
-  intro H. unfold pkg_decide.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
-  destruct (pkg_named ue n) at 2 3.
-  - intro Heq. reflexivity.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-Qed.
-
-Lemma pkg_decide_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) (er : EstablishmentRef bp) :
-  pkg_named ue n = [er] ->
-  pkg_decide ue n = RBound (SourceBound er).
-Proof.
-  intro H. unfold pkg_decide.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
-  destruct (pkg_named ue n) at 2 3.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2 rest2] end.
-    + intro Heq. rewrite H in Heq. injection Heq as ->. reflexivity.
-    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
-Qed.
-
-Lemma pkg_decide_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) (er1 er2 : EstablishmentRef bp)
-  (rest : list (EstablishmentRef bp)) :
-  pkg_named ue n = er1 :: er2 :: rest ->
-  exists rr : RedeclarationRef bp (PackageScope (ue_pkg ue)) n,
-    pkg_decide ue n = RRedeclared (existT _ (PackageScope (ue_pkg ue)) rr).
-Proof.
-  intro H. unfold pkg_decide.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (pkg_named ue n)).
-  destruct (pkg_named ue n) at 2 3.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2' rest2'] end.
-    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
-    + intro Heq. eexists. reflexivity.
-Qed.
-
-Lemma resolve_no_block {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
-  locate_block_ctx bp u = None ->
-  resolve bp u n = pkg_decide (use_env bp u) n.
-Proof.
-  intro Hloc. unfold resolve, resolve_env.
-  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
-  rewrite Hloc. reflexivity.
-Qed.
-
-Lemma resolve_block_empty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseRef bp u) :
-  locate_block_ctx bp u = Some bc ->
-  bc_visible bc n = [] ->
-  resolve bp u n = pkg_decide (use_env bp u) n.
-Proof.
-  intros Hloc H. unfold resolve, resolve_env.
-  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
-  rewrite Hloc.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
-  destruct (bc_visible bc n) at 2 3.
-  - intro Heq. reflexivity.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-Qed.
-
-(* a unique visible block member binds exactly; block visibility shadows the package *)
-Lemma resolve_block_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseRef bp u) (er : EstablishmentRef bp) :
-  locate_block_ctx bp u = Some bc ->
-  bc_visible bc n = [er] ->
-  resolve bp u n = RBound (SourceBound er).
-Proof.
-  intros Hloc H. unfold resolve, resolve_env.
-  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
-  rewrite Hloc.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
-  destruct (bc_visible bc n) at 2 3.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2 rest2] end.
-    + intro Heq. rewrite H in Heq. injection Heq as ->. reflexivity.
-    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
-Qed.
-
-(* two visible members return the exact phase-owned redeclaration root; it binds no object *)
-Lemma resolve_block_redeclared {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (bc : BlockUseRef bp u) (er1 er2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
-  locate_block_ctx bp u = Some bc ->
-  bc_visible bc n = er1 :: er2 :: rest ->
-  exists rr : RedeclarationRef bp (BlockScope (trow_block (bc_row bc))) n,
-    resolve bp u n = RRedeclared (existT _ (BlockScope (trow_block (bc_row bc))) rr).
-Proof.
-  intros Hloc H. unfold resolve, resolve_env.
-  change (ue_block (use_env bp u)) with (locate_block_ctx bp u).
-  rewrite Hloc.
-  generalize (@eq_refl (list (EstablishmentRef bp)) (bc_visible bc n)).
-  destruct (bc_visible bc n) at 2 3.
-  - intro Heq. exfalso. rewrite H in Heq. discriminate Heq.
-  - match goal with l0 : list (EstablishmentRef bp) |- _ => destruct l0 as [|er2' rest2'] end.
-    + intro Heq. exfalso. rewrite H in Heq. injection Heq as He1 He2. discriminate He2.
-    + intro Heq. eexists. reflexivity.
-Qed.
-
+  : ResolutionRef (use_env bp u) n := resolution_ref (use_env bp u) n.
 (* every redeclaration root exposes at least two canonical group members: it can bind nothing *)
 Lemma redecl_root_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {n : Names.OrdinaryIdentifier} (root : RedeclRoot bp n) :
