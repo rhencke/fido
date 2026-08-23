@@ -4179,6 +4179,23 @@ Definition resolution_redecl_root {p} {idx : Index.ProgramIndex p} {s : PI.Packa
 Definition resolve {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   : ResolutionRef (use_env bp u) n := resolution_ref (use_env bp u) n.
+
+(* every resolution is exactly one of bound / redeclared / unbound: the projections are complete and exclusive *)
+Lemma resolution_trichotomy {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} {ue : UseEnvironmentRef bp u}
+  {n : Names.OrdinaryIdentifier} (r : ResolutionRef ue n) :
+  (exists o, resolution_object_view r = Some o /\ resolution_redecl_root r = None)
+  \/ (resolution_object_view r = None /\ exists rr, resolution_redecl_root r = Some rr)
+  \/ (resolution_object_view r = None /\ resolution_redecl_root r = None).
+Proof.
+  destruct r; cbn.
+  - left. eexists. split; reflexivity.
+  - left. eexists. split; reflexivity.
+  - left. eexists. split; reflexivity.
+  - right. left. split; [ reflexivity | eexists; reflexivity ].
+  - right. left. split; [ reflexivity | eexists; reflexivity ].
+  - right. right. split; reflexivity.
+Qed.
 (* every redeclaration root exposes at least two canonical group members: it can bind nothing *)
 Lemma redecl_root_two {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {n : Names.OrdinaryIdentifier} (root : RedeclRoot bp n) :

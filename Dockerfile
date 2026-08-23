@@ -1192,6 +1192,7 @@ Definition l_resolution_ref := @BN.resolution_ref.
 Definition l_resolve := @BN.resolve.
 Definition l_resolution_object_view := @BN.resolution_object_view.
 Definition l_resolution_redecl_root := @BN.resolution_redecl_root.
+Definition l_resolution_trichotomy := @BN.resolution_trichotomy.
 Definition l_local_group_status := @BN.local_group_status.
 Definition l_package_group_status := @BN.package_group_status.
 Definition l_redecl_root_two := @BN.redecl_root_two.
