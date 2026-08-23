@@ -65,6 +65,12 @@ tracked_mods=$( { ls *.v | sed 's/\.v$//'; ls Compilable/*.v 2>/dev/null | sed '
 declared_mods=$(printf '%s\n' $mods | sort | tr '\n' ' ')
 [ "$tracked_mods" = "$declared_mods" ] || fail "certified-module coverage mismatch — tracked=[$tracked_mods] dune=[$declared_mods]"
 echo "fido: certified-module coverage OK — tracked root .v == dune (modules ...)"
+# OMITTED-MODULE adversary (§13.5): the coverage decision must fail if any Index submodule is dropped from the
+# declared Dune set — proving the gate catches a new Index/*.v left out of the theory (a Docker-context omission
+# instead surfaces as a dune "No rule found" build failure).  The real tracked set here contains every Index.*.
+dropped=$(printf '%s\n' $mods | grep -v '^Index.Edges$' | sort | tr '\n' ' ')
+[ "$tracked_mods" != "$dropped" ] || fail "coverage omitted-module self-test: dropping Index.Edges from the declared set did not change coverage"
+echo "fido: coverage omitted-module control OK — omitting an Index module from the Dune theory breaks module coverage"
 # (b2) LAYER-DEPENDENCY GATE — the direct Fido import graph must EQUAL the sole ARCHITECTURE policy block.
 #      Pinned `rocq dep` reports Require edges (never .glob origins); edge legality is independent of use.
 #      The decision is a SINGLE awk pass: awk reads the Dune module universe, this run's rocq dep output, and
@@ -230,6 +236,23 @@ set +e; ico3=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch3 "$depst"); ic3=$?; set
   || fail "layer integration control 3: a removed module policy row was not rejected as module-row coverage (rc=$ic3)"
 echo "fido: layer integration control 3 OK — a removed module policy row over the real graph rejected as module-row coverage"
 echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and the single awk verdict pass both completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy; the gate greens only when every required operation completed (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
+# (b2b) INDEX AGGREGATE PURITY (§13.1, lexical — the claim is purely physical): the root Index.v is assembly
+#       only.  A permitted line is blank, a comment, or a `From Fido Require Export/Import` wiring line; any
+#       declaration head (Definition/Fixpoint/Inductive/Record/Lemma/Theorem/…) is a semantic body and fails.
+idx_decl() { grep -nE '^[[:space:]]*(Definition|Fixpoint|Inductive|CoInductive|Record|Variant|Lemma|Theorem|Corollary|Example|Fact|Remark|Class|Instance|Notation|Ltac)\b' "$1"; }
+if idx_decl Index.v; then fail "aggregate-purity: root Index.v declares a semantic object (must be pure re-export)"; fi
+{ cat Index.v; printf 'Definition rogue_agg : nat := 0.\n'; } > /tmp/agg1 && idx_decl /tmp/agg1 > /dev/null || fail "aggregate-purity self-test: an inserted Definition was not caught"
+{ cat Index.v; printf 'Lemma rogue_thm : True. Proof. exact I. Qed.\n'; } > /tmp/agg2 && idx_decl /tmp/agg2 > /dev/null || fail "aggregate-purity self-test: an inserted Lemma was not caught"
+echo "fido: aggregate-purity OK — root Index.v is pure re-export; an inserted Definition and an inserted Lemma are both caught"
+# (b2c) ONE IMPLEMENTATION (§13.3): each canonical numbering/index/child owner has EXACTLY ONE definition in the
+#       whole theory — no second builder, compatibility body, alias, or copy survives the split.
+oi_count() { grep -rhE "^(Definition|Fixpoint|Record|Inductive) $1\b" *.v Index/*.v Compilable/*.v 2>/dev/null | wc -l; }
+for sym in number_file number_leaf number_list posmap_of build_fileinfo raw_index index_program ChildAt; do
+  n=$(oi_count "$sym"); [ "$n" = "1" ] || fail "one-implementation: '$sym' has $n definitions across the theory (must be exactly 1)"
+done
+printf 'Definition dupe := 0.\nDefinition dupe := 1.\n' > /tmp/oi1
+[ "$(grep -hE '^(Definition) dupe\b' /tmp/oi1 | wc -l)" = "2" ] || fail "one-implementation self-test: two definitions of a symbol were not both counted"
+echo "fido: one-implementation OK — one number_file/number_leaf/number_list/posmap_of/build_fileinfo/raw_index/index_program/ChildAt each; a second definition is caught"
 # (b3) ONE-BUILD control (LEXICAL only; the semantic one-Result guarantee is the type topology — Compilation is
 #      one Result field — plus the Rocq projection theorems in the proof suite): `Analysis.analyze` is the SOLE
 #      composer, building the index and each phase once and returning one `Analysis.Result`.  Compilable delegates
@@ -1260,6 +1283,14 @@ Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_duplicate_decision := @BN.short_duplicate_decision.
 Definition l_short_dup_decision_name := @BN.short_dup_decision_name.
 Definition l_short_duplicate_status := @BN.short_duplicate_status.
+(* §13.4 public-load: one representative term from each Index owner, each resolved through the aggregate re-export *)
+Definition l_idx_model : Type := Index.Model.NodeView.
+Definition l_idx_build := @Index.Build.number_file.
+Definition l_idx_buildlaws := @Index.BuildLaws.number_file_positions.
+Definition l_idx_core := @Index.Core.index_program.
+Definition l_idx_child := @Index.Child.ChildAt.
+Definition l_idx_refs := @Index.Refs.ShortStmtRef.
+Definition l_idx_edges := @Index.Edges.ShortLhsEdge.
 Definition l_short_judgment_ref := @BN.short_judgment_ref.
 Definition l_short_lhs_fact := @BN.short_lhs_fact.
 Definition l_short_decision_row := @BN.short_decision_row.
