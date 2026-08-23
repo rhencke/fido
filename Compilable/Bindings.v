@@ -3563,14 +3563,14 @@ Proof.
     + cbn [nth_error]. exact (IH k' a b Hk Ha).
 Qed.
 
-(* the inverse: element k of the flat_map is the singleton output of the (k+1)-th contributor, at its exact index *)
-Lemma flat_map_opt_source {A B : Type} (f : A -> list B) :
-  (forall x, f x = [] \/ exists b, f x = [b]) ->
+(* the informative inverse: flat_map element k is the singleton output of the (k+1)-th contributor, index recovered *)
+Definition flat_map_opt_source {A B : Type} (f : A -> list B)
+  (Hf : forall x, (f x = []) + { b : B | f x = [b] }) :
   forall (l : list A) (k : nat) (b : B),
   nth_error (flat_map f l) k = Some b ->
-  exists (j : nat) (a : A), nth_error l j = Some a /\ f a = [b] /\ adds_before f l j = k.
+  { j : nat & { a : A | nth_error l j = Some a /\ f a = [b] /\ adds_before f l j = k } }.
 Proof.
-  intro Hf. unfold adds_before. induction l as [|x xs IH]; intros k b Hk; [ destruct k; discriminate Hk |].
+  unfold adds_before. induction l as [|x xs IH]; intros k b Hk; [ destruct k; discriminate Hk |].
   cbn [flat_map] in Hk. destruct (Hf x) as [Hfx | [y Hfx]]; rewrite Hfx in Hk.
   - cbn [app] in Hk. destruct (IH k b Hk) as [j [a [Hj [Ha Hcnt]]]].
     exists (S j), a. cbn [firstn filter]. rewrite Hfx.
@@ -3581,7 +3581,294 @@ Proof.
     + destruct (IH k' b Hk) as [j [a [Hj [Ha Hcnt]]]].
       exists (S j), a. cbn [firstn filter]. rewrite Hfx. cbn [length].
       split; [ exact Hj | split; [ exact Ha | rewrite Hcnt; reflexivity ] ].
+Defined.
+
+(* two same-length lists with position-wise agreeing predicates have equal filtered-prefix counts *)
+Lemma filter_firstn_len_eq {A B : Type} (p : A -> bool) (q : B -> bool) :
+  forall (l1 : list A) (l2 : list B), length l1 = length l2 ->
+  (forall k x y, nth_error l1 k = Some x -> nth_error l2 k = Some y -> p x = q y) ->
+  forall i, length (filter p (firstn i l1)) = length (filter q (firstn i l2)).
+Proof.
+  induction l1 as [|x xs IH]; intros [|y ys] Hlen Hp i; try discriminate Hlen.
+  - destruct i; reflexivity.
+  - destruct i as [|i']; [ reflexivity |]. cbn [firstn filter].
+    assert (Hxy : p x = q y) by exact (Hp 0 x y eq_refl eq_refl).
+    assert (Hrest : length (filter p (firstn i' xs)) = length (filter q (firstn i' ys))).
+    { apply (IH ys); [ cbn in Hlen; lia | intros k a b Ha Hb; exact (Hp (S k) a b Ha Hb) ]. }
+    rewrite Hxy. destruct (q y); cbn [length]; rewrite Hrest; reflexivity.
 Qed.
+
+(* a positional prefix extends by exactly the element at that index *)
+Lemma firstn_S_nth {A : Type} (l : list A) (i : nat) (a : A) :
+  nth_error l i = Some a -> firstn (S i) l = firstn i l ++ [a].
+Proof.
+  revert i; induction l as [|x xs IH]; intros [|i'] H; cbn in H; try discriminate.
+  - injection H as <-. reflexivity.
+  - cbn [firstn]. rewrite <- app_comm_cons. f_equal. apply IH; exact H.
+Qed.
+
+(* the contributor count of a filtered prefix is monotone and jumps by one at a contributing index *)
+Lemma filter_firstn_le {A : Type} (g : A -> bool) (m : list A) (i : nat) :
+  length (filter g (firstn i m)) <= length (filter g m).
+Proof. rewrite <- (firstn_skipn i m) at 2. rewrite filter_app, length_app. lia. Qed.
+Lemma adds_before_contrib_S {A B : Type} (f : A -> list B) (l : list A) (i : nat) (a : A) (b : B) :
+  nth_error l i = Some a -> f a = [b] -> adds_before f l (S i) = S (adds_before f l i).
+Proof.
+  intros Hi Ha. unfold adds_before. rewrite (firstn_S_nth l i a Hi), filter_app, length_app.
+  cbn [filter]. rewrite Ha. cbn [length]. lia.
+Qed.
+Lemma adds_before_mono {A B : Type} (f : A -> list B) (l : list A) (i j : nat) :
+  i <= j -> adds_before f l i <= adds_before f l j.
+Proof.
+  intro Hij. unfold adds_before.
+  replace (firstn i l) with (firstn i (firstn j l)) by (rewrite firstn_firstn, Nat.min_l; [ reflexivity | exact Hij ]).
+  apply filter_firstn_le.
+Qed.
+
+(* a contributing index is determined by its contributor count: adds_before is injective on contributors *)
+Lemma adds_before_inj {A B : Type} (f : A -> list B) (l : list A) (i j : nat) (ai aj : A) (bi bj : B) :
+  nth_error l i = Some ai -> f ai = [bi] -> nth_error l j = Some aj -> f aj = [bj] ->
+  adds_before f l i = adds_before f l j -> i = j.
+Proof.
+  intros Hi Hai Hj Haj Heq. destruct (Nat.lt_trichotomy i j) as [Hlt|[He|Hgt]]; [| exact He |].
+  - exfalso. pose proof (adds_before_contrib_S f l i ai bi Hi Hai) as Hc.
+    pose proof (adds_before_mono f l (S i) j Hlt) as Hm. lia.
+  - exfalso. pose proof (adds_before_contrib_S f l j aj bj Hj Haj) as Hc.
+    pose proof (adds_before_mono f l (S j) i Hgt) as Hm. lia.
+Qed.
+
+(* the per-edge addition body yields nothing or exactly the one New establishment *)
+Lemma short_add_at_single {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {st : Index.ShortStmtRef idx} (rows : list ShortLeftDecisionData) :
+  forall x : {i : nat & Index.ShortLhsEdge st i},
+    short_add_at (s:=s) br rows x = [] \/ exists b, short_add_at (s:=s) br rows x = [b].
+Proof.
+  intros [i e]. cbn [short_add_at]. destruct (nth_error rows i) as [row|]; [| left; reflexivity].
+  destruct row; try (left; reflexivity). right. eexists. reflexivity.
+Qed.
+
+(* the informative form of the same fact, so the exact source element can be recovered computationally *)
+Definition short_add_at_single_sig {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (br : Index.BlockRef idx) {st : Index.ShortStmtRef idx} (rows : list ShortLeftDecisionData) :
+  forall x : {i : nat & Index.ShortLhsEdge st i},
+    (short_add_at (s:=s) br rows x = []) + { b : Est s | short_add_at (s:=s) br rows x = [b] }.
+Proof.
+  intros [i e]. cbn [short_add_at]. destruct (nth_error rows i) as [row|]; [| left; reflexivity].
+  destruct row; try (left; reflexivity). right. exists (new_est br e n). reflexivity.
+Defined.
+
+(* the canonical New rank equals the flat_map's own contributor count over the source edges *)
+Lemma short_new_rank_adds_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) (i : nat) :
+  short_new_rank se i
+    = adds_before (short_add_at (s:=s) (se_block se) (se_rows se)) (Index.short_lhs_edges (se_stmt se)) i.
+Proof.
+  unfold short_new_rank, adds_before. symmetry.
+  apply (filter_firstn_len_eq
+           (fun x => match short_add_at (s:=s) (se_block se) (se_rows se) x with [] => false | _ => true end)
+           is_new_row (Index.short_lhs_edges (se_stmt se)) (se_rows se)).
+  - rewrite se_rows_length. pose proof (Index.short_lhs_edges_ords (se_stmt se)) as Ho.
+    apply (f_equal (@length _)) in Ho. rewrite length_map, length_seq in Ho. exact Ho.
+  - intros k x y Hx Hy.
+    assert (Hk : projT1 x = k).
+    { pose proof (Index.short_lhs_edges_ords (se_stmt se)) as Ho.
+      apply (f_equal (fun l => nth_error l k)) in Ho. rewrite nth_error_map, Hx in Ho. cbn in Ho.
+      assert (Hlt : k < Index.sh_names (se_stmt se)).
+      { rewrite <- se_rows_length. apply nth_error_Some. rewrite Hy. discriminate. }
+      rewrite (nth_error_nth' (seq 0 _) 0) in Ho; [| rewrite length_seq; exact Hlt].
+      rewrite seq_nth in Ho; [| exact Hlt]. cbn in Ho. injection Ho as Ho. exact Ho. }
+    destruct x as [j e]. cbn in Hk. subst j. cbn [short_add_at]. rewrite Hy. destruct y; reflexivity.
+Qed.
+
+(* forward: a New row's establishment is the exact addition at its canonical rank at the event site *)
+Lemma short_new_addition_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) (i : nat)
+  (r : ShortDecisionRowRef se i) (n : Names.OrdinaryIdentifier) (H : row_decision r = ShortNewData n) :
+  nth_error (event_adds (short_event_site se)) (short_new_rank se i)
+    = Some (new_est (se_block se) (row_subject r) n).
+Proof.
+  rewrite short_event_adds. unfold short_rows_adds. rewrite short_new_rank_adds_eq.
+  apply (flat_map_opt_nth (short_add_at (s:=s) (se_block se) (se_rows se))
+           (short_add_at_single (se_block se) (se_rows se))
+           (Index.short_lhs_edges (se_stmt se)) i (existT _ i (row_subject r))
+           (new_est (se_block se) (row_subject r) n)).
+  - exact (short_row_edge_at se i r).
+  - cbn [short_add_at]. rewrite (sdr_at r). unfold row_decision in H. rewrite H. reflexivity.
+Qed.
+
+(* decidable equality on retained short decision data, and hence on the option that a row pin lives in *)
+Definition sld_eq_dec (a b : ShortLeftDecisionData) : {a = b} + {a <> b}.
+Proof. decide equality; (apply Nat.eq_dec || apply ordinary_eq_dec). Defined.
+Definition option_sld_eq_dec (a b : option ShortLeftDecisionData) : {a = b} + {a <> b}.
+Proof. decide equality. apply sld_eq_dec. Defined.
+
+(* the exact short decision-row ref is positionally unique: same event and index force the same ref *)
+Lemma shortdecisionrowref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st} {i : nat}
+  (a b : ShortDecisionRowRef se i) : a = b.
+Proof.
+  destruct a as [ra ea Ha], b as [rb eb Hb].
+  assert (Hr : ra = rb) by (pose proof (eq_trans (eq_sym Ha) Hb) as E; injection E as E; exact E).
+  subst rb. rewrite (shortlhsedge_positional ea eb) in *. f_equal. apply (UIP_dec option_sld_eq_dec).
+Qed.
+
+(* the source edge at a position carries exactly that position as its ordinal (edges are ordinal-aligned) *)
+Lemma short_edge_projT1 {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) (j : nat)
+  (x : {i : nat & Index.ShortLhsEdge st i}) :
+  nth_error (Index.short_lhs_edges st) j = Some x -> projT1 x = j.
+Proof.
+  intro Hx. pose proof (Index.short_lhs_edges_ords st) as Ho.
+  assert (Hlen : length (Index.short_lhs_edges st) = Index.sh_names st)
+    by (apply (f_equal (@length _)) in Ho; rewrite length_map, length_seq in Ho; exact Ho).
+  assert (Hlt : j < Index.sh_names st) by (rewrite <- Hlen; apply nth_error_Some; rewrite Hx; discriminate).
+  apply (f_equal (fun l => nth_error l j)) in Ho. rewrite nth_error_map, Hx in Ho. cbn in Ho.
+  rewrite (nth_error_nth' (seq 0 _) 0) in Ho; [| rewrite length_seq; exact Hlt].
+  rewrite seq_nth in Ho; [| exact Hlt]. cbn in Ho. injection Ho as Ho. exact Ho.
+Qed.
+
+(* the exact consequence of one short decision row: the New establishment addition, or exact no-addition *)
+Inductive ShortRowConsequence {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) : Type :=
+| ShortNoAddition (Hnn : is_new_row (row_decision r) = false)
+| ShortNewAddition (n : Names.OrdinaryIdentifier) (Hnew : row_decision r = ShortNewData n)
+    (add : EventAdditionRef bp (short_event_site se) (short_new_rank se i)).
+Arguments ShortNoAddition {p idx s d bp st se i r} _.
+Arguments ShortNewAddition {p idx s d bp st se i r} _ _ _.
+
+(* the one exact event addition of a New row, at the canonical rank: the term the consequence carries *)
+Definition short_row_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) (i : nat)
+  (r : ShortDecisionRowRef se i) (n : Names.OrdinaryIdentifier) (H : row_decision r = ShortNewData n)
+  : EventAdditionRef bp (short_event_site se) (short_new_rank se i) :=
+  mk_event_addition (new_est (se_block se) (row_subject r) n) (short_new_addition_at se i r n H).
+
+(* the one canonical consequence of a row, dispatched on its retained tag: New adds, everything else does not *)
+Definition short_row_consequence {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) : ShortRowConsequence se i r.
+Proof.
+  destruct (row_decision r) as [|earlier|n|m|m|f2 sc] eqn:Hd;
+    try (apply ShortNoAddition; rewrite Hd; reflexivity).
+  exact (ShortNewAddition n Hd (short_row_addition se i r n Hd)).
+Defined.
+
+(* the exact addition a consequence carries: the New establishment, or none for a non-adding row *)
+Definition short_consequence_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st}
+  {i : nat} {r : ShortDecisionRowRef se i} (c : ShortRowConsequence se i r)
+  : option (EventAdditionRef bp (short_event_site se) (short_new_rank se i)) :=
+  match c with ShortNoAddition _ => None | ShortNewAddition _ _ add => Some add end.
+
+(* the canonical consequence of a New row carries exactly that row's one addition *)
+Lemma short_consequence_addition_new {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) (n : Names.OrdinaryIdentifier) (H : row_decision r = ShortNewData n) :
+  short_consequence_addition (short_row_consequence se i r) = Some (short_row_addition se i r n H).
+Proof.
+  destruct (short_row_consequence se i r) as [Hnn | n0 Hnew add].
+  - exfalso. rewrite H in Hnn. discriminate Hnn.
+  - cbn. f_equal. apply eventadditionref_positional.
+Qed.
+
+(* the canonical consequence of a non-New row carries no addition *)
+Lemma short_consequence_addition_nonnew {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) :
+  is_new_row (row_decision r) = false -> short_consequence_addition (short_row_consequence se i r) = None.
+Proof.
+  intro Hnn. destruct (short_row_consequence se i r) as [Hnn2 | n0 Hnew add].
+  - reflexivity.
+  - rewrite Hnew in Hnn. discriminate Hnn.
+Qed.
+
+(* the exact establishment of a New row's addition, at the canonical event site and rank *)
+Definition short_new_establishment {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) (i : nat)
+  (add : EventAdditionRef bp (short_event_site se) (short_new_rank se i)) : EstablishmentRef bp :=
+  mk_establishment (short_event_site se) (short_new_rank se i) add.
+
+(* the exact source of a short event addition: the unique New decision row at the canonical rank *)
+Record ShortAdditionSourceRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (k : nat) (ea : EventAdditionRef bp (short_event_site se) k) : Type := mk_short_source {
+  sas_index : nat ;
+  sas_row   : ShortDecisionRowRef se sas_index ;
+  sas_name  : Names.OrdinaryIdentifier ;
+  sas_new   : row_decision sas_row = ShortNewData sas_name ;
+  sas_rank  : short_new_rank se sas_index = k
+}.
+Arguments mk_short_source {p idx s d bp st se k ea} _ _ _ _ _.
+Arguments sas_index {p idx s d bp st se k ea} _.
+Arguments sas_row {p idx s d bp st se k ea} _.
+Arguments sas_name {p idx s d bp st se k ea} _.
+Arguments sas_new {p idx s d bp st se k ea} _.
+Arguments sas_rank {p idx s d bp st se k ea} _.
+
+(* every short event addition is sourced by exactly its one exact New decision row at the canonical rank *)
+Definition short_addition_source {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (k : nat) (ea : EventAdditionRef bp (short_event_site se) k) : ShortAdditionSourceRef se k ea.
+Proof.
+  pose proof (ea_at ea) as Hat. rewrite short_event_adds in Hat. unfold short_rows_adds in Hat.
+  destruct (flat_map_opt_source (short_add_at (s:=s) (se_block se) (se_rows se))
+              (short_add_at_single_sig (se_block se) (se_rows se)) _ k (ea_est ea) Hat)
+    as [j [a [Hj [Ha Hcnt]]]].
+  pose proof (short_edge_projT1 (se_stmt se) j a Hj) as Hje.
+  destruct a as [j' e]. cbn in Hje. subst j'.
+  cbn [short_add_at] in Ha. destruct (nth_error (se_rows se) j) as [row|] eqn:Hrow; [| discriminate Ha].
+  destruct row; try discriminate Ha.
+  refine (mk_short_source j (mk_short_row (ShortNewData n) e Hrow) n eq_refl _).
+  rewrite short_new_rank_adds_eq. exact Hcnt.
+Defined.
+
+(* the canonical New rank is injective across New rows: equal rank forces the same left index *)
+Lemma short_new_rank_inj {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i i' : nat) (r : ShortDecisionRowRef se i) (r' : ShortDecisionRowRef se i')
+  (n n' : Names.OrdinaryIdentifier)
+  (H : row_decision r = ShortNewData n) (H' : row_decision r' = ShortNewData n') :
+  short_new_rank se i = short_new_rank se i' -> i = i'.
+Proof.
+  intro Heq. rewrite !short_new_rank_adds_eq in Heq.
+  apply (adds_before_inj (short_add_at (s:=s) (se_block se) (se_rows se))
+           (Index.short_lhs_edges (se_stmt se)) i i'
+           (existT _ i (row_subject r)) (existT _ i' (row_subject r'))
+           (new_est (se_block se) (row_subject r) n) (new_est (se_block se) (row_subject r') n')).
+  - exact (short_row_edge_at se i r).
+  - cbn [short_add_at]. rewrite (sdr_at r). unfold row_decision in H. rewrite H. reflexivity.
+  - exact (short_row_edge_at se i' r').
+  - cbn [short_add_at]. rewrite (sdr_at r'). unfold row_decision in H'. rewrite H'. reflexivity.
+  - exact Heq.
+Qed.
+
+(* round trip: a New row's consequence addition sources back to the exact same row index and ref *)
+Lemma short_row_roundtrip {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) (n : Names.OrdinaryIdentifier) (H : row_decision r = ShortNewData n) :
+  sas_index (short_addition_source se (short_new_rank se i) (short_row_addition se i r n H)) = i.
+Proof.
+  set (src := short_addition_source se (short_new_rank se i) (short_row_addition se i r n H)).
+  apply (short_new_rank_inj se (sas_index src) i (sas_row src) r (sas_name src) n (sas_new src) H).
+  exact (sas_rank src).
+Qed.
+Lemma short_row_roundtrip_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) (n : Names.OrdinaryIdentifier) (H : row_decision r = ShortNewData n) :
+  eq_rect _ (fun k => ShortDecisionRowRef se k)
+    (sas_row (short_addition_source se (short_new_rank se i) (short_row_addition se i r n H)))
+    i (short_row_roundtrip se i r n H) = r.
+Proof. apply shortdecisionrowref_positional. Qed.
+
+(* round trip: any addition sources to a New row whose consequence addition is that exact same addition *)
+Lemma short_addition_roundtrip {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (k : nat) (ea : EventAdditionRef bp (short_event_site se) k) :
+  eq_rect _ (fun m => EventAdditionRef bp (short_event_site se) m)
+    (short_row_addition se (sas_index (short_addition_source se k ea)) (sas_row (short_addition_source se k ea))
+       (sas_name (short_addition_source se k ea)) (sas_new (short_addition_source se k ea)))
+    k (sas_rank (short_addition_source se k ea)) = ea.
+Proof. apply eventadditionref_positional. Qed.
 
 (* the retained judgment is about the exact queried statement *)
 Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
