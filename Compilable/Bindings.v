@@ -3452,6 +3452,29 @@ Definition short_event_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
   : EvSite bp := BlockEventAt (btr_ord (se_trace se)) (se_ord se) (short_event_site_lt se).
 
+(* the additions observed at a short event's exact site are exactly its projected New establishments *)
+Lemma short_event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  event_adds (short_event_site se) = short_rows_adds (se_block se) (se_stmt se) (se_rows se).
+Proof.
+  unfold short_event_site.
+  rewrite (event_adds_block bp (btr_ord (se_trace se)) (se_ord se) (short_event_site_lt se)
+             (btr_row (se_trace se)) (BEvShort (se_stmt se) (se_rows se)) (btr_at (se_trace se)) (se_at se)).
+  cbn [bev_adds].
+  rewrite (Index.blockref_positional (trow_block (btr_row (se_trace se))) (se_block se)
+             (btr_subject (se_trace se))).
+  reflexivity.
+Qed.
+
+(* whether a retained short row is New *)
+Definition is_new_row (r : ShortLeftDecisionData) : bool :=
+  match r with ShortNewData _ => true | _ => false end.
+
+(* the canonical addition ordinal of a short row: the count of New rows strictly before its exact left index *)
+Definition short_new_rank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) : nat := length (filter is_new_row (firstn i (se_rows se))).
+
 (* the retained judgment is about the exact queried statement *)
 Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) :
