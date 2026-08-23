@@ -1258,6 +1258,7 @@ Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
 Definition l_short_duplicate_decision := @BN.short_duplicate_decision.
 Definition l_short_dup_decision_name := @BN.short_dup_decision_name.
+Definition l_short_duplicate_status := @BN.short_duplicate_status.
 Definition l_short_judgment_ref := @BN.short_judgment_ref.
 Definition l_short_lhs_fact := @BN.short_lhs_fact.
 Definition l_short_decision_row := @BN.short_decision_row.
