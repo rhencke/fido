@@ -3441,6 +3441,17 @@ Proof.
   exists i, e, n. split; [ exact Hrow | reflexivity ].
 Qed.
 
+(* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
+Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  se_ord se < trace_event_count bp (btr_ord (se_trace se)).
+Proof.
+  unfold trace_event_count. rewrite (btr_at (se_trace se)). exact (nth_error_lt _ _ _ (se_at se)).
+Qed.
+Definition short_event_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : EvSite bp := BlockEventAt (btr_ord (se_trace se)) (se_ord se) (short_event_site_lt se).
+
 (* the retained judgment is about the exact queried statement *)
 Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) :
@@ -3699,6 +3710,17 @@ Definition DeclJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
 Definition decl_judgment_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
   : DeclJudgmentRef de := fun i bd H => decl_decision_row de i bd H.
+
+(* the exact finite event site of a declaration event, derived from its retained trace/ordinal membership *)
+Lemma decl_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) :
+  de_ord de < trace_event_count bp (btr_ord (de_trace de)).
+Proof.
+  unfold trace_event_count. rewrite (btr_at (de_trace de)). exact (nth_error_lt _ _ _ (de_at de)).
+Qed.
+Definition decl_event_site {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  : EvSite bp := BlockEventAt (btr_ord (de_trace de)) (de_ord de) (decl_event_site_lt de).
 
 (* two lists paired index-wise: a common index that both hit lands in the pairing *)
 Lemma nth_error_combine {A B : Type} (l1 : list A) (l2 : list B) (i : nat) (a : A) (b : B) :
