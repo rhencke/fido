@@ -3550,35 +3550,6 @@ Definition short_dup_decision_name {p} {idx : Index.ProgramIndex p} {s : PI.Pack
   (dd : ShortDuplicateDecision se) : option Names.OrdinaryIdentifier :=
   match dd with ShortNoDup => None | ShortDup _ _ _ n => Some n end.
 
-(* every retained New row causes exactly its one event addition, the new establishment for that exact left *)
-Lemma short_new_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  (i : nat) (n : Names.OrdinaryIdentifier) (e : Index.ShortLhsEdge (se_stmt se) i)
-  (He : nth_error (Index.short_lhs_edges (se_stmt se)) i = Some (existT _ i e))
-  (Hrow : nth_error (se_rows se) i = Some (ShortNewData n)) :
-  In (new_est (s:=s) (se_block se) e n) (bev_adds (se_block se) (BEvShort (se_stmt se) (se_rows se))).
-Proof.
-  cbn [bev_adds]. unfold short_rows_adds, short_add_at. apply in_flat_map.
-  exists (existT _ i e). split; [ exact (nth_error_In _ _ He) |].
-  rewrite Hrow. left. reflexivity.
-Qed.
-
-(* and every event addition is caused by exactly one retained New row: no addition without its New decision *)
-Lemma short_addition_is_new {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  (e' : Est s) :
-  In e' (bev_adds (se_block se) (BEvShort (se_stmt se) (se_rows se))) ->
-  exists (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) (n : Names.OrdinaryIdentifier),
-    nth_error (se_rows se) i = Some (ShortNewData n) /\ e' = new_est (s:=s) (se_block se) e n.
-Proof.
-  cbn [bev_adds]. unfold short_rows_adds, short_add_at. intro Hin. apply in_flat_map in Hin.
-  destruct Hin as [x [_ Hin]]. destruct x as [i e].
-  destruct (nth_error (se_rows se) i) as [row|] eqn:Hrow; [| destruct Hin].
-  destruct row; try (exact (match Hin with end)).
-  destruct Hin as [<-|F]; [| destruct F].
-  exists i, e, n. split; [ exact Hrow | reflexivity ].
-Qed.
-
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) :
@@ -4204,36 +4175,6 @@ Proof.
   destruct i as [|i']; cbn in *; [ injection H1 as <-; injection H2 as <-; reflexivity | exact (IH ys i' H1 H2) ].
 Qed.
 
-(* every nonblank retained decl row causes exactly its one event addition, the establishment for that binder *)
-Lemma decl_nonblank_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
-  (i : nat) (row : DeclBinderDecisionData) (bd : Index.NodeRef idx) (e' : Est s) :
-  nth_error (de_rows de) i = Some row -> row <> DeclBlankData ->
-  nth_error (decl_binders t) i = Some bd -> node_binder_est (de_sc de) bd = Some e' ->
-  In e' (bev_adds (de_block de) (BEvDecl (de_sc de) t (de_rows de))).
-Proof.
-  intros Hrow Hnb Hbd Hnbe. cbn [bev_adds]. unfold decl_rows_adds, decl_add_at. apply in_flat_map.
-  exists (row, bd). split; [ exact (nth_error_In _ _ (nth_error_combine _ _ i _ _ Hrow Hbd)) |].
-  destruct row; [ exfalso; apply Hnb; reflexivity | rewrite Hnbe; left; reflexivity ..].
-Qed.
-
-(* and every event addition is caused by exactly one nonblank retained decl row *)
-Lemma decl_addition_source {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (e' : Est s) :
-  In e' (bev_adds (de_block de) (BEvDecl (de_sc de) t (de_rows de))) ->
-  exists (row : DeclBinderDecisionData) (bd : Index.NodeRef idx),
-    In (row, bd) (combine (de_rows de) (decl_binders t)) /\ row <> DeclBlankData
-    /\ node_binder_est (de_sc de) bd = Some e'.
-Proof.
-  cbn [bev_adds]. unfold decl_rows_adds, decl_add_at. intro Hin. apply in_flat_map in Hin.
-  destruct Hin as [rb [Hrb Hin]]. destruct rb as [row bd]. exists row, bd.
-  destruct row;
-    [ destruct Hin
-    | destruct (node_binder_est (de_sc de) bd) as [e0|]; [| destruct Hin];
-      destruct Hin as [<-|F]; [| destruct F];
-      (split; [ exact Hrb | split; [ discriminate | reflexivity ] ]) ..].
-Qed.
-
 (* whether a retained decl row is nonblank *)
 Definition is_nonblank_row (r : DeclBinderDecisionData) : bool :=
   match r with DeclBlankData => false | _ => true end.
@@ -4768,37 +4709,6 @@ Definition package_visible_group {p} {idx : Index.ProgramIndex p} {s : PI.Packag
   {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
   (n : Names.OrdinaryIdentifier) : PackageVisibleGroupRef ue n :=
   mk_pkg_visible _ eq_refl.
-
-(* the exact status of a visible group, INDEXED by its member list: absent, unique, or redeclared by shape *)
-Inductive VisibleGroupStatus {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} : list (EstablishmentRef bp) -> Type :=
-| GroupAbsent : VisibleGroupStatus []
-| GroupUnique : forall (m : EstablishmentRef bp), VisibleGroupStatus [m]
-| GroupRedeclared : forall (m1 m2 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)),
-    VisibleGroupStatus (m1 :: m2 :: rest).
-Arguments GroupAbsent {p idx s d bp}.
-Arguments GroupUnique {p idx s d bp} _.
-Arguments GroupRedeclared {p idx s d bp} _ _ _.
-
-(* the one canonical status of any exact member list, forced by the list's own shape *)
-Definition group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} (members : list (EstablishmentRef bp))
-  : VisibleGroupStatus members :=
-  match members with
-  | [] => GroupAbsent
-  | [m] => GroupUnique m
-  | m1 :: m2 :: rest => GroupRedeclared m1 m2 rest
-  end.
-
-(* the canonical status of the exact local and package visible groups at a use environment and name *)
-Definition local_group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) : VisibleGroupStatus (lvg_members (local_visible_group ue n)) :=
-  group_status (lvg_members (local_visible_group ue n)).
-Definition package_group_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {u : Index.NodeRef idx} (ue : UseEnvironmentRef bp u)
-  (n : Names.OrdinaryIdentifier) : VisibleGroupStatus (pvg_members (package_visible_group ue n)) :=
-  group_status (pvg_members (package_visible_group ue n)).
 
 (* a redeclaration root at some exact scope for a name: the derived canonical group root, never supplied free *)
 Definition RedeclRoot {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

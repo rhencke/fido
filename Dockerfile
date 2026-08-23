@@ -605,12 +605,12 @@ typefail neg_groupstate_cross_cut "a group-at-state from cut j used as the group
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (ci cj : BN.BlockCutRef tr) (H : ci <> cj) (n : Names.OrdinaryIdentifier) (g : BN.GroupAtStateRef cj n) : BN.GroupAtStateRef ci n := g.'
 typefail neg_groupstate_forged "a group-at-state forged from a caller-supplied member list" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (b : IX.NodeRef (IX.index_program p)) (tr : BN.BlockTraceRef bp b) (c : BN.BlockCutRef tr) (n : Names.OrdinaryIdentifier) (l : list (BN.EstablishmentRef bp)) : BN.GroupAtStateRef c n := BN.mk_group_at_state l eq_refl.'
-typefail neg_groupstatus_absent_nonempty "a nonempty visible group forged as absent" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m :: rest) := BN.GroupAbsent.'
-typefail neg_groupstatus_unique_two "a two-member visible group forged as a unique member" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m1 m2 : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m1 :: m2 :: rest) := BN.GroupUnique m1.'
-typefail neg_groupstatus_redecl_singleton "a singleton visible group forged as redeclared" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} (m m1 m2 : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.VisibleGroupStatus (m :: nil) := BN.GroupRedeclared m1 m2 rest.'
+typefail neg_localstatus_forge_unique "an exact local group status forged Unique without its exact member proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {u : IX.NodeRef (IX.index_program p)} (ue : BN.UseEnvironmentRef bp u) (n : Names.OrdinaryIdentifier) (m : BN.EstablishmentRef bp) : BN.LocalVisibleGroupStatusRef ue n := BN.LocalGroupUnique m eq_refl.'
+typefail neg_pkgstatus_forge_absent "an exact package group status forged Absent without its exact emptiness proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {u : IX.NodeRef (IX.index_program p)} (ue : BN.UseEnvironmentRef bp u) (n : Names.OrdinaryIdentifier) : BN.PackageVisibleGroupStatusRef ue n := BN.PackageGroupAbsent eq_refl.'
+typefail neg_localredecl_forge "an exact local visible redeclaration forged without its exact >=2-member proof" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} {bp : BN.BindingPhase sf d} {u : IX.NodeRef (IX.index_program p)} (ue : BN.UseEnvironmentRef bp u) (n : Names.OrdinaryIdentifier) (m1 m2 : BN.EstablishmentRef bp) (rest : list (BN.EstablishmentRef bp)) : BN.LocalVisibleRedeclarationRef ue n := BN.mk_local_vredecl m1 m2 rest eq_refl.'
 typefail neg_redecl_cross_scope "a redeclaration root for scope A used for scope B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : BN.ScopeId sf) (n : Names.OrdinaryIdentifier) (r : BN.RedeclarationRef bp sa n) : BN.RedeclarationRef bp sb n := r.'
 typefail neg_redecl_cross_name "a redeclaration root for spelling A used for spelling B" \
@@ -641,6 +641,18 @@ typefail neg_deleted_short_table "the deleted on-demand whole-core judgment tabl
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) := BN.short_table core.'
 typefail neg_deleted_short_stmt_dup_name "the deleted sibling syntactic short-duplicate scan" \
   'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_stmt_dup_name st.'
+typefail neg_deleted_short_dup_name "the deleted short-duplicate-name tag fold as a live API" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_dup_name bp st.'
+typefail neg_deleted_short_new_addition "the deleted In-based short New addition authority" \
+  'Definition forged := @BN.short_new_addition.'
+typefail neg_deleted_short_addition_is_new "the deleted existential short addition-source authority" \
+  'Definition forged := @BN.short_addition_is_new.'
+typefail neg_deleted_decl_nonblank_addition "the deleted In-based decl nonblank addition authority" \
+  'Definition forged := @BN.decl_nonblank_addition.'
+typefail neg_deleted_decl_addition_source "the deleted existential decl addition-source authority" \
+  'Definition forged := @BN.decl_addition_source.'
+typefail neg_deleted_visible_group_status "the deleted raw-list-indexed visible group status authority" \
+  'Definition forged := @BN.VisibleGroupStatus.'
 typefail neg_deleted_est_of_binder "the deleted prospective binder-establishment lookup" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (b : IX.NodeRef (IX.index_program p)) := BN.est_of_binder_core core b.'
 typefail neg_deleted_bp_ests "the deleted flat establishment-list phase authority" \
@@ -1199,8 +1211,10 @@ Definition l_resolve := @BN.resolve.
 Definition l_resolution_object_view := @BN.resolution_object_view.
 Definition l_resolution_redecl_root := @BN.resolution_redecl_root.
 Definition l_resolution_trichotomy := @BN.resolution_trichotomy.
-Definition l_local_group_status := @BN.local_group_status.
-Definition l_package_group_status := @BN.package_group_status.
+Definition l_local_group_status_ref := @BN.local_group_status_ref.
+Definition l_package_group_status_ref := @BN.package_group_status_ref.
+Definition l_lvrr_root := @BN.lvrr_root.
+Definition l_pvrr_root := @BN.pvrr_root.
 Definition l_redecl_root_two := @BN.redecl_root_two.
 Definition l_package_main_sound := @BN.package_main_sound.
 Definition l_main_is_package_local := @BN.main_is_package_local.
@@ -1220,8 +1234,11 @@ Definition l_decl_binder_at := @BN.DeclBinderAt.
 Definition l_decl_decision_row := @BN.decl_decision_row.
 Definition l_decl_row_fact := @BN.decl_row_fact.
 Definition l_de_rows_decide := @BN.de_rows_decide.
-Definition l_decl_nonblank_addition := @BN.decl_nonblank_addition.
-Definition l_decl_addition_source := @BN.decl_addition_source.
+Definition l_decl_row_consequence := @BN.decl_row_consequence.
+Definition l_decl_row_addition := @BN.decl_row_addition.
+Definition l_decl_addition_source_ref := @BN.decl_addition_source_ref.
+Definition l_decl_row_roundtrip := @BN.decl_row_roundtrip.
+Definition l_decl_addition_roundtrip := @BN.decl_addition_roundtrip.
 Definition l_decl_judgment_ref := @BN.decl_judgment_ref.
 Definition l_decl_state_before := @BN.decl_state_before.
 Definition l_local_visible_group := @BN.local_visible_group.
@@ -1238,8 +1255,11 @@ Definition l_short_row_fact := @BN.short_row_fact.
 Definition l_row_decision := @BN.row_decision.
 Definition l_row_subject := @BN.row_subject.
 Definition l_se_rows_decide := @BN.se_rows_decide.
-Definition l_short_new_addition := @BN.short_new_addition.
-Definition l_short_addition_is_new := @BN.short_addition_is_new.
+Definition l_short_row_consequence := @BN.short_row_consequence.
+Definition l_short_row_addition := @BN.short_row_addition.
+Definition l_short_addition_source := @BN.short_addition_source.
+Definition l_short_row_roundtrip := @BN.short_row_roundtrip.
+Definition l_short_addition_roundtrip := @BN.short_addition_roundtrip.
 Definition l_new_est_vstart := @BN.new_est_vstart.
 Definition l_use_env := @BN.use_env.
 Definition l_group_at_state := @BN.group_at_state.
