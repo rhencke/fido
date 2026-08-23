@@ -3531,24 +3531,139 @@ Inductive ShortDuplicateDecision {p} {idx : Index.ProgramIndex p} {s : PI.Packag
 Arguments ShortNoDup {p idx s d bp st se}.
 Arguments ShortDup {p idx s d bp st se} _ _ _ _.
 
+(* the per-edge fold step, carrying the canonical exact row ref: the leftmost named duplicate wins *)
+Definition dup_fold_body {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (x : {i : nat & Index.ShortLhsEdge (se_stmt se) i}) (acc : ShortDuplicateDecision se)
+  : ShortDuplicateDecision se :=
+  match x with existT _ i e =>
+    match row_decision (short_decision_row se i e) with
+    | ShortDuplicateData earlier =>
+        match binder_ident (Index.sl_child (row_subject (short_decision_row se i e))) with
+        | Some n => ShortDup i (short_decision_row se i e) earlier n | None => acc end
+    | _ => acc end end.
+
+(* the canonical row builder keeps its input edge as the exact subject, and carries the retained row *)
+Lemma short_decision_row_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) (row : ShortLeftDecisionData) :
+  nth_error (se_rows se) i = Some row -> row_decision (short_decision_row se i e) = row.
+Proof.
+  intro Hn. pose proof (sdr_at (short_decision_row se i e)) as Hat.
+  unfold row_decision. rewrite Hn in Hat. injection Hat as Hat. exact (eq_sym Hat).
+Qed.
+Lemma short_decision_row_sdr_edge {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) : sdr_edge (short_decision_row se i e) = e.
+Proof. apply shortlhsedge_positional. Qed.
+
+(* whether a source edge is a named duplicate: exactly the edges the fold step contributes, read directly *)
+Definition dup_contributes {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (x : {i : nat & Index.ShortLhsEdge (se_stmt se) i}) : bool :=
+  match x with existT _ i e =>
+    match nth_error (se_rows se) i with
+    | Some (ShortDuplicateData _) =>
+        match binder_ident (Index.sl_child e) with Some _ => true | None => false end
+    | _ => false end end.
+
 (* the canonical duplicate decision, folded left-to-right over the exact rows: the leftmost duplicate wins *)
 Definition short_duplicate_decision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
   : ShortDuplicateDecision se :=
-  fold_right (fun x acc => match x with existT _ i e =>
-     let r := short_decision_row se i e in
-     match row_decision r with
-     | ShortDuplicateData earlier =>
-         match binder_ident (Index.sl_child (row_subject r)) with
-         | Some n => ShortDup i r earlier n | None => acc end
-     | _ => acc end end)
-   ShortNoDup (Index.short_lhs_edges (se_stmt se)).
+  fold_right (dup_fold_body se) ShortNoDup (Index.short_lhs_edges (se_stmt se)).
 
 (* the duplicate name a live consumer reads one-way from the exact decision, retained with the row it names *)
 Definition short_dup_decision_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st}
   (dd : ShortDuplicateDecision se) : option Names.OrdinaryIdentifier :=
   match dd with ShortNoDup => None | ShortDup _ _ _ n => Some n end.
+
+(* the fold step as equations, so the single nth_error elimination is done off any dependent outer match *)
+Lemma dup_step_nc {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) (acc : ShortDuplicateDecision se) :
+  dup_contributes se (existT _ i e) = false -> dup_fold_body se (existT _ i e) acc = acc.
+Proof.
+  intro Hc. unfold dup_fold_body.
+  destruct (nth_error (se_rows se) i) as [row|] eqn:Hn.
+  2:{ exfalso. apply nth_error_None in Hn. rewrite se_rows_length in Hn. pose proof (Index.sl_lt e). lia. }
+  rewrite (short_decision_row_row se i e row Hn).
+  destruct row as [|earlier|n0|m1|m2|f1 f2]; try reflexivity.
+  unfold row_subject. rewrite (short_decision_row_sdr_edge se i e).
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hbi; [| reflexivity ].
+  exfalso. unfold dup_contributes in Hc. rewrite Hn, Hbi in Hc. discriminate Hc.
+Qed.
+Lemma dup_step_c {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) (acc : ShortDuplicateDecision se) :
+  dup_contributes se (existT _ i e) = true ->
+  exists (r : ShortDecisionRowRef se i) (earlier : nat) (n : Names.OrdinaryIdentifier),
+    dup_fold_body se (existT _ i e) acc = ShortDup i r earlier n
+    /\ sdr_edge r = e /\ row_decision r = ShortDuplicateData earlier
+    /\ binder_ident (Index.sl_child (row_subject r)) = Some n.
+Proof.
+  intro Hc. unfold dup_contributes in Hc. unfold dup_fold_body.
+  destruct (nth_error (se_rows se) i) as [row|] eqn:Hn; [| discriminate Hc ].
+  destruct row as [|earlier|n0|m1|m2|f1 f2]; try discriminate Hc.
+  pose proof (short_decision_row_row se i e _ Hn) as Hrd.
+  pose proof (short_decision_row_sdr_edge se i e) as Hse.
+  rewrite Hrd. unfold row_subject. rewrite Hse.
+  destruct (binder_ident (Index.sl_child e)) as [n|] eqn:Hbi; [| discriminate Hc ].
+  exists (short_decision_row se i e), earlier, n.
+  split; [ reflexivity | split; [ exact Hse | split; [ exact Hrd |] ] ].
+  unfold row_subject; rewrite Hse; exact Hbi.
+Qed.
+
+(* the fold certificate indexed by the decision: first contributing edge in source order; pre/post are fields *)
+Inductive DupCert {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (l : list {i : nat & Index.ShortLhsEdge (se_stmt se) i}) : ShortDuplicateDecision se -> Prop :=
+| DCNone : (forall x, In x l -> dup_contributes se x = false) -> DupCert se l ShortNoDup
+| DCSome : forall (i : nat) (r : ShortDecisionRowRef se i) (earlier : nat) (n : Names.OrdinaryIdentifier)
+             (pre post : list {i : nat & Index.ShortLhsEdge (se_stmt se) i}),
+    l = pre ++ existT _ i (sdr_edge r) :: post ->
+    (forall x, In x pre -> dup_contributes se x = false) ->
+    row_decision r = ShortDuplicateData earlier ->
+    binder_ident (Index.sl_child (row_subject r)) = Some n ->
+    DupCert se l (ShortDup i r earlier n).
+
+(* the fold produces its own certificate: casing on the read-direct bool, the step lemmas absorb the convoy *)
+Lemma dup_cert {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (l : list {i : nat & Index.ShortLhsEdge (se_stmt se) i}) :
+  DupCert se l (fold_right (dup_fold_body se) ShortNoDup l).
+Proof.
+  induction l as [| x xs IH].
+  - apply DCNone. intros y Hy. destruct Hy.
+  - destruct x as [i e]. cbn [fold_right].
+    destruct (dup_contributes se (existT _ i e)) eqn:Hc.
+    + destruct (dup_step_c se i e (fold_right (dup_fold_body se) ShortNoDup xs) Hc)
+        as (r & earlier & n & Hfold & Hse & Hrd & Hbi).
+      rewrite Hfold. apply (DCSome se _ i r earlier n [] xs).
+      * cbn. rewrite Hse. reflexivity.
+      * intros y Hy. destruct Hy.
+      * exact Hrd.
+      * exact Hbi.
+    + rewrite (dup_step_nc se i e (fold_right (dup_fold_body se) ShortNoDup xs) Hc).
+      destruct IH as [Hnone | i' r' earlier' n' pre' post' Heq' Hpre' Hrd' Hbi'].
+      * apply DCNone. intros y [Hy | Hy]; [ subst y; exact Hc | exact (Hnone y Hy) ].
+      * apply (DCSome se _ i' r' earlier' n' (existT _ i e :: pre') post').
+        -- cbn. rewrite Heq'. reflexivity.
+        -- intros y [Hy | Hy]; [ subst y; exact Hc | exact (Hpre' y Hy) ].
+        -- exact Hrd'.
+        -- exact Hbi'.
+Qed.
+
+(* the certificate the contract asks for: indexed by the exact transparent decision, off every live path *)
+Definition ShortDuplicateStatus {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (dec : ShortDuplicateDecision se) : Prop :=
+  DupCert se (Index.short_lhs_edges (se_stmt se)) dec.
+Definition short_duplicate_status {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : ShortDuplicateStatus se (short_duplicate_decision se) :=
+  dup_cert se (Index.short_lhs_edges (se_stmt se)).
 
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
