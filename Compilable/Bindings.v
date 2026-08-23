@@ -3170,17 +3170,6 @@ Proof.
   rewrite Hevs. reflexivity.
 Qed.
 
-(* the leftmost duplicated left name, read from the retained short-event decision rows, not a sibling scan *)
-Definition short_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
-  let se := short_event bp st in
-  fold_right (fun x acc => match x with existT _ i e =>
-     match nth_error (se_rows se) i with
-     | Some (ShortDuplicateData _) =>
-         match binder_ident (Index.sl_child e) with Some n => Some n | None => acc end
-     | _ => acc end end)
-   None (Index.short_lhs_edges (se_stmt se)).
-
 (* an exact predecessor-state member ref from a positional match over the state's projected members *)
 Definition state_member_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
@@ -3330,43 +3319,98 @@ Proof.
   destruct x as [j e]. cbn in Hj. subst j. exists e. reflexivity.
 Qed.
 
-(* the exact per-left short fact ref: the canonical edge, the retained decision row, and its tag-indexed fact *)
-Record ShortLhsFactRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  (i : nat) : Type := mk_short_fact {
-  slf_row  : ShortLeftDecisionData ;
-  slf_edge : Index.ShortLhsEdge (se_stmt se) i ;
-  slf_at   : nth_error (se_rows se) i = Some slf_row ;
-  slf_fact : ShortLhsFact (short_state_before se) slf_edge slf_row
-}.
-Arguments mk_short_fact {p idx s d bp st se i} _ _ _ _.
-Arguments slf_row {p idx s d bp st se i} _.
-Arguments slf_edge {p idx s d bp st se i} _.
-Arguments slf_at {p idx s d bp st se i} _.
-Arguments slf_fact {p idx s d bp st se i} _.
-
-(* the one canonical per-left fact: the retained row is exactly the canonical decision, and its fact is pinned *)
-Definition short_lhs_fact_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  (i : nat) (Hi : i < Index.sh_names (se_stmt se)) : ShortLhsFactRef se i.
+(* a short left edge is positionally unique: any two edges at the same index are equal (ChildAt is unique) *)
+Lemma shortlhsedge_positional {p} {idx : Index.ProgramIndex p} {st : Index.ShortStmtRef idx} {i : nat}
+  (a b : Index.ShortLhsEdge st i) : a = b.
 Proof.
-  destruct (short_lhs_edge_at (se_stmt se) i Hi) as [e Hedge].
-  apply (mk_short_fact
-           (short_left_decide (map es_est (bs_members (short_state_before se))) e) e).
-  - rewrite se_rows_decide. unfold short_decide_rows.
-    rewrite nth_error_map, Hedge. reflexivity.
-  - exact (short_lhs_fact (short_state_before se) e).
+  destruct a as [aa Ha], b as [ba Hb]. f_equal; [ apply childat_unique | apply le_unique ].
+Qed.
+
+(* the exact per-left short decision-row ref: transparent row + edge, Prop-pinned to the retained event *)
+Record ShortDecisionRowRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) : Type := mk_short_row {
+  sdr_row  : ShortLeftDecisionData ;
+  sdr_edge : Index.ShortLhsEdge (se_stmt se) i ;
+  sdr_at   : nth_error (se_rows se) i = Some sdr_row
+}.
+Arguments mk_short_row {p idx s d bp st se i} _ _ _.
+Arguments sdr_row {p idx s d bp st se i} _.
+Arguments sdr_edge {p idx s d bp st se i} _.
+Arguments sdr_at {p idx s d bp st se i} _.
+
+(* transparent, proof-insensitive projections a live consumer reads without normalizing any pin *)
+Definition row_decision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st} {i}
+  (r : ShortDecisionRowRef se i) : ShortLeftDecisionData := sdr_row r.
+Definition row_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} {se : ShortEventRef bp st} {i}
+  (r : ShortDecisionRowRef se i) : Index.ShortLhsEdge (se_stmt se) i := sdr_edge r.
+
+(* the length of the retained short rows is exactly the statement's left count *)
+Lemma se_rows_length {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  length (se_rows se) = Index.sh_names (se_stmt se).
+Proof.
+  rewrite se_rows_decide. unfold short_decide_rows. rewrite length_map.
+  pose proof (Index.short_lhs_edges_ords (se_stmt se)) as Ho.
+  apply (f_equal (@length _)) in Ho. rewrite length_map, length_seq in Ho. exact Ho.
+Qed.
+
+(* the one canonical per-left decision-row ref, built cheaply from the source edge: only the row is looked up *)
+Definition short_decision_row {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.ShortLhsEdge (se_stmt se) i) : ShortDecisionRowRef se i.
+Proof.
+  destruct (nth_error (se_rows se) i) as [row|] eqn:Hrow.
+  - exact (mk_short_row row e Hrow).
+  - exfalso. apply nth_error_None in Hrow. rewrite se_rows_length in Hrow.
+    pose proof (Index.sl_lt e). lia.
 Defined.
 
-(* the exact state-indexed short judgment: a view giving each left's canonical fact, never a caller table *)
+(* the source edge of a row ref is exactly the statement's left at that index (derived; ChildAt-unique) *)
+Lemma short_row_edge_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) :
+  nth_error (Index.short_lhs_edges (se_stmt se)) i = Some (existT _ i (sdr_edge r)).
+Proof.
+  destruct (short_lhs_edge_at (se_stmt se) i (Index.sl_lt (sdr_edge r))) as [e0 He0].
+  rewrite (shortlhsedge_positional (sdr_edge r) e0). exact He0.
+Qed.
+
+(* the derived proof-bearing case fact for a row ref: authority for the laws, off every live computation path *)
+Definition short_row_fact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i)
+  : ShortLhsFact (short_state_before se) (sdr_edge r) (sdr_row r).
+Proof.
+  assert (Hcanon : sdr_row r = short_left_decide (map es_est (bs_members (short_state_before se))) (sdr_edge r)).
+  { pose proof (sdr_at r) as Ha. rewrite se_rows_decide in Ha. unfold short_decide_rows in Ha.
+    rewrite nth_error_map, (short_row_edge_at se i r) in Ha. cbn in Ha. injection Ha as Ha. exact (eq_sym Ha). }
+  rewrite Hcanon. exact (short_lhs_fact (short_state_before se) (sdr_edge r)).
+Defined.
+
+(* the exact state-indexed short judgment: a view giving each left's canonical decision-row ref, never a table *)
 Definition ShortJudgmentRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st) : Type :=
-  forall i, i < Index.sh_names (se_stmt se) -> ShortLhsFactRef se i.
+  forall i, i < Index.sh_names (se_stmt se) -> ShortDecisionRowRef se i.
 
-(* the one canonical exact short judgment: every left judged against the exact predecessor state *)
+(* the one canonical exact short judgment: every left's exact decision-row ref against the predecessor state *)
 Definition short_judgment_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.ShortStmtRef idx} (se : ShortEventRef bp st)
-  : ShortJudgmentRef se := fun i Hi => short_lhs_fact_ref se i Hi.
+  : ShortJudgmentRef se := fun i Hi => short_decision_row se i (proj1_sig (short_lhs_edge_at (se_stmt se) i Hi)).
+
+(* the leftmost duplicated left name, projected from each exact decision-row ref (transparent row + subject) *)
+Definition short_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
+  let se := short_event bp st in
+  fold_right (fun x acc => match x with existT _ i e =>
+     let r := short_decision_row se i e in
+     match row_decision r with
+     | ShortDuplicateData _ =>
+         match binder_ident (Index.sl_child (row_subject r)) with Some n => Some n | None => acc end
+     | _ => acc end end)
+   None (Index.short_lhs_edges (se_stmt se)).
 
 (* every retained New row causes exactly its one event addition, the new establishment for that exact left *)
 Lemma short_new_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
