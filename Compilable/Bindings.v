@@ -639,14 +639,18 @@ Definition decl_decide_rows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
   map (fun ib => decl_binder_decide env t (fst ib) (snd ib))
       (combine (seq 0 (length (decl_binders t))) (decl_binders t)).
 
+(* the one canonical per-binder addition body: a nonblank binder's establishment, or nothing *)
+Definition decl_add_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (rb : DeclBinderDecisionData * Index.NodeRef idx) : list (Est s) :=
+  match rb with
+  | (DeclBlankData, _) => []
+  | (_, bd) => match node_binder_est sc bd with Some e => [e] | None => [] end
+  end.
+
 (* decl additions as the ordered projection of the retained nonblank rows — the one source of decl additions *)
 Definition decl_rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (sc : ScopeId s) (t : Index.NodeRef idx) (rows : list DeclBinderDecisionData) : list (Est s) :=
-  flat_map (fun rb => match rb with
-                      | (DeclBlankData, _) => []
-                      | (_, bd) => match node_binder_est sc bd with Some e => [e] | None => [] end
-                      end)
-           (combine rows (decl_binders t)).
+  flat_map (decl_add_at sc) (combine rows (decl_binders t)).
 
 Lemma node_binder_est_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (sc : ScopeId s) (bd : Index.NodeRef idx) (e : Est s) :
@@ -657,11 +661,47 @@ Proof.
     [ injection H as <-; reflexivity | discriminate H ].
 Qed.
 
+(* a spec's binder nodes are exactly its name-edge children, which carry a binder role *)
+Lemma spec_binder_nodes_role {p} {idx : Index.ProgramIndex p} {fl : Index.SpecFlavor}
+  (sp : Index.SpecRef idx fl) (bd : Index.NodeRef idx) :
+  In bd (spec_binder_nodes sp) -> is_binder_role (Index.node_role bd) = true.
+Proof.
+  unfold spec_binder_nodes. intro Hin. apply in_map_iff in Hin. destruct Hin as [x [Heq _]].
+  subst bd. rewrite (Index.sn_role (projT2 x)). reflexivity.
+Qed.
+Lemma spec_binders_view_role {p} {idx : Index.ProgramIndex p}
+  (r : Index.NodeRef idx) (v : Index.NodeView) (Hv : Index.node_view r = v) (bd : Index.NodeRef idx) :
+  In bd (spec_binders_view r v Hv) -> is_binder_role (Index.node_role bd) = true.
+Proof.
+  destruct v; cbn [spec_binders_view]; intro Hin;
+    first [ apply spec_binder_nodes_role in Hin; exact Hin | cbn in Hin; contradiction ].
+Qed.
+
+(* every declaration binder node carries a binder role: they are exactly spec name-edge children *)
+Lemma decl_binder_role {p} {idx : Index.ProgramIndex p} (t bd : Index.NodeRef idx) :
+  In bd (decl_binders t) -> is_binder_role (Index.node_role bd) = true.
+Proof.
+  unfold decl_binders. destruct (Index.child_at_opt t 0) as [e|]; [| intro H; destruct H].
+  unfold decl_binder_nodes. intro Hin. apply in_flat_map in Hin. destruct Hin as [x [_ Hin]].
+  exact (spec_binders_view_role _ _ _ bd Hin).
+Qed.
+
+(* a nonblank declaration binder always yields an establishment: its role and name are both present *)
+Definition decl_binder_est_some {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (t bd : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) :
+  In bd (decl_binders t) -> binder_ident bd = Some n -> { e : Est s | node_binder_est sc bd = Some e }.
+Proof.
+  intros Hin Hid. unfold node_binder_est. rewrite Hid.
+  destruct (Bool.bool_dec (is_binder_role (Index.node_role bd)) true) as [Hr|Hr].
+  - exists (mk_est (DOBinder (binder_ref bd Hr)) n sc (vis_start bd)). reflexivity.
+  - exfalso. apply Hr. exact (decl_binder_role t bd Hin).
+Defined.
+
 Lemma decl_rows_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (sc : ScopeId s) (t : Index.NodeRef idx) (rows : list DeclBinderDecisionData) (e : Est s) :
   In e (decl_rows_adds sc t rows) -> est_scope e = sc.
 Proof.
-  unfold decl_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [rb [_ Hin]].
+  unfold decl_rows_adds, decl_add_at. intro Hin. apply in_flat_map in Hin. destruct Hin as [rb [_ Hin]].
   assert (Hgen : forall bd, In e (match node_binder_est sc bd with Some e0 => [e0] | None => [] end)
                             -> est_scope e = sc).
   { intros bd H. destruct (node_binder_est sc bd) as [e0|] eqn:Hn; [| destruct H].
@@ -4157,7 +4197,7 @@ Lemma decl_nonblank_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   nth_error (decl_binders t) i = Some bd -> node_binder_est (de_sc de) bd = Some e' ->
   In e' (bev_adds (de_block de) (BEvDecl (de_sc de) t (de_rows de))).
 Proof.
-  intros Hrow Hnb Hbd Hnbe. cbn [bev_adds]. unfold decl_rows_adds. apply in_flat_map.
+  intros Hrow Hnb Hbd Hnbe. cbn [bev_adds]. unfold decl_rows_adds, decl_add_at. apply in_flat_map.
   exists (row, bd). split; [ exact (nth_error_In _ _ (nth_error_combine _ _ i _ _ Hrow Hbd)) |].
   destruct row; [ exfalso; apply Hnb; reflexivity | rewrite Hnbe; left; reflexivity ..].
 Qed.
@@ -4170,7 +4210,7 @@ Lemma decl_addition_source {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
     In (row, bd) (combine (de_rows de) (decl_binders t)) /\ row <> DeclBlankData
     /\ node_binder_est (de_sc de) bd = Some e'.
 Proof.
-  cbn [bev_adds]. unfold decl_rows_adds. intro Hin. apply in_flat_map in Hin.
+  cbn [bev_adds]. unfold decl_rows_adds, decl_add_at. intro Hin. apply in_flat_map in Hin.
   destruct Hin as [rb [Hrb Hin]]. destruct rb as [row bd]. exists row, bd.
   destruct row;
     [ destruct Hin
@@ -4178,6 +4218,288 @@ Proof.
       destruct Hin as [<-|F]; [| destruct F];
       (split; [ exact Hrb | split; [ discriminate | reflexivity ] ]) ..].
 Qed.
+
+(* whether a retained decl row is nonblank *)
+Definition is_nonblank_row (r : DeclBinderDecisionData) : bool :=
+  match r with DeclBlankData => false | _ => true end.
+
+(* the additions at a declaration event's exact site are exactly its projected nonblank establishments *)
+Lemma decl_event_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) :
+  event_adds (decl_event_site de) = decl_rows_adds (de_sc de) t (de_rows de).
+Proof.
+  unfold decl_event_site.
+  rewrite (event_adds_block bp (btr_ord (de_trace de)) (de_ord de) (decl_event_site_lt de)
+             (btr_row (de_trace de)) (BEvDecl (de_sc de) t (de_rows de)) (btr_at (de_trace de)) (de_at de)).
+  cbn [bev_adds]. reflexivity.
+Qed.
+
+(* the canonical addition ordinal of a decl row: the count of nonblank rows strictly before its binder index *)
+Definition decl_new_rank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) : nat := length (filter is_nonblank_row (firstn i (de_rows de))).
+
+(* the nonblank branch of the decl addition body is exactly the binder's establishment option *)
+Lemma decl_add_at_nonblank_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (row : DeclBinderDecisionData) (bd : Index.NodeRef idx) :
+  row <> DeclBlankData ->
+  decl_add_at sc (row, bd) = match node_binder_est sc bd with Some e => [e] | None => [] end.
+Proof. intro Hnb. destruct row; [ exfalso; apply Hnb; reflexivity | reflexivity.. ]. Qed.
+
+(* the decl decision is blank exactly when the binder has no name *)
+Lemma decl_decide_none_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (t bd : Index.NodeRef idx) (i : nat) :
+  binder_ident bd = None -> decl_binder_decide env t i bd = DeclBlankData.
+Proof. intro Hid. unfold decl_binder_decide. rewrite Hid. reflexivity. Qed.
+Lemma decl_decide_some_nonblank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (t bd : Index.NodeRef idx) (i : nat) (n : Names.OrdinaryIdentifier) :
+  binder_ident bd = Some n -> decl_binder_decide env t i bd <> DeclBlankData.
+Proof.
+  intro Hid. unfold decl_binder_decide. rewrite Hid.
+  destruct (find_ord (binder_name_matches n) 0 (firstn i (decl_binders t))) as [[j _]|]; [ discriminate |].
+  destruct (find_two_ord (same_block_cand n) 0 env) as [[j0 j1]|]; [ discriminate |].
+  destruct (find_ord (same_block_cand n) 0 env) as [[j _]|]; discriminate.
+Qed.
+
+(* the decl addition body yields nothing or exactly the one binder establishment *)
+Lemma decl_add_at_single {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (sc : ScopeId s) :
+  forall rb : DeclBinderDecisionData * Index.NodeRef idx,
+    decl_add_at sc rb = [] \/ exists e, decl_add_at sc rb = [e].
+Proof.
+  intros [row bd]. destruct row; cbn [decl_add_at]; try (left; reflexivity);
+    destruct (node_binder_est sc bd) as [e|]; solve [ right; eexists; reflexivity | left; reflexivity ].
+Qed.
+Definition decl_add_at_single_sig {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (sc : ScopeId s) :
+  forall rb : DeclBinderDecisionData * Index.NodeRef idx,
+    (decl_add_at sc rb = []) + { e : Est s | decl_add_at sc rb = [e] }.
+Proof.
+  intros [row bd]. destruct row; cbn [decl_add_at]; try (left; reflexivity);
+    destruct (node_binder_est sc bd) as [e|]; solve [ right; exists e; reflexivity | left; reflexivity ].
+Defined.
+
+(* the canonical nonblank rank equals the flat_map's own contributor count over the paired binders *)
+Lemma decl_new_rank_adds_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat) :
+  decl_new_rank de i = adds_before (decl_add_at (de_sc de)) (combine (de_rows de) (decl_binders t)) i.
+Proof.
+  unfold decl_new_rank, adds_before. symmetry.
+  apply (filter_firstn_len_eq
+           (fun rb => match decl_add_at (de_sc de) rb with [] => false | _ => true end)
+           is_nonblank_row (combine (de_rows de) (decl_binders t)) (de_rows de)).
+  - rewrite combine_length, <- (de_rows_length de), Nat.min_id. reflexivity.
+  - intros k x y Hx Hy.
+    assert (Hklt : k < length (decl_binders t))
+      by (rewrite <- (de_rows_length de); apply nth_error_Some; rewrite Hy; discriminate).
+    destruct (nth_error (decl_binders t) k) as [bdk|] eqn:Hbd; [| apply nth_error_None in Hbd; lia].
+    assert (Hxc : x = (y, bdk)).
+    { pose proof (nth_error_combine (de_rows de) (decl_binders t) k y bdk Hy Hbd) as Hc.
+      rewrite Hx in Hc. injection Hc as Hc. exact Hc. }
+    subst x.
+    pose proof (decl_decide_rows_nth (map es_est (bs_members (decl_state_before de))) t k bdk Hbd) as Hn.
+    rewrite <- (de_rows_decide de) in Hn. rewrite Hn in Hy. injection Hy as Hy.
+    destruct (binder_ident bdk) as [n|] eqn:Hid.
+    + assert (Hynb : y <> DeclBlankData) by (rewrite <- Hy; exact (decl_decide_some_nonblank _ t bdk k n Hid)).
+      rewrite (decl_add_at_nonblank_eq (de_sc de) y bdk Hynb).
+      destruct (decl_binder_est_some (de_sc de) t bdk n (nth_error_In _ _ Hbd) Hid) as [e He'].
+      rewrite He'. destruct y; [ exfalso; apply Hynb; reflexivity | reflexivity.. ].
+    + assert (Hyb : y = DeclBlankData) by (rewrite <- Hy; exact (decl_decide_none_blank _ t bdk k Hid)).
+      rewrite Hyb. reflexivity.
+Qed.
+
+(* forward: a nonblank row's binder establishment is the exact addition at its canonical rank at the site *)
+Lemma decl_nonblank_addition_at {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) (e : Est s)
+  (Hnb : decl_row_decision r <> DeclBlankData)
+  (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e) :
+  nth_error (event_adds (decl_event_site de)) (decl_new_rank de i) = Some e.
+Proof.
+  rewrite decl_event_adds. unfold decl_rows_adds. rewrite decl_new_rank_adds_eq.
+  apply (flat_map_opt_nth (decl_add_at (de_sc de)) (decl_add_at_single (de_sc de))
+           (combine (de_rows de) (decl_binders t)) i (decl_row_decision r, decl_row_subject r) e).
+  - apply nth_error_combine; [ exact (ddr_at r) | exact (dba_at (ddr_binder r)) ].
+  - rewrite (decl_add_at_nonblank_eq (de_sc de) (decl_row_decision r) (decl_row_subject r) Hnb).
+    rewrite He. reflexivity.
+Qed.
+
+(* the paired lists split back: a combine hit is a hit in each component at the same index *)
+Lemma nth_error_combine_inv {A B : Type} (l1 : list A) (l2 : list B) (j : nat) (a : A) (b : B) :
+  nth_error (combine l1 l2) j = Some (a, b) -> nth_error l1 j = Some a /\ nth_error l2 j = Some b.
+Proof.
+  revert l2 j. induction l1 as [|x xs IH]; intros [|y ys] [|j'] H; cbn in H; try discriminate.
+  - injection H as <- <-. split; reflexivity.
+  - exact (IH ys j' H).
+Qed.
+
+(* the retained decl row is exactly the canonical decision for its exact binder and predecessor state *)
+Lemma decl_row_canonical {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) :
+  decl_row_decision r
+    = decl_binder_decide (map es_est (bs_members (decl_state_before de))) t i (decl_row_subject r).
+Proof.
+  unfold decl_row_decision, decl_row_subject. pose proof (ddr_at r) as Ha. rewrite de_rows_decide in Ha.
+  rewrite (decl_decide_rows_nth _ t i (dba_node (ddr_binder r)) (dba_at (ddr_binder r))) in Ha.
+  injection Ha as Ha. exact (eq_sym Ha).
+Qed.
+
+(* a nonblank decl row always has its exact binder establishment: its binder is named and binder-role *)
+Definition decl_row_nonblank_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) :
+  decl_row_decision r <> DeclBlankData -> { e : Est s | node_binder_est (de_sc de) (decl_row_subject r) = Some e }.
+Proof.
+  intro Hnb. destruct (binder_ident (decl_row_subject r)) as [n|] eqn:Hid.
+  - exact (decl_binder_est_some (de_sc de) t (decl_row_subject r) n
+             (nth_error_In _ _ (dba_at (ddr_binder r))) Hid).
+  - exfalso. apply Hnb. rewrite (decl_row_canonical de i r).
+    exact (decl_decide_none_blank _ t (decl_row_subject r) i Hid).
+Defined.
+
+(* decidable equality on decl decision data, and hence on the options that decl ref pins live in *)
+Definition dbd_eq_dec (a b : DeclBinderDecisionData) : {a = b} + {a <> b}.
+Proof. decide equality; apply Nat.eq_dec. Defined.
+Definition option_dbd_eq_dec (a b : option DeclBinderDecisionData) : {a = b} + {a <> b}.
+Proof. decide equality. apply dbd_eq_dec. Defined.
+
+(* the exact decl binder occurrence and decision-row ref are positionally unique at their event and index *)
+Lemma declbinderat_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} {de : DeclEventRef bp t} {i : nat}
+  (a b : DeclBinderAt de i) : a = b.
+Proof.
+  destruct a as [na Ha], b as [nb Hb].
+  assert (na = nb) by (pose proof (eq_trans (eq_sym Ha) Hb) as E; injection E as E; exact E).
+  subst nb. f_equal. apply (UIP_dec option_noderef_eq_dec).
+Qed.
+Lemma decldecisionrowref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} {de : DeclEventRef bp t} {i : nat}
+  (a b : DeclDecisionRowRef de i) : a = b.
+Proof.
+  destruct a as [ba ra Ha], b as [bb rb Hb].
+  assert (Hr : ra = rb) by (pose proof (eq_trans (eq_sym Ha) Hb) as E; injection E as E; exact E).
+  subst rb. rewrite (declbinderat_positional ba bb). f_equal. apply (UIP_dec option_dbd_eq_dec).
+Qed.
+
+(* the one exact event addition of a nonblank row, at the canonical rank: the term the consequence carries *)
+Definition decl_row_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) (e : Est s) (Hnb : decl_row_decision r <> DeclBlankData)
+  (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e)
+  : EventAdditionRef bp (decl_event_site de) (decl_new_rank de i) :=
+  mk_event_addition e (decl_nonblank_addition_at de i r e Hnb He).
+
+(* the exact consequence of one decl decision row: the binder establishment addition, or exact no-addition *)
+Inductive DeclRowConsequence {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (r : DeclDecisionRowRef de i) : Type :=
+| DeclNoAddition (Hb : decl_row_decision r = DeclBlankData)
+| DeclBinderAddition (e : Est s) (Hnb : decl_row_decision r <> DeclBlankData)
+    (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e)
+    (add : EventAdditionRef bp (decl_event_site de) (decl_new_rank de i)).
+Arguments DeclNoAddition {p idx s d bp t de i r} _.
+Arguments DeclBinderAddition {p idx s d bp t de i r} _ _ _ _.
+
+(* the one canonical consequence of a decl row, dispatched on its tag: nonblank adds, blank does not *)
+Definition decl_row_consequence {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i : nat) (r : DeclDecisionRowRef de i) : DeclRowConsequence de i r.
+Proof.
+  destruct (decl_row_decision r) as [| e0 | | m0 | a0 a1] eqn:Hd;
+    [ exact (DeclNoAddition Hd)
+    | assert (Hnb : decl_row_decision r <> DeclBlankData) by (rewrite Hd; discriminate);
+      destruct (decl_row_nonblank_est de i r Hnb) as [e He];
+      exact (DeclBinderAddition e Hnb He (decl_row_addition de i r e Hnb He)) ..].
+Defined.
+
+(* the exact addition a consequence carries: the binder establishment, or none for a blank row *)
+Definition decl_consequence_addition {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} {de : DeclEventRef bp t}
+  {i : nat} {r : DeclDecisionRowRef de i} (c : DeclRowConsequence de i r)
+  : option (EventAdditionRef bp (decl_event_site de) (decl_new_rank de i)) :=
+  match c with DeclNoAddition _ => None | DeclBinderAddition _ _ _ add => Some add end.
+
+(* the exact source of a decl event addition: the unique nonblank decision row at the canonical rank *)
+Record DeclAdditionSourceRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (k : nat) (ea : EventAdditionRef bp (decl_event_site de) k) : Type := mk_decl_source {
+  das_index : nat ;
+  das_row   : DeclDecisionRowRef de das_index ;
+  das_nonblank : decl_row_decision das_row <> DeclBlankData ;
+  das_rank  : decl_new_rank de das_index = k
+}.
+Arguments mk_decl_source {p idx s d bp t de k ea} _ _ _ _.
+Arguments das_index {p idx s d bp t de k ea} _.
+Arguments das_row {p idx s d bp t de k ea} _.
+Arguments das_nonblank {p idx s d bp t de k ea} _.
+Arguments das_rank {p idx s d bp t de k ea} _.
+
+(* every decl event addition is sourced by exactly its one nonblank decision row at the canonical rank *)
+Definition decl_addition_source_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (k : nat) (ea : EventAdditionRef bp (decl_event_site de) k) : DeclAdditionSourceRef de k ea.
+Proof.
+  pose proof (ea_at ea) as Hat. rewrite decl_event_adds in Hat. unfold decl_rows_adds in Hat.
+  destruct (flat_map_opt_source (decl_add_at (de_sc de)) (decl_add_at_single_sig (de_sc de))
+              _ k (ea_est ea) Hat) as [j [a [Hj [Ha Hcnt]]]].
+  destruct a as [row bd]. destruct (nth_error_combine_inv (de_rows de) (decl_binders t) j row bd Hj) as [Hrow Hbd].
+  assert (Hnb : row <> DeclBlankData)
+    by (intro Hb; subst row; cbn [decl_add_at] in Ha; discriminate Ha).
+  refine (mk_decl_source j (mk_decl_row (mk_decl_binder_at bd Hbd) row Hrow) _ _).
+  - cbn. exact Hnb.
+  - rewrite decl_new_rank_adds_eq. exact Hcnt.
+Defined.
+
+(* the canonical nonblank rank is injective across nonblank rows: equal rank forces the same binder index *)
+Lemma decl_new_rank_inj {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (i i' : nat) (r : DeclDecisionRowRef de i) (r' : DeclDecisionRowRef de i')
+  (e e' : Est s)
+  (Hnb : decl_row_decision r <> DeclBlankData) (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e)
+  (Hnb' : decl_row_decision r' <> DeclBlankData) (He' : node_binder_est (de_sc de) (decl_row_subject r') = Some e') :
+  decl_new_rank de i = decl_new_rank de i' -> i = i'.
+Proof.
+  intro Heq. rewrite !decl_new_rank_adds_eq in Heq.
+  apply (adds_before_inj (decl_add_at (de_sc de)) (combine (de_rows de) (decl_binders t)) i i'
+           (decl_row_decision r, decl_row_subject r) (decl_row_decision r', decl_row_subject r') e e').
+  - apply nth_error_combine; [ exact (ddr_at r) | exact (dba_at (ddr_binder r)) ].
+  - rewrite (decl_add_at_nonblank_eq (de_sc de) (decl_row_decision r) (decl_row_subject r) Hnb), He. reflexivity.
+  - apply nth_error_combine; [ exact (ddr_at r') | exact (dba_at (ddr_binder r')) ].
+  - rewrite (decl_add_at_nonblank_eq (de_sc de) (decl_row_decision r') (decl_row_subject r') Hnb'), He'. reflexivity.
+  - exact Heq.
+Qed.
+
+(* round trip: a nonblank row's consequence addition sources back to the exact same binder index and ref *)
+Lemma decl_row_roundtrip {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) (e : Est s) (Hnb : decl_row_decision r <> DeclBlankData)
+  (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e) :
+  das_index (decl_addition_source_ref de (decl_new_rank de i) (decl_row_addition de i r e Hnb He)) = i.
+Proof.
+  set (src := decl_addition_source_ref de (decl_new_rank de i) (decl_row_addition de i r e Hnb He)).
+  destruct (decl_row_nonblank_est de (das_index src) (das_row src) (das_nonblank src)) as [e2 He2].
+  apply (decl_new_rank_inj de (das_index src) i (das_row src) r e2 e (das_nonblank src) He2 Hnb He).
+  exact (das_rank src).
+Qed.
+Lemma decl_row_roundtrip_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t) (i : nat)
+  (r : DeclDecisionRowRef de i) (e : Est s) (Hnb : decl_row_decision r <> DeclBlankData)
+  (He : node_binder_est (de_sc de) (decl_row_subject r) = Some e) :
+  eq_rect _ (fun k => DeclDecisionRowRef de k)
+    (das_row (decl_addition_source_ref de (decl_new_rank de i) (decl_row_addition de i r e Hnb He)))
+    i (decl_row_roundtrip de i r e Hnb He) = r.
+Proof. apply decldecisionrowref_positional. Qed.
+
+(* round trip: any decl addition sources to a row whose consequence addition is that exact same addition *)
+Lemma decl_addition_roundtrip {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
+  (k : nat) (ea : EventAdditionRef bp (decl_event_site de) k)
+  (e : Est s) (He : node_binder_est (de_sc de)
+                      (decl_row_subject (das_row (decl_addition_source_ref de k ea))) = Some e) :
+  eq_rect _ (fun m => EventAdditionRef bp (decl_event_site de) m)
+    (decl_row_addition de (das_index (decl_addition_source_ref de k ea)) (das_row (decl_addition_source_ref de k ea))
+       e (das_nonblank (decl_addition_source_ref de k ea)) He)
+    k (das_rank (decl_addition_source_ref de k ea)) = ea.
+Proof. apply eventadditionref_positional. Qed.
 
 Lemma filter_flat_map {A B} (P : B -> bool) (g : A -> list B) (l : list A) :
   filter P (flat_map g l) = flat_map (fun x => filter P (g x)) l.
