@@ -3170,6 +3170,17 @@ Proof.
   rewrite Hevs. reflexivity.
 Qed.
 
+(* the leftmost duplicated left name, read from the retained short-event decision rows, not a sibling scan *)
+Definition short_dup_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) : option Names.OrdinaryIdentifier :=
+  let se := short_event bp st in
+  fold_right (fun x acc => match x with existT _ i e =>
+     match nth_error (se_rows se) i with
+     | Some (ShortDuplicateData _) =>
+         match binder_ident (Index.sl_child e) with Some n => Some n | None => acc end
+     | _ => acc end end)
+   None (Index.short_lhs_edges (se_stmt se)).
+
 (* an exact predecessor-state member ref from a positional match over the state's projected members *)
 Definition state_member_ref {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b : Index.NodeRef idx} {tr : BlockTraceRef bp b}
@@ -3391,15 +3402,6 @@ Lemma short_event_subject {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfac
   {d : PhaseData s} (bp : BindingPhase s d) (st : Index.ShortStmtRef idx) :
   se_stmt (short_event bp st) = st.
 Proof. apply shortstmtref_positional. exact (se_subject (short_event bp st)). Qed.
-
-(* the leftmost left whose spelling repeats an earlier same-statement left: the syntactic find_dup SCDuplicate uses *)
-Definition short_stmt_dup_name {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx)
-  : option Names.OrdinaryIdentifier :=
-  fold_right (fun x acc => match x with existT _ i e =>
-     match binder_ident (Index.sl_child e) with
-     | Some n => match find_dup i n (Index.short_lhs_edges st) with Some _ => Some n | None => acc end
-     | None => acc end end)
-   None (Index.short_lhs_edges st).
 
 (* a positional hit inside a prefix is an in-range hit of the whole list *)
 Lemma nth_error_firstn_some {A} (l : list A) (i j : nat) (x : A) :

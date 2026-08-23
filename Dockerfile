@@ -633,6 +633,8 @@ typefail neg_deleted_est_of_node "the deleted per-occurrence prospective establi
   'Definition forged (p : Syntax.Program) := BN.est_of_node.'
 typefail neg_deleted_short_table "the deleted on-demand whole-core judgment table" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) := BN.short_table core.'
+typefail neg_deleted_short_stmt_dup_name "the deleted sibling syntactic short-duplicate scan" \
+  'Definition forged (p : Syntax.Program) (st : IX.ShortStmtRef (IX.index_program p)) := BN.short_stmt_dup_name st.'
 typefail neg_deleted_est_of_binder "the deleted prospective binder-establishment lookup" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (core : list (BN.Est sf)) (b : IX.NodeRef (IX.index_program p)) := BN.est_of_binder_core core b.'
 typefail neg_deleted_bp_ests "the deleted flat establishment-list phase authority" \
@@ -1218,7 +1220,7 @@ Definition l_package_visible_group := @BN.package_visible_group.
 Definition l_cur_add_refs := @BN.cur_add_refs.
 Definition l_find_dup_sound := @BN.find_dup_sound.
 Definition l_find_dup_earliest := @BN.find_dup_earliest.
-Definition l_short_stmt_dup_name := @BN.short_stmt_dup_name.
+Definition l_short_dup_name := @BN.short_dup_name.
 Definition l_short_judgment_ref := @BN.short_judgment_ref.
 Definition l_short_lhs_fact := @BN.short_lhs_fact.
 Definition l_short_lhs_fact_ref := @BN.short_lhs_fact_ref.
