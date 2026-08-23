@@ -103,6 +103,11 @@ Lemma spec_binder {p} {idx : Index.ProgramIndex p} (b : Index.NodeRef idx) (fl :
   Index.node_role b = Index.RSpecName fl -> is_binder_role (Index.node_role b) = true.
 Proof. intro H; rewrite H; reflexivity. Qed.
 
+(* whether a binder node spells a given name *)
+Definition binder_name_matches {p} {idx : Index.ProgramIndex p}
+  (n : Names.OrdinaryIdentifier) (b : Index.NodeRef idx) : bool :=
+  match binder_ident b with Some m => Names.ordinary_equalb m n | None => false end.
+
 (* the source identifier "main"; the fixed package-scope main function establishes under this ordinary name *)
 Definition main_ident : Names.OrdinaryIdentifier :=
   Names.MakeOrdinary (Names.MakeIdentifier "main"%string eq_refl) eq_refl.
@@ -583,6 +588,83 @@ Proof.
   destruct Hin as [<-|F]; [ reflexivity | destruct F ].
 Qed.
 
+(* a declaration establishment rebuilt from its binder node alone, equal to the spec-edge establishment *)
+Definition node_binder_est {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (bd : Index.NodeRef idx) : option (Est s) :=
+  match binder_ident bd with
+  | Some n =>
+      match Bool.bool_dec (is_binder_role (Index.node_role bd)) true with
+      | left Hr => Some (mk_est (DOBinder (binder_ref bd Hr)) n sc (vis_start bd))
+      | right _ => None
+      end
+  | None => None
+  end.
+
+(* the canonical decl-binder decision as cheap descriptive data, retained in the event, authoritative as a row *)
+Inductive DeclBinderDecisionData : Type :=
+| DeclBlankData
+| DeclDuplicateEarlierData (earlier : nat)
+| DeclFreshData
+| DeclRedeclaredPriorData (member : nat)
+| DeclAlreadyAmbiguousData (first second : nat).
+
+(* one canonical decision per binder: blank, earliest same-event dup, already-ambiguous, unique prior, fresh *)
+Definition decl_binder_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (t : Index.NodeRef idx) (i : nat) (bd : Index.NodeRef idx) : DeclBinderDecisionData :=
+  match binder_ident bd with
+  | None => DeclBlankData
+  | Some n =>
+      match find_ord (binder_name_matches n) 0 (firstn i (decl_binders t)) with
+      | Some (j, _) => DeclDuplicateEarlierData j
+      | None =>
+          match find_two_ord (same_block_cand n) 0 env with
+          | Some (j0, j1) => DeclAlreadyAmbiguousData j0 j1
+          | None =>
+              match find_ord (same_block_cand n) 0 env with
+              | Some (j, _) => DeclRedeclaredPriorData j
+              | None => DeclFreshData
+              end
+          end
+      end
+  end.
+
+(* one retained decision row per exact binder, in source order *)
+Definition decl_decide_rows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (env : list (Est s)) (t : Index.NodeRef idx) : list DeclBinderDecisionData :=
+  map (fun ib => decl_binder_decide env t (fst ib) (snd ib))
+      (combine (seq 0 (length (decl_binders t))) (decl_binders t)).
+
+(* decl additions as the ordered projection of the retained nonblank rows — the one source of decl additions *)
+Definition decl_rows_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (t : Index.NodeRef idx) (rows : list DeclBinderDecisionData) : list (Est s) :=
+  flat_map (fun rb => match rb with
+                      | (DeclBlankData, _) => []
+                      | (_, bd) => match node_binder_est sc bd with Some e => [e] | None => [] end
+                      end)
+           (combine rows (decl_binders t)).
+
+Lemma node_binder_est_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (bd : Index.NodeRef idx) (e : Est s) :
+  node_binder_est sc bd = Some e -> est_scope e = sc.
+Proof.
+  unfold node_binder_est. destruct (binder_ident bd) as [n|]; [| discriminate].
+  destruct (Bool.bool_dec (is_binder_role (Index.node_role bd)) true) as [Hr|_]; intro H;
+    [ injection H as <-; reflexivity | discriminate H ].
+Qed.
+
+Lemma decl_rows_adds_scope {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  (sc : ScopeId s) (t : Index.NodeRef idx) (rows : list DeclBinderDecisionData) (e : Est s) :
+  In e (decl_rows_adds sc t rows) -> est_scope e = sc.
+Proof.
+  unfold decl_rows_adds. intro Hin. apply in_flat_map in Hin. destruct Hin as [rb [_ Hin]].
+  assert (Hgen : forall bd, In e (match node_binder_est sc bd with Some e0 => [e0] | None => [] end)
+                            -> est_scope e = sc).
+  { intros bd H. destruct (node_binder_est sc bd) as [e0|] eqn:Hn; [| destruct H].
+    destruct H as [<-|F]; [ exact (node_binder_est_scope sc bd e0 Hn) | destruct F ]. }
+  destruct rb as [row bd]. destruct row;
+    [ destruct Hin | exact (Hgen bd Hin) | exact (Hgen bd Hin) | exact (Hgen bd Hin) | exact (Hgen bd Hin) ].
+Qed.
+
 Lemma stmt_has_parent {p} {idx : Index.ProgramIndex p} (st : Index.ShortStmtRef idx) :
   Index.node_parent (Index.sh_node st) = None -> False.
 Proof.
@@ -610,7 +692,7 @@ Proof. intros Hp Hb. rewrite (stmt_parent_block st par Hp) in Hb. discriminate H
 (* one retained block event: expr statement, judged declaration, or judged short — no raw predecessor env stored *)
 Inductive BlockEv {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type :=
 | BEvExpr : Index.NodeRef idx -> BlockEv s
-| BEvDecl : forall (sc : ScopeId s) (t : Index.NodeRef idx), list (Est s) -> BlockEv s
+| BEvDecl : forall (sc : ScopeId s) (t : Index.NodeRef idx), list DeclBinderDecisionData -> BlockEv s
 | BEvShort : forall (st : Index.ShortStmtRef idx), list ShortLeftDecisionData -> BlockEv s.
 Arguments BEvExpr {p idx s} _.
 Arguments BEvDecl {p idx s} _ _ _.
@@ -629,7 +711,7 @@ Definition bev_adds {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (br : Index.BlockRef idx) (ev : BlockEv s) : list (Est s) :=
   match ev with
   | BEvExpr _ => []
-  | BEvDecl _ _ adds => adds
+  | BEvDecl sc t rows => decl_rows_adds sc t rows
   | BEvShort st rows => short_rows_adds br st rows
   end.
 
@@ -680,7 +762,7 @@ Definition block_event (br : Index.BlockRef idx) (env : list (Est s)) (c : Index
   (v : Index.NodeView) (Hv : Index.node_view c = v) : BlockEv s :=
   match v as v0 return Index.node_view c = v0 -> BlockEv s with
   | Index.VStmt Index.SSDecl => fun _ =>
-      BEvDecl (BlockScope br) c (stmt_decl_ests (BlockScope br) c)
+      BEvDecl (BlockScope br) c (decl_decide_rows env c)
   | Index.VStmt (Index.SSShort nn nv) => fun Hv0 =>
       BEvShort (Index.mkShortStmtRef c nn nv Hv0)
         (short_decide_rows env (Index.mkShortStmtRef c nn nv Hv0))
@@ -2464,7 +2546,7 @@ Proof.
   match goal with sh0 : Index.StmtShape |- _ => destruct sh0 as [| |nn nv] end; cbn.
   - intro F; destruct F.
   - intro Hin. left.
-    exact (stmt_decl_ests_scope (BlockScope br) c e Hin).
+    exact (decl_rows_adds_scope (BlockScope br) c _ e Hin).
   - intro Hin. right.
     exact (short_rows_adds_scope br' _ _ e Hin).
 Qed.
@@ -3197,22 +3279,22 @@ Proof.
     + destruct (IH i' j' x H) as [Hlt Hnth]. split; [ lia | exact Hnth ].
 Qed.
 
-(* the exact declaration event ref: the exact trace, ordinal, scope, and retained additions, pinned *)
+(* the exact declaration event ref: the exact trace, ordinal, scope, and retained decision rows, pinned *)
 Record DeclEventRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (t : Index.NodeRef idx) : Type := mk_decl_event {
   de_block : Index.BlockRef idx ;
   de_trace : BlockTraceRef bp (Index.bl_node de_block) ;
   de_ord   : nat ;
   de_sc    : ScopeId s ;
-  de_adds  : list (Est s) ;
-  de_at : nth_error (trow_evs (btr_row de_trace)) de_ord = Some (BEvDecl de_sc t de_adds)
+  de_rows  : list DeclBinderDecisionData ;
+  de_at : nth_error (trow_evs (btr_row de_trace)) de_ord = Some (BEvDecl de_sc t de_rows)
 }.
 Arguments mk_decl_event {p idx s d bp t} _ _ _ _ _ _.
 Arguments de_block {p idx s d bp t} _.
 Arguments de_trace {p idx s d bp t} _.
 Arguments de_ord {p idx s d bp t} _.
 Arguments de_sc {p idx s d bp t} _.
-Arguments de_adds {p idx s d bp t} _.
+Arguments de_rows {p idx s d bp t} _.
 Arguments de_at {p idx s d bp t} _.
 
 Definition de_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -3222,11 +3304,6 @@ Definition de_event {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
 Definition decl_state_before {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {t : Index.NodeRef idx} (de : DeclEventRef bp t)
   : BlockStateRef (ber_pre (de_event de)) := block_state (ber_pre (de_event de)).
-
-(* whether a binder node spells a given name *)
-Definition binder_name_matches {p} {idx : Index.ProgramIndex p}
-  (n : Names.OrdinaryIdentifier) (b : Index.NodeRef idx) : bool :=
-  match binder_ident b with Some m => Names.ordinary_equalb m n | None => false end.
 
 (* the exact declaration-binder classification against the predecessor state and earlier same-event binders *)
 Inductive DeclLhsClass {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
