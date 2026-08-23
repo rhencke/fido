@@ -54,7 +54,7 @@ pytools: builder
 	    --load -t $(PYTAG) . > /dev/null
 	$(call fido_mark,pytools)
 
-.PHONY: check prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
+.PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
         diet mutants ledger profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
@@ -69,8 +69,37 @@ pytools: builder
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
 # `make perf` times the complete `make -j1 check` invocation externally.
 # The `check` marker records only completion of this recipe body.
-check: pytools hostpython diet mutants ledger prove e2e builder
-	@tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
+# The repository-owned budget for a repeatable warmed successful `make check`: ONE owner.  The decision and
+# its self-tested controls live in tools/check-budget.sh; `.review/PERFORMANCE.tsv` is a `make perf`
+# diagnostic, never consulted here.  `check` runs that self-test, measures a warmed successful `check-core`,
+# and applies the budget; a first over-budget run gets ONE warmed confirmation (the one-time cold/setup
+# allowance), and a confirmed warmed overage fails closed with the required STOP_FOR_ROB guidance.  A
+# producer failure in `check-core` is returned as itself, never masked by the budget.
+CHECK_BUDGET_SECONDS := 120
+
+check:
+	@sh tools/check-budget.sh --self-test || exit $$?; \
+	  t0=$$(date +%s); $(MAKE) --no-print-directory check-core; rc=$$?; dt=$$(( $$(date +%s) - t0 )); \
+	  [ $$rc -eq 0 ] || exit $$rc; \
+	  echo "fido: make check — warmed total $${dt}s (budget $(CHECK_BUDGET_SECONDS)s)"; \
+	  if sh tools/check-budget.sh $$dt $(CHECK_BUDGET_SECONDS); then exit 0; fi; \
+	  echo "fido: make check — first pass $${dt}s over budget; ONE warmed confirmation follows (one-time cold/setup allowance)"; \
+	  t1=$$(date +%s); $(MAKE) --no-print-directory check-core; rc=$$?; dt2=$$(( $$(date +%s) - t1 )); \
+	  [ $$rc -eq 0 ] || exit $$rc; \
+	  echo "fido: make check — warmed confirmation $${dt2}s (budget $(CHECK_BUDGET_SECONDS)s)"; \
+	  sh tools/check-budget.sh $$dt2 $(CHECK_BUDGET_SECONDS)
+	$(call fido_mark,check)
+
+# check-core — the real full verification DAG with per-stage wall timings.  INTERNAL orchestration beneath
+# `make check`; NOT a supported standalone verification entry point.  Every gate `make check` ever ran runs
+# here — proof gate, whole-tree Go e2e, and the working-tree pristine byte-compare — none skipped, sampled,
+# weakened, or moved outside this path.
+check-core: pytools hostpython diet mutants ledger builder
+	@s=$$(date +%s); $(MAKE) --no-print-directory prove || exit $$?; \
+	  echo "fido: [check stage] prove = $$(( $$(date +%s) - s ))s"; \
+	  s=$$(date +%s); $(MAKE) --no-print-directory e2e || exit $$?; \
+	  echo "fido: [check stage] e2e = $$(( $$(date +%s) - s ))s"; \
+	  s=$$(date +%s); tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	  $(PYRUN) tools/worktree-list.py --self-test && \
 	  $(PYRUN) tools/worktree-list.py > "$$tmp/list.nul" && \
 	  tar --null -T "$$tmp/list.nul" -cf "$$tmp/tree.tar" && \
@@ -81,9 +110,9 @@ check: pytools hostpython diet mutants ledger prove e2e builder
 	    --output "type=local,dest=$$tmp/pristine" . && \
 	  sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; \
 	  rc=$$?; rm -rf "$$tmp"; \
+	  echo "fido: [check stage] artifact-compare = $$(( $$(date +%s) - s ))s"; \
 	  if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (the coverage + layer-dependency gate + whole-theory audit + controls chain runs in prove) AND materialized the pristine generated-module (Fido Materialize) + validated it through go build ./... vs goldens (the internal sibling-temp sink exercised separately); the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
 	  exit $$rc
-	$(call fido_mark,check)
 
 # The reproducible container proof: dune compiles the modules, the always-run layer-dependency gate (rocq dep
 # direct edges == the sole ARCHITECTURE policy), + the whole-theory assumption audit.
