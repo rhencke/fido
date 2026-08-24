@@ -7,91 +7,133 @@ Import ListNotations.
 Module TR := Compilable.TypeResolution.
 Module BN := Compilable.Bindings.
 
-Inductive Cause {p} (idx : Index.ProgramIndex p) : Type :=
-| InvalidIdentity : Names.PredeclaredName -> Cause idx
-| UnresolvedName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Cause idx
-| TypeAsValue : BN.ObjectRef idx -> Cause idx
-| NotAType : BN.ObjectRef idx -> Cause idx
-| NotCallable : BN.ObjectRef idx -> Cause idx
-| NotCallableExpr : Index.NodeRef idx -> Cause idx
-| ConversionArity : Names.PredeclaredName -> nat -> Cause idx
-| ComplexArity : nat -> Cause idx
-| ComplexMismatch : Index.NodeRef idx -> Index.NodeRef idx -> Cause idx
-| UnaryMismatch : Index.NodeRef idx -> Cause idx
-| ConversionOverflow : TR.TypeForm -> Index.NodeRef idx -> Cause idx
-| ConversionNotRepresentable : TR.TypeForm -> Index.NodeRef idx -> Cause idx
-| DefaultOverflow : TR.Constant -> Cause idx
-| NoValueUsed : Cause idx
-| IllegalStatement : Cause idx
-| ConstMissingInit : { c : Index.Refs.SpecRef idx Index.Model.ConstSpecF & BN.ConstJudgment c } -> Cause idx
-| ResultCountMismatch : nat -> nat -> Cause idx
-| ShortDuplicate : Names.OrdinaryIdentifier -> Cause idx
-| MainArity : BN.FunctionDeclRef idx -> list (Index.NodeRef idx) -> nat -> Cause idx.
-Arguments InvalidIdentity {p idx} _. Arguments UnresolvedName {p idx} _ _.
-Arguments TypeAsValue {p idx} _. Arguments NotAType {p idx} _.
-Arguments NotCallable {p idx} _. Arguments NotCallableExpr {p idx} _.
-Arguments ConversionArity {p idx} _ _. Arguments ComplexArity {p idx} _.
-Arguments ComplexMismatch {p idx} _ _. Arguments UnaryMismatch {p idx} _.
-Arguments ConversionOverflow {p idx} _ _. Arguments ConversionNotRepresentable {p idx} _ _.
-Arguments DefaultOverflow {p idx} _. Arguments NoValueUsed {p idx}. Arguments IllegalStatement {p idx}.
-Arguments ConstMissingInit {p idx} _. Arguments ResultCountMismatch {p idx} _ _. Arguments ShortDuplicate {p idx} _.
-Arguments MainArity {p idx} _ _ _.
+(* Analysis fact algebra is indexed by exact Binding phase bp: payloads retain exact refs, cross-phase is rejected *)
+Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| InvalidIdentity : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Cause bp
+| UnresolvedName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp
+| TypeAsValue : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp
+| NotAType : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp
+| NotCallable : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp
+| NotCallableExpr : Index.NodeRef idx -> Cause bp
+| ConversionArity : Names.PredeclaredName -> nat -> Cause bp
+| ComplexArity : nat -> Cause bp
+| ComplexMismatch : Index.NodeRef idx -> Index.NodeRef idx -> Cause bp
+| UnaryMismatch : Index.NodeRef idx -> Cause bp
+| ConversionOverflow : TR.TypeForm -> Index.NodeRef idx -> Cause bp
+| ConversionNotRepresentable : TR.TypeForm -> Index.NodeRef idx -> Cause bp
+| DefaultOverflow : TR.Constant -> Cause bp
+| NoValueUsed : Cause bp
+| IllegalStatement : Cause bp
+| ConstMissingInit : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
+    BN.ConstSpecJudgmentRef bp cs -> Cause bp
+| ResultCountMismatch : nat -> nat -> Cause bp
+| ShortDuplicate : forall (st : Index.Refs.ShortStmtRef idx) (se : BN.ShortEventRef bp st)
+    (dd : BN.ShortDuplicateDecision se) (n : Names.OrdinaryIdentifier),
+    dd = BN.short_duplicate_decision se -> BN.short_dup_decision_name dd = Some n -> Cause bp
+| MainArity : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (f : BN.FunctionDeclRef idx),
+    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) ->
+    list (Index.NodeRef idx) -> nat -> Cause bp.
+Arguments InvalidIdentity {p idx s bd bp u n} _ _ _.
+Arguments TypeAsValue {p idx s bd bp u n} _ _ _. Arguments NotAType {p idx s bd bp u n} _ _ _.
+Arguments NotCallable {p idx s bd bp u n} _ _ _. Arguments NotCallableExpr {p idx s bd bp} _.
+Arguments ConversionArity {p idx s bd bp} _ _. Arguments ComplexArity {p idx s bd bp} _.
+Arguments ComplexMismatch {p idx s bd bp} _ _. Arguments UnaryMismatch {p idx s bd bp} _.
+Arguments ConversionOverflow {p idx s bd bp} _ _. Arguments ConversionNotRepresentable {p idx s bd bp} _ _.
+Arguments DefaultOverflow {p idx s bd bp} _. Arguments NoValueUsed {p idx s bd bp}. Arguments IllegalStatement {p idx s bd bp}.
+Arguments ConstMissingInit {p idx s bd bp cs} _. Arguments ResultCountMismatch {p idx s bd bp} _ _.
+Arguments ShortDuplicate {p idx s bd bp st se} _ _ _ _.
+Arguments UnresolvedName {p idx s bd bp u n} _ _ _.
+Arguments MainArity {p idx s bd bp u n} _ _ _ _ _.
 
-Inductive Requirement {p} (idx : Index.ProgramIndex p) : Type :=
-| ReqValueMeaning : BN.DeclOrigin idx -> Requirement idx
-| ReqTypeMeaning : BN.ObjectRef idx -> Requirement idx
-| ReqComplexType : Index.NodeRef idx -> Requirement idx
-| ReqApplication : Names.PredeclaredName -> list (Index.NodeRef idx) -> Requirement idx
-| ReqMainUse : Index.Refs.MainOccurrenceRef idx -> Requirement idx
-| ReqConstDecl : { c : Index.Refs.SpecRef idx Index.Model.ConstSpecF & BN.ConstJudgment c } -> Requirement idx
-| ReqDeclMeaning : Index.NodeRef idx -> Requirement idx.
-Arguments ReqDeclMeaning {p idx} _.
-Arguments ReqValueMeaning {p idx} _. Arguments ReqTypeMeaning {p idx} _.
-Arguments ReqComplexType {p idx} _. Arguments ReqApplication {p idx} _ _.
-Arguments ReqMainUse {p idx} _. Arguments ReqConstDecl {p idx} _.
+Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| ReqValueMeaning : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (org : BN.DeclOrigin idx),
+    BN.resolution_object_view r = Some (BN.SourceObject org) -> Requirement bp
+| ReqTypeMeaning : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Requirement bp
+| ReqComplexType : Index.NodeRef idx -> Requirement bp
+| ReqApplication : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> list (Index.NodeRef idx) -> Requirement bp
+| ReqMainUse : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (f : BN.FunctionDeclRef idx),
+    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) -> Requirement bp
+| ReqConstDecl : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
+    BN.ConstSpecJudgmentRef bp cs -> Requirement bp
+| ReqDeclMeaning : Index.NodeRef idx -> Requirement bp.
+Arguments ReqDeclMeaning {p idx s bd bp} _.
+Arguments ReqValueMeaning {p idx s bd bp u n} _ _ _. Arguments ReqTypeMeaning {p idx s bd bp u n} _ _ _.
+Arguments ReqComplexType {p idx s bd bp} _. Arguments ReqApplication {p idx s bd bp u n} _ _ _ _.
+Arguments ReqMainUse {p idx s bd bp u n} _ _ _. Arguments ReqConstDecl {p idx s bd bp cs} _.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
-Inductive Dependency {p} (idx : Index.ProgramIndex p) : Type :=
-| DepRedeclaredName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
-| DepUnboundName : Names.OrdinaryIdentifier -> Index.NodeRef idx -> Dependency idx
-| DepInvalidId : Names.PredeclaredName -> Index.NodeRef idx -> Dependency idx
-| DepChild : Index.NodeRef idx -> Dependency idx.
-Arguments DepRedeclaredName {p idx} _ _. Arguments DepUnboundName {p idx} _ _.
-Arguments DepInvalidId {p idx} _ _. Arguments DepChild {p idx} _.
+Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| DepRedeclaredName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (root : BN.RedeclRoot bp n),
+    BN.resolution_redecl_root r = Some root -> Dependency bp
+| DepUnboundName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp
+| DepInvalidId : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp
+| DepChild : Index.NodeRef idx -> Dependency bp.
+Arguments DepRedeclaredName {p idx s bd bp u n} _ _ _.
+Arguments DepUnboundName {p idx s bd bp u n} _ _ _.
+Arguments DepInvalidId {p idx s bd bp u n} _ _ _. Arguments DepChild {p idx s bd bp} _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
-Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
-| VOK : TR.ResolvedConstant -> ValueOutcome site
-| VNonconst : ValueOutcome site
-| VInvalid : Cause idx -> ValueOutcome site
-| VUnmet : Requirement idx -> ValueOutcome site
-| VDependent : Dependency idx -> ValueOutcome site.
-Arguments VOK {p idx site} _. Arguments VNonconst {p idx site}.
-Arguments VInvalid {p idx site} _. Arguments VUnmet {p idx site} _. Arguments VDependent {p idx site} _.
+Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
+| VOK : TR.ResolvedConstant -> ValueOutcome bp site
+| VNonconst : ValueOutcome bp site
+| VInvalid : Cause bp -> ValueOutcome bp site
+| VUnmet : Requirement bp -> ValueOutcome bp site
+| VDependent : Dependency bp -> ValueOutcome bp site.
+Arguments VOK {p idx s bd bp site} _. Arguments VNonconst {p idx s bd bp site}.
+Arguments VInvalid {p idx s bd bp site} _. Arguments VUnmet {p idx s bd bp site} _. Arguments VDependent {p idx s bd bp site} _.
 
-Inductive AppOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
-| AOK : AppOutcome site
-| AInvalid : Cause idx -> AppOutcome site
-| AUnmet : Requirement idx -> AppOutcome site
-| ADependent : Dependency idx -> AppOutcome site.
-Arguments AOK {p idx site}. Arguments AInvalid {p idx site} _.
-Arguments AUnmet {p idx site} _. Arguments ADependent {p idx site} _.
+Inductive AppOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
+| AOK : AppOutcome bp site
+| AInvalid : Cause bp -> AppOutcome bp site
+| AUnmet : Requirement bp -> AppOutcome bp site
+| ADependent : Dependency bp -> AppOutcome bp site.
+Arguments AOK {p idx s bd bp site}. Arguments AInvalid {p idx s bd bp site} _.
+Arguments AUnmet {p idx s bd bp site} _. Arguments ADependent {p idx s bd bp site} _.
 
-Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
-| SOK : StmtOutcome site
-| SInvalid : Cause idx -> StmtOutcome site
-| SUnmet : Requirement idx -> StmtOutcome site
-| SDependent : Dependency idx -> StmtOutcome site.
-Arguments SOK {p idx site}. Arguments SInvalid {p idx site} _.
-Arguments SUnmet {p idx site} _. Arguments SDependent {p idx site} _.
+Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
+| SOK : StmtOutcome bp site
+| SInvalid : Cause bp -> StmtOutcome bp site
+| SUnmet : Requirement bp -> StmtOutcome bp site
+| SDependent : Dependency bp -> StmtOutcome bp site.
+Arguments SOK {p idx s bd bp site}. Arguments SInvalid {p idx s bd bp site} _.
+Arguments SUnmet {p idx s bd bp site} _. Arguments SDependent {p idx s bd bp site} _.
 
-Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
-| TOK : TR.TypeForm -> TypeUseOutcome site
-| TInvalid : Cause idx -> TypeUseOutcome site
-| TUnmet : Requirement idx -> TypeUseOutcome site
-| TDependent : Dependency idx -> TypeUseOutcome site.
-Arguments TOK {p idx site} _. Arguments TInvalid {p idx site} _.
-Arguments TUnmet {p idx site} _. Arguments TDependent {p idx site} _.
+Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
+| TOK : TR.TypeForm -> TypeUseOutcome bp site
+| TInvalid : Cause bp -> TypeUseOutcome bp site
+| TUnmet : Requirement bp -> TypeUseOutcome bp site
+| TDependent : Dependency bp -> TypeUseOutcome bp site.
+Arguments TOK {p idx s bd bp site} _. Arguments TInvalid {p idx s bd bp site} _.
+Arguments TUnmet {p idx s bd bp site} _. Arguments TDependent {p idx s bd bp site} _.
 
 Inductive PMeaning : Type :=
 | PMConvForm : TR.TypeForm -> PMeaning
@@ -265,41 +307,48 @@ Definition fold_consumed (r : Index.NodeRef idx) : bool :=
 
 
 (* a const spec: a first spec omitting its initializer, or a known result-count mismatch, is an exact invalidity *)
-Definition const_spec_disposition (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF) : ValueOutcome (Index.Refs.sp_node cs) :=
-  let row := BN.cjr_row (BN.const_spec_judgment bp cs) in
+Definition const_spec_disposition (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF) : ValueOutcome bp (Index.Refs.sp_node cs) :=
+  let cjr := BN.const_spec_judgment bp cs in
   match Index.Refs.sp_shape cs with
   | Index.Model.CSExplicit _ nn nv =>
-      if Nat.eqb nn nv then VUnmet (ReqConstDecl row) else VInvalid (ResultCountMismatch nn nv)
+      if Nat.eqb nn nv then VUnmet (ReqConstDecl cjr) else VInvalid (ResultCountMismatch nn nv)
   | Index.Model.CSInherited _ =>
-      match projT2 row with
-      | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit row)
-      | _ => VUnmet (ReqConstDecl row)
+      match projT2 (BN.cjr_row cjr) with
+      | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit cjr)
+      | _ => VUnmet (ReqConstDecl cjr)
       end
   end.
 
-Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> ValueOutcome r with
+Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome bp r :=
+  match Index.node_view r as v return Index.node_view r = v -> ValueOutcome bp r with
   | Index.Model.VName n => fun _ =>
       let r0 := BN.resolve bp r n in
-      match BN.resolution_object_view r0 with
-      | Some o =>
-          match o with
-          | BN.PredeclaredObject pn =>
+      match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> ValueOutcome bp r with
+      | Some o => fun Hov =>
+          match o as o' return o = o' -> ValueOutcome bp r with
+          | BN.PredeclaredObject pn => fun Ho =>
+              let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
               match pmeaning pn with
-              | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity pn) end
-              | PMInvalidId => VInvalid (InvalidIdentity pn)
-              | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue (BN.PredeclaredObject pn))
+              | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
+              | PMInvalidId => VInvalid (InvalidIdentity r0 pn Hpre)
+              | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
               end
-          | BN.SourceObject (BN.DOBinder b) => VUnmet (ReqValueMeaning (BN.DOBinder b))
-          | BN.SourceObject (BN.DOShort sn) => VUnmet (ReqValueMeaning (BN.DOShort sn))
-          | BN.SourceObject (BN.DOFunc f) => if is_app_head r then VNonconst else VUnmet (ReqMainUse (BN.function_occ f))
-          end
-      | None =>
-          match BN.resolution_redecl_root r0 with
-          | Some _ => VDependent (DepRedeclaredName n r)
-          | None => VInvalid (UnresolvedName n r)
-          end
-      end
+          | BN.SourceObject org => fun Ho =>
+              let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
+              match org as org' return org = org' -> ValueOutcome bp r with
+              | BN.DOBinder _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
+              | BN.DOShort _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
+              | BN.DOFunc f => fun Horg =>
+                  if is_app_head r then VNonconst
+                  else VUnmet (ReqMainUse r0 f (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
+              end eq_refl
+          end eq_refl
+      | None => fun Hov =>
+          match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
+          | Some root => fun Hrr => VDependent (DepRedeclaredName r0 root Hrr)
+          | None => fun Hrv => VInvalid (UnresolvedName r0 Hov Hrv)
+          end eq_refl
+      end eq_refl
   | Index.Model.VLiteral _ => fun _ =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
@@ -324,8 +373,8 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
       match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) with
       | Index.Model.VName h =>
           let r0 := BN.resolve bp r h in
-          match BN.resolution_object_view r0 with
-          | Some o =>
+          match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> ValueOutcome bp r with
+          | Some o => fun _ =>
               match o with
               | BN.PredeclaredObject pn =>
               match pmeaning pn, map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
@@ -355,12 +404,12 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
               end
               | BN.SourceObject _ => VNonconst
               end
-          | None =>
-              match BN.resolution_redecl_root r0 with
-              | Some _ => VDependent (DepRedeclaredName h r)
-              | None => VDependent (DepUnboundName h r)
-              end
-          end
+          | None => fun Hov =>
+              match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
+              | Some root => fun Hrr => VDependent (DepRedeclaredName r0 root Hrr)
+              | None => fun Hrv => VDependent (DepUnboundName r0 Hov Hrv)
+              end eq_refl
+          end eq_refl
       | _ => VNonconst
       end
   (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
@@ -370,17 +419,18 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | _ => fun _ => VNonconst
   end eq_refl.
 
-Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> AppOutcome r with
+Definition own_app (r : Index.NodeRef idx) : AppOutcome bp r :=
+  match Index.node_view r as v return Index.node_view r = v -> AppOutcome bp r with
   | Index.Model.VApplication => fun Hv =>
       let hd := Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv)) in
       match Index.node_view hd with
       | Index.Model.VName h =>
           let r0 := BN.resolve bp r h in
-          match BN.resolution_object_view r0 with
-          | Some o =>
-              match o with
-              | BN.PredeclaredObject pn =>
+          match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> AppOutcome bp r with
+          | Some o => fun Hov =>
+              match o as o' return o = o' -> AppOutcome bp r with
+              | BN.PredeclaredObject pn => fun Ho =>
+              let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
               match pmeaning pn with
               | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))) end
               | PMComplex =>
@@ -390,32 +440,37 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome r :=
                   | _ => AInvalid (ComplexArity (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)))))
                   end
               | PMPrintln => AOK
-              | PMValue _ => AInvalid (NotCallable (BN.PredeclaredObject pn))
-              | PMInvalidId => ADependent (DepInvalidId pn hd)
-              | PMUnmodelled => AUnmet (ReqApplication pn (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))
+              | PMValue _ => AInvalid (NotCallable r0 o Hov)
+              | PMInvalidId => ADependent (DepInvalidId r0 pn Hpre)
+              | PMUnmodelled => AUnmet (ReqApplication r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))
               end
-          | BN.SourceObject (BN.DOBinder b) => AInvalid (NotCallable (BN.SourceObject (BN.DOBinder b)))
-          | BN.SourceObject (BN.DOShort sn) => AInvalid (NotCallable (BN.SourceObject (BN.DOShort sn)))
-          | BN.SourceObject (BN.DOFunc f) =>
-              (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
-              match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
-              | nil => AOK
-              | args => AInvalid (MainArity f args (Datatypes.length args))
-              end
-              end
-          | None =>
-              match BN.resolution_redecl_root r0 with
-              | Some _ => ADependent (DepRedeclaredName h hd)
-              | None => ADependent (DepUnboundName h hd)
-              end
-          end
+          | BN.SourceObject org => fun Ho =>
+              let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
+              match org as org' return org = org' -> AppOutcome bp r with
+              | BN.DOBinder _ => fun _ => AInvalid (NotCallable r0 o Hov)
+              | BN.DOShort _ => fun _ => AInvalid (NotCallable r0 o Hov)
+              | BN.DOFunc f => fun Horg =>
+                  (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
+                  let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
+                  | nil => AOK
+                  | args => AInvalid (MainArity r0 f Hfunc args (Datatypes.length args))
+                  end
+              end eq_refl
+              end eq_refl
+          | None => fun Hov =>
+              match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
+              | Some root => fun Hrr => ADependent (DepRedeclaredName r0 root Hrr)
+              | None => fun Hrv => ADependent (DepUnboundName r0 Hov Hrv)
+              end eq_refl
+          end eq_refl
       | _ => AInvalid (NotCallableExpr hd)
       end
   | _ => fun _ => ADependent (DepChild r)
   end eq_refl.
 
 (* the dependency when a statement's expr already owns an invalidity, unmet requirement, or a dependent non-result *)
-Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : option (Dependency idx) :=
+Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : option (Dependency bp) :=
   match own_value ctab e with
   | VInvalid _ | VUnmet _ | VDependent _ => Some (DepChild e)
   | _ => match Index.node_view e with
@@ -425,14 +480,14 @@ Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo
   end.
 
 (* an expr-statement defers to an expr that owns an issue; otherwise it is a legal call statement or an illegal one *)
-Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome r :=
-  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome r with
+Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome bp r :=
+  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome bp r with
   | Index.Model.VStmt Index.Model.SSExpr => fun Hv =>
       let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
       match expr_dependency ctab e with
       | Some d => SDependent d
       | None =>
-          match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome r with
+          match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome bp r with
           | Index.Model.VApplication => fun He =>
               match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef e He))) with
               | Index.Model.VName h =>
@@ -451,11 +506,13 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           end eq_refl
       end
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
-      (* a short declaration: the exact duplicate decision names any repeated left as invalid *)
-      match BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) with
-      | Some n => SInvalid (ShortDuplicate n)
-      | None => SUnmet (ReqDeclMeaning r)
-      end
+      (* a short declaration: retain the exact short event and its canonical duplicate decision naming the repeated left *)
+      let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
+      match BN.short_dup_decision_name (BN.short_duplicate_decision se)
+        as nm return BN.short_dup_decision_name (BN.short_duplicate_decision se) = nm -> StmtOutcome bp r with
+      | Some n => fun Hn => SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn)
+      | None => fun _ => SUnmet (ReqDeclMeaning r)
+      end eq_refl
   | _ => fun _ => SDependent (DepChild r)
   end eq_refl.
 
@@ -464,50 +521,51 @@ Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
   match pn with Names.PUintptr | Names.PAny | Names.PComparable | Names.PError => true | _ => false end.
 
 (* a type use resolves its name: modelled type is its form, unmodelled real type a boundary, else invalid *)
-Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome r :=
+Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome bp r :=
   match Index.node_view r with
   | Index.Model.VTypeExpr (Syntax.NamedType n) =>
       let r0 := BN.resolve bp r n in
-      match BN.resolution_object_view r0 with
-      | Some o =>
+      match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> TypeUseOutcome bp r with
+      | Some o => fun Hov =>
           match o with
           | BN.PredeclaredObject pn =>
               match TR.predeclared_meaning pn with
               | TR.NMConversionForm t => TOK t
               | _ => if is_unmodeled_type pn
-                     then TUnmet (ReqTypeMeaning (BN.PredeclaredObject pn))
-                     else TInvalid (NotAType (BN.PredeclaredObject pn))
+                     then TUnmet (ReqTypeMeaning r0 o Hov)
+                     else TInvalid (NotAType r0 o Hov)
               end
-          | BN.SourceObject (BN.DOBinder b) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOBinder b)))
-          | BN.SourceObject (BN.DOShort sn) => TUnmet (ReqTypeMeaning (BN.SourceObject (BN.DOShort sn)))
-          | BN.SourceObject (BN.DOFunc m) => TInvalid (NotAType (BN.SourceObject (BN.DOFunc m)))
+          | BN.SourceObject (BN.DOBinder _) => TUnmet (ReqTypeMeaning r0 o Hov)
+          | BN.SourceObject (BN.DOShort _) => TUnmet (ReqTypeMeaning r0 o Hov)
+          | BN.SourceObject (BN.DOFunc _) => TInvalid (NotAType r0 o Hov)
           end
-      | None =>
-          match BN.resolution_redecl_root r0 with
-          | Some _ => TDependent (DepRedeclaredName n r)
-          | None => TInvalid (UnresolvedName n r)
-          end
-      end
+      | None => fun Hov =>
+          match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> TypeUseOutcome bp r with
+          | Some root => fun Hrr => TDependent (DepRedeclaredName r0 root Hrr)
+          | None => fun Hrv => TInvalid (UnresolvedName r0 Hov Hrv)
+          end eq_refl
+      end eq_refl
   | _ => TDependent (DepChild r)
   end.
 
 End OverPhase.
 
 (* one applicability-first fact per applicable family; an application carries disjoint callability and value facts *)
-Inductive OccFact {p} {idx : Index.ProgramIndex p} : Type :=
-| OFValue : forall r : Index.NodeRef idx, ValueOutcome r -> OccFact
-| OFApp   : forall r : Index.NodeRef idx, AppOutcome r -> OccFact
-| OFStmt  : forall r : Index.NodeRef idx, StmtOutcome r -> OccFact
-| OFType  : forall r : Index.NodeRef idx, TypeUseOutcome r -> OccFact.
-Arguments OccFact {p} idx.
-Arguments OFValue {p idx} _ _. Arguments OFApp {p idx} _ _.
-Arguments OFStmt {p idx} _ _. Arguments OFType {p idx} _ _.
+Inductive OccFact {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| OFValue : forall r : Index.NodeRef idx, ValueOutcome bp r -> OccFact bp
+| OFApp   : forall r : Index.NodeRef idx, AppOutcome bp r -> OccFact bp
+| OFStmt  : forall r : Index.NodeRef idx, StmtOutcome bp r -> OccFact bp
+| OFType  : forall r : Index.NodeRef idx, TypeUseOutcome bp r -> OccFact bp.
+Arguments OccFact {p idx s bd} bp.
+Arguments OFValue {p idx s bd bp} _ _. Arguments OFApp {p idx s bd bp} _ _.
+Arguments OFStmt {p idx s bd bp} _ _. Arguments OFType {p idx s bd bp} _ _.
 
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
-Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact idx) :=
+Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
   | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
   | Index.Model.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
@@ -519,7 +577,7 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   end.
 
 (* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
-Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome r') :
+Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome bp r') :
   In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.Model.VApplication.
 Proof.
   intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
@@ -527,7 +585,7 @@ Proof.
     solve [ reflexivity | exfalso; intuition discriminate ].
 Qed.
 (* nonapplicability: occ_facts retains a statement fact only at a statement role *)
-Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome r') :
+Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome bp r') :
   In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.Model.VStmt st.
 Proof.
   intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
@@ -535,7 +593,7 @@ Proof.
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
 (* nonapplicability: occ_facts retains a type-use fact only at a type-use role *)
-Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome r') :
+Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome bp r') :
   In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.Model.VTypeExpr t.
 Proof.
   intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
@@ -544,13 +602,13 @@ Proof.
 Qed.
 
 (* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
-Definition raw_facts : list (OccFact idx) :=
+Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
-Definition FactPhase : Type := { m : list (OccFact idx) | m = raw_facts }.
+Definition FactPhase : Type := { m : list (OccFact bp) | m = raw_facts }.
 Definition facts : FactPhase := exist _ raw_facts eq_refl.
-Definition fact_list (fp : FactPhase) : list (OccFact idx) := proj1_sig fp.
+Definition fact_list (fp : FactPhase) : list (OccFact bp) := proj1_sig fp.
 
 End Retain.
 
@@ -567,8 +625,8 @@ Proof. exact (proj2_sig fp). Qed.
 
 (* statement and type-use families have no Nonconst constructor: OK / invalid / unmet / dependent exhaust each *)
 Lemma only_lawful_per_family (r : Index.NodeRef idx) :
-  (forall o : StmtOutcome r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q) \/ (exists d, o = SDependent d))
-  /\ (forall o : TypeUseOutcome r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q) \/ (exists d, o = TDependent d)).
+  (forall o : StmtOutcome bp r, o = SOK \/ (exists c, o = SInvalid c) \/ (exists q, o = SUnmet q) \/ (exists d, o = SDependent d))
+  /\ (forall o : TypeUseOutcome bp r, (exists f, o = TOK f) \/ (exists c, o = TInvalid c) \/ (exists q, o = TUnmet q) \/ (exists d, o = TDependent d)).
 Proof.
   split; intro o; destruct o.
   - left; reflexivity.
@@ -648,70 +706,74 @@ Definition analyze (p : Syntax.Program) : Result p :=
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
 
 (* an issue roots at an exact node, an exact package, or an exact declaration group; never a self-fallback *)
-Inductive IssueRoot {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| RootNode : Index.NodeRef idx -> IssueRoot s
-| RootPackage : BN.PI.PackageRef s -> IssueRoot s
-| RootGroup : BN.DeclarationGroupRef s -> IssueRoot s.
-Arguments RootNode {p idx s} _.
-Arguments RootPackage {p idx s} _.
-Arguments RootGroup {p idx s} _.
+Inductive IssueRoot {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| RootNode : Index.NodeRef idx -> IssueRoot bp
+| RootPackage : BN.PI.PackageRef s -> IssueRoot bp
+| RootGroup : BN.DeclarationGroupRef s -> IssueRoot bp.
+Arguments RootNode {p idx s bd bp} _.
+Arguments RootPackage {p idx s bd bp} _.
+Arguments RootGroup {p idx s bd bp} _.
 
 (* the exact diagnostics: an occurrence invalidity, a missing fixed main, an output collision, a redeclared group *)
-Inductive Diagnostic {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| DOcc : Index.NodeRef idx -> Family -> Cause idx -> Diagnostic s
-| DMissingMain : BN.PI.PackageRef s -> Diagnostic s
-| DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic s
-| DRedeclaredGroup : BN.DeclarationGroupRef s -> list (Index.NodeRef idx) -> Diagnostic s.
-Arguments DOcc {p idx s} _ _ _.
-Arguments DMissingMain {p idx s} _.
-Arguments DOutputCollision {p idx s} _ _.
-Arguments DRedeclaredGroup {p idx s} _ _.
+Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| DOcc : Index.NodeRef idx -> Family -> Cause bp -> Diagnostic bp
+| DMissingMain : BN.PI.PackageRef s -> Diagnostic bp
+| DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic bp
+| DRedeclaredGroup : BN.DeclarationGroupRef s -> list (Index.NodeRef idx) -> Diagnostic bp.
+Arguments DOcc {p idx s bd bp} _ _ _.
+Arguments DMissingMain {p idx s bd bp} _.
+Arguments DOutputCollision {p idx s bd bp} _ _.
+Arguments DRedeclaredGroup {p idx s bd bp} _ _.
 
 (* the exact boundaries: an occurrence-family unmet requirement, retaining its subject, family, and requirement *)
-Inductive Boundary {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| BOcc : Index.NodeRef idx -> Family -> Requirement idx -> Boundary s.
-Arguments BOcc {p idx s} _ _ _.
+Inductive Boundary {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| BOcc : Index.NodeRef idx -> Family -> Requirement bp -> Boundary bp.
+Arguments BOcc {p idx s bd bp} _ _ _.
 
 (* the issue cause a reader projects from a diagnostic row, exactly as retained, never re-derived from a weaker site *)
-Inductive IssueCause {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| OccCause : Cause idx -> IssueCause s
-| MissingMainCause : BN.PI.PackageRef s -> IssueCause s
-| OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause s
-| RedeclaredGroupCause : BN.DeclarationGroupRef s -> IssueCause s.
-Arguments OccCause {p idx s} _.
-Arguments MissingMainCause {p idx s} _.
-Arguments OutputCollisionCause {p idx s} _ _.
-Arguments RedeclaredGroupCause {p idx s} _.
+Inductive IssueCause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| OccCause : Cause bp -> IssueCause bp
+| MissingMainCause : BN.PI.PackageRef s -> IssueCause bp
+| OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause bp
+| RedeclaredGroupCause : BN.DeclarationGroupRef s -> IssueCause bp.
+Arguments OccCause {p idx s bd bp} _.
+Arguments MissingMainCause {p idx s bd bp} _.
+Arguments OutputCollisionCause {p idx s bd bp} _ _.
+Arguments RedeclaredGroupCause {p idx s bd bp} _.
 
 Section IssueProjections.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
 
 (* the cause a row retains: a plain field read of the exact object stored at construction, not a reconstruction *)
-Definition diag_cause (d : Diagnostic s) : IssueCause s :=
+Definition diag_cause (d : Diagnostic bp) : IssueCause bp :=
   match d with
   | DOcc _ _ c => OccCause c
   | DMissingMain pr => MissingMainCause pr
   | DOutputCollision pr rr => OutputCollisionCause pr rr
   | DRedeclaredGroup g _ => RedeclaredGroupCause g
   end.
-Definition diag_family (d : Diagnostic s) : option Family := match d with DOcc _ f _ => Some f | _ => None end.
+Definition diag_family (d : Diagnostic bp) : option Family := match d with DOcc _ f _ => Some f | _ => None end.
 (* the exact related nodes a row retains: a complex mismatch's two sides, or a group's members and use contexts *)
-Definition diag_related (d : Diagnostic s) : list (Index.NodeRef idx) :=
+Definition diag_related (d : Diagnostic bp) : list (Index.NodeRef idx) :=
   match d with
   | DOcc _ _ (ComplexMismatch a b) => [a; b]
   | DRedeclaredGroup g ctxs => map BN.est_node (BN.dg_members g) ++ ctxs
   | _ => []
   end.
-Definition diag_root (d : Diagnostic s) : IssueRoot s :=
+Definition diag_root (d : Diagnostic bp) : IssueRoot bp :=
   match d with
   | DOcc r _ _ => RootNode r
   | DMissingMain pr => RootPackage pr
   | DOutputCollision pr _ => RootPackage pr
   | DRedeclaredGroup g _ => RootGroup g
   end.
-Definition bound_req (b : Boundary s) : Requirement idx := match b with BOcc _ _ q => q end.
-Definition bound_family (b : Boundary s) : Family := match b with BOcc _ f _ => f end.
-Definition bound_root (b : Boundary s) : IssueRoot s := match b with BOcc r _ _ => RootNode r end.
+Definition bound_req (b : Boundary bp) : Requirement bp := match b with BOcc _ _ q => q end.
+Definition bound_family (b : Boundary bp) : Family := match b with BOcc _ f _ => f end.
+Definition bound_root (b : Boundary bp) : IssueRoot bp := match b with BOcc r _ _ => RootNode r end.
 
 End IssueProjections.
 
@@ -720,7 +782,7 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the semantic family of an occurrence fact: a declaration spec or short-decl statement, else its plain family *)
-Definition occ_family (o : OccFact idx) : Family :=
+Definition occ_family (o : OccFact bp) : Family :=
   match o with
   | OFApp _ _ => FamApplication
   | OFType _ _ => FamTypeUse
@@ -729,7 +791,7 @@ Definition occ_family (o : OccFact idx) : Family :=
   end.
 
 (* one occurrence fact yields one diagnostic exactly when its family outcome is invalid, retaining that exact cause *)
-Definition occ_diag_rows (o : OccFact idx) : list (Diagnostic s) :=
+Definition occ_diag_rows (o : OccFact bp) : list (Diagnostic bp) :=
   let fam := occ_family o in
   match o with
   | OFValue r (VInvalid c) => [DOcc r fam c]
@@ -739,7 +801,7 @@ Definition occ_diag_rows (o : OccFact idx) : list (Diagnostic s) :=
   | _ => []
   end.
 (* one occurrence fact yields one boundary exactly when its family outcome is unmet; invalid and unmet coexist (§6) *)
-Definition occ_bound_rows (o : OccFact idx) : list (Boundary s) :=
+Definition occ_bound_rows (o : OccFact bp) : list (Boundary bp) :=
   let fam := occ_family o in
   match o with
   | OFValue r (VUnmet q) => [BOcc r fam q]
@@ -750,10 +812,10 @@ Definition occ_bound_rows (o : OccFact idx) : list (Boundary s) :=
   end.
 
 (* the sole selected package's default-output collision, retaining the exact colliding root entry *)
-Definition collision_rows : list (Diagnostic s) :=
+Definition collision_rows : list (Diagnostic bp) :=
   match preflight pf with FreshOk => [] | FreshCollision pr rr => [DOutputCollision pr rr] end.
 (* a package with no fixed main is a missing-executable-entry diagnostic; multiple mains are a group redeclaration *)
-Definition main_rows : list (Diagnostic s) :=
+Definition main_rows : list (Diagnostic bp) :=
   flat_map (fun pr => match BN.package_main bp pr with BN.MainMissing => [DMissingMain pr] | _ => [] end) (BN.PI.packages s).
 
 (* two group refs are the same group iff they share the exact scope and spelling that key the declaration group *)
@@ -771,17 +833,17 @@ Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.NodeR
                                       | None => false end
                    | _ => false end) name_uses.
 (* one redeclared-group diagnostic per exact phase-owned group, keyed at its first member, with use contexts *)
-Definition group_rows : list (Diagnostic s) :=
+Definition group_rows : list (Diagnostic bp) :=
   map (fun g => DRedeclaredGroup g (group_use_contexts g)) (BN.redeclared_groups bp).
 
-Definition occ_diags : list (Diagnostic s) := flat_map occ_diag_rows (fact_list fp).
+Definition occ_diags : list (Diagnostic bp) := flat_map occ_diag_rows (fact_list fp).
 
 (* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-list order *)
-Definition diagnostics : list (Diagnostic s) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
-Definition boundaries : list (Boundary s) := flat_map occ_bound_rows (fact_list fp).
+Definition diagnostics : list (Diagnostic bp) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Definition boundaries : list (Boundary bp) := flat_map occ_bound_rows (fact_list fp).
 
 (* one fact yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across facts (§6) *)
-Lemma occ_row_exclusive (o : OccFact idx) : occ_diag_rows o <> [] -> occ_bound_rows o = [].
+Lemma occ_row_exclusive (o : OccFact bp) : occ_diag_rows o <> [] -> occ_bound_rows o = [].
 Proof.
   destruct o as [r ov | r oa | r os | r ot];
     [ destruct ov | destruct oa | destruct os | destruct ot ];
@@ -789,7 +851,7 @@ Proof.
 Qed.
 
 (* a dependent non-result is neither a diagnostic nor a boundary: it defers to its prerequisite, adding no issue *)
-Lemma dependent_no_rows (r : Index.NodeRef idx) (d : Dependency idx) :
+Lemma dependent_no_rows (r : Index.NodeRef idx) (d : Dependency bp) :
   occ_diag_rows (OFValue r (VDependent d)) = [] /\ occ_bound_rows (OFValue r (VDependent d)) = []
   /\ occ_diag_rows (OFApp r (ADependent d)) = [] /\ occ_bound_rows (OFApp r (ADependent d)) = []
   /\ occ_diag_rows (OFStmt r (SDependent d)) = [] /\ occ_bound_rows (OFStmt r (SDependent d)) = []
@@ -802,32 +864,33 @@ Arguments diagnostics {p idx s bd bp} fp pf.
 Arguments boundaries {p idx s bd bp} fp.
 
 Section IssueLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
 
 (* the root algebra is total: every diagnostic roots at an exact node, package, or group, never a self-fallback *)
-Lemma root_algebra_total (d : Diagnostic s) :
+Lemma root_algebra_total (d : Diagnostic bp) :
   (exists r, diag_root d = RootNode r) \/ (exists pr, diag_root d = RootPackage pr) \/ (exists g, diag_root d = RootGroup g).
 Proof. destruct d; cbn; eauto 6. Qed.
 
 End IssueLaws.
 
 (* §6 the complete disposition algebra + applicability before judgment *)
-Inductive Disposition {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| DSucceeded : Disposition s
-| DAbsent : Disposition s
-| DInvalid : IssueCause s -> list (IssueCause s) -> Disposition s
-| DUnsupported : Requirement idx -> list (Requirement idx) -> Disposition s
-| DInvalidAndUnsupported : IssueCause s -> list (IssueCause s) -> Requirement idx -> list (Requirement idx) -> Disposition s.
-Arguments DSucceeded {p idx s}. Arguments DAbsent {p idx s}.
-Arguments DInvalid {p idx s} _ _. Arguments DUnsupported {p idx s} _ _.
-Arguments DInvalidAndUnsupported {p idx s} _ _ _ _.
+Inductive Disposition {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| DSucceeded : Disposition bp
+| DAbsent : Disposition bp
+| DInvalid : IssueCause bp -> list (IssueCause bp) -> Disposition bp
+| DUnsupported : Requirement bp -> list (Requirement bp) -> Disposition bp
+| DInvalidAndUnsupported : IssueCause bp -> list (IssueCause bp) -> Requirement bp -> list (Requirement bp) -> Disposition bp.
+Arguments DSucceeded {p idx s bd bp}. Arguments DAbsent {p idx s bd bp}.
+Arguments DInvalid {p idx s bd bp} _ _. Arguments DUnsupported {p idx s bd bp} _ _.
+Arguments DInvalidAndUnsupported {p idx s bd bp} _ _ _ _.
 
 Section DispositionAlgebra.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
-Definition program_disposition : Disposition s :=
+Definition program_disposition : Disposition bp :=
   match diagnostics fp pf, boundaries fp with
   | nil, nil => DSucceeded
   | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
@@ -874,46 +937,47 @@ Proof. unfold fact_list, facts; cbn [proj1_sig]. reflexivity. Qed.
 End Cost.
 
 (* the canonical issue lists and 5-way summary as projections of the one retained result, for downstream readers *)
-Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_surface r)) :=
+Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_binds r)) :=
   diagnostics (res_facts r) (res_pkg r).
-Definition result_boundaries {p} (r : Result p) : list (Boundary (res_surface r)) :=
+Definition result_boundaries {p} (r : Result p) : list (Boundary (res_binds r)) :=
   boundaries (res_facts r).
-Definition result_disposition {p} (r : Result p) : Disposition (res_surface r) :=
+Definition result_disposition {p} (r : Result p) : Disposition (res_binds r) :=
   program_disposition (res_facts r) (res_pkg r).
 
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
 
-Inductive Issue {p} {idx : Index.ProgramIndex p} (s : BN.PI.PackageSurface idx) : Type :=
-| IDiag  : Diagnostic s -> Issue s
-| IBound : Boundary s -> Issue s.
-Arguments IDiag {p idx s} _.
-Arguments IBound {p idx s} _.
+Inductive Issue {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type :=
+| IDiag  : Diagnostic bp -> Issue bp
+| IBound : Boundary bp -> Issue bp.
+Arguments IDiag {p idx s bd bp} _.
+Arguments IBound {p idx s bd bp} _.
 
 (* the one canonical issue sequence: every diagnostic then every boundary, each kept in its own source order *)
-Definition result_issues {p} (r : Result p) : list (Issue (res_surface r)) :=
+Definition result_issues {p} (r : Result p) : list (Issue (res_binds r)) :=
   map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
 
 Section IssueIdentity.
 Context {p : Syntax.Program}.
 
 (* an issue's class, root, family, subject, and cause-or-requirement, projected from whichever row it is *)
-Definition issue_class {r : Result p} (i : Issue (res_surface r)) : IssueClass :=
+Definition issue_class {r : Result p} (i : Issue (res_binds r)) : IssueClass :=
   match i with IDiag _ => ClassDiagnostic | IBound _ => ClassBoundary end.
-Definition issue_root {r : Result p} (i : Issue (res_surface r)) : IssueRoot (res_surface r) :=
+Definition issue_root {r : Result p} (i : Issue (res_binds r)) : IssueRoot (res_binds r) :=
   match i with IDiag d => diag_root d | IBound b => bound_root b end.
-Definition issue_family {r : Result p} (i : Issue (res_surface r)) : option Family :=
+Definition issue_family {r : Result p} (i : Issue (res_binds r)) : option Family :=
   match i with IDiag d => diag_family d | IBound b => Some (bound_family b) end.
-Definition issue_cause_or_req {r : Result p} (i : Issue (res_surface r))
-  : IssueCause (res_surface r) + Requirement (res_index r) :=
+Definition issue_cause_or_req {r : Result p} (i : Issue (res_binds r))
+  : IssueCause (res_binds r) + Requirement (res_binds r) :=
   match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req b) end.
-Definition issue_related {r : Result p} (i : Issue (res_surface r)) : list (Index.NodeRef (res_index r)) :=
+Definition issue_related {r : Result p} (i : Issue (res_binds r)) : list (Index.NodeRef (res_index r)) :=
   match i with IDiag d => diag_related d | IBound _ => [] end.
 
 (* an issue identity: an exact ordinal into result_issues, retaining the exact row it indexes there *)
 Record IssueRef (r : Result p) : Type := mkIssueRef {
   ir_ord : nat ;
-  ir_row : Issue (res_surface r) ;
+  ir_row : Issue (res_binds r) ;
   ir_at  : nth_error (result_issues r) ir_ord = Some ir_row
 }.
 Arguments mkIssueRef {r} _ _ _.
@@ -922,16 +986,16 @@ Arguments ir_row {r} _.
 Arguments ir_at {r} _.
 
 (* Diagnostic and Boundary are projections of an issue ref: exactly the row it references, never a synthesis *)
-Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_surface r)) :=
+Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_binds r)) :=
   match ir_row ref with IDiag d => Some d | IBound _ => None end.
-Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_surface r)) :=
+Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_binds r)) :=
   match ir_row ref with IBound b => Some b | IDiag _ => None end.
 
 (* bidirectional membership: a ref is exactly a position that indexes an issue in the one sequence *)
 Lemma issue_ref_sound (r : Result p) (ref : IssueRef r) :
   nth_error (result_issues r) (ir_ord ref) = Some (ir_row ref).
 Proof. exact (ir_at ref). Qed.
-Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_surface r)) :
+Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_binds r)) :
   nth_error (result_issues r) n = Some i -> exists ref : IssueRef r, ir_ord ref = n /\ ir_row ref = i.
 Proof. intro H. exists (mkIssueRef n i H). split; reflexivity. Qed.
 
@@ -945,7 +1009,7 @@ Lemma result_issues_class_split (r : Result p) :
 Proof. reflexivity. Qed.
 
 (* the row any position names is exactly a canonical diagnostic or boundary, never a fabricated one *)
-Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_surface r)) :
+Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_binds r)) :
   nth_error (result_issues r) n = Some (IDiag d) -> In d (result_diagnostics r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -953,7 +1017,7 @@ Proof.
   - apply in_map_iff in Hd. destruct Hd as [d' [Heq Hin]]. injection Heq as Heq. subst d'. exact Hin.
   - apply in_map_iff in Hb. destruct Hb as [b' [Heq _]]. discriminate Heq.
 Qed.
-Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_surface r)) :
+Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_binds r)) :
   nth_error (result_issues r) n = Some (IBound b) -> In b (result_boundaries r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -976,14 +1040,14 @@ Proof.
 Qed.
 
 (* stable order: the k-th diagnostic sits at ordinal k; the j-th boundary at ordinal (#diagnostics + j) *)
-Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_surface r)) :
+Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_binds r)) :
   nth_error (result_diagnostics r) n = Some d -> nth_error (result_issues r) n = Some (IDiag d).
 Proof.
   intro H. unfold result_issues.
   rewrite nth_error_app1 by (rewrite <- nth_error_Some; rewrite (map_nth_error _ _ _ H); discriminate).
   exact (map_nth_error _ _ _ H).
 Qed.
-Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_surface r)) :
+Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_binds r)) :
   nth_error (result_boundaries r) n = Some b ->
   nth_error (result_issues r) ((Datatypes.length (result_diagnostics r) + n)%nat) = Some (IBound b).
 Proof.

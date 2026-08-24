@@ -837,11 +837,14 @@ Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_progr
 Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : BN.MainStatus s pr := BN.MainMultiple e1 e2 rest.
 Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  (g : BN.DeclarationGroupRef s) (ctxs : list (Index.NodeRef (Index.index_program p))) : AN.Diagnostic s := AN.DRedeclaredGroup g ctxs.
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d)
+  (g : BN.DeclarationGroupRef s) (ctxs : list (Index.NodeRef (Index.index_program p))) : AN.Diagnostic bp := AN.DRedeclaredGroup g ctxs.
 Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  (pr : PI.PackageRef s) : AN.Diagnostic s := AN.DMissingMain pr.
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d)
+  (pr : PI.PackageRef s) : AN.Diagnostic bp := AN.DMissingMain pr.
 Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  (g : BN.DeclarationGroupRef s) : AN.diag_cause (AN.DRedeclaredGroup g nil) = AN.RedeclaredGroupCause g := eq_refl.
+  {d : BN.PhaseData s} (bp : BN.BindingPhase s d)
+  (g : BN.DeclarationGroupRef s) : AN.diag_cause (AN.DRedeclaredGroup (bp:=bp) g nil) = AN.RedeclaredGroupCause g := eq_refl.
 Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData s} (bp : BN.BindingPhase s d) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 Definition main_as_object (p : Syntax.Program) (mo : Index.Refs.MainOccurrenceRef (Index.index_program p))

@@ -5184,6 +5184,33 @@ Definition redeclared_groups {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
     | _ => []
     end) (all_establishment_refs bp).
 
+(* the canonical group at (sc, n) has at least two members whenever its exact ref list starts with two *)
+Lemma group_two_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (sc : ScopeId s) (n : Names.OrdinaryIdentifier)
+  (er0 er1 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
+  group_refs bp sc n = er0 :: er1 :: rest -> 2 <= length (bg_members (binding_group bp sc n)).
+Proof.
+  intro Hg. assert (Hm : bg_members (binding_group bp sc n) = group_refs bp sc n) by reflexivity.
+  rewrite Hm, Hg. cbn [length]. lia.
+Qed.
+
+(* the exact canonical enumeration: one RedeclRoot per redeclared group, keyed at its first member *)
+Definition redeclaration_roots {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) : list { n : Names.OrdinaryIdentifier & RedeclRoot bp n } :=
+  flat_map (fun er =>
+    match group_refs bp (est_scope (es_est er)) (est_name (es_est er))
+      as g return group_refs bp (est_scope (es_est er)) (est_name (es_est er)) = g
+                  -> list { n : Names.OrdinaryIdentifier & RedeclRoot bp n } with
+    | er0 :: er1 :: rest => fun Hg =>
+        if est_eqb (es_est er0) (es_est er)
+        then [ existT _ (est_name (es_est er))
+                 (existT _ (est_scope (es_est er))
+                    (mk_redeclaration (binding_group bp (est_scope (es_est er)) (est_name (es_est er)))
+                       (group_two_of bp (est_scope (es_est er)) (est_name (es_est er)) er0 er1 rest Hg))) ]
+        else []
+    | _ => fun _ => []
+    end eq_refl) (all_establishment_refs bp).
+
 (* the visible group at a use: the block group when the use sits in a block, else the package group *)
 Definition group_at_use {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)

@@ -108,9 +108,6 @@ Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt
 
 (* the one retained Result these fixtures read: compile's stored object via analyze, not a peer rebuild *)
 Definition rres (p : Syntax.Program) : AN.Result p := AN.analyze p.
-(* the exact-payload catalogue: pin each cause / requirement of the one canonical Analysis issue table *)
-Definition dcauses (p : Syntax.Program) := map AN.diag_cause (AN.result_diagnostics (rres p)).
-Definition breqs (p : Syntax.Program) := map AN.bound_req (AN.result_boundaries (rres p)).
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
 (* the raw occurrence facts of a program, for the dependent-non-result checks *)
@@ -124,21 +121,22 @@ Definition retained_via_outside   {p} (o  : Compilable.Outside p)   : Compilable
 Definition no_program_for_rejected (p : Syntax.Program) (cp : Compilable.Program p) (Hrej : Compilable.rejects p) : False.
 Proof. unfold Compilable.rejects in Hrej. rewrite (Compilable.program_forces_compiled cp) in Hrej. discriminate. Qed.
 
+(* payload catalogue via the bp-free Report views: goal types carry no BindingPhase, so vm_compute stays cheap *)
 Definition r_iota_cause :
-  dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ].
+  RP.result_cause_views (rres (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ])) = [ RP.CvInvalidIdentity Names.PIota ].
 Proof. vm_compute; reflexivity. Qed.
 Definition r_type_value_cause :
-  dcauses (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ]) = [ AN.OccCause (AN.TypeAsValue (BN.PredeclaredObject Names.PInt8)) ].
+  RP.result_cause_views (rres (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ])) = [ RP.CvTypeAsValue (Some Names.PInt8) ].
 Proof. vm_compute; reflexivity. Qed.
-Definition r_cx_mix_cause : exists a b,
-  dcauses (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ]) = [ AN.OccCause (AN.ComplexMismatch a b) ].
-Proof. do 2 eexists; vm_compute; reflexivity. Qed.
+Definition r_cx_mix_cause :
+  RP.result_cause_views (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ])) = [ RP.CvComplexMismatch ].
+Proof. vm_compute; reflexivity. Qed.
 Definition o_cx_typed_payload :
-  dcauses (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = []
-  /\ exists r, breqs (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]) = [ AN.ReqComplexType r ].
-Proof. split; [ vm_compute; reflexivity | eexists; vm_compute; reflexivity ]. Qed.
+  RP.result_cause_views (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = []
+  /\ RP.result_req_views (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = [ RP.RvComplexType ].
+Proof. split; vm_compute; reflexivity. Qed.
 Definition c_neg_int8_core :
-  dcauses (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [] /\ breqs (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]) = [].
+  RP.result_cause_views (rres (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [] /\ RP.result_req_views (rres (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [].
 Proof. split; vm_compute; reflexivity. Qed.
 
 (* the fixed main is a zero-parameter function: a zero-argument main() call succeeds as a known zero-result call *)
@@ -151,7 +149,7 @@ Definition r_main_arity : Compilable.rejects (prog [ Syntax.ExprStmt (APP (OID "
 (* the invalidity is the exact application-family MainArity cause carrying the function head *)
 Definition r_main_arity_payload :
   (match dsites (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]) with
-   | [ AN.DOcc _ _ (AN.MainArity _ _ _) ] => true | _ => false end) = true.
+   | [ AN.DOcc _ _ (AN.MainArity _ _ _ _ _) ] => true | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
@@ -184,12 +182,12 @@ Proof. vm_compute; reflexivity. Qed.
 
 (* an unbound application head is a dependent non-result, never a successful application fact *)
 Definition r_unbound_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundName _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundName _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* an invalid-identity application head (iota) is a dependent non-result, never a success *)
 Definition r_invalidid_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
@@ -199,7 +197,7 @@ Definition r_child_stmt_dep :
 Proof. vm_compute; reflexivity. Qed.
 (* a redeclared application head is a dependent non-result, never a successful application fact *)
 Definition r_redecl_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredName _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredName _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a redeclared name used as a type is a dependent non-result, never a fabricated Bool type *)
@@ -251,8 +249,8 @@ Definition d4_two_iota_no_collapse :
 Proof. split; vm_compute; reflexivity. Qed.
 (* the two issues carry the SAME cause yet occupy distinct ordinals: shared cause never merges them *)
 Definition d4_two_iota_same_cause :
-  map AN.diag_cause (AN.result_diagnostics (rres p_two_iota))
-  = [ AN.OccCause (AN.InvalidIdentity Names.PIota) ; AN.OccCause (AN.InvalidIdentity Names.PIota) ].
+  RP.result_cause_views (rres p_two_iota)
+  = [ RP.CvInvalidIdentity Names.PIota ; RP.CvInvalidIdentity Names.PIota ].
 Proof. vm_compute; reflexivity. Qed.
 
 (* an invalidity and an independent unsupported boundary coexist: one diagnostic-class and one boundary-class issue *)
@@ -267,7 +265,7 @@ Proof. vm_compute; reflexivity. Qed.
 (* ordinal 0 names an exact retained row: the first diagnostic, projecting its exact retained cause *)
 Definition d4_ord0_is_first_diagnostic :
   match nth_error (AN.result_issues (rres p_two_iota)) 0%nat with
-  | Some (AN.IDiag d) => AN.diag_cause d = AN.OccCause (AN.InvalidIdentity Names.PIota)
+  | Some (AN.IDiag d) => RP.issuecause_view (AN.diag_cause d) = RP.CvInvalidIdentity Names.PIota
   | _ => False
   end.
 Proof. vm_compute; reflexivity. Qed.
