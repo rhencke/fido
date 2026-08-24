@@ -245,6 +245,35 @@ if root_forbidden Index.v; then fail "root-owner purity: root Index.v defines a 
 { cat Index.v; printf 'Record ChildAt (x:nat) := mkRogueCA { rogue_ca : nat }.\n'; } > /tmp/rp1 && root_forbidden /tmp/rp1 > /dev/null || fail "root-owner purity self-test: an inserted ChildAt was not caught"
 { cat Index.v; printf 'Definition number_rogue (n:nat) := n.\n'; } > /tmp/rp2 && root_forbidden /tmp/rp2 > /dev/null || fail "root-owner purity self-test: an inserted numbering builder was not caught"
 echo "fido: root-owner purity OK — root Index.v owns Core only; inserted ChildAt and inserted number_* builder both caught"
+# (b2b2) OWNER-CONTROL GATE (§6): physical symbol ownership beyond the import edges.  Lexical; it claims physical
+#        ownership only, never semantic correctness.  Every rule has an adversarial self-test proving it fires.
+op() { grep -qE "^(Definition|Fixpoint|Record|Inductive|Lemma|Theorem) $2\b" "$1"; }
+# §6.1 Build purity — Index/Build.v is executable data/computation only (no proof head).
+if grep -qE "^(Lemma|Theorem|Corollary) " Index/Build.v; then grep -nE "^(Lemma|Theorem|Corollary) " Index/Build.v; fail "owner-gate 6.1: Index/Build.v holds a proof (Build is executable-only)"; fi
+{ cat Index/Build.v; printf 'Lemma og_rogue_build : True. Proof. exact I. Qed.\n'; } > /tmp/og1; grep -qE "^Lemma " /tmp/og1 || fail "owner-gate 6.1 self-test: a proof inserted in Build was not caught"
+# §6.2 BuildLaws ownership — the raw-numbering law families live in BuildLaws, not the Core owner or Build.
+for lw in occurrences_distinct number_file_complete ext_ok child_lt number_expr_ext number_file_shape number_file_layout number_file_root; do
+  op Index/BuildLaws.v "$lw" || fail "owner-gate 6.2: raw law $lw missing from BuildLaws"
+  if op Index.v "$lw"; then fail "owner-gate 6.2: raw law $lw present in the Core owner Index.v"; fi
+  if op Index/Build.v "$lw"; then fail "owner-gate 6.2: raw law $lw present in Build"; fi
+done
+{ cat Index.v; printf 'Lemma ext_ok_rogue : True. Proof. exact I. Qed.\n'; } > /tmp/og2; op /tmp/og2 ext_ok_rogue || fail "owner-gate 6.2 self-test: a raw law inserted in the Core owner was not detectable"
+# §6.3/§6.4 FileRef authority lives in the Core owner (Index.v) only; Edges keeps ChildAt edges alone.
+for fr in mk_fileref all_files fileref_eqb fileref_positional; do
+  op Index.v "$fr" || fail "owner-gate 6.3: FileRef authority $fr missing from the Core owner Index.v"
+  for m in Index/Edges.v Index/Child.v Index/Refs.v Index/Build.v Index/BuildLaws.v Index/Model.v; do
+    if op "$m" "$fr"; then fail "owner-gate 6.4: FileRef authority $fr present in $m (Core-owned)"; fi
+  done
+done
+{ cat Index/Edges.v; printf 'Definition mk_fileref (x:nat) := x.\n'; } > /tmp/og3; op /tmp/og3 mk_fileref || fail "owner-gate 6.4 self-test: mk_fileref inserted in Edges was not caught"
+# §6.5 consumer isolation — no production consumer names Index.Build/Index.BuildLaws (through the aggregate or not).
+if grep -rnE "\bIndex\.Build\b|\bIndex\.BuildLaws\b" Compilable/*.v Compilable.v Render.v Emit.v Machine.v 2>/dev/null; then fail "owner-gate 6.5: a production consumer names Index.Build/Index.BuildLaws"; fi
+{ cat Compilable/Report.v; printf 'Definition og_c := Index.Build.number_file.\n'; } > /tmp/og4; grep -qE "\bIndex\.Build\b" /tmp/og4 || fail "owner-gate 6.5 self-test(Build): a Compilable ref to Index.Build was not caught"
+{ cat Compilable/Report.v; printf 'Definition og_c := Index.BuildLaws.number_file_positions.\n'; } > /tmp/og5; grep -qE "\bIndex\.BuildLaws\b" /tmp/og5 || fail "owner-gate 6.5 self-test(BuildLaws): a Compilable ref to Index.BuildLaws was not caught"
+# amendment — Index/Core.v is gone and no live Index.Core reference survives anywhere in the theory or consumers.
+[ ! -e Index/Core.v ] || fail "owner-gate: Index/Core.v must be absent (merged into the root Core owner Index.v)"
+if grep -rnE "\bIndex\.Core\b" *.v Index/*.v Compilable/*.v 2>/dev/null; then fail "owner-gate: a live Index.Core reference survives"; fi
+echo "fido: owner-control gate OK — Build executable-only; BuildLaws owns the raw laws; Core owns FileRef; Edges edge-only; no consumer names Build/BuildLaws; Index.Core absent (each self-tested)"
 # (b2c) ONE IMPLEMENTATION (§13.3): each canonical numbering/index/child owner has EXACTLY ONE definition in the
 #       whole theory — no second builder, compatibility body, alias, or copy survives the split.
 oi_count() { grep -rhE "^(Definition|Fixpoint|Record|Inductive) $1\b" *.v Index/*.v Compilable/*.v 2>/dev/null | wc -l; }

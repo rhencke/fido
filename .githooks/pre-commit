@@ -62,6 +62,14 @@ fido_py tools/source-diet.py --root /repo --snapshot --check
 fido_py tools/host-python-gate.py --root /repo --self-test
 fido_py tools/host-python-gate.py --root /repo
 
+# (2b) BUDGET-EDGE integrity (§7.5): the ONE budget owner is tools/check-budget.sh (no Make variable), and both
+#      `make check` and this staged hook route through it.  Removing any edge fails the proposed commit here.
+grep -qF 'BUDGET_SECONDS=120' "$ctx/tools/check-budget.sh" || { echo "fido: pre-commit — the one budget owner BUDGET_SECONDS=120 is missing from tools/check-budget.sh"; exit 1; }
+if grep -qF 'CHECK_BUDGET_SECONDS' "$ctx/Makefile"; then echo "fido: pre-commit — a CHECK_BUDGET_SECONDS Make variable would be an overridable second budget owner"; exit 1; fi
+grep -qF 'check-budget.sh $$dt' "$ctx/Makefile" || { echo "fido: pre-commit — make check no longer routes through the budget runner (check-budget.sh)"; exit 1; }
+grep -qF 'check-budget.sh" "$dt"' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer routes through the budget runner"; exit 1; }
+echo "fido: pre-commit — budget-edge integrity OK — one owner (tools/check-budget.sh); make check and this hook both route through it"
+
 # (3+4) full BUDGET-ENFORCED verification of the STAGED tree, through the SAME one budget owner/runner as
 #       `make check` (tools/check-budget.sh): the staged equivalent of run_core — the complete proof gate, the
 #       whole-tree Go e2e, and the staged==pristine byte-compare (pristine derived by Buildx from the STAGED
