@@ -137,6 +137,33 @@ Definition diag_group_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
   {bp : BN.BindingPhase s bd} (d : AN.Diagnostic bp) : option Names.OrdinaryIdentifier :=
   match d with @AN.DRedeclaredGroup _ _ _ _ _ n _ => Some n | _ => None end.
 
+(* the descriptive group bundle §20 owns: exact scope and spelling with the group's projected member nodes *)
+Record DeclarationGroupView {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type := mk_group_view {
+  dgv_scope   : BN.ScopeId s ;
+  dgv_name    : Names.OrdinaryIdentifier ;
+  dgv_members : list (Index.NodeRef idx)
+}.
+Arguments mk_group_view {p idx s bd bp} _ _ _.
+Arguments dgv_scope {p idx s bd bp} _. Arguments dgv_name {p idx s bd bp} _. Arguments dgv_members {p idx s bd bp} _.
+
+(* one-way projection of a redeclared-group diagnostic: exact scope/name off the root, members via diag_related *)
+Definition diag_group_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} (d : AN.Diagnostic bp) : option (DeclarationGroupView s bp) :=
+  match d with
+  | @AN.DRedeclaredGroup _ _ _ _ _ n root =>
+      Some (mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root)))
+  | _ => None
+  end.
+
+(* §24.4 Report group/member/node projection is exact: the view is the exact root's scope/name and member nodes *)
+Lemma diag_group_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n) :
+  diag_group_view (AN.DRedeclaredGroup root)
+  = Some (mk_group_view (projT1 root) n
+            (map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root))))).
+Proof. reflexivity. Qed.
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)

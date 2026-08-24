@@ -5273,22 +5273,27 @@ Proof.
   rewrite Hm, Hg. cbn [length]. lia.
 Qed.
 
-(* the exact canonical enumeration: one RedeclRoot per redeclared group, keyed at its first member *)
+(* the canonical root of a redeclared group, emitted only at its first member, keyed by the cheap vm-safe est_eqb *)
+Definition root_at_head {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (er : EstablishmentRef bp)
+  : option { n : Names.OrdinaryIdentifier & RedeclRoot bp n } :=
+  match group_refs bp (est_scope (es_est er)) (est_name (es_est er))
+    as g return group_refs bp (est_scope (es_est er)) (est_name (es_est er)) = g
+                -> option { n : Names.OrdinaryIdentifier & RedeclRoot bp n } with
+  | er0 :: er1 :: rest => fun Hg =>
+      if est_eqb (es_est er0) (es_est er)
+      then Some (existT _ (est_name (es_est er))
+                  (existT _ (est_scope (es_est er))
+                     (mk_redeclaration (binding_group bp (est_scope (es_est er)) (est_name (es_est er)))
+                        (group_two_of bp (est_scope (es_est er)) (est_name (es_est er)) er0 er1 rest Hg))))
+      else None
+  | _ => fun _ => None
+  end eq_refl.
+
+(* the exact canonical enumeration: one RedeclRoot per redeclared group, emitted at the group's exact first ref *)
 Definition redeclaration_roots {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) : list { n : Names.OrdinaryIdentifier & RedeclRoot bp n } :=
-  flat_map (fun er =>
-    match group_refs bp (est_scope (es_est er)) (est_name (es_est er))
-      as g return group_refs bp (est_scope (es_est er)) (est_name (es_est er)) = g
-                  -> list { n : Names.OrdinaryIdentifier & RedeclRoot bp n } with
-    | er0 :: er1 :: rest => fun Hg =>
-        if est_eqb (es_est er0) (es_est er)
-        then [ existT _ (est_name (es_est er))
-                 (existT _ (est_scope (es_est er))
-                    (mk_redeclaration (binding_group bp (est_scope (es_est er)) (est_name (es_est er)))
-                       (group_two_of bp (est_scope (es_est er)) (est_name (es_est er)) er0 er1 rest Hg))) ]
-        else []
-    | _ => fun _ => []
-    end eq_refl) (all_establishment_refs bp).
+  flat_map (fun er => match root_at_head bp er with Some r => [r] | None => [] end) (all_establishment_refs bp).
 
 (* the visible group at a use: the block group when the use sits in a block, else the package group *)
 Definition group_at_use {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

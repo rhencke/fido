@@ -946,6 +946,11 @@ Qed.
 Definition group_rows : list (Diagnostic bp) :=
   map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
 
+(* §24.4 diagnostic enumeration: the group diagnostics are exactly one DRedeclaredGroup per exact enumerated root *)
+Lemma group_rows_enumerated :
+  group_rows = map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
+Proof. reflexivity. Qed.
+
 Definition occ_diags : list (Diagnostic bp) := flat_map occ_diag_rows (fact_list fp).
 
 (* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-list order *)
@@ -991,6 +996,11 @@ Proof. exact (ruc_yields c). Qed.
 Lemma redeclared_use_root_unique {n0 : Names.OrdinaryIdentifier} {r1 r2 : BN.RedeclRoot bp n0}
   (c : RedeclaredUseRef r1) : BN.resolution_redecl_root (ruc_res c) = Some r2 -> r1 = r2.
 Proof. intro H. pose proof (ruc_yields c) as Hy. rewrite Hy in H. injection H as H. exact H. Qed.
+
+(* §24.4 diagnostic-root identity: a redeclared-group diagnostic roots at exactly the exact root it retains *)
+Lemma diag_group_root {n : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n) :
+  diag_root (DRedeclaredGroup root) = RootGroup root.
+Proof. reflexivity. Qed.
 
 End IssueLaws.
 
