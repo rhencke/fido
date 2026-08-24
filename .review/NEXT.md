@@ -78,17 +78,31 @@ Landed and green (`make check` warmed ~49–90 s / budget 120 s, generated Go by
   exact `ConstSpecJudgmentRef`;
 - Binding exposes the exact `redeclaration_roots` enumeration (one exact `RedeclRoot` per redeclared group).
 
-Remaining: the exact redeclaration diagnostic topology (`DRedeclaredGroup`/`RootGroup`/`RedeclaredGroupCause` over
-exact `RedeclRoot` + `RedeclaredUseRef` contexts, matched by exact `RedeclRoot` identity), moving the descriptive
-group/related-node views to Report, deleting the descriptive `group_view`/`redecl_view`/`redeclared_groups`/
-`same_groupref` route, the full law/fixture/hostile-control suite, and the freeze.
+Checkpoint 1 has now fully landed. On top of the retention phase:
+
+- the exact redeclaration diagnostic topology (`DRedeclaredGroup n (RedeclRoot bp n)`, `RootGroup`,
+  `RedeclaredGroupCause`) over the exact root, with `RedeclaredUseRef` use contexts carried on demand by
+  `group_use_contexts` (matched by exact `RedeclRoot` identity, `redeclroot_eq_dec` owned at Binding);
+- the §24.4 mandatory-closure laws: `group_use_contexts` soundness/completeness/uniqueness/exact-root/order, and
+  the `redeclaration_roots` enumeration complete / one-per-group / duplicate-free (NoDup resting on
+  `establishment_refs_once` via the vm-cheap `(site,ix)` key `es_key_eqb`, no node-uniqueness assembly needed);
+- Report owns the descriptive boundary: `DeclarationGroupView` (exact scope/name/member nodes) projected one-way
+  from the retained root, `diag_group_view_exact`; the descriptive `group_view`/`redecl_view`/`redeclared_groups`/
+  `DeclarationGroupRef` route (and the dead `same_group`/`est_eqb`/`group_two_of` helpers) are deleted, with §26.6
+  absence controls proving each fails to resolve;
+- §25 positive provenance fixtures (`e2e/WitnessProvenance.v`) exercise every resolution/const/short-derived
+  payload with its exact refs; the §26.2/26.4/26.5/26.7 Analysis-payload forgery controls prove the same payloads
+  are unconstructible from descriptions; the §24.3 const round-trip (`const_disposition_exact`) is proved.
 
 ## Status
 
 The frozen candidate above remains `IMPLEMENTED_NOT_ACCEPTED` (C5 stays historically accepted; C6 roots beyond the
 cutover stay frozen until acceptance; `make check` on the pinned toolchain is the supported run; only Rob accepts).
-The C4 Binding Provenance contract's exact-provenance retention phase is committed and green; the redeclaration
-diagnostic topology and its controls remain before the candidate is frozen for review.
+The C4 Binding Provenance contract's Checkpoint 1 is committed and green (`make check` warmed ~50 s / budget 120 s,
+generated Go byte-identical); Analysis now retains exact Binding provenance in facts, outcomes and diagnostics, and
+Report is the descriptive projection boundary. `FactPhase`/`PackageFacts` and full `Result` consolidation, same-Result
+dependency/issue identity, and C4 static-semantic completeness all remain open and mandatory. The candidate is being
+frozen for the sixteen-pass whole-candidate review; C4 is not claimed accepted.
 
 ## Stop conditions
 
