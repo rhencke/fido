@@ -749,6 +749,20 @@ typefail neg_deleted_lhs_classifier "the deleted per-use left-status classifier"
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.short_lhs_status bp.'
 typefail neg_forged_ref_row "a judgment ref forged without the exact retained table row" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : BN.ConstSpecJudgmentRef bp cs := BN.mk_cjr 0 (existT _ cs j) eq_refl eq_refl.'
+# — 18.1/23 the descriptive redeclaration route is DELETED: the exact redeclaration_roots enumeration is the sole
+#   authority, and every descriptive-group carrier/projection fails to RESOLVE —
+typefail neg_deleted_redeclared_groups "the deleted descriptive redeclared-groups route" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.redeclared_groups bp.'
+typefail neg_deleted_group_view "the deleted descriptive group-view projection" \
+  'Definition forged := @BN.group_view.'
+typefail neg_deleted_redecl_view "the deleted descriptive redecl-view projection" \
+  'Definition forged := @BN.redecl_view.'
+typefail neg_deleted_decl_group_ref "the deleted descriptive DeclarationGroupRef carrier" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.DeclarationGroupRef sf.'
+typefail neg_deleted_est_eqb "the deleted node-key establishment equality helper" \
+  'Definition forged := @BN.est_eqb.'
+typefail neg_deleted_same_group "the deleted descriptive same-group predicate" \
+  'Definition forged := @BN.same_group.'
 # — deleted peer authorities are ABSENT, not merely unused: naming any of them fails to resolve —
 typefail neg_peer_role_children "the deleted role_children peer accessor" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) := IX.role_children r IX.RTypeUse.'
@@ -1104,11 +1118,12 @@ Definition p5_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces
   = cons (cons 2 (cons 1 (cons 0 nil))) nil := ltac:(vm_compute; reflexivity).
 Definition p5_adds : trace_add_counts p5bp = cons (cons 1 (cons 1 (cons 0 nil))) nil
   := ltac:(vm_compute; reflexivity).
-(* exactly one redeclared group is retained over the whole phase, for the exact block scope + spelling x *)
-Definition p5_redecl_one : Datatypes.length (BN.redeclared_groups p5bp) = 1 := ltac:(vm_compute; reflexivity).
+(* exactly one exact redeclaration root is enumerated over the whole phase, for the block scope + spelling x *)
+Definition p5_redecl_one : Datatypes.length (BN.redeclaration_roots p5bp) = 1 := ltac:(vm_compute; reflexivity).
 Definition p5_redecl_group :
-  map (fun g => (Names.ordinary_spelling (BN.dg_name g), Datatypes.length (BN.dg_members g)))
-      (BN.redeclared_groups p5bp)
+  map (fun r => (Names.ordinary_spelling (projT1 r),
+                 Datatypes.length (BN.bg_members (BN.rr_group (projT2 (projT2 r))))))
+      (BN.redeclaration_roots p5bp)
   = cons ("x"%string, 2) nil := ltac:(vm_compute; reflexivity).
 Definition p5fr : Index.FileRef p5idx.
 Proof. destruct (Index.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
@@ -1343,7 +1358,7 @@ Definition l_group_at_state := @BN.group_at_state.
 Definition l_binding_group := @BN.binding_group.
 Definition l_all_establishment_refs := @BN.all_establishment_refs.
 Definition l_package_env_refs := @BN.package_env_refs.
-Definition l_redeclared_groups := @BN.redeclared_groups.
+Definition l_redeclaration_roots := @BN.redeclaration_roots.
 (* Z authority: transparent phase data is nameable/computable; the canonical certificate is reachable ONLY via
    [bindings]; and the certificate projects the canonicity of its exact data (the authority-to-data bridge) *)
 Definition zc_data (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p)) : BN.PhaseData sf := BN.phase_data sf.

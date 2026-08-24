@@ -279,15 +279,6 @@ Proof.
   - intro H; injection H as <-; apply (proj2 (noderef_eqb_spec _ _) eq_refl).
 Qed.
 
-(* two establishments belong to the same declaration group iff they share an exact scope and spelling *)
-Definition same_group {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
-  andb (scope_eqb (est_scope a) (est_scope b)) (Names.ordinary_equalb (est_name a) (est_name b)).
-
-(* two establishments are the same establishment iff they share their exact source occurrence *)
-Definition est_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (a b : Est s) : bool :=
-  noderef_eqb (est_node a) (est_node b).
-
-(* the ordered members of e's group over an establishment list: shared exact scope and spelling, list order *)
 Definition is_block_scoped {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (e : Est s) : bool :=
   match est_scope e with BlockScope _ => true | PackageScope _ => false end.
 
@@ -5261,50 +5252,6 @@ Proof.
   unfold vstart_before.
   rewrite (short_rows_adds_vstart _ st' rows (es_est er) Hest).
   apply Nat.ltb_ge. exact Hle.
-Qed.
-
-(* the observational declaration-group view: shared scope, spelling, and ordered member projection *)
-Record DeclarationGroupRef {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) : Type
-  := mk_decl_group {
-  dg_scope   : ScopeId s ;
-  dg_name    : Names.OrdinaryIdentifier ;
-  dg_members : list (Est s)
-}.
-Arguments mk_decl_group {p idx s} _ _ _.
-Arguments dg_scope {p idx s} _.
-Arguments dg_name {p idx s} _.
-Arguments dg_members {p idx s} _.
-
-Definition group_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
-  (rr : RedeclarationRef bp sc n) : DeclarationGroupRef s :=
-  mk_decl_group sc n (map es_est (bg_members (rr_group rr))).
-
-Definition redecl_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} {bp : BindingPhase s d} {n : Names.OrdinaryIdentifier} (root : RedeclRoot bp n)
-  : DeclarationGroupRef s := group_view (projT2 root).
-
-(* one exact redeclared-group projection per canonical group, keyed at its exact first member *)
-Definition redeclared_groups {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) : list (DeclarationGroupRef s) :=
-  flat_map (fun er =>
-    match group_refs bp (est_scope (es_est er)) (est_name (es_est er)) with
-    | er0 :: _ :: _ =>
-        if est_eqb (es_est er0) (es_est er)
-        then [ mk_decl_group (est_scope (es_est er)) (est_name (es_est er))
-                 (map es_est (group_refs bp (est_scope (es_est er)) (est_name (es_est er)))) ]
-        else []
-    | _ => []
-    end) (all_establishment_refs bp).
-
-(* the canonical group at (sc, n) has at least two members whenever its exact ref list starts with two *)
-Lemma group_two_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-  {d : PhaseData s} (bp : BindingPhase s d) (sc : ScopeId s) (n : Names.OrdinaryIdentifier)
-  (er0 er1 : EstablishmentRef bp) (rest : list (EstablishmentRef bp)) :
-  group_refs bp sc n = er0 :: er1 :: rest -> 2 <= length (bg_members (binding_group bp sc n)).
-Proof.
-  intro Hg. assert (Hm : bg_members (binding_group bp sc n) = group_refs bp sc n) by reflexivity.
-  rewrite Hm, Hg. cbn [length]. lia.
 Qed.
 
 (* the canonical redeclared-group root, emitted at the group's first ref by the vm-cheap (site,ix) key es_key_eqb *)
