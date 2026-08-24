@@ -8,94 +8,78 @@
 # it (a future PR CI runs the same staged/generated comparison server-side); do not remove that honest limit.
 set -e
 
-
 command -v docker >/dev/null 2>&1 || { echo "fido: pre-commit needs docker for the pinned staged-index verification"; exit 1; }
 FIDO_BUILDER=fido-builder
+
+# (0) COMPLETE-PATH TIMER (§5): it starts BEFORE any Docker/builder setup, index export, pinned-image build,
+#     policy gate, or verification stage — the whole required staged path is the measured subject, through the
+#     same one budget owner/runner as `make check` (tools/check-budget.sh).  FIDO_CHECK_TEST_SLEEP is a
+#     test-only pre-setup delay used by the budget adversaries; unset in production it does nothing.
+t0=$(date +%s)
+[ -z "$FIDO_CHECK_TEST_SLEEP" ] || sleep "$FIDO_CHECK_TEST_SLEEP"
 docker buildx inspect "$FIDO_BUILDER" >/dev/null 2>&1 || docker buildx create --name "$FIDO_BUILDER" --driver docker-container --bootstrap >/dev/null
 
 # (1) export the Git INDEX exactly once into a temp dir; this exported tree is the proposed commit and needs
 #     no .git to inspect source contents.  --ignore-skip-worktree-bits is MANDATORY: `--all` alone silently
-#     omits index entries carrying the skip-worktree bit, so without it a rogue staged file marked
-#     skip-worktree (its working-tree copy removed) would stay in the proposed commit yet escape every gate.
+#     omits index entries carrying the skip-worktree bit.  The export and builder are timed once; the warmed
+#     confirmation reuses this immutable snapshot and the acquired images/builders.
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 ctx="$tmp/context"
 git checkout-index --ignore-skip-worktree-bits --all --prefix="$ctx/"
 
-# (1a) build the pinned Python image FROM THE STAGED CONTEXT and run every Python gate inside it.  Project
-#      Python never runs on the host.  The tag is content-addressed over the STAGED Dockerfile and STAGED
-#      dependency lock, so a staged change to either produces a different tag and a fresh build — the
-#      proposed commit therefore contains the container authority that judges it, and a prebuilt
-#      working-tree image can never stand in for it.  The staged tools themselves are MOUNTED from "$ctx",
-#      so what runs is the staged copy of each gate, exactly as when they ran on the host.
-pytag="fido-python-tools:$(cat "$ctx/Dockerfile" "$ctx/tools/python-requirements.lock" | sha256sum | cut -c1-16)"
-docker image inspect "$pytag" >/dev/null 2>&1 || \
-  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target python-tools \
-    --load -t "$pytag" "$ctx" >/dev/null
-fido_py() {
-  docker run --rm -u "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
-    -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-    -w /repo -v "$ctx":/repo:ro "$pytag" python3 "$@"
-}
-
-# (2) run the STAGED COPIES of the lightweight repository-policy gates on the exported staged tree (never the
-#     working-tree copies), so a staged edit to a gate script is the version evaluated.
-sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx"
-sh "$ctx/tools/generated-output-gate.sh" "$ctx"
-# the index-authoritative Git-mode gate reads the PROPOSED COMMIT's index (`git ls-files -s`) from the repo,
-# so it catches a mode-120000/100755 generated entry that a `core.symlinks=false` export would hide from the
-# exported-object checks above.  Run the STAGED copy, but from the repo cwd so `git` reads the repo index.
-sh "$ctx/tools/generated-mode-gate.sh"
-# every root helper in the surviving policy gates must be LOAD-BEARING: delete its effect in a copy of the
-# staged tree and that gate's own named controls must fail.  A control that survives the deletion of the rule
-# it protects is decoration, not evidence.
-fido_py tools/gate-mutation-test.py --root /repo
-# the PERMANENT source-comment policy on the exported staged tree, in snapshot mode: every .v comment in
-# the proposed commit obeys the one-line current-fact law and every longer one has its exact ledger row
-# both ways.  Its controls run first, on the STAGED copy.
-fido_py tools/source-diet.py --root /repo --snapshot --self-test
-fido_py tools/source-diet.py --root /repo --snapshot --check
-# the PERMANENT no-host-Python boundary on the same exported staged tree: the proposed commit's own Make
-# recipes, hook commands, shell scripts, file modes, image pins, import closure and external-binary set must
-# all keep project Python off the host.  Prose is not a subject — only an executable entry point can run a
-# command.  A boundary enforced only on the working tree is not protection for the commit that would erase
-# it, so its controls run first, on the STAGED copy.
-fido_py tools/host-python-gate.py --root /repo --self-test
-fido_py tools/host-python-gate.py --root /repo
-
-# (2b) BUDGET-EDGE integrity (§7.5): the ONE budget owner is tools/check-budget.sh (no Make variable), and both
-#      `make check` and this staged hook route through it.  Removing any edge fails the proposed commit here.
-grep -qF 'BUDGET_SECONDS=120' "$ctx/tools/check-budget.sh" || { echo "fido: pre-commit — the one budget owner BUDGET_SECONDS=120 is missing from tools/check-budget.sh"; exit 1; }
-if grep -qF 'CHECK_BUDGET_SECONDS' "$ctx/Makefile"; then echo "fido: pre-commit — a CHECK_BUDGET_SECONDS Make variable would be an overridable second budget owner"; exit 1; fi
-grep -qF 'check-budget.sh $$dt' "$ctx/Makefile" || { echo "fido: pre-commit — make check no longer routes through the budget runner (check-budget.sh)"; exit 1; }
-grep -qF 'check-budget.sh" "$dt"' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer routes through the budget runner"; exit 1; }
-echo "fido: pre-commit — budget-edge integrity OK — one owner (tools/check-budget.sh); make check and this hook both route through it"
-
-# (3+4) full BUDGET-ENFORCED verification of the STAGED tree, through the SAME one budget owner/runner as
-#       `make check` (tools/check-budget.sh): the staged equivalent of run_core — the complete proof gate, the
-#       whole-tree Go e2e, and the staged==pristine byte-compare (pristine derived by Buildx from the STAGED
-#       inputs only; .dockerignore excludes the committed generated bytes; the Git-index mode 100644 gate ran
-#       above).  make check owns these stages for the working tree; the exported staged tree is not a git repo
-#       (no worktree-list), so this is the necessary staged equivalent, timed and budgeted by the same runner.
-staged_core() {
+# staged_all — every required staged gate and verification of the proposed commit, over the immutable $ctx.
+# It re-runs whole on the warmed confirmation (reusing $ctx and acquired images).  Every fallible step carries
+# `|| return $?` so a producer failure is returned as itself and never masked by the budget.
+staged_all() {
+  # (1a) build the pinned Python image FROM THE STAGED CONTEXT; run every Python gate inside it (host stays clean).
+  pytag="fido-python-tools:$(cat "$ctx/Dockerfile" "$ctx/tools/python-requirements.lock" | sha256sum | cut -c1-16)"
+  docker image inspect "$pytag" >/dev/null 2>&1 || \
+    docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target python-tools --load -t "$pytag" "$ctx" >/dev/null || return $?
+  fido_py() {
+    docker run --rm -u "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
+      -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+      -w /repo -v "$ctx":/repo:ro "$pytag" python3 "$@"
+  }
+  # (2) staged copies of the lightweight repository-policy gates on the exported staged tree.
+  sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx" || return $?
+  sh "$ctx/tools/generated-output-gate.sh" "$ctx" || return $?
+  sh "$ctx/tools/generated-mode-gate.sh" || return $?          # reads the repo index for exact Git mode
+  fido_py tools/gate-mutation-test.py --root /repo || return $?
+  fido_py tools/source-diet.py --root /repo --snapshot --self-test || return $?
+  fido_py tools/source-diet.py --root /repo --snapshot --check || return $?
+  fido_py tools/host-python-gate.py --root /repo --self-test || return $?
+  fido_py tools/host-python-gate.py --root /repo || return $?
+  # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and
+  #      this hook route through it; the make check recipe times the complete path (no heavy prereq before t0).
+  grep -qF 'BUDGET_SECONDS=120' "$ctx/tools/check-budget.sh" || { echo "fido: pre-commit — the one budget owner BUDGET_SECONDS=120 is missing from tools/check-budget.sh"; return 1; }
+  if grep -qF 'CHECK_BUDGET_SECONDS' "$ctx/Makefile"; then echo "fido: pre-commit — a CHECK_BUDGET_SECONDS Make variable would be an overridable second budget owner"; return 1; fi
+  grep -qF 'check-budget.sh $$dt' "$ctx/Makefile" || { echo "fido: pre-commit — make check no longer routes through the budget runner"; return 1; }
+  grep -qE '^check:[[:space:]]*$' "$ctx/Makefile" || { echo "fido: pre-commit — make check must carry no heavy prerequisite before its t0 timer (complete-path timing)"; return 1; }
+  grep -qF 'check-budget.sh" "$dt"' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer routes through the budget runner"; return 1; }
+  grep -qE 't0=\$\(date \+%s\)' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer starts its complete-path timer"; return 1; }
+  echo "fido: pre-commit — budget-edge integrity OK — one owner; make check + this hook both route through it; both time the complete path"
+  sh "$ctx/tools/check-budget.sh" --self-test || return $?
+  # (3) the complete staged verification: proof gate + whole-tree Go e2e.
   ( cd "$ctx"
     docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target prover .
-    docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target go-e2e . ) &&
+    docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target go-e2e . ) || return $?
+  # (4) materialize the PRISTINE generated-module from the STAGED inputs and byte-compare it to the staged bytes.
   docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target generated-artifact \
-    --output "type=local,dest=$tmp/pristine" "$ctx" &&
-  sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine"
+    --output "type=local,dest=$tmp/pristine" "$ctx" || return $?
+  sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine" || return $?
 }
-sh "$ctx/tools/check-budget.sh" --self-test
+
 bud=$(sh "$ctx/tools/check-budget.sh" --budget)
-echo "fido: pre-commit — verifying the STAGED tree (budget-enforced ${bud}s: proof gate + whole-tree go build + staged==pristine bytes)..."
-t0=$(date +%s); rc=0; staged_core || rc=$?; dt=$(( $(date +%s) - t0 ))
+echo "fido: pre-commit — verifying the STAGED tree (budget-enforced ${bud}s, complete path: setup + policy gates + proof + go build + staged==pristine bytes)..."
+rc=0; staged_all || rc=$?; dt=$(( $(date +%s) - t0 ))
 [ "$rc" -eq 0 ] || exit "$rc"
-echo "fido: pre-commit — staged verification ${dt}s (budget ${bud}s)"
+echo "fido: pre-commit — complete staged path ${dt}s (budget ${bud}s)"
 if ! sh "$ctx/tools/check-budget.sh" "$dt"; then
-  echo "fido: pre-commit — first pass ${dt}s over budget; ONE warmed confirmation follows (cold/setup allowance)"
-  t1=$(date +%s); rc=0; staged_core || rc=$?; dt2=$(( $(date +%s) - t1 ))
+  echo "fido: pre-commit — first pass ${dt}s over budget; ONE warmed confirmation follows (reuses the exported snapshot and acquired images)"
+  t1=$(date +%s); rc=0; staged_all || rc=$?; dt2=$(( $(date +%s) - t1 ))
   [ "$rc" -eq 0 ] || exit "$rc"
   echo "fido: pre-commit — warmed confirmation ${dt2}s (budget ${bud}s)"
   sh "$ctx/tools/check-budget.sh" "$dt2"
 fi
 
-echo "fido: pre-commit OK — the budget-enforced staged verification (staged gates + proof gate + whole-tree go build + staged==pristine generated bytes) ran against the exported Git index (bypass with --no-verify — a documented prototype-stage escape)."
+echo "fido: pre-commit OK — the complete budget-enforced staged verification (setup + staged gates + proof gate + whole-tree go build + staged==pristine generated bytes) ran against the exported Git index (bypass with --no-verify — a documented prototype-stage escape)."

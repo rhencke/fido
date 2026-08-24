@@ -74,10 +74,16 @@ pytools: builder
 # a first pass over budget earns ONE warmed confirmation (the cold/setup allowance) and only a confirmed
 # warmed overage fails with the STOP_FOR_ROB guidance.  A producer failure in run_core is returned as itself,
 # checked before the budget.  There is no separate full-DAG target: `make check-core` is a guidance stub.
-check: pytools hostpython diet mutants ledger builder
-	@sh tools/check-budget.sh --self-test || exit $$?; \
+check:
+	@t0=$$(date +%s); \
 	  bud=$$(sh tools/check-budget.sh --budget); \
-	  run_core() { \
+	  run_all() { \
+	    sh tools/check-budget.sh --self-test || return $$?; \
+	    [ -z "$$FIDO_CHECK_TEST_SLEEP" ] || sleep "$$FIDO_CHECK_TEST_SLEEP"; \
+	    s=$$(date +%s); $(MAKE) --no-print-directory builder pytools || return $$?; \
+	    echo "fido: [check stage] builder+tools = $$(( $$(date +%s) - s ))s"; \
+	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger || return $$?; \
+	    echo "fido: [check stage] policy gates = $$(( $$(date +%s) - s ))s"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory prove || return $$?; \
 	    echo "fido: [check stage] prove = $$(( $$(date +%s) - s ))s"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory e2e || return $$?; \
@@ -97,14 +103,14 @@ check: pytools hostpython diet mutants ledger builder
 	    if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (the coverage + layer-dependency gate + whole-theory audit + controls chain runs in prove) AND materialized the pristine generated-module (Fido Materialize) + validated it through go build ./... vs goldens (the internal sibling-temp sink exercised separately); the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
 	    return $$rc; \
 	  }; \
-	  t0=$$(date +%s); run_core; rc=$$?; dt=$$(( $$(date +%s) - t0 )); \
+	  run_all; rc=$$?; dt=$$(( $$(date +%s) - t0 )); \
 	  [ $$rc -eq 0 ] || exit $$rc; \
-	  echo "fido: make check — warmed total $${dt}s (budget $${bud}s)"; \
+	  echo "fido: make check — warmed total $${dt}s (budget $${bud}s, complete path)"; \
 	  if sh tools/check-budget.sh $$dt; then exit 0; fi; \
-	  echo "fido: make check — first pass $${dt}s over budget; ONE warmed confirmation follows (one-time cold/setup allowance)"; \
-	  t1=$$(date +%s); run_core; rc=$$?; dt2=$$(( $$(date +%s) - t1 )); \
+	  echo "fido: make check — first pass $${dt}s over budget; ONE warmed confirmation follows (reuses acquired images/builders)"; \
+	  t1=$$(date +%s); run_all; rc=$$?; dt2=$$(( $$(date +%s) - t1 )); \
 	  [ $$rc -eq 0 ] || exit $$rc; \
-	  echo "fido: make check — warmed confirmation $${dt2}s (budget $${bud}s)"; \
+	  echo "fido: make check — warmed confirmation $${dt2}s (budget $${bud}s, complete path)"; \
 	  sh tools/check-budget.sh $$dt2
 	$(call fido_mark,check)
 

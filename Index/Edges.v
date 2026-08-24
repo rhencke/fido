@@ -1,6 +1,6 @@
 (* Index.Edges — specialized ChildAt refinements: app/unary/exprstmt/spec/short/main/preceding edges + collections. *)
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
-From Fido Require Import FilePath Collections Index.Model Index Index.Child Index.Refs.
+From Fido Require Import Index.Model Index Index.Child Index.Refs.
 Import ListNotations.
 
 (* the specialized edges: each retains the one canonical ChildAt at its exact formula ordinal *)

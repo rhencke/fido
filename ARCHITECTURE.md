@@ -164,7 +164,7 @@ Index.BuildLaws: Collections Index.Build Index.Model Syntax
 Index: Collections FilePath Index.Build Index.BuildLaws Index.Model Syntax
 Index.Child: Index Index.Model
 Index.Refs: Index Index.Model Syntax
-Index.Edges: Collections FilePath Index Index.Child Index.Model Index.Refs
+Index.Edges: Index Index.Child Index.Model Index.Refs
 Compilable.TypeResolution: Complex Float Integer Names
 Compilable.PackageIdentity: FilePath Index Index.Model ModulePath Syntax
 Compilable.Bindings: Compilable.PackageIdentity Index Index.Child Index.Edges Index.Model Index.Refs Names Syntax
