@@ -336,6 +336,18 @@ Definition const_spec_disposition (cs : Index.Refs.SpecRef idx Index.Model.Const
       end
   end.
 
+(* §24.3 const provenance: a const spec's outcome retains the exact ConstSpecJudgmentRef, never a projected row *)
+Lemma const_disposition_exact (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF) :
+  const_spec_disposition cs = VUnmet (ReqConstDecl (BN.const_spec_judgment bp cs))
+  \/ const_spec_disposition cs = VInvalid (ConstMissingInit (BN.const_spec_judgment bp cs))
+  \/ (exists nn nv, const_spec_disposition cs = VInvalid (ResultCountMismatch nn nv)).
+Proof.
+  unfold const_spec_disposition. destruct (Index.Refs.sp_shape cs) as [b nn nv|b].
+  - destruct (Nat.eqb nn nv); [ left; reflexivity | right; right; exists nn, nv; reflexivity ].
+  - destruct (projT2 (BN.cjr_row (BN.const_spec_judgment bp cs)));
+      solve [ left; reflexivity | right; left; reflexivity ].
+Qed.
+
 Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome bp r :=
   match Index.node_view r as v return Index.node_view r = v -> ValueOutcome bp r with
   | Index.Model.VName n => fun _ =>

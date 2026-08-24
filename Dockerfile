@@ -1525,6 +1525,9 @@ if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; 
 rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
 if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
 echo "fido: static rejection controls OK — the invalid-program matrix lands in Rejected through compile; positive unary cases Compiled"
+# §25 positive provenance: every resolution/const/short-derived Analysis payload is reachable with its exact refs
+if ! rocq c -Q _build/default/. Fido e2e/WitnessProvenance.v > /tmp/emit-prov.log 2>&1; then cat /tmp/emit-prov.log; fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; fi
+echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/invalid-id/main-arity causes, source-bound requirement, redeclared + unbound dependencies, short-duplicate decision, exact use context, and Report group projection all reachable with exact refs"
 # the one-source differential cases were exported: one rendered tree per case (reject / compiled), each keyed
 # to the SAME Syntax.Program proven above; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope
 # is a Fido implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported here.
@@ -1540,15 +1543,15 @@ echo "fido: differential oracle export OK — 10 one-source trees written for th
 mkdir -p /tmp/e2eaudit
 # these recompiles are independent (each writes its own .vo), so run them concurrently — one load's wall time
 audit_pids=''
-for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do
+for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance; do
   grep -vE '^Fido (Materialize|OracleExport)' e2e/$m.v > /tmp/e2eaudit/$m.v
   rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1 &
   audit_pids="$audit_pids $!"
 done
 audit_fail=0
 for pid in $audit_pids; do wait "$pid" || audit_fail=1; done
-[ "$audit_fail" = 0 ] || { for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence; do echo "== $m =="; cat /tmp/e2eaudit/$m.log; done; fail "e2e audit: a witness did not recompile under the Fido path"; }
-printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
+[ "$audit_fail" = 0 ] || { for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance; do echo "== $m =="; cat /tmp/e2eaudit/$m.log; done; fail "e2e audit: a witness did not recompile under the Fido path"; }
+printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
 if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
