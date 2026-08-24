@@ -86,3 +86,44 @@ Definition requires_first_edge (v : NodeView) : bool :=
 Definition first_child_wf (children : list nat) (pos bnd : nat) : Prop :=
   match children with hp :: _ => hp = S pos /\ hp < bnd | [] => False end.
 
+
+
+(* the exact role each child ordinal carries, a total formula over the parent's shallow view alone *)
+Definition layout_role (v : NodeView) (k : nat) : Role :=
+  match v with
+  | VApplication => match k with 0 => RApplicationHead | S i => RApplicationArg i end
+  | VUnary _ => RUnaryOperand
+  | VStmt SSExpr => RExprStatementExpr
+  | VStmt (SSShort nn _) => if k <? nn then RShortLhs else RPlain
+  | VConstSpec (CSExplicit ht nn _) =>
+      if k <? nn then RSpecName ConstSpecF else if andb ht (k =? nn) then RTypeUse else RPlain
+  | VConstSpec (CSInherited _) => RSpecName ConstSpecF
+  | VVarSpec (VSTypeOnly nn) => if k <? nn then RSpecName VarSpecF else RTypeUse
+  | VVarSpec (VSValues ht nn _) =>
+      if k <? nn then RSpecName VarSpecF else if andb ht (k =? nn) then RTypeUse else RPlain
+  | VTypeSpec _ => match k with 0 => RSpecName TypeSpecF | _ => RTypeUse end
+  | _ => RPlain
+  end.
+(* the exact child count a shape fixes; views whose counts live below the shallow scalars stay unconstrained *)
+Definition layout_count (v : NodeView) : option nat :=
+  match v with
+  | VName _ | VLiteral _ | VTypeExpr _ | VBindingName _ => Some 0
+  | VUnary _ => Some 1
+  | VStmt SSExpr | VStmt SSDecl => Some 1
+  | VStmt (SSShort nn nv) => Some (nn + nv)
+  | VTop _ => Some 1
+  | VConstSpec (CSExplicit ht nn nv) => Some (nn + (if ht then 1 else 0) + nv)
+  | VConstSpec (CSInherited nn) => Some nn
+  | VVarSpec (VSTypeOnly nn) => Some (nn + 1)
+  | VVarSpec (VSValues ht nn nv) => Some (nn + (if ht then 1 else 0) + nv)
+  | VTypeSpec _ => Some 2
+  | _ => None
+  end.
+(* each spec flavor's exact child view class: a declaration's children are exactly its flavor's specs *)
+Definition spec_view_of_flavor (fl : SpecFlavor) (v : NodeView) : Prop :=
+  match fl, v with
+  | ConstSpecF, VConstSpec _ => True
+  | VarSpecF, VVarSpec _ => True
+  | TypeSpecF, VTypeSpec _ => True
+  | _, _ => False
+  end.

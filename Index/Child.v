@@ -1,6 +1,6 @@
 (* Index.Child — the one canonical direct-child identity ChildAt and its generic laws. *)
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
-From Fido Require Import Index.Model Index.Core.
+From Fido Require Import Index.Model Index.
 Import ListNotations.
 
 (* the one canonical positional direct-child identity: exact parent and source ordinal in the type *)

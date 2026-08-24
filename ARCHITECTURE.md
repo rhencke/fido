@@ -161,15 +161,14 @@ Syntax: Collections FilePath Float ModulePath Names Version
 Index.Model: Names Syntax
 Index.Build: Collections Index.Model Syntax
 Index.BuildLaws: Collections Index.Build Index.Model Syntax
-Index.Core: Collections FilePath Index.Build Index.BuildLaws Index.Model Syntax
-Index.Child: Index.Core Index.Model
-Index.Refs: Index.Core Index.Model Syntax
-Index.Edges: Collections FilePath Index.Child Index.Core Index.Model Index.Refs
-Index: Index.Build Index.BuildLaws Index.Child Index.Core Index.Edges Index.Model Index.Refs
+Index: Collections FilePath Index.Build Index.BuildLaws Index.Model Syntax
+Index.Child: Index Index.Model
+Index.Refs: Index Index.Model Syntax
+Index.Edges: Collections FilePath Index Index.Child Index.Model Index.Refs
 Compilable.TypeResolution: Complex Float Integer Names
-Compilable.PackageIdentity: FilePath Index ModulePath Syntax
-Compilable.Bindings: Compilable.PackageIdentity Index Names Syntax
-Compilable.Analysis: Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Integer Names Syntax
+Compilable.PackageIdentity: FilePath Index Index.Model ModulePath Syntax
+Compilable.Bindings: Compilable.PackageIdentity Index Index.Build Index.BuildLaws Index.Child Index.Edges Index.Model Index.Refs Names Syntax
+Compilable.Analysis: Compilable.Bindings Compilable.TypeResolution Complex FilePath Float Index Index.Edges Index.Model Index.Refs Integer Names Syntax
 Compilable.Report: Compilable.Analysis Compilable.Bindings Compilable.PackageIdentity Index Syntax
 Compilable: Compilable.Analysis Compilable.Report Syntax
 Machine:

@@ -1,6 +1,6 @@
 (* Index.Refs — exact refined source-occurrence refs: main/block/app/unary/exprstmt/short/spec + positional laws. *)
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
-From Fido Require Import Syntax Index.Model Index.Core.
+From Fido Require Import Syntax Index.Model Index.
 Import ListNotations.
 
 Record MainOccurrenceRef {p} (idx : ProgramIndex p) : Type := mkMainOccurrenceRef {

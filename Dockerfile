@@ -236,14 +236,15 @@ set +e; ico3=$(layer_gate dune /tmp/dep.raw /tmp/ic.arch3 "$depst"); ic3=$?; set
   || fail "layer integration control 3: a removed module policy row was not rejected as module-row coverage (rc=$ic3)"
 echo "fido: layer integration control 3 OK — a removed module policy row over the real graph rejected as module-row coverage"
 echo "fido: layer-dependency gate OK — for the pinned source view rocq dep and the single awk verdict pass both completed, every Dune module is covered exactly once, and the direct Fido edges rocq dep reports EQUAL the sole ARCHITECTURE policy; the gate greens only when every required operation completed (no .glob; use, notation, coercion, transitive visibility and semantic ownership stay review obligations)"
-# (b2b) INDEX AGGREGATE PURITY (§13.1, lexical — the claim is purely physical): the root Index.v is assembly
-#       only.  A permitted line is blank, a comment, or a `From Fido Require Export/Import` wiring line; any
-#       declaration head (Definition/Fixpoint/Inductive/Record/Lemma/Theorem/…) is a semantic body and fails.
-idx_decl() { grep -nE '^[[:space:]]*(Definition|Fixpoint|Inductive|CoInductive|Record|Variant|Lemma|Theorem|Corollary|Example|Fact|Remark|Class|Instance|Notation|Ltac)\b' "$1"; }
-if idx_decl Index.v; then fail "aggregate-purity: root Index.v declares a semantic object (must be pure re-export)"; fi
-{ cat Index.v; printf 'Definition rogue_agg : nat := 0.\n'; } > /tmp/agg1 && idx_decl /tmp/agg1 > /dev/null || fail "aggregate-purity self-test: an inserted Definition was not caught"
-{ cat Index.v; printf 'Lemma rogue_thm : True. Proof. exact I. Qed.\n'; } > /tmp/agg2 && idx_decl /tmp/agg2 > /dev/null || fail "aggregate-purity self-test: an inserted Lemma was not caught"
-echo "fido: aggregate-purity OK — root Index.v is pure re-export; an inserted Definition and an inserted Lemma are both caught"
+# (b2b) ROOT-OWNER PURITY (amendment): root Index.v IS the canonical Core owner (ProgramIndex/FileRef/NodeRef/
+#       node_*/enumeration + FileRef authority).  It must NOT define another owner's symbol: no numbering builder
+#       (Build), no Build-specific number_* proof (BuildLaws), no ChildAt (Child), no refined ref (Refs), no
+#       specialized edge (Edges).  The full owner-control gate below extends this to every module.
+root_forbidden() { grep -nE "^(Definition|Fixpoint|Record|Inductive|Lemma|Theorem) (number_[A-Za-z0-9_]*|ChildAt|MainOccurrenceRef|BlockRef|AppRef|UnaryRef|ExprStmtRef|ShortStmtRef|SpecRef|ApplicationHeadEdge|ApplicationArgEdge|UnaryOperandEdge|ExprStmtExprEdge|MainBodyEdge|SpecNameEdge|SpecValueEdge|ShortLhsEdge|ShortRhsEdge|SelfEdge|PrecedingSiblingEdge)\b" "$1"; }
+if root_forbidden Index.v; then fail "root-owner purity: root Index.v defines a non-Core owner's symbol"; fi
+{ cat Index.v; printf 'Record ChildAt (x:nat) := mkRogueCA { rogue_ca : nat }.\n'; } > /tmp/rp1 && root_forbidden /tmp/rp1 > /dev/null || fail "root-owner purity self-test: an inserted ChildAt was not caught"
+{ cat Index.v; printf 'Definition number_rogue (n:nat) := n.\n'; } > /tmp/rp2 && root_forbidden /tmp/rp2 > /dev/null || fail "root-owner purity self-test: an inserted numbering builder was not caught"
+echo "fido: root-owner purity OK — root Index.v owns Core only; inserted ChildAt and inserted number_* builder both caught"
 # (b2c) ONE IMPLEMENTATION (§13.3): each canonical numbering/index/child owner has EXACTLY ONE definition in the
 #       whole theory — no second builder, compatibility body, alias, or copy survives the split.
 oi_count() { grep -rhE "^(Definition|Fixpoint|Record|Inductive) $1\b" *.v Index/*.v Compilable/*.v 2>/dev/null | wc -l; }
@@ -259,11 +260,11 @@ echo "fido: one-implementation OK — one number_file/number_leaf/number_list/po
 #      to `analyze` and rebuilds nothing; `analyze` is the one index build in Analysis; Report/Bindings rebuild no
 #      index; Report is projection-only.
 [ "$(grep -coF 'AN.analyze' Compilable.v)" != "0" ] || fail "one-build control: Compilable does not delegate to AN.analyze"
-for raw in Index.Core.index_program PI.package_surface BN.bindings AN.package_facts AN.facts; do
+for raw in Index.index_program PI.package_surface BN.bindings AN.package_facts AN.facts; do
   n=$(grep -coF "$raw" Compilable.v || true)
   [ "$n" = "0" ] || fail "one-build control: Compilable names raw builder $raw $n time(s) (must delegate to AN.analyze)"
 done
-[ "$(grep -coF 'Index.Core.index_program' Compilable/Analysis.v)" = "1" ] || fail "one-build control: Analysis.analyze must build the index exactly once"
+[ "$(grep -coF 'Index.index_program' Compilable/Analysis.v)" = "1" ] || fail "one-build control: Analysis.analyze must build the index exactly once"
 for f in Compilable/Report.v Compilable/Bindings.v; do
   if grep -qE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; then grep -nE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; fail "one-build control: $f rebuilds the index/fold instead of reading the threaded one"; fi
 done
@@ -802,23 +803,23 @@ Definition bytes_evidence_independent (p : Syntax.Program) (cp : Compilable.Prog
 (* main multiplicity is a distinguished projection over the package-scope function-declaration establishments;
    the fixed main participates in the ONE declaration-group authority, so its redeclaration is a RedeclaredGroup
    diagnostic retaining the exact group, and it resolves as a SourceObject over its DOFunc origin — no carrier *)
-Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p)) (pr : PI.PackageRef s)
+Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e : BN.Est s) : BN.MainStatus s pr := BN.MainOne e.
-Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p)) (pr : PI.PackageRef s)
+Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : BN.MainStatus s pr := BN.MainMultiple e1 e2 rest.
-Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p))
-  (g : BN.DeclarationGroupRef s) (ctxs : list (Index.Core.NodeRef (Index.Core.index_program p))) : AN.Diagnostic s := AN.DRedeclaredGroup g ctxs.
-Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p))
+Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+  (g : BN.DeclarationGroupRef s) (ctxs : list (Index.NodeRef (Index.index_program p))) : AN.Diagnostic s := AN.DRedeclaredGroup g ctxs.
+Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   (pr : PI.PackageRef s) : AN.Diagnostic s := AN.DMissingMain pr.
-Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p))
+Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   (g : BN.DeclarationGroupRef s) : AN.diag_cause (AN.DRedeclaredGroup g nil) = AN.RedeclaredGroupCause g := eq_refl.
-Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.Core.index_program p))
+Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData s} (bp : BN.BindingPhase s d) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
-Definition main_as_object (p : Syntax.Program) (mo : Index.Refs.MainOccurrenceRef (Index.Core.index_program p))
-  : BN.ObjectRef (Index.Core.index_program p) := BN.SourceObject (BN.DOFunc (BN.FixedMainFunction mo)).
-Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.Core.index_program p))
-  : Index.Core.NodeRef (Index.Core.index_program p) := BN.function_node f.
-Definition main_zero_profile (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.Core.index_program p))
+Definition main_as_object (p : Syntax.Program) (mo : Index.Refs.MainOccurrenceRef (Index.index_program p))
+  : BN.ObjectRef (Index.index_program p) := BN.SourceObject (BN.DOFunc (BN.FixedMainFunction mo)).
+Definition main_function_node (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
+  : Index.NodeRef (Index.index_program p) := BN.function_node f.
+Definition main_zero_profile (p : Syntax.Program) (f : BN.FunctionDeclRef (Index.index_program p))
   : BN.fpr_params (BN.function_profile f) = nil /\ BN.fpr_results (BN.function_profile f) = nil := BN.fixed_main_profile f.
 (* the canonical child-edge surface, constructed for ONE CONCRETE source file: an application with two
    arguments, a const spec with two names + type + two values, an inherited spec with exact no-type,
@@ -846,25 +847,25 @@ Definition edge_prog : Syntax.Program :=
              (cons (Syntax.ExprStmt (Syntax.Unary Syntax.UnaryMinus (EILIT 1)))
               (cons (Syntax.ShortVarDecl (ne2 eb eb) (ne2 (EILIT 3) ecx)) nil))))
       nil)).
-Definition eidx := Index.Core.index_program edge_prog.
-Definition efr : Index.Core.FileRef eidx.
-Proof. destruct (Index.Edges.all_files eidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
-Definition enode (pos : nat) (H : pos < Index.Core.occ_count efr) : Index.Core.NodeRef eidx := Index.Core.noderef_at_pos efr pos H.
+Definition eidx := Index.index_program edge_prog.
+Definition efr : Index.FileRef eidx.
+Proof. destruct (Index.all_files eidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition enode (pos : nat) (H : pos < Index.occ_count efr) : Index.NodeRef eidx := Index.noderef_at_pos efr pos H.
 Definition e_app : Index.Refs.AppRef eidx := Index.Refs.mkAppRef (enode 20 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
 Definition e_head := Index.Edges.app_head e_app.
-Definition e_head_role : Index.Core.node_role (Index.Edges.ah_child e_head) = Index.Model.RApplicationHead := Index.Edges.ah_role e_head.
-Definition e_head_name : Index.Core.node_view (Index.Edges.ah_child e_head)
+Definition e_head_role : Index.node_role (Index.Edges.ah_child e_head) = Index.Model.RApplicationHead := Index.Edges.ah_role e_head.
+Definition e_head_name : Index.node_view (Index.Edges.ah_child e_head)
   = Index.Model.VName (Names.predeclared_ordinary Names.PComplex) := ltac:(vm_compute; reflexivity).
 Definition e_args := Index.Edges.application_args e_app.
 Definition e_arg_ords : map (@projT1 _ _) e_args = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
 Definition e_un : Index.Refs.UnaryRef eidx :=
   Index.Refs.mkUnaryRef (enode 14 ltac:(vm_compute; lia)) Syntax.UnaryMinus ltac:(vm_compute; reflexivity).
 Definition e_operand := Index.Edges.unary_operand e_un.
-Definition e_operand_role : Index.Core.node_role (Index.Edges.uo_child e_operand) = Index.Model.RUnaryOperand := Index.Edges.uo_role e_operand.
+Definition e_operand_role : Index.node_role (Index.Edges.uo_child e_operand) = Index.Model.RUnaryOperand := Index.Edges.uo_role e_operand.
 Definition e_es : Index.Refs.ExprStmtRef eidx :=
   Index.Refs.mkExprStmtRef (enode 13 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
 Definition e_expr := Index.Edges.exprstmt_expr e_es.
-Definition e_expr_is_unary : Index.Core.node_view (Index.Edges.ee_child e_expr) = Index.Model.VUnary Syntax.UnaryMinus
+Definition e_expr_is_unary : Index.node_view (Index.Edges.ee_child e_expr) = Index.Model.VUnary Syntax.UnaryMinus
   := ltac:(vm_compute; reflexivity).
 Definition e_main : Index.Refs.MainOccurrenceRef eidx :=
   Index.Refs.mkMainOccurrenceRef (enode 11 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
@@ -887,14 +888,14 @@ Definition e_type2_absent : match Index.Edges.spec_type_status e_cs2 with
                             | Index.Edges.SpecTypePresent _ _ => False | Index.Edges.SpecTypeAbsent _ => True end
   := ltac:(vm_compute; exact I).
 Definition e_preds2 := Index.Edges.preceding_edges (Index.Refs.sp_node e_cs2).
-Definition e_pred_sib : map (fun x => Index.Core.nr_pos (Index.Edges.ps_sibling (projT2 x))) e_preds2 = cons 3 nil
+Definition e_pred_sib : map (fun x => Index.nr_pos (Index.Edges.ps_sibling (projT2 x))) e_preds2 = cons 3 nil
   := ltac:(vm_compute; reflexivity).
 Definition e_short : Index.Refs.ShortStmtRef eidx :=
   Index.Refs.mkShortStmtRef (enode 16 ltac:(vm_compute; lia)) 2 2 ltac:(vm_compute; reflexivity).
 Definition e_lhs := Index.Edges.short_lhs_edges e_short.
 Definition e_lhs_ords : map (@projT1 _ _) e_lhs = cons 0 (cons 1 nil) := ltac:(vm_compute; reflexivity).
 Definition e_rhs := Index.Edges.short_rhs_edges e_short.
-Definition e_rhs_app : map (fun x => Index.Core.nr_pos (Index.Edges.sr_child (projT2 x))) e_rhs = cons 19 (cons 20 nil)
+Definition e_rhs_app : map (fun x => Index.nr_pos (Index.Edges.sr_child (projT2 x))) e_rhs = cons 19 (cons 20 nil)
   := ltac:(vm_compute; reflexivity).
 (* the phase-owned event/state/trace surface, exercised over concrete represented programs: the const
    judgment table (edge/chain programs), then the block event traces with exact classifications, additions,
@@ -926,7 +927,7 @@ Definition chain_prog : Syntax.Program :=
               (cons (Syntax.MakeConstSpec (ne1 eb) (Syntax.ExplicitConstInit None (ne1 (EILIT 21))))
                (cons (Syntax.MakeConstSpec (ne1 eb) Syntax.InheritedConstInit) nil)))))
        (cons (Syntax.Main (Syntax.MakeBlock nil)) nil)))).
-Definition cidx := Index.Core.index_program chain_prog.
+Definition cidx := Index.index_program chain_prog.
 Definition csurf := PI.package_surface cidx.
 Definition cbp := BN.bindings csurf.
 Definition ccj_tag {cs : Index.Refs.SpecRef cidx Index.Model.ConstSpecF} (j : BN.ConstJudgment cs) : nat :=
@@ -936,14 +937,14 @@ Definition c_tags : map (fun row => ccj_tag (projT2 row)) (BN.bp_consts cbp)
   := ltac:(vm_compute; reflexivity).
 Definition c_origins :
   map (fun row => match BN.const_origin (projT2 row) with
-                  | Some o => Some (Index.Core.nr_pos (Index.Refs.sp_node (projT1 o))) | None => None end)
+                  | Some o => Some (Index.nr_pos (Index.Refs.sp_node (projT1 o))) | None => None end)
       (BN.bp_consts cbp)
   = cons (Some 3) (cons (Some 3) (cons (Some 3) (cons None (cons None
       (cons (Some 18) (cons (Some 21) (cons (Some 21) nil)))))))
   := ltac:(vm_compute; reflexivity).
 Definition c_preds :
   map (fun row => match BN.const_pred (projT2 row) with
-                  | Some c0 => Some (Index.Core.nr_pos (Index.Refs.sp_node c0)) | None => None end)
+                  | Some c0 => Some (Index.nr_pos (Index.Refs.sp_node c0)) | None => None end)
       (BN.bp_consts cbp)
   = cons None (cons (Some 3) (cons (Some 6) (cons None (cons (Some 12)
       (cons None (cons None (cons (Some 21) nil)))))))
@@ -952,11 +953,11 @@ Definition c_preds :
 (* ==== block event/state trace fixtures (contract section 12) ==== *)
 (* position-free projections over the retained phase graph: an event's kind, a short event's left
    classifications, and the exact count of its retained additions *)
-Definition ev_kind {p} {idx : Index.Core.ProgramIndex p} {s : PI.PackageSurface idx} (ev : BN.BlockEv s) : nat :=
+Definition ev_kind {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} (ev : BN.BlockEv s) : nat :=
   match ev with BN.BEvExpr _ => 0 | BN.BEvDecl _ _ _ => 1 | BN.BEvShort _ _ => 2 end.
 (* short-left classification tags: verified type-level in the exact-judgment controls (contract section 11);
    the exact judgment carries proof-bearing state refs, so vm_compute tagging over it is not used here *)
-Definition trace_add_counts {p} {idx : Index.Core.ProgramIndex p} {s : PI.PackageSurface idx}
+Definition trace_add_counts {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : BN.PhaseData s} (bp : BN.BindingPhase s d) : list (list nat) :=
   map (fun tr => map (fun ev => Datatypes.length (BN.bev_adds (BN.trow_block tr) ev)) (BN.trow_evs tr))
       (BN.bp_traces bp).
@@ -972,13 +973,13 @@ Definition bn (n : Names.OrdinaryIdentifier) : Syntax.BindingName := Syntax.BNam
 Definition prln (e : Syntax.Expr) : Syntax.Stmt :=
   Syntax.ExprStmt (Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PPrintln)) (cons e nil)).
 (* the first VName occurrence of a given spelling in a file, found by content, not by position *)
-Definition name_use_in {p} {idx : Index.Core.ProgramIndex p} (fr : Index.Core.FileRef idx)
-  (nm : Names.OrdinaryIdentifier) : option (Index.Core.NodeRef idx) :=
-  find (fun r => match Index.Core.node_view r with
+Definition name_use_in {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx)
+  (nm : Names.OrdinaryIdentifier) : option (Index.NodeRef idx) :=
+  find (fun r => match Index.node_view r with
                  | Index.Model.VName n => Names.ordinary_equalb n nm | _ => false end)
-       (Index.Core.file_nodes fr).
-Definition file_of {p} {idx : Index.Core.ProgramIndex p} (H : Index.Edges.all_files idx <> nil) : Index.Core.FileRef idx :=
-  match Index.Edges.all_files idx as l return Index.Edges.all_files idx = l -> Index.Core.FileRef idx with
+       (Index.file_nodes fr).
+Definition file_of {p} {idx : Index.ProgramIndex p} (H : Index.all_files idx <> nil) : Index.FileRef idx :=
+  match Index.all_files idx as l return Index.all_files idx = l -> Index.FileRef idx with
   | cons fr _ => fun _ => fr
   | nil => fun E => False_rect _ (H E)
   end eq_refl.
@@ -994,15 +995,15 @@ Definition p1_prog : Syntax.Program :=
       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
        (cons (prln (EILIT 1))
         (cons (prln (Syntax.Name idx_)) nil))))) nil).
-Definition p1idx := Index.Core.index_program p1_prog.
+Definition p1idx := Index.index_program p1_prog.
 Definition p1bp := BN.bindings (PI.package_surface p1idx).
 (* one trace; three events: short(New), expr, expr *)
 Definition p1_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces p1bp)
   = cons (cons 2 (cons 0 (cons 0 nil))) nil := ltac:(vm_compute; reflexivity).
 Definition p1_adds : trace_add_counts p1bp = cons (cons 1 (cons 0 (cons 0 nil))) nil
   := ltac:(vm_compute; reflexivity).
-Definition p1fr : Index.Core.FileRef p1idx.
-Proof. destruct (Index.Edges.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p1fr : Index.FileRef p1idx.
+Proof. destruct (Index.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Lemma p1_traces_ne : BN.bp_traces p1bp <> nil.
 Proof. intro H. pose proof p1_kinds as Hk. rewrite H in Hk. discriminate Hk. Qed.
 Definition p1_br : Index.Refs.BlockRef p1idx :=
@@ -1032,7 +1033,7 @@ Definition p3_prog : Syntax.Program :=
     (cons (Syntax.Main (Syntax.MakeBlock
       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1)))
        (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
-Definition p3idx := Index.Core.index_program p3_prog.
+Definition p3idx := Index.index_program p3_prog.
 Definition p3bp := BN.bindings (PI.package_surface p3idx).
 Definition p3_adds : trace_add_counts p3bp = cons (cons 1 (cons 1 nil)) nil
   := ltac:(vm_compute; reflexivity).
@@ -1046,7 +1047,7 @@ Definition p4_prog : Syntax.Program :=
       (cons (Syntax.DeclarationStmt (Syntax.ConstDecl
                (cons (Syntax.MakeConstSpec (ne1 (bn idx_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1)))) nil)))
        (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2))) nil)))) nil).
-Definition p4idx := Index.Core.index_program p4_prog.
+Definition p4idx := Index.index_program p4_prog.
 Definition p4bp := BN.bindings (PI.package_surface p4idx).
 Definition p4_adds : trace_add_counts p4bp = cons (cons 1 (cons 0 nil)) nil
   := ltac:(vm_compute; reflexivity).
@@ -1063,7 +1064,7 @@ Definition p5_prog : Syntax.Program :=
        (cons (Syntax.DeclarationStmt (Syntax.VarDecl
                 (cons (Syntax.MakeVarSpec (ne1 (bn idx_)) (Syntax.VarValues None (ne1 (EILIT 2)))) nil)))
         (cons (prln (Syntax.Name idx_)) nil))))) nil).
-Definition p5idx := Index.Core.index_program p5_prog.
+Definition p5idx := Index.index_program p5_prog.
 Definition p5bp := BN.bindings (PI.package_surface p5idx).
 (* one trace: short(New), decl, expr; the decl event adds one member (the second x) *)
 Definition p5_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces p5bp)
@@ -1076,8 +1077,8 @@ Definition p5_redecl_group :
   map (fun g => (Names.ordinary_spelling (BN.dg_name g), Datatypes.length (BN.dg_members g)))
       (BN.redeclared_groups p5bp)
   = cons ("x"%string, 2) nil := ltac:(vm_compute; reflexivity).
-Definition p5fr : Index.Core.FileRef p5idx.
-Proof. destruct (Index.Edges.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p5fr : Index.FileRef p5idx.
+Proof. destruct (Index.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 (* the later use of x resolves to the exact phase-owned redeclaration root, binding no source object *)
 Definition p5_use_redeclared :
   match name_use_in p5fr idx_ with
@@ -1094,7 +1095,7 @@ Definition p6_prog : Syntax.Program :=
       (cons (Syntax.DeclarationStmt (Syntax.VarDecl
                (cons (Syntax.MakeVarSpec (ne1 (bn idx_)) (Syntax.VarValues None (ne1 (EILIT 1)))) nil)))
        (cons (Syntax.ShortVarDecl (ne2 (bn idx_) (bn idy_)) (ne2 (EILIT 2) (EILIT 3))) nil)))) nil).
-Definition p6idx := Index.Core.index_program p6_prog.
+Definition p6idx := Index.index_program p6_prog.
 Definition p6bp := BN.bindings (PI.package_surface p6idx).
 
 (* fixture 7 (RHS pre-state): q := q — the RHS q is unbound; the addition exists only in the successor *)
@@ -1104,10 +1105,10 @@ Definition p7_prog : Syntax.Program :=
     (FilePath.Make "main.go" eq_refl)
     (cons (Syntax.Main (Syntax.MakeBlock
       (cons (Syntax.ShortVarDecl (ne1 (bn idq_)) (ne1 (Syntax.Name idq_))) nil))) nil).
-Definition p7idx := Index.Core.index_program p7_prog.
+Definition p7idx := Index.index_program p7_prog.
 Definition p7bp := BN.bindings (PI.package_surface p7idx).
-Definition p7fr : Index.Core.FileRef p7idx.
-Proof. destruct (Index.Edges.all_files p7idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p7fr : Index.FileRef p7idx.
+Proof. destruct (Index.all_files p7idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p7_rhs_unbound :
   match name_use_in p7fr idq_ with
   | Some u => match BN.resolution_object_view (BN.resolve p7bp u idq_) with Some _ => false | None => match BN.resolution_redecl_root (BN.resolve p7bp u idq_) with Some _ => false | None => true end end
@@ -1124,7 +1125,7 @@ Definition p8_prog : Syntax.Program :=
       (cons (Syntax.ShortVarDecl
                (Collections.MakeNonEmpty (bn idx_) (cons Syntax.BBlank (cons (bn idx_) nil)))
                (Collections.MakeNonEmpty (EILIT 1) (cons (EILIT 2) (cons (EILIT 3) nil)))) nil))) nil).
-Definition p8idx := Index.Core.index_program p8_prog.
+Definition p8idx := Index.index_program p8_prog.
 Definition p8bp := BN.bindings (PI.package_surface p8idx).
 Definition p8_adds : trace_add_counts p8bp = cons (cons 1 nil) nil := ltac:(vm_compute; reflexivity).
 
@@ -1138,7 +1139,7 @@ Definition p10_prog : Syntax.Program :=
       (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 1))) nil)))
      (cons (Syntax.Main (Syntax.MakeBlock
        (cons (Syntax.ShortVarDecl (ne1 (bn idx_)) (ne1 (EILIT 2))) nil))) nil)).
-Definition p10idx := Index.Core.index_program p10_prog.
+Definition p10idx := Index.index_program p10_prog.
 Definition p10bp := BN.bindings (PI.package_surface p10idx).
 (* two distinct block traces, one per main body *)
 Definition p10_two_traces : Datatypes.length (BN.bp_traces p10bp) = 2 := ltac:(vm_compute; reflexivity).
@@ -1170,10 +1171,10 @@ Definition p11_prog : Syntax.Program :=
      (cons (Syntax.TopDeclaration (Syntax.ConstDecl
               (cons (Syntax.MakeConstSpec (ne1 (bn idx_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1)))) nil)))
       nil)).
-Definition p11idx := Index.Core.index_program p11_prog.
+Definition p11idx := Index.index_program p11_prog.
 Definition p11bp := BN.bindings (PI.package_surface p11idx).
-Definition p11fr : Index.Core.FileRef p11idx.
-Proof. destruct (Index.Edges.all_files p11idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p11fr : Index.FileRef p11idx.
+Proof. destruct (Index.all_files p11idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p11_forward_visible :
   match name_use_in p11fr idx_ with
   | Some u => match BN.resolution_object_view (BN.resolve p11bp u idx_) with
@@ -1193,10 +1194,10 @@ Definition p13_prog : Syntax.Program :=
              (cons (Syntax.MakeConstSpec (ne1 (bn ida_)) (Syntax.ExplicitConstInit None (ne1 (EILIT 1))))
               (cons (Syntax.MakeConstSpec (ne1 (bn idb_)) (Syntax.ExplicitConstInit None (ne1 (Syntax.Name ida_)))) nil))))
      (cons (Syntax.Main (Syntax.MakeBlock nil)) nil)).
-Definition p13idx := Index.Core.index_program p13_prog.
+Definition p13idx := Index.index_program p13_prog.
 Definition p13bp := BN.bindings (PI.package_surface p13idx).
-Definition p13fr : Index.Core.FileRef p13idx.
-Proof. destruct (Index.Edges.all_files p13idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Definition p13fr : Index.FileRef p13idx.
+Proof. destruct (Index.all_files p13idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
 Definition p13_intra_visible :
   match name_use_in p13fr ida_ with
   | Some u => match BN.resolution_object_view (BN.resolve p13bp u ida_) with
@@ -1287,7 +1288,7 @@ Definition l_short_duplicate_status := @BN.short_duplicate_status.
 Definition l_idx_model : Type := Index.Model.NodeView.
 Definition l_idx_build := @Index.Build.number_file.
 Definition l_idx_buildlaws := @Index.BuildLaws.number_file_positions.
-Definition l_idx_core := @Index.Core.index_program.
+Definition l_idx_core := @Index.index_program.
 Definition l_idx_child := @Index.Child.ChildAt.
 Definition l_idx_refs := @Index.Refs.ShortStmtRef.
 Definition l_idx_edges := @Index.Edges.ShortLhsEdge.
@@ -1312,9 +1313,9 @@ Definition l_package_env_refs := @BN.package_env_refs.
 Definition l_redeclared_groups := @BN.redeclared_groups.
 (* Z authority: transparent phase data is nameable/computable; the canonical certificate is reachable ONLY via
    [bindings]; and the certificate projects the canonicity of its exact data (the authority-to-data bridge) *)
-Definition zc_data (p : Syntax.Program) (sf : PI.PackageSurface (Index.Core.index_program p)) : BN.PhaseData sf := BN.phase_data sf.
-Definition zc_cert (p : Syntax.Program) (sf : PI.PackageSurface (Index.Core.index_program p)) : BN.BindingPhase sf (BN.phase_data sf) := BN.bindings sf.
-Definition zc_canonical (p : Syntax.Program) (sf : PI.PackageSurface (Index.Core.index_program p))
+Definition zc_data (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p)) : BN.PhaseData sf := BN.phase_data sf.
+Definition zc_cert (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p)) : BN.BindingPhase sf (BN.phase_data sf) := BN.bindings sf.
+Definition zc_canonical (p : Syntax.Program) (sf : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) : d = BN.phase_data sf := BN.bp_canonical bp.
 CLIENT
 if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1; then

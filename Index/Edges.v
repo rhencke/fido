@@ -1,6 +1,6 @@
 (* Index.Edges — specialized ChildAt refinements: app/unary/exprstmt/spec/short/main/preceding edges + collections. *)
 From Stdlib Require Import List Bool Arith PeanoNat Lia Eqdep_dec PArith FSets.FMapFacts.
-From Fido Require Import FilePath Collections Index.Model Index.Core Index.Child Index.Refs.
+From Fido Require Import FilePath Collections Index.Model Index Index.Child Index.Refs.
 Import ListNotations.
 
 (* the specialized edges: each retains the one canonical ChildAt at its exact formula ordinal *)
@@ -555,50 +555,3 @@ Definition preceding_edges {p} {idx : ProgramIndex p} (target : NodeRef idx)
    | None => fun _ => []
    end) eq_refl.
 
-Lemma fileref_positional {p} {idx : ProgramIndex p} (a b : FileRef idx) :
-  fr_path a = fr_path b -> a = b.
-Proof.
-  destruct a as [pa Ha], b as [pb Hb]; simpl; intro E; subst pb; f_equal; apply (UIP_dec Bool.bool_dec).
-Qed.
-
-Definition mk_fileref {p} (idx : ProgramIndex p) (path : FilePath.T) : option (FileRef idx) :=
-  (match file_has idx path as b return file_has idx path = b -> option (FileRef idx) with
-   | true => fun H => Some (mkFileRef path H)
-   | false => fun _ => None
-   end) eq_refl.
-
-Lemma mk_fileref_path {p} (idx : ProgramIndex p) (path : FilePath.T) (fr : FileRef idx) :
-  mk_fileref idx path = Some fr -> fr_path fr = path.
-Proof.
-  unfold mk_fileref. generalize (@eq_refl bool (file_has idx path)).
-  destruct (file_has idx path) at 2 3; intro H; [ intro E; injection E as <-; reflexivity | discriminate ].
-Qed.
-
-Lemma mk_fileref_none {p} (idx : ProgramIndex p) (path : FilePath.T) :
-  mk_fileref idx path = None -> file_has idx path = false.
-Proof.
-  unfold mk_fileref. generalize (@eq_refl bool (file_has idx path)).
-  destruct (file_has idx path) at 2 3; intro H; [ intro E; discriminate E | intros _; exact H ].
-Qed.
-
-Lemma mk_fileref_some {p} (idx : ProgramIndex p) (path : FilePath.T) :
-  file_has idx path = true -> exists fr, mk_fileref idx path = Some fr.
-Proof.
-  intro Hfh. destruct (mk_fileref idx path) as [fr|] eqn:E.
-  - exists fr; reflexivity.
-  - exfalso. pose proof (mk_fileref_none idx path E) as H. rewrite Hfh in H; discriminate.
-Qed.
-
-(* every member file, enumerated as a FileRef, in the finite map's key order *)
-Definition all_files {p} (idx : ProgramIndex p) : list (FileRef idx) :=
-  flat_map (fun kv => match mk_fileref idx (fst kv) with Some fr => [fr] | None => [] end)
-           (Collections.FileMap.elements (prog_map idx)).
-
-Definition fileref_eqb {p} {idx : ProgramIndex p} (a b : FileRef idx) : bool :=
-  FilePath.equalb (fr_path a) (fr_path b).
-Lemma fileref_eqb_spec {p} {idx : ProgramIndex p} (a b : FileRef idx) : fileref_eqb a b = true <-> a = b.
-Proof.
-  unfold fileref_eqb; split.
-  - intro H; apply FilePath.equalb_spec in H; apply fileref_positional; exact H.
-  - intro H; subst b; apply FilePath.equalb_spec; reflexivity.
-Qed.
