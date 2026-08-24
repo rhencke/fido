@@ -1,4 +1,4 @@
-# Active task: the C4 Index physical-closure and budget-authority candidate
+# Active task: the C4 Exact Occurrence-Owned Analysis Truth candidate
 
 Review: none
 
@@ -33,8 +33,14 @@ The C4 static-authority subsystem is rebuilt as an exact-evidence DAG rooted at 
   duplicate; the canonical issue sequence with coexistence (no diagnostic-suppresses-boundary rule), ordinary
   redeclaration, the selected-package fresh-output preflight, and the complete disposition algebra. Every issue
   has an exact ordinal identity — an `IssueRef` into the one `result_issues` sequence, not a payload at a position.
-- **Report** projects those exact issue identities and nothing else, with proved bidirectional-membership, exact
-  identity, class-partition, no-collapse, payload, and stable-order laws.
+  Every payload is owned intrinsically by type: `Cause`/`Requirement`/`Dependency bp site kind` are indexed by the
+  exact phase, occurrence site and fact kind; each outcome accepts only its own site+kind payload; an occurrence
+  diagnostic/boundary is exactly one `InvalidFactRef`/`UnmetFactRef` (the exact producing fact plus the exact
+  payload its outcome retains — no free site/family/payload), and the displayed family is a total projection of
+  site+kind. A payload for site A / kind X cannot inhabit anything for site B / kind Y.
+- **Report** projects those exact issue identities and the exact fact refs, and nothing else, with proved
+  bidirectional-membership, exact identity, class-partition, no-collapse, payload, and stable-order laws; its
+  bp-free `CauseView`/`ReqView` are one-way projections that cannot mint an exact Cause/Requirement/row.
 - **Compilable** is the sealed `C4_PUBLIC` surface: `compile` is the sole source of the abstract branch objects
   `Program`/`Rejection`/`Outside`, selected by the transparent `disposition` over the one retained `Analysis.Result`;
   each compilation retains that exact result with a provenance proof it is the canonical `analyze p`, so a rebuilt
@@ -78,31 +84,49 @@ Landed and green (`make check` warmed ~49–90 s / budget 120 s, generated Go by
   exact `ConstSpecJudgmentRef`;
 - Binding exposes the exact `redeclaration_roots` enumeration (one exact `RedeclRoot` per redeclared group).
 
-Checkpoint 1 has now fully landed. On top of the retention phase:
+Checkpoint 1 has fully landed as the base for the current candidate. On top of the retention phase it added the
+exact redeclaration diagnostic topology (`DRedeclaredGroup n (RedeclRoot bp n)`, `RootGroup`, `RedeclaredGroupCause`)
+with on-demand `group_use_contexts`, the §24.4 mandatory-closure laws, the `redeclaration_roots` enumeration
+(complete / one-per-group / duplicate-free), Report's `DeclarationGroupView` descriptive boundary, and the §25/§26
+provenance fixtures and forgery controls.
 
-- the exact redeclaration diagnostic topology (`DRedeclaredGroup n (RedeclRoot bp n)`, `RootGroup`,
-  `RedeclaredGroupCause`) over the exact root, with `RedeclaredUseRef` use contexts carried on demand by
-  `group_use_contexts` (matched by exact `RedeclRoot` identity, `redeclroot_eq_dec` owned at Binding);
-- the §24.4 mandatory-closure laws: `group_use_contexts` soundness/completeness/uniqueness/exact-root/order, and
-  the `redeclaration_roots` enumeration complete / one-per-group / duplicate-free (NoDup resting on
-  `establishment_refs_once` via the vm-cheap `(site,ix)` key `es_key_eqb`, no node-uniqueness assembly needed);
-- Report owns the descriptive boundary: `DeclarationGroupView` (exact scope/name/member nodes) projected one-way
-  from the retained root, `diag_group_view_exact`; the descriptive `group_view`/`redecl_view`/`redeclared_groups`/
-  `DeclarationGroupRef` route (and the dead `same_group`/`est_eqb`/`group_two_of` helpers) are deleted, with §26.6
-  absence controls proving each fails to resolve;
-- §25 positive provenance fixtures (`e2e/WitnessProvenance.v`) exercise every resolution/const/short-derived
-  payload with its exact refs; the §26.2/26.4/26.5/26.7 Analysis-payload forgery controls prove the same payloads
-  are unconstructible from descriptions; the §24.3 const round-trip (`const_disposition_exact`) is proved.
+## Current candidate: C4 Exact Occurrence-Owned Analysis Truth
+
+The exact Binding provenance Analysis retains is now owned **intrinsically by type**, closing the causal root that a
+payload's site, fact kind and evidence could be paired freely after the fact. Landed on the base above and green
+(`make check` warmed 97 s / budget 120 s, generated Go byte-identical):
+
+- `Cause`/`Requirement`/`Dependency bp site kind` are indexed by exact phase, occurrence site and fact kind. Every
+  resolution-derived constructor uses the indexed site's use environment; every structural constructor carries exact
+  subject evidence (a `node_view site = …` witness or an exact spec/statement site proof), so no nullary cause is
+  inhabitable at an arbitrary site. Shared name-resolution constructors are split per kind (`UnresolvedNameV/T`,
+  `DepRedeclaredNameV/A/T`, `DepUnboundNameV/A`, `ReqDeclMeaningV/S`); `DepChild` is the location-only generic child
+  defer, still exact for its own parent site and kind.
+- The four family outcomes accept only their own site+kind payloads (`VInvalid : Cause bp site ValueKind`, etc.);
+  success/absence cases are unchanged; `OccFact` retains one exact site, kind and outcome, and the displayed family
+  is a total projection of site+kind (the second classifier `occ_family` is deleted).
+- An occurrence diagnostic is one `InvalidFactRef` and a boundary one `UnmetFactRef` (the exact producing fact plus
+  the exact payload its outcome retains, `occ_cause`/`occ_req`/`occ_dep` partial projections; a `DependentFactRef`
+  names the dependent case that yields no row). `DOcc`/`BOcc` carry no free site/family/payload; `IssueCause` and
+  `issue_cause_or_req` carry the exact fact refs; `IssueRef` ordinal identity and class partition are preserved.
+- §18 laws: row-builder soundness/completeness, at-most-one row per class, dependent-fact-no-rows, same-site
+  multi-family, exact site/family/cause projections, and Report projection-only laws. Report remains projection-only.
+- §17 hostile controls (cross-site, cross-kind, exact-fact-case, free-pairing, projection-boundary) each reject the
+  forgery by typing; the §26 payload-forgery controls are retyped to the exact topology; a §19 repository-wide
+  absence gate proves the pre-split names and the second family classifier are gone. The concurrent §20 truth
+  correction lands: the Go-only catalogue message now states these are a pinned-Go behaviour catalogue, not
+  formal-vs-Go comparisons.
 
 ## Status
 
 The frozen candidate above remains `IMPLEMENTED_NOT_ACCEPTED` (C5 stays historically accepted; C6 roots beyond the
 cutover stay frozen until acceptance; `make check` on the pinned toolchain is the supported run; only Rob accepts).
-The C4 Binding Provenance contract's Checkpoint 1 is committed and green (`make check` warmed ~50 s / budget 120 s,
-generated Go byte-identical); Analysis now retains exact Binding provenance in facts, outcomes and diagnostics, and
-Report is the descriptive projection boundary. `FactPhase`/`PackageFacts` and full `Result` consolidation, same-Result
-dependency/issue identity, and C4 static-semantic completeness all remain open and mandatory. The candidate is being
-frozen for the sixteen-pass whole-candidate review; C4 is not claimed accepted.
+The C4 Exact Occurrence-Owned Analysis Truth candidate is committed and green (`make check` warmed 97 s / budget
+120 s, generated Go byte-identical); Analysis payloads are owned by exact site+kind and issues derive from exact
+fact refs, and Report is the projection boundary. `FactPhase`/`PackageFacts` and full `Result` consolidation,
+same-`Result` dependency/issue identity, `DepChild` exact child-fact refs, and C4 static-semantic completeness all
+remain open and mandatory. The candidate is being frozen for the sixteen-pass whole-candidate review; C4 is not
+claimed accepted.
 
 ## Stop conditions
 

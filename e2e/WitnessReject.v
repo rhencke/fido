@@ -149,7 +149,8 @@ Definition r_main_arity : Compilable.rejects (prog [ Syntax.ExprStmt (APP (OID "
 (* the invalidity is the exact application-family MainArity cause carrying the function head *)
 Definition r_main_arity_payload :
   (match dsites (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]) with
-   | [ AN.DOcc _ _ (AN.MainArity _ _ _ _ _) ] => true | _ => false end) = true.
+   | [ AN.DOcc ifr ] => match AN.ifr_cause ifr with AN.MainArity _ _ _ _ _ => true | _ => false end
+   | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
@@ -182,7 +183,7 @@ Proof. vm_compute; reflexivity. Qed.
 
 (* an unbound application head is a dependent non-result, never a successful application fact *)
 Definition r_unbound_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundName _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundNameA _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* an invalid-identity application head (iota) is a dependent non-result, never a success *)
@@ -197,7 +198,7 @@ Definition r_child_stmt_dep :
 Proof. vm_compute; reflexivity. Qed.
 (* a redeclared application head is a dependent non-result, never a successful application fact *)
 Definition r_redecl_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredName _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredNameA _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* a redeclared name used as a type is a dependent non-result, never a fabricated Bool type *)

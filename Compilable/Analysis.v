@@ -24,131 +24,161 @@ Qed.
 Lemma file_nodes_nodup {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx) : NoDup (Index.file_nodes fr).
 Proof. apply (nodup_map_inv Index.nr_pos). rewrite Index.file_nodes_pos. apply seq_NoDup. Qed.
 
-(* Analysis fact algebra is indexed by exact Binding phase bp: payloads retain exact refs, cross-phase is rejected *)
+(* the Analysis applicability/fact kind of an occurrence; the displayed Family is a total projection of site+kind *)
+Inductive FactKind : Type := ValueKind | ApplicationKind | StatementKind | TypeUseKind.
+
+(* a value-producing literal or unary node: the exact subject of a default-int overflow *)
+Definition is_value_default_node {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : bool :=
+  match Index.node_view site with Index.Model.VLiteral _ | Index.Model.VUnary _ => true | _ => false end.
+(* a var/type-spec declaration node: the exact subject of a deferred value-declaration meaning *)
+Definition is_value_decl_node {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : bool :=
+  match Index.node_view site with Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => true | _ => false end.
+Lemma is_value_default_lit {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (l : Syntax.Literal) :
+  Index.node_view site = Index.Model.VLiteral l -> is_value_default_node site = true.
+Proof. intro H. unfold is_value_default_node. rewrite H. reflexivity. Qed.
+Lemma is_value_default_unary {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (u : Syntax.UnaryOp) :
+  Index.node_view site = Index.Model.VUnary u -> is_value_default_node site = true.
+Proof. intro H. unfold is_value_default_node. rewrite H. reflexivity. Qed.
+Lemma is_value_decl_var {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (v : Index.Model.VarShape) :
+  Index.node_view site = Index.Model.VVarSpec v -> is_value_decl_node site = true.
+Proof. intro H. unfold is_value_decl_node. rewrite H. reflexivity. Qed.
+Lemma is_value_decl_type {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (t : Index.Model.TypeSpecShape) :
+  Index.node_view site = Index.Model.VTypeSpec t -> is_value_decl_node site = true.
+Proof. intro H. unfold is_value_decl_node. rewrite H. reflexivity. Qed.
+
+(* the exact cause of an invalidity, owned by phase bp, site and fact kind: site A / kind X never inhabits B / Y *)
 Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| InvalidIdentity : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
-    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Cause bp
-| UnresolvedName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n),
-    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp
-| TypeAsValue : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
-    BN.resolution_object_view r = Some o -> Cause bp
-| NotAType : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
-    BN.resolution_object_view r = Some o -> Cause bp
-| NotCallable : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
-    BN.resolution_object_view r = Some o -> Cause bp
-| NotCallableExpr : Index.NodeRef idx -> Cause bp
-| ConversionArity : Names.PredeclaredName -> nat -> Cause bp
-| ComplexArity : nat -> Cause bp
-| ComplexMismatch : Index.NodeRef idx -> Index.NodeRef idx -> Cause bp
-| UnaryMismatch : Index.NodeRef idx -> Cause bp
-| ConversionOverflow : TR.TypeForm -> Index.NodeRef idx -> Cause bp
-| ConversionNotRepresentable : TR.TypeForm -> Index.NodeRef idx -> Cause bp
-| DefaultOverflow : TR.Constant -> Cause bp
-| NoValueUsed : Cause bp
-| IllegalStatement : Cause bp
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
+| InvalidIdentity : forall (n : Names.OrdinaryIdentifier)
+    (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Cause bp site ValueKind
+| UnresolvedNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp site ValueKind
+| TypeAsValue : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp site ValueKind
+| ComplexMismatch : Index.node_view site = Index.Model.VApplication ->
+    Index.NodeRef idx -> Index.NodeRef idx -> Cause bp site ValueKind
+| ConversionOverflow : Index.node_view site = Index.Model.VApplication ->
+    TR.TypeForm -> Index.NodeRef idx -> Cause bp site ValueKind
+| ConversionNotRepresentable : Index.node_view site = Index.Model.VApplication ->
+    TR.TypeForm -> Index.NodeRef idx -> Cause bp site ValueKind
+| NoValueUsed : Index.node_view site = Index.Model.VApplication -> Cause bp site ValueKind
+| UnaryMismatch : Index.node_view site = Index.Model.VUnary Syntax.UnaryMinus -> Cause bp site ValueKind
+| DefaultOverflow : is_value_default_node site = true -> TR.Constant -> Cause bp site ValueKind
 | ConstMissingInit : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
-    BN.ConstSpecJudgmentRef bp cs -> Cause bp
-| ResultCountMismatch : nat -> nat -> Cause bp
+    BN.ConstSpecJudgmentRef bp cs -> site = Index.Refs.sp_node cs -> Cause bp site ValueKind
+| ResultCountMismatch : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
+    site = Index.Refs.sp_node cs -> nat -> nat -> Cause bp site ValueKind
+| NotCallable : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp site ApplicationKind
+| NotCallableExpr : Index.node_view site = Index.Model.VApplication -> Cause bp site ApplicationKind
+| ConversionArity : Index.node_view site = Index.Model.VApplication ->
+    Names.PredeclaredName -> nat -> Cause bp site ApplicationKind
+| ComplexArity : Index.node_view site = Index.Model.VApplication -> nat -> Cause bp site ApplicationKind
+| MainArity : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (f : BN.FunctionDeclRef idx),
+    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) ->
+    list (Index.NodeRef idx) -> nat -> Cause bp site ApplicationKind
+| UnresolvedNameT : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp site TypeUseKind
+| NotAType : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Cause bp site TypeUseKind
+| IllegalStatement : Index.node_view site = Index.Model.VStmt Index.Model.SSExpr -> Cause bp site StatementKind
 | ShortDuplicate : forall (st : Index.Refs.ShortStmtRef idx) (se : BN.ShortEventRef bp st)
     (dd : BN.ShortDuplicateDecision se) (n : Names.OrdinaryIdentifier),
-    dd = BN.short_duplicate_decision se -> BN.short_dup_decision_name dd = Some n -> Cause bp
-| MainArity : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (f : BN.FunctionDeclRef idx),
-    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) ->
-    list (Index.NodeRef idx) -> nat -> Cause bp.
-Arguments InvalidIdentity {p idx s bd bp u n} _ _ _.
-Arguments TypeAsValue {p idx s bd bp u n} _ _ _. Arguments NotAType {p idx s bd bp u n} _ _ _.
-Arguments NotCallable {p idx s bd bp u n} _ _ _. Arguments NotCallableExpr {p idx s bd bp} _.
-Arguments ConversionArity {p idx s bd bp} _ _. Arguments ComplexArity {p idx s bd bp} _.
-Arguments ComplexMismatch {p idx s bd bp} _ _. Arguments UnaryMismatch {p idx s bd bp} _.
-Arguments ConversionOverflow {p idx s bd bp} _ _. Arguments ConversionNotRepresentable {p idx s bd bp} _ _.
-Arguments DefaultOverflow {p idx s bd bp} _. Arguments NoValueUsed {p idx s bd bp}. Arguments IllegalStatement {p idx s bd bp}.
-Arguments ConstMissingInit {p idx s bd bp cs} _. Arguments ResultCountMismatch {p idx s bd bp} _ _.
-Arguments ShortDuplicate {p idx s bd bp st se} _ _ _ _.
-Arguments UnresolvedName {p idx s bd bp u n} _ _ _.
-Arguments MainArity {p idx s bd bp u n} _ _ _ _ _.
+    dd = BN.short_duplicate_decision se -> BN.short_dup_decision_name dd = Some n ->
+    site = Index.Refs.sh_node st -> Cause bp site StatementKind.
+Arguments InvalidIdentity {p idx s bd bp site n} _ _ _.
+Arguments UnresolvedNameV {p idx s bd bp site n} _ _ _.
+Arguments TypeAsValue {p idx s bd bp site n} _ _ _.
+Arguments ComplexMismatch {p idx s bd bp site} _ _ _. Arguments ConversionOverflow {p idx s bd bp site} _ _ _.
+Arguments ConversionNotRepresentable {p idx s bd bp site} _ _ _. Arguments NoValueUsed {p idx s bd bp site} _.
+Arguments UnaryMismatch {p idx s bd bp site} _. Arguments DefaultOverflow {p idx s bd bp site} _ _.
+Arguments ConstMissingInit {p idx s bd bp site cs} _ _. Arguments ResultCountMismatch {p idx s bd bp site} cs _ _ _.
+Arguments NotCallable {p idx s bd bp site n} _ _ _. Arguments NotCallableExpr {p idx s bd bp site} _.
+Arguments ConversionArity {p idx s bd bp site} _ _ _. Arguments ComplexArity {p idx s bd bp site} _ _.
+Arguments MainArity {p idx s bd bp site n} _ _ _ _ _.
+Arguments UnresolvedNameT {p idx s bd bp site n} _ _ _. Arguments NotAType {p idx s bd bp site n} _ _ _.
+Arguments IllegalStatement {p idx s bd bp site} _. Arguments ShortDuplicate {p idx s bd bp site st se} _ _ _ _ _.
 
 Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| ReqValueMeaning : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (org : BN.DeclOrigin idx),
-    BN.resolution_object_view r = Some (BN.SourceObject org) -> Requirement bp
-| ReqTypeMeaning : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx),
-    BN.resolution_object_view r = Some o -> Requirement bp
-| ReqComplexType : Index.NodeRef idx -> Requirement bp
-| ReqApplication : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
-    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> list (Index.NodeRef idx) -> Requirement bp
-| ReqMainUse : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (f : BN.FunctionDeclRef idx),
-    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) -> Requirement bp
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
+| ReqValueMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (org : BN.DeclOrigin idx),
+    BN.resolution_object_view r = Some (BN.SourceObject org) -> Requirement bp site ValueKind
+| ReqComplexType : Index.node_view site = Index.Model.VApplication -> Requirement bp site ValueKind
+| ReqMainUse : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (f : BN.FunctionDeclRef idx),
+    BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) -> Requirement bp site ValueKind
 | ReqConstDecl : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
-    BN.ConstSpecJudgmentRef bp cs -> Requirement bp
-| ReqDeclMeaning : Index.NodeRef idx -> Requirement bp.
-Arguments ReqDeclMeaning {p idx s bd bp} _.
-Arguments ReqValueMeaning {p idx s bd bp u n} _ _ _. Arguments ReqTypeMeaning {p idx s bd bp u n} _ _ _.
-Arguments ReqComplexType {p idx s bd bp} _. Arguments ReqApplication {p idx s bd bp u n} _ _ _ _.
-Arguments ReqMainUse {p idx s bd bp u n} _ _ _. Arguments ReqConstDecl {p idx s bd bp cs} _.
+    BN.ConstSpecJudgmentRef bp cs -> site = Index.Refs.sp_node cs -> Requirement bp site ValueKind
+| ReqDeclMeaningV : is_value_decl_node site = true -> Requirement bp site ValueKind
+| ReqApplication : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) ->
+    list (Index.NodeRef idx) -> Requirement bp site ApplicationKind
+| ReqTypeMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
+    BN.resolution_object_view r = Some o -> Requirement bp site TypeUseKind
+| ReqDeclMeaningS : forall (st : Index.Refs.ShortStmtRef idx), site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
+Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
+Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
+Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
+Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _. Arguments ReqDeclMeaningS {p idx s bd bp site} st _.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
 Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| DepRedeclaredName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (root : BN.RedeclRoot bp n),
-    BN.resolution_redecl_root r = Some root -> Dependency bp
-| DepUnboundName : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n),
-    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp
-| DepInvalidId : forall (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-    (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName),
-    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp
-| DepChild : Index.NodeRef idx -> Dependency bp.
-Arguments DepRedeclaredName {p idx s bd bp u n} _ _ _.
-Arguments DepUnboundName {p idx s bd bp u n} _ _ _.
-Arguments DepInvalidId {p idx s bd bp u n} _ _ _. Arguments DepChild {p idx s bd bp} _.
+  (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
+| DepRedeclaredNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
+    BN.resolution_redecl_root r = Some root -> Dependency bp site ValueKind
+| DepRedeclaredNameA : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
+    BN.resolution_redecl_root r = Some root -> Dependency bp site ApplicationKind
+| DepRedeclaredNameT : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
+    BN.resolution_redecl_root r = Some root -> Dependency bp site TypeUseKind
+| DepUnboundNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ValueKind
+| DepUnboundNameA : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ApplicationKind
+| DepInvalidId : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp site ApplicationKind
+| DepChild : forall (k : FactKind), Index.NodeRef idx -> Dependency bp site k.
+Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
+Arguments DepRedeclaredNameA {p idx s bd bp site n} _ _ _.
+Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
+Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
+Arguments DepUnboundNameA {p idx s bd bp site n} _ _ _.
+Arguments DepInvalidId {p idx s bd bp site n} _ _ _. Arguments DepChild {p idx s bd bp site} k _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
 Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
 | VOK : TR.ResolvedConstant -> ValueOutcome bp site
 | VNonconst : ValueOutcome bp site
-| VInvalid : Cause bp -> ValueOutcome bp site
-| VUnmet : Requirement bp -> ValueOutcome bp site
-| VDependent : Dependency bp -> ValueOutcome bp site.
+| VInvalid : Cause bp site ValueKind -> ValueOutcome bp site
+| VUnmet : Requirement bp site ValueKind -> ValueOutcome bp site
+| VDependent : Dependency bp site ValueKind -> ValueOutcome bp site.
 Arguments VOK {p idx s bd bp site} _. Arguments VNonconst {p idx s bd bp site}.
 Arguments VInvalid {p idx s bd bp site} _. Arguments VUnmet {p idx s bd bp site} _. Arguments VDependent {p idx s bd bp site} _.
 
 Inductive AppOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
 | AOK : AppOutcome bp site
-| AInvalid : Cause bp -> AppOutcome bp site
-| AUnmet : Requirement bp -> AppOutcome bp site
-| ADependent : Dependency bp -> AppOutcome bp site.
+| AInvalid : Cause bp site ApplicationKind -> AppOutcome bp site
+| AUnmet : Requirement bp site ApplicationKind -> AppOutcome bp site
+| ADependent : Dependency bp site ApplicationKind -> AppOutcome bp site.
 Arguments AOK {p idx s bd bp site}. Arguments AInvalid {p idx s bd bp site} _.
 Arguments AUnmet {p idx s bd bp site} _. Arguments ADependent {p idx s bd bp site} _.
 
 Inductive StmtOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
 | SOK : StmtOutcome bp site
-| SInvalid : Cause bp -> StmtOutcome bp site
-| SUnmet : Requirement bp -> StmtOutcome bp site
-| SDependent : Dependency bp -> StmtOutcome bp site.
+| SInvalid : Cause bp site StatementKind -> StmtOutcome bp site
+| SUnmet : Requirement bp site StatementKind -> StmtOutcome bp site
+| SDependent : Dependency bp site StatementKind -> StmtOutcome bp site.
 Arguments SOK {p idx s bd bp site}. Arguments SInvalid {p idx s bd bp site} _.
 Arguments SUnmet {p idx s bd bp site} _. Arguments SDependent {p idx s bd bp site} _.
 
 Inductive TypeUseOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : Type :=
 | TOK : TR.TypeForm -> TypeUseOutcome bp site
-| TInvalid : Cause bp -> TypeUseOutcome bp site
-| TUnmet : Requirement bp -> TypeUseOutcome bp site
-| TDependent : Dependency bp -> TypeUseOutcome bp site.
+| TInvalid : Cause bp site TypeUseKind -> TypeUseOutcome bp site
+| TUnmet : Requirement bp site TypeUseKind -> TypeUseOutcome bp site
+| TDependent : Dependency bp site TypeUseKind -> TypeUseOutcome bp site.
 Arguments TOK {p idx s bd bp site} _. Arguments TInvalid {p idx s bd bp site} _.
 Arguments TUnmet {p idx s bd bp site} _. Arguments TDependent {p idx s bd bp site} _.
 
@@ -328,19 +358,19 @@ Definition const_spec_disposition (cs : Index.Refs.SpecRef idx Index.Model.Const
   let cjr := BN.const_spec_judgment bp cs in
   match Index.Refs.sp_shape cs with
   | Index.Model.CSExplicit _ nn nv =>
-      if Nat.eqb nn nv then VUnmet (ReqConstDecl cjr) else VInvalid (ResultCountMismatch nn nv)
+      if Nat.eqb nn nv then VUnmet (ReqConstDecl cjr eq_refl) else VInvalid (ResultCountMismatch cs eq_refl nn nv)
   | Index.Model.CSInherited _ =>
       match projT2 (BN.cjr_row cjr) with
-      | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit cjr)
-      | _ => VUnmet (ReqConstDecl cjr)
+      | BN.CJFirstInherited _ _ _ => VInvalid (ConstMissingInit cjr eq_refl)
+      | _ => VUnmet (ReqConstDecl cjr eq_refl)
       end
   end.
 
 (* §24.3 const provenance: a const spec's outcome retains the exact ConstSpecJudgmentRef, never a projected row *)
 Lemma const_disposition_exact (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF) :
-  const_spec_disposition cs = VUnmet (ReqConstDecl (BN.const_spec_judgment bp cs))
-  \/ const_spec_disposition cs = VInvalid (ConstMissingInit (BN.const_spec_judgment bp cs))
-  \/ (exists nn nv, const_spec_disposition cs = VInvalid (ResultCountMismatch nn nv)).
+  const_spec_disposition cs = VUnmet (ReqConstDecl (BN.const_spec_judgment bp cs) eq_refl)
+  \/ const_spec_disposition cs = VInvalid (ConstMissingInit (BN.const_spec_judgment bp cs) eq_refl)
+  \/ (exists nn nv, const_spec_disposition cs = VInvalid (ResultCountMismatch cs eq_refl nn nv)).
 Proof.
   unfold const_spec_disposition. destruct (Index.Refs.sp_shape cs) as [b nn nv|b].
   - destruct (Nat.eqb nn nv); [ left; reflexivity | right; right; exists nn, nv; reflexivity ].
@@ -374,15 +404,16 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           end eq_refl
       | None => fun Hov =>
           match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
-          | Some root => fun Hrr => VDependent (DepRedeclaredName r0 root Hrr)
-          | None => fun Hrv => VInvalid (UnresolvedName r0 Hov Hrv)
+          | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
+          | None => fun Hrv => VInvalid (UnresolvedNameV r0 Hov Hrv)
           end eq_refl
       end eq_refl
-  | Index.Model.VLiteral _ => fun _ =>
+  | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
-                   | None => if fold_consumed r then VNonconst else VInvalid (DefaultOverflow (TR.ci_const ci))
+                   | None => if fold_consumed r then VNonconst
+                             else VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci))
                    end
       | None => VNonconst
       end
@@ -392,9 +423,10 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
           match mconst ctab r with
           | Some ci => match resolve_constant_info ci with
                        | Some rc => VOK rc
-                       | None => if fold_consumed r then VNonconst else VInvalid (DefaultOverflow (TR.ci_const ci))
+                       | None => if fold_consumed r then VNonconst
+                                 else VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci))
                        end
-          | None => VInvalid (UnaryMismatch r)
+          | None => VInvalid (UnaryMismatch Hv)
           end
       | None => VNonconst
       end
@@ -411,8 +443,8 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
                   match mconst ctab x with
                   | Some ci => match TR.convert_constant t ci with
                                | TR.Converted tc => VOK (TR.mk_rc t tc)
-                               | TR.Overflows _ => VInvalid (ConversionOverflow t x)
-                               | TR.NotForm _ => VInvalid (ConversionNotRepresentable t x)
+                               | TR.Overflows _ => VInvalid (ConversionOverflow Hv t x)
+                               | TR.NotForm _ => VInvalid (ConversionNotRepresentable Hv t x)
                                end
                   | None => VNonconst
                   end
@@ -423,28 +455,28 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
                       | CxOk => match mconst ctab r with
                                 | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
                                 | None => VNonconst end
-                      | CxDefer => VUnmet (ReqComplexType r)
-                      | CxError => VInvalid (ComplexMismatch re im)
+                      | CxDefer => VUnmet (ReqComplexType Hv)
+                      | CxError => VInvalid (ComplexMismatch Hv re im)
                       end
                   | _, _ => VNonconst
                   end
-              | PMPrintln, _ => if value_ctx r then VInvalid NoValueUsed else VNonconst
+              | PMPrintln, _ => if value_ctx r then VInvalid (NoValueUsed Hv) else VNonconst
               | _, _ => VNonconst
               end
               | BN.SourceObject _ => VNonconst
               end
           | None => fun Hov =>
               match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
-              | Some root => fun Hrr => VDependent (DepRedeclaredName r0 root Hrr)
-              | None => fun Hrv => VDependent (DepUnboundName r0 Hov Hrv)
+              | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
+              | None => fun Hrv => VDependent (DepUnboundNameV r0 Hov Hrv)
               end eq_refl
           end eq_refl
       | _ => VNonconst
       end
   (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
   | Index.Model.VConstSpec sh => fun Hv => const_spec_disposition (Index.Refs.mkSpecRef (fl := Index.Model.ConstSpecF) r sh Hv)
-  | Index.Model.VVarSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
-  | Index.Model.VTypeSpec _ => fun _ => VUnmet (ReqDeclMeaning r)
+  | Index.Model.VVarSpec v => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_var r v Hv))
+  | Index.Model.VTypeSpec t => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_type r t Hv))
   | _ => fun _ => VNonconst
   end eq_refl.
 
@@ -461,12 +493,12 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome bp r :=
               | BN.PredeclaredObject pn => fun Ho =>
               let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
               match pmeaning pn with
-              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))) end
+              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
                   match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)))))
+                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)))))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable r0 o Hov)
@@ -489,21 +521,22 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome bp r :=
               end eq_refl
           | None => fun Hov =>
               match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
-              | Some root => fun Hrr => ADependent (DepRedeclaredName r0 root Hrr)
-              | None => fun Hrv => ADependent (DepUnboundName r0 Hov Hrv)
+              | Some root => fun Hrr => ADependent (DepRedeclaredNameA r0 root Hrr)
+              | None => fun Hrv => ADependent (DepUnboundNameA r0 Hov Hrv)
               end eq_refl
           end eq_refl
-      | _ => AInvalid (NotCallableExpr hd)
+      | _ => AInvalid (NotCallableExpr Hv)
       end
-  | _ => fun _ => ADependent (DepChild r)
+  | _ => fun _ => ADependent (DepChild ApplicationKind r)
   end eq_refl.
 
 (* the dependency when a statement's expr already owns an invalidity, unmet requirement, or a dependent non-result *)
-Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) : option (Dependency bp) :=
+Definition expr_dependency (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (site e : Index.NodeRef idx)
+  : option (Dependency bp site StatementKind) :=
   match own_value ctab e with
-  | VInvalid _ | VUnmet _ | VDependent _ => Some (DepChild e)
+  | VInvalid _ | VUnmet _ | VDependent _ => Some (DepChild StatementKind e)
   | _ => match Index.node_view e with
-         | Index.Model.VApplication => match own_app e with AInvalid _ | AUnmet _ | ADependent _ => Some (DepChild e) | _ => None end
+         | Index.Model.VApplication => match own_app e with AInvalid _ | AUnmet _ | ADependent _ => Some (DepChild StatementKind e) | _ => None end
          | _ => None
          end
   end.
@@ -513,7 +546,7 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
   match Index.node_view r as v return Index.node_view r = v -> StmtOutcome bp r with
   | Index.Model.VStmt Index.Model.SSExpr => fun Hv =>
       let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
-      match expr_dependency ctab e with
+      match expr_dependency ctab r e with
       | Some d => SDependent d
       | None =>
           match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome bp r with
@@ -525,13 +558,13 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
                       match o with
                       | BN.PredeclaredObject Names.PPrintln => SOK
                       | BN.SourceObject _ => SOK
-                      | _ => SInvalid IllegalStatement
+                      | _ => SInvalid (IllegalStatement Hv)
                       end
-                  | None => SInvalid IllegalStatement
+                  | None => SInvalid (IllegalStatement Hv)
                   end
-              | _ => SInvalid IllegalStatement
+              | _ => SInvalid (IllegalStatement Hv)
               end
-          | _ => fun _ => SInvalid IllegalStatement
+          | _ => fun _ => SInvalid (IllegalStatement Hv)
           end eq_refl
       end
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
@@ -539,10 +572,10 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
       let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
       match BN.short_dup_decision_name (BN.short_duplicate_decision se)
         as nm return BN.short_dup_decision_name (BN.short_duplicate_decision se) = nm -> StmtOutcome bp r with
-      | Some n => fun Hn => SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn)
-      | None => fun _ => SUnmet (ReqDeclMeaning r)
+      | Some n => fun Hn => SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn eq_refl)
+      | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
       end eq_refl
-  | _ => fun _ => SDependent (DepChild r)
+  | _ => fun _ => SDependent (DepChild StatementKind r)
   end eq_refl.
 
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
@@ -570,11 +603,11 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome bp r :=
           end
       | None => fun Hov =>
           match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> TypeUseOutcome bp r with
-          | Some root => fun Hrr => TDependent (DepRedeclaredName r0 root Hrr)
-          | None => fun Hrv => TInvalid (UnresolvedName r0 Hov Hrv)
+          | Some root => fun Hrr => TDependent (DepRedeclaredNameT r0 root Hrr)
+          | None => fun Hrv => TInvalid (UnresolvedNameT r0 Hov Hrv)
           end eq_refl
       end eq_refl
-  | _ => TDependent (DepChild r)
+  | _ => TDependent (DepChild TypeUseKind r)
   end.
 
 End OverPhase.
@@ -604,6 +637,12 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
   | _ => []
   end.
+
+(* §16.5 same-site multi-family: an application node owns both its OFApp and OFValue facts at one identical site r *)
+Lemma app_site_two_families (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
+  Index.node_view r = Index.Model.VApplication ->
+  occ_facts ctab r = [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)].
+Proof. intro H. unfold occ_facts. rewrite H. reflexivity. Qed.
 
 (* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
 Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome bp r') :
@@ -734,6 +773,79 @@ Definition analyze (p : Syntax.Program) : Result p :=
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
 
+(* the displayed family is a TOTAL projection of the exact site and fact kind, never a caller-supplied field *)
+Definition displayed_family {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (k : FactKind) : Family :=
+  match k with
+  | ApplicationKind => FamApplication
+  | TypeUseKind => FamTypeUse
+  | StatementKind => match Index.node_view site with Index.Model.VStmt (Index.Model.SSShort _ _) => FamDeclaration | _ => FamStatement end
+  | ValueKind => match Index.node_view site with
+                 | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => FamDeclaration
+                 | _ => FamValue end
+  end.
+
+Section OccFactProj.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
+(* the exact occurrence and applicable fact kind an occurrence fact carries; the displayed family is derived *)
+Definition fact_site (o : OccFact bp) : Index.NodeRef idx :=
+  match o with OFValue r _ | OFApp r _ | OFStmt r _ | OFType r _ => r end.
+Definition fact_kind (o : OccFact bp) : FactKind :=
+  match o with OFValue _ _ => ValueKind | OFApp _ _ => ApplicationKind | OFStmt _ _ => StatementKind | OFType _ _ => TypeUseKind end.
+Definition fact_family (o : OccFact bp) : Family := displayed_family (fact_site o) (fact_kind o).
+(* the exact cause/requirement/dependency an occurrence fact retains, determined by its exact outcome *)
+Definition occ_cause (o : OccFact bp) : option (Cause bp (fact_site o) (fact_kind o)) :=
+  match o as o' return option (Cause bp (fact_site o') (fact_kind o')) with
+  | OFValue _ ov => match ov with VInvalid c => Some c | _ => None end
+  | OFApp _ oa => match oa with AInvalid c => Some c | _ => None end
+  | OFStmt _ os => match os with SInvalid c => Some c | _ => None end
+  | OFType _ ot => match ot with TInvalid c => Some c | _ => None end
+  end.
+Definition occ_req (o : OccFact bp) : option (Requirement bp (fact_site o) (fact_kind o)) :=
+  match o as o' return option (Requirement bp (fact_site o') (fact_kind o')) with
+  | OFValue _ ov => match ov with VUnmet q => Some q | _ => None end
+  | OFApp _ oa => match oa with AUnmet q => Some q | _ => None end
+  | OFStmt _ os => match os with SUnmet q => Some q | _ => None end
+  | OFType _ ot => match ot with TUnmet q => Some q | _ => None end
+  end.
+Definition occ_dep (o : OccFact bp) : option (Dependency bp (fact_site o) (fact_kind o)) :=
+  match o as o' return option (Dependency bp (fact_site o') (fact_kind o')) with
+  | OFValue _ ov => match ov with VDependent dd => Some dd | _ => None end
+  | OFApp _ oa => match oa with ADependent dd => Some dd | _ => None end
+  | OFStmt _ os => match os with SDependent dd => Some dd | _ => None end
+  | OFType _ ot => match ot with TDependent dd => Some dd | _ => None end
+  end.
+End OccFactProj.
+
+(* an exact invalid fact ref: the exact producing fact plus the exact cause it retains for that fact's site/kind *)
+Record InvalidFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type := mk_ifr {
+  ifr_fact  : OccFact bp ;
+  ifr_cause : Cause bp (fact_site ifr_fact) (fact_kind ifr_fact) ;
+  ifr_ok    : occ_cause ifr_fact = Some ifr_cause
+}.
+Arguments mk_ifr {p idx s bd bp} _ _ _.
+Arguments ifr_fact {p idx s bd bp} _. Arguments ifr_cause {p idx s bd bp} _. Arguments ifr_ok {p idx s bd bp} _.
+
+(* an exact unmet fact ref: the exact producing fact plus the exact requirement it retains for that fact's site/kind *)
+Record UnmetFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type := mk_ufr {
+  ufr_fact : OccFact bp ;
+  ufr_req  : Requirement bp (fact_site ufr_fact) (fact_kind ufr_fact) ;
+  ufr_ok   : occ_req ufr_fact = Some ufr_req
+}.
+Arguments mk_ufr {p idx s bd bp} _ _ _.
+Arguments ufr_fact {p idx s bd bp} _. Arguments ufr_req {p idx s bd bp} _. Arguments ufr_ok {p idx s bd bp} _.
+
+(* an exact dependent fact ref: the exact producing fact plus the exact dependency it retains; yields no issue row *)
+Record DependentFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) : Type := mk_dfr {
+  dfr_fact : OccFact bp ;
+  dfr_dep  : Dependency bp (fact_site dfr_fact) (fact_kind dfr_fact) ;
+  dfr_ok   : occ_dep dfr_fact = Some dfr_dep
+}.
+Arguments mk_dfr {p idx s bd bp} _ _ _.
+Arguments dfr_fact {p idx s bd bp} _. Arguments dfr_dep {p idx s bd bp} _. Arguments dfr_ok {p idx s bd bp} _.
+
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   {bp : BN.BindingPhase s bd} {n : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n) : Type := mk_redeclared_use {
@@ -756,28 +868,28 @@ Arguments RootNode {p idx s bd bp} _.
 Arguments RootPackage {p idx s bd bp} _.
 Arguments RootGroup {p idx s bd bp n} _.
 
-(* the exact diagnostics: an occurrence invalidity, a missing fixed main, an output collision, a redeclared group *)
+(* the exact diagnostics: an occurrence invalidity is exactly its invalid fact ref, no free site/family/payload *)
 Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) : Type :=
-| DOcc : Index.NodeRef idx -> Family -> Cause bp -> Diagnostic bp
+| DOcc : InvalidFactRef bp -> Diagnostic bp
 | DMissingMain : BN.PI.PackageRef s -> Diagnostic bp
 | DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic bp
 | DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> Diagnostic bp.
-Arguments DOcc {p idx s bd bp} _ _ _.
+Arguments DOcc {p idx s bd bp} _.
 Arguments DMissingMain {p idx s bd bp} _.
 Arguments DOutputCollision {p idx s bd bp} _ _.
 Arguments DRedeclaredGroup {p idx s bd bp n} _.
 
-(* the exact boundaries: an occurrence-family unmet requirement, retaining its subject, family, and requirement *)
+(* the exact boundaries: an occurrence-family unmet requirement is exactly its unmet fact ref *)
 Inductive Boundary {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) : Type :=
-| BOcc : Index.NodeRef idx -> Family -> Requirement bp -> Boundary bp.
-Arguments BOcc {p idx s bd bp} _ _ _.
+| BOcc : UnmetFactRef bp -> Boundary bp.
+Arguments BOcc {p idx s bd bp} _.
 
 (* the issue cause a reader projects from a diagnostic row, exactly as retained, never re-derived from a weaker site *)
 Inductive IssueCause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) : Type :=
-| OccCause : Cause bp -> IssueCause bp
+| OccCause : InvalidFactRef bp -> IssueCause bp
 | MissingMainCause : BN.PI.PackageRef s -> IssueCause bp
 | OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause bp
 | RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueCause bp.
@@ -789,32 +901,56 @@ Arguments RedeclaredGroupCause {p idx s bd bp n} _.
 Section IssueProjections.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
 
-(* the cause a row retains: a plain field read of the exact object stored at construction, not a reconstruction *)
+(* related nodes a cause carries: a complex mismatch's two components (all other causes carry none directly) *)
+Definition cause_related {site : Index.NodeRef idx} {k : FactKind} (c : Cause bp site k) : list (Index.NodeRef idx) :=
+  match c with ComplexMismatch _ a b => [a; b] | _ => [] end.
+(* the cause a row retains: the exact invalid fact ref, projected exactly, never re-derived from a weaker site *)
 Definition diag_cause (d : Diagnostic bp) : IssueCause bp :=
   match d with
-  | DOcc _ _ c => OccCause c
+  | DOcc ifr => OccCause ifr
   | DMissingMain pr => MissingMainCause pr
   | DOutputCollision pr rr => OutputCollisionCause pr rr
   | DRedeclaredGroup root => RedeclaredGroupCause root
   end.
-Definition diag_family (d : Diagnostic bp) : option Family := match d with DOcc _ f _ => Some f | _ => None end.
-(* related nodes a row projects: a complex mismatch's two sides, or a group's exact members (use contexts via Report) *)
+Definition diag_family (d : Diagnostic bp) : option Family :=
+  match d with DOcc ifr => Some (fact_family (ifr_fact ifr)) | _ => None end.
+(* related nodes a row projects: the cause's components, or a group's exact members (use contexts via Report) *)
 Definition diag_related (d : Diagnostic bp) : list (Index.NodeRef idx) :=
   match d with
-  | DOcc _ _ (ComplexMismatch a b) => [a; b]
+  | DOcc ifr => cause_related (ifr_cause ifr)
   | DRedeclaredGroup root => map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root)))
   | _ => []
   end.
 Definition diag_root (d : Diagnostic bp) : IssueRoot bp :=
   match d with
-  | DOcc r _ _ => RootNode r
+  | DOcc ifr => RootNode (fact_site (ifr_fact ifr))
   | DMissingMain pr => RootPackage pr
   | DOutputCollision pr _ => RootPackage pr
   | DRedeclaredGroup root => RootGroup root
   end.
-Definition bound_req (b : Boundary bp) : Requirement bp := match b with BOcc _ _ q => q end.
-Definition bound_family (b : Boundary bp) : Family := match b with BOcc _ f _ => f end.
-Definition bound_root (b : Boundary bp) : IssueRoot bp := match b with BOcc r _ _ => RootNode r end.
+Definition bound_req_ref (b : Boundary bp) : UnmetFactRef bp := match b with BOcc ufr => ufr end.
+Definition bound_family (b : Boundary bp) : Family := match b with BOcc ufr => fact_family (ufr_fact ufr) end.
+Definition bound_root (b : Boundary bp) : IssueRoot bp := match b with BOcc ufr => RootNode (fact_site (ufr_fact ufr)) end.
+
+(* §18.3 occurrence-row projections are exact: cause/family/root of a DOcc project from its retained invalid fact *)
+Lemma docc_cause (ifr : InvalidFactRef bp) : diag_cause (DOcc ifr) = OccCause ifr.
+Proof. reflexivity. Qed.
+Lemma docc_family (ifr : InvalidFactRef bp) : diag_family (DOcc ifr) = Some (fact_family (ifr_fact ifr)).
+Proof. reflexivity. Qed.
+Lemma docc_root (ifr : InvalidFactRef bp) : diag_root (DOcc ifr) = RootNode (fact_site (ifr_fact ifr)).
+Proof. reflexivity. Qed.
+(* §18.3 the invalid fact ref's exact cause is exactly the outcome payload its retained fact carries *)
+Lemma ifr_cause_of_fact (ifr : InvalidFactRef bp) : occ_cause (ifr_fact ifr) = Some (ifr_cause ifr).
+Proof. exact (ifr_ok ifr). Qed.
+(* §18.3 boundary-row projections are exact: requirement/family/root of a BOcc project from its retained unmet fact *)
+Lemma bocc_req (ufr : UnmetFactRef bp) : bound_req_ref (BOcc ufr) = ufr.
+Proof. reflexivity. Qed.
+Lemma bocc_family (ufr : UnmetFactRef bp) : bound_family (BOcc ufr) = fact_family (ufr_fact ufr).
+Proof. reflexivity. Qed.
+Lemma bocc_root (ufr : UnmetFactRef bp) : bound_root (BOcc ufr) = RootNode (fact_site (ufr_fact ufr)).
+Proof. reflexivity. Qed.
+Lemma ufr_req_of_fact (ufr : UnmetFactRef bp) : occ_req (ufr_fact ufr) = Some (ufr_req ufr).
+Proof. exact (ufr_ok ufr). Qed.
 
 End IssueProjections.
 
@@ -822,35 +958,18 @@ Section IssueTable.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
-(* the semantic family of an occurrence fact: a declaration spec or short-decl statement, else its plain family *)
-Definition occ_family (o : OccFact bp) : Family :=
-  match o with
-  | OFApp _ _ => FamApplication
-  | OFType _ _ => FamTypeUse
-  | OFStmt r _ => match Index.node_view r with Index.Model.VStmt (Index.Model.SSShort _ _) => FamDeclaration | _ => FamStatement end
-  | OFValue r _ => match Index.node_view r with Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => FamDeclaration | _ => FamValue end
-  end.
-
-(* one occurrence fact yields one diagnostic exactly when its family outcome is invalid, retaining that exact cause *)
+(* one fact yields one diagnostic iff its outcome is invalid: the exact invalid fact ref, no free site/family/cause *)
 Definition occ_diag_rows (o : OccFact bp) : list (Diagnostic bp) :=
-  let fam := occ_family o in
-  match o with
-  | OFValue r (VInvalid c) => [DOcc r fam c]
-  | OFApp r (AInvalid c) => [DOcc r fam c]
-  | OFStmt r (SInvalid c) => [DOcc r fam c]
-  | OFType r (TInvalid c) => [DOcc r fam c]
-  | _ => []
-  end.
-(* one occurrence fact yields one boundary exactly when its family outcome is unmet; invalid and unmet coexist (§6) *)
+  match occ_cause o as oc return occ_cause o = oc -> list (Diagnostic bp) with
+  | Some c => fun H => [DOcc (mk_ifr o c H)]
+  | None => fun _ => []
+  end eq_refl.
+(* one occurrence fact yields one boundary exactly when its outcome is unmet; invalid and unmet coexist (§6) *)
 Definition occ_bound_rows (o : OccFact bp) : list (Boundary bp) :=
-  let fam := occ_family o in
-  match o with
-  | OFValue r (VUnmet q) => [BOcc r fam q]
-  | OFApp r (AUnmet q) => [BOcc r fam q]
-  | OFStmt r (SUnmet q) => [BOcc r fam q]
-  | OFType r (TUnmet q) => [BOcc r fam q]
-  | _ => []
-  end.
+  match occ_req o as oq return occ_req o = oq -> list (Boundary bp) with
+  | Some q => fun H => [BOcc (mk_ufr o q H)]
+  | None => fun _ => []
+  end eq_refl.
 
 (* the sole selected package's default-output collision, retaining the exact colliding root entry *)
 Definition collision_rows : list (Diagnostic bp) :=
@@ -978,12 +1097,100 @@ Proof.
 Qed.
 
 (* a dependent non-result is neither a diagnostic nor a boundary: it defers to its prerequisite, adding no issue *)
-Lemma dependent_no_rows (r : Index.NodeRef idx) (d : Dependency bp) :
-  occ_diag_rows (OFValue r (VDependent d)) = [] /\ occ_bound_rows (OFValue r (VDependent d)) = []
-  /\ occ_diag_rows (OFApp r (ADependent d)) = [] /\ occ_bound_rows (OFApp r (ADependent d)) = []
-  /\ occ_diag_rows (OFStmt r (SDependent d)) = [] /\ occ_bound_rows (OFStmt r (SDependent d)) = []
-  /\ occ_diag_rows (OFType r (TDependent d)) = [] /\ occ_bound_rows (OFType r (TDependent d)) = [].
+Lemma dependent_no_rows (r : Index.NodeRef idx)
+  (dv : Dependency bp r ValueKind) (da : Dependency bp r ApplicationKind)
+  (dstmt : Dependency bp r StatementKind) (dt : Dependency bp r TypeUseKind) :
+  occ_diag_rows (OFValue r (VDependent dv)) = [] /\ occ_bound_rows (OFValue r (VDependent dv)) = []
+  /\ occ_diag_rows (OFApp r (ADependent da)) = [] /\ occ_bound_rows (OFApp r (ADependent da)) = []
+  /\ occ_diag_rows (OFStmt r (SDependent dstmt)) = [] /\ occ_bound_rows (OFStmt r (SDependent dstmt)) = []
+  /\ occ_diag_rows (OFType r (TDependent dt)) = [] /\ occ_bound_rows (OFType r (TDependent dt)) = [].
 Proof. cbn; repeat split; reflexivity. Qed.
+
+(* §18.1 the displayed family is exactly the total projection of the exact site and fact kind, never a stored field *)
+Lemma fact_family_projection (o : OccFact bp) : fact_family o = displayed_family (fact_site o) (fact_kind o).
+Proof. reflexivity. Qed.
+(* §18.2 an occurrence fact's exact site and kind round-trip from the constructor that built it *)
+Lemma occfact_roundtrip (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : AppOutcome bp r)
+  (os : StmtOutcome bp r) (ot : TypeUseOutcome bp r) :
+  (fact_site (OFValue r ov) = r /\ fact_kind (OFValue r ov) = ValueKind)
+  /\ (fact_site (OFApp r oa) = r /\ fact_kind (OFApp r oa) = ApplicationKind)
+  /\ (fact_site (OFStmt r os) = r /\ fact_kind (OFStmt r os) = StatementKind)
+  /\ (fact_site (OFType r ot) = r /\ fact_kind (OFType r ot) = TypeUseKind).
+Proof. repeat split; reflexivity. Qed.
+
+(* §18.3 diagnostic completeness: an invalid fact yields exactly one DOcc row retaining that exact fact *)
+Lemma occ_diag_complete (o : OccFact bp) (c : Cause bp (fact_site o) (fact_kind o)) :
+  occ_cause o = Some c -> exists ifr, occ_diag_rows o = [DOcc ifr] /\ ifr_fact ifr = o.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; try discriminate H; eexists; split; reflexivity.
+Qed.
+(* an occurrence fact with no invalid outcome yields no diagnostic row *)
+Lemma occ_diag_none (o : OccFact bp) : occ_cause o = None -> occ_diag_rows o = [].
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; solve [ reflexivity | discriminate H ].
+Qed.
+(* §18.3 diagnostic soundness: every occurrence diagnostic row is a DOcc of the exact fact, no free fields *)
+Lemma occ_diag_row_shape (o : OccFact bp) (d : Diagnostic bp) :
+  In d (occ_diag_rows o) -> exists ifr, d = DOcc ifr /\ ifr_fact ifr = o.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro Hin; try (exfalso; exact Hin);
+    destruct Hin as [Heq|[]]; subst d; eexists; split; reflexivity.
+Qed.
+(* §18.3 boundary completeness: an unmet fact yields exactly one BOcc row retaining that exact fact *)
+Lemma occ_bound_complete (o : OccFact bp) (q : Requirement bp (fact_site o) (fact_kind o)) :
+  occ_req o = Some q -> exists ufr, occ_bound_rows o = [BOcc ufr] /\ ufr_fact ufr = o.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; try discriminate H; eexists; split; reflexivity.
+Qed.
+(* an occurrence fact with no unmet outcome yields no boundary row *)
+Lemma occ_bound_none (o : OccFact bp) : occ_req o = None -> occ_bound_rows o = [].
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; solve [ reflexivity | discriminate H ].
+Qed.
+(* §18.3 boundary soundness: every occurrence boundary row is a BOcc of the exact fact, no free fields *)
+Lemma occ_bound_row_shape (o : OccFact bp) (b : Boundary bp) :
+  In b (occ_bound_rows o) -> exists ufr, b = BOcc ufr /\ ufr_fact ufr = o.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro Hin; try (exfalso; exact Hin);
+    destruct Hin as [Heq|[]]; subst b; eexists; split; reflexivity.
+Qed.
+(* §18.3 at most one row of each class per fact: the row lists are empty or a single exact row *)
+Lemma occ_diag_rows_le1 (o : OccFact bp) : occ_diag_rows o = [] \/ exists d, occ_diag_rows o = [d].
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
+Qed.
+Lemma occ_bound_rows_le1 (o : OccFact bp) : occ_bound_rows o = [] \/ exists b, occ_bound_rows o = [b].
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
+Qed.
+(* §17.3/§18.3 a dependent outcome retains no cause or requirement, so its exact fact yields no occurrence row *)
+Lemma occ_dep_no_cause (o : OccFact bp) (d : Dependency bp (fact_site o) (fact_kind o)) :
+  occ_dep o = Some d -> occ_cause o = None.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; solve [ reflexivity | discriminate H ].
+Qed.
+Lemma occ_dep_no_req (o : OccFact bp) (d : Dependency bp (fact_site o) (fact_kind o)) :
+  occ_dep o = Some d -> occ_req o = None.
+Proof.
+  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+    cbn; intro H; solve [ reflexivity | discriminate H ].
+Qed.
+Lemma dependent_fact_no_rows (dfr : DependentFactRef bp) :
+  occ_diag_rows (dfr_fact dfr) = [] /\ occ_bound_rows (dfr_fact dfr) = [].
+Proof.
+  destruct dfr as [o d Hok]; cbn; split;
+    [ apply occ_diag_none; exact (occ_dep_no_cause o d Hok)
+    | apply occ_bound_none; exact (occ_dep_no_req o d Hok) ].
+Qed.
 
 End IssueTable.
 
@@ -1022,8 +1229,8 @@ Inductive Disposition {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
 | DSucceeded : Disposition bp
 | DAbsent : Disposition bp
 | DInvalid : IssueCause bp -> list (IssueCause bp) -> Disposition bp
-| DUnsupported : Requirement bp -> list (Requirement bp) -> Disposition bp
-| DInvalidAndUnsupported : IssueCause bp -> list (IssueCause bp) -> Requirement bp -> list (Requirement bp) -> Disposition bp.
+| DUnsupported : UnmetFactRef bp -> list (UnmetFactRef bp) -> Disposition bp
+| DInvalidAndUnsupported : IssueCause bp -> list (IssueCause bp) -> UnmetFactRef bp -> list (UnmetFactRef bp) -> Disposition bp.
 Arguments DSucceeded {p idx s bd bp}. Arguments DAbsent {p idx s bd bp}.
 Arguments DInvalid {p idx s bd bp} _ _. Arguments DUnsupported {p idx s bd bp} _ _.
 Arguments DInvalidAndUnsupported {p idx s bd bp} _ _ _ _.
@@ -1037,9 +1244,9 @@ Definition program_disposition : Disposition bp :=
   match diagnostics fp pf, boundaries fp with
   | nil, nil => DSucceeded
   | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
-  | nil, b :: bs => DUnsupported (bound_req b) (map bound_req bs)
+  | nil, b :: bs => DUnsupported (bound_req_ref b) (map bound_req_ref bs)
   | d :: ds, b :: bs => DInvalidAndUnsupported (diag_cause d) (map diag_cause ds)
-                                               (bound_req b) (map bound_req bs)
+                                               (bound_req_ref b) (map bound_req_ref bs)
   end.
 
 (* success is exactly empty reports; a rejected program with simultaneous boundaries is InvalidAndUnsupported *)
@@ -1112,8 +1319,8 @@ Definition issue_root {r : Result p} (i : Issue (res_binds r)) : IssueRoot (res_
 Definition issue_family {r : Result p} (i : Issue (res_binds r)) : option Family :=
   match i with IDiag d => diag_family d | IBound b => Some (bound_family b) end.
 Definition issue_cause_or_req {r : Result p} (i : Issue (res_binds r))
-  : IssueCause (res_binds r) + Requirement (res_binds r) :=
-  match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req b) end.
+  : IssueCause (res_binds r) + UnmetFactRef (res_binds r) :=
+  match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req_ref b) end.
 Definition issue_related {r : Result p} (i : Issue (res_binds r)) : list (Index.NodeRef (res_index r)) :=
   match i with IDiag d => diag_related d | IBound _ => [] end.
 

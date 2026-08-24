@@ -22,7 +22,7 @@ Definition boundaries : list Boundary := AN.boundaries fp.
 Definition diag_cause (d : Diagnostic) : AN.IssueCause bp := AN.diag_cause d.
 Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) := AN.diag_related d.
 Definition diag_root (d : Diagnostic) : AN.IssueRoot bp := AN.diag_root d.
-Definition bound_req (b : Boundary) : AN.Requirement bp := AN.bound_req b.
+Definition bound_req_ref (b : Boundary) : AN.UnmetFactRef bp := AN.bound_req_ref b.
 Definition bound_root (b : Boundary) : AN.IssueRoot bp := AN.bound_root b.
 
 (* exact projection: Report's diagnostics/boundaries ARE Analysis's issue lists, same members and order, no repair *)
@@ -32,7 +32,13 @@ Lemma boundaries_exact : boundaries = AN.boundaries fp.
 Proof. reflexivity. Qed.
 Lemma diag_cause_exact : forall d, diag_cause d = AN.diag_cause d.
 Proof. reflexivity. Qed.
-Lemma bound_req_exact : forall b, bound_req b = AN.bound_req b.
+Lemma diag_related_exact : forall d, diag_related d = AN.diag_related d.
+Proof. reflexivity. Qed.
+Lemma diag_root_exact : forall d, diag_root d = AN.diag_root d.
+Proof. reflexivity. Qed.
+Lemma bound_req_ref_exact : forall b, bound_req_ref b = AN.bound_req_ref b.
+Proof. reflexivity. Qed.
+Lemma bound_root_exact : forall b, bound_root b = AN.bound_root b.
 Proof. reflexivity. Qed.
 
 End Project.
@@ -55,7 +61,7 @@ Definition issue_class {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : AN.Is
 Definition issue_root {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : AN.IssueRoot (AN.res_binds r) := AN.issue_root i.
 Definition issue_family {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : option AN.Family := AN.issue_family i.
 Definition issue_cause_or_req {r : AN.Result p} (i : AN.Issue (AN.res_binds r))
-  : AN.IssueCause (AN.res_binds r) + AN.Requirement (AN.res_binds r) := AN.issue_cause_or_req i.
+  : AN.IssueCause (AN.res_binds r) + AN.UnmetFactRef (AN.res_binds r) := AN.issue_cause_or_req i.
 Definition issue_related {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : list (Index.NodeRef (AN.res_index r)) := AN.issue_related i.
 Definition iref_diagnostic {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Diagnostic (AN.res_binds r)) := AN.iref_diagnostic ref.
 Definition iref_boundary {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Boundary (AN.res_binds r)) := AN.iref_boundary ref.
@@ -110,27 +116,28 @@ Definition object_predeclared {p} {idx : Index.ProgramIndex p} (o : BN.ObjectRef
   match o with BN.PredeclaredObject pn => Some pn | BN.SourceObject _ => None end.
 
 Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (c : AN.Cause bp) : CauseView :=
+  {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (c : AN.Cause bp site k) : CauseView :=
   match c with
   | AN.InvalidIdentity _ pn _ => CvInvalidIdentity pn
-  | AN.UnresolvedName _ _ _ => CvUnresolvedName
+  | AN.UnresolvedNameV _ _ _ => CvUnresolvedName
+  | AN.UnresolvedNameT _ _ _ => CvUnresolvedName
   | AN.TypeAsValue _ o _ => CvTypeAsValue (object_predeclared o)
-  | AN.ComplexMismatch _ _ => CvComplexMismatch
+  | AN.ComplexMismatch _ _ _ => CvComplexMismatch
   | AN.MainArity _ _ _ _ _ => CvMainArity
   | _ => CvOtherCause
   end.
 Definition issuecause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   {bp : BN.BindingPhase s bd} (ic : AN.IssueCause bp) : CauseView :=
-  match ic with AN.OccCause c => cause_view c | _ => CvOtherCause end.
+  match ic with AN.OccCause ifr => cause_view (AN.ifr_cause ifr) | _ => CvOtherCause end.
 Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (q : AN.Requirement bp) : ReqView :=
+  {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (q : AN.Requirement bp site k) : ReqView :=
   match q with AN.ReqComplexType _ => RvComplexType | _ => RvOtherReq end.
 
 (* per-Result observation lists the concrete controls read: bp-free, projected from the one retained result *)
 Definition result_cause_views {p} (r : AN.Result p) : list CauseView :=
   map (fun d => issuecause_view (AN.diag_cause d)) (AN.result_diagnostics r).
 Definition result_req_views {p} (r : AN.Result p) : list ReqView :=
-  map (fun b => req_view (AN.bound_req b)) (AN.result_boundaries r).
+  map (fun b => req_view (AN.ufr_req (AN.bound_req_ref b))) (AN.result_boundaries r).
 
 (* bp-free descriptive view of a redeclared-group diagnostic: its exact root's name (contexts via result_group_* ) *)
 Definition diag_group_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}

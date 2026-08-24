@@ -431,6 +431,14 @@ if rocq top -q -Q _build/default/. Fido < /tmp/sealed_meta2.v 2>&1 | grep -q 'Th
   fail "sealed meta-control: Fail reported a rejection for the REACHABLE term Compilable.compile — the unreachability check proves nothing"
 fi
 echo "fido: sealed meta-control reachable — a reachable term yields no rejection (as required)"
+SH
+# The intrinsic-unforgeability typing controls run in a SECOND prover-stage RUN over the SAME _build cache mount:
+# the certified library the first RUN built is read (never rebuilt), and the whole control set stays under the
+# per-argument exec limit while remaining one `make prove` gate — nothing is skipped, weakened, sampled or moved.
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+set -eu
+fail() { echo "fido: prove FAILED — $*"; exit 1; }
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # …and a type that forces its own contents rejects a forged inhabitant.  These must fail to TYPECHECK, not
 # merely be absent, so each gets its own control with its own expected reason.
 # Every intrinsic-unforgeability control loads the SAME certified library, so instead of one `rocq c` per
@@ -507,11 +515,12 @@ typefail neg_main_est_foreign_surface "an establishment from a foreign surface a
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sq) (e : BN.Est sp) : BN.MainStatus sq pr := BN.MainOne e.'
 typefail neg_raw_node_as_source_object "a SourceObject built directly from a raw NodeRef, bypassing a proven origin" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.ObjectRef (IX.index_program p) := BN.SourceObject r.'
-# — report / analysis (R3/R4): each issue is an exact row retaining its cause/requirement, no nullary requirement —
-typefail neg_occ_diag_no_cause "an occurrence diagnostic row without its exact retained cause" \
-  'Definition forged (p : Syntax.Program) (s : PI.PackageSurface (IX.index_program p)) (r : IX.NodeRef (IX.index_program p)) : AN.Diagnostic s := AN.DOcc r AN.FamValue.'
+# — report / analysis (R3/R4): each issue is one exact fact ref, no free site/family/cause; a requirement is
+#   exact for its site and kind, never a nullary payload accepted at an arbitrary site —
+typefail neg_occ_diag_free_fields "an occurrence diagnostic built from raw site/family/cause fields, not one exact invalid fact ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic bp := AN.DOcc r fam c.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
-  'Definition forged (p : Syntax.Program) : AN.Requirement (IX.index_program p) := AN.ReqComplexType.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) : AN.Requirement bp r AN.ValueKind := AN.ReqComplexType.'
 # — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
 #   carries no byte/file slot and cannot pair evidence with a foreign compiled root —
 typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
@@ -753,17 +762,78 @@ typefail neg_forged_ref_row "a judgment ref forged without the exact retained ta
 #   the exact ResolutionRef, a short/const cause the exact decision/judgment ref, a use context a resolution that
 #   yields ITS root, and no bp-free Report view can mint an Analysis cause or diagnostic —
 typefail neg_invalidid_from_object "an InvalidIdentity cause forged from a raw ObjectRef, not the exact resolution" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.ObjectRef (IX.index_program p)) (pn : Names.PredeclaredName) (H : True) : AN.Cause bp := AN.InvalidIdentity o pn H.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (o : BN.ObjectRef (IX.index_program p)) (pn : Names.PredeclaredName) (H : True) : AN.Cause bp r AN.ValueKind := AN.InvalidIdentity o pn H.'
 typefail neg_shortdup_nameonly "a ShortDuplicate cause forged from only a name, without the exact duplicate decision" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (n : Names.OrdinaryIdentifier) : AN.Cause bp := AN.ShortDuplicate n.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) : AN.Cause bp r AN.StatementKind := AN.ShortDuplicate n.'
 typefail neg_constmiss_raw_row "a ConstMissingInit cause forged from a raw ConstJudgment, not the exact ConstSpecJudgmentRef" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : AN.Cause bp := AN.ConstMissingInit j.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : AN.Cause bp r AN.ValueKind := AN.ConstMissingInit j.'
 typefail neg_useredecl_wrong_root "a redeclared use context forged for a root its own resolution does not yield" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (n : Names.OrdinaryIdentifier) (rootA rootB : BN.RedeclRoot bp n) (r : IX.NodeRef (IX.index_program p)) (res : BN.ResolutionRef (BN.use_env bp r) n) (H : BN.resolution_redecl_root res = Some rootA) : AN.RedeclaredUseRef rootB := AN.mk_redeclared_use r res H.'
 typefail neg_report_view_mints_cause "an Analysis cause forged from a bp-free Report CauseView" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Cause bp := v.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.CauseView) : AN.Cause bp r AN.ValueKind := v.'
 typefail neg_report_view_mints_diag "an Analysis diagnostic forged from a bp-free Report CauseView" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic bp := v.'
+# — §17.1 CROSS-SITE: a payload exact for site A cannot inhabit an outcome/ref for site B (site is an index) —
+typefail neg_xsite_resolution_cause "a resolution-derived value cause for site A placed in a value outcome for site B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp a) n) (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None) : AN.ValueOutcome bp b := AN.VInvalid (AN.UnresolvedNameV r H1 H2).'
+typefail neg_xsite_structural_cause "a structural value cause for site A placed in a value outcome for site B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (H : IX.node_view a = IX.Model.VApplication) : AN.ValueOutcome bp b := AN.VInvalid (AN.NoValueUsed H).'
+typefail neg_xsite_requirement "a value requirement for site A placed in a value outcome for site B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp a AN.ValueKind) : AN.ValueOutcome bp b := AN.VUnmet q.'
+typefail neg_xsite_dependency "an application dependency for parent A placed in an application outcome for parent B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp a AN.ApplicationKind) : AN.AppOutcome bp b := AN.ADependent dep.'
+typefail neg_xsite_shortdup "a statement cause for statement A placed in a statement outcome for statement B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : IX.Refs.ShortStmtRef (IX.index_program p)) (c : AN.Cause bp (IX.Refs.sh_node sa) AN.StatementKind) : AN.StmtOutcome bp (IX.Refs.sh_node sb) := AN.SInvalid c.'
+typefail neg_xsite_const "a value cause for const spec A placed in a value outcome for const spec B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ca cb : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (c : AN.Cause bp (IX.Refs.sp_node ca) AN.ValueKind) : AN.ValueOutcome bp (IX.Refs.sp_node cb) := AN.VInvalid c.'
+# — §17.2 CROSS-KIND: at one node where several fact kinds apply, a payload of one kind cannot inhabit another —
+typefail neg_xkind_value_in_app "a value cause placed in an application outcome at the same node" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.AppOutcome bp r := AN.AInvalid c.'
+typefail neg_xkind_app_in_value "an application cause placed in a value outcome at the same node" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ApplicationKind) : AN.ValueOutcome bp r := AN.VInvalid c.'
+typefail neg_xkind_stmt_in_type "a statement cause placed in a type-use outcome at the same node" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.StatementKind) : AN.TypeUseOutcome bp r := AN.TInvalid c.'
+typefail neg_xkind_valuereq_in_type "a value requirement placed in a type-use outcome at the same node" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.TypeUseOutcome bp r := AN.TUnmet q.'
+typefail neg_xkind_dependency "a value dependency placed in an application outcome at the same node" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) : AN.AppOutcome bp r := AN.ADependent dep.'
+typefail neg_illegalstmt_as_value "IllegalStatement (a statement cause) placed in a value outcome" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (H : IX.node_view r = IX.Model.VStmt IX.Model.SSExpr) : AN.ValueOutcome bp r := AN.VInvalid (AN.IllegalStatement H).'
+typefail neg_notcallable_as_stmt "NotCallable (an application cause) placed in a statement outcome" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp r) n) (o : BN.ObjectRef (IX.index_program p)) (H : BN.resolution_object_view r0 = Some o) : AN.StmtOutcome bp r := AN.SInvalid (AN.NotCallable r0 o H).'
+# — §17.3 EXACT FACT CASE: a case ref is constructible only for a fact whose exact outcome matches its case —
+typefail neg_success_no_ifr "an invalid fact ref built for a success (nonconstant) fact" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r AN.VNonconst) c eq_refl.'
+typefail neg_invalid_no_ufr "an unmet fact ref built for an invalid fact" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) (q : AN.Requirement bp r AN.ValueKind) : AN.UnmetFactRef bp := AN.mk_ufr (AN.OFValue r (AN.VInvalid c)) q eq_refl.'
+typefail neg_unmet_no_ifr "an invalid fact ref built for an unmet fact" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r (AN.VUnmet q)) c eq_refl.'
+typefail neg_dependent_no_ifr "an invalid fact ref built for a dependent fact" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r (AN.VDependent dep)) c eq_refl.'
+typefail neg_ifr_xsite "an invalid fact ref pairing a fact at site A with a cause for site B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ca : AN.Cause bp a AN.ValueKind) (cb : AN.Cause bp b AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue a (AN.VInvalid ca)) cb eq_refl.'
+typefail neg_ifr_xkind "an invalid fact ref reinterpreting an application fact kind as value" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (oa : AN.AppOutcome bp r) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFApp r oa) c eq_refl.'
+# — §17.4 FREE PAIRING ABSENCE: no row is built from raw fields, a raw payload, a family, or the wrong fact ref —
+typefail neg_bocc_three_fields "a BOcc built from raw site + family + requirement" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary bp := AN.BOcc r fam q.'
+typefail neg_docc_raw_cause "a DOcc built from a raw cause alone" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic bp := AN.DOcc c.'
+typefail neg_bocc_raw_req "a BOcc built from a raw requirement alone" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary bp := AN.BOcc q.'
+typefail neg_docc_extra_family "a DOcc given an extra family field beside the exact fact ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef bp) (fam : AN.Family) : AN.Diagnostic bp := AN.DOcc ifr fam.'
+typefail neg_invalid_as_boundary "an invalid fact ref used to build a boundary" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef bp) : AN.Boundary bp := AN.BOcc ifr.'
+typefail neg_unmet_as_diagnostic "an unmet fact ref used to build a diagnostic" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ufr : AN.UnmetFactRef bp) : AN.Diagnostic bp := AN.DOcc ufr.'
+# — §17.5 PROJECTION BOUNDARY: a bp-free Report view cannot mint an exact Requirement or row; a foreign phase is rejected —
+typefail neg_reqview_mints_req "an exact Requirement minted from a bp-free ReqView" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.ReqView) : AN.Requirement bp r AN.ValueKind := v.'
+typefail neg_groupview_mints_row "an exact occurrence diagnostic minted from a Report group view" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (gv : RP.DeclarationGroupView sf bp) : AN.Diagnostic bp := AN.DOcc gv.'
+typefail neg_foreign_phase_ifr "a diagnostic for phase B built from an invalid fact ref of phase A" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) {d2 : BN.PhaseData sf} (bp2 : BN.BindingPhase sf d2) (ifr : AN.InvalidFactRef bp) : AN.Diagnostic bp2 := AN.DOcc ifr.'
 # — 18.1/23 the descriptive redeclaration route is DELETED: the exact redeclaration_roots enumeration is the sole
 #   authority, and every descriptive-group carrier/projection fails to RESOLVE —
 typefail neg_deleted_redeclared_groups "the deleted descriptive redeclared-groups route" \
@@ -799,6 +869,12 @@ if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|
   fail "edge absence control — a consumer still names a deleted edge route or raw child access"
 fi
 echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge route, node_children, or position-guess path"
+# — §19 occurrence-topology absence: the pre-split phase-only cause/dep names and the second family classifier are
+#   GONE from every certified/e2e source; the exact fact kinds and one exact family projection are the sole route —
+if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' Compilable/Analysis.v Compilable/Report.v Compilable.v e2e/WitnessReject.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
+  fail "occurrence-topology absence control — a pre-split phase-only payload name or the deleted occ_family classifier still exists"
+fi
+echo "fido: occurrence-topology absence control OK — no pre-split cause/dependency name, no second family classifier; site+kind fact refs are the sole route"
 # — the forgeable status surface AND every prospective short-establishment route are deleted, and
 #   Analysis names no judgment builder, transition builder, classifier, or core helper —
 if grep -nE 'ConstSpecStatus|ShortDeclStatus|ShortLhsStatus|NewNonblank|ConstOrigin|OriginSelf|OriginPred|mk_const_status|mk_short_status|const_spec_status|short_decl_status|short_lhs_status|short_lhs_statuses|new_nonblank_of|\ball_ests\b|\bests_of_file\b|\best_of_node\b|nearest_block_table|est_scope_of|est_of_binder_core|\bmake_est\b|make_est_emit|\bshort_table\b|all_ests_has_binder|short_decl_judgment|ShortDeclJudgmentRef|\bsjr_|short_subjects|short_stmts_of_file|short_ref_emit' Compilable/Bindings.v Compilable/Analysis.v; then
@@ -2420,7 +2496,7 @@ if grep -qiE 'overflow|constant.*int8|cannot use|truncated' "$_flog"; then echo 
 grep -qiE 'directory|write output|cannot create' "$_flog" || { echo "fido e2e diff: K failed but not with a recognizable directory-collision class:"; cat "$_flog"; rm -rf "$FR"; exit 1; }
 echo "fido e2e probe: K sub/main.go+invalid-source -> DIRECTORY-COLLISION failure (precedence over the type error, pinned-Go behavior)"; rm -rf "$FR"
 
-echo "fido e2e diff: representable differential matrix COMPLETE (A-I, Q, S, K all match Compilable)"
+echo "fido e2e diff: pinned-Go representable behavior catalogue COMPLETE (A-I, Q, S, K); these exact catalogue cases are not formal-vs-Go comparisons"
 cd /e2e/tree
 
 echo "fido e2e OK — pinned Go built the whole tree in a fresh copy (go build ./...) with the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (ten integer conversions + the float + complex sections incl. the double-round scars), checked the multi-package + go-list differential, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-overflow/nonzero-imaginary fixtures exactly as Compilable does, and confirmed the fresh-image directory-collision differential matrix (go vet nonblocking)"
