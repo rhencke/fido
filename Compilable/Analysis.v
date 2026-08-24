@@ -7,6 +7,23 @@ Import ListNotations.
 Module TR := Compilable.TypeResolution.
 Module BN := Compilable.Bindings.
 
+(* small list utilities used by the §24.4 redeclaration laws: NoDup passes through map-inverse and filter *)
+Lemma nodup_map_inv {A B} (f : A -> B) (l : list A) : NoDup (map f l) -> NoDup l.
+Proof.
+  induction l as [|a t IH]; intro H; [ constructor | ].
+  cbn in H. inversion H as [|? ? Hna H']; subst. constructor; [ intro Hin; apply Hna, in_map, Hin | exact (IH H') ].
+Qed.
+Lemma nodup_filter {A} (f : A -> bool) (l : list A) : NoDup l -> NoDup (filter f l).
+Proof.
+  induction l as [|a t IH]; intro H; cbn; [ constructor | ].
+  inversion H as [|? ? Hna H']; subst.
+  destruct (f a); [ constructor; [ intro Hin; apply filter_In in Hin; exact (Hna (proj1 Hin)) | exact (IH H') ] | exact (IH H') ].
+Qed.
+
+(* every file's node enumeration is duplicate-free: its ordinal positions are the distinct seq 0..count *)
+Lemma file_nodes_nodup {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx) : NoDup (Index.file_nodes fr).
+Proof. apply (nodup_map_inv Index.nr_pos). rewrite Index.file_nodes_pos. apply seq_NoDup. Qed.
+
 (* Analysis fact algebra is indexed by exact Binding phase bp: payloads retain exact refs, cross-phase is rejected *)
 Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) : Type :=
@@ -883,6 +900,48 @@ Definition context_qualifies {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRo
 Lemma group_use_contexts_nodes {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) :
   map ruc_node (group_use_contexts root) = filter (context_qualifies root) name_uses.
 Proof. exact (flatmap_option_filter (use_context_of root) ruc_node (use_context_of_node root) name_uses). Qed.
+
+(* the package name occurrences are duplicate-free: distinct positions within a file, distinct files across packages *)
+Lemma name_uses_nodup : NoDup name_uses.
+Proof.
+  unfold name_uses. apply nodup_filter.
+  apply (BN.flat_map_nodup_key _ Index.nr_file (fun fr => fr)).
+  - rewrite map_id.
+    apply (BN.flat_map_nodup_key _ (BN.PI.package_of_file s) (fun pr => pr)).
+    + rewrite map_id. apply BN.packages_nodup.
+    + intros pr _. apply BN.pkg_members_nodup.
+    + intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
+  - intros fr _. apply file_nodes_nodup.
+  - intros fr r _ Hin. exact (Index.file_nodes_file fr r Hin).
+Qed.
+
+(* §24.4 uniqueness / no-duplication: no name occurrence appears twice as a use context of a root *)
+Lemma group_use_contexts_nodup {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) :
+  NoDup (map ruc_node (group_use_contexts root)).
+Proof. rewrite group_use_contexts_nodes. apply nodup_filter. exact name_uses_nodup. Qed.
+
+(* a name occurrence of the root's name resolving to that exact root does have a context *)
+Lemma use_context_of_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) :
+  Index.node_view r = Index.Model.VName n0 ->
+  BN.resolution_redecl_root (BN.resolve bp r n0) = Some root ->
+  exists c, use_context_of root r = Some c.
+Proof.
+  intros Hv Hres. unfold use_context_of. rewrite Hv.
+  destruct (BN.ordinary_eq_dec n0 n0) as [_|Hne]; [| exfalso; apply Hne; reflexivity].
+  destruct (BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve bp r n0)) (Some root)) as [Hy|Hne];
+    [ eexists; reflexivity | exfalso; apply Hne; exact Hres ].
+Qed.
+
+(* §24.4 completeness: every relevant use of the root's name resolving to it appears among its contexts *)
+Lemma group_use_context_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) :
+  In r name_uses -> Index.node_view r = Index.Model.VName n0 ->
+  BN.resolution_redecl_root (BN.resolve bp r n0) = Some root ->
+  In r (map ruc_node (group_use_contexts root)).
+Proof.
+  intros Hin Hv Hres. destruct (use_context_of_complete root r Hv Hres) as [c HE].
+  rewrite <- (use_context_of_node root r c HE). apply in_map. unfold group_use_contexts.
+  apply in_flat_map. exists r. split; [ exact Hin | rewrite HE; left; reflexivity ].
+Qed.
 (* one redeclared-group diagnostic per exact enumerated root; use contexts stay off the disposition path (on demand) *)
 Definition group_rows : list (Diagnostic bp) :=
   map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
