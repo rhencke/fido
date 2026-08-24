@@ -749,6 +749,21 @@ typefail neg_deleted_lhs_classifier "the deleted per-use left-status classifier"
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) := BN.short_lhs_status bp.'
 typefail neg_forged_ref_row "a judgment ref forged without the exact retained table row" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : BN.ConstSpecJudgmentRef bp cs := BN.mk_cjr 0 (existT _ cs j) eq_refl eq_refl.'
+# — 26.2/26.4/26.5/26.7 the ANALYSIS payloads are unforgeable from descriptions: a resolution-derived cause needs
+#   the exact ResolutionRef, a short/const cause the exact decision/judgment ref, a use context a resolution that
+#   yields ITS root, and no bp-free Report view can mint an Analysis cause or diagnostic —
+typefail neg_invalidid_from_object "an InvalidIdentity cause forged from a raw ObjectRef, not the exact resolution" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (o : BN.ObjectRef (IX.index_program p)) (pn : Names.PredeclaredName) (H : True) : AN.Cause bp := AN.InvalidIdentity o pn H.'
+typefail neg_shortdup_nameonly "a ShortDuplicate cause forged from only a name, without the exact duplicate decision" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (n : Names.OrdinaryIdentifier) : AN.Cause bp := AN.ShortDuplicate n.'
+typefail neg_constmiss_raw_row "a ConstMissingInit cause forged from a raw ConstJudgment, not the exact ConstSpecJudgmentRef" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (cs : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (j : BN.ConstJudgment cs) : AN.Cause bp := AN.ConstMissingInit j.'
+typefail neg_useredecl_wrong_root "a redeclared use context forged for a root its own resolution does not yield" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (n : Names.OrdinaryIdentifier) (rootA rootB : BN.RedeclRoot bp n) (r : IX.NodeRef (IX.index_program p)) (res : BN.ResolutionRef (BN.use_env bp r) n) (H : BN.resolution_redecl_root res = Some rootA) : AN.RedeclaredUseRef rootB := AN.mk_redeclared_use r res H.'
+typefail neg_report_view_mints_cause "an Analysis cause forged from a bp-free Report CauseView" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Cause bp := v.'
+typefail neg_report_view_mints_diag "an Analysis diagnostic forged from a bp-free Report CauseView" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic bp := v.'
 # — 18.1/23 the descriptive redeclaration route is DELETED: the exact redeclaration_roots enumeration is the sole
 #   authority, and every descriptive-group carrier/projection fails to RESOLVE —
 typefail neg_deleted_redeclared_groups "the deleted descriptive redeclared-groups route" \
