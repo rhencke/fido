@@ -755,3 +755,52 @@ Proof.
   - intro H; apply FilePath.equalb_spec in H; apply fileref_positional; exact H.
   - intro H; subst b; apply FilePath.equalb_spec; reflexivity.
 Qed.
+
+(* every node's position is in range on its own file *)
+Lemma nr_pos_lt {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  nr_pos r < occ_count (nr_file r).
+Proof.
+  destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  destruct (BuildLaws.number_file_positions f) as [n Hpos].
+  assert (Hinp : In (nr_pos r) (map fst (Build.number_file f)))
+    by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+  rewrite Hpos in Hinp. apply in_seq in Hinp.
+  assert (Hlen : length (Build.number_file f) = n).
+  { apply (f_equal (@length nat)) in Hpos.
+    rewrite length_map, length_seq in Hpos. exact Hpos. }
+  lia.
+Qed.
+
+(* the file enumeration is duplicate-free: one file per retained path key *)
+Lemma files_emit_paths_nodup {p} {idx : ProgramIndex p} :
+  forall l : list (FilePath.T * Build.FileInfo),
+  NoDup (map fst l) ->
+  NoDup (map fr_path
+           (flat_map (fun kv => match mk_fileref idx (fst kv) with
+                                | Some fr => [fr] | None => [] end) l)).
+Proof.
+  induction l as [|kv rest IH]; intro Hk; [ constructor |].
+  cbn [map] in Hk. apply NoDup_cons_iff in Hk. destruct Hk as [Hnotin Hk'].
+  specialize (IH Hk'). cbn [flat_map].
+  destruct (mk_fileref idx (fst kv)) as [fr|] eqn:Hmk; [| cbn [app]; exact IH ].
+  cbn [app map]. constructor; [| exact IH ].
+  intro Hin. apply Hnotin.
+  rewrite (mk_fileref_path idx (fst kv) fr Hmk) in Hin.
+  clear -Hin. induction rest as [|kv' rest' IH']; [ destruct Hin |].
+  cbn [flat_map] in Hin. cbn [map].
+  destruct (mk_fileref idx (fst kv')) as [fr'|] eqn:Hmk'.
+  - cbn [app map] in Hin. destruct Hin as [He|Hin];
+      [ left; rewrite <- (mk_fileref_path idx (fst kv') fr' Hmk'); exact He
+      | right; exact (IH' Hin) ].
+  - cbn [app] in Hin. right. exact (IH' Hin).
+Qed.
+
+Lemma all_files_paths_nodup {p} {idx : ProgramIndex p} :
+  NoDup (map fr_path (all_files idx)).
+Proof.
+  exact (files_emit_paths_nodup (Collections.FileMap.elements (prog_map idx))
+           (Collections.file_map_elements_keys_nodup (prog_map idx))).
+Qed.
+
+Lemma all_files_nodup {p} {idx : ProgramIndex p} : NoDup (all_files idx).
+Proof. exact (NoDup_map_inv _ _ all_files_paths_nodup). Qed.

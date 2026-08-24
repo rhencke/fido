@@ -1,7 +1,7 @@
 (* Bindings — binders, blocks, objects, scopes, ordinary-name resolution, and package-scope function declarations. *)
 
 From Stdlib Require Import String List Bool Arith PeanoNat Lia Eqdep_dec PArith NArith.
-From Fido Require Import Syntax Names Index Index.Model Index.Build Index.BuildLaws Index.Child Index.Refs Index.Edges Compilable.PackageIdentity.
+From Fido Require Import Syntax Names Index Index.Model Index.Child Index.Refs Index.Edges Compilable.PackageIdentity.
 Import ListNotations.
 
 Module PI := Compilable.PackageIdentity.
@@ -941,20 +941,6 @@ Proof.
   f_equal. apply (UIP_dec nodeview_eq_dec).
 Qed.
 
-(* every node's position is in range on its own file *)
-Lemma nr_pos_lt {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx) :
-  Index.nr_pos r < Index.occ_count (Index.nr_file r).
-Proof.
-  destruct (Index.occ_in_number_file r) as [f [Hin Hcount]].
-  destruct (Index.BuildLaws.number_file_positions f) as [n Hpos].
-  assert (Hinp : In (Index.nr_pos r) (map fst (Index.Build.number_file f)))
-    by (apply in_map_iff; exists (Index.nr_pos r, Index.occ_at r); split; [ reflexivity | exact Hin ]).
-  rewrite Hpos in Hinp. apply in_seq in Hinp.
-  assert (Hlen : length (Index.Build.number_file f) = n).
-  { apply (f_equal (@length nat)) in Hpos.
-    rewrite length_map, length_seq in Hpos. exact Hpos. }
-  lia.
-Qed.
 
 (* the subjects enumeration covers every const spec: some entry shares its exact node *)
 Lemma const_subjects_cover {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx)
@@ -975,7 +961,7 @@ Proof.
     destruct Hin as [cs' [Hin' Hnode']].
     exists cs'. split; [| exact Hnode' ].
     apply in_flat_map. exists (Index.nr_pos r). split.
-    - apply in_seq. pose proof (nr_pos_lt r). lia.
+    - apply in_seq. pose proof (Index.nr_pos_lt r). lia.
     - rewrite Hmk. exact Hin'. }
   destruct Hentry as [cs' [Hin' Hnode']].
   exists cs'. split; [| exact Hnode' ].
@@ -1591,43 +1577,10 @@ Proof.
     rewrite (Htags a b (or_intror Ha) Hbin). exact Ha.
 Qed.
 
-(* the file enumeration is duplicate-free: one file per retained path key *)
-Lemma files_emit_paths_nodup {p} {idx : Index.ProgramIndex p} :
-  forall l : list (FilePath.T * Index.Build.FileInfo),
-  NoDup (map fst l) ->
-  NoDup (map Index.fr_path
-           (flat_map (fun kv => match Index.mk_fileref idx (fst kv) with
-                                | Some fr => [fr] | None => [] end) l)).
-Proof.
-  induction l as [|kv rest IH]; intro Hk; [ constructor |].
-  cbn [map] in Hk. apply NoDup_cons_iff in Hk. destruct Hk as [Hnotin Hk'].
-  specialize (IH Hk'). cbn [flat_map].
-  destruct (Index.mk_fileref idx (fst kv)) as [fr|] eqn:Hmk; [| cbn [app]; exact IH ].
-  cbn [app map]. constructor; [| exact IH ].
-  intro Hin. apply Hnotin.
-  rewrite (Index.mk_fileref_path idx (fst kv) fr Hmk) in Hin.
-  clear -Hin. induction rest as [|kv' rest' IH']; [ destruct Hin |].
-  cbn [flat_map] in Hin. cbn [map].
-  destruct (Index.mk_fileref idx (fst kv')) as [fr'|] eqn:Hmk'.
-  - cbn [app map] in Hin. destruct Hin as [He|Hin];
-      [ left; rewrite <- (Index.mk_fileref_path idx (fst kv') fr' Hmk'); exact He
-      | right; exact (IH' Hin) ].
-  - cbn [app] in Hin. right. exact (IH' Hin).
-Qed.
-
-Lemma all_files_paths_nodup {p} {idx : Index.ProgramIndex p} :
-  NoDup (map Index.fr_path (Index.all_files idx)).
-Proof.
-  exact (files_emit_paths_nodup (Collections.FileMap.elements (Index.prog_map idx))
-           (Collections.file_map_elements_keys_nodup (Index.prog_map idx))).
-Qed.
-
-Lemma all_files_nodup {p} {idx : Index.ProgramIndex p} : NoDup (Index.all_files idx).
-Proof. exact (NoDup_map_inv _ _ all_files_paths_nodup). Qed.
 
 Lemma pkg_members_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (pr : PI.PackageRef s) : NoDup (PI.pkg_members pr).
-Proof. unfold PI.pkg_members. apply NoDup_filter. apply all_files_nodup. Qed.
+Proof. unfold PI.pkg_members. apply NoDup_filter. apply Index.all_files_nodup. Qed.
 
 Lemma mk_packageref_pos {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   (n : nat) (pr : PI.PackageRef s) : PI.mk_packageref s n = Some pr -> PI.pr_pos pr = n.
@@ -2400,7 +2353,7 @@ Proof.
   intros Hfr Hev. unfold ledger_of.
   apply in_flat_map. exists (Index.nr_file r). split; [ exact Hfr |].
   apply in_flat_map. exists (Index.nr_pos r).
-  split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
+  split; [ apply in_seq; pose proof (Index.nr_pos_lt r); lia |].
   rewrite <- Index.nr_key_pos, Index.mk_noderef_self. cbv beta iota.
   rewrite Hev. left; reflexivity.
 Qed.
@@ -2506,7 +2459,7 @@ Proof.
   unfold traces_of_pkg. cbv zeta.
   apply in_flat_map. exists (Index.nr_file r). split; [ apply PI.pkg_members_of_file |].
   apply in_flat_map. exists (Index.nr_pos r).
-  split; [ apply in_seq; pose proof (nr_pos_lt r); lia |].
+  split; [ apply in_seq; pose proof (Index.nr_pos_lt r); lia |].
   rewrite <- Index.nr_key_pos, Index.mk_noderef_self. cbv beta iota.
   rewrite (bool_convoy_true _ _ _ Hb). left; reflexivity.
 Qed.
