@@ -185,6 +185,19 @@ prove that a listed import is used, that a referenced owner is imported directly
 arrives through notation, coercion, hint or transitive visibility, or that a theorem belongs semantically to
 its module — those remain ownership-first review obligations.
 
+**Two kinds of locality, stated honestly.** The acyclic one-way layer graph above is **real Rocq/Dune
+dependency locality**, mechanically enforced by the layer and owner gates: an incremental `dune` build
+recompiles exactly a changed module's reverse-dependency closure, so an edit to `Index.Edges` never forces
+`Build`, `BuildLaws`, or the `Index` Core owner. The **supported hermetic Buildx path does not provide
+wall-clock incremental locality**: a source edit invalidates the `COPY` layer and rebuilds the proof stage in
+full (deliberate, for reproducibility). The dependency-graph locality is not a claim about Buildx wall time.
+
+**The `make check` budget.** A repeatable warmed successful `make check` has one hard budget, 120 seconds, owned
+solely by `tools/check-budget.sh` (`BUDGET_SECONDS`); there is no `Make` variable, so no ordinary invocation can
+raise it. `make check` is the sole full-verification entry (`make check-core` is a guidance stub), and the
+staged pre-commit hook routes the same staged verification through the same one runner. A producer failure is
+returned as itself before the budget is consulted; a confirmed warmed overage fails closed with `STOP_FOR_ROB`.
+
 ---
 
 ### Two authorities, never two formal implementations
@@ -336,39 +349,43 @@ conversion naming a **source** type. Anything else is unrepresentable, not rejec
 ### Index — structural identity
 
 `Index` is the one structural occurrence-identity and navigation authority, derived from one immutable
-`Syntax.Program` snapshot. It knows no semantic types, admissibility, rendering or diagnostics. It is a thin
-aggregate `Index.v` — pure re-export, no definition, no theorem, no wrapper — over seven dependency-ordered
-owners, each a permanent internal layer with one change trigger:
+`Syntax.Program` snapshot. It knows no semantic types, admissibility, rendering or diagnostics. The root
+`Index.v` **is** the canonical Core owner — not an aggregate — refined by six sibling owners, each a permanent
+internal layer with one change trigger:
 
 ```text
-Index.Model       shallow vocabulary — flavors, shapes, NodeView, Kind, Role, Cell, generic positional support
+Index.Model       shallow vocabulary — flavors, shapes, NodeView, Kind, Role, Cell, generic positional/view support
 Index.Build       the one canonical executable numbering/build algorithm, its FileInfo/posmap_of/raw_index
 Index.BuildLaws   the laws of that numbering — spans, roots, coverage, layout, shape, completeness
-Index.Core        ProgramIndex, FileRef/NodeRef, node lookup/projections, generic parent/child, enumeration
+Index (root)      the canonical indexed occurrence authority — ProgramIndex, FileRef/NodeRef, node_view/role/
+                  kind/extent, generic node_parent/node_children, canonical file/node enumeration, and FileRef
+                  construction/equality/enumeration
 Index.Child       the one canonical direct-child identity ChildAt and its generic laws
 Index.Refs        exact refined source-occurrence refs (main/block/app/unary/exprstmt/short/spec) + positional laws
 Index.Edges       specialized ChildAt refinements — the edge families and indexed collections
 ```
 
-The one-way graph is `Model → Build → BuildLaws → Core → { Child, Refs } → Edges`, its exact direct edges named
-in the layer policy above; a consumer imports the aggregate and reads `Index.Owner.name`. The theory's external
-foundations are `Names`, `Syntax`, `Collections` and `FilePath`.
+The one-way graph is `Model → Build → BuildLaws → Index → { Child, Refs } → Edges`, its exact direct edges named
+in the layer policy above. Root `Index.v` is an implementation owner, not a barrel: it does not `Require Export`
+Child, Refs, or Edges, so a consumer imports the exact owners it uses — `Index` plus `Index.Child`/`Index.Refs`/
+`Index.Edges` as needed — and never Build or BuildLaws. The theory's external foundations are `Names`, `Syntax`,
+`Collections` and `FilePath`.
 
-One transparent terminating fold (`flat`, over `file_occs`) builds each file's ordered occurrence list once,
+One transparent terminating fold (`number_list`, inside `number_file`) builds each file's ordered occurrence list once,
 assigning each represented occurrence its canonical file-local `nat` position by deterministic preorder, file
 root = 0. `raw_index p` maps each file path to that list and `ProgramIndex p` is sealed to it (`{ l | l =
-raw_index p }`); every consumer reads it through `prog_occs`, none re-folds the raw source.
+raw_index p }`); every consumer reads it through `prog_map`, none re-folds the raw source.
 
 A reference is a **dependent selector into that retained object, valid by its indices** — not a coordinate,
 key, Boolean or table handle. A `NodeRef` is a `FileRef` plus a position `nr_pos` and a proof `nr_pos <
 length (local_index idx nr_file)`; a malformed position has no inhabitant, so an out-of-range or foreign-file
 reference cannot be constructed, and `le`-proof-irrelevance makes a reference's identity exactly its
-file-and-position. `node_ref_cursor` projects the exact retained member by total `nth_lt` — never a fallback.
+file-and-position. `occ_at` projects the exact retained cell by total map lookup — never a fallback.
 `BinderRef`/`BlockRef` refine a `NodeRef` with an erased `Prop` proof over the projected role/kind, so a
 wrong-role reference is likewise unconstructible; the proof erases at `vm_compute`, so the id is byte-identical.
 Transparency preserves `vm_compute`; unforgeability comes from the indices, not from opacity.
 
-The query API is **total by carried validity** — only `parent_of` is optional — never a semantic fallback.
+The query API is **total by carried validity** — only `node_parent` is optional — never a semantic fallback.
 Navigation is exact: file/node/parent/member projections over the retained object, kind/role refinements over
 the exact projection, and one canonical enumeration. No per-node search, no coordinate/equality/Boolean-backed
 peer mint, no raw-source semantic enumeration, no located or copied AST, no second tree.
