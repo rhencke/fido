@@ -3391,6 +3391,40 @@ Proof.
     left. f_equal. apply le_unique.
 Defined.
 
+(* pure-boolean event-site equality: only the two nat indices, no proof transport — vm-cheap, unlike eq_dec *)
+Definition evsite_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EvSite bp) : bool :=
+  match a, b with
+  | PkgEventAt pa ea _, PkgEventAt pb eb _ => andb (Nat.eqb pa pb) (Nat.eqb ea eb)
+  | BlockEventAt ta ea _, BlockEventAt tb eb _ => andb (Nat.eqb ta tb) (Nat.eqb ea eb)
+  | _, _ => false
+  end.
+Lemma evsite_eqb_true {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EvSite bp) : evsite_eqb a b = true -> a = b.
+Proof.
+  destruct a as [pa ea Ha|ta ea Ha], b as [pb eb Hb|tb eb Hb]; cbn; try discriminate; intro H;
+    apply andb_prop in H as [H1 H2]; apply Nat.eqb_eq in H1; apply Nat.eqb_eq in H2; subst;
+    f_equal; apply le_unique.
+Qed.
+
+(* pure-boolean establishment-ref key equality: site index tuple plus the addition index; vm-cheap head selector *)
+Definition es_key_eqb {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EstablishmentRef bp) : bool :=
+  andb (evsite_eqb (es_site a) (es_site b)) (Nat.eqb (es_ix a) (es_ix b)).
+Lemma es_key_eqb_true {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EstablishmentRef bp) :
+  es_key_eqb a b = true -> (es_site a, es_ix a) = (es_site b, es_ix b).
+Proof.
+  unfold es_key_eqb. intro H. apply andb_prop in H as [H1 H2].
+  apply evsite_eqb_true in H1. apply Nat.eqb_eq in H2. rewrite H1, H2. reflexivity.
+Qed.
+Lemma es_key_eqb_refl {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a : EstablishmentRef bp) : es_key_eqb a a = true.
+Proof.
+  unfold es_key_eqb. apply andb_true_intro. split; [ | apply Nat.eqb_refl ].
+  destruct (es_site a) as [pa ea Ha|ta ea Ha]; cbn; rewrite !Nat.eqb_refl; reflexivity.
+Qed.
+
 (* eq_dec on an exact event addition at a fixed site/index: its Est decides it; its nth_error proof is UIP *)
 Definition eventadd_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {site : EvSite bp} {ix : nat}
@@ -5273,22 +5307,23 @@ Proof.
   rewrite Hm, Hg. cbn [length]. lia.
 Qed.
 
-(* the canonical root of a redeclared group, emitted only at its first member, keyed by the cheap vm-safe est_eqb *)
+(* the canonical redeclared-group root, emitted at the group's first ref by the vm-cheap (site,ix) key es_key_eqb *)
 Definition root_at_head {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (er : EstablishmentRef bp)
   : option { n : Names.OrdinaryIdentifier & RedeclRoot bp n } :=
-  match group_refs bp (est_scope (es_est er)) (est_name (es_est er))
-    as g return group_refs bp (est_scope (es_est er)) (est_name (es_est er)) = g
-                -> option { n : Names.OrdinaryIdentifier & RedeclRoot bp n } with
-  | er0 :: er1 :: rest => fun Hg =>
-      if est_eqb (es_est er0) (es_est er)
-      then Some (existT _ (est_name (es_est er))
-                  (existT _ (est_scope (es_est er))
-                     (mk_redeclaration (binding_group bp (est_scope (es_est er)) (est_name (es_est er)))
-                        (group_two_of bp (est_scope (es_est er)) (est_name (es_est er)) er0 er1 rest Hg))))
-      else None
-  | _ => fun _ => None
-  end eq_refl.
+  match le_lt_dec 2 (length (group_refs bp (est_scope (es_est er)) (est_name (es_est er)))) with
+  | right _ => None
+  | left Hge =>
+      match hd_error (group_refs bp (est_scope (es_est er)) (est_name (es_est er))) with
+      | None => None
+      | Some er0 =>
+          if es_key_eqb er0 er
+          then Some (existT _ (est_name (es_est er))
+                       (existT _ (est_scope (es_est er))
+                          (mk_redeclaration (binding_group bp (est_scope (es_est er)) (est_name (es_est er))) Hge)))
+          else None
+      end
+  end.
 
 (* the exact canonical enumeration: one RedeclRoot per redeclared group, emitted at the group's exact first ref *)
 Definition redeclaration_roots {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -5430,6 +5465,147 @@ Proof.
     rewrite <- Hkp in Hkt. injection Hkt as Hsite _.
     rewrite Hst, Hsp in Hsite. discriminate Hsite.
 Qed.
+
+(* NoDup passes back through a map *)
+Lemma nodup_map_inv {A B} (f : A -> B) (l : list A) : NoDup (map f l) -> NoDup l.
+Proof.
+  induction l as [|a t IH]; intro H; [ constructor | ].
+  cbn in H. inversion H as [|? ? Hna H']; subst.
+  constructor; [ intro Hin; apply Hna, in_map, Hin | exact (IH H') ].
+Qed.
+
+(* NoDup of a flat_map emitting at most one element per source, when equal outputs force equal sources *)
+Lemma nodup_flatmap_option {A B} (f : A -> option B) (l : list A) :
+  NoDup l ->
+  (forall a1 a2 b, In a1 l -> In a2 l -> f a1 = Some b -> f a2 = Some b -> a1 = a2) ->
+  NoDup (flat_map (fun a => match f a with Some b => b :: nil | None => nil end) l).
+Proof.
+  induction l as [|a t IH]; intros Hnd Hinj; cbn; [ constructor | ].
+  inversion Hnd as [|? ? Hna Hnd']; subst.
+  destruct (f a) as [b|] eqn:Ha; cbn.
+  - constructor.
+    + intro Hin. apply in_flat_map in Hin. destruct Hin as [a' [Ha' Hb']].
+      destruct (f a') as [b'|] eqn:Hfa'; cbn in Hb'; [ | destruct Hb' ].
+      destruct Hb' as [Heq|[]]. subst b'.
+      assert (a = a') by (apply (Hinj a a' b); [ left; reflexivity | right; exact Ha' | exact Ha | exact Hfa' ]).
+      subst a'. exact (Hna Ha').
+    + apply IH; [ exact Hnd' | ].
+      intros a1 a2 b0 H1 H2 Hf1 Hf2. apply (Hinj a1 a2 b0); [ right; exact H1 | right; exact H2 | exact Hf1 | exact Hf2 ].
+  - apply IH; [ exact Hnd' | ].
+    intros a1 a2 b0 H1 H2 Hf1 Hf2. apply (Hinj a1 a2 b0); [ right; exact H1 | right; exact H2 | exact Hf1 | exact Hf2 ].
+Qed.
+
+(* scope_name_matches decoded: a matching establishment has exactly that scope and spelling *)
+Lemma scope_name_matches_true {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (sc : ScopeId s) (n : Names.OrdinaryIdentifier) (er : EstablishmentRef bp) :
+  scope_name_matches sc n er = true -> est_scope (es_est er) = sc /\ est_name (es_est er) = n.
+Proof.
+  unfold scope_name_matches. intro H. apply andb_prop in H as [Hs Hn].
+  apply scope_eqb_spec in Hs. apply Names.ordinary_equalb_spec in Hn. split; assumption.
+Qed.
+
+(* establishment refs are identified by their (site,ix) key: equal keys, both present, force the same ref *)
+Lemma all_est_key_inj {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (a b : EstablishmentRef bp) :
+  In a (all_establishment_refs bp) -> In b (all_establishment_refs bp) ->
+  (es_site a, es_ix a) = (es_site b, es_ix b) -> a = b.
+Proof.
+  intros Ha Hb Hkey. pose proof (establishment_refs_once bp) as Hnd.
+  revert Hnd Ha Hb. generalize (all_establishment_refs bp) as L. intro L.
+  induction L as [|x t IH]; intros Hnd Ha Hb; [ destruct Ha | ].
+  cbn in Hnd. inversion Hnd as [|? ? Hnx Hnd']; subst.
+  destruct Ha as [<-|Ha]; destruct Hb as [<-|Hb].
+  - reflexivity.
+  - exfalso. apply Hnx. rewrite Hkey. exact (in_map (fun er => (es_site er, es_ix er)) t b Hb).
+  - exfalso. apply Hnx. rewrite <- Hkey. exact (in_map (fun er => (es_site er, es_ix er)) t a Ha).
+  - apply IH; assumption.
+Qed.
+
+(* root_at_head shape: it emits only at a group's first ref, and its key matches that first ref's key *)
+Lemma root_at_head_some_shape {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (er : EstablishmentRef bp)
+  (e : { n : Names.OrdinaryIdentifier & RedeclRoot bp n }) :
+  root_at_head bp er = Some e ->
+  exists er0,
+    hd_error (group_refs bp (est_scope (es_est er)) (est_name (es_est er))) = Some er0
+    /\ es_key_eqb er0 er = true
+    /\ projT1 e = est_name (es_est er)
+    /\ projT1 (projT2 e) = est_scope (es_est er).
+Proof.
+  intro H. unfold root_at_head in H.
+  destruct (le_lt_dec 2 (length (group_refs bp (est_scope (es_est er)) (est_name (es_est er))))) as [Hge|Hlt];
+    [ | discriminate H ].
+  destruct (hd_error (group_refs bp (est_scope (es_est er)) (est_name (es_est er)))) as [er0|] eqn:Hhd;
+    [ | discriminate H ].
+  destruct (es_key_eqb er0 er) eqn:Hk; [ | discriminate H ].
+  injection H as He. subst e.
+  exists er0. split; [ reflexivity | split; [ exact Hk | split; reflexivity ] ].
+Qed.
+
+(* root_at_head computes to Some at a group head: the entry retains that group's exact scope and name *)
+Lemma root_at_head_head {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (er0 er1 : EstablishmentRef bp) (tl : list (EstablishmentRef bp)) :
+  group_refs bp (est_scope (es_est er0)) (est_name (es_est er0)) = er0 :: er1 :: tl ->
+  exists r : RedeclRoot bp (est_name (es_est er0)),
+    projT1 r = est_scope (es_est er0) /\ root_at_head bp er0 = Some (existT _ (est_name (es_est er0)) r).
+Proof.
+  intro Hhd. unfold root_at_head.
+  destruct (le_lt_dec 2 (length (group_refs bp (est_scope (es_est er0)) (est_name (es_est er0))))) as [Hge|Hlt];
+    [ | rewrite Hhd in Hlt; cbn in Hlt; lia ].
+  assert (Hh : hd_error (group_refs bp (est_scope (es_est er0)) (est_name (es_est er0))) = Some er0)
+    by (rewrite Hhd; reflexivity).
+  rewrite Hh, (es_key_eqb_refl er0).
+  exists (existT _ (est_scope (es_est er0))
+            (mk_redeclaration (binding_group bp (est_scope (es_est er0)) (est_name (es_est er0))) Hge)).
+  split; reflexivity.
+Qed.
+
+(* §24.4 completeness: every canonical redeclared group (>=2 members) is enumerated at its first ref *)
+Lemma redeclaration_roots_complete {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (sc : ScopeId s) (n : Names.OrdinaryIdentifier) :
+  2 <= length (group_refs bp sc n) ->
+  exists r : RedeclRoot bp n, projT1 r = sc /\ In (existT _ n r) (redeclaration_roots bp).
+Proof.
+  intro Hlen.
+  destruct (group_refs bp sc n) as [|er0 [|er1 rest]] eqn:Hg; cbn in Hlen; try lia.
+  assert (Hin0 : In er0 (group_refs bp sc n)) by (rewrite Hg; left; reflexivity).
+  unfold group_refs in Hin0. apply filter_In in Hin0. destruct Hin0 as [Hall Hsm].
+  destruct (scope_name_matches_true sc n er0 Hsm) as [Hsc Hnm].
+  assert (Hg0 : group_refs bp (est_scope (es_est er0)) (est_name (es_est er0)) = er0 :: er1 :: rest)
+    by (rewrite Hsc, Hnm; exact Hg).
+  destruct (root_at_head_head bp er0 er1 rest Hg0) as [r0 [Hr0sc Hr0]].
+  exists (eq_rect _ (fun nm => RedeclRoot bp nm) r0 _ Hnm). split.
+  - rewrite <- Hsc. destruct Hnm; cbn. exact Hr0sc.
+  - unfold redeclaration_roots. apply in_flat_map. exists er0. split; [ exact Hall | ].
+    rewrite Hr0. cbn. left. destruct Hnm; cbn. reflexivity.
+Qed.
+
+(* §24.4 duplicate-free: the enumeration has no repeated root *)
+Lemma redeclaration_roots_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) : NoDup (redeclaration_roots bp).
+Proof.
+  unfold redeclaration_roots. apply nodup_flatmap_option.
+  - apply (nodup_map_inv (fun er => (es_site er, es_ix er))). exact (establishment_refs_once bp).
+  - intros er er' e Hin Hin' Hr Hr'.
+    destruct (root_at_head_some_shape bp er e Hr) as [er0 [Hhd0 [Hk0 [Hne0 Hsc0]]]].
+    destruct (root_at_head_some_shape bp er' e Hr') as [er0' [Hhd0' [Hk0' [Hne0' Hsc0']]]].
+    assert (Hn : est_name (es_est er) = est_name (es_est er')) by (rewrite <- Hne0, <- Hne0'; reflexivity).
+    assert (Hs : est_scope (es_est er) = est_scope (es_est er')) by (rewrite <- Hsc0, <- Hsc0'; reflexivity).
+    rewrite Hs, Hn in Hhd0. rewrite Hhd0' in Hhd0. injection Hhd0 as He0. subst er0'.
+    apply es_key_eqb_true in Hk0. apply es_key_eqb_true in Hk0'.
+    apply (all_est_key_inj bp er er' Hin Hin').
+    rewrite <- Hk0, <- Hk0'. reflexivity.
+Qed.
+
+(* §24.4 one root per canonical redeclared group: two roots at the same scope and name are the same root *)
+Lemma redeclaration_root_value_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} (bp : BindingPhase s d) (n : Names.OrdinaryIdentifier) (r1 r2 : RedeclRoot bp n) :
+  projT1 r1 = projT1 r2 -> r1 = r2.
+Proof.
+  destruct r1 as [sc1 rr1], r2 as [sc2 rr2]. cbn. intro Hsc. subst sc2.
+  f_equal. apply redeclaration_ref_unique.
+Qed.
+
 
 
 (* each short fact case names its exact evidence, keyed by the retained decision row (contract §9.3) *)
