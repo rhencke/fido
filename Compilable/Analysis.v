@@ -506,7 +506,7 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
           end eq_refl
       end
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
-      (* a short declaration: retain the exact short event and its canonical duplicate decision naming the repeated left *)
+      (* short declaration: retain the exact short event and canonical duplicate decision naming the repeated left *)
       let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
       match BN.short_dup_decision_name (BN.short_duplicate_decision se)
         as nm return BN.short_dup_decision_name (BN.short_duplicate_decision se) = nm -> StmtOutcome bp r with
@@ -705,15 +705,27 @@ Definition analyze (p : Syntax.Program) : Result p :=
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
 
-(* an issue roots at an exact node, an exact package, or an exact declaration group; never a self-fallback *)
+(* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
+Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {n : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n) : Type := mk_redeclared_use {
+  ruc_node   : Index.NodeRef idx ;
+  ruc_res    : BN.ResolutionRef (BN.use_env bp ruc_node) n ;
+  ruc_yields : BN.resolution_redecl_root ruc_res = Some root
+}.
+Arguments mk_redeclared_use {p idx s bd bp n root} _ _ _.
+Arguments ruc_node {p idx s bd bp n root} _.
+Arguments ruc_res {p idx s bd bp n root} _.
+Arguments ruc_yields {p idx s bd bp n root} _.
+
+(* an issue roots at an exact node, an exact package, or an exact redeclaration root; never a self-fallback *)
 Inductive IssueRoot {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) : Type :=
 | RootNode : Index.NodeRef idx -> IssueRoot bp
 | RootPackage : BN.PI.PackageRef s -> IssueRoot bp
-| RootGroup : BN.DeclarationGroupRef s -> IssueRoot bp.
+| RootGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueRoot bp.
 Arguments RootNode {p idx s bd bp} _.
 Arguments RootPackage {p idx s bd bp} _.
-Arguments RootGroup {p idx s bd bp} _.
+Arguments RootGroup {p idx s bd bp n} _.
 
 (* the exact diagnostics: an occurrence invalidity, a missing fixed main, an output collision, a redeclared group *)
 Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -721,11 +733,11 @@ Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
 | DOcc : Index.NodeRef idx -> Family -> Cause bp -> Diagnostic bp
 | DMissingMain : BN.PI.PackageRef s -> Diagnostic bp
 | DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic bp
-| DRedeclaredGroup : BN.DeclarationGroupRef s -> list (Index.NodeRef idx) -> Diagnostic bp.
+| DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> Diagnostic bp.
 Arguments DOcc {p idx s bd bp} _ _ _.
 Arguments DMissingMain {p idx s bd bp} _.
 Arguments DOutputCollision {p idx s bd bp} _ _.
-Arguments DRedeclaredGroup {p idx s bd bp} _ _.
+Arguments DRedeclaredGroup {p idx s bd bp n} _.
 
 (* the exact boundaries: an occurrence-family unmet requirement, retaining its subject, family, and requirement *)
 Inductive Boundary {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -739,11 +751,11 @@ Inductive IssueCause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
 | OccCause : Cause bp -> IssueCause bp
 | MissingMainCause : BN.PI.PackageRef s -> IssueCause bp
 | OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause bp
-| RedeclaredGroupCause : BN.DeclarationGroupRef s -> IssueCause bp.
+| RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueCause bp.
 Arguments OccCause {p idx s bd bp} _.
 Arguments MissingMainCause {p idx s bd bp} _.
 Arguments OutputCollisionCause {p idx s bd bp} _ _.
-Arguments RedeclaredGroupCause {p idx s bd bp} _.
+Arguments RedeclaredGroupCause {p idx s bd bp n} _.
 
 Section IssueProjections.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
@@ -754,14 +766,14 @@ Definition diag_cause (d : Diagnostic bp) : IssueCause bp :=
   | DOcc _ _ c => OccCause c
   | DMissingMain pr => MissingMainCause pr
   | DOutputCollision pr rr => OutputCollisionCause pr rr
-  | DRedeclaredGroup g _ => RedeclaredGroupCause g
+  | DRedeclaredGroup root => RedeclaredGroupCause root
   end.
 Definition diag_family (d : Diagnostic bp) : option Family := match d with DOcc _ f _ => Some f | _ => None end.
-(* the exact related nodes a row retains: a complex mismatch's two sides, or a group's members and use contexts *)
+(* related nodes a row projects: a complex mismatch's two sides, or a group's exact members (use contexts via Report) *)
 Definition diag_related (d : Diagnostic bp) : list (Index.NodeRef idx) :=
   match d with
   | DOcc _ _ (ComplexMismatch a b) => [a; b]
-  | DRedeclaredGroup g ctxs => map BN.est_node (BN.dg_members g) ++ ctxs
+  | DRedeclaredGroup root => map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root)))
   | _ => []
   end.
 Definition diag_root (d : Diagnostic bp) : IssueRoot bp :=
@@ -769,7 +781,7 @@ Definition diag_root (d : Diagnostic bp) : IssueRoot bp :=
   | DOcc r _ _ => RootNode r
   | DMissingMain pr => RootPackage pr
   | DOutputCollision pr _ => RootPackage pr
-  | DRedeclaredGroup g _ => RootGroup g
+  | DRedeclaredGroup root => RootGroup root
   end.
 Definition bound_req (b : Boundary bp) : Requirement bp := match b with BOcc _ _ q => q end.
 Definition bound_family (b : Boundary bp) : Family := match b with BOcc _ f _ => f end.
@@ -818,23 +830,62 @@ Definition collision_rows : list (Diagnostic bp) :=
 Definition main_rows : list (Diagnostic bp) :=
   flat_map (fun pr => match BN.package_main bp pr with BN.MainMissing => [DMissingMain pr] | _ => [] end) (BN.PI.packages s).
 
-(* two group refs are the same group iff they share the exact scope and spelling that key the declaration group *)
-Definition same_groupref (a b : BN.DeclarationGroupRef s) : bool :=
-  andb (BN.scope_eqb (BN.dg_scope a) (BN.dg_scope b)) (Names.ordinary_equalb (BN.dg_name a) (BN.dg_name b)).
 (* every package-member name occurrence: the use sites a redeclared group can contextualize *)
 Definition name_uses : list (Index.NodeRef idx) :=
   filter (fun r => match Index.node_view r with Index.Model.VName _ => true | _ => false end)
          (flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s))).
-(* the exact use-site contexts of a redeclared group: name occurrences resolving to it as an ambiguous group *)
-Definition group_use_contexts (g : BN.DeclarationGroupRef s) : list (Index.NodeRef idx) :=
-  filter (fun r => match Index.node_view r with
-                   | Index.Model.VName n => match BN.resolution_redecl_root (BN.resolve bp r n) with
-                                      | Some root => same_groupref (BN.redecl_view root) g
-                                      | None => false end
-                   | _ => false end) name_uses.
-(* one redeclared-group diagnostic per exact phase-owned group, keyed at its first member, with use contexts *)
+(* one exact use context: a use of root's name resolving by exact-identity check to that exact root, with proof *)
+Definition use_context_of {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
+  (r : Index.NodeRef idx) : option (RedeclaredUseRef root) :=
+  match Index.node_view r with
+  | Index.Model.VName n =>
+      match BN.ordinary_eq_dec n n0 with
+      | left _ =>
+          match BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve bp r n0)) (Some root) with
+          | left Hyields => Some (mk_redeclared_use r (BN.resolve bp r n0) Hyields)
+          | right _ => None
+          end
+      | right _ => None
+      end
+  | _ => None
+  end.
+(* the exact use-site contexts of a redeclared root: uses of its name resolving, by exact identity, to it *)
+Definition group_use_contexts {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
+  : list (RedeclaredUseRef root) :=
+  flat_map (fun r => match use_context_of root r with Some c => [c] | None => [] end) name_uses.
+
+(* a returned use context's node is exactly the name occurrence it was built from *)
+Lemma use_context_of_node {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
+  (r : Index.NodeRef idx) (c : RedeclaredUseRef root) : use_context_of root r = Some c -> ruc_node c = r.
+Proof.
+  intro H. unfold use_context_of in H.
+  destruct (Index.node_view r); try discriminate H.
+  match type of H with context[BN.ordinary_eq_dec ?a ?b] => destruct (BN.ordinary_eq_dec a b) end; try discriminate H.
+  match type of H with context[BN.option_redeclroot_eq_dec ?a ?b] => destruct (BN.option_redeclroot_eq_dec a b) end;
+    try discriminate H.
+  injection H as H. subst c. reflexivity.
+Qed.
+
+(* map proj over an option-collecting flat_map = filter, when proj recovers each collected element's source *)
+Lemma flatmap_option_filter {A B} (f : A -> option B) (g : B -> A)
+  (Hg : forall a b, f a = Some b -> g b = a) (L : list A) :
+  map g (flat_map (fun a => match f a with Some b => [b] | None => nil end) L)
+  = filter (fun a => match f a with Some _ => true | None => false end) L.
+Proof.
+  induction L as [|a rest IH]; [reflexivity|]. cbn. destruct (f a) as [b|] eqn:E.
+  - cbn. rewrite (Hg a b E), IH. reflexivity.
+  - exact IH.
+Qed.
+
+(* §24.4 ordering + completeness handle: the context nodes are exactly the qualifying name uses, in source order *)
+Definition context_qualifies {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) : bool :=
+  match use_context_of root r with Some _ => true | None => false end.
+Lemma group_use_contexts_nodes {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) :
+  map ruc_node (group_use_contexts root) = filter (context_qualifies root) name_uses.
+Proof. exact (flatmap_option_filter (use_context_of root) ruc_node (use_context_of_node root) name_uses). Qed.
+(* one redeclared-group diagnostic per exact enumerated root; use contexts stay off the disposition path (on demand) *)
 Definition group_rows : list (Diagnostic bp) :=
-  map (fun g => DRedeclaredGroup g (group_use_contexts g)) (BN.redeclared_groups bp).
+  map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
 
 Definition occ_diags : list (Diagnostic bp) := flat_map occ_diag_rows (fact_list fp).
 
@@ -868,8 +919,19 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 
 (* the root algebra is total: every diagnostic roots at an exact node, package, or group, never a self-fallback *)
 Lemma root_algebra_total (d : Diagnostic bp) :
-  (exists r, diag_root d = RootNode r) \/ (exists pr, diag_root d = RootPackage pr) \/ (exists g, diag_root d = RootGroup g).
-Proof. destruct d; cbn; eauto 6. Qed.
+  (exists r, diag_root d = RootNode r) \/ (exists pr, diag_root d = RootPackage pr)
+  \/ (exists (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n), diag_root d = RootGroup root).
+Proof. destruct d; cbn; eauto 8. Qed.
+
+(* §24.4 soundness: every exact use context's exact resolution yields exactly the root it is a context of *)
+Lemma redeclared_use_sound {n0 : Names.OrdinaryIdentifier} {root : BN.RedeclRoot bp n0}
+  (c : RedeclaredUseRef root) : BN.resolution_redecl_root (ruc_res c) = Some root.
+Proof. exact (ruc_yields c). Qed.
+
+(* §24.4 exact-root identity: a context belongs to no root other than the exact one its resolution yields *)
+Lemma redeclared_use_root_unique {n0 : Names.OrdinaryIdentifier} {r1 r2 : BN.RedeclRoot bp n0}
+  (c : RedeclaredUseRef r1) : BN.resolution_redecl_root (ruc_res c) = Some r2 -> r1 = r2.
+Proof. intro H. pose proof (ruc_yields c) as Hy. rewrite Hy in H. injection H as H. exact H. Qed.
 
 End IssueLaws.
 

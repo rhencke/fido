@@ -3378,6 +3378,65 @@ Proof.
   destruct (est_eq_dec x y) as [E|E]; [ left; f_equal; exact E | right; intro H; apply E; injection H as H; exact H ].
 Defined.
 
+(* decidable equality on the exact event site: the two nat indices decide it; the in-range witness is irrelevant *)
+Definition evsite_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EvSite bp) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [pa ea Ha | ta ea Ha], b as [pb eb Hb | tb eb Hb]; try (right; discriminate).
+  - destruct (Nat.eq_dec pa pb) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+    destruct (Nat.eq_dec ea eb) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+    left. f_equal. apply le_unique.
+  - destruct (Nat.eq_dec ta tb) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+    destruct (Nat.eq_dec ea eb) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+    left. f_equal. apply le_unique.
+Defined.
+
+(* eq_dec on an exact event addition at a fixed site/index: its Est decides it; its nth_error proof is UIP *)
+Definition eventadd_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {site : EvSite bp} {ix : nat}
+  (a b : EventAdditionRef bp site ix) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [ea1 at1], b as [ea2 at2].
+  destruct (est_eq_dec ea1 ea2) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+  left. f_equal. apply (UIP_dec option_est_eq_dec).
+Defined.
+
+(* decidable equality on an exact establishment ref: site, index, and addition each decide it *)
+Definition estref_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} (a b : EstablishmentRef bp) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [sa ia adda], b as [sb ib addb].
+  destruct (evsite_eq_dec sa sb) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+  destruct (Nat.eq_dec ia ib) as [->|Ne]; [| right; intro H; apply Ne; congruence ].
+  destruct (eventadd_eq_dec adda addb) as [->|Ne]; [ left; reflexivity | right; intro H; apply Ne ].
+  injection H as H.
+  apply Eqdep_dec.inj_pair2_eq_dec in H; [| exact evsite_eq_dec].
+  apply Eqdep_dec.inj_pair2_eq_dec in H; [| exact Nat.eq_dec].
+  exact H.
+Defined.
+
+(* every binding-group ref at (sc, n) is the canonical one — its members are pinned to group_refs, the proof is UIP *)
+Lemma binding_group_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
+  (g1 g2 : BindingGroupRef bp sc n) : g1 = g2.
+Proof.
+  destruct g1 as [m1 ok1], g2 as [m2 ok2].
+  assert (Em : m1 = m2) by (rewrite ok1, ok2; reflexivity).
+  revert ok1 ok2. rewrite Em. intros ok1 ok2.
+  assert (Hok : ok1 = ok2) by apply (UIP_dec (list_eq_dec estref_eq_dec)).
+  rewrite Hok. reflexivity.
+Qed.
+
+(* the redeclaration ref at (sc, n) is unique: its group is canonical and its 2<=length witness is proof-irrelevant *)
+Lemma redeclaration_ref_unique {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {sc : ScopeId s} {n : Names.OrdinaryIdentifier}
+  (r1 r2 : RedeclarationRef bp sc n) : r1 = r2.
+Proof.
+  destruct r1 as [g1 h1], r2 as [g2 h2].
+  pose proof (binding_group_unique g1 g2) as E. subst g1.
+  f_equal. apply le_unique.
+Qed.
+
 (* exact addition refs are positionally unique: same site and index force the same ref (Est is an hSet) *)
 Lemma eventadditionref_positional {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {site : EvSite bp} {ix : nat}
@@ -4782,6 +4841,26 @@ Definition package_visible_group {p} {idx : Index.ProgramIndex p} {s : PI.Packag
 Definition RedeclRoot {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} (bp : BindingPhase s d) (n : Names.OrdinaryIdentifier) : Type :=
   { sc : ScopeId s & RedeclarationRef bp sc n }.
+
+(* exact RedeclRoot identity via exact scope + unique ref: exact-object identity, not a descriptive compare *)
+Definition redeclroot_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {n : Names.OrdinaryIdentifier}
+  (a b : RedeclRoot bp n) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [sca ra], b as [scb rb].
+  destruct (scope_eq_dec sca scb) as [Es|Es].
+  - subst scb. left. f_equal. apply redeclaration_ref_unique.
+  - right. intro H. apply Es. exact (f_equal (@projT1 _ _) H).
+Defined.
+
+(* the option lift of exact RedeclRoot identity — a resolution's redecl-root either is exactly this root or is not *)
+Definition option_redeclroot_eq_dec {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {n : Names.OrdinaryIdentifier}
+  (a b : option (RedeclRoot bp n)) : {a = b} + {a <> b}.
+Proof.
+  destruct a as [x|], b as [y|]; try (right; discriminate); try (left; reflexivity).
+  destruct (redeclroot_eq_dec x y) as [E|NE]; [ left; f_equal; exact E | right; intro H; apply NE; injection H as H; exact H ].
+Defined.
 
 (* the exact status of the local visible group, indexed by the exact group ref, not a raw member list *)
 Inductive LocalVisibleGroupStatusRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

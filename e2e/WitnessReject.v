@@ -159,7 +159,7 @@ Definition r_redecl_var : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syn
 (* the one diagnostic is a redeclared-group row over the group spelled "x" (cause RedeclaredGroupCause) *)
 Definition r_redecl_payload :
   (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]) with
-   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "x")
+   | [ d ] => match RP.diag_group_name d with Some nm => Names.ordinary_equalb nm (OID "x") | None => false end
    | _ => false
    end) = true.
 Proof. vm_compute; reflexivity. Qed.
@@ -173,11 +173,11 @@ Proof. vm_compute; reflexivity. Qed.
 Definition o_cx_typed_family : exists f,
   map AN.bound_family (AN.result_boundaries (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]))) = [ f ].
 Proof. eexists; vm_compute; reflexivity. Qed.
-(* a redeclared group retains its exact use-site contexts: a use is contextualized, not re-diagnosed per use *)
+(* a use of the redeclared name folds into the one group row named "x"; exact contexts + soundness are §24.4 laws *)
+Definition p_redecl_use : Syntax.Program :=
+  prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "y"))) (NE1 (VNAME "x")) ].
 Definition r_redecl_usecontext :
-  (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "y"))) (NE1 (VNAME "x")) ]) with
-   | [ AN.DRedeclaredGroup g (_ :: _) ] => Names.ordinary_equalb (BN.dg_name g) (OID "x")
-   | _ => false end) = true.
+  map RP.diag_group_name (dsites p_redecl_use) = [ Some (OID "x") ].
 Proof. vm_compute; reflexivity. Qed.
 
 (* an unbound application head is a dependent non-result, never a successful application fact *)
@@ -221,14 +221,14 @@ Definition c_main_only : Compilable.compiles (prog_tops [ main0 ]). Proof. compi
 Definition r_main_const_redecl : Compilable.rejects (prog_tops [ tconstmain ; main0 ]). Proof. reject. Qed.
 Definition r_main_const_redecl_payload :
   (match dsites (prog_tops [ tconstmain ; main0 ]) with
-   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "main")
+   | [ d ] => match RP.diag_group_name d with Some nm => Names.ordinary_equalb nm (OID "main") | None => false end
    | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* (c) multiple fixed mains: a redeclared group through the one authority, no first-main pick, so Rejected *)
 Definition r_main_multiple : Compilable.rejects (prog_tops [ main0 ; main0 ]). Proof. reject. Qed.
 Definition r_main_multiple_payload :
   (match dsites (prog_tops [ main0 ; main0 ]) with
-   | [ AN.DRedeclaredGroup g _ ] => Names.ordinary_equalb (BN.dg_name g) (OID "main")
+   | [ d ] => match RP.diag_group_name d with Some nm => Names.ordinary_equalb nm (OID "main") | None => false end
    | _ => false end) = true.
 Proof. vm_compute; reflexivity. Qed.
 (* (d) no fixed main, an ordinary const main: MainMissing, so the missing-entry diagnostic Rejects *)
@@ -294,7 +294,7 @@ Definition p_collision_redecl : Syntax.Program :=
 (* the output collision and a redeclared group coexist as distinct diagnostics through the one authority *)
 Definition d4_collision_redeclared_coexist :
   andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision_redecl))
-       (existsb (fun d => match d with AN.DRedeclaredGroup _ _ => true | _ => false end) (dsites p_collision_redecl)) = true.
+       (existsb (fun d => match d with AN.DRedeclaredGroup _ => true | _ => false end) (dsites p_collision_redecl)) = true.
 Proof. vm_compute; reflexivity. Qed.
 
 (* the formal-vs-Go differential: one named program per case, proven to a disposition and exported for pinned Go *)

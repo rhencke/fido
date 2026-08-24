@@ -132,6 +132,11 @@ Definition result_cause_views {p} (r : AN.Result p) : list CauseView :=
 Definition result_req_views {p} (r : AN.Result p) : list ReqView :=
   map (fun b => req_view (AN.bound_req b)) (AN.result_boundaries r).
 
+(* bp-free descriptive view of a redeclared-group diagnostic: its exact root's name (contexts via result_group_* ) *)
+Definition diag_group_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} (d : AN.Diagnostic bp) : option Names.OrdinaryIdentifier :=
+  match d with @AN.DRedeclaredGroup _ _ _ _ _ n _ => Some n | _ => None end.
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
