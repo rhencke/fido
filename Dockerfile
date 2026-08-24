@@ -1472,12 +1472,13 @@ SH
 FROM rocq-base AS profile
 ARG TARGETARCH
 ARG PROFILE_FILE=Compilable.v
-RUN mkdir -p /workspace/profile
+RUN mkdir -p /workspace/profile /workspace/diff/compiled /workspace/diff/reject
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
 COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam Index/ Index/
 COPY --chown=opam:opam plugin/ plugin/
+COPY --chown=opam:opam e2e/ e2e/
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
 fail() { echo "fido: profile FAILED — $*"; exit 1; }
