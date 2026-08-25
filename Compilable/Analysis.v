@@ -1994,6 +1994,11 @@ Arguments fact_row_for {p idx s bd bp} fp site kind.
 Arguments nfr_class {p idx s bd bp fp child_row} _.
 Arguments cdfr_site {p idx s bd bp fp} _. Arguments cdfr_edge_site {p idx s bd bp fp} _.
 Arguments cdfr_edge_kind {p idx s bd bp fp} _. Arguments cpr_neg {p idx s bd bp fp cdfr} _.
+Arguments mk_cdfr {p idx s bd bp fp} _ _ _ _. Arguments mk_cpr {p idx s bd bp fp cdfr} _ _ _.
+Arguments ChildInvalid {p idx s bd bp fp child_row} _ _.
+Arguments ChildUnmet {p idx s bd bp fp child_row} _ _.
+Arguments ChildDependent {p idx s bd bp fp child_row} _ _.
+Arguments cpr_child_row {p idx s bd bp fp cdfr} _. Arguments cpr_lookup {p idx s bd bp fp cdfr} _.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
