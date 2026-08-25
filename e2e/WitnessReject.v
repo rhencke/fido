@@ -338,6 +338,17 @@ Definition d4_collision_redeclared_coexist :
        (existsb (fun d => match d with AN.DRedeclaredGroup _ => true | _ => false end) (dsites p_collision_redecl)) = true.
 Proof. vm_compute; reflexivity. Qed.
 
+(* §16.1 spike probe: building the exact package-case refs over the branch-carried pf stays vm-cheap and exact *)
+Definition ppkg (pp : Syntax.Program) := AN.res_pkg (rres pp).
+Lemma probe_missing_main_len : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
+Proof. vm_compute; reflexivity. Qed.
+Lemma probe_main_one_none : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ main0 ]))) = 0%nat.
+Proof. vm_compute; reflexivity. Qed.
+Lemma probe_collision_some : match AN.collision_ref (ppkg p_collision) with Some _ => true | None => false end = true.
+Proof. vm_compute; reflexivity. Qed.
+Lemma probe_nocollision_none : match AN.collision_ref (ppkg (prog [ PL [ ILIT 1 ] ])) with Some _ => true | None => false end = false.
+Proof. vm_compute; reflexivity. Qed.
+
 (* the formal-vs-Go differential: one named program per case, proven to a disposition and exported for pinned Go *)
 Definition otransport (pp : Syntax.Program) : string * list (string * string) :=
   (Emit.module_file_of pp, Emit.entries_of pp).

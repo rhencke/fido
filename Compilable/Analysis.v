@@ -760,6 +760,54 @@ Lemma packages_consume_one_surface {p} {idx : Index.ProgramIndex p} {s : BN.PI.P
   {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
 Proof. exact (proj2_sig pf). Qed.
 
+(* an exact missing-main case: a package whose canonical main decision IS MainMissing, retaining that exact proof *)
+Record MissingMainRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : Type := mk_missing_main_ref {
+  mmr_package : BN.PI.PackageRef s ;
+  mmr_case    : package_rule pf mmr_package = BN.MainMissing
+}.
+Arguments MissingMainRef {p idx s bd bp} pf.
+Arguments mk_missing_main_ref {p idx s bd bp pf} _ _.
+Arguments mmr_package {p idx s bd bp pf} _. Arguments mmr_case {p idx s bd bp pf} _.
+
+(* an exact output-collision case: the exact retained preflight decision IS FreshCollision at that package+root *)
+Record CollisionRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : Type := mk_collision_ref {
+  cr_package : BN.PI.PackageRef s ;
+  cr_root    : BN.PI.RootEntryRef idx ;
+  cr_case    : preflight pf = FreshCollision cr_package cr_root
+}.
+Arguments CollisionRef {p idx s bd bp} pf.
+Arguments mk_collision_ref {p idx s bd bp pf} _ _ _.
+Arguments cr_package {p idx s bd bp pf} _. Arguments cr_root {p idx s bd bp pf} _. Arguments cr_case {p idx s bd bp pf} _.
+
+Section PackageCases.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} (pf : PackageFacts bp).
+
+(* the exact missing-main case at a package, when its canonical status is MainMissing; other statuses yield none *)
+Definition mm_of (pr : BN.PI.PackageRef s) (st : BN.MainStatus s pr) : package_rule pf pr = st -> list (MissingMainRef pf) :=
+  match st as st0 return package_rule pf pr = st0 -> list (MissingMainRef pf) with
+  | BN.MainMissing => fun H => [mk_missing_main_ref pr H]
+  | _ => fun _ => []
+  end.
+Definition missing_main_refs : list (MissingMainRef pf) :=
+  flat_map (fun pr => mm_of pr (package_rule pf pr) eq_refl) (BN.PI.packages s).
+
+(* the exact collision case, when the retained preflight IS a collision; FreshOk yields none *)
+Definition coll_of (d : FreshBuildDisposition s) : preflight pf = d -> option (CollisionRef pf) :=
+  match d as d0 return preflight pf = d0 -> option (CollisionRef pf) with
+  | FreshOk => fun _ => None
+  | FreshCollision pr rr => fun H => Some (mk_collision_ref pr rr H)
+  end.
+Definition collision_ref : option (CollisionRef pf) := coll_of (preflight pf) eq_refl.
+
+End PackageCases.
+Arguments mm_of {p idx s bd bp} pf pr st H.
+Arguments missing_main_refs {p idx s bd bp} pf.
+Arguments coll_of {p idx s bd bp} pf d H.
+Arguments collision_ref {p idx s bd bp} pf.
+
 (* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
 Record Result (p : Syntax.Program) : Type := mk_result {
   res_index     : Index.ProgramIndex p ;
