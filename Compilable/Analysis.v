@@ -430,8 +430,9 @@ Proof.
       solve [ left; reflexivity | right; left; reflexivity ].
 Qed.
 
-Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome bp r :=
-  match Index.node_view r as v return Index.node_view r = v -> ValueOutcome bp r with
+Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : ValueOutcome bp r :=
+  match nv as v return Index.node_view r = v -> ValueOutcome bp r with
   | Index.Model.VName n => fun _ =>
       let r0 := BN.resolve bp r n in
       match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> ValueOutcome bp r with
@@ -530,7 +531,13 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.Model.VVarSpec v => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_var r v Hv))
   | Index.Model.VTypeSpec t => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_type r t Hv))
   | _ => fun _ => VNonconst
-  end eq_refl.
+  end Hnv.
+Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome bp r :=
+  own_value_body ctab r (Index.node_view r) eq_refl.
+(* the value fact of a node reduces to its exact node_view branch — the convoy named so it is rewritable *)
+Lemma own_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  (v : Index.Model.NodeView) (H : Index.node_view r = v) : own_value ctab r = own_value_body ctab r v H.
+Proof. unfold own_value. destruct H. reflexivity. Qed.
 
 (* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
@@ -1611,6 +1618,34 @@ Definition child_prerequisite_refs : list { cdfr : ChildDependentFactRef & Child
   flat_map (fun row => match child_dep_of row with
     | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
     | None => [] end) (fact_rows fp).
+
+(* §19.3/§19.4 inverting the retained child edge: SDependent names e at the selected kind, its guard bool true *)
+Lemma own_stmt_expr_dep_inv (pr : Index.Refs.ExprStmtRef idx) (val_neg app_neg : bool)
+  (edge : ChildFactEdge (Index.Refs.exs_node pr) StatementKind) :
+  own_stmt_expr bp pr val_neg app_neg = SDependent (DepChild edge) ->
+  cfe_child_site edge = Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)
+  /\ ( (cfe_child_kind edge = ValueKind /\ val_neg = true)
+       \/ (cfe_child_kind edge = ApplicationKind /\ val_neg = false /\ app_neg = true
+           /\ Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = Index.Model.VApplication) ).
+Proof.
+  unfold own_stmt_expr. destruct val_neg; intro H.
+  - injection H as H'. subst edge. cbn [cfe_child_site cfe_child_kind].
+    split; [ reflexivity | left; split; reflexivity ].
+  - assert (Hgen : forall (v : Index.Model.NodeView)
+      (Hv : Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = v),
+      stmt_expr_body bp pr app_neg v Hv = SDependent (DepChild edge) ->
+      cfe_child_site edge = Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)
+      /\ ( (cfe_child_kind edge = ValueKind /\ false = true)
+           \/ (cfe_child_kind edge = ApplicationKind /\ false = false /\ app_neg = true
+               /\ Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = Index.Model.VApplication) )).
+    { intros v Hv HH. destruct v; cbn [stmt_expr_body] in HH; try discriminate HH.
+      destruct app_neg; cbn [stmt_expr_app_branch] in HH.
+      - injection HH as H'. subst edge. cbn [cfe_child_site cfe_child_kind].
+        split; [ reflexivity | right; repeat split; try reflexivity; exact Hv ].
+      - exfalso. repeat (match goal with
+          | _ : context [ match ?x with _ => _ end ] |- _ => destruct x end); discriminate HH. }
+    exact (Hgen _ eq_refl H).
+Qed.
 
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
