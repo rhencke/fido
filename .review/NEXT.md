@@ -1,4 +1,4 @@
-# Active task: the C4 Exact Retained Analysis Fact-Row candidate
+# Active task: the C4 Exact Package-Issue Decision Identity candidate
 
 Review: none
 
@@ -30,9 +30,14 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   by exact site+kind, returning two distinct rows for an application's Value and Application keys. A retained row's
   outcome is exactly the `own_*` result the canonical `occ_facts` traversal selected, so no fabricated same-site
   same-kind peer belongs to the list. `InvalidFactRef`/`UnmetFactRef`/`DependentFactRef` are case views over an
-  exact `FactRowRef` (the cause/requirement/dependency projected from the retained row, never caller-supplied), and
-  `Diagnostic fp`/`Boundary fp`/`IssueCause fp`/`Issue fp` are indexed by the exact fact phase. Every issue has an
-  exact ordinal identity — an `IssueRef` into the one `result_issues` sequence.
+  exact `FactRowRef` (the cause/requirement/dependency projected from the retained row, never caller-supplied).
+  `Boundary fp` is indexed by the exact fact phase, while `Diagnostic fp pf`/`IssueCause fp pf`/`Issue fp pf` are
+  indexed by the exact fact phase AND the exact `PackageFacts`: a missing-main diagnostic retains an exact
+  `MissingMainRef pf` (its package's canonical decision IS `package_rule pf pr = MainMissing`) and an
+  output-collision diagnostic an exact `CollisionRef pf` (the retained `preflight pf` IS a `FreshCollision` at that
+  package+root), so a raw `PackageRef` or package+root pair is not a package fact. `main_rows`/`collision_rows`
+  project those exact case builders (`missing_main_refs`/`collision_ref`), never re-testing the raw condition inline.
+  Every issue has an exact ordinal identity — an `IssueRef` into the one `result_issues` sequence.
 - **Report** projects those exact row/case/issue identities and nothing else, with proved bidirectional-membership,
   exact identity, class-partition, no-collapse, payload, and stable-order laws; its bp-free `CauseView`/`ReqView`
   are one-way projections that cannot mint an exact Cause/Requirement/row.
@@ -49,7 +54,7 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
 The formal-vs-Go acceptance differential begins from one named `Syntax.Program` per case: the formal side executes
 `compile` (a proven disposition), the external side is pure Render of that same source run through the pinned Go
 toolchain, and the two verdicts are compared. The gate corpus (layer policy, one-build, sealed-abstract-branch,
-`neg_*` fact-row/certificate/unforgeability controls, positive control, forge-provenance controls) and the
+`neg_*` fact-row/certificate/package-decision/unforgeability controls, positive control, forge-provenance controls) and the
 governing corpus are updated with the code.
 
 ## Status
@@ -61,8 +66,11 @@ toolchain is the supported run). Governing truth held by this candidate:
 
 - `FactPhase` and `PackageFacts` still exist and remain fields of `Analysis.Result`; their full
   consolidation/deletion/sealing is a later C4 root.
-- This slice establishes exact retained fact-row identity and the transparent-data/sealed-certificate branch
-  topology; it does not make `Result` the sole public semantic reader everywhere.
+- This slice establishes exact retained fact-row identity, the transparent-data/sealed-certificate branch
+  topology, and exact package-decision-case identity: a missing-main diagnostic retains an exact `MissingMainRef`
+  case and an output-collision diagnostic an exact `CollisionRef` case, both indexed by the exact `PackageFacts`
+  from the same Result (a diagnostic for one `PackageFacts` cannot inhabit another). It does not make `Result` the
+  sole public semantic reader everywhere.
 - `DepChild` remains location-only and same-`Result` prerequisite/child-fact identity is open.
 - C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
   complete; the known missing static cases stay mandatory later work.
