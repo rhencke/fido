@@ -1,4 +1,4 @@
-(* Compilable — the C4 root: compile alone mints Program/Rejection/Outside over one Analysis.Result. *)
+(* Compilable — the C4 root: compile mints Program/Rejection/Outside as opaque certificates indexed by the Result *)
 
 From Stdlib Require Import List Bool.
 From Fido Require Import Syntax Compilable.Analysis Compilable.Report.
@@ -10,175 +10,166 @@ Module RP := Compilable.Report.
 Definition nil_dec {A} (l : list A) : {l = []} + {l <> []}.
 Proof. destruct l; [left; reflexivity | right; discriminate]. Defined.
 
-(* the one canonical analysis result for p; every projection and branch object derives from this single object *)
-Local Definition c_result (p : Syntax.Program) : AN.Result p := AN.analyze p.
+(* the ONE canonical analysis data for p: the sole Result computation used by disposition, compile, and readers *)
+Definition compilation_data (p : Syntax.Program) : AN.Result p := AN.analyze p.
 
-(* the public program branch tag: a direct 3-way projection of the one canonical result's issue lists *)
 Inductive Disposition := Compiled | Rejected | OutsideScope.
 
-Definition disposition (p : Syntax.Program) : Disposition :=
-  let c := c_result p in
-  match nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c)) with
-  | left _ => match nil_dec (RP.boundaries (AN.res_facts c)) with left _ => Compiled | right _ => OutsideScope end
+(* observations computed from the exact data index, never by opening a certificate *)
+Definition diagnostics_data {p} (r : AN.Result p) := RP.diagnostics (AN.res_facts r) (AN.res_pkg r).
+Definition boundaries_data {p} (r : AN.Result p) := RP.boundaries (AN.res_facts r).
+Definition AdmissibleData {p} (r : AN.Result p) : Prop := diagnostics_data r = [] /\ boundaries_data r = [].
+
+(* the sole branch decision, over exact data; the program tag is that decision on the canonical data — one decider *)
+Definition disposition_of {p} (r : AN.Result p) : Disposition :=
+  match nil_dec (diagnostics_data r) with
+  | left _ => match nil_dec (boundaries_data r) with left _ => Compiled | right _ => OutsideScope end
   | right _ => Rejected
   end.
+Definition disposition (p : Syntax.Program) : Disposition := disposition_of (compilation_data p).
 
-(* empty reports of p's canonical analyze result force the Compiled disposition; the transport bridge *)
-Lemma disposition_of_admissible {p} (r : AN.Result p) (Hr : r = AN.analyze p)
-  (Hd : RP.diagnostics (AN.res_facts r) (AN.res_pkg r) = [])
-  (Hb : RP.boundaries (AN.res_facts r) = []) : disposition p = Compiled.
+(* disposition inversion: the OPAQUE branch witnesses invert disposition_of over the exact data; assumption-free *)
+Lemma disposition_compiled {p} (r : AN.Result p) : disposition_of r = Compiled -> AdmissibleData r.
 Proof.
-  subst r. unfold disposition; cbv zeta.
-  change (c_result p) with (AN.analyze p).
-  destruct (nil_dec (RP.diagnostics (AN.res_facts (AN.analyze p)) (AN.res_pkg (AN.analyze p)))) as [_|Hd'];
-    [ | exfalso; exact (Hd' Hd) ].
-  destruct (nil_dec (RP.boundaries (AN.res_facts (AN.analyze p)))) as [_|Hb'];
-    [ reflexivity | exfalso; exact (Hb' Hb) ].
+  unfold disposition_of, AdmissibleData; intro H.
+  destruct (nil_dec (diagnostics_data r)) as [Hd|Hd]; [ | discriminate H ].
+  destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; [ split; assumption | discriminate H ].
+Qed.
+Lemma disposition_rejected {p} (r : AN.Result p) : disposition_of r = Rejected -> diagnostics_data r <> [].
+Proof.
+  unfold disposition_of; intro H. destruct (nil_dec (diagnostics_data r)) as [Hd|Hd].
+  - exfalso; destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; discriminate H.
+  - exact Hd.
+Qed.
+Lemma disposition_outside {p} (r : AN.Result p) :
+  disposition_of r = OutsideScope -> diagnostics_data r = [] /\ boundaries_data r <> [].
+Proof.
+  unfold disposition_of; intro H. destruct (nil_dec (diagnostics_data r)) as [Hd|Hd]; [ | discriminate H ].
+  destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; [ discriminate H | split; [exact Hd | exact Hb] ].
+Qed.
+(* the converse for capability provenance: admissible canonical data forces the Compiled disposition *)
+Lemma admissible_forces_compiled {p} (r : AN.Result p) (Hr : r = compilation_data p)
+  (Had : AdmissibleData r) : disposition p = Compiled.
+Proof.
+  unfold disposition. subst r. destruct Had as [Hd Hb]. unfold disposition_of.
+  destruct (nil_dec (diagnostics_data (compilation_data p))) as [_|Hd']; [ | exfalso; exact (Hd' Hd) ].
+  destruct (nil_dec (boundaries_data (compilation_data p))) as [_|Hb']; [ reflexivity | exfalso; exact (Hb' Hb) ].
 Qed.
 
 Module Type C4_PUBLIC.
-  Parameter Compilation : Syntax.Program -> Type.
-  Parameter Program   : Syntax.Program -> Type.
-  Parameter Rejection : Syntax.Program -> Type.
-  Parameter Outside   : Syntax.Program -> Type.
+  Parameter Compilation : forall (p : Syntax.Program), AN.Result p -> Type.
+  Parameter Program   : forall (p : Syntax.Program), AN.Result p -> Type.
+  Parameter Rejection : forall (p : Syntax.Program), AN.Result p -> Type.
+  Parameter Outside   : forall (p : Syntax.Program), AN.Result p -> Type.
 
-  Definition OutcomeAt (p : Syntax.Program) (k : Disposition) : Type :=
-    match k with Compiled => Program p | Rejected => Rejection p | OutsideScope => Outside p end.
+  Definition OutcomeAt (p : Syntax.Program) (r : AN.Result p) (k : Disposition) : Type :=
+    match k with Compiled => Program p r | Rejected => Rejection p r | OutsideScope => Outside p r end.
 
-  (* sole branch-object acquisition: for concrete p the tag reduces and compile p IS the branch type directly *)
-  Parameter compile : forall p, OutcomeAt p (disposition p).
+  (* sole branch-object acquisition: for concrete p the data and tag reduce and compile p IS the branch type *)
+  Parameter compile : forall p, OutcomeAt p (compilation_data p) (disposition_of (compilation_data p)).
 
-  Parameter program_compilation   : forall {p}, Program p -> Compilation p.
-  Parameter rejection_compilation : forall {p}, Rejection p -> Compilation p.
-  Parameter outside_compilation   : forall {p}, Outside p -> Compilation p.
+  Parameter program_certificate   : forall {p r}, Program p r -> Compilation p r.
+  Parameter rejection_certificate : forall {p r}, Rejection p r -> Compilation p r.
+  Parameter outside_certificate   : forall {p r}, Outside p r -> Compilation p r.
 
-  (* the exact retained analysis result projected read-only from each compilation; it mints no capability *)
-  Parameter compilation_result : forall {p}, Compilation p -> AN.Result p.
-  (* provenance: the retained result is exactly the sole analyze object, never an independently rebuilt peer *)
-  Parameter compilation_result_canonical : forall {p} (c : Compilation p), compilation_result c = AN.analyze p.
+  (* provenance: a certificate certifies its exact data index is the sole canonical analyze data; not a reader *)
+  Parameter compilation_canonical : forall {p r}, Compilation p r -> r = compilation_data p.
 
-  Parameter Diagnostic : forall {p}, Compilation p -> Type.
-  Parameter Boundary   : forall {p}, Compilation p -> Type.
-  Parameter diagnostics : forall {p} (c : Compilation p), list (Diagnostic c).
-  Parameter boundaries  : forall {p} (c : Compilation p), list (Boundary c).
+  Parameter program_admissible        : forall {p r}, Program p r -> AdmissibleData r.
+  Parameter rejection_has_diagnostics : forall {p r}, Rejection p r -> diagnostics_data r <> [].
+  Parameter outside_reports           : forall {p r}, Outside p r -> diagnostics_data r = [] /\ boundaries_data r <> [].
 
-  Parameter Admissible : forall {p}, Compilation p -> Prop.
-  Parameter admissible_iff_reports :
-    forall {p} (c : Compilation p), Admissible c <-> diagnostics c = [] /\ boundaries c = [].
-
-  Parameter program_admissible       : forall {p} (cp : Program p),   Admissible (program_compilation cp).
-  Parameter rejection_has_diagnostics : forall {p} (r : Rejection p), diagnostics (rejection_compilation r) <> [].
-  Parameter outside_reports :
-    forall {p} (o : Outside p), diagnostics (outside_compilation o) = [] /\ boundaries (outside_compilation o) <> [].
-
-  (* substitution-resistance: a capability exists only for the Compiled disposition of p's own analyze result *)
-  Parameter program_forces_compiled : forall {p} (cp : Program p), disposition p = Compiled.
+  (* substitution-resistance: a capability exists only for the Compiled disposition of p's own analyze data *)
+  Parameter program_forces_compiled  : forall {p r}, Program p r -> disposition p = Compiled.
 End C4_PUBLIC.
 
 Module Sealed : C4_PUBLIC.
-  (* one retained result, with a provenance proof pinning it to the sole analyze builder; kept whole *)
-  Record CompilationR (p : Syntax.Program) : Type := mkComp { c_res : AN.Result p ; c_prov : c_res = AN.analyze p }.
-  Arguments mkComp {p} _ _.
-  Arguments c_res {p} _.
-  Arguments c_prov {p} _.
-  Definition Compilation := CompilationR.
+  (* the certificate carries only OPAQUE logical evidence over the exact data index; NO Result field is stored *)
+  Record CompilationR (p : Syntax.Program) (r : AN.Result p) : Type := mkComp { c_prov : r = compilation_data p }.
+  Record ProgramR   (p : Syntax.Program) (r : AN.Result p) : Type := mkProg { pr_comp : CompilationR p r ; pr_adm : AdmissibleData r }.
+  Record RejectionR (p : Syntax.Program) (r : AN.Result p) : Type := mkRej { rj_comp : CompilationR p r ; rj_diag : diagnostics_data r <> [] }.
+  Record OutsideR   (p : Syntax.Program) (r : AN.Result p) : Type := mkOut { ou_comp : CompilationR p r ; ou_diag : diagnostics_data r = [] ; ou_bnd : boundaries_data r <> [] }.
+  Arguments mkComp {p r} _. Arguments c_prov {p r} _.
+  Arguments mkProg {p r} _ _. Arguments pr_comp {p r} _. Arguments pr_adm {p r} _.
+  Arguments mkRej {p r} _ _. Arguments rj_comp {p r} _. Arguments rj_diag {p r} _.
+  Arguments mkOut {p r} _ _ _. Arguments ou_comp {p r} _. Arguments ou_diag {p r} _. Arguments ou_bnd {p r} _.
+  Definition Compilation := CompilationR. Definition Program := ProgramR. Definition Rejection := RejectionR. Definition Outside := OutsideR.
 
-  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_facts (c_res c)).
-  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_facts (c_res c)).
-  Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
-  Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (AN.res_facts (c_res c)).
+  Definition OutcomeAt (p : Syntax.Program) (r : AN.Result p) (k : Disposition) : Type :=
+    match k with Compiled => Program p r | Rejected => Rejection p r | OutsideScope => Outside p r end.
 
-  Definition Admissible {p} (c : Compilation p) : Prop := diagnostics c = [] /\ boundaries c = [].
-  Lemma admissible_iff_reports {p} (c : Compilation p) : Admissible c <-> diagnostics c = [] /\ boundaries c = [].
-  Proof. unfold Admissible; split; intro H; exact H. Qed.
+  (* the sole composer, private: one proof-only compilation certificate over the canonical data *)
+  Definition elaborate (p : Syntax.Program) : Compilation p (compilation_data p) := mkComp eq_refl.
 
-  (* the sole composer, private: it binds one exact result and keeps it whole; no downstream module rebuilds it *)
-  Definition elaborate (p : Syntax.Program) : Compilation p := mkComp (AN.analyze p) eq_refl.
-  Definition compilation_result {p} (c : Compilation p) : AN.Result p := c_res c.
-  Lemma compilation_result_canonical {p} (c : Compilation p) : compilation_result c = AN.analyze p.
+  (* compile selects the branch by disposition_of and fills the certificate with OPAQUE witnesses; no Result stored *)
+  Definition compile (p : Syntax.Program) : OutcomeAt p (compilation_data p) (disposition_of (compilation_data p)) :=
+    match disposition_of (compilation_data p) as k
+      return disposition_of (compilation_data p) = k -> OutcomeAt p (compilation_data p) k with
+    | Compiled     => fun H => mkProg (elaborate p) (disposition_compiled (compilation_data p) H)
+    | Rejected     => fun H => mkRej  (elaborate p) (disposition_rejected (compilation_data p) H)
+    | OutsideScope => fun H => mkOut  (elaborate p) (proj1 (disposition_outside (compilation_data p) H))
+                                                    (proj2 (disposition_outside (compilation_data p) H))
+    end eq_refl.
+
+  Definition program_certificate   {p r} (cp : Program p r) : Compilation p r := pr_comp cp.
+  Definition rejection_certificate {p r} (rj : Rejection p r) : Compilation p r := rj_comp rj.
+  Definition outside_certificate   {p r} (ou : Outside p r) : Compilation p r := ou_comp ou.
+  Lemma compilation_canonical {p r} (c : Compilation p r) : r = compilation_data p.
   Proof. exact (c_prov c). Qed.
-
-  Record ProgramR   (p : Syntax.Program) : Type := mkProg { pr_comp : Compilation p ; pr_adm  : Admissible pr_comp }.
-  Record RejectionR (p : Syntax.Program) : Type := mkRej  { rj_comp : Compilation p ; rj_diag : diagnostics rj_comp <> [] }.
-  Record OutsideR   (p : Syntax.Program) : Type := mkOut  { ou_comp : Compilation p ; ou_diag : diagnostics ou_comp = [] ; ou_bnd : boundaries ou_comp <> [] }.
-  Arguments mkProg {p} _ _. Arguments pr_comp {p} _. Arguments pr_adm {p} _.
-  Arguments mkRej {p} _ _.  Arguments rj_comp {p} _. Arguments rj_diag {p} _.
-  Arguments mkOut {p} _ _ _. Arguments ou_comp {p} _. Arguments ou_diag {p} _. Arguments ou_bnd {p} _.
-  Definition Program := ProgramR. Definition Rejection := RejectionR. Definition Outside := OutsideR.
-
-  Definition OutcomeAt (p : Syntax.Program) (k : Disposition) : Type :=
-    match k with Compiled => Program p | Rejected => Rejection p | OutsideScope => Outside p end.
-
-  (* compile builds the branch object whose tag the transparent disposition already names, from the same result *)
-  Definition compile (p : Syntax.Program) : OutcomeAt p (disposition p).
-  Proof.
-    unfold OutcomeAt, disposition. cbv zeta. set (c := c_result p).
-    destruct (nil_dec (RP.diagnostics (AN.res_facts c) (AN.res_pkg c))) as [Hd|Hd].
-    - destruct (nil_dec (RP.boundaries (AN.res_facts c))) as [Hb|Hb].
-      + exact (mkProg (mkComp c eq_refl) (conj Hd Hb)).
-      + exact (mkOut (mkComp c eq_refl) Hd Hb).
-    - exact (mkRej (mkComp c eq_refl) Hd).
-  Defined.
-
-  (* provenance: possessing a Program forces the Compiled disposition; no rebuilt result manufactures a capability *)
-  Lemma program_forces_compiled {p} (cp : ProgramR p) : disposition p = Compiled.
-  Proof.
-    pose proof (pr_adm cp) as Hadm.
-    unfold Admissible, diagnostics, boundaries in Hadm.
-    destruct Hadm as [Hd Hb].
-    exact (disposition_of_admissible (c_res (pr_comp cp)) (c_prov (pr_comp cp)) Hd Hb).
-  Qed.
-
-  Definition program_compilation {p} (cp : Program p) : Compilation p := pr_comp cp.
-  Definition rejection_compilation {p} (r : Rejection p) : Compilation p := rj_comp r.
-  Definition outside_compilation {p} (o : Outside p) : Compilation p := ou_comp o.
-
-  Lemma program_admissible {p} (cp : Program p) : Admissible (program_compilation cp).
+  Lemma program_admissible {p r} (cp : Program p r) : AdmissibleData r.
   Proof. exact (pr_adm cp). Qed.
-  Lemma rejection_has_diagnostics {p} (r : Rejection p) : diagnostics (rejection_compilation r) <> [].
-  Proof. exact (rj_diag r). Qed.
-  Lemma outside_reports {p} (o : Outside p) : diagnostics (outside_compilation o) = [] /\ boundaries (outside_compilation o) <> [].
-  Proof. exact (conj (ou_diag o) (ou_bnd o)). Qed.
+  Lemma rejection_has_diagnostics {p r} (rj : Rejection p r) : diagnostics_data r <> [].
+  Proof. exact (rj_diag rj). Qed.
+  Lemma outside_reports {p r} (ou : Outside p r) : diagnostics_data r = [] /\ boundaries_data r <> [].
+  Proof. exact (conj (ou_diag ou) (ou_bnd ou)). Qed.
+  Lemma program_forces_compiled {p r} (cp : Program p r) : disposition p = Compiled.
+  Proof. exact (admissible_forces_compiled r (compilation_canonical (program_certificate cp)) (pr_adm cp)). Qed.
 End Sealed.
 
+(* the transparent Result reader (§H): the exact type INDEX of the certificate, never opening or matching it *)
+Definition outcome_result {p} {r : AN.Result p} {k : Disposition} (_ : Sealed.OutcomeAt p r k) : AN.Result p := r.
+
+(* the public one-parameter API: certificates fixed at the canonical data index, so consumers stay source-compatible *)
+Definition Compilation (p : Syntax.Program) : Type := Sealed.Compilation p (compilation_data p).
+Definition Program (p : Syntax.Program) : Type := Sealed.Program p (compilation_data p).
+Definition Rejection (p : Syntax.Program) : Type := Sealed.Rejection p (compilation_data p).
+Definition Outside (p : Syntax.Program) : Type := Sealed.Outside p (compilation_data p).
+Definition OutcomeAt (p : Syntax.Program) (k : Disposition) : Type := Sealed.OutcomeAt p (compilation_data p) k.
+Definition compile (p : Syntax.Program) : OutcomeAt p (disposition p) := Sealed.compile p.
+
 (* the certified source of a compiled program: Emit reaches it via this projection, then Render traverses it *)
-Definition comp_source {p} (_ : Sealed.Compilation p) : Syntax.Program := p.
+Definition comp_source {p} (_ : Compilation p) : Syntax.Program := p.
 
-(* the public C4 API, named at Compilable: abstract root objects + the sole compile + exact projections *)
-Definition Compilation := Sealed.Compilation.
-Definition Program := Sealed.Program.
-Definition Rejection := Sealed.Rejection.
-Definition Outside := Sealed.Outside.
-Definition OutcomeAt := Sealed.OutcomeAt.
-Definition compile := Sealed.compile.
-Definition program_compilation {p} := @Sealed.program_compilation p.
-Definition rejection_compilation {p} := @Sealed.rejection_compilation p.
-Definition outside_compilation {p} := @Sealed.outside_compilation p.
-Definition compilation_result {p} := @Sealed.compilation_result p.
-Definition compilation_result_canonical {p} := @Sealed.compilation_result_canonical p.
-Definition program_forces_compiled {p} := @Sealed.program_forces_compiled p.
-Definition Diagnostic {p} := @Sealed.Diagnostic p.
-Definition Boundary {p} := @Sealed.Boundary p.
-Definition diagnostics {p} := @Sealed.diagnostics p.
-Definition boundaries {p} := @Sealed.boundaries p.
-Definition Admissible {p} := @Sealed.Admissible p.
-Definition admissible_iff_reports {p} := @Sealed.admissible_iff_reports p.
-Definition program_admissible {p} := @Sealed.program_admissible p.
-Definition rejection_has_diagnostics {p} := @Sealed.rejection_has_diagnostics p.
-Definition outside_reports {p} := @Sealed.outside_reports p.
+Definition program_compilation {p} (cp : Program p) : Compilation p := Sealed.program_certificate cp.
+Definition rejection_compilation {p} (rj : Rejection p) : Compilation p := Sealed.rejection_certificate rj.
+Definition outside_compilation {p} (ou : Outside p) : Compilation p := Sealed.outside_certificate ou.
 
-(* read-only result projections for future evidence layers: each branch object exposes its exact retained result *)
-Definition program_result   {p} (cp : Program p)  : AN.Result p := compilation_result (program_compilation cp).
-Definition rejection_result {p} (r  : Rejection p) : AN.Result p := compilation_result (rejection_compilation r).
-Definition outside_result   {p} (o  : Outside p)   : AN.Result p := compilation_result (outside_compilation o).
+(* data-index convenience observations, read from the exact canonical index; no certificate opened *)
+Definition Diagnostic {p} (_ : Compilation p) : Type := RP.Diagnostic (AN.res_facts (compilation_data p)).
+Definition Boundary {p} (_ : Compilation p) : Type := RP.Boundary (AN.res_facts (compilation_data p)).
+Definition diagnostics {p} (_ : Compilation p) := diagnostics_data (compilation_data p).
+Definition boundaries {p} (_ : Compilation p) := boundaries_data (compilation_data p).
+Definition Admissible {p} (_ : Compilation p) : Prop := AdmissibleData (compilation_data p).
+Lemma admissible_iff_reports {p} (c : Compilation p) : Admissible c <-> diagnostics c = [] /\ boundaries c = [].
+Proof. unfold Admissible, AdmissibleData, diagnostics, boundaries; split; intro H; exact H. Qed.
 
-(* each branch object projects exactly p's one analyze result, so no reader consults a rebuilt peer chain *)
+Definition program_admissible {p} (cp : Program p) : Admissible (program_compilation cp) := Sealed.program_admissible cp.
+Definition rejection_has_diagnostics {p} (rj : Rejection p) : diagnostics (rejection_compilation rj) <> [] := Sealed.rejection_has_diagnostics rj.
+Definition outside_reports {p} (ou : Outside p) : diagnostics (outside_compilation ou) = [] /\ boundaries (outside_compilation ou) <> [] := Sealed.outside_reports ou.
+Definition program_forces_compiled {p} (cp : Program p) : disposition p = Compiled := Sealed.program_forces_compiled cp.
+
+(* read-only result readers for evidence layers: each branch object's exact retained result IS its exact type index *)
+Definition program_result   {p} (_ : Program p)  : AN.Result p := compilation_data p.
+Definition rejection_result {p} (_ : Rejection p) : AN.Result p := compilation_data p.
+Definition outside_result   {p} (_ : Outside p)   : AN.Result p := compilation_data p.
+
+(* each branch reader IS p's one analyze data, definitionally — no rebuilt peer, no opaque certificate projection *)
 Lemma program_result_canonical  {p} (cp : Program p)   : program_result cp = AN.analyze p.
-Proof. apply compilation_result_canonical. Qed.
-Lemma rejection_result_canonical {p} (r : Rejection p) : rejection_result r = AN.analyze p.
-Proof. apply compilation_result_canonical. Qed.
-Lemma outside_result_canonical   {p} (o : Outside p)   : outside_result o = AN.analyze p.
-Proof. apply compilation_result_canonical. Qed.
+Proof. reflexivity. Qed.
+Lemma rejection_result_canonical {p} (rj : Rejection p) : rejection_result rj = AN.analyze p.
+Proof. reflexivity. Qed.
+Lemma outside_result_canonical   {p} (ou : Outside p)   : outside_result ou = AN.analyze p.
+Proof. reflexivity. Qed.
 
 (* the sanctioned compiled capability: compile (the sole source) coerced by a decidable disposition=Compiled proof *)
 Definition compiled_program (p : Syntax.Program) (H : disposition p = Compiled) : Program p :=

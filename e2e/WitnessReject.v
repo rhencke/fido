@@ -106,8 +106,19 @@ Definition r_short_dup : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collect
 (* a parent arity invalidity and an independent child requirement coexist: neither over-blocks the other *)
 Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; PL [ Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [ VNAME "x" ] ] ]). Proof. reject. Qed.
 
-(* the retained Result these fixtures read; §19's reader becomes the addendum's outcome_result (compile p) later *)
-Definition rres (p : Syntax.Program) : AN.Result p := AN.analyze p.
+(* §19 the concrete reader IS compile's branch-carried Result: outcome_result reads compile's exact type index *)
+Definition result_of_compile (p : Syntax.Program) : AN.Result p := Compilable.outcome_result (Compilable.compile p).
+Definition rres (p : Syntax.Program) : AN.Result p := result_of_compile p.
+(* §R.5 permanent VM controls: the branch-carried reader reduces to the exact data cheaply, like a direct analyze *)
+Definition rprobe : Syntax.Program := prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ].
+Lemma reader_disp : Compilable.disposition rprobe = Compilable.Rejected.
+Proof. vm_compute; reflexivity. Qed.
+Lemma reader_index : AN.res_index (rres rprobe) = AN.res_index (AN.analyze rprobe).
+Proof. vm_compute; reflexivity. Qed.
+Lemma reader_len :
+  Datatypes.length (AN.fact_list (AN.res_facts (rres rprobe)))
+  = Datatypes.length (AN.fact_list (AN.res_facts (AN.analyze rprobe))).
+Proof. vm_compute; reflexivity. Qed.
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
 (* the raw occurrence facts of a program, for the dependent-non-result checks *)
