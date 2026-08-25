@@ -225,6 +225,29 @@ Lemma diag_group_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurf
             (map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root))))).
 Proof. reflexivity. Qed.
 
+(* §18 bp-free descriptive view of a child prerequisite: the parent and child sites and kinds, the child neg class *)
+Record ChildPrerequisiteView {p} (idx : Index.ProgramIndex p) : Type := mk_child_prereq_view {
+  cpv_parent_site : Index.NodeRef idx ;
+  cpv_parent_kind : AN.FactKind ;
+  cpv_child_site  : Index.NodeRef idx ;
+  cpv_child_kind  : AN.FactKind ;
+  cpv_neg_class   : AN.NegClass
+}.
+Arguments mk_child_prereq_view {p idx} _ _ _ _ _.
+Arguments cpv_parent_site {p idx} _. Arguments cpv_parent_kind {p idx} _.
+Arguments cpv_child_site {p idx} _. Arguments cpv_child_kind {p idx} _. Arguments cpv_neg_class {p idx} _.
+
+(* one-way projection of a child-prerequisite ref: exact parent/child sites+kinds off the edge, child neg class *)
+Definition child_prereq_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {cdfr : AN.ChildDependentFactRef fp}
+  (cpr : AN.ChildPrerequisiteRef fp cdfr) : ChildPrerequisiteView idx :=
+  mk_child_prereq_view (AN.cdfr_site cdfr) AN.StatementKind
+    (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) (AN.nfr_class (AN.cpr_neg cpr)).
+
+(* the result's child prerequisites as bp-free views, projected one-way from its exact retained refs *)
+Definition result_child_prereq_views {p} (r : AN.Result p) : list (ChildPrerequisiteView (AN.res_index r)) :=
+  map (fun x => child_prereq_view (projT2 x)) (AN.result_child_prerequisites r).
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)

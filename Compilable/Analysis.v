@@ -1610,6 +1610,9 @@ Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s b
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
 Arguments fact_key {p idx s bd bp} o. Arguments frr_key {p idx s bd bp fp} ref.
 Arguments fact_row_for {p idx s bd bp} fp site kind.
+Arguments nfr_class {p idx s bd bp fp child_row} _.
+Arguments cdfr_site {p idx s bd bp fp} _. Arguments cdfr_edge_site {p idx s bd bp fp} _.
+Arguments cdfr_edge_kind {p idx s bd bp fp} _. Arguments cpr_neg {p idx s bd bp fp cdfr} _.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -2060,6 +2063,10 @@ Definition result_boundaries {p} (r : Result p) : list (Boundary (res_facts r)) 
   boundaries (res_facts r).
 Definition result_disposition {p} (r : Result p) : Disposition (res_facts r) (res_pkg r) :=
   program_disposition (res_facts r) (res_pkg r).
+(* §17 the child prerequisites of the one retained result, a narrow projection from its exact res_facts *)
+Definition result_child_prerequisites {p} (r : Result p)
+  : list { cdfr : ChildDependentFactRef (res_facts r) & ChildPrerequisiteRef (res_facts r) cdfr } :=
+  child_prerequisite_refs (res_facts r).
 
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
