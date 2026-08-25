@@ -324,7 +324,7 @@ Definition p_collision : Syntax.Program :=
   | Some pp => pp | None => empty_program rmod end.
 (* the output collision and the missing main are two distinct diagnostics; neither suppresses the other *)
 Definition d4_collision_missing_main_coexist :
-  andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision))
+  andb (existsb (fun d => match d with AN.DOutputCollision _ => true | _ => false end) (dsites p_collision))
        (existsb (fun d => match d with AN.DMissingMain _ => true | _ => false end) (dsites p_collision)) = true.
 Proof. vm_compute; reflexivity. Qed.
 Definition p_collision_redecl : Syntax.Program :=
@@ -334,7 +334,7 @@ Definition p_collision_redecl : Syntax.Program :=
   | Some pp => pp | None => empty_program rmod end.
 (* the output collision and a redeclared group coexist as distinct diagnostics through the one authority *)
 Definition d4_collision_redeclared_coexist :
-  andb (existsb (fun d => match d with AN.DOutputCollision _ _ => true | _ => false end) (dsites p_collision_redecl))
+  andb (existsb (fun d => match d with AN.DOutputCollision _ => true | _ => false end) (dsites p_collision_redecl))
        (existsb (fun d => match d with AN.DRedeclaredGroup _ => true | _ => false end) (dsites p_collision_redecl)) = true.
 Proof. vm_compute; reflexivity. Qed.
 

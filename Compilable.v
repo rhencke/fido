@@ -145,7 +145,7 @@ Definition rejection_compilation {p} (rj : Rejection p) : Compilation p := Seale
 Definition outside_compilation {p} (ou : Outside p) : Compilation p := Sealed.outside_certificate ou.
 
 (* data-index convenience observations, read from the exact canonical index; no certificate opened *)
-Definition Diagnostic {p} (_ : Compilation p) : Type := RP.Diagnostic (AN.res_facts (compilation_data p)).
+Definition Diagnostic {p} (_ : Compilation p) : Type := RP.Diagnostic (AN.res_facts (compilation_data p)) (AN.res_pkg (compilation_data p)).
 Definition Boundary {p} (_ : Compilation p) : Type := RP.Boundary (AN.res_facts (compilation_data p)).
 Definition diagnostics {p} (_ : Compilation p) := diagnostics_data (compilation_data p).
 Definition boundaries {p} (_ : Compilation p) := boundaries_data (compilation_data p).
