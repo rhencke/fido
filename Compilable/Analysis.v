@@ -624,11 +624,10 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
 Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
   match pn with Names.PUintptr | Names.PAny | Names.PComparable | Names.PError => true | _ => false end.
 
-(* a type use resolves its name: modelled type is its form, unmodelled real type a boundary, else invalid *)
-Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome bp r :=
-  match Index.node_view r with
-  | Index.Model.VTypeExpr (Syntax.NamedType n) =>
-      let r0 := BN.resolve bp r n in
+(* §10 own_type resolves the exact named-type name (view proof, no self-dep): its form, else a boundary/invalid *)
+Definition own_type (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)) : TypeUseOutcome bp r :=
+  let r0 := BN.resolve bp r n in
       match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> TypeUseOutcome bp r with
       | Some o => fun Hov =>
           match o with
@@ -648,9 +647,7 @@ Definition own_type (r : Index.NodeRef idx) : TypeUseOutcome bp r :=
           | Some root => fun Hrr => TDependent (DepRedeclaredNameT r0 root Hrr)
           | None => fun Hrv => TInvalid (UnresolvedNameT r0 Hov Hrv)
           end eq_refl
-      end eq_refl
-  | _ => TDependent (DepChild TypeUseKind r)
-  end.
+      end eq_refl.
 
 End OverPhase.
 
@@ -701,6 +698,16 @@ Qed.
 Lemma app_neg_at_app (e : Index.NodeRef idx) (He : Index.node_view e = Index.Model.VApplication) :
   app_neg_at bp e = app_neg_b bp (own_app bp (Index.Refs.mkAppRef e He)).
 Proof. exact (convoy_at (Index.node_view e) (app_neg_body bp e) Index.Model.VApplication He). Qed.
+(* §10 the type-use fact of a node, keyed to its exact named-type name, shared by occ_facts and occ_facts_va *)
+Definition type_fact_body (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
+  match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
+  | Index.Model.VTypeExpr (Syntax.NamedType n) => fun H0 => [OFType r (own_type bp r n H0)]
+  | _ => fun _ => []
+  end H.
+Definition type_fact (r : Index.NodeRef idx) : list (OccFact bp) := type_fact_body r (Index.node_view r) eq_refl.
+Lemma type_fact_at (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)) : type_fact r = [OFType r (own_type bp r n H)].
+Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTypeExpr (Syntax.NamedType n)) H). Qed.
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
 Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
@@ -709,7 +716,7 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | Index.Model.VApplication => app_fact_app r ++ [OFValue r (own_value bp ctab r)]
   | Index.Model.VStmt Index.Model.SSExpr => [OFStmt r (own_stmt bp ctab r)]
   | Index.Model.VStmt (Index.Model.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
-  | Index.Model.VTypeExpr _ => [OFType r (own_type bp r)]
+  | Index.Model.VTypeExpr _ => type_fact r
   | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
   | _ => []
   end.
@@ -718,8 +725,8 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
 Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome bp r') :
   In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.Model.VApplication.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ reflexivity | exfalso; intuition discriminate ].
 Qed.
@@ -727,8 +734,8 @@ Qed.
 Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome bp r') :
   In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.Model.VStmt st.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
@@ -736,8 +743,8 @@ Qed.
 Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome bp r') :
   In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.Model.VTypeExpr t.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
@@ -769,7 +776,7 @@ Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (
   | Index.Model.VApplication => va_app_row va r ++ va_value_row va r
   | Index.Model.VStmt Index.Model.SSExpr => [OFStmt r (own_stmt_va va ctab r)]
   | Index.Model.VStmt (Index.Model.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
-  | Index.Model.VTypeExpr _ => [OFType r (own_type bp r)]
+  | Index.Model.VTypeExpr _ => type_fact r
   | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => va_value_row va r
   | _ => []
   end.
@@ -1276,16 +1283,16 @@ Definition frr_key (ref : FactRowRef fp) : Index.NodeRef idx * FactKind := fact_
 Lemma occ_facts_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) (o : OccFact bp) :
   In o (occ_facts bp ctab r) -> fact_site o = r.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E) in Hin); try (destruct st);
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E) in Hin); try (rewrite (type_fact_at bp r nt E) in Hin); try (destruct st);
     cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
 Qed.
 (* the facts occ_facts retains at a node have duplicate-free keys: one per family, application's two kinds distinct *)
 Lemma occ_facts_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
   NoDup (map fact_key (occ_facts bp ctab r)).
 Proof.
-  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E)); try (destruct st);
+  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E)); try (rewrite (type_fact_at bp r nt E)); try (destruct st);
     cbn [occ_facts map fact_key fact_site fact_kind app];
     repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
     apply NoDup_nil.
@@ -1408,17 +1415,19 @@ Lemma fact_row_is_own (ref : FactRowRef fp) :
   | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
   | OFStmt r os => os = own_stmt bp (const_table bp (Index.nr_file r)) r
-  | OFType r ot => ot = own_type bp r
+  | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
+      ot = own_type bp r n H
   end.
 Proof.
   destruct ref as [k o Hat]; cbn [frr_row].
   assert (Hin : In o (raw_facts bp)) by (rewrite <- (fact_once bp fp); exact (nth_error_In _ _ Hat)).
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
-  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E) in Ho); try (destruct st);
+  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E) in Ho); try (rewrite (type_fact_at bp r nt E) in Ho); try (destruct st);
     cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
     subst o; cbn; rewrite ?Hfile; try reflexivity.
-  exists E; reflexivity.
+  - exists E; reflexivity.
+  - exists nt, E; reflexivity.
 Qed.
 (* §12 no false peer: the only retained fact at an exact site+kind is that one; no fabricated peer joins the list *)
 Lemma no_false_row (o o' : OccFact bp) :
