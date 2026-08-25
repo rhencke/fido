@@ -45,6 +45,15 @@ Proof.
     by (apply Index.noderef_positional; [ rewrite (Index.file_nodes_file fr r' Hin'), Hf; reflexivity | exact Hpos ]).
   subst r'; exact Hin'.
 Qed.
+(* the exact expression child of an expr statement stays in that statement's file: children never cross files *)
+Lemma ee_child_file {p} {idx : Index.ProgramIndex p} (r : Index.NodeRef idx)
+  (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) :
+  Index.nr_file (Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv))) = Index.nr_file r.
+Proof.
+  symmetry.
+  exact (proj2 (Index.node_parent_inv _ _
+    (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)))))).
+Qed.
 
 (* the Analysis applicability/fact kind of an occurrence; the displayed Family is a total projection of site+kind *)
 Inductive FactKind : Type := ValueKind | ApplicationKind | StatementKind | TypeUseKind.
@@ -755,6 +764,21 @@ Proof.
     destruct (Index.node_view n); cbn [app find]; try rewrite Hne; apply IH; assumption.
 Qed.
 
+(* the va child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
+Lemma va_value_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  va_value_negative (va_facts ctab (Index.file_nodes fr)) e = value_neg_b bp (own_value bp ctab e).
+Proof.
+  unfold va_value_negative.
+  rewrite (va_value_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
+Qed.
+Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
+  va_app_negative (va_facts ctab (Index.file_nodes fr)) e = app_neg_b bp (own_app bp e).
+Proof.
+  unfold va_app_negative.
+  rewrite (va_app_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr) Hva); reflexivity.
+Qed.
 (* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
 Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
