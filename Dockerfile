@@ -496,6 +496,30 @@ typefail neg_deleted_build_data "the deleted publicly-nameable canonical builder
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.build_data sf.'
 typefail neg_deleted_rawbp_maker "the deleted raw phase-record maker" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) := BN.mk_rawbp.'
+# — §Q data-indexed certificate: the exact Analysis.Result is the certificate's TYPE INDEX, transparent and
+#   authority-free; the sealed Compilation/Program/Rejection/Outside are abstract over that index, so raw data
+#   (Result, admissibility proof, FactRowRef) cannot inhabit a certificate, a certificate cannot cross data
+#   indices, and the deleted opaque compilation_result field / equality-to-rerun acquisition route are absent —
+typefail neg_result_as_compilation "a raw Analysis.Result accepted as its own compilation certificate" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : CP.Sealed.Compilation p r := r.'
+typefail neg_data_as_program "the transparent canonical compilation data accepted as a Program certificate" \
+  'Definition forged (p : Syntax.Program) : CP.Program p := CP.compilation_data p.'
+typefail neg_admissible_mints_program "an admissibility proof over the data minting a Program certificate" \
+  'Definition forged (p : Syntax.Program) (H : CP.AdmissibleData (CP.compilation_data p)) : CP.Program p := H.'
+typefail neg_factrow_mints_program "an exact retained fact-row ref minting a Program certificate" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (ref : AN.FactRowRef (AN.res_facts r)) : CP.Sealed.Program p r := ref.'
+typefail neg_compilation_cross_data "a compilation certificate for data r1 used as the certificate for data r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (c : CP.Sealed.Compilation p r1) : CP.Sealed.Compilation p r2 := c.'
+typefail neg_program_cross_data "a program certificate for data r1 used as the certificate for data r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (cp : CP.Sealed.Program p r1) : CP.Sealed.Program p r2 := cp.'
+typefail neg_rejection_cross_data "a rejection certificate for data r1 used as the certificate for data r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (rj : CP.Sealed.Rejection p r1) : CP.Sealed.Rejection p r2 := rj.'
+typefail neg_outside_cross_data "an outside certificate for data r1 used as the certificate for data r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (ou : CP.Sealed.Outside p r1) : CP.Sealed.Outside p r2 := ou.'
+typefail neg_deleted_compilation_result "the deleted opaque compilation_result Result-field projection" \
+  'Definition forged := CP.compilation_result.'
+typefail neg_eq_as_program "a canonical-data equality passed where a Program certificate is required" \
+  'Definition forged (p : Syntax.Program) (H : CP.compilation_data p = AN.analyze p) : CP.Program p := H.'
 # — index / occurrence / selector (R1) —
 typefail neg_foreign_index_occurrence "an occurrence used at a foreign index" \
   'Definition forged (p q : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : IX.NodeRef (IX.index_program q) := r.'
@@ -515,10 +539,31 @@ typefail neg_main_est_foreign_surface "an establishment from a foreign surface a
   'Definition forged (p q : Syntax.Program) (sp : PI.PackageSurface (IX.index_program p)) (sq : PI.PackageSurface (IX.index_program q)) (pr : PI.PackageRef sq) (e : BN.Est sp) : BN.MainStatus sq pr := BN.MainOne e.'
 typefail neg_raw_node_as_source_object "a SourceObject built directly from a raw NodeRef, bypassing a proven origin" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : BN.ObjectRef (IX.index_program p) := BN.SourceObject r.'
-# — report / analysis (R3/R4): each issue is one exact fact ref, no free site/family/cause; a requirement is
-#   exact for its site and kind, never a nullary payload accepted at an arbitrary site —
-typefail neg_occ_diag_free_fields "an occurrence diagnostic built from raw site/family/cause fields, not one exact invalid fact ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic bp := AN.DOcc r fam c.'
+# — report / analysis (R3/R4/§23): every occurrence diagnostic/boundary is one exact retained fact-ROW ref, never
+#   a raw OccFact or free site/family/cause; the ref carries its membership proof, is fact-phase-indexed, and does
+#   not cross phases; a requirement stays exact for its site and kind, never a nullary payload at an arbitrary site —
+typefail neg_occfact_as_factrow "a raw OccFact accepted directly as an exact retained fact-row ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.FactRowRef fp := o.'
+typefail neg_factrow_forged_membership "a fact-row ref whose membership proof is a bare reflexivity over a raw fact" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.FactRowRef fp := AN.mk_frr 0 o eq_refl.'
+typefail neg_factrow_cross_phase "a fact-row ref of fact phase A used at fact phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (ref : AN.FactRowRef fp1) : AN.FactRowRef fp2 := ref.'
+typefail neg_factrow_cross_result "a fact-row ref from one Result res_facts used at another Result res_facts" \
+  'Definition forged (p q : Syntax.Program) (ref : AN.FactRowRef (AN.res_facts (CP.compilation_data p))) : AN.FactRowRef (AN.res_facts (CP.compilation_data q)) := ref.'
+typefail neg_ifr_forged_case "an invalid-case ref whose outcome proof is a bare reflexivity over a chosen cause" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (rr : AN.FactRowRef fp) (c : AN.Cause bp (AN.fact_site (AN.frr_row rr)) (AN.fact_kind (AN.frr_row rr))) : AN.InvalidFactRef fp := AN.mk_ifr rr c eq_refl.'
+typefail neg_ifr_cross_phase "an invalid-case ref of fact phase A used at fact phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (ir : AN.InvalidFactRef fp1) : AN.InvalidFactRef fp2 := ir.'
+typefail neg_occ_diag_raw_fact "an occurrence diagnostic built from a raw OccFact, not one exact invalid fact-row ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.Diagnostic fp := AN.DOcc o.'
+typefail neg_occ_bound_raw_fact "an occurrence boundary built from a raw OccFact, not one exact unmet fact-row ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.Boundary fp := AN.BOcc o.'
+typefail neg_diag_cross_phase "an occurrence diagnostic of fact phase A used at fact phase B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (dg : AN.Diagnostic fp1) : AN.Diagnostic fp2 := dg.'
+typefail neg_causeview_mints_diag "a bp-free Report cause view minting an occurrence diagnostic, not an exact fact ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (cv : RP.CauseView) : AN.Diagnostic fp := AN.DOcc cv.'
+typefail neg_diagnostic_bp_unindexed "the deleted binding-phase-indexed occurrence diagnostic, not fact-phase-indexed" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) : Type := AN.Diagnostic bp.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) : AN.Requirement bp r AN.ValueKind := AN.ReqComplexType.'
 # — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
@@ -1461,7 +1506,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
 echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection over exact package-environment refs, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the phase-owned event/state/trace surface (package ledgers, per-block state traces with exact causal cuts, block event kinds, exact retained additions and add-counts, equal-content different-cut discrimination, and ordinary resolution to the exact establishment/redeclaration/unbound outcome) computes over the section-12 fixture programs; the exact state-indexed short/declaration classifications and judgments, the exact use-context/environment/visible-group refs, and every phase-owned inversion law are reachable as stated (the exact classifications carry proof-bearing state refs, so they are exercised at the type/law level, not by vm_compute) — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/certificate-data/fact-row/case-ref/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
