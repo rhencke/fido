@@ -492,10 +492,10 @@ precedence above and the one-core provenance law below are unchanged.
 
 ### Retained causal objects
 
-The production analysis is one retained `Analysis.Result`, wrapped by the branch-neutral `Compilation`: the
-intrinsic index, the package surface, the binding phase, the fact phase and the package facts, each a field typed
-by the exact prior field it consumes. Nothing is
-rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
+The production analysis is one transparent `Analysis.Result` — the intrinsic index, the package surface, the
+binding phase, the fact phase and the package facts, each a field typed by the exact prior field it consumes — and
+it is the exact type **index** of the branch-neutral `Compilation` certificate, never a field held behind it.
+Nothing is rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
 
 Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
 cells, indexed by the exact `ProgramIndex` with an irrelevant membership proof; a `PackageRef` is a position into
@@ -508,11 +508,11 @@ There is no `List.find`/`existsb` scan or recomputed peer object in the read pat
 The phase retains the whole flow as a dependent chain: the causal chain **is** the dependent types, so a foreign
 component is unrepresentable by type mismatch rather than caught by a comparison.
 
-**Equality to a recomputation is never provenance.** The retained `Compilation` holds one `Analysis.Result`, which
-holds each phase once; the index, facts, package facts, diagnostics and boundaries are projections of it, never a
-stored equality to a rerun. The
+**Equality to a recomputation is never provenance.** The transparent `Analysis.Result` — the exact type index the
+`Compilation` certificate is built over — holds each phase once; the index, facts, package facts, diagnostics and
+boundaries are projections of it, never a stored equality to a rerun. The
 compiled capability `Program p` is abstract — sealed behind the `C4_PUBLIC` signature whose only maker `mkProg`
-demands `Admissible` over the retained `Compilation` — so a client cannot forge one, and `compile` (via
+demands `Admissible` over that exact retained result — so a client cannot forge one, and `compile` (via
 `compiled_program`) is the only route. The transparent `disposition` and `OutcomeAt` stay reducible, and the byte
 path never inspects the compiled object at all — `Emit.transport` renders only the exact indexed source `p` — so the
 sealed `Program` never strands `vm_compute`.
