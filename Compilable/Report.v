@@ -112,6 +112,51 @@ Inductive ReqView : Type :=
 | RvComplexType : ReqView
 | RvOtherReq : ReqView.
 
+(* bp-free descriptive views of the exact package decision cases: the package's identity, the colliding root entry *)
+Record MissingMainView : Type := mk_missing_main_view {
+  mmv_package : list String.string ;
+  mmv_exec    : String.string
+}.
+Record CollisionView : Type := mk_collision_view {
+  cv_package  : list String.string ;
+  cv_exec     : String.string ;
+  cv_root     : String.string ;
+  cv_root_dir : bool
+}.
+Definition missing_main_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {pf : AN.PackageFacts bp} (mmr : AN.MissingMainRef pf) : MissingMainView :=
+  mk_missing_main_view (PI.pkg_components (AN.mmr_package mmr)) (PI.default_exec_name (AN.mmr_package mmr)).
+Definition collision_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {pf : AN.PackageFacts bp} (cr : AN.CollisionRef pf) : CollisionView :=
+  mk_collision_view (PI.pkg_components (AN.cr_package cr)) (PI.default_exec_name (AN.cr_package cr))
+    (PI.re_name (AN.cr_root cr)) (match PI.re_kind (AN.cr_root cr) with PI.RootDir => true | PI.RootFile => false end).
+(* one-way package-diagnostic views: a missing-main diagnostic yields a MissingMainView, a collision a CollisionView *)
+Definition diag_missing_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {pf : AN.PackageFacts bp} (d : AN.Diagnostic fp pf) : option MissingMainView :=
+  match d with AN.DMissingMain mmr => Some (missing_main_view mmr) | _ => None end.
+Definition diag_collision_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {pf : AN.PackageFacts bp} (d : AN.Diagnostic fp pf) : option CollisionView :=
+  match d with AN.DOutputCollision cr => Some (collision_view cr) | _ => None end.
+
+(* §14/§19.4 the package views project exactly the retained ref's package and (for collision) root, one-way *)
+Lemma missing_main_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {pf : AN.PackageFacts bp} (mmr : AN.MissingMainRef pf) :
+  mmv_package (missing_main_view mmr) = PI.pkg_components (AN.mmr_package mmr).
+Proof. reflexivity. Qed.
+Lemma collision_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {pf : AN.PackageFacts bp} (cr : AN.CollisionRef pf) :
+  cv_package (collision_view cr) = PI.pkg_components (AN.cr_package cr)
+  /\ cv_root (collision_view cr) = PI.re_name (AN.cr_root cr).
+Proof. split; reflexivity. Qed.
+Lemma diag_missing_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {pf : AN.PackageFacts bp} (mmr : AN.MissingMainRef pf) :
+  diag_missing_view (AN.DMissingMain mmr : AN.Diagnostic fp pf) = Some (missing_main_view mmr).
+Proof. reflexivity. Qed.
+Lemma diag_collision_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {pf : AN.PackageFacts bp} (cr : AN.CollisionRef pf) :
+  diag_collision_view (AN.DOutputCollision cr : AN.Diagnostic fp pf) = Some (collision_view cr).
+Proof. reflexivity. Qed.
+
 Definition object_predeclared {p} {idx : Index.ProgramIndex p} (o : BN.ObjectRef idx) : option Names.PredeclaredName :=
   match o with BN.PredeclaredObject pn => Some pn | BN.SourceObject _ => None end.
 

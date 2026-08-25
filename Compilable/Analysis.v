@@ -803,10 +803,77 @@ Definition coll_of (d : FreshBuildDisposition s) : preflight pf = d -> option (C
 Definition collision_ref : option (CollisionRef pf) := coll_of (preflight pf) eq_refl.
 
 End PackageCases.
-Arguments mm_of {p idx s bd bp} pf pr st H.
+Arguments mm_of {p idx s bd bp pf} pr st H.
 Arguments missing_main_refs {p idx s bd bp} pf.
-Arguments coll_of {p idx s bd bp} pf d H.
+Arguments coll_of {p idx s bd bp pf} d H.
 Arguments collision_ref {p idx s bd bp} pf.
+
+(* small helper: a per-element singleton-or-empty flat_map is exactly the filter of its boolean condition *)
+Lemma flat_map_match_filter {A} (f : A -> bool) (g : A -> list A) (l : list A)
+  (Hg : forall a, g a = if f a then [a] else []) : flat_map g l = filter f l.
+Proof. induction l as [|a t IH]; cbn; [reflexivity|]. rewrite Hg. destruct (f a); cbn; rewrite IH; reflexivity. Qed.
+
+Section PackageCaseLaws.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} (pf : PackageFacts bp).
+
+(* the boolean the missing-main enumeration selects on: exactly the MainMissing decision at a package *)
+Definition is_missing (pr : BN.PI.PackageRef s) : bool :=
+  match package_rule pf pr with BN.MainMissing => true | _ => false end.
+(* mm_of projects to exactly [pr] on the MainMissing decision, and to nothing on MainOne / MainMultiple *)
+Lemma mm_of_package (pr : BN.PI.PackageRef s) (st : BN.MainStatus s pr) (H : package_rule pf pr = st) :
+  map mmr_package (mm_of pr st H) = match st with BN.MainMissing => [pr] | _ => [] end.
+Proof. destruct st; reflexivity. Qed.
+
+(* §11.1/§19.1 the missing-main packages are exactly the MainMissing packages of packages s, in package order *)
+Lemma missing_main_packages : map mmr_package (missing_main_refs pf) = filter is_missing (BN.PI.packages s).
+Proof.
+  unfold missing_main_refs. rewrite BN.map_flat_map.
+  apply flat_map_match_filter. intro pr. rewrite mm_of_package. unfold is_missing.
+  destruct (package_rule pf pr); reflexivity.
+Qed.
+(* §19.1 soundness: every retained missing-main ref carries the exact MainMissing decision of its package *)
+Lemma missing_main_sound (mmr : MissingMainRef pf) : package_rule pf (mmr_package mmr) = BN.MainMissing.
+Proof. exact (mmr_case mmr). Qed.
+(* §19.1 a MainOne or MainMultiple package can never inhabit MissingMainRef: its exact decision is not MainMissing *)
+Lemma no_missing_of_main_one (mmr : MissingMainRef pf) (e : BN.Est s) :
+  package_rule pf (mmr_package mmr) = BN.MainOne e -> False.
+Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
+Lemma no_missing_of_main_multiple (mmr : MissingMainRef pf) (a b : BN.Est s) (rest : list (BN.Est s)) :
+  package_rule pf (mmr_package mmr) = BN.MainMultiple a b rest -> False.
+Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
+(* §11.1/§19.1 completeness: a MainMissing package appears exactly once among the enumerated missing-main packages *)
+Lemma missing_main_complete (pr : BN.PI.PackageRef s) :
+  In pr (BN.PI.packages s) -> package_rule pf pr = BN.MainMissing -> In pr (map mmr_package (missing_main_refs pf)).
+Proof.
+  intros Hin Hmm. rewrite missing_main_packages. apply filter_In. split; [exact Hin | unfold is_missing; rewrite Hmm; reflexivity].
+Qed.
+(* §11.1/§19.1 no duplicate package among the missing-main refs *)
+Lemma missing_main_nodup : NoDup (map mmr_package (missing_main_refs pf)).
+Proof. rewrite missing_main_packages. apply nodup_filter. apply BN.packages_nodup. Qed.
+
+(* §11.2/§19.2 a collision ref exists exactly when the exact retained preflight is a collision at that package+root *)
+Lemma coll_of_none (d : FreshBuildDisposition s) (H : preflight pf = d) : coll_of d H = None <-> d = FreshOk.
+Proof. destruct d; cbn; split; solve [ reflexivity | discriminate | intro; reflexivity ]. Qed.
+Lemma collision_ref_none : collision_ref pf = None <-> preflight pf = FreshOk.
+Proof. exact (coll_of_none (preflight pf) eq_refl). Qed.
+(* §19.2 soundness: a collision ref carries the exact FreshCollision decision at its exact package and root *)
+Lemma collision_case (cr : CollisionRef pf) : preflight pf = FreshCollision (cr_package cr) (cr_root cr).
+Proof. exact (cr_case cr). Qed.
+(* §19.2 a FreshCollision preflight yields a collision ref (not None) *)
+Lemma collision_ref_of_fresh (pr : BN.PI.PackageRef s) (rr : BN.PI.RootEntryRef idx) :
+  preflight pf = FreshCollision pr rr -> collision_ref pf <> None.
+Proof. intros Hf Hn. apply collision_ref_none in Hn. rewrite Hf in Hn. discriminate Hn. Qed.
+(* §19.2 the collision case is unique: any two collision refs name the same exact package and root *)
+Lemma collision_unique (cr1 cr2 : CollisionRef pf) :
+  cr_package cr1 = cr_package cr2 /\ cr_root cr1 = cr_root cr2.
+Proof.
+  pose proof (cr_case cr1) as H1. pose proof (cr_case cr2) as H2. rewrite H1 in H2. injection H2 as Hp Hr.
+  split; [ exact Hp | exact Hr ].
+Qed.
+
+End PackageCaseLaws.
+Arguments is_missing {p idx s bd bp} pf pr.
 
 (* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
 Record Result (p : Syntax.Program) : Type := mk_result {
@@ -1422,6 +1489,15 @@ Definition occ_diags : list (Diagnostic fp pf) := flat_map occ_diag_rows (fact_r
 (* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-row order *)
 Definition diagnostics : list (Diagnostic fp pf) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
 Definition boundaries : list (Boundary fp) := flat_map occ_bound_rows (fact_rows fp).
+
+(* §19.3 the package diagnostic rows ARE the exact case-ref projections; neither re-tests the semantic condition *)
+Lemma collision_rows_ref : collision_rows = match collision_ref pf with Some cr => [DOutputCollision cr] | None => [] end.
+Proof. reflexivity. Qed.
+Lemma main_rows_refs : main_rows = map DMissingMain (missing_main_refs pf).
+Proof. reflexivity. Qed.
+(* §19.3/§21 the collision-before-main-before-redeclaration-before-occurrence category order is unchanged *)
+Lemma diagnostics_order : diagnostics = collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Proof. reflexivity. Qed.
 
 (* one row yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across rows (§6) *)
 Lemma occ_row_exclusive (ref : FactRowRef fp) : occ_diag_rows ref <> [] -> occ_bound_rows ref = [].
