@@ -83,8 +83,8 @@ Module Sealed : C4_PUBLIC.
   Arguments c_prov {p} _.
   Definition Compilation := CompilationR.
 
-  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_binds (c_res c)).
-  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_binds (c_res c)).
+  Definition Diagnostic {p} (c : Compilation p) : Type := RP.Diagnostic (AN.res_facts (c_res c)).
+  Definition Boundary {p} (c : Compilation p) : Type := RP.Boundary (AN.res_facts (c_res c)).
   Definition diagnostics {p} (c : Compilation p) : list (Diagnostic c) := RP.diagnostics (AN.res_facts (c_res c)) (AN.res_pkg (c_res c)).
   Definition boundaries {p} (c : Compilation p) : list (Boundary c) := RP.boundaries (AN.res_facts (c_res c)).
 

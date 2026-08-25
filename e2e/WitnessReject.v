@@ -106,7 +106,7 @@ Definition r_short_dup : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collect
 (* a parent arity invalidity and an independent child requirement coexist: neither over-blocks the other *)
 Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; PL [ Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [ VNAME "x" ] ] ]). Proof. reject. Qed.
 
-(* the one retained Result these fixtures read: compile's stored object via analyze, not a peer rebuild *)
+(* the retained Result these fixtures read; §19's reader becomes the addendum's outcome_result (compile p) later *)
 Definition rres (p : Syntax.Program) : AN.Result p := AN.analyze p.
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
@@ -146,11 +146,9 @@ Definition o_main_value : Compilable.outsides (prog [ PL [ VNAME "main" ] ]). Pr
 Definition r_main_as_type : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarTypeOnly (Syntax.NamedType (OID "main"))) ]) ]). Proof. reject. Qed.
 (* main(1) is an exact arity invalidity: the fixed main takes zero arguments *)
 Definition r_main_arity : Compilable.rejects (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]). Proof. reject. Qed.
-(* the invalidity is the exact application-family MainArity cause carrying the function head *)
+(* the invalidity is the exact application-family MainArity cause, read via the bp-free cause view (vm-cheap) *)
 Definition r_main_arity_payload :
-  (match dsites (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]) with
-   | [ AN.DOcc ifr ] => match AN.ifr_cause ifr with AN.MainArity _ _ _ _ _ => true | _ => false end
-   | _ => false end) = true.
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ])) = [ RP.CvMainArity ].
 Proof. vm_compute; reflexivity. Qed.
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
@@ -164,15 +162,13 @@ Definition r_redecl_payload :
    | _ => false
    end) = true.
 Proof. vm_compute; reflexivity. Qed.
-(* an occurrence diagnostic retains its exact family, a value invalidity projecting as FamValue *)
+(* an occurrence diagnostic retains its exact family, a value invalidity projecting as FamValue (bp-free view) *)
 Definition r_iota_family :
-  (match dsites (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]) with
-   | [ d ] => match AN.diag_family d with Some AN.FamValue => true | _ => false end
-   | _ => false end) = true.
+  RP.result_diag_families (rres (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ])) = [ AN.FamValue ].
 Proof. vm_compute; reflexivity. Qed.
-(* a boundary retains its own exact family too, projected from the one retained row *)
+(* a boundary retains its own exact family too, projected bp-free from the one retained row *)
 Definition o_cx_typed_family : exists f,
-  map AN.bound_family (AN.result_boundaries (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]))) = [ f ].
+  RP.result_bound_families (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = [ f ].
 Proof. eexists; vm_compute; reflexivity. Qed.
 (* a use of the redeclared name folds into the one group row named "x"; exact contexts + soundness are §24.4 laws *)
 Definition p_redecl_use : Syntax.Program :=
@@ -263,13 +259,11 @@ Definition d4_invalid_unsupported_coexist :
   = [ AN.ClassDiagnostic ; AN.ClassBoundary ].
 Proof. vm_compute; reflexivity. Qed.
 
-(* ordinal 0 names an exact retained row: the first diagnostic, projecting its exact retained cause *)
+(* ordinal 0 names an exact retained row: the first issue is a diagnostic; its cause view is CvInvalidIdentity *)
 Definition d4_ord0_is_first_diagnostic :
-  match nth_error (AN.result_issues (rres p_two_iota)) 0%nat with
-  | Some (AN.IDiag d) => RP.issuecause_view (AN.diag_cause d) = RP.CvInvalidIdentity Names.PIota
-  | _ => False
-  end.
-Proof. vm_compute; reflexivity. Qed.
+  (match nth_error (AN.result_issues (rres p_two_iota)) 0%nat with Some (AN.IDiag _) => True | _ => False end)
+  /\ hd_error (RP.result_cause_views (rres p_two_iota)) = Some (RP.CvInvalidIdentity Names.PIota).
+Proof. split; vm_compute; try exact I; reflexivity. Qed.
 
 (* a default-output collision coexists with a missing main and with a redeclared group as distinct diagnostics *)
 Definition cgen_path : FilePath.T := FilePath.Make "generated/x.go" eq_refl.

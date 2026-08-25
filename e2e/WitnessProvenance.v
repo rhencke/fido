@@ -93,10 +93,10 @@ Definition prov_usecontext (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot 
   AN.mk_redeclared_use u res Hy.
 
 (* §25.4 Report projection: the descriptive group view is the exact retained root's scope, name and members *)
-Definition prov_report_group_name (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
-  : RP.diag_group_name (AN.DRedeclaredGroup root) = Some n := eq_refl.
-Definition prov_report_group_view (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
-  : RP.diag_group_view (AN.DRedeclaredGroup root)
-    = Some (RP.mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root))) := eq_refl.
+Definition prov_report_group_name (fp : AN.FactPhase bp) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
+  : RP.diag_group_name (AN.DRedeclaredGroup root : AN.Diagnostic fp) = Some n := eq_refl.
+Definition prov_report_group_view (fp : AN.FactPhase bp) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
+  : RP.diag_group_view (AN.DRedeclaredGroup root : AN.Diagnostic fp)
+    = Some (RP.mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root : AN.Diagnostic fp))) := eq_refl.
 
 End Provenance.

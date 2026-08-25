@@ -816,35 +816,75 @@ Definition occ_dep (o : OccFact bp) : option (Dependency bp (fact_site o) (fact_
   end.
 End OccFactProj.
 
-(* an exact invalid fact ref: the exact producing fact plus the exact cause it retains for that fact's site/kind *)
-Record InvalidFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type := mk_ifr {
-  ifr_fact  : OccFact bp ;
-  ifr_cause : Cause bp (fact_site ifr_fact) (fact_kind ifr_fact) ;
-  ifr_ok    : occ_cause ifr_fact = Some ifr_cause
-}.
-Arguments mk_ifr {p idx s bd bp} _ _ _.
-Arguments ifr_fact {p idx s bd bp} _. Arguments ifr_cause {p idx s bd bp} _. Arguments ifr_ok {p idx s bd bp} _.
+Section FactRow.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} (fp : FactPhase bp).
 
-(* an exact unmet fact ref: the exact producing fact plus the exact requirement it retains for that fact's site/kind *)
-Record UnmetFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type := mk_ufr {
-  ufr_fact : OccFact bp ;
-  ufr_req  : Requirement bp (fact_site ufr_fact) (fact_kind ufr_fact) ;
-  ufr_ok   : occ_req ufr_fact = Some ufr_req
+(* an exact retained fact-row identity: an ordinal into fact_list fp with the exact row retained at that ordinal *)
+Record FactRowRef : Type := mk_frr {
+  frr_ord : nat ;
+  frr_row : OccFact bp ;
+  frr_at  : nth_error (fact_list fp) frr_ord = Some frr_row
 }.
-Arguments mk_ufr {p idx s bd bp} _ _ _.
-Arguments ufr_fact {p idx s bd bp} _. Arguments ufr_req {p idx s bd bp} _. Arguments ufr_ok {p idx s bd bp} _.
+Definition frr_site (ref : FactRowRef) : Index.NodeRef idx := fact_site (frr_row ref).
+Definition frr_kind (ref : FactRowRef) : FactKind := fact_kind (frr_row ref).
+Definition frr_family (ref : FactRowRef) : Family := fact_family (frr_row ref).
 
-(* an exact dependent fact ref: the exact producing fact plus the exact dependency it retains; yields no issue row *)
-Record DependentFactRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type := mk_dfr {
-  dfr_fact : OccFact bp ;
-  dfr_dep  : Dependency bp (fact_site dfr_fact) (fact_kind dfr_fact) ;
-  dfr_ok   : occ_dep dfr_fact = Some dfr_dep
+(* canonical ordered row enumeration: fact_list shared via a let, each proof a convoy eq_refl storing only Some x *)
+Definition fact_rows : list FactRowRef :=
+  let fl := fact_list fp in
+  flat_map (fun k =>
+     match nth_error fl k as o return nth_error fl k = o -> list FactRowRef with
+     | Some x => fun H => [mk_frr k x H]
+     | None => fun _ => []
+     end eq_refl)
+   (seq 0%nat (List.length fl)).
+
+(* an exact invalid fact ref: a retained row whose exact retained outcome is the invalid case, carrying its cause *)
+Record InvalidFactRef : Type := mk_ifr {
+  ifr_rowref : FactRowRef ;
+  ifr_cause  : Cause bp (fact_site (frr_row ifr_rowref)) (fact_kind (frr_row ifr_rowref)) ;
+  ifr_ok     : occ_cause (frr_row ifr_rowref) = Some ifr_cause
 }.
-Arguments mk_dfr {p idx s bd bp} _ _ _.
-Arguments dfr_fact {p idx s bd bp} _. Arguments dfr_dep {p idx s bd bp} _. Arguments dfr_ok {p idx s bd bp} _.
+Definition ifr_fact (ir : InvalidFactRef) : OccFact bp := frr_row (ifr_rowref ir).
+Definition ifr_ord (ir : InvalidFactRef) : nat := frr_ord (ifr_rowref ir).
+
+(* an exact unmet fact ref: a retained row whose exact retained outcome is the unmet case, carrying its requirement *)
+Record UnmetFactRef : Type := mk_ufr {
+  ufr_rowref : FactRowRef ;
+  ufr_req    : Requirement bp (fact_site (frr_row ufr_rowref)) (fact_kind (frr_row ufr_rowref)) ;
+  ufr_ok     : occ_req (frr_row ufr_rowref) = Some ufr_req
+}.
+Definition ufr_fact (ur : UnmetFactRef) : OccFact bp := frr_row (ufr_rowref ur).
+Definition ufr_ord (ur : UnmetFactRef) : nat := frr_ord (ufr_rowref ur).
+
+(* an exact dependent fact ref: a retained row whose exact outcome is the dependent case; yields no issue row *)
+Record DependentFactRef : Type := mk_dfr {
+  dfr_rowref : FactRowRef ;
+  dfr_dep    : Dependency bp (fact_site (frr_row dfr_rowref)) (fact_kind (frr_row dfr_rowref)) ;
+  dfr_ok     : occ_dep (frr_row dfr_rowref) = Some dfr_dep
+}.
+Definition dfr_fact (dr : DependentFactRef) : OccFact bp := frr_row (dfr_rowref dr).
+Definition dfr_ord (dr : DependentFactRef) : nat := frr_ord (dfr_rowref dr).
+
+End FactRow.
+Arguments FactRowRef {p idx s bd bp} fp.
+Arguments mk_frr {p idx s bd bp fp} _ _ _.
+Arguments frr_ord {p idx s bd bp fp} _. Arguments frr_row {p idx s bd bp fp} _. Arguments frr_at {p idx s bd bp fp} _.
+Arguments frr_site {p idx s bd bp fp} _. Arguments frr_kind {p idx s bd bp fp} _. Arguments frr_family {p idx s bd bp fp} _.
+Arguments fact_rows {p idx s bd bp} fp.
+Arguments InvalidFactRef {p idx s bd bp} fp.
+Arguments mk_ifr {p idx s bd bp fp} _ _ _.
+Arguments ifr_rowref {p idx s bd bp fp} _. Arguments ifr_cause {p idx s bd bp fp} _. Arguments ifr_ok {p idx s bd bp fp} _.
+Arguments ifr_fact {p idx s bd bp fp} _. Arguments ifr_ord {p idx s bd bp fp} _.
+Arguments UnmetFactRef {p idx s bd bp} fp.
+Arguments mk_ufr {p idx s bd bp fp} _ _ _.
+Arguments ufr_rowref {p idx s bd bp fp} _. Arguments ufr_req {p idx s bd bp fp} _. Arguments ufr_ok {p idx s bd bp fp} _.
+Arguments ufr_fact {p idx s bd bp fp} _. Arguments ufr_ord {p idx s bd bp fp} _.
+Arguments DependentFactRef {p idx s bd bp} fp.
+Arguments mk_dfr {p idx s bd bp fp} _ _ _.
+Arguments dfr_rowref {p idx s bd bp fp} _. Arguments dfr_dep {p idx s bd bp fp} _. Arguments dfr_ok {p idx s bd bp fp} _.
+Arguments dfr_fact {p idx s bd bp fp} _. Arguments dfr_ord {p idx s bd bp fp} _.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -868,88 +908,89 @@ Arguments RootNode {p idx s bd bp} _.
 Arguments RootPackage {p idx s bd bp} _.
 Arguments RootGroup {p idx s bd bp n} _.
 
-(* the exact diagnostics: an occurrence invalidity is exactly its invalid fact ref, no free site/family/payload *)
+(* the exact diagnostics, indexed by fp: an occurrence invalidity is exactly its invalid fact-row ref, no free fields *)
 Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| DOcc : InvalidFactRef bp -> Diagnostic bp
-| DMissingMain : BN.PI.PackageRef s -> Diagnostic bp
-| DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic bp
-| DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> Diagnostic bp.
-Arguments DOcc {p idx s bd bp} _.
-Arguments DMissingMain {p idx s bd bp} _.
-Arguments DOutputCollision {p idx s bd bp} _ _.
-Arguments DRedeclaredGroup {p idx s bd bp n} _.
+  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
+| DOcc : InvalidFactRef fp -> Diagnostic fp
+| DMissingMain : BN.PI.PackageRef s -> Diagnostic fp
+| DOutputCollision : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> Diagnostic fp
+| DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> Diagnostic fp.
+Arguments DOcc {p idx s bd bp fp} _.
+Arguments DMissingMain {p idx s bd bp fp} _.
+Arguments DOutputCollision {p idx s bd bp fp} _ _.
+Arguments DRedeclaredGroup {p idx s bd bp fp n} _.
 
-(* the exact boundaries: an occurrence-family unmet requirement is exactly its unmet fact ref *)
+(* the exact boundaries: an occurrence-family unmet requirement is exactly its unmet fact-row ref, indexed by fp *)
 Inductive Boundary {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| BOcc : UnmetFactRef bp -> Boundary bp.
-Arguments BOcc {p idx s bd bp} _.
+  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
+| BOcc : UnmetFactRef fp -> Boundary fp.
+Arguments BOcc {p idx s bd bp fp} _.
 
 (* the issue cause a reader projects from a diagnostic row, exactly as retained, never re-derived from a weaker site *)
 Inductive IssueCause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| OccCause : InvalidFactRef bp -> IssueCause bp
-| MissingMainCause : BN.PI.PackageRef s -> IssueCause bp
-| OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause bp
-| RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueCause bp.
-Arguments OccCause {p idx s bd bp} _.
-Arguments MissingMainCause {p idx s bd bp} _.
-Arguments OutputCollisionCause {p idx s bd bp} _ _.
-Arguments RedeclaredGroupCause {p idx s bd bp n} _.
+  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
+| OccCause : InvalidFactRef fp -> IssueCause fp
+| MissingMainCause : BN.PI.PackageRef s -> IssueCause fp
+| OutputCollisionCause : BN.PI.PackageRef s -> BN.PI.RootEntryRef idx -> IssueCause fp
+| RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueCause fp.
+Arguments OccCause {p idx s bd bp fp} _.
+Arguments MissingMainCause {p idx s bd bp fp} _.
+Arguments OutputCollisionCause {p idx s bd bp fp} _ _.
+Arguments RedeclaredGroupCause {p idx s bd bp fp n} _.
 
 Section IssueProjections.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} {fp : FactPhase bp}.
 
 (* related nodes a cause carries: a complex mismatch's two components (all other causes carry none directly) *)
 Definition cause_related {site : Index.NodeRef idx} {k : FactKind} (c : Cause bp site k) : list (Index.NodeRef idx) :=
   match c with ComplexMismatch _ a b => [a; b] | _ => [] end.
-(* the cause a row retains: the exact invalid fact ref, projected exactly, never re-derived from a weaker site *)
-Definition diag_cause (d : Diagnostic bp) : IssueCause bp :=
+(* the cause a row retains: the exact invalid fact-row ref, projected exactly, never re-derived from a weaker site *)
+Definition diag_cause (d : Diagnostic fp) : IssueCause fp :=
   match d with
   | DOcc ifr => OccCause ifr
   | DMissingMain pr => MissingMainCause pr
   | DOutputCollision pr rr => OutputCollisionCause pr rr
   | DRedeclaredGroup root => RedeclaredGroupCause root
   end.
-Definition diag_family (d : Diagnostic bp) : option Family :=
+Definition diag_family (d : Diagnostic fp) : option Family :=
   match d with DOcc ifr => Some (fact_family (ifr_fact ifr)) | _ => None end.
 (* related nodes a row projects: the cause's components, or a group's exact members (use contexts via Report) *)
-Definition diag_related (d : Diagnostic bp) : list (Index.NodeRef idx) :=
+Definition diag_related (d : Diagnostic fp) : list (Index.NodeRef idx) :=
   match d with
   | DOcc ifr => cause_related (ifr_cause ifr)
   | DRedeclaredGroup root => map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root)))
   | _ => []
   end.
-Definition diag_root (d : Diagnostic bp) : IssueRoot bp :=
+Definition diag_root (d : Diagnostic fp) : IssueRoot bp :=
   match d with
   | DOcc ifr => RootNode (fact_site (ifr_fact ifr))
   | DMissingMain pr => RootPackage pr
   | DOutputCollision pr _ => RootPackage pr
   | DRedeclaredGroup root => RootGroup root
   end.
-Definition bound_req_ref (b : Boundary bp) : UnmetFactRef bp := match b with BOcc ufr => ufr end.
-Definition bound_family (b : Boundary bp) : Family := match b with BOcc ufr => fact_family (ufr_fact ufr) end.
-Definition bound_root (b : Boundary bp) : IssueRoot bp := match b with BOcc ufr => RootNode (fact_site (ufr_fact ufr)) end.
+Definition bound_req_ref (b : Boundary fp) : UnmetFactRef fp := match b with BOcc ufr => ufr end.
+Definition bound_family (b : Boundary fp) : Family := match b with BOcc ufr => fact_family (ufr_fact ufr) end.
+Definition bound_root (b : Boundary fp) : IssueRoot bp := match b with BOcc ufr => RootNode (fact_site (ufr_fact ufr)) end.
 
 (* §18.3 occurrence-row projections are exact: cause/family/root of a DOcc project from its retained invalid fact *)
-Lemma docc_cause (ifr : InvalidFactRef bp) : diag_cause (DOcc ifr) = OccCause ifr.
+Lemma docc_cause (ifr : InvalidFactRef fp) : diag_cause (DOcc ifr) = OccCause ifr.
 Proof. reflexivity. Qed.
-Lemma docc_family (ifr : InvalidFactRef bp) : diag_family (DOcc ifr) = Some (fact_family (ifr_fact ifr)).
+Lemma docc_family (ifr : InvalidFactRef fp) : diag_family (DOcc ifr) = Some (fact_family (ifr_fact ifr)).
 Proof. reflexivity. Qed.
-Lemma docc_root (ifr : InvalidFactRef bp) : diag_root (DOcc ifr) = RootNode (fact_site (ifr_fact ifr)).
+Lemma docc_root (ifr : InvalidFactRef fp) : diag_root (DOcc ifr) = RootNode (fact_site (ifr_fact ifr)).
 Proof. reflexivity. Qed.
 (* §18.3 the invalid fact ref's exact cause is exactly the outcome payload its retained fact carries *)
-Lemma ifr_cause_of_fact (ifr : InvalidFactRef bp) : occ_cause (ifr_fact ifr) = Some (ifr_cause ifr).
+Lemma ifr_cause_of_fact (ifr : InvalidFactRef fp) : occ_cause (ifr_fact ifr) = Some (ifr_cause ifr).
 Proof. exact (ifr_ok ifr). Qed.
 (* §18.3 boundary-row projections are exact: requirement/family/root of a BOcc project from its retained unmet fact *)
-Lemma bocc_req (ufr : UnmetFactRef bp) : bound_req_ref (BOcc ufr) = ufr.
+Lemma bocc_req (ufr : UnmetFactRef fp) : bound_req_ref (BOcc ufr) = ufr.
 Proof. reflexivity. Qed.
-Lemma bocc_family (ufr : UnmetFactRef bp) : bound_family (BOcc ufr) = fact_family (ufr_fact ufr).
+Lemma bocc_family (ufr : UnmetFactRef fp) : bound_family (BOcc ufr) = fact_family (ufr_fact ufr).
 Proof. reflexivity. Qed.
-Lemma bocc_root (ufr : UnmetFactRef bp) : bound_root (BOcc ufr) = RootNode (fact_site (ufr_fact ufr)).
+Lemma bocc_root (ufr : UnmetFactRef fp) : bound_root (BOcc ufr) = RootNode (fact_site (ufr_fact ufr)).
 Proof. reflexivity. Qed.
-Lemma ufr_req_of_fact (ufr : UnmetFactRef bp) : occ_req (ufr_fact ufr) = Some (ufr_req ufr).
+Lemma ufr_req_of_fact (ufr : UnmetFactRef fp) : occ_req (ufr_fact ufr) = Some (ufr_req ufr).
 Proof. exact (ufr_ok ufr). Qed.
 
 End IssueProjections.
@@ -958,24 +999,24 @@ Section IssueTable.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
-(* one fact yields one diagnostic iff its outcome is invalid: the exact invalid fact ref, no free site/family/cause *)
-Definition occ_diag_rows (o : OccFact bp) : list (Diagnostic bp) :=
-  match occ_cause o as oc return occ_cause o = oc -> list (Diagnostic bp) with
-  | Some c => fun H => [DOcc (mk_ifr o c H)]
+(* one retained row yields one diagnostic iff its outcome is invalid: the exact invalid fact-row ref, no free fields *)
+Definition occ_diag_rows (ref : FactRowRef fp) : list (Diagnostic fp) :=
+  match occ_cause (frr_row ref) as oc return occ_cause (frr_row ref) = oc -> list (Diagnostic fp) with
+  | Some c => fun H => [DOcc (mk_ifr ref c H)]
   | None => fun _ => []
   end eq_refl.
-(* one occurrence fact yields one boundary exactly when its outcome is unmet; invalid and unmet coexist (§6) *)
-Definition occ_bound_rows (o : OccFact bp) : list (Boundary bp) :=
-  match occ_req o as oq return occ_req o = oq -> list (Boundary bp) with
-  | Some q => fun H => [BOcc (mk_ufr o q H)]
+(* one exact retained row yields one boundary exactly when its outcome is unmet; invalid and unmet coexist (§6) *)
+Definition occ_bound_rows (ref : FactRowRef fp) : list (Boundary fp) :=
+  match occ_req (frr_row ref) as oq return occ_req (frr_row ref) = oq -> list (Boundary fp) with
+  | Some q => fun H => [BOcc (mk_ufr ref q H)]
   | None => fun _ => []
   end eq_refl.
 
 (* the sole selected package's default-output collision, retaining the exact colliding root entry *)
-Definition collision_rows : list (Diagnostic bp) :=
+Definition collision_rows : list (Diagnostic fp) :=
   match preflight pf with FreshOk => [] | FreshCollision pr rr => [DOutputCollision pr rr] end.
 (* a package with no fixed main is a missing-executable-entry diagnostic; multiple mains are a group redeclaration *)
-Definition main_rows : list (Diagnostic bp) :=
+Definition main_rows : list (Diagnostic fp) :=
   flat_map (fun pr => match BN.package_main bp pr with BN.MainMissing => [DMissingMain pr] | _ => [] end) (BN.PI.packages s).
 
 (* every package-member name occurrence: the use sites a redeclared group can contextualize *)
@@ -1074,7 +1115,7 @@ Proof.
   apply in_flat_map. exists r. split; [ exact Hin | rewrite HE; left; reflexivity ].
 Qed.
 (* one redeclared-group diagnostic per exact enumerated root; use contexts stay off the disposition path (on demand) *)
-Definition group_rows : list (Diagnostic bp) :=
+Definition group_rows : list (Diagnostic fp) :=
   map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
 
 (* §24.4 diagnostic enumeration: the group diagnostics are exactly one DRedeclaredGroup per exact enumerated root *)
@@ -1082,29 +1123,20 @@ Lemma group_rows_enumerated :
   group_rows = map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
 Proof. reflexivity. Qed.
 
-Definition occ_diags : list (Diagnostic bp) := flat_map occ_diag_rows (fact_list fp).
+(* occurrence diagnostics/boundaries derive FROM the exact retained rows (fact_rows fp), not from standalone facts *)
+Definition occ_diags : list (Diagnostic fp) := flat_map occ_diag_rows (fact_rows fp).
 
-(* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-list order *)
-Definition diagnostics : list (Diagnostic bp) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
-Definition boundaries : list (Boundary bp) := flat_map occ_bound_rows (fact_list fp).
+(* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-row order *)
+Definition diagnostics : list (Diagnostic fp) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Definition boundaries : list (Boundary fp) := flat_map occ_bound_rows (fact_rows fp).
 
-(* one fact yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across facts (§6) *)
-Lemma occ_row_exclusive (o : OccFact bp) : occ_diag_rows o <> [] -> occ_bound_rows o = [].
+(* one row yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across rows (§6) *)
+Lemma occ_row_exclusive (ref : FactRowRef fp) : occ_diag_rows ref <> [] -> occ_bound_rows ref = [].
 Proof.
-  destruct o as [r ov | r oa | r os | r ot];
+  destruct ref as [o row Hat]; destruct row as [r ov | r oa | r os | r ot];
     [ destruct ov | destruct oa | destruct os | destruct ot ];
     cbn; intro H; solve [ reflexivity | exfalso; exact (H eq_refl) ].
 Qed.
-
-(* a dependent non-result is neither a diagnostic nor a boundary: it defers to its prerequisite, adding no issue *)
-Lemma dependent_no_rows (r : Index.NodeRef idx)
-  (dv : Dependency bp r ValueKind) (da : Dependency bp r ApplicationKind)
-  (dstmt : Dependency bp r StatementKind) (dt : Dependency bp r TypeUseKind) :
-  occ_diag_rows (OFValue r (VDependent dv)) = [] /\ occ_bound_rows (OFValue r (VDependent dv)) = []
-  /\ occ_diag_rows (OFApp r (ADependent da)) = [] /\ occ_bound_rows (OFApp r (ADependent da)) = []
-  /\ occ_diag_rows (OFStmt r (SDependent dstmt)) = [] /\ occ_bound_rows (OFStmt r (SDependent dstmt)) = []
-  /\ occ_diag_rows (OFType r (TDependent dt)) = [] /\ occ_bound_rows (OFType r (TDependent dt)) = [].
-Proof. cbn; repeat split; reflexivity. Qed.
 
 (* §18.1 the displayed family is exactly the total projection of the exact site and fact kind, never a stored field *)
 Lemma fact_family_projection (o : OccFact bp) : fact_family o = displayed_family (fact_site o) (fact_kind o).
@@ -1118,60 +1150,60 @@ Lemma occfact_roundtrip (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : A
   /\ (fact_site (OFType r ot) = r /\ fact_kind (OFType r ot) = TypeUseKind).
 Proof. repeat split; reflexivity. Qed.
 
-(* §18.3 diagnostic completeness: an invalid fact yields exactly one DOcc row retaining that exact fact *)
-Lemma occ_diag_complete (o : OccFact bp) (c : Cause bp (fact_site o) (fact_kind o)) :
-  occ_cause o = Some c -> exists ifr, occ_diag_rows o = [DOcc ifr] /\ ifr_fact ifr = o.
+(* §18.3 diagnostic completeness: an invalid row yields exactly one DOcc retaining that exact row *)
+Lemma occ_diag_complete (ref : FactRowRef fp) (c : Cause bp (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
+  occ_cause (frr_row ref) = Some c -> exists ifr, occ_diag_rows ref = [DOcc ifr] /\ ifr_rowref ifr = ref.
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; try discriminate H; eexists; split; reflexivity.
 Qed.
-(* an occurrence fact with no invalid outcome yields no diagnostic row *)
-Lemma occ_diag_none (o : OccFact bp) : occ_cause o = None -> occ_diag_rows o = [].
+(* a row with no invalid outcome yields no diagnostic row *)
+Lemma occ_diag_none (ref : FactRowRef fp) : occ_cause (frr_row ref) = None -> occ_diag_rows ref = [].
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
-(* §18.3 diagnostic soundness: every occurrence diagnostic row is a DOcc of the exact fact, no free fields *)
-Lemma occ_diag_row_shape (o : OccFact bp) (d : Diagnostic bp) :
-  In d (occ_diag_rows o) -> exists ifr, d = DOcc ifr /\ ifr_fact ifr = o.
+(* §18.3 diagnostic soundness: every occurrence diagnostic row is a DOcc of the exact retained row, no free fields *)
+Lemma occ_diag_row_shape (ref : FactRowRef fp) (d : Diagnostic fp) :
+  In d (occ_diag_rows ref) -> exists ifr, d = DOcc ifr /\ ifr_rowref ifr = ref.
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro Hin; try (exfalso; exact Hin);
     destruct Hin as [Heq|[]]; subst d; eexists; split; reflexivity.
 Qed.
-(* §18.3 boundary completeness: an unmet fact yields exactly one BOcc row retaining that exact fact *)
-Lemma occ_bound_complete (o : OccFact bp) (q : Requirement bp (fact_site o) (fact_kind o)) :
-  occ_req o = Some q -> exists ufr, occ_bound_rows o = [BOcc ufr] /\ ufr_fact ufr = o.
+(* §18.3 boundary completeness: an unmet row yields exactly one BOcc retaining that exact row *)
+Lemma occ_bound_complete (ref : FactRowRef fp) (q : Requirement bp (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
+  occ_req (frr_row ref) = Some q -> exists ufr, occ_bound_rows ref = [BOcc ufr] /\ ufr_rowref ufr = ref.
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; try discriminate H; eexists; split; reflexivity.
 Qed.
-(* an occurrence fact with no unmet outcome yields no boundary row *)
-Lemma occ_bound_none (o : OccFact bp) : occ_req o = None -> occ_bound_rows o = [].
+(* a row with no unmet outcome yields no boundary row *)
+Lemma occ_bound_none (ref : FactRowRef fp) : occ_req (frr_row ref) = None -> occ_bound_rows ref = [].
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
-(* §18.3 boundary soundness: every occurrence boundary row is a BOcc of the exact fact, no free fields *)
-Lemma occ_bound_row_shape (o : OccFact bp) (b : Boundary bp) :
-  In b (occ_bound_rows o) -> exists ufr, b = BOcc ufr /\ ufr_fact ufr = o.
+(* §18.3 boundary soundness: every occurrence boundary row is a BOcc of the exact retained row, no free fields *)
+Lemma occ_bound_row_shape (ref : FactRowRef fp) (b : Boundary fp) :
+  In b (occ_bound_rows ref) -> exists ufr, b = BOcc ufr /\ ufr_rowref ufr = ref.
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro Hin; try (exfalso; exact Hin);
     destruct Hin as [Heq|[]]; subst b; eexists; split; reflexivity.
 Qed.
-(* §18.3 at most one row of each class per fact: the row lists are empty or a single exact row *)
-Lemma occ_diag_rows_le1 (o : OccFact bp) : occ_diag_rows o = [] \/ exists d, occ_diag_rows o = [d].
+(* §18.3 at most one row of each class per retained row: the row lists are empty or a single exact row *)
+Lemma occ_diag_rows_le1 (ref : FactRowRef fp) : occ_diag_rows ref = [] \/ exists d, occ_diag_rows ref = [d].
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
 Qed.
-Lemma occ_bound_rows_le1 (o : OccFact bp) : occ_bound_rows o = [] \/ exists b, occ_bound_rows o = [b].
+Lemma occ_bound_rows_le1 (ref : FactRowRef fp) : occ_bound_rows ref = [] \/ exists b, occ_bound_rows ref = [b].
 Proof.
-  destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
+  destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
 Qed.
-(* §17.3/§18.3 a dependent outcome retains no cause or requirement, so its exact fact yields no occurrence row *)
+(* §17.3/§18.3 a dependent outcome retains no cause or requirement, so its exact row yields no occurrence row *)
 Lemma occ_dep_no_cause (o : OccFact bp) (d : Dependency bp (fact_site o) (fact_kind o)) :
   occ_dep o = Some d -> occ_cause o = None.
 Proof.
@@ -1184,12 +1216,12 @@ Proof.
   destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
-Lemma dependent_fact_no_rows (dfr : DependentFactRef bp) :
-  occ_diag_rows (dfr_fact dfr) = [] /\ occ_bound_rows (dfr_fact dfr) = [].
+Lemma dependent_fact_no_rows (dfr : DependentFactRef fp) :
+  occ_diag_rows (dfr_rowref dfr) = [] /\ occ_bound_rows (dfr_rowref dfr) = [].
 Proof.
-  destruct dfr as [o d Hok]; cbn; split;
-    [ apply occ_diag_none; exact (occ_dep_no_cause o d Hok)
-    | apply occ_bound_none; exact (occ_dep_no_req o d Hok) ].
+  destruct dfr as [ref d Hok]; cbn; split;
+    [ apply occ_diag_none; exact (occ_dep_no_cause (frr_row ref) d Hok)
+    | apply occ_bound_none; exact (occ_dep_no_req (frr_row ref) d Hok) ].
 Qed.
 
 End IssueTable.
@@ -1198,10 +1230,11 @@ Arguments diagnostics {p idx s bd bp} fp pf.
 Arguments boundaries {p idx s bd bp} fp.
 
 Section IssueLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} {fp : FactPhase bp}.
 
 (* the root algebra is total: every diagnostic roots at an exact node, package, or group, never a self-fallback *)
-Lemma root_algebra_total (d : Diagnostic bp) :
+Lemma root_algebra_total (d : Diagnostic fp) :
   (exists r, diag_root d = RootNode r) \/ (exists pr, diag_root d = RootPackage pr)
   \/ (exists (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n), diag_root d = RootGroup root).
 Proof. destruct d; cbn; eauto 8. Qed.
@@ -1218,29 +1251,29 @@ Proof. intro H. pose proof (ruc_yields c) as Hy. rewrite Hy in H. injection H as
 
 (* §24.4 diagnostic-root identity: a redeclared-group diagnostic roots at exactly the exact root it retains *)
 Lemma diag_group_root {n : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n) :
-  diag_root (DRedeclaredGroup root) = RootGroup root.
+  diag_root (DRedeclaredGroup root : Diagnostic fp) = RootGroup root.
 Proof. reflexivity. Qed.
 
 End IssueLaws.
 
 (* §6 the complete disposition algebra + applicability before judgment *)
 Inductive Disposition {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| DSucceeded : Disposition bp
-| DAbsent : Disposition bp
-| DInvalid : IssueCause bp -> list (IssueCause bp) -> Disposition bp
-| DUnsupported : UnmetFactRef bp -> list (UnmetFactRef bp) -> Disposition bp
-| DInvalidAndUnsupported : IssueCause bp -> list (IssueCause bp) -> UnmetFactRef bp -> list (UnmetFactRef bp) -> Disposition bp.
-Arguments DSucceeded {p idx s bd bp}. Arguments DAbsent {p idx s bd bp}.
-Arguments DInvalid {p idx s bd bp} _ _. Arguments DUnsupported {p idx s bd bp} _ _.
-Arguments DInvalidAndUnsupported {p idx s bd bp} _ _ _ _.
+  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
+| DSucceeded : Disposition fp
+| DAbsent : Disposition fp
+| DInvalid : IssueCause fp -> list (IssueCause fp) -> Disposition fp
+| DUnsupported : UnmetFactRef fp -> list (UnmetFactRef fp) -> Disposition fp
+| DInvalidAndUnsupported : IssueCause fp -> list (IssueCause fp) -> UnmetFactRef fp -> list (UnmetFactRef fp) -> Disposition fp.
+Arguments DSucceeded {p idx s bd bp fp}. Arguments DAbsent {p idx s bd bp fp}.
+Arguments DInvalid {p idx s bd bp fp} _ _. Arguments DUnsupported {p idx s bd bp fp} _ _.
+Arguments DInvalidAndUnsupported {p idx s bd bp fp} _ _ _ _.
 
 Section DispositionAlgebra.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : FactPhase bp) (pf : PackageFacts bp).
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
-Definition program_disposition : Disposition bp :=
+Definition program_disposition : Disposition fp :=
   match diagnostics fp pf, boundaries fp with
   | nil, nil => DSucceeded
   | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
@@ -1286,48 +1319,48 @@ Proof. unfold fact_list, facts; cbn [proj1_sig]. reflexivity. Qed.
 
 End Cost.
 
-(* the canonical issue lists and 5-way summary as projections of the one retained result, for downstream readers *)
-Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_binds r)) :=
+(* the canonical issue lists and 5-way summary as projections of the one retained result, indexed by its exact fp *)
+Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_facts r)) :=
   diagnostics (res_facts r) (res_pkg r).
-Definition result_boundaries {p} (r : Result p) : list (Boundary (res_binds r)) :=
+Definition result_boundaries {p} (r : Result p) : list (Boundary (res_facts r)) :=
   boundaries (res_facts r).
-Definition result_disposition {p} (r : Result p) : Disposition (res_binds r) :=
+Definition result_disposition {p} (r : Result p) : Disposition (res_facts r) :=
   program_disposition (res_facts r) (res_pkg r).
 
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
 
 Inductive Issue {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| IDiag  : Diagnostic bp -> Issue bp
-| IBound : Boundary bp -> Issue bp.
-Arguments IDiag {p idx s bd bp} _.
-Arguments IBound {p idx s bd bp} _.
+  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
+| IDiag  : Diagnostic fp -> Issue fp
+| IBound : Boundary fp -> Issue fp.
+Arguments IDiag {p idx s bd bp fp} _.
+Arguments IBound {p idx s bd bp fp} _.
 
 (* the one canonical issue sequence: every diagnostic then every boundary, each kept in its own source order *)
-Definition result_issues {p} (r : Result p) : list (Issue (res_binds r)) :=
+Definition result_issues {p} (r : Result p) : list (Issue (res_facts r)) :=
   map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
 
 Section IssueIdentity.
 Context {p : Syntax.Program}.
 
 (* an issue's class, root, family, subject, and cause-or-requirement, projected from whichever row it is *)
-Definition issue_class {r : Result p} (i : Issue (res_binds r)) : IssueClass :=
+Definition issue_class {r : Result p} (i : Issue (res_facts r)) : IssueClass :=
   match i with IDiag _ => ClassDiagnostic | IBound _ => ClassBoundary end.
-Definition issue_root {r : Result p} (i : Issue (res_binds r)) : IssueRoot (res_binds r) :=
+Definition issue_root {r : Result p} (i : Issue (res_facts r)) : IssueRoot (res_binds r) :=
   match i with IDiag d => diag_root d | IBound b => bound_root b end.
-Definition issue_family {r : Result p} (i : Issue (res_binds r)) : option Family :=
+Definition issue_family {r : Result p} (i : Issue (res_facts r)) : option Family :=
   match i with IDiag d => diag_family d | IBound b => Some (bound_family b) end.
-Definition issue_cause_or_req {r : Result p} (i : Issue (res_binds r))
-  : IssueCause (res_binds r) + UnmetFactRef (res_binds r) :=
+Definition issue_cause_or_req {r : Result p} (i : Issue (res_facts r))
+  : IssueCause (res_facts r) + UnmetFactRef (res_facts r) :=
   match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req_ref b) end.
-Definition issue_related {r : Result p} (i : Issue (res_binds r)) : list (Index.NodeRef (res_index r)) :=
+Definition issue_related {r : Result p} (i : Issue (res_facts r)) : list (Index.NodeRef (res_index r)) :=
   match i with IDiag d => diag_related d | IBound _ => [] end.
 
 (* an issue identity: an exact ordinal into result_issues, retaining the exact row it indexes there *)
 Record IssueRef (r : Result p) : Type := mkIssueRef {
   ir_ord : nat ;
-  ir_row : Issue (res_binds r) ;
+  ir_row : Issue (res_facts r) ;
   ir_at  : nth_error (result_issues r) ir_ord = Some ir_row
 }.
 Arguments mkIssueRef {r} _ _ _.
@@ -1336,16 +1369,16 @@ Arguments ir_row {r} _.
 Arguments ir_at {r} _.
 
 (* Diagnostic and Boundary are projections of an issue ref: exactly the row it references, never a synthesis *)
-Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_binds r)) :=
+Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_facts r)) :=
   match ir_row ref with IDiag d => Some d | IBound _ => None end.
-Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_binds r)) :=
+Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_facts r)) :=
   match ir_row ref with IBound b => Some b | IDiag _ => None end.
 
 (* bidirectional membership: a ref is exactly a position that indexes an issue in the one sequence *)
 Lemma issue_ref_sound (r : Result p) (ref : IssueRef r) :
   nth_error (result_issues r) (ir_ord ref) = Some (ir_row ref).
 Proof. exact (ir_at ref). Qed.
-Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_binds r)) :
+Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_facts r)) :
   nth_error (result_issues r) n = Some i -> exists ref : IssueRef r, ir_ord ref = n /\ ir_row ref = i.
 Proof. intro H. exists (mkIssueRef n i H). split; reflexivity. Qed.
 
@@ -1359,7 +1392,7 @@ Lemma result_issues_class_split (r : Result p) :
 Proof. reflexivity. Qed.
 
 (* the row any position names is exactly a canonical diagnostic or boundary, never a fabricated one *)
-Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_binds r)) :
+Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_facts r)) :
   nth_error (result_issues r) n = Some (IDiag d) -> In d (result_diagnostics r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -1367,7 +1400,7 @@ Proof.
   - apply in_map_iff in Hd. destruct Hd as [d' [Heq Hin]]. injection Heq as Heq. subst d'. exact Hin.
   - apply in_map_iff in Hb. destruct Hb as [b' [Heq _]]. discriminate Heq.
 Qed.
-Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_binds r)) :
+Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_facts r)) :
   nth_error (result_issues r) n = Some (IBound b) -> In b (result_boundaries r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -1390,14 +1423,14 @@ Proof.
 Qed.
 
 (* stable order: the k-th diagnostic sits at ordinal k; the j-th boundary at ordinal (#diagnostics + j) *)
-Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_binds r)) :
+Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_facts r)) :
   nth_error (result_diagnostics r) n = Some d -> nth_error (result_issues r) n = Some (IDiag d).
 Proof.
   intro H. unfold result_issues.
   rewrite nth_error_app1 by (rewrite <- nth_error_Some; rewrite (map_nth_error _ _ _ H); discriminate).
   exact (map_nth_error _ _ _ H).
 Qed.
-Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_binds r)) :
+Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_facts r)) :
   nth_error (result_boundaries r) n = Some b ->
   nth_error (result_issues r) ((Datatypes.length (result_diagnostics r) + n)%nat) = Some (IBound b).
 Proof.

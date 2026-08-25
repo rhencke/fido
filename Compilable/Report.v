@@ -13,16 +13,16 @@ Section Project.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
         (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp).
 
-Definition Diagnostic : Type := AN.Diagnostic bp.
-Definition Boundary : Type := AN.Boundary bp.
+Definition Diagnostic : Type := AN.Diagnostic fp.
+Definition Boundary : Type := AN.Boundary fp.
 Definition diagnostics : list Diagnostic := AN.diagnostics fp pf.
 Definition boundaries : list Boundary := AN.boundaries fp.
 
 (* member projections: each reads the exact field the Analysis row already retains, never a reread or reconstruction *)
-Definition diag_cause (d : Diagnostic) : AN.IssueCause bp := AN.diag_cause d.
+Definition diag_cause (d : Diagnostic) : AN.IssueCause fp := AN.diag_cause d.
 Definition diag_related (d : Diagnostic) : list (Index.NodeRef idx) := AN.diag_related d.
 Definition diag_root (d : Diagnostic) : AN.IssueRoot bp := AN.diag_root d.
-Definition bound_req_ref (b : Boundary) : AN.UnmetFactRef bp := AN.bound_req_ref b.
+Definition bound_req_ref (b : Boundary) : AN.UnmetFactRef fp := AN.bound_req_ref b.
 Definition bound_root (b : Boundary) : AN.IssueRoot bp := AN.bound_root b.
 
 (* exact projection: Report's diagnostics/boundaries ARE Analysis's issue lists, same members and order, no repair *)
@@ -43,34 +43,34 @@ Proof. reflexivity. Qed.
 
 End Project.
 
-Arguments Diagnostic {p idx s bd} bp.
-Arguments Boundary {p idx s bd} bp.
+Arguments Diagnostic {p idx s bd bp} fp.
+Arguments Boundary {p idx s bd bp} fp.
 
 (* Report projects the exact ordinal-indexed issue identities of the one retained result, and nothing more. *)
 Section IssueReport.
 Context {p : Syntax.Program}.
 
-Definition Issue (r : AN.Result p) : Type := AN.Issue (AN.res_binds r).
+Definition Issue (r : AN.Result p) : Type := AN.Issue (AN.res_facts r).
 Definition IssueRef (r : AN.Result p) : Type := AN.IssueRef r.
-Definition result_issues (r : AN.Result p) : list (AN.Issue (AN.res_binds r)) := AN.result_issues r.
+Definition result_issues (r : AN.Result p) : list (AN.Issue (AN.res_facts r)) := AN.result_issues r.
 Definition ir_ord {r : AN.Result p} (ref : AN.IssueRef r) : nat := AN.ir_ord ref.
-Definition ir_row {r : AN.Result p} (ref : AN.IssueRef r) : AN.Issue (AN.res_binds r) := AN.ir_row ref.
+Definition ir_row {r : AN.Result p} (ref : AN.IssueRef r) : AN.Issue (AN.res_facts r) := AN.ir_row ref.
 
 (* the exact class, root, family, cause-or-requirement, and per-class row an issue projects *)
-Definition issue_class {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : AN.IssueClass := AN.issue_class i.
-Definition issue_root {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : AN.IssueRoot (AN.res_binds r) := AN.issue_root i.
-Definition issue_family {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : option AN.Family := AN.issue_family i.
-Definition issue_cause_or_req {r : AN.Result p} (i : AN.Issue (AN.res_binds r))
-  : AN.IssueCause (AN.res_binds r) + AN.UnmetFactRef (AN.res_binds r) := AN.issue_cause_or_req i.
-Definition issue_related {r : AN.Result p} (i : AN.Issue (AN.res_binds r)) : list (Index.NodeRef (AN.res_index r)) := AN.issue_related i.
-Definition iref_diagnostic {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Diagnostic (AN.res_binds r)) := AN.iref_diagnostic ref.
-Definition iref_boundary {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Boundary (AN.res_binds r)) := AN.iref_boundary ref.
+Definition issue_class {r : AN.Result p} (i : AN.Issue (AN.res_facts r)) : AN.IssueClass := AN.issue_class i.
+Definition issue_root {r : AN.Result p} (i : AN.Issue (AN.res_facts r)) : AN.IssueRoot (AN.res_binds r) := AN.issue_root i.
+Definition issue_family {r : AN.Result p} (i : AN.Issue (AN.res_facts r)) : option AN.Family := AN.issue_family i.
+Definition issue_cause_or_req {r : AN.Result p} (i : AN.Issue (AN.res_facts r))
+  : AN.IssueCause (AN.res_facts r) + AN.UnmetFactRef (AN.res_facts r) := AN.issue_cause_or_req i.
+Definition issue_related {r : AN.Result p} (i : AN.Issue (AN.res_facts r)) : list (Index.NodeRef (AN.res_index r)) := AN.issue_related i.
+Definition iref_diagnostic {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Diagnostic (AN.res_facts r)) := AN.iref_diagnostic ref.
+Definition iref_boundary {r : AN.Result p} (ref : AN.IssueRef r) : option (AN.Boundary (AN.res_facts r)) := AN.iref_boundary ref.
 
 (* bidirectional membership: a ref is exactly a position indexing an issue in the one sequence *)
 Lemma issue_membership_sound (r : AN.Result p) (ref : AN.IssueRef r) :
   nth_error (result_issues r) (ir_ord ref) = Some (ir_row ref).
 Proof. exact (AN.issue_ref_sound r ref). Qed.
-Lemma issue_membership_complete (r : AN.Result p) (n : nat) (i : AN.Issue (AN.res_binds r)) :
+Lemma issue_membership_complete (r : AN.Result p) (n : nat) (i : AN.Issue (AN.res_facts r)) :
   nth_error (result_issues r) n = Some i -> exists ref : AN.IssueRef r, ir_ord ref = n /\ ir_row ref = i.
 Proof. exact (AN.issue_ref_complete r n i). Qed.
 (* exact identity: the ordinal alone determines the issue *)
@@ -90,10 +90,10 @@ Lemma issue_payload (r : AN.Result p) (ref : AN.IssueRef r) :
   match ir_row ref with AN.IDiag d => In d (AN.result_diagnostics r) | AN.IBound b => In b (AN.result_boundaries r) end.
 Proof. exact (AN.iref_payload r ref). Qed.
 (* stable order: the k-th diagnostic at ordinal k; the j-th boundary at ordinal (#diagnostics + j) *)
-Lemma issue_stable_diag (r : AN.Result p) (n : nat) (d : AN.Diagnostic (AN.res_binds r)) :
+Lemma issue_stable_diag (r : AN.Result p) (n : nat) (d : AN.Diagnostic (AN.res_facts r)) :
   nth_error (AN.result_diagnostics r) n = Some d -> nth_error (result_issues r) n = Some (AN.IDiag d).
 Proof. exact (AN.issue_diag_at r n d). Qed.
-Lemma issue_stable_bound (r : AN.Result p) (n : nat) (b : AN.Boundary (AN.res_binds r)) :
+Lemma issue_stable_bound (r : AN.Result p) (n : nat) (b : AN.Boundary (AN.res_facts r)) :
   nth_error (AN.result_boundaries r) n = Some b ->
   nth_error (result_issues r) ((Datatypes.length (AN.result_diagnostics r) + n)%nat) = Some (AN.IBound b).
 Proof. exact (AN.issue_bound_at r n b). Qed.
@@ -127,22 +127,31 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | _ => CvOtherCause
   end.
 Definition issuecause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (ic : AN.IssueCause bp) : CauseView :=
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} (ic : AN.IssueCause fp) : CauseView :=
   match ic with AN.OccCause ifr => cause_view (AN.ifr_cause ifr) | _ => CvOtherCause end.
 Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (q : AN.Requirement bp site k) : ReqView :=
   match q with AN.ReqComplexType _ => RvComplexType | _ => RvOtherReq end.
 
-(* per-Result observation lists the concrete controls read: bp-free, projected from the one retained result *)
+(* concrete controls read these bp-free occurrence views computed DIRECTLY from fact_list, off the vm_compute path *)
 Definition result_cause_views {p} (r : AN.Result p) : list CauseView :=
-  map (fun d => issuecause_view (AN.diag_cause d)) (AN.result_diagnostics r).
+  flat_map (fun o => match AN.occ_cause o with Some c => [cause_view c] | None => [] end)
+           (AN.fact_list (AN.res_facts r)).
 Definition result_req_views {p} (r : AN.Result p) : list ReqView :=
-  map (fun b => req_view (AN.ufr_req (AN.bound_req_ref b))) (AN.result_boundaries r).
+  flat_map (fun o => match AN.occ_req o with Some q => [req_view q] | None => [] end)
+           (AN.fact_list (AN.res_facts r)).
+(* exact displayed families of the invalid/unmet occurrence facts, read directly and bp-free (Family is an enum) *)
+Definition result_diag_families {p} (r : AN.Result p) : list AN.Family :=
+  flat_map (fun o => match AN.occ_cause o with Some _ => [AN.fact_family o] | None => [] end)
+           (AN.fact_list (AN.res_facts r)).
+Definition result_bound_families {p} (r : AN.Result p) : list AN.Family :=
+  flat_map (fun o => match AN.occ_req o with Some _ => [AN.fact_family o] | None => [] end)
+           (AN.fact_list (AN.res_facts r)).
 
 (* bp-free descriptive view of a redeclared-group diagnostic: its exact root's name (contexts via result_group_* ) *)
 Definition diag_group_name {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (d : AN.Diagnostic bp) : option Names.OrdinaryIdentifier :=
-  match d with @AN.DRedeclaredGroup _ _ _ _ _ n _ => Some n | _ => None end.
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} (d : AN.Diagnostic fp) : option Names.OrdinaryIdentifier :=
+  match d with @AN.DRedeclaredGroup _ _ _ _ _ _ n _ => Some n | _ => None end.
 
 (* the descriptive group bundle §20 owns: exact scope and spelling with the group's projected member nodes *)
 Record DeclarationGroupView {p} {idx : Index.ProgramIndex p} (s : PI.PackageSurface idx) {bd : BN.PhaseData s}
@@ -156,17 +165,17 @@ Arguments dgv_scope {p idx s bd bp} _. Arguments dgv_name {p idx s bd bp} _. Arg
 
 (* one-way projection of a redeclared-group diagnostic: exact scope/name off the root, members via diag_related *)
 Definition diag_group_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (d : AN.Diagnostic bp) : option (DeclarationGroupView s bp) :=
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} (d : AN.Diagnostic fp) : option (DeclarationGroupView s bp) :=
   match d with
-  | @AN.DRedeclaredGroup _ _ _ _ _ n root =>
-      Some (mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root)))
+  | @AN.DRedeclaredGroup _ _ _ _ _ _ n root =>
+      Some (mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root : AN.Diagnostic fp)))
   | _ => None
   end.
 
 (* §24.4 Report group/member/node projection is exact: the view is the exact root's scope/name and member nodes *)
 Lemma diag_group_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n) :
-  diag_group_view (AN.DRedeclaredGroup root)
+  (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n) :
+  diag_group_view (AN.DRedeclaredGroup root : AN.Diagnostic fp)
   = Some (mk_group_view (projT1 root) n
             (map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root))))).
 Proof. reflexivity. Qed.
