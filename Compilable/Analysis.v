@@ -511,10 +511,10 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | _ => fun _ => VNonconst
   end eq_refl.
 
-Definition own_app (r : Index.NodeRef idx) : AppOutcome bp r :=
-  match Index.node_view r as v return Index.node_view r = v -> AppOutcome bp r with
-  | Index.Model.VApplication => fun Hv =>
-      let hd := Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv)) in
+(* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
+Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
+  let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
+  let hd := Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv)) in
       match Index.node_view hd with
       | Index.Model.VName h =>
           let r0 := BN.resolve bp r h in
@@ -557,15 +557,20 @@ Definition own_app (r : Index.NodeRef idx) : AppOutcome bp r :=
               end eq_refl
           end eq_refl
       | _ => AInvalid (NotCallableExpr Hv)
-      end
-  | _ => fun _ => ADependent (DepChild ApplicationKind r)
-  end eq_refl.
+      end.
 
 (* the child-negativity bools an expr statement reads: whether its exact child value / application fact is negative *)
 Definition value_neg_b {r' : Index.NodeRef idx} (ov : ValueOutcome bp r') : bool :=
   match ov with VInvalid _ | VUnmet _ | VDependent _ => true | _ => false end.
 Definition app_neg_b {r' : Index.NodeRef idx} (oa : AppOutcome bp r') : bool :=
   match oa with AInvalid _ | AUnmet _ | ADependent _ => true | _ => false end.
+(* §10 the child's application-negativity, guarded by its exact AppRef: a non-application child is never negative *)
+Definition app_neg_body (e : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view e = v) : bool :=
+  match v as v0 return Index.node_view e = v0 -> bool with
+  | Index.Model.VApplication => fun He => app_neg_b (own_app (Index.Refs.mkAppRef e He))
+  | _ => fun _ => false
+  end H.
+Definition app_neg_at (e : Index.NodeRef idx) : bool := app_neg_body e (Index.node_view e) eq_refl.
 
 (* an expr statement's outcome as a function of its exact child's value/app negativity: defers on a negative child *)
 Definition own_stmt_expr (e : Index.NodeRef idx) (val_neg app_neg : bool)
@@ -612,7 +617,7 @@ Definition stmt_body (r : Index.NodeRef idx)
 Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome bp r :=
   stmt_body r (fun Hv =>
     let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
-    own_stmt_expr e (value_neg_b (own_value ctab e)) (app_neg_b (own_app e)) r Hv)
+    own_stmt_expr e (value_neg_b (own_value ctab e)) (app_neg_at e) r Hv)
     (Index.node_view r) eq_refl.
 
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
@@ -660,14 +665,48 @@ Arguments OccFact {p idx s bd} bp.
 Arguments OFValue {p idx s bd bp} _ _. Arguments OFApp {p idx s bd bp} _ _.
 Arguments OFStmt {p idx s bd bp} _ _. Arguments OFType {p idx s bd bp} _ _.
 
+(* proofs that a node is an application are unique — deciding only VApplication = y (no full NodeView eq_dec) *)
+Lemma nodeview_app_dec (y : Index.Model.NodeView) : Index.Model.VApplication = y \/ Index.Model.VApplication <> y.
+Proof. destruct y; try (right; discriminate). left; reflexivity. Qed.
+Lemma app_proof_irrel {p} {idx : Index.ProgramIndex p} (e : Index.NodeRef idx)
+  (H1 H2 : Index.node_view e = Index.Model.VApplication) : H1 = H2.
+Proof.
+  pose proof (Eqdep_dec.eq_proofs_unicity_on nodeview_app_dec (eq_sym H1) (eq_sym H2)) as E.
+  rewrite <- (eq_sym_involutive H1), <- (eq_sym_involutive H2), E. reflexivity.
+Qed.
+(* a dependent match on node_view r reduces to the arm a known equation picks: destruct H fires (rhs a bound var) *)
+Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
+  g a eq_refl = g v H.
+Proof. destruct H. reflexivity. Qed.
+
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
+
+(* §11/§10 the single application fact of a node, shared by va_facts and occ_facts so the AppRef proof is one term *)
+Definition app_fact_body (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
+  match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
+  | Index.Model.VApplication => fun H0 => [OFApp r (own_app bp (Index.Refs.mkAppRef r H0))]
+  | _ => fun _ => []
+  end H.
+Definition app_fact_app (r : Index.NodeRef idx) : list (OccFact bp) := app_fact_body r (Index.node_view r) eq_refl.
+Lemma app_fact_app_at (r : Index.NodeRef idx) (H : Index.node_view r = Index.Model.VApplication) :
+  app_fact_app r = [OFApp r (own_app bp (Index.Refs.mkAppRef r H))].
+Proof. exact (convoy_at (Index.node_view r) (app_fact_body r) Index.Model.VApplication H). Qed.
+Lemma app_fact_app_none (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v)
+  (Hne : v <> Index.Model.VApplication) : app_fact_app r = [].
+Proof.
+  unfold app_fact_app. rewrite (convoy_at (Index.node_view r) (app_fact_body r) v H). unfold app_fact_body.
+  destruct v; try reflexivity; exfalso; apply Hne; reflexivity.
+Qed.
+Lemma app_neg_at_app (e : Index.NodeRef idx) (He : Index.node_view e = Index.Model.VApplication) :
+  app_neg_at bp e = app_neg_b bp (own_app bp (Index.Refs.mkAppRef e He)).
+Proof. exact (convoy_at (Index.node_view e) (app_neg_body bp e) Index.Model.VApplication He). Qed.
 
 (* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
 Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
   | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
-  | Index.Model.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
+  | Index.Model.VApplication => app_fact_app r ++ [OFValue r (own_value bp ctab r)]
   | Index.Model.VStmt Index.Model.SSExpr => [OFStmt r (own_stmt bp ctab r)]
   | Index.Model.VStmt (Index.Model.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
   | Index.Model.VTypeExpr _ => [OFType r (own_type bp r)]
@@ -675,17 +714,12 @@ Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
   | _ => []
   end.
 
-(* §16.5 same-site multi-family: an application node owns both its OFApp and OFValue facts at one identical site r *)
-Lemma app_site_two_families (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
-  Index.node_view r = Index.Model.VApplication ->
-  occ_facts ctab r = [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)].
-Proof. intro H. unfold occ_facts. rewrite H. reflexivity. Qed.
-
 (* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
 Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome bp r') :
   In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.Model.VApplication.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ reflexivity | exfalso; intuition discriminate ].
 Qed.
@@ -693,7 +727,8 @@ Qed.
 Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome bp r') :
   In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.Model.VStmt st.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
@@ -701,15 +736,15 @@ Qed.
 Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome bp r') :
   In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.Model.VTypeExpr t.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r); cbn in Hin;
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) eqn:E;
+    try (rewrite (app_fact_app_at r E) in Hin); cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
 Qed.
 
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
-  flat_map (fun r => OFValue r (own_value bp ctab r)
-                     :: match Index.node_view r with Index.Model.VApplication => [OFApp r (own_app bp r)] | _ => [] end) nodes.
+  flat_map (fun r => OFValue r (own_value bp ctab r) :: app_fact_app r) nodes.
 Definition va_value_negative (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
   match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
   | Some (OFValue _ ov) => match ov with VInvalid _ | VUnmet _ | VDependent _ => true | _ => false end | _ => false end.
@@ -751,21 +786,27 @@ Proof.
   - apply BN.noderef_eqb_spec in E; subst e; reflexivity.
   - destruct Hin as [Heq|Hin'];
       [ subst n; rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl) in E; discriminate E | ].
-    destruct (Index.node_view n); cbn [app find]; apply IH; assumption.
+    destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption).
+    rewrite (app_fact_app_at n En). cbn [app find]. apply IH; assumption.
 Qed.
-(* likewise the child-read finds own_app at an application child *)
-Lemma va_app_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) (nodes : list (Index.NodeRef idx)) :
-  In e nodes -> NoDup nodes -> Index.node_view e = Index.Model.VApplication ->
+(* likewise the child-read finds own_app at an application child — the exact OFApp app_fact_app built there *)
+Lemma va_app_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hva : Index.node_view e = Index.Model.VApplication) (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
   find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes)
-  = Some (OFApp e (own_app bp e)).
+  = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))).
 Proof.
-  induction nodes as [|n rest IH]; intros Hin Hnd Hva; [ inversion Hin | ].
-  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map app find].
+  induction nodes as [|n rest IH]; intros Hin Hnd; [ inversion Hin | ].
+  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map]. rewrite <- app_comm_cons. cbn [find].
   destruct Hin as [Heq|Hin'].
-  - subst n. rewrite Hva. cbn [app find]. rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl). reflexivity.
+  - subst n. rewrite (app_fact_app_at e Hva). cbn [app find].
+    rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl). reflexivity.
   - assert (Hne : BN.noderef_eqb n e = false)
       by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; contradiction | reflexivity ]).
-    destruct (Index.node_view n); cbn [app find]; try rewrite Hne; apply IH; assumption.
+    destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption).
+    rewrite (app_fact_app_at n En). cbn [app find]. rewrite Hne. apply IH; assumption.
 Qed.
 
 (* the va child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
@@ -778,15 +819,12 @@ Proof.
 Qed.
 Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
-  va_app_negative (va_facts ctab (Index.file_nodes fr)) e = app_neg_b bp (own_app bp e).
+  va_app_negative (va_facts ctab (Index.file_nodes fr)) e = app_neg_at bp e.
 Proof.
   unfold va_app_negative.
-  rewrite (va_app_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr) Hva); reflexivity.
+  rewrite (va_app_at ctab e Hva (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)).
+  rewrite (app_neg_at_app e Hva); reflexivity.
 Qed.
-(* a dependent match on node_view r reduces to the arm a known equation picks: destruct H fires (rhs a bound var) *)
-Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
-  g a eq_refl = g v H.
-Proof. destruct H. reflexivity. Qed.
 (* the child-first expr statement equals the current one: it reads from va the child value/app own_stmt recomputes *)
 Lemma occ_facts_va_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
@@ -797,7 +835,7 @@ Proof.
   destruct (Index.node_view r) as [n|l|u| |t|b|c|vv|ts|d|st| |tp|] eqn:Hview;
     rewrite ?(va_value_at ctab r (Index.file_nodes fr) Hin Hnd);
     try reflexivity;
-    try (rewrite (va_app_at ctab r (Index.file_nodes fr) Hin Hnd Hview); reflexivity).
+    try (rewrite (va_app_at ctab r Hview (Index.file_nodes fr) Hin Hnd), (app_fact_app_at r Hview); reflexivity).
   destruct st; try reflexivity.
   do 2 f_equal. unfold own_stmt_va, own_stmt.
   rewrite (convoy_at (Index.node_view r) (stmt_body bp r _) (Index.Model.VStmt Index.Model.SSExpr) Hview).
@@ -811,7 +849,7 @@ Proof.
   assert (Hcond : andb (match Index.node_view e with Index.Model.VApplication => true | _ => false end)
                        (va_app_negative (va_facts ctab (Index.file_nodes fr)) e)
                 = andb (match Index.node_view e with Index.Model.VApplication => true | _ => false end)
-                       (app_neg_b bp (own_app bp e))).
+                       (app_neg_at bp e)).
   { destruct (Index.node_view e) eqn:Ve; cbn [andb]; try reflexivity.
     rewrite (va_app_negative_correct ctab fr e Hfe Ve); reflexivity. }
   rewrite Hcond; reflexivity.
@@ -1238,15 +1276,17 @@ Definition frr_key (ref : FactRowRef fp) : Index.NodeRef idx * FactKind := fact_
 Lemma occ_facts_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) (o : OccFact bp) :
   In o (occ_facts bp ctab r) -> fact_site o = r.
 Proof.
-  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
-    intro Hin; cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
+  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E) in Hin); try (destruct st);
+    cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
 Qed.
 (* the facts occ_facts retains at a node have duplicate-free keys: one per family, application's two kinds distinct *)
 Lemma occ_facts_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
   NoDup (map fact_key (occ_facts bp ctab r)).
 Proof.
-  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
-    cbn [occ_facts map fact_key fact_site fact_kind];
+  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E)); try (destruct st);
+    cbn [occ_facts map fact_key fact_site fact_kind app];
     repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
     apply NoDup_nil.
 Qed.
@@ -1366,7 +1406,7 @@ Qed.
 Lemma fact_row_is_own (ref : FactRowRef fp) :
   match frr_row ref with
   | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
-  | OFApp r oa => oa = own_app bp r
+  | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
   | OFStmt r os => os = own_stmt bp (const_table bp (Index.nr_file r)) r
   | OFType r ot => ot = own_type bp r
   end.
@@ -1374,9 +1414,11 @@ Proof.
   destruct ref as [k o Hat]; cbn [frr_row].
   assert (Hin : In o (raw_facts bp)) by (rewrite <- (fact_once bp fp); exact (nth_error_In _ _ Hat)).
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
-  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
+  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (app_fact_app_at bp r E) in Ho); try (destruct st);
     cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
-    subst o; cbn; rewrite ?Hfile; reflexivity.
+    subst o; cbn; rewrite ?Hfile; try reflexivity.
+  exists E; reflexivity.
 Qed.
 (* §12 no false peer: the only retained fact at an exact site+kind is that one; no fabricated peer joins the list *)
 Lemma no_false_row (o o' : OccFact bp) :
