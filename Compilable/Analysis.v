@@ -591,12 +591,12 @@ Definition own_stmt_expr (e : Index.NodeRef idx) (val_neg app_neg : bool)
     | _ => fun _ => SInvalid (IllegalStatement Hv)
     end eq_refl.
 
-(* an expr-statement defers to an expr that owns an issue; otherwise it is a legal call statement or an illegal one *)
-Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome bp r :=
-  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome bp r with
-  | Index.Model.VStmt Index.Model.SSExpr => fun Hv =>
-      let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
-      own_stmt_expr e (value_neg_b (own_value ctab e)) (app_neg_b (own_app e)) r Hv
+(* dispatch shared by both statement builders: the SSExpr arm is a parameter, short/default fixed (convoy_at's g) *)
+Definition stmt_body (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (v : Index.Model.NodeView) (H : Index.node_view r = v) : StmtOutcome bp r :=
+  match v as v0 return Index.node_view r = v0 -> StmtOutcome bp r with
+  | Index.Model.VStmt Index.Model.SSExpr => sx
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
       (* short declaration: retain the exact short event and canonical duplicate decision naming the repeated left *)
       let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
@@ -606,7 +606,14 @@ Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r :
       | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
       end eq_refl
   | _ => fun _ => SDependent (DepChild StatementKind r)
-  end eq_refl.
+  end H.
+
+(* an expr-statement defers to an expr that owns an issue; otherwise it is a legal call statement or an illegal one *)
+Definition own_stmt (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome bp r :=
+  stmt_body r (fun Hv =>
+    let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
+    own_stmt_expr e (value_neg_b (own_value ctab e)) (app_neg_b (own_app e)) r Hv)
+    (Index.node_view r) eq_refl.
 
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
 Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
@@ -711,19 +718,10 @@ Definition va_app_negative (va : list (OccFact bp)) (e : Index.NodeRef idx) : bo
   | Some (OFApp _ oa) => match oa with AInvalid _ | AUnmet _ | ADependent _ => true | _ => false end | _ => false end.
 (* the child-first expr statement: read the child's value/app negativity from va, then the same own_stmt_expr *)
 Definition own_stmt_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : StmtOutcome bp r :=
-  match Index.node_view r as v return Index.node_view r = v -> StmtOutcome bp r with
-  | Index.Model.VStmt Index.Model.SSExpr => fun Hv =>
-      let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
-      own_stmt_expr bp e (va_value_negative va e) (va_app_negative va e) r Hv
-  | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
-      let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
-      match BN.short_dup_decision_name (BN.short_duplicate_decision se)
-        as nm return BN.short_dup_decision_name (BN.short_duplicate_decision se) = nm -> StmtOutcome bp r with
-      | Some n => fun Hn => SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn eq_refl)
-      | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
-      end eq_refl
-  | _ => fun _ => SDependent (DepChild StatementKind r)
-  end eq_refl.
+  stmt_body bp r (fun Hv =>
+    let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
+    own_stmt_expr bp e (va_value_negative va e) (va_app_negative va e) r Hv)
+    (Index.node_view r) eq_refl.
 Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
   | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
@@ -779,9 +777,41 @@ Proof.
   unfold va_app_negative.
   rewrite (va_app_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr) Hva); reflexivity.
 Qed.
-(* one const table per file, built once and shared across that file's per-node facts (children stay in-file) *)
+(* a dependent match on node_view r reduces to the arm a known equation picks: destruct H fires (rhs a bound var) *)
+Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
+  g a eq_refl = g v H.
+Proof. destruct H. reflexivity. Qed.
+(* the child-first expr statement equals the current one: it reads from va the child value/app own_stmt recomputes *)
+Lemma occ_facts_va_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
+  occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab r = occ_facts ctab r.
+Proof.
+  unfold occ_facts_va, occ_facts.
+  destruct (Index.node_view r) as [n|l|u| |t|b|c|vv|ts|d|st| |tp|] eqn:Hview; try reflexivity.
+  destruct st; try reflexivity.
+  do 2 f_equal. unfold own_stmt_va, own_stmt.
+  rewrite (convoy_at (Index.node_view r) (stmt_body bp r _) (Index.Model.VStmt Index.Model.SSExpr) Hview).
+  rewrite (convoy_at (Index.node_view r) (stmt_body bp r _) (Index.Model.VStmt Index.Model.SSExpr) Hview).
+  cbn [stmt_body].
+  set (e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hview))).
+  assert (Hfe : Index.nr_file e = fr) by (unfold e; rewrite ee_child_file; exact Hf).
+  rewrite (va_value_negative_correct ctab fr e Hfe).
+  (* only the app-negativity now differs, and it feeds solely the app-guarded if-condition — equal both ways *)
+  unfold own_stmt_expr.
+  assert (Hcond : andb (match Index.node_view e with Index.Model.VApplication => true | _ => false end)
+                       (va_app_negative (va_facts ctab (Index.file_nodes fr)) e)
+                = andb (match Index.node_view e with Index.Model.VApplication => true | _ => false end)
+                       (app_neg_b bp (own_app bp e))).
+  { destruct (Index.node_view e) eqn:Ve; cbn [andb]; try reflexivity.
+    rewrite (va_app_negative_correct ctab fr e Hfe Ve); reflexivity. }
+  rewrite Hcond; reflexivity.
+Qed.
+
+(* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
 Definition raw_facts : list (OccFact bp) :=
-  flat_map (fun fr => let ctab := const_table bp fr in flat_map (occ_facts ctab) (Index.file_nodes fr))
+  flat_map (fun fr => let ctab := const_table bp fr in
+                      let va := va_facts ctab (Index.file_nodes fr) in
+                      flat_map (occ_facts_va va ctab) (Index.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
 Definition FactPhase : Type := { m : list (OccFact bp) | m = raw_facts }.
@@ -1219,10 +1249,24 @@ Proof.
   - intros pr _. apply BN.pkg_members_nodup.
   - intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
 Qed.
+(* §11 the child-first builder projects the same rows the direct occ_facts traversal does (each node in its file) *)
+Lemma flat_map_ext_in {A B : Type} (f g : A -> list B) (l : list A)
+  (H : forall a, In a l -> f a = g a) : flat_map f l = flat_map g l.
+Proof.
+  induction l as [|x xs IH]; cbn; [reflexivity|].
+  rewrite (H x (or_introl eq_refl)), IH; [reflexivity | intros a Ha; apply H; right; exact Ha].
+Qed.
+Lemma raw_facts_as_occ :
+  raw_facts bp = flat_map (fun fr => flat_map (occ_facts bp (const_table bp fr)) (Index.file_nodes fr))
+                          (flat_map BN.PI.pkg_members (BN.PI.packages s)).
+Proof.
+  unfold raw_facts; cbv zeta. apply flat_map_ext_rows. intro fr.
+  apply flat_map_ext_in. intros r Hr. apply occ_facts_va_eq. exact (Index.file_nodes_file fr r Hr).
+Qed.
 (* §11 canonical-key soundness at the source: no two retained facts share a site+kind key across the whole program *)
 Lemma raw_facts_key_nodup : NoDup (map fact_key (raw_facts bp)).
 Proof.
-  unfold raw_facts; cbv zeta; rewrite map_flat_map.
+  rewrite raw_facts_as_occ; rewrite map_flat_map.
   apply (BN.flat_map_nodup _ (fun sk => Index.nr_file (fst sk))).
   - apply files_nodup.
   - intros fr _. rewrite map_flat_map. apply (BN.flat_map_nodup _ (fun sk => fst sk)).
@@ -1305,8 +1349,8 @@ Qed.
 Lemma raw_facts_node (o : OccFact bp) :
   In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr) /\ In o (occ_facts bp (const_table bp fr) r).
 Proof.
-  unfold raw_facts. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
-  cbv zeta in Hin. apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
+  rewrite raw_facts_as_occ. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
+  apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
 Qed.
 (* §12 canonical-row truth: a retained row's exact outcome is the own_* result the canonical traversal selected *)
 Lemma fact_row_is_own (ref : FactRowRef fp) :
