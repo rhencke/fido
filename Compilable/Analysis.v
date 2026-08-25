@@ -697,6 +697,13 @@ Qed.
 Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
   g a eq_refl = g v H.
 Proof. destruct H. reflexivity. Qed.
+(* decidable node identity from the boolean equality, so a same-site outcome equality is inj_pair2-extractable *)
+Lemma noderef_eq_dec {p} {idx : Index.ProgramIndex p} (x y : Index.NodeRef idx) : {x = y} + {x <> y}.
+Proof.
+  destruct (BN.noderef_eqb x y) eqn:E; [ left | right ].
+  - apply BN.noderef_eqb_spec. exact E.
+  - intro Heq. subst y. rewrite (proj2 (BN.noderef_eqb_spec x x) eq_refl) in E. discriminate.
+Qed.
 
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
@@ -736,6 +743,19 @@ Definition type_fact (r : Index.NodeRef idx) : list (OccFact bp) := type_fact_bo
 Lemma type_fact_at (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)) : type_fact r = [OFType r (own_type bp r n H)].
 Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTypeExpr (Syntax.NamedType n)) H). Qed.
+(* the short-declaration duplicate decision, named so its non-dependent outcome is provable off the convoy *)
+Definition short_stmt_body (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (nm : option Names.OrdinaryIdentifier)
+  (Hnm : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm)
+  : StmtOutcome bp r :=
+  match nm as nm0 return
+    BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm0
+    -> StmtOutcome bp r with
+  | Some n => fun Hn => SInvalid (ShortDuplicate
+      (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl Hn eq_refl)
+  | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+  end Hnm.
 (* §10 the statement fact: expr arm from the driver, short arm its exact decision, any other node yields no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
@@ -743,14 +763,17 @@ Definition stmt_fact_body (r : Index.NodeRef idx)
   match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
   | Index.Model.VStmt Index.Model.SSExpr => fun Hv => [OFStmt r (sx Hv)]
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
-      let se := BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv) in
-      [OFStmt r (match BN.short_dup_decision_name (BN.short_duplicate_decision se)
-        as nm return BN.short_dup_decision_name (BN.short_duplicate_decision se) = nm -> StmtOutcome bp r with
-      | Some n => fun Hn => SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn eq_refl)
-      | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
-      end eq_refl)]
+      [OFStmt r (short_stmt_body r nn nv Hv
+        (BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) eq_refl)]
   | _ => fun _ => []
   end H.
+(* the short-declaration outcome is a duplicate diagnostic, never a child dependency *)
+Lemma short_stmt_body_not_dep (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (nm : option Names.OrdinaryIdentifier)
+  (Hnm : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm)
+  (d : Dependency bp r StatementKind) : short_stmt_body r nn nv Hv nm Hnm <> SDependent d.
+Proof. unfold short_stmt_body. destruct nm; cbn; discriminate. Qed.
 Definition stmt_fact (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) : list (OccFact bp) :=
   stmt_fact_body r sx (Index.node_view r) eq_refl.
@@ -812,6 +835,25 @@ Proof.
     cbn in Hin;
     try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
     solve [ eexists; reflexivity | exfalso; intuition discriminate ].
+Qed.
+(* §19.4 a negative value fact sits only on a value-emitting node, so it is exactly one of that node's occ_facts *)
+Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) :
+  value_neg_b bp (own_value bp ctab e) = true -> In (OFValue e (own_value bp ctab e)) (occ_facts ctab e).
+Proof.
+  intro Hneg. unfold occ_facts.
+  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E;
+    try (apply in_or_app; right; cbn; left; reflexivity);
+    try (cbn; left; reflexivity);
+    exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
+Qed.
+(* §19.4 the application fact of an application node is exactly one of its occ_facts *)
+Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (He : Index.node_view e = Index.Model.VApplication) :
+  In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts ctab e).
+Proof.
+  assert (Hocc : occ_facts ctab e = app_fact_app e ++ [OFValue e (own_value bp ctab e)])
+    by (unfold occ_facts; rewrite He; reflexivity).
+  rewrite Hocc, (app_fact_app_at e He). apply in_or_app. left. apply in_eq.
 Qed.
 
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
@@ -1605,13 +1647,15 @@ Record ChildPrerequisiteRef (cdfr : ChildDependentFactRef) : Type := mk_cpr {
   cpr_neg       : NegativeFactRef cpr_child_row
 }.
 (* §15 the one total builder from the exact parent child-dependency view: look up the exact child, retain its case *)
-Definition child_prerequisite (cdfr : ChildDependentFactRef) : option (ChildPrerequisiteRef cdfr) :=
-  match fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr)
-    as fr return fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr -> option (ChildPrerequisiteRef cdfr) with
+Definition child_prerequisite_body (cdfr : ChildDependentFactRef) (fr : option (FactRowRef fp))
+  (Hfr : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr) : option (ChildPrerequisiteRef cdfr) :=
+  match fr as fr0 return fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr0 -> option (ChildPrerequisiteRef cdfr) with
   | Some child_row => fun Hlk =>
       match negative_case child_row with Some neg => Some (mk_cpr cdfr child_row Hlk neg) | None => None end
   | None => fun _ => None
-  end eq_refl.
+  end Hfr.
+Definition child_prerequisite (cdfr : ChildDependentFactRef) : option (ChildPrerequisiteRef cdfr) :=
+  child_prerequisite_body cdfr (fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr)) eq_refl.
 
 (* §16 the canonical ordered prerequisites: one per child-dependent parent row, in retained fact-row order *)
 Definition child_prerequisite_refs : list { cdfr : ChildDependentFactRef & ChildPrerequisiteRef cdfr } :=
@@ -1647,6 +1691,181 @@ Proof.
     exact (Hgen _ eq_refl H).
 Qed.
 
+(* raw_facts_node keeping the file's package membership, so a sibling child fact can be shown retained too *)
+Lemma raw_facts_node_file (o : OccFact bp) :
+  In o (raw_facts bp) ->
+  exists fr r, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
+               /\ In r (Index.file_nodes fr) /\ In o (occ_facts bp (const_table bp fr) r).
+Proof.
+  intro Hin. rewrite raw_facts_as_occ in Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+  apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [exact Hfr | split; [exact Hr | exact Ho]].
+Qed.
+(* a retained row's own file: its package membership, exact file, and the node whose occ_facts produced it *)
+Lemma row_file (row : FactRowRef fp) :
+  In row (fact_rows fp) ->
+  exists fr, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
+             /\ Index.nr_file (frr_site row) = fr
+             /\ In (frr_row row) (occ_facts bp (const_table bp fr) (frr_site row)).
+Proof.
+  intro Hin. assert (Hil : In (frr_row row) (fact_list fp))
+    by (rewrite <- fact_rows_rows; apply in_map; exact Hin).
+  rewrite fact_once in Hil. destruct (raw_facts_node_file (frr_row row) Hil) as [fr [r' [Hfr [Hr' Ho]]]].
+  pose proof (occ_facts_site (const_table bp fr) r' (frr_row row) Ho) as Hsite.
+  exists fr. unfold frr_site. rewrite Hsite. split; [exact Hfr | split].
+  - exact (Index.file_nodes_file fr r' Hr').
+  - exact Ho.
+Qed.
+(* a negative value child's exact value fact is retained in the same FactPhase, in its own file *)
+Lemma value_fact_retained (fr : Index.FileRef idx)
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages s)))
+  (e : Index.NodeRef idx) (He : Index.nr_file e = fr)
+  (Hneg : value_neg_b bp (own_value bp (const_table bp fr) e) = true) :
+  In (OFValue e (own_value bp (const_table bp fr) e)) (fact_list fp).
+Proof.
+  rewrite fact_once, raw_facts_as_occ. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | apply occ_value_mem; exact Hneg ].
+Qed.
+(* a negative application child's exact application fact is retained in the same FactPhase, in its own file *)
+Lemma app_fact_retained (fr : Index.FileRef idx)
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages s)))
+  (e : Index.NodeRef idx) (He : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
+  In (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))) (fact_list fp).
+Proof.
+  rewrite fact_once, raw_facts_as_occ. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | apply occ_app_mem ].
+Qed.
+(* a retained SDependent statement fact came from the expr-statement arm: its outcome is the exact driver result *)
+Lemma stmt_fact_dependent (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (d : Dependency bp r StatementKind) :
+  In (OFStmt r (SDependent d)) (stmt_fact bp r sx) ->
+  exists (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr), SDependent d = sx Hv.
+Proof.
+  unfold stmt_fact.
+  assert (Hgen : forall (v : Index.Model.NodeView) (H : Index.node_view r = v),
+    In (OFStmt r (SDependent d)) (stmt_fact_body bp r sx v H) ->
+    exists (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr), SDependent d = sx Hv).
+  { intros v H Hin. destruct v as [na|nl|nu| |nt|nb|nc|nvv|nts|nd0|nst| |ntp|];
+      cbn [stmt_fact_body] in Hin; try (exfalso; exact Hin).
+    destruct nst as [ | | sn sv ]; cbn [stmt_fact_body] in Hin.
+    - destruct Hin as [Heq | []]. injection Heq as Heq'.
+      apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Heq'. exists H. symmetry; exact Heq'.
+    - exfalso; exact Hin.
+    - exfalso. destruct Hin as [Heq | []]. injection Heq as Heq'.
+      apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Heq'.
+      exact (short_stmt_body_not_dep bp r sn sv H _ eq_refl d Heq'). }
+  exact (Hgen (Index.node_view r) eq_refl).
+Qed.
+(* a negative value / application outcome makes one of the row's own cause/req/dep present *)
+Lemma value_neg_disj (child_row : FactRowRef fp) (e : Index.NodeRef idx) (ov : ValueOutcome bp e)
+  (Hrow : frr_row child_row = OFValue e ov) (Hneg : value_neg_b bp ov = true) :
+  occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None \/ occ_dep (frr_row child_row) <> None.
+Proof.
+  rewrite Hrow. destruct ov; cbn in Hneg |- *; try discriminate Hneg;
+    first [ left; discriminate | right; left; discriminate | right; right; discriminate ].
+Qed.
+Lemma app_neg_disj (child_row : FactRowRef fp) (e : Index.NodeRef idx) (oa : AppOutcome bp e)
+  (Hrow : frr_row child_row = OFApp e oa) (Hneg : app_neg_b bp oa = true) :
+  occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None \/ occ_dep (frr_row child_row) <> None.
+Proof.
+  rewrite Hrow. destruct oa; cbn in Hneg |- *; try discriminate Hneg;
+    first [ left; discriminate | right; left; discriminate | right; right; discriminate ].
+Qed.
+(* §19.4/§19.5 a row with a present cause/req/dep has an exact negative case *)
+Lemma negative_case_some (child_row : FactRowRef fp)
+  (H : occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None
+       \/ occ_dep (frr_row child_row) <> None) :
+  negative_case child_row <> None.
+Proof.
+  unfold negative_case.
+  assert (Hg : forall
+    (oc : option (Cause bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hoc : occ_cause (frr_row child_row) = oc)
+    (oq : option (Requirement bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hoq : occ_req (frr_row child_row) = oq)
+    (od : option (Dependency bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hod : occ_dep (frr_row child_row) = od),
+    (oc <> None \/ oq <> None \/ od <> None) ->
+    (match oc as oc0 return occ_cause (frr_row child_row) = oc0 -> option (NegativeFactRef child_row) with
+     | Some c => fun H0 => Some (ChildInvalid c H0)
+     | None => fun _ =>
+       match oq as oq0 return occ_req (frr_row child_row) = oq0 -> option (NegativeFactRef child_row) with
+       | Some rq => fun H0 => Some (ChildUnmet rq H0)
+       | None => fun _ =>
+         match od as od0 return occ_dep (frr_row child_row) = od0 -> option (NegativeFactRef child_row) with
+         | Some dd => fun H0 => Some (ChildDependent dd H0)
+         | None => fun _ => None
+         end Hod
+       end Hoq
+     end Hoc) <> None).
+  { intros oc Hoc oq Hoq od Hod Hd. destruct oc as [c|]; [ cbn; discriminate | cbn ].
+    destruct oq as [rq|]; [ cbn; discriminate | cbn ].
+    destruct od as [dd|]; [ cbn; discriminate | cbn ].
+    exfalso. destruct Hd as [Hd|[Hd|Hd]]; apply Hd; reflexivity. }
+  exact (Hg (occ_cause (frr_row child_row)) eq_refl (occ_req (frr_row child_row)) eq_refl
+            (occ_dep (frr_row child_row)) eq_refl H).
+Qed.
+(* §19.4 the prerequisite builder succeeds once the exact negative child row is looked up *)
+Lemma child_prerequisite_some (cdfr : ChildDependentFactRef) (child_row : FactRowRef fp)
+  (Hlk : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some child_row)
+  (Hneg : negative_case child_row <> None) :
+  child_prerequisite cdfr <> None.
+Proof.
+  unfold child_prerequisite.
+  rewrite (convoy_at (fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr))
+             (child_prerequisite_body cdfr) (Some child_row) Hlk).
+  cbn -[negative_case]. destruct (negative_case child_row) as [neg|] eqn:En;
+    [ discriminate | exfalso; apply Hneg; reflexivity ].
+Qed.
+(* a retained fact of the list is exactly a retained fact-row *)
+Lemma fact_list_row (o : OccFact bp) : In o (fact_list fp) -> exists ref, In ref (fact_rows fp) /\ frr_row ref = o.
+Proof.
+  intro Hin. apply In_nth_error in Hin. destruct Hin as [k Hk].
+  destruct (fact_rows_complete k o Hk) as [ref [Hnth [_ Hrow]]].
+  exists ref. split; [ exact (nth_error_In _ _ Hnth) | exact Hrow ].
+Qed.
+(* §19.4 completeness: every child-dependent parent row has its exact negative child prerequisite, same FactPhase *)
+Lemma child_prerequisite_complete (cdfr : ChildDependentFactRef) :
+  In (cdfr_rowref cdfr) (fact_rows fp) -> child_prerequisite cdfr <> None.
+Proof.
+  intro Hin. pose proof (cdfr_ok cdfr) as Hok.
+  destruct (row_file (cdfr_rowref cdfr) Hin) as [fr [Hfr [Hfile _]]].
+  assert (Hsite : frr_site (cdfr_rowref cdfr) = cdfr_site cdfr) by (unfold frr_site; rewrite Hok; reflexivity).
+  rewrite Hsite in Hfile.
+  pose proof (fact_row_is_own (cdfr_rowref cdfr)) as Hown. rewrite Hok in Hown.
+  destruct (stmt_fact_dependent (cdfr_site cdfr) _ (DepChild (cdfr_edge cdfr)) Hown) as [Hv Hsx].
+  unfold expr_sx_own in Hsx.
+  set (pr := Index.Refs.mkExprStmtRef (cdfr_site cdfr) Hv) in *.
+  set (e0 := Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) in *.
+  set (ctab := const_table bp (Index.nr_file (cdfr_site cdfr))) in *.
+  symmetry in Hsx.
+  destruct (own_stmt_expr_dep_inv pr _ _ (cdfr_edge cdfr) Hsx) as [Hcs Hcase].
+  assert (Hes : cdfr_edge_site cdfr = e0) by (unfold cdfr_edge_site; exact Hcs).
+  assert (Hfe : Index.nr_file e0 = fr)
+    by (unfold e0, pr; rewrite (ee_child_file (cdfr_site cdfr) Hv); exact Hfile).
+  assert (Hctab : ctab = const_table bp fr) by (unfold ctab; rewrite Hfile; reflexivity).
+  destruct Hcase as [[Hk Hvn] | [Hk [_ [Han Hva]]]].
+  - assert (Hret : In (OFValue e0 (own_value bp (const_table bp fr) e0)) (fact_list fp))
+      by (apply (value_fact_retained fr Hfr e0 Hfe); rewrite <- Hctab; exact Hvn).
+    assert (Hek : cdfr_edge_kind cdfr = ValueKind) by (unfold cdfr_edge_kind; exact Hk).
+    destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
+    apply (child_prerequisite_some cdfr child_row).
+    + rewrite Hes, Hek.
+      apply (fact_row_for_complete e0 ValueKind child_row Hcin);
+        [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
+    + apply negative_case_some. apply (value_neg_disj child_row e0 (own_value bp (const_table bp fr) e0) Hcrow).
+      rewrite <- Hctab; exact Hvn.
+  - assert (Hret : In (OFApp e0 (own_app bp (Index.Refs.mkAppRef e0 Hva))) (fact_list fp))
+      by (apply (app_fact_retained fr Hfr e0 Hfe Hva)).
+    assert (Hek : cdfr_edge_kind cdfr = ApplicationKind) by (unfold cdfr_edge_kind; exact Hk).
+    destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
+    apply (child_prerequisite_some cdfr child_row).
+    + rewrite Hes, Hek.
+      apply (fact_row_for_complete e0 ApplicationKind child_row Hcin);
+        [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
+    + apply negative_case_some. apply (app_neg_disj child_row e0 (own_app bp (Index.Refs.mkAppRef e0 Hva)) Hcrow).
+      rewrite (app_neg_at_app bp e0 Hva) in Han; exact Han.
+Qed.
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
