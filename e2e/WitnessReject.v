@@ -214,6 +214,30 @@ Definition r_redecl_type_dep :
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "y"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "y"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "z"))) (Syntax.VarTypeOnly (Syntax.NamedType (OID "y"))) ]) ])) = true.
 Proof. vm_compute; reflexivity. Qed.
 
+(* §22.1/22.2 a legal println application: its statement row is SOK and its application row is AOK — no invalid cause *)
+Definition c_println_legal : Compilable.compiles (prog [ PL [ ILIT 1 ] ]). Proof. compileok. Qed.
+Definition mf_println_legal_no_cause :
+  RP.result_cause_views (rres (prog [ PL [ ILIT 1 ] ])) = [] /\ RP.result_req_views (rres (prog [ PL [ ILIT 1 ] ])) = [].
+Proof. split; vm_compute; reflexivity. Qed.
+(* §22.3 a canonical invalid statement row: a bare literal is an illegal-statement invalidity in the statement family *)
+Definition mf_stmt_lit_invalid_row :
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ RP.CvOtherCause ]
+  /\ RP.result_diag_families (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ AN.FamStatement ].
+Proof. split; vm_compute; reflexivity. Qed.
+(* §22.5 a dependent row yields no issue: only the unresolved child name is a cause, its app+stmt rows stay silent *)
+Definition mf_dep_row_silent :
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [ RP.CvUnresolvedName ]
+  /\ RP.result_req_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [].
+Proof. split; vm_compute; reflexivity. Qed.
+(* §22.6 same-site multi-family: an application node owns both an Application-kind and a Value-kind fact at one site *)
+Definition p_app_multi : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "main") []) ].
+Definition mf_app_two_families :
+  (match filter (fun o => match AN.fact_kind o with AN.ApplicationKind => true | _ => false end) (pfacts p_app_multi) with
+   | app :: _ => existsb (fun o => andb (match AN.fact_kind o with AN.ValueKind => true | _ => false end)
+                                        (BN.noderef_eqb (AN.fact_site o) (AN.fact_site app))) (pfacts p_app_multi)
+   | [] => false end) = true.
+Proof. vm_compute; reflexivity. Qed.
+
 (* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
 Definition o_const_inherited : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ; Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "y"))) Syntax.InheritedConstInit ]) ]). Proof. outside. Qed.
 
