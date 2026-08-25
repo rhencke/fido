@@ -593,34 +593,41 @@ Definition app_neg_body (e : Index.NodeRef idx) (v : Index.Model.NodeView) (H : 
   end H.
 Definition app_neg_at (e : Index.NodeRef idx) : bool := app_neg_body e (Index.node_view e) eq_refl.
 
+(* §8/§12 the application-child branch of an expr statement, named so its exact edge is convoy-reducible *)
+Definition stmt_expr_app_branch (pr : Index.Refs.ExprStmtRef idx) (app_neg : bool)
+  (He : Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = Index.Model.VApplication)
+  : StmtOutcome bp (Index.Refs.exs_node pr) :=
+  if app_neg
+  then SDependent (DepChild (ExprStmtApplicationChild pr (Index.Refs.mkAppRef _ He) eq_refl eq_refl))
+  else
+    match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef _ He))) with
+    | Index.Model.VName h =>
+        match BN.resolution_object_view (BN.resolve bp (Index.Refs.exs_node pr) h) with
+        | Some o =>
+            match o with
+            | BN.PredeclaredObject Names.PPrintln => SOK
+            | BN.SourceObject _ => SOK
+            | _ => SInvalid (IllegalStatement (Index.Refs.exs_ok pr))
+            end
+        | None => SInvalid (IllegalStatement (Index.Refs.exs_ok pr))
+        end
+    | _ => SInvalid (IllegalStatement (Index.Refs.exs_ok pr))
+    end.
+(* the node_view convoy of an expr statement, named so convoy_at reduces it: application child, else illegal *)
+Definition stmt_expr_body (pr : Index.Refs.ExprStmtRef idx) (app_neg : bool) (ve : Index.Model.NodeView)
+  (H : Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = ve)
+  : StmtOutcome bp (Index.Refs.exs_node pr) :=
+  match ve as ve0 return Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = ve0
+    -> StmtOutcome bp (Index.Refs.exs_node pr) with
+  | Index.Model.VApplication => fun He => stmt_expr_app_branch pr app_neg He
+  | _ => fun _ => SInvalid (IllegalStatement (Index.Refs.exs_ok pr))
+  end H.
 (* §8/§12 an expr statement over its exact ExprStmtRef: a negative value/application child retained as the exact edge *)
 Definition own_stmt_expr (pr : Index.Refs.ExprStmtRef idx) (val_neg app_neg : bool)
   : StmtOutcome bp (Index.Refs.exs_node pr) :=
-  let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr pr) in
-  let Hv := Index.Refs.exs_ok pr in
   if val_neg
   then SDependent (DepChild (ExprStmtValueChild pr eq_refl))
-  else
-    match Index.node_view e as ve return Index.node_view e = ve -> StmtOutcome bp (Index.Refs.exs_node pr) with
-    | Index.Model.VApplication => fun He =>
-        if app_neg
-        then SDependent (DepChild (ExprStmtApplicationChild pr (Index.Refs.mkAppRef e He) eq_refl eq_refl))
-        else
-          match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef e He))) with
-          | Index.Model.VName h =>
-              match BN.resolution_object_view (BN.resolve bp (Index.Refs.exs_node pr) h) with
-              | Some o =>
-                  match o with
-                  | BN.PredeclaredObject Names.PPrintln => SOK
-                  | BN.SourceObject _ => SOK
-                  | _ => SInvalid (IllegalStatement Hv)
-                  end
-              | None => SInvalid (IllegalStatement Hv)
-              end
-          | _ => SInvalid (IllegalStatement Hv)
-          end
-    | _ => fun _ => SInvalid (IllegalStatement Hv)
-    end eq_refl.
+  else stmt_expr_body pr app_neg (Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr))) eq_refl.
 
 (* the current expr-statement driver: read its child's value/app negativity directly, then own_stmt_expr *)
 Definition expr_sx_own (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
