@@ -19,6 +19,16 @@ Proof.
   inversion H as [|? ? Hna H']; subst.
   destruct (f a); [ constructor; [ intro Hin; apply filter_In in Hin; exact (Hna (proj1 Hin)) | exact (IH H') ] | exact (IH H') ].
 Qed.
+(* a duplicate-free key projection is injective on members: equal keys force the equal element *)
+Lemma nodup_map_inj {A B} (f : A -> B) (l : list A) (H : NoDup (map f l)) :
+  forall a b, In a l -> In b l -> f a = f b -> a = b.
+Proof.
+  induction l as [|x t IH]; intros a b Ha Hb Hab; [ inversion Ha | ].
+  cbn in H. inversion H as [|? ? Hnx H']; subst.
+  destruct Ha as [<-|Ha]; destruct Hb as [<-|Hb]; [ reflexivity | | | exact (IH H' a b Ha Hb Hab) ].
+  - exfalso. apply Hnx. rewrite Hab. exact (in_map f t b Hb).
+  - exfalso. apply Hnx. rewrite <- Hab. exact (in_map f t a Ha).
+Qed.
 
 (* every file's node enumeration is duplicate-free: its ordinal positions are the distinct seq 0..count *)
 Lemma file_nodes_nodup {p} {idx : Index.ProgramIndex p} (fr : Index.FileRef idx) : NoDup (Index.file_nodes fr).
@@ -965,9 +975,161 @@ Proof.
     rewrite Hk in Hr. injection Hr as Hr. symmetry. exact Hr.
 Qed.
 
+(* §11 the exact canonical key: an occurrence's exact site paired with its exact fact kind *)
+Definition fact_key (o : OccFact bp) : Index.NodeRef idx * FactKind := (fact_site o, fact_kind o).
+Definition frr_key (ref : FactRowRef fp) : Index.NodeRef idx * FactKind := fact_key (frr_row ref).
+
+(* every fact occ_facts retains at a node carries that exact node as its site *)
+Lemma occ_facts_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) (o : OccFact bp) :
+  In o (occ_facts bp ctab r) -> fact_site o = r.
+Proof.
+  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
+    intro Hin; cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
+Qed.
+(* the facts occ_facts retains at a node have duplicate-free keys: one per family, application's two kinds distinct *)
+Lemma occ_facts_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
+  NoDup (map fact_key (occ_facts bp ctab r)).
+Proof.
+  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
+    cbn [occ_facts map fact_key fact_site fact_kind];
+    repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
+    apply NoDup_nil.
+Qed.
+
+(* the package member files, in package order, are duplicate-free: no file belongs to two packages or repeats *)
+Lemma files_nodup : NoDup (flat_map BN.PI.pkg_members (BN.PI.packages s)).
+Proof.
+  apply (BN.flat_map_nodup_key _ (BN.PI.package_of_file s) (fun pr => pr)).
+  - rewrite map_id. apply BN.packages_nodup.
+  - intros pr _. apply BN.pkg_members_nodup.
+  - intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
+Qed.
+(* §11 canonical-key soundness at the source: no two retained facts share a site+kind key across the whole program *)
+Lemma raw_facts_key_nodup : NoDup (map fact_key (raw_facts bp)).
+Proof.
+  unfold raw_facts; cbv zeta; rewrite map_flat_map.
+  apply (BN.flat_map_nodup _ (fun sk => Index.nr_file (fst sk))).
+  - apply files_nodup.
+  - intros fr _. rewrite map_flat_map. apply (BN.flat_map_nodup _ (fun sk => fst sk)).
+    + apply file_nodes_nodup.
+    + intros r _. apply occ_facts_key_nodup.
+    + intros r sk _ Hin. apply in_map_iff in Hin. destruct Hin as [o [Hk Ho]].
+      subst sk. cbn. exact (occ_facts_site (const_table bp fr) r o Ho).
+  - intros fr sk _ Hin. apply in_map_iff in Hin. destruct Hin as [o [Hk Ho]].
+    apply in_flat_map in Ho. destruct Ho as [r [Hr Ho]].
+    subst sk. cbn. rewrite (occ_facts_site (const_table bp fr) r o Ho). exact (Index.file_nodes_file fr r Hr).
+Qed.
+(* the retained fact list, and the row enumeration, inherit the duplicate-free site+kind key *)
+Lemma fact_list_key_nodup : NoDup (map fact_key (fact_list fp)).
+Proof. rewrite fact_once. apply raw_facts_key_nodup. Qed.
+Lemma fact_rows_key_nodup : NoDup (map frr_key (fact_rows fp)).
+Proof. unfold frr_key. rewrite <- map_map, fact_rows_rows. apply fact_list_key_nodup. Qed.
+(* §24.2 row uniqueness: two retained rows with equal site and equal kind are the same exact row *)
+Lemma fact_row_key_unique (r1 r2 : FactRowRef fp) :
+  In r1 (fact_rows fp) -> In r2 (fact_rows fp) -> frr_site r1 = frr_site r2 -> frr_kind r1 = frr_kind r2 -> r1 = r2.
+Proof.
+  intros H1 H2 Hs Hk. apply (nodup_map_inj frr_key (fact_rows fp) fact_rows_key_nodup r1 r2 H1 H2).
+  change (frr_key r1) with (frr_site r1, frr_kind r1). change (frr_key r2) with (frr_site r2, frr_kind r2).
+  rewrite Hs, Hk. reflexivity.
+Qed.
+
+(* a decidable fact-kind equality, so the site+kind lookup is a total boolean search over the retained rows *)
+Definition fact_kind_eqb (a b : FactKind) : bool :=
+  match a, b with
+  | ValueKind, ValueKind | ApplicationKind, ApplicationKind
+  | StatementKind, StatementKind | TypeUseKind, TypeUseKind => true
+  | _, _ => false
+  end.
+Lemma fact_kind_eqb_spec (a b : FactKind) : fact_kind_eqb a b = true <-> a = b.
+Proof. destruct a, b; cbn; split; intro H; solve [ discriminate H | reflexivity ]. Qed.
+
+(* §11 canonical site+kind lookup: search the retained rows only; never rebuild an outcome through own_* *)
+Definition fact_row_for (site : Index.NodeRef idx) (kind : FactKind) : option (FactRowRef fp) :=
+  find (fun ref => andb (BN.noderef_eqb (frr_site ref) site) (fact_kind_eqb (frr_kind ref) kind)) (fact_rows fp).
+
+(* §24.2 soundness: a found row is a retained row with exactly the requested site and kind *)
+Lemma fact_row_for_sound (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
+  fact_row_for site kind = Some ref -> In ref (fact_rows fp) /\ frr_site ref = site /\ frr_kind ref = kind.
+Proof.
+  intro H. apply find_some in H. destruct H as [Hin Hp]. apply andb_prop in Hp. destruct Hp as [Hs Hk].
+  apply BN.noderef_eqb_spec in Hs. apply fact_kind_eqb_spec in Hk. split; [ exact Hin | split; [ exact Hs | exact Hk ] ].
+Qed.
+(* §24.2 completeness: any retained row with that site and kind is exactly the one the lookup returns *)
+Lemma fact_row_for_complete (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
+  In ref (fact_rows fp) -> frr_site ref = site -> frr_kind ref = kind -> fact_row_for site kind = Some ref.
+Proof.
+  intros Hin Hs Hk. destruct (fact_row_for site kind) as [ref'|] eqn:E.
+  - f_equal. apply fact_row_for_sound in E. destruct E as [Hin' [Hs' Hk']].
+    apply (fact_row_key_unique ref' ref Hin' Hin); [ rewrite Hs', Hs; reflexivity | rewrite Hk', Hk; reflexivity ].
+  - exfalso. unfold fact_row_for in E. pose proof (find_none _ _ E ref Hin) as Hno. cbv beta in Hno.
+    rewrite Hs, Hk in Hno. rewrite (proj2 (BN.noderef_eqb_spec site site) eq_refl) in Hno.
+    rewrite (proj2 (fact_kind_eqb_spec kind kind) eq_refl) in Hno. discriminate Hno.
+Qed.
+(* §24.2 None soundness: no retained row of that exact site and kind means the lookup is None *)
+Lemma fact_row_for_none (site : Index.NodeRef idx) (kind : FactKind) :
+  (forall ref, In ref (fact_rows fp) -> ~ (frr_site ref = site /\ frr_kind ref = kind)) -> fact_row_for site kind = None.
+Proof.
+  intro Hno. destruct (fact_row_for site kind) as [ref|] eqn:E; [ | reflexivity ].
+  exfalso. apply fact_row_for_sound in E. destruct E as [Hin [Hs Hk]]. exact (Hno ref Hin (conj Hs Hk)).
+Qed.
+(* §24.2 None completeness: a None lookup means no retained row carries that exact site and kind *)
+Lemma fact_row_for_none_inv (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
+  fact_row_for site kind = None -> In ref (fact_rows fp) -> ~ (frr_site ref = site /\ frr_kind ref = kind).
+Proof.
+  intros E Hin [Hs Hk]. pose proof (fact_row_for_complete site kind ref Hin Hs Hk) as Hc. rewrite E in Hc. discriminate.
+Qed.
+(* §24.2 non-conflation: an application site's Application-key and Value-key lookups return two distinct rows *)
+Lemma fact_row_for_kind_distinct (site : Index.NodeRef idx) (r1 r2 : FactRowRef fp) :
+  fact_row_for site ApplicationKind = Some r1 -> fact_row_for site ValueKind = Some r2 -> r1 <> r2.
+Proof.
+  intros H1 H2 Heq. apply fact_row_for_sound in H1. apply fact_row_for_sound in H2.
+  destruct H1 as [_ [_ Hk1]]. destruct H2 as [_ [_ Hk2]]. subst r2. rewrite Hk1 in Hk2. discriminate.
+Qed.
+
+(* every retained fact decomposes to the exact package file and node whose occ_facts traversal produced it *)
+Lemma raw_facts_node (o : OccFact bp) :
+  In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr) /\ In o (occ_facts bp (const_table bp fr) r).
+Proof.
+  unfold raw_facts. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
+  cbv zeta in Hin. apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
+Qed.
+(* §12 canonical-row truth: a retained row's exact outcome is the own_* result the canonical traversal selected *)
+Lemma fact_row_is_own (ref : FactRowRef fp) :
+  match frr_row ref with
+  | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
+  | OFApp r oa => oa = own_app bp r
+  | OFStmt r os => os = own_stmt bp (const_table bp (Index.nr_file r)) r
+  | OFType r ot => ot = own_type bp r
+  end.
+Proof.
+  destruct ref as [k o Hat]; cbn [frr_row].
+  assert (Hin : In o (raw_facts bp)) by (rewrite <- (fact_once bp fp); exact (nth_error_In _ _ Hat)).
+  destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
+  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |t|b|c|v|ts|d|st| |tp| ]; try (destruct st);
+    cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
+    subst o; cbn; rewrite ?Hfile; reflexivity.
+Qed.
+(* §12 no false peer: the only retained fact at an exact site+kind is that one; no fabricated peer joins the list *)
+Lemma no_false_row (o o' : OccFact bp) :
+  In o (fact_list fp) -> In o' (fact_list fp) -> fact_site o' = fact_site o -> fact_kind o' = fact_kind o -> o' = o.
+Proof.
+  intros Ho Ho' Hs Hk. apply (nodup_map_inj fact_key (fact_list fp) fact_list_key_nodup o' o Ho' Ho).
+  unfold fact_key. rewrite Hs, Hk. reflexivity.
+Qed.
+(* §24.3 a row with no retained cause admits no invalid-case ref: a success/nonconstant row is never invalid *)
+Lemma no_invalid_of_no_cause (ref : FactRowRef fp) (ir : InvalidFactRef fp) :
+  ifr_rowref ir = ref -> occ_cause (frr_row ref) = None -> False.
+Proof. intros Href Hnone. subst ref. pose proof (ifr_ok ir) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
+(* §24.3 a row with no retained requirement admits no unmet-case ref: a success/nonconstant row is never unmet *)
+Lemma no_unmet_of_no_req (ref : FactRowRef fp) (ur : UnmetFactRef fp) :
+  ufr_rowref ur = ref -> occ_req (frr_row ref) = None -> False.
+Proof. intros Href Hnone. subst ref. pose proof (ufr_ok ur) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
+
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
+Arguments fact_key {p idx s bd bp} o. Arguments frr_key {p idx s bd bp fp} ref.
+Arguments fact_row_for {p idx s bd bp} fp site kind.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
