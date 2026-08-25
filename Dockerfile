@@ -934,6 +934,42 @@ typefail neg_peer_siblingbefore "the deleted SiblingBefore position-comparison r
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.SiblingBefore r) := e.'
 typefail neg_peer_childedge "the deleted ordinal-field ChildEdge form" \
   'Definition forged (p : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) (e : IX.ChildEdge r) := e.'
+# — §21 the exact same-FactPhase child prerequisite: no raw node, foreign phase, wrong kind, non-negative child,
+#   non-dependent parent, or bp-free view can mint an exact prerequisite; each fails to TYPECHECK —
+# §21.1 a child dependency is a DepChild of an exact edge, never a raw node, and there is no kind+node shape
+typefail neg_depchild_raw_node "DepChild built from a raw NodeRef instead of the exact child edge" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (site child : IX.NodeRef idx) : AN.Dependency bp site AN.StatementKind := AN.DepChild child.'
+typefail neg_depchild_kind_node "the old DepChild kind+node constructor shape" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (site child : IX.NodeRef idx) : AN.Dependency bp site AN.StatementKind := AN.DepChild AN.StatementKind child.'
+# §21.2 the child edge is indexed by its exact parent site and pins the exact child kind
+typefail neg_edge_site_mismatch "a child edge at parent A used as a dependency at parent B" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (siteA siteB : IX.NodeRef idx) (edge : AN.ChildFactEdge siteA AN.StatementKind) : AN.Dependency bp siteB AN.StatementKind := AN.DepChild edge.'
+typefail neg_value_edge_as_app "a value child edge relabelled application-kind" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (site : IX.NodeRef idx) (edge : AN.ChildFactEdge site AN.StatementKind) (H : AN.cfe_child_kind edge = AN.ValueKind) : AN.cfe_child_kind edge = AN.ApplicationKind := H.'
+# §21.3 rows and refs are indexed by the exact FactPhase; a foreign-phase row/ref cannot inhabit another
+typefail neg_cross_phase_child_row "a child row from FactPhase A used in FactPhase B" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fpA fpB : AN.FactPhase bp) (rowA : AN.FactRowRef fpA) : AN.FactRowRef fpB := rowA.'
+typefail neg_cross_phase_cdfr "a child-dependent parent ref from FactPhase A used in FactPhase B" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fpA fpB : AN.FactPhase bp) (cdfrA : AN.ChildDependentFactRef fpA) : AN.ChildDependentFactRef fpB := cdfrA.'
+# §21.4 a negative child ref demands the row''s own exact negative case, at its exact row, in its exact class
+typefail neg_success_no_negative "a successful child row (occ_cause = None) coerced to an invalid case" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (c : AN.Cause bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = None) : AN.NegativeFactRef row := AN.ChildInvalid c H.'
+typefail neg_invalid_as_unmet "an invalid cause used where the unmet case demands a requirement" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (c : AN.Cause bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_req (AN.frr_row row) = Some c) : AN.NegativeFactRef row := AN.ChildUnmet c H.'
+typefail neg_negcase_cross_row "a negative case for row A used as the negative case of row B" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (rowA rowB : AN.FactRowRef fp) (n : AN.NegativeFactRef rowA) : AN.NegativeFactRef rowB := n.'
+# §21.5 a child-dependent parent ref demands the exact SDependent-of-DepChild outcome, never a value/nondependent row
+typefail neg_nondependent_cdfr "a non-dependent value row coerced to a child-dependent parent ref" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (r : IX.NodeRef idx) (edge : AN.ChildFactEdge r AN.StatementKind) (vv : AN.ValueOutcome bp r) (Hok : AN.frr_row row = AN.OFValue r vv) : AN.ChildDependentFactRef fp := AN.mk_cdfr row r edge Hok.'
+# §21.7 the bp-free descriptive view cannot mint an exact prerequisite or child-dependent ref
+typefail neg_view_mints_prereq "a bp-free ChildPrerequisiteView coerced to an exact ChildPrerequisiteRef" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp) (v : RP.ChildPrerequisiteView idx) : AN.ChildPrerequisiteRef fp cdfr := v.'
+typefail neg_view_mints_cdfr "a bp-free ChildPrerequisiteView coerced to an exact ChildDependentFactRef" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (v : RP.ChildPrerequisiteView idx) : AN.ChildDependentFactRef fp := v.'
+typefail neg_unmet_as_invalid "an unmet requirement used where the invalid case demands a cause" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (q : AN.Requirement bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some q) : AN.NegativeFactRef row := AN.ChildInvalid q H.'
+typefail neg_dependent_as_invalid "a child dependency used where the invalid case demands a cause" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (dd : AN.Dependency bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some dd) : AN.NegativeFactRef row := AN.ChildInvalid dd H.'
 typefail_run
 # — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
 if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
