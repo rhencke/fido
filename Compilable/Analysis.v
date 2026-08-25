@@ -1935,6 +1935,30 @@ Proof.
   split; [ destruct n as [c Hc|rq Hq|d Hd]; cbn; try discriminate; intros _; exists c, Hc; reflexivity
          | intros [c [H ->]]; reflexivity ].
 Qed.
+(* §19.3 a value-negative child is selected first: the retained edge is the exact value-child edge *)
+Lemma stmt_expr_value_first (pr : Index.Refs.ExprStmtRef idx) (an : bool) :
+  own_stmt_expr bp pr true an = SDependent (DepChild (ExprStmtValueChild pr eq_refl)).
+Proof. reflexivity. Qed.
+(* §19.3 an application-negative child is selected only when the value child is nonnegative — the app-child edge *)
+Lemma stmt_expr_app_second (pr : Index.Refs.ExprStmtRef idx)
+  (He : Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = Index.Model.VApplication) :
+  own_stmt_expr bp pr false true
+  = SDependent (DepChild (ExprStmtApplicationChild pr (Index.Refs.mkAppRef _ He) eq_refl eq_refl)).
+Proof.
+  unfold own_stmt_expr.
+  rewrite (convoy_at (Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)))
+             (stmt_expr_body bp pr true) Index.Model.VApplication He).
+  reflexivity.
+Qed.
+(* §19.3 no child dependency when both applicable child facts are nonnegative *)
+Lemma stmt_expr_none (pr : Index.Refs.ExprStmtRef idx) (d : Dependency bp (Index.Refs.exs_node pr) StatementKind) :
+  own_stmt_expr bp pr false false = SDependent d -> False.
+Proof.
+  intro H.
+  destruct (own_stmt_expr_dep_inv pr false false (dep_child_edge d)
+    (eq_trans H (f_equal (fun x => SDependent x) (dep_child_eq d)))) as [_ [[_ Hb]|[_ [_ [Hb _]]]]];
+    discriminate Hb.
+Qed.
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.

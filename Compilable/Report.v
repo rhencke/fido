@@ -248,6 +248,21 @@ Definition child_prereq_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
 Definition result_child_prereq_views {p} (r : AN.Result p) : list (ChildPrerequisiteView (AN.res_index r)) :=
   map (fun x => child_prereq_view (projT2 x)) (AN.result_child_prerequisites r).
 
+(* §19.7 the view projects the exact parent/child sites and kinds and the child negative class, one-way *)
+Lemma child_prereq_view_exact {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {fp : AN.FactPhase bp} {cdfr : AN.ChildDependentFactRef fp}
+  (cpr : AN.ChildPrerequisiteRef fp cdfr) :
+  cpv_parent_site (child_prereq_view cpr) = AN.cdfr_site cdfr
+  /\ cpv_parent_kind (child_prereq_view cpr) = AN.StatementKind
+  /\ cpv_child_site (child_prereq_view cpr) = AN.cdfr_edge_site cdfr
+  /\ cpv_child_kind (child_prereq_view cpr) = AN.cdfr_edge_kind cdfr
+  /\ cpv_neg_class (child_prereq_view cpr) = AN.nfr_class (AN.cpr_neg cpr).
+Proof. repeat split; reflexivity. Qed.
+(* §19.7 the concrete result-level views are exactly the one-way projection of the retained refs *)
+Lemma result_child_prereq_views_exact {p} (r : AN.Result p) :
+  result_child_prereq_views r = map (fun x => child_prereq_view (projT2 x)) (AN.result_child_prerequisites r).
+Proof. reflexivity. Qed.
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
