@@ -722,14 +722,20 @@ Definition own_stmt_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (o
     let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
     own_stmt_expr bp e (va_value_negative va e) (va_app_negative va e) r Hv)
     (Index.node_view r) eq_refl.
+(* the exact value / application row a node already has in the child-first table — projected, never recomputed *)
+Definition va_value_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
+  match find (fun o => match o with OFValue r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
+Definition va_app_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
+  match find (fun o => match o with OFApp r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
+(* §11 raw_facts projects the one va computation: value/app rows from va, statement rows read their child from va *)
 Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
-  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
-  | Index.Model.VApplication => [OFApp r (own_app bp r); OFValue r (own_value bp ctab r)]
+  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => va_value_row va r
+  | Index.Model.VApplication => va_app_row va r ++ va_value_row va r
   | Index.Model.VStmt Index.Model.SSExpr => [OFStmt r (own_stmt_va va ctab r)]
   | Index.Model.VStmt (Index.Model.SSShort _ _) => [OFStmt r (own_stmt bp ctab r)]
   | Index.Model.VTypeExpr _ => [OFType r (own_type bp r)]
-  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
+  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => va_value_row va r
   | _ => []
   end.
 
@@ -786,8 +792,12 @@ Lemma occ_facts_va_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (f
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
   occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab r = occ_facts ctab r.
 Proof.
-  unfold occ_facts_va, occ_facts.
-  destruct (Index.node_view r) as [n|l|u| |t|b|c|vv|ts|d|st| |tp|] eqn:Hview; try reflexivity.
+  pose proof (file_nodes_complete fr r Hf) as Hin. pose proof (file_nodes_nodup fr) as Hnd.
+  unfold occ_facts_va, occ_facts, va_value_row, va_app_row.
+  destruct (Index.node_view r) as [n|l|u| |t|b|c|vv|ts|d|st| |tp|] eqn:Hview;
+    rewrite ?(va_value_at ctab r (Index.file_nodes fr) Hin Hnd);
+    try reflexivity;
+    try (rewrite (va_app_at ctab r (Index.file_nodes fr) Hin Hnd Hview); reflexivity).
   destruct st; try reflexivity.
   do 2 f_equal. unfold own_stmt_va, own_stmt.
   rewrite (convoy_at (Index.node_view r) (stmt_body bp r _) (Index.Model.VStmt Index.Model.SSExpr) Hview).
