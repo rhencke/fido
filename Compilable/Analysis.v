@@ -1633,12 +1633,26 @@ Proof.
   with DepChild e => eq_refl | _ => I end).
 Qed.
 (* every child-dependent parent row is exactly a retained OFStmt at cdfr_site carrying the exact DepChild edge *)
-Definition child_dep_of (row : FactRowRef fp) : option ChildDependentFactRef :=
-  match frr_row row as o return frr_row row = o -> option ChildDependentFactRef with
+Definition child_dep_of_body (row : FactRowRef fp) (o : OccFact bp) (Ho : frr_row row = o) : option ChildDependentFactRef :=
+  match o as o0 return frr_row row = o0 -> option ChildDependentFactRef with
   | OFStmt r (SDependent d) => fun Hr =>
       Some (mk_cdfr row r (dep_child_edge d) (eq_trans Hr (f_equal (fun x => OFStmt r (SDependent x)) (dep_child_eq d))))
   | _ => fun _ => None
-  end eq_refl.
+  end Ho.
+Definition child_dep_of (row : FactRowRef fp) : option ChildDependentFactRef :=
+  child_dep_of_body row (frr_row row) eq_refl.
+(* a child-dependent row's retained ref is exactly that row: the enumeration keeps the parent's own ordinal *)
+Lemma child_dep_of_rowref (row : FactRowRef fp) (cdfr : ChildDependentFactRef) :
+  child_dep_of row = Some cdfr -> cdfr_rowref cdfr = row.
+Proof.
+  unfold child_dep_of.
+  assert (Hg : forall (o : OccFact bp) (Ho : frr_row row = o),
+    child_dep_of_body row o Ho = Some cdfr -> cdfr_rowref cdfr = row).
+  { intros o Ho Heq. destruct o as [r ov|r oa|r os|r ot]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
+    destruct os as [ | | | dd ]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
+    injection Heq as Heq. subst cdfr. reflexivity. }
+  exact (Hg (frr_row row) eq_refl).
+Qed.
 
 (* §15 the central relation: the parent's retained edge names the exact child fact_row_for finds, + its negative case *)
 Record ChildPrerequisiteRef (cdfr : ChildDependentFactRef) : Type := mk_cpr {
@@ -1958,6 +1972,19 @@ Proof.
   destruct (own_stmt_expr_dep_inv pr false false (dep_child_edge d)
     (eq_trans H (f_equal (fun x => SDependent x) (dep_child_eq d)))) as [_ [[_ Hb]|[_ [_ [Hb _]]]]];
     discriminate Hb.
+Qed.
+(* §19.6 enumeration completeness: every child-dependent parent row is enumerated with its exact prerequisite *)
+Lemma child_prerequisite_refs_complete (row : FactRowRef fp) (cdfr : ChildDependentFactRef) :
+  In row (fact_rows fp) -> child_dep_of row = Some cdfr ->
+  exists cpr, In (existT _ cdfr cpr) child_prerequisite_refs.
+Proof.
+  intros Hin Hcd.
+  assert (Hrr : cdfr_rowref cdfr = row) by (exact (child_dep_of_rowref row cdfr Hcd)).
+  assert (Hpre : child_prerequisite cdfr <> None)
+    by (apply child_prerequisite_complete; rewrite Hrr; exact Hin).
+  destruct (child_prerequisite cdfr) as [cpr|] eqn:Hcp; [ | exfalso; apply Hpre; reflexivity ].
+  exists cpr. unfold child_prerequisite_refs. apply in_flat_map. exists row. split; [ exact Hin | ].
+  rewrite Hcd, Hcp. left. reflexivity.
 Qed.
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
@@ -2421,6 +2448,10 @@ Definition result_disposition {p} (r : Result p) : Disposition (res_facts r) (re
 Definition result_child_prerequisites {p} (r : Result p)
   : list { cdfr : ChildDependentFactRef (res_facts r) & ChildPrerequisiteRef (res_facts r) cdfr } :=
   child_prerequisite_refs (res_facts r).
+(* §19.6 the Result projection begins from the one retained res_facts, never a recomputation *)
+Lemma result_child_prerequisites_from_facts {p} (r : Result p) :
+  result_child_prerequisites r = child_prerequisite_refs (res_facts r).
+Proof. reflexivity. Qed.
 
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
