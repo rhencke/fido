@@ -1986,6 +1986,41 @@ Proof.
   exists cpr. unfold child_prerequisite_refs. apply in_flat_map. exists row. split; [ exact Hin | ].
   rewrite Hcd, Hcp. left. reflexivity.
 Qed.
+(* §19.6 enumeration parent order: the enumeration is exactly the ordered flat_map over the retained fact rows *)
+Lemma child_prerequisite_refs_order :
+  child_prerequisite_refs = flat_map (fun row => match child_dep_of row with
+    | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
+    | None => [] end) (fact_rows fp).
+Proof. reflexivity. Qed.
+(* a projection of a ≤1-per-element flat_map over a NoDup list, where each output points back at its input, is NoDup *)
+Lemma nodup_flat_map_proj {A B} (h : B -> A) (g : A -> list B) (l : list A)
+  (Hg : forall row x, In x (g row) -> h x = row) (Hle : forall row, (List.length (g row) <= 1)%nat)
+  (Hnd : NoDup l) : NoDup (map h (flat_map g l)).
+Proof.
+  induction l as [|a l' IH]; cbn; [ constructor | ].
+  inversion Hnd as [|? ? Hna Hnd']; subst. specialize (IH Hnd').
+  assert (Hsub : forall y, In y (map h (flat_map g l')) -> In y l').
+  { intros y Hy. apply in_map_iff in Hy. destruct Hy as [x [Hxy Hxin]].
+    apply in_flat_map in Hxin. destruct Hxin as [row [Hrow Hxg]]. rewrite <- Hxy, (Hg row x Hxg). exact Hrow. }
+  rewrite map_app. pose proof (Hle a) as Hla.
+  destruct (g a) as [|x [|y gr]] eqn:Hga; cbn [List.length] in Hla; try (exfalso; lia); cbn [map app].
+  - exact IH.
+  - assert (Hin_x : In x (g a)) by (rewrite Hga; left; reflexivity).
+    rewrite (Hg a x Hin_x).
+    constructor; [ intro Hin; exact (Hna (Hsub a Hin)) | exact IH ].
+Qed.
+(* §19.6 enumeration no-duplicates: no two enumerated prerequisites share a parent fact row *)
+Lemma child_prerequisite_refs_nodup :
+  NoDup (map (fun x => cdfr_rowref (projT1 x)) child_prerequisite_refs).
+Proof.
+  unfold child_prerequisite_refs.
+  apply nodup_flat_map_proj.
+  - intros row x Hx. destruct (child_dep_of row) as [cdfr|] eqn:Hcd; cbn in Hx; [ | exact (match Hx with end) ].
+    destruct (child_prerequisite cdfr) as [cpr|]; cbn in Hx; [ | exact (match Hx with end) ].
+    destruct Hx as [Hx|[]]. subst x. cbn. exact (child_dep_of_rowref row cdfr Hcd).
+  - intro row. destruct (child_dep_of row) as [cdfr|]; [ destruct (child_prerequisite cdfr) | ]; cbn; lia.
+  - exact (NoDup_map_inv frr_ord (fact_rows fp) fact_rows_ord_nodup).
+Qed.
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
