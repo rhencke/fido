@@ -123,6 +123,17 @@ Proof. vm_compute; reflexivity. Qed.
 Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
 (* the raw occurrence facts of a program, for the dependent-non-result checks *)
 Definition pfacts (p : Syntax.Program) := AN.fact_list (AN.res_facts (rres p)).
+(* §R.5 the public reader over the Compiled and OutsideScope branches too: the branch-carried index is exact, cheap *)
+Definition cprobe : Syntax.Program := prog [ PL [ ILIT 1 ] ].
+Lemma reader_disp_compiled : Compilable.disposition cprobe = Compilable.Compiled. Proof. vm_compute; reflexivity. Qed.
+Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. vm_compute; reflexivity. Qed.
+Definition oprobe : Syntax.Program := prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ].
+Lemma reader_disp_outside : Compilable.disposition oprobe = Compilable.OutsideScope. Proof. vm_compute; reflexivity. Qed.
+Lemma reader_index_outside : AN.res_index (rres oprobe) = AN.res_index (AN.analyze oprobe). Proof. vm_compute; reflexivity. Qed.
+(* §R.4 fact-row integration: the branch-carried Result carries the exact res_facts, so its rows ARE analyze's rows *)
+Lemma reader_facts_kinds :
+  map AN.fact_kind (pfacts rprobe) = map AN.fact_kind (AN.fact_list (AN.res_facts (AN.analyze rprobe))).
+Proof. vm_compute; reflexivity. Qed.
 
 (* provenance: whatever branch a program yields, its projected result IS the exact Result these fixtures read *)
 Definition retained_via_program  {p} (cp : Compilable.Program p)   : Compilable.program_result cp  = rres p := Compilable.program_result_canonical cp.
