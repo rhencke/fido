@@ -1,4 +1,4 @@
-# Active task: the C4 Exact Package-Issue Decision Identity candidate
+# Active task: the C4 Exact Same-FactPhase Child-Prerequisite candidate
 
 Review: none
 
@@ -31,6 +31,18 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   outcome is exactly the `own_*` result the canonical `occ_facts` traversal selected, so no fabricated same-site
   same-kind peer belongs to the list. `InvalidFactRef`/`UnmetFactRef`/`DependentFactRef` are case views over an
   exact `FactRowRef` (the cause/requirement/dependency projected from the retained row, never caller-supplied).
+  A statement's child dependency is no longer location-only: `DepChild` carries an exact `ChildFactEdge site kind`
+  — the value child, or the application child with its exact `AppRef` — indexed by the parent site, so the child's
+  node is a real structural descendant (`node_parent child = parent`) and its kind is exactly value or application.
+  The parent statement consumes the one canonical child-fact computation: `va_facts` computes each node's value and
+  application facts once, and the expr-statement driver reads that child's negativity from `va` (never a rerun of
+  `own_value`/`own_app`), proven equal to the reference traversal by `occ_facts_va_eq`. A `ChildDependentFactRef fp`
+  is a retained statement row whose outcome is exactly `SDependent (DepChild edge)`; a `NegativeFactRef` is the child
+  row's own exact invalid/unmet/dependent case (a dependent child keeps its own exact dependency, unflattened); and a
+  `ChildPrerequisiteRef` retains the exact `fact_row_for` result at the edge's child site+kind with that negative
+  case — all in the same `FactPhase`. Completeness holds: every child-dependent parent row's exact negative child
+  fact is retained in that same phase, so `child_prerequisite` never fails, and `child_prerequisite_refs` enumerates
+  one per child-dependent parent row in retained order. Dependent facts still emit no duplicate issue row.
   `Boundary fp` is indexed by the exact fact phase, while `Diagnostic fp pf`/`IssueCause fp pf`/`Issue fp pf` are
   indexed by the exact fact phase AND the exact `PackageFacts`: a missing-main diagnostic retains an exact
   `MissingMainRef pf` (its package's canonical decision IS `package_rule pf pr = MainMissing`) and an
@@ -40,7 +52,9 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   Every issue has an exact ordinal identity — an `IssueRef` into the one `result_issues` sequence.
 - **Report** projects those exact row/case/issue identities and nothing else, with proved bidirectional-membership,
   exact identity, class-partition, no-collapse, payload, and stable-order laws; its bp-free `CauseView`/`ReqView`
-  are one-way projections that cannot mint an exact Cause/Requirement/row.
+  are one-way projections that cannot mint an exact Cause/Requirement/row. Its bp-free `ChildPrerequisiteView`
+  projects a child prerequisite's exact parent/child sites and kinds and the child's negative class, one-way, and
+  cannot mint an exact `ChildPrerequisiteRef` or `ChildDependentFactRef`.
 - **Compilable** is the sealed `C4_PUBLIC` surface. The one transparent `compilation_data p := analyze p` is the
   canonical `Analysis.Result`; `disposition_of` decides the branch over that exact data; and the abstract
   `Compilation`/`Program`/`Rejection`/`Outside` are certificates **indexed by** that exact result — they carry
@@ -54,7 +68,7 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
 The formal-vs-Go acceptance differential begins from one named `Syntax.Program` per case: the formal side executes
 `compile` (a proven disposition), the external side is pure Render of that same source run through the pinned Go
 toolchain, and the two verdicts are compared. The gate corpus (layer policy, one-build, sealed-abstract-branch,
-`neg_*` fact-row/certificate/package-decision/unforgeability controls, positive control, forge-provenance controls) and the
+`neg_*` fact-row/certificate/package-decision/child-prerequisite/unforgeability controls, positive control, forge-provenance controls) and the
 governing corpus are updated with the code.
 
 ## Status
@@ -66,12 +80,17 @@ toolchain is the supported run). Governing truth held by this candidate:
 
 - `FactPhase` and `PackageFacts` still exist and remain fields of `Analysis.Result`; their full
   consolidation/deletion/sealing is a later C4 root.
-- This slice establishes exact retained fact-row identity, the transparent-data/sealed-certificate branch
+- The included stack establishes exact retained fact-row identity, the transparent-data/sealed-certificate branch
   topology, and exact package-decision-case identity: a missing-main diagnostic retains an exact `MissingMainRef`
   case and an output-collision diagnostic an exact `CollisionRef` case, both indexed by the exact `PackageFacts`
   from the same Result (a diagnostic for one `PackageFacts` cannot inhabit another). It does not make `Result` the
   sole public semantic reader everywhere.
-- `DepChild` remains location-only and same-`Result` prerequisite/child-fact identity is open.
+- This slice makes `DepChild` carry an exact structural `ChildFactEdge` and establishes the exact same-`FactPhase`
+  child-prerequisite: a `ChildDependentFactRef`'s retained edge names the exact child row `fact_row_for` selects,
+  with that child's own exact negative case, and the parent consumes the one canonical child-fact computation
+  rather than rerunning `own_value`/`own_app`. Full Result/product consolidation of that prerequisite remains a
+  later C4 root; `parent <> child` node distinctness awaits a `node_parent`-acyclicity primitive surfaced at the
+  Index NodeRef API.
 - C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
   complete; the known missing static cases stay mandatory later work.
 - The implemented issue order is output-collision diagnostics, then main diagnostics, then redeclaration
