@@ -1866,6 +1866,75 @@ Proof.
     + apply negative_case_some. apply (app_neg_disj child_row e0 (own_app bp (Index.Refs.mkAppRef e0 Hva)) Hcrow).
       rewrite (app_neg_at_app bp e0 Hva) in Han; exact Han.
 Qed.
+(* §19.1 the retained parent row's site is exactly the edge's parent index *)
+Lemma cdfr_parent_site (cdfr : ChildDependentFactRef) : frr_site (cdfr_rowref cdfr) = cdfr_site cdfr.
+Proof. unfold frr_site; rewrite (cdfr_ok cdfr); reflexivity. Qed.
+(* §19.1 the exact child fact's node is a real structural descendant: node_parent child = the parent statement *)
+Lemma cdfr_child_parent (cdfr : ChildDependentFactRef) :
+  Index.node_parent (cdfr_edge_site cdfr) = Some (cdfr_site cdfr).
+Proof.
+  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha]; cbn [cfe_child_site];
+    rewrite Hp; exact (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+Qed.
+(* §19.1 the retained child kind is exactly value or application, never statement or type-use *)
+Lemma cdfr_child_kind_va (cdfr : ChildDependentFactRef) :
+  cdfr_edge_kind cdfr = ValueKind \/ cdfr_edge_kind cdfr = ApplicationKind.
+Proof. unfold cdfr_edge_kind; destruct (cdfr_edge cdfr); [ left | right ]; reflexivity. Qed.
+(* §19.4 soundness: a prerequisite names the exact retained child row fact_row_for selects *)
+Lemma cpr_lookup_exact (cdfr : ChildDependentFactRef) (cpr : ChildPrerequisiteRef cdfr) :
+  fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some (cpr_child_row cdfr cpr).
+Proof. exact (cpr_lookup cdfr cpr). Qed.
+(* §19.4 soundness: that exact child row is negative — its own cause, requirement, or dependency is present *)
+Lemma cpr_child_negative (cdfr : ChildDependentFactRef) (cpr : ChildPrerequisiteRef cdfr) :
+  occ_cause (frr_row (cpr_child_row cdfr cpr)) <> None \/ occ_req (frr_row (cpr_child_row cdfr cpr)) <> None
+  \/ occ_dep (frr_row (cpr_child_row cdfr cpr)) <> None.
+Proof. destruct (cpr_neg cdfr cpr) as [c Hc | rq Hq | d Hd]; [ left | right; left | right; right ]; congruence. Qed.
+(* §19.4 the parent statement row and the child value/application row are distinct rows *)
+Lemma cdfr_rows_distinct (cdfr : ChildDependentFactRef) (cpr : ChildPrerequisiteRef cdfr) :
+  cdfr_rowref cdfr <> cpr_child_row cdfr cpr.
+Proof.
+  intro Heq. pose proof (cpr_lookup cdfr cpr) as Hlk. apply fact_row_for_sound in Hlk. destruct Hlk as [_ [_ Hck]].
+  assert (Hpk : frr_kind (cdfr_rowref cdfr) = StatementKind) by (unfold frr_kind; rewrite (cdfr_ok cdfr); reflexivity).
+  rewrite Heq, Hck in Hpk. destruct (cdfr_child_kind_va cdfr) as [Hv|Hv]; rewrite Hv in Hpk; discriminate Hpk.
+Qed.
+(* §19.5 a success / nonconstant child row has no negative case — none of cause, requirement, dependency present *)
+Lemma negative_case_none (child_row : FactRowRef fp) :
+  occ_cause (frr_row child_row) = None -> occ_req (frr_row child_row) = None ->
+  occ_dep (frr_row child_row) = None -> negative_case child_row = None.
+Proof.
+  intros Hc Hq Hd. unfold negative_case.
+  assert (Hg : forall
+    (oc : option (Cause bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hoc : occ_cause (frr_row child_row) = oc)
+    (oq : option (Requirement bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hoq : occ_req (frr_row child_row) = oq)
+    (od : option (Dependency bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (Hod : occ_dep (frr_row child_row) = od),
+    oc = None -> oq = None -> od = None ->
+    (match oc as oc0 return occ_cause (frr_row child_row) = oc0 -> option (NegativeFactRef child_row) with
+     | Some c => fun H0 => Some (ChildInvalid c H0)
+     | None => fun _ =>
+       match oq as oq0 return occ_req (frr_row child_row) = oq0 -> option (NegativeFactRef child_row) with
+       | Some rq => fun H0 => Some (ChildUnmet rq H0)
+       | None => fun _ =>
+         match od as od0 return occ_dep (frr_row child_row) = od0 -> option (NegativeFactRef child_row) with
+         | Some dd => fun H0 => Some (ChildDependent dd H0)
+         | None => fun _ => None
+         end Hod
+       end Hoq
+     end Hoc) = None).
+  { intros oc Hoc oq Hoq od Hod Hoc' Hoq' Hod'.
+    destruct oc; [ discriminate Hoc' | ]. destruct oq; [ discriminate Hoq' | ].
+    destruct od; [ discriminate Hod' | ]. reflexivity. }
+  exact (Hg _ eq_refl _ eq_refl _ eq_refl Hc Hq Hd).
+Qed.
+(* §19.5 the negative class is exactly the case retained: invalid, unmet, or dependent, and just one *)
+Lemma nfr_class_invalid (child_row : FactRowRef fp) (n : NegativeFactRef child_row) :
+  nfr_class n = NegInvalid <-> exists c H, n = ChildInvalid c H.
+Proof.
+  split; [ destruct n as [c Hc|rq Hq|d Hd]; cbn; try discriminate; intros _; exists c, Hc; reflexivity
+         | intros [c [H ->]]; reflexivity ].
+Qed.
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
 Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
