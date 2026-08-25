@@ -338,15 +338,31 @@ Definition d4_collision_redeclared_coexist :
        (existsb (fun d => match d with AN.DRedeclaredGroup _ => true | _ => false end) (dsites p_collision_redecl)) = true.
 Proof. vm_compute; reflexivity. Qed.
 
-(* §16.1 spike probe: building the exact package-case refs over the branch-carried pf stays vm-cheap and exact *)
+(* §17 the exact package-case refs over the branch-carried pf are vm-cheap and exact, read through bp-free views *)
 Definition ppkg (pp : Syntax.Program) := AN.res_pkg (rres pp).
-Lemma probe_missing_main_len : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
+Definition pmissing (pp : Syntax.Program) := map RP.missing_main_view (AN.missing_main_refs (ppkg pp)).
+Definition pcollision (pp : Syntax.Program) := option_map RP.collision_view (AN.collision_ref (ppkg pp)).
+(* §17.1 a package with no fixed main has exactly one exact missing-main case for its own package *)
+Lemma mm17_1_missing_len : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
 Proof. vm_compute; reflexivity. Qed.
-Lemma probe_main_one_none : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ main0 ]))) = 0%nat.
+Lemma mm17_1_missing_view : map RP.mmv_exec (pmissing (prog_tops [ tconstmain ])) = [ "generated"%string ].
 Proof. vm_compute; reflexivity. Qed.
-Lemma probe_collision_some : match AN.collision_ref (ppkg p_collision) with Some _ => true | None => false end = true.
+(* §17.2 a package with exactly one valid main has no missing-main case: the false missing-main cannot arise *)
+Lemma mm17_2_main_one_none : pmissing (prog_tops [ main0 ]) = [].
 Proof. vm_compute; reflexivity. Qed.
-Lemma probe_nocollision_none : match AN.collision_ref (ppkg (prog [ PL [ ILIT 1 ] ])) with Some _ => true | None => false end = false.
+(* §17.3 a package with multiple mains is a group redeclaration, not a missing main: still no missing-main case *)
+Lemma mm17_3_main_multiple_none : pmissing (prog_tops [ main0 ; main0 ]) = [].
+Proof. vm_compute; reflexivity. Qed.
+(* §17.4 an exact output collision retains the exact package+root: the collision view names the colliding entry *)
+Lemma mm17_4_collision_view : option_map RP.cv_root (pcollision p_collision) = Some "generated"%string.
+Proof. vm_compute; reflexivity. Qed.
+(* §17.5 a non-colliding program has no collision case: the false collision cannot arise *)
+Lemma mm17_5_nocollision_none : pcollision (prog [ PL [ ILIT 1 ] ]) = None.
+Proof. vm_compute; reflexivity. Qed.
+(* §17.6 coexistence: p_collision's package has both a collision AND no fixed main, as two distinct cases *)
+Lemma mm17_6_coexist :
+  andb (match AN.collision_ref (ppkg p_collision) with Some _ => true | None => false end)
+       (Nat.ltb 0 (Datatypes.length (AN.missing_main_refs (ppkg p_collision)))) = true.
 Proof. vm_compute; reflexivity. Qed.
 
 (* the formal-vs-Go differential: one named program per case, proven to a disposition and exported for pinned Go *)

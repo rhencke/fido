@@ -566,6 +566,32 @@ typefail neg_diagnostic_bp_unindexed "the deleted binding-phase-indexed occurren
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) : Type := AN.Diagnostic bp.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) : AN.Requirement bp r AN.ValueKind := AN.ReqComplexType.'
+# — §18 package-decision case identity: a package diagnostic/cause is exactly its retained MissingMainRef /
+#   CollisionRef, so a raw PackageRef / package+root pair, a forged decision proof, a case ref from another
+#   PackageFacts, or a cross-case ref (missing-as-collision) each fails to TYPECHECK; the mmr_case / cr_case proof
+#   obligation makes a MainOne-package missing-main or a non-colliding collision unrepresentable —
+typefail neg_missing_from_raw_package "a missing-main diagnostic built from a raw package ref, not an exact case" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.Diagnostic fp pf := AN.DMissingMain pr.'
+typefail neg_missing_cause_raw_package "a missing-main issue cause built from a raw package ref" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.IssueCause fp pf := AN.MissingMainCause pr.'
+typefail neg_missing_forged_case "a missing-main ref whose decision proof is a bare reflexivity at any package" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.MissingMainRef pf := AN.mk_missing_main_ref pr eq_refl.'
+typefail neg_missing_cross_pf "a missing-main ref of PackageFacts A used at PackageFacts B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf1 pf2 : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf1) : AN.MissingMainRef pf2 := mmr.'
+typefail neg_collision_from_raw_pair "an output-collision diagnostic built from a raw package+root pair, not an exact case" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) (rr : PI.RootEntryRef (IX.index_program p)) : AN.Diagnostic fp pf := AN.DOutputCollision pr rr.'
+typefail neg_collision_forged_case "a collision ref whose preflight proof is a bare reflexivity at any package+root" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) (rr : PI.RootEntryRef (IX.index_program p)) : AN.CollisionRef pf := AN.mk_collision_ref pr rr eq_refl.'
+typefail neg_collision_cross_pf "a collision ref of PackageFacts A used at PackageFacts B" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf1 pf2 : AN.PackageFacts bp) (cr : AN.CollisionRef pf1) : AN.CollisionRef pf2 := cr.'
+typefail neg_missing_as_collision "a missing-main case used where an output-collision case is required" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DOutputCollision mmr.'
+typefail neg_collision_as_missing "an output-collision case used where a missing-main case is required" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (cr : AN.CollisionRef pf) : AN.Diagnostic fp pf := AN.DMissingMain cr.'
+typefail neg_package_case_as_occ "a package decision case used where an occurrence invalid fact ref is required" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DOcc mmr.'
+typefail neg_missing_view_mints_diag "a bp-free missing-main view minting a missing-main diagnostic, not an exact case" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (v : RP.MissingMainView) : AN.Diagnostic fp pf := AN.DMissingMain v.'
 # — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
 #   carries no byte/file slot and cannot pair evidence with a foreign compiled root —
 typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
@@ -920,6 +946,13 @@ if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclare
   fail "occurrence-topology absence control — a pre-split phase-only payload name or the deleted occ_family classifier still exists"
 fi
 echo "fido: occurrence-topology absence control OK — no pre-split cause/dependency name, no second family classifier; site+kind fact refs are the sole route"
+# — §18.4 package-decision row absence: the row builders project the exact case refs (missing_main_refs /
+#   collision_ref), never re-testing the raw package_main / preflight condition inline; the old raw-coordinate
+#   package-diagnostic constructors are unrepresentable by type (see the neg_missing_/neg_collision_ controls) —
+if grep -nE 'package_main bp [a-z_]+ with|preflight pf with' Compilable/Analysis.v; then
+  fail "package-row absence control — a package diagnostic builder re-tests the raw package_main / preflight condition inline"
+fi
+echo "fido: package-row absence control OK — main_rows/collision_rows project the exact MissingMainRef/CollisionRef, never a raw inline condition"
 # — the forgeable status surface AND every prospective short-establishment route are deleted, and
 #   Analysis names no judgment builder, transition builder, classifier, or core helper —
 if grep -nE 'ConstSpecStatus|ShortDeclStatus|ShortLhsStatus|NewNonblank|ConstOrigin|OriginSelf|OriginPred|mk_const_status|mk_short_status|const_spec_status|short_decl_status|short_lhs_status|short_lhs_statuses|new_nonblank_of|\ball_ests\b|\bests_of_file\b|\best_of_node\b|nearest_block_table|est_scope_of|est_of_binder_core|\bmake_est\b|make_est_emit|\bshort_table\b|all_ests_has_binder|short_decl_judgment|ShortDeclJudgmentRef|\bsjr_|short_subjects|short_stmts_of_file|short_ref_emit' Compilable/Bindings.v Compilable/Analysis.v; then
@@ -990,10 +1023,10 @@ Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.inde
   {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
   (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n) : AN.Diagnostic fp pf := AN.DRedeclaredGroup root.
 (* the package diagnostics are reachable ONLY through the exact retained decision-case refs, never a raw package *)
-Definition mk_missing_main (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+Definition mk_missing_diag (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
   (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DMissingMain mmr.
-Definition mk_collision (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
+Definition mk_collision_diag (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
   (cr : AN.CollisionRef pf) : AN.Diagnostic fp pf := AN.DOutputCollision cr.
 Definition mk_missing_refs (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
@@ -1514,7 +1547,7 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
 echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection over exact package-environment refs, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the phase-owned event/state/trace surface (package ledgers, per-block state traces with exact causal cuts, block event kinds, exact retained additions and add-counts, equal-content different-cut discrimination, and ordinary resolution to the exact establishment/redeclaration/unbound outcome) computes over the section-12 fixture programs; the exact state-indexed short/declaration classifications and judgments, the exact use-context/environment/visible-group refs, and every phase-owned inversion law are reachable as stated (the exact classifications carry proof-bearing state refs, so they are exercised at the type/law level, not by vm_compute) — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/certificate-data/fact-row/case-ref/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository absence control + positive control"
+echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/certificate-data/fact-row/case-ref/package-decision-case/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository + package-row absence controls + positive control"
 SH
 
 # ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
