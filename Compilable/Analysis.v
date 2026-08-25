@@ -830,15 +830,13 @@ Definition frr_site (ref : FactRowRef) : Index.NodeRef idx := fact_site (frr_row
 Definition frr_kind (ref : FactRowRef) : FactKind := fact_kind (frr_row ref).
 Definition frr_family (ref : FactRowRef) : Family := fact_family (frr_row ref).
 
-(* canonical ordered row enumeration: fact_list shared via a let, each proof a convoy eq_refl storing only Some x *)
+(* the exact row at ordinal k: retains the row and its membership proof; None ordinals yield no ref *)
+Definition row_of (k : nat) (o : option (OccFact bp)) : nth_error (fact_list fp) k = o -> list FactRowRef :=
+  match o with Some x => fun H => [mk_frr k x H] | None => fun _ => [] end.
+
+(* canonical ordered row enumeration: exactly one retained row per valid ordinal of fact_list fp *)
 Definition fact_rows : list FactRowRef :=
-  let fl := fact_list fp in
-  flat_map (fun k =>
-     match nth_error fl k as o return nth_error fl k = o -> list FactRowRef with
-     | Some x => fun H => [mk_frr k x H]
-     | None => fun _ => []
-     end eq_refl)
-   (seq 0%nat (List.length fl)).
+  flat_map (fun k => row_of k (nth_error (fact_list fp) k) eq_refl) (seq 0%nat (List.length (fact_list fp))).
 
 (* an exact invalid fact ref: a retained row whose exact retained outcome is the invalid case, carrying its cause *)
 Record InvalidFactRef : Type := mk_ifr {
@@ -872,6 +870,7 @@ Arguments FactRowRef {p idx s bd bp} fp.
 Arguments mk_frr {p idx s bd bp fp} _ _ _.
 Arguments frr_ord {p idx s bd bp fp} _. Arguments frr_row {p idx s bd bp fp} _. Arguments frr_at {p idx s bd bp fp} _.
 Arguments frr_site {p idx s bd bp fp} _. Arguments frr_kind {p idx s bd bp fp} _. Arguments frr_family {p idx s bd bp fp} _.
+Arguments row_of {p idx s bd bp fp} k o H.
 Arguments fact_rows {p idx s bd bp} fp.
 Arguments InvalidFactRef {p idx s bd bp} fp.
 Arguments mk_ifr {p idx s bd bp fp} _ _ _.
@@ -885,6 +884,90 @@ Arguments DependentFactRef {p idx s bd bp} fp.
 Arguments mk_dfr {p idx s bd bp fp} _ _ _.
 Arguments dfr_rowref {p idx s bd bp fp} _. Arguments dfr_dep {p idx s bd bp fp} _. Arguments dfr_ok {p idx s bd bp fp} _.
 Arguments dfr_fact {p idx s bd bp fp} _. Arguments dfr_ord {p idx s bd bp fp} _.
+
+(* §10 canonical row enumeration laws: the enumeration IS exactly fact_list fp, once, in retained order *)
+Section FactRowLaws.
+Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+        {bp : BN.BindingPhase s bd} (fp : FactPhase bp).
+
+Lemma map_flat_map_rows {A B C} (f : B -> C) (g : A -> list B) (l : list A) :
+  map f (flat_map g l) = flat_map (fun x => map f (g x)) l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite map_app, IH. reflexivity. Qed.
+Lemma flat_map_ext_rows {A B} (f g : A -> list B) (l : list A) (H : forall a, f a = g a) :
+  flat_map f l = flat_map g l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite (H a), IH. reflexivity. Qed.
+Lemma flat_map_map_rows {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+Lemma opt_flatmap_full {A} (L : list A) :
+  flat_map (fun k => match nth_error L k with Some x => [x] | None => [] end) (seq 0 (List.length L)) = L.
+Proof.
+  induction L as [|a L' IH]; [reflexivity|].
+  cbn [List.length seq flat_map nth_error app]. f_equal.
+  rewrite <- seq_shift, flat_map_map_rows. exact IH.
+Qed.
+Lemma idx_flatmap_all {A} (L : list A) (ks : list nat) (Hall : forall k, In k ks -> (k < List.length L)%nat) :
+  flat_map (fun k => match nth_error L k with Some _ => [k] | None => [] end) ks = ks.
+Proof.
+  induction ks as [|k ks' IH]; [reflexivity|]. cbn [flat_map].
+  destruct (nth_error L k) as [x|] eqn:E.
+  - cbn [app]. f_equal. apply IH. intros k' Hk'. apply Hall. right; exact Hk'.
+  - exfalso. apply nth_error_None in E. specialize (Hall k (or_introl eq_refl)). lia.
+Qed.
+
+(* row_of at ordinal k projects to the exact row (its element) and to the exact ordinal k *)
+Lemma row_of_row (k : nat) (o : option (OccFact bp)) (H : nth_error (fact_list fp) k = o) :
+  map frr_row (row_of k o H) = match o with Some x => [x] | None => [] end.
+Proof. destruct o; reflexivity. Qed.
+Lemma row_of_ord (k : nat) (o : option (OccFact bp)) (H : nth_error (fact_list fp) k = o) :
+  map frr_ord (row_of k o H) = match o with Some _ => [k] | None => [] end.
+Proof. destruct o; reflexivity. Qed.
+(* nth_error into seq start n at a valid ordinal is exactly Some (start + k) *)
+Lemma seq_nth_error_id (n : nat) : forall (start k : nat), (k < n)%nat -> nth_error (seq start n) k = Some (start + k)%nat.
+Proof.
+  induction n as [|n' IH]; intros start k Hk; [ lia | ].
+  destruct k as [|k']; cbn [seq nth_error].
+  - f_equal; lia.
+  - rewrite IH by lia. f_equal; lia.
+Qed.
+
+(* §10 the retained rows project exactly to fact_list fp, in retained order; the ordinals are exactly seq 0 n *)
+Lemma fact_rows_rows : map frr_row (fact_rows fp) = fact_list fp.
+Proof.
+  unfold fact_rows. rewrite map_flat_map_rows.
+  rewrite (flat_map_ext_rows _ (fun k => match nth_error (fact_list fp) k with Some x => [x] | None => [] end))
+    by (intro k; apply row_of_row).
+  apply opt_flatmap_full.
+Qed.
+Lemma fact_rows_ords : map frr_ord (fact_rows fp) = seq 0 (List.length (fact_list fp)).
+Proof.
+  unfold fact_rows. rewrite map_flat_map_rows.
+  rewrite (flat_map_ext_rows _ (fun k => match nth_error (fact_list fp) k with Some _ => [k] | None => [] end))
+    by (intro k; apply row_of_ord).
+  apply idx_flatmap_all. intros k Hk. apply in_seq in Hk. lia.
+Qed.
+(* §10 ordinal identity: the row ordinals are duplicate-free *)
+Lemma fact_rows_ord_nodup : NoDup (map frr_ord (fact_rows fp)).
+Proof. rewrite fact_rows_ords. apply seq_NoDup. Qed.
+(* §10 completeness + positional uniqueness: every list member is enumerated at its exact position, retaining it *)
+Lemma fact_rows_complete (k : nat) (row : OccFact bp) (Hk : nth_error (fact_list fp) k = Some row) :
+  exists ref, nth_error (fact_rows fp) k = Some ref /\ frr_ord ref = k /\ frr_row ref = row.
+Proof.
+  assert (Hlt : (k < List.length (fact_list fp))%nat) by (apply nth_error_Some; rewrite Hk; discriminate).
+  destruct (nth_error (fact_rows fp) k) as [ref|] eqn:E.
+  2:{ exfalso. apply nth_error_None in E. rewrite <- (length_map frr_row), fact_rows_rows in E. lia. }
+  exists ref. split; [reflexivity | split].
+  - assert (Ho : nth_error (seq 0 (List.length (fact_list fp))) k = Some (frr_ord ref))
+      by (rewrite <- fact_rows_ords, nth_error_map, E; reflexivity).
+    rewrite (seq_nth_error_id (List.length (fact_list fp)) 0 k Hlt) in Ho. injection Ho as Ho. lia.
+  - assert (Hr : nth_error (fact_list fp) k = Some (frr_row ref))
+      by (rewrite <- fact_rows_rows, nth_error_map, E; reflexivity).
+    rewrite Hk in Hr. injection Hr as Hr. symmetry. exact Hr.
+Qed.
+
+End FactRowLaws.
+Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
+Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
