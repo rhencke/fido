@@ -1151,6 +1151,8 @@ Definition analyze (p : Syntax.Program) : Result p :=
 
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
+(* §13 the exact negative class of a child fact: invalid, unmet, or dependent — the three ways a child blocks *)
+Inductive NegClass : Type := NegInvalid | NegUnmet | NegDependent.
 
 (* the displayed family is a TOTAL projection of the exact site and fact kind, never a caller-supplied field *)
 Definition displayed_family {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (k : FactKind) : Family :=
@@ -1526,6 +1528,82 @@ Proof. intros Href Hnone. subst ref. pose proof (ifr_ok ir) as Hok. rewrite Hnon
 Lemma no_unmet_of_no_req (ref : FactRowRef fp) (ur : UnmetFactRef fp) :
   ufr_rowref ur = ref -> occ_req (frr_row ref) = None -> False.
 Proof. intros Href Hnone. subst ref. pose proof (ufr_ok ur) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
+
+(* §13 the exact negative case of a child row, projected from that exact row: invalid, unmet, or dependent *)
+Inductive NegativeFactRef (child_row : FactRowRef fp) : Type :=
+| ChildInvalid   : forall c : Cause bp (frr_site child_row) (frr_kind child_row),
+    occ_cause (frr_row child_row) = Some c -> NegativeFactRef child_row
+| ChildUnmet     : forall rq : Requirement bp (frr_site child_row) (frr_kind child_row),
+    occ_req (frr_row child_row) = Some rq -> NegativeFactRef child_row
+| ChildDependent : forall d : Dependency bp (frr_site child_row) (frr_kind child_row),
+    occ_dep (frr_row child_row) = Some d -> NegativeFactRef child_row.
+Arguments ChildInvalid {child_row} _ _. Arguments ChildUnmet {child_row} _ _. Arguments ChildDependent {child_row} _ _.
+(* the exact negative class, a proof-insensitive descriptive projection *)
+Definition nfr_class {child_row : FactRowRef fp} (n : NegativeFactRef child_row) : NegClass :=
+  match n with ChildInvalid _ _ => NegInvalid | ChildUnmet _ _ => NegUnmet | ChildDependent _ _ => NegDependent end.
+(* the exact negative case of a retained row, projected from its own outcome; none for a success/nonconstant row *)
+Definition negative_case (child_row : FactRowRef fp) : option (NegativeFactRef child_row) :=
+  match occ_cause (frr_row child_row) as oc return occ_cause (frr_row child_row) = oc -> option (NegativeFactRef child_row) with
+  | Some c => fun H => Some (ChildInvalid c H)
+  | None => fun _ =>
+    match occ_req (frr_row child_row) as oq return occ_req (frr_row child_row) = oq -> option (NegativeFactRef child_row) with
+    | Some rq => fun H => Some (ChildUnmet rq H)
+    | None => fun _ =>
+      match occ_dep (frr_row child_row) as od return occ_dep (frr_row child_row) = od -> option (NegativeFactRef child_row) with
+      | Some d => fun H => Some (ChildDependent d H)
+      | None => fun _ => None
+      end eq_refl
+    end eq_refl
+  end eq_refl.
+
+(* §14 an exact child-dependent parent: a retained statement row whose exact outcome is SDependent of a DepChild edge *)
+Record ChildDependentFactRef : Type := mk_cdfr {
+  cdfr_rowref : FactRowRef fp ;
+  cdfr_site   : Index.NodeRef idx ;
+  cdfr_edge   : ChildFactEdge cdfr_site StatementKind ;
+  cdfr_ok     : frr_row cdfr_rowref = OFStmt cdfr_site (SDependent (DepChild cdfr_edge))
+}.
+Definition cdfr_edge_site (c : ChildDependentFactRef) : Index.NodeRef idx := cfe_child_site (cdfr_edge c).
+Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_kind (cdfr_edge c).
+(* a statement dependency can only be a DepChild, so its exact edge is a total projection *)
+Definition dep_child_edge {site : Index.NodeRef idx} (d : Dependency bp site StatementKind) : ChildFactEdge site StatementKind :=
+  match d in Dependency _ _ k return (match k with StatementKind => ChildFactEdge site StatementKind | _ => unit end) with
+  | DepChild e => e | _ => tt end.
+Lemma dep_child_eq {site : Index.NodeRef idx} (d : Dependency bp site StatementKind) : d = DepChild (dep_child_edge d).
+Proof.
+  refine (match d as d0 in Dependency _ _ k
+    return (match k as k0 return Dependency bp site k0 -> Prop with
+            | StatementKind => fun dd => dd = DepChild (dep_child_edge dd) | _ => fun _ => True end d0)
+  with DepChild e => eq_refl | _ => I end).
+Qed.
+(* every child-dependent parent row is exactly a retained OFStmt at cdfr_site carrying the exact DepChild edge *)
+Definition child_dep_of (row : FactRowRef fp) : option ChildDependentFactRef :=
+  match frr_row row as o return frr_row row = o -> option ChildDependentFactRef with
+  | OFStmt r (SDependent d) => fun Hr =>
+      Some (mk_cdfr row r (dep_child_edge d) (eq_trans Hr (f_equal (fun x => OFStmt r (SDependent x)) (dep_child_eq d))))
+  | _ => fun _ => None
+  end eq_refl.
+
+(* §15 the central relation: the parent's retained edge names the exact child fact_row_for finds, + its negative case *)
+Record ChildPrerequisiteRef (cdfr : ChildDependentFactRef) : Type := mk_cpr {
+  cpr_child_row : FactRowRef fp ;
+  cpr_lookup    : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some cpr_child_row ;
+  cpr_neg       : NegativeFactRef cpr_child_row
+}.
+(* §15 the one total builder from the exact parent child-dependency view: look up the exact child, retain its case *)
+Definition child_prerequisite (cdfr : ChildDependentFactRef) : option (ChildPrerequisiteRef cdfr) :=
+  match fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr)
+    as fr return fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr -> option (ChildPrerequisiteRef cdfr) with
+  | Some child_row => fun Hlk =>
+      match negative_case child_row with Some neg => Some (mk_cpr cdfr child_row Hlk neg) | None => None end
+  | None => fun _ => None
+  end eq_refl.
+
+(* §16 the canonical ordered prerequisites: one per child-dependent parent row, in retained fact-row order *)
+Definition child_prerequisite_refs : list { cdfr : ChildDependentFactRef & ChildPrerequisiteRef cdfr } :=
+  flat_map (fun row => match child_dep_of row with
+    | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
+    | None => [] end) (fact_rows fp).
 
 End FactRowLaws.
 Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
