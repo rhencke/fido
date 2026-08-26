@@ -1835,6 +1835,18 @@ Proof.
   unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha]; cbn [cfe_child_site];
     rewrite Hp; exact (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
 Qed.
+(* §8 strict structural progress: the exact child fact's node position strictly follows the parent statement's *)
+Lemma cpr_parent_lt_child (cdfr : ChildDependentFactRef) :
+  (Index.nr_pos (cdfr_site cdfr) < Index.nr_pos (cdfr_edge_site cdfr))%nat.
+Proof.
+  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha]; cbn [cfe_child_site];
+    rewrite Hp; exact (Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+Qed.
+(* §8 and therefore the parent statement node is never its own child: exact structural source-node progress *)
+Lemma cpr_parent_neq_child (cdfr : ChildDependentFactRef) : cdfr_site cdfr <> cdfr_edge_site cdfr.
+Proof.
+  intro Heq. pose proof (cpr_parent_lt_child cdfr) as Hlt. rewrite Heq in Hlt. exact (Nat.lt_irrefl _ Hlt).
+Qed.
 (* §19.1 the retained child kind is exactly value or application, never statement or type-use *)
 Lemma cdfr_child_kind_va (cdfr : ChildDependentFactRef) :
   cdfr_edge_kind cdfr = ValueKind \/ cdfr_edge_kind cdfr = ApplicationKind.
