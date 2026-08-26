@@ -33,10 +33,14 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   exact `FactRowRef` (the cause/requirement/dependency projected from the retained row, never caller-supplied).
   A statement's child dependency is no longer location-only: `DepChild` carries an exact `ChildFactEdge site kind`
   — the value child, or the application child with its exact `AppRef` — indexed by the parent site, so the child's
-  node is a real structural descendant (`node_parent child = parent`) and its kind is exactly value or application.
-  The parent statement consumes the one canonical child-fact computation: `va_facts` computes each node's value and
-  application facts once, and the expr-statement driver reads that child's negativity from `va` (never a rerun of
-  `own_value`/`own_app`), proven equal to the reference traversal by `occ_facts_va_eq`. A `ChildDependentFactRef fp`
+  node is a real structural descendant with strict positional progress — `node_parent child = parent` and
+  `nr_pos parent < nr_pos child`, so the parent statement node is never its own child — and its kind is exactly
+  value or application. There is exactly one executable complete fact construction: `va_facts` computes each node's
+  value and application facts once, `occ_facts_va` projects the canonical rows from that one `va`, and `raw_facts`
+  is that projection over every file. The expr-statement driver reads its child's negativity from that same `va`
+  (never a rerun of `own_value`/`own_app`), and every retained-fact and child-prerequisite law is proved directly
+  over that one builder — no second complete builder and no equality-to-a-peer-builder bridge exist. A
+  `ChildDependentFactRef fp`
   is a retained statement row whose outcome is exactly `SDependent (DepChild edge)`; a `NegativeFactRef` is the child
   row's own exact invalid/unmet/dependent case (a dependent child keeps its own exact dependency, unflattened); and a
   `ChildPrerequisiteRef` retains the exact `fact_row_for` result at the edge's child site+kind with that negative
@@ -87,10 +91,11 @@ toolchain is the supported run). Governing truth held by this candidate:
   sole public semantic reader everywhere.
 - This slice makes `DepChild` carry an exact structural `ChildFactEdge` and establishes the exact same-`FactPhase`
   child-prerequisite: a `ChildDependentFactRef`'s retained edge names the exact child row `fact_row_for` selects,
-  with that child's own exact negative case, and the parent consumes the one canonical child-fact computation
-  rather than rerunning `own_value`/`own_app`. Full Result/product consolidation of that prerequisite remains a
-  later C4 root; `parent <> child` node distinctness awaits a `node_parent`-acyclicity primitive surfaced at the
-  Index NodeRef API.
+  with that child's own exact negative case, and the parent consumes the one executable fact builder rather than
+  rerunning `own_value`/`own_app`; the prerequisite carries strict `nr_pos parent < nr_pos child` progress (so the
+  parent is never its own child), surfaced from the canonical numbering as the public `Index.node_parent_pos_lt` /
+  `Index.Child.child_pos_gt_parent` without exposing Build internals. Full Result/product consolidation of that
+  prerequisite remains a later C4 root.
 - C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
   complete; the known missing static cases stay mandatory later work.
 - The implemented issue order is output-collision diagnostics, then main diagnostics, then redeclaration
