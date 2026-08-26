@@ -1388,9 +1388,10 @@ Definition frr_family (ref : FactRowRef) : Family := fact_family (frr_row ref).
 Definition row_of (k : nat) (o : option (OccFact bp)) : nth_error (result_fact_list r) k = o -> list FactRowRef :=
   match o with Some x => fun H => [mk_frr k x H] | None => fun _ => [] end.
 
-(* canonical ordered row enumeration: exactly one retained row per valid ordinal of result_fact_list r *)
+(* canonical ordered row enumeration; the row list is bound once so vm_compute shares one analysis, never per-ordinal *)
 Definition fact_rows : list FactRowRef :=
-  flat_map (fun k => row_of k (nth_error (result_fact_list r) k) eq_refl) (seq 0%nat (List.length (result_fact_list r))).
+  let facts := result_fact_list r in
+  flat_map (fun k => row_of k (nth_error facts k) eq_refl) (seq 0%nat (List.length facts)).
 
 (* an exact invalid fact ref: a retained row whose exact retained outcome is the invalid case, carrying its cause *)
 Record InvalidFactRef : Type := mk_ifr {
@@ -1482,14 +1483,14 @@ Qed.
 (* §10 the retained rows project exactly to result_fact_list res, in retained order; the ordinals are exactly seq 0 n *)
 Lemma fact_rows_rows : map frr_row (fact_rows res) = result_fact_list res.
 Proof.
-  unfold fact_rows. rewrite map_flat_map_rows.
+  unfold fact_rows; cbv zeta. rewrite map_flat_map_rows.
   rewrite (flat_map_ext_rows _ (fun k => match nth_error (result_fact_list res) k with Some x => [x] | None => [] end))
     by (intro k; apply row_of_row).
   apply opt_flatmap_full.
 Qed.
 Lemma fact_rows_ords : map frr_ord (fact_rows res) = seq 0 (List.length (result_fact_list res)).
 Proof.
-  unfold fact_rows. rewrite map_flat_map_rows.
+  unfold fact_rows; cbv zeta. rewrite map_flat_map_rows.
   rewrite (flat_map_ext_rows _ (fun k => match nth_error (result_fact_list res) k with Some _ => [k] | None => [] end))
     by (intro k; apply row_of_ord).
   apply idx_flatmap_all. intros k Hk. apply in_seq in Hk. lia.
