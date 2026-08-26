@@ -168,5 +168,17 @@ Definition fix20_7_same_site_kinds (fp : AN.FactPhase bp) (site : Index.NodeRef 
 Definition fix20_8_edge_parent (pr : Index.Refs.ExprStmtRef idx)
   : Index.node_parent (AN.cfe_child_site (AN.ExprStmtValueChild pr eq_refl)) = Some (Index.Refs.exs_node pr) :=
   Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr)).
+(* §9.1 strict structural progress: an expression-statement child's node position strictly follows its parent's *)
+Definition fix_strict_progress (pr : Index.Refs.ExprStmtRef idx)
+  : (Index.nr_pos (Index.Refs.exs_node pr)
+     < Index.nr_pos (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)))%nat :=
+  Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr)).
+(* §9.1 the exact child prerequisite carries that strict progress: parent position < child position *)
+Definition fix_cpr_parent_lt (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
+  : (Index.nr_pos (AN.cdfr_site cdfr) < Index.nr_pos (AN.cdfr_edge_site cdfr))%nat :=
+  AN.cpr_parent_lt_child fp cdfr.
+(* §9.2 and therefore the parent and child NodeRefs are unequal — genuine structural, not kind/ordinal, distinctness *)
+Definition fix_cpr_parent_neq (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
+  : AN.cdfr_site cdfr <> AN.cdfr_edge_site cdfr := AN.cpr_parent_neq_child fp cdfr.
 
 End ChildPrereq.
