@@ -1,6 +1,6 @@
 # Active task: the C4 Sealed Analysis Result Authority candidate
 
-Review: none
+Review: implementation
 
 The exact `Analysis.Result` is a **sealed abstract authority**: the transparent canonical analysis is the record
 `ResultData p`, `result_data p` is its one computation, and the singleton authority `Result p` is minted **only**
@@ -117,10 +117,16 @@ toolchain is the supported run). Governing truth held by this candidate:
   `nr_pos parent < nr_pos child` progress (so the parent is never its own child), surfaced from the canonical
   numbering as the public `Index.node_parent_pos_lt` / `Index.Child.child_pos_gt_parent` without exposing Build
   internals.
-- C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
-  complete; the known missing static cases stay mandatory later work. Remaining static-semantic completeness, the
-  `DAbsent` removal, `result_disposition` cleanup, issue-order redesign, and post-C4 documentation normalization are
-  all later roots — this slice closed only the Result-mint sealing and its data-threaded VM safety.
+- C4's requirement to decide every represented Go static fact remains authoritative, but that is the accepted
+  ownership obligation, not a claim of completed rule coverage: the authority/provenance foundation is implemented,
+  represented static-semantic completion remains open, and the exact unsupported requirements are honest temporary
+  boundaries. Remaining static-semantic completeness, issue-order redesign, and post-C4 documentation normalization
+  are later roots.
+- The live classifications are exactly the Result-indexed diagnostics, boundaries and issues plus Compilable's
+  three-way `Compiled`/`Rejected`/`OutsideScope` verdict; there is **no** separate Analysis summary algebra. The
+  former dead five-way `Analysis.Disposition` summary and its whole-program projection were deleted this slice
+  (external absence controls pin the exact removed names as unresolvable), and diagnostic/boundary coexistence is
+  represented directly in the exact `result_issues` list (`d4_invalid_unsupported_coexist`).
 - The implemented issue order is output-collision diagnostics, then main diagnostics, then redeclaration
   diagnostics, then occurrence diagnostics, then all boundaries. That order is category/class partitioned and
   stable; it is not claimed to be unified global source order.

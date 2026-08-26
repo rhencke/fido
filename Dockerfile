@@ -996,8 +996,21 @@ typefail neg_public_diagnostics "the deleted public product diagnostics reader (
   'Definition forged := @AN.diagnostics.'
 typefail neg_public_boundaries "the deleted public product boundaries reader (result_boundaries is the sole route)" \
   'Definition forged := @AN.boundaries.'
-typefail neg_public_program_disposition "the deleted public product program_disposition (result_disposition is the sole route)" \
+typefail neg_public_program_disposition "the deleted public product program_disposition (exact issue lists + Compilable's three-way verdict are the route)" \
   'Definition forged := @AN.program_disposition.'
+# — §5.1 the dead Analysis summary algebra is gone: the Disposition type, its DAbsent constructor, result_disposition,
+#   and the summary theorems are all unresolvable; the live classifications are the exact Result-indexed issue lists
+#   and Compilable's three-way verdict, never a separate Analysis summary —
+typefail neg_deleted_analysis_disposition "the deleted five-way Analysis Disposition summary type" \
+  'Definition forged := AN.Disposition.'
+typefail neg_deleted_dabsent "the deleted DAbsent summary constructor" \
+  'Definition forged := @AN.DAbsent.'
+typefail neg_deleted_result_disposition "the deleted whole-program result_disposition summary" \
+  'Definition forged := @AN.result_disposition.'
+typefail neg_deleted_disposition_succeeded "the deleted result_disposition success law" \
+  'Definition forged := @AN.program_disposition_succeeded.'
+typefail neg_deleted_disposition_both "the deleted result_disposition case-split law" \
+  'Definition forged := @AN.program_disposition_both.'
 # §23.2 an arbitrary FactPhase/PackageFacts cannot mint a Result-indexed semantic object: there is no product route
 typefail neg_report_product_diagnostics "the deleted Report product-level diagnostics reader over an arbitrary FactPhase" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) := RP.diagnostics fp pf.'

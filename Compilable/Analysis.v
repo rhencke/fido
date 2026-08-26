@@ -2564,57 +2564,6 @@ Proof. reflexivity. Qed.
 
 End IssueLaws.
 
-(* §6 the complete disposition algebra of one Result + applicability before judgment *)
-Inductive Disposition {p} (r : Result p) : Type :=
-| DSucceeded : Disposition r
-| DAbsent : Disposition r
-| DInvalid : IssueCause r -> list (IssueCause r) -> Disposition r
-| DUnsupported : UnmetFactRef r -> list (UnmetFactRef r) -> Disposition r
-| DInvalidAndUnsupported : IssueCause r -> list (IssueCause r) -> UnmetFactRef r -> list (UnmetFactRef r) -> Disposition r.
-Arguments DSucceeded {p r}. Arguments DAbsent {p r}.
-Arguments DInvalid {p r} _ _. Arguments DUnsupported {p r} _ _.
-Arguments DInvalidAndUnsupported {p r} _ _ _ _.
-
-Section DispositionAlgebra.
-Context {p : Syntax.Program} (r : Result p).
-
-(* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
-Definition result_disposition : Disposition r :=
-  match result_diagnostics r, result_boundaries r with
-  | nil, nil => DSucceeded
-  | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
-  | nil, b :: bs => DUnsupported (bound_req_ref b) (map bound_req_ref bs)
-  | d :: ds, b :: bs => DInvalidAndUnsupported (diag_cause d) (map diag_cause ds)
-                                               (bound_req_ref b) (map bound_req_ref bs)
-  end.
-
-(* success is exactly empty reports; a rejected program with simultaneous boundaries is InvalidAndUnsupported *)
-Lemma program_disposition_succeeded :
-  result_disposition = DSucceeded <-> result_diagnostics r = nil /\ result_boundaries r = nil.
-Proof.
-  unfold result_disposition; destruct (result_diagnostics r) as [|d ds], (result_boundaries r) as [|b bs]; cbn.
-  - split; intros _; [ split; reflexivity | reflexivity ].
-  - split; [ discriminate | intros [_ H2]; discriminate H2 ].
-  - split; [ discriminate | intros [H1 _]; discriminate H1 ].
-  - split; [ discriminate | intros [H1 _]; discriminate H1 ].
-Qed.
-
-Lemma program_disposition_both :
-  (exists d ds b bs c1 c2 q1 q2, result_diagnostics r = d :: ds /\ result_boundaries r = b :: bs
-     /\ result_disposition = DInvalidAndUnsupported c1 c2 q1 q2) \/
-  result_disposition = DSucceeded \/
-  (exists c cs, result_disposition = DInvalid c cs) \/
-  (exists q qs, result_disposition = DUnsupported q qs).
-Proof.
-  unfold result_disposition; destruct (result_diagnostics r) as [|d ds] eqn:Ed, (result_boundaries r) as [|b bs] eqn:Eb.
-  - right; left; reflexivity.
-  - right; right; right; eexists; eexists; reflexivity.
-  - right; right; left; eexists; eexists; reflexivity.
-  - left; do 8 eexists; repeat split; reflexivity.
-Qed.
-
-End DispositionAlgebra.
-
 (* §17 the child prerequisites of the one retained result, a narrow projection from its exact res_facts *)
 Definition result_child_prerequisites {p} (r : Result p)
   : list { cdfr : ChildDependentFactRef r & ChildPrerequisiteRef r cdfr } :=

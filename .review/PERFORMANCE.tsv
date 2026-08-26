@@ -1,3 +1,10 @@
+# status: historical
+# source_commit: d9a91dc1ffdbe2b33874ca4d4b928fc30e8224e6
+# source_tree: 11e2a7ea6b86807ffc5a6a41342d95c6e61addd1
+# not_gate_authority: true
+# These numbers were measured on the source_commit above (c4 delta 6), NOT on the current candidate; they are
+# historical evidence for shape only, never live gate authority. The repository-owned complete-path 120s budget
+# is the sole performance gate. Do not relabel these as candidate-bound.
 # command: make -j1 check
 # builder: fido-perf-v1; BuildKit max-parallelism=1
 # cold: one forced prover in prove, one forced emit in e2e; the final artifact comparison reuses

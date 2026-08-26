@@ -23,8 +23,9 @@ The `C4` static-authority cutover is **`IMPLEMENTED_NOT_ACCEPTED`** — one atom
 topology: the direct shallow `Index` (finite file→position→cell maps) and its position selectors, exact
 package/binding/scope identity with the fixed-spelling `func main()` a package-scope function declaration in the one
 declaration group (`Bindings.DeclOrigin.DOFunc`), `MainOne`/`MainMultiple` a projection over it — one
-`Compilable.Analysis` fact and issue authority (`Facts` and `Packages` deleted) with the canonical issue table,
-the applicability + complete 5-way disposition algebra, and the selected-package preflight, projection-only
+`Compilable.Analysis` fact and issue authority (the peer public `Facts`/`Packages` authorities deleted, their
+`FactPhase`/`PackageFacts` kept as transparent retained fields of the canonical `ResultData`) with the canonical
+issue table, the exact Result-indexed diagnostics/boundaries/issues, and the selected-package preflight, projection-only
 `Report`, the sealed `C4_PUBLIC` surface (`compile` the sole source of the abstract
 `Program`/`Rejection`/`Outside` branch objects selected by the transparent `disposition`, no public maker or
 composer), the one generic evidence-indexed `Emit` over an exact compiled `Program`, and the exact theorems and
