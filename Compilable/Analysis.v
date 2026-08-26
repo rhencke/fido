@@ -994,25 +994,54 @@ Lemma flat_map_match_filter {A} (f : A -> bool) (g : A -> list A) (l : list A)
 Proof. induction l as [|a t IH]; cbn; [reflexivity|]. rewrite Hg. destruct (f a); cbn; rewrite IH; reflexivity. Qed.
 
 
-(* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
-Record Result (p : Syntax.Program) : Type := mk_result {
-  res_index     : Index.ProgramIndex p ;
-  res_surface   : BN.PI.PackageSurface res_index ;
-  res_bind_data : BN.PhaseData res_surface ;
-  res_binds     : BN.BindingPhase res_surface res_bind_data ;
-  res_facts     : FactPhase res_binds ;
-  res_pkg       : PackageFacts res_binds
+(* the one canonical transparent analysis DATA over p; a public constructor is fine because it is data, not authority *)
+Record ResultData (p : Syntax.Program) : Type := mk_result_data {
+  rd_index     : Index.ProgramIndex p ;
+  rd_surface   : BN.PI.PackageSurface rd_index ;
+  rd_bind_data : BN.PhaseData rd_surface ;
+  rd_binds     : BN.BindingPhase rd_surface rd_bind_data ;
+  rd_facts     : FactPhase rd_binds ;
+  rd_pkg       : PackageFacts rd_binds
 }.
-Arguments mk_result {p} _ _ _ _ _ _.
-Arguments res_index {p} _. Arguments res_surface {p} _.
-Arguments res_bind_data {p} _. Arguments res_binds {p} _.
-Arguments res_facts {p} _. Arguments res_pkg {p} _.
+Arguments mk_result_data {p} _ _ _ _ _ _.
+Arguments rd_index {p} _. Arguments rd_surface {p} _.
+Arguments rd_bind_data {p} _. Arguments rd_binds {p} _.
+Arguments rd_facts {p} _. Arguments rd_pkg {p} _.
 
-Definition analyze (p : Syntax.Program) : Result p :=
+(* the one canonical data computation: the whole Analysis, built once and reducible for vm_compute/materialization *)
+Definition result_data (p : Syntax.Program) : ResultData p :=
   let i := Index.index_program p in
   let s := BN.PI.package_surface i in
   let b := BN.bindings s in
-  mk_result i s (BN.phase_data s) b (exist _ (raw_facts b) eq_refl) (exist _ (raw_preflight b) eq_refl).
+  mk_result_data i s (BN.phase_data s) b (exist _ (raw_facts b) eq_refl) (exist _ (raw_preflight b) eq_refl).
+
+(* the sealed abstract Result authority: a per-program token minted ONLY by analyze, unique, holding no data field *)
+Module Type RESULT_AUTHORITY.
+  Parameter Result : Syntax.Program -> Type.
+  Parameter analyze : forall p, Result p.
+  Parameter result_unique : forall {p} (r : Result p), r = analyze p.
+End RESULT_AUTHORITY.
+Module ResultSeal : RESULT_AUTHORITY.
+  Definition Result (_ : Syntax.Program) : Type := unit.
+  Definition analyze (p : Syntax.Program) : Result p := tt.
+  Theorem result_unique {p} (r : Result p) : r = analyze p.
+  Proof. destruct r; reflexivity. Qed.
+End ResultSeal.
+Definition Result (p : Syntax.Program) : Type := ResultSeal.Result p.
+Definition analyze (p : Syntax.Program) : Result p := ResultSeal.analyze p.
+Definition result_unique {p} (r : Result p) : r = analyze p := ResultSeal.result_unique r.
+
+(* the transparent data of a Result: ignores the opaque authority token, reduces to the one canonical data *)
+Definition data_of_result {p} (_ : Result p) : ResultData p := result_data p.
+Definition data_of_result_canonical {p} (r : Result p) : data_of_result r = result_data p := eq_refl.
+
+(* the res_* projections read from the canonical data; none inspects or matches the sealed authority *)
+Definition res_index {p} (r : Result p) : Index.ProgramIndex p := rd_index (data_of_result r).
+Definition res_surface {p} (r : Result p) : BN.PI.PackageSurface (res_index r) := rd_surface (data_of_result r).
+Definition res_bind_data {p} (r : Result p) : BN.PhaseData (res_surface r) := rd_bind_data (data_of_result r).
+Definition res_binds {p} (r : Result p) : BN.BindingPhase (res_surface r) (res_bind_data r) := rd_binds (data_of_result r).
+Definition res_facts {p} (r : Result p) : FactPhase (res_binds r) := rd_facts (data_of_result r).
+Definition res_pkg {p} (r : Result p) : PackageFacts (res_binds r) := rd_pkg (data_of_result r).
 
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
@@ -2340,6 +2369,171 @@ Proof.
 Qed.
 
 End IssueTable.
+
+(* b46901b4 data-threaded disposition kernel — the data_* readers below derive emptiness from ONE d, no ref built *)
+Lemma map_eq_nil_iff {A B} (f : A -> B) (l : list A) : map f l = [] <-> l = [].
+Proof. destruct l; cbn; (split; [ | ]); intro H; solve [ reflexivity | discriminate H ]. Qed.
+
+Lemma flat_map_eq_nil {A B} (f : A -> list B) (l : list A) :
+  flat_map f l = [] <-> (forall x, In x l -> f x = []).
+Proof.
+  induction l as [|a l IH]; cbn.
+  - split; [ intros _ x Hx; destruct Hx | reflexivity ].
+  - split.
+    + intro H. apply app_eq_nil in H as [Ha Hl]. intros x [->|Hx]; [ exact Ha | exact (proj1 IH Hl x Hx) ].
+    + intro H. rewrite (H a (or_introl eq_refl)); cbn. apply (proj2 IH). intros x Hx. apply H. right; exact Hx.
+Qed.
+
+Lemma forallb_negb_filter {A} (f : A -> bool) (l : list A) :
+  forallb (fun x => negb (f x)) l = true <-> filter f l = [].
+Proof.
+  induction l as [|a l IH]; cbn; [ split; reflexivity | ].
+  destruct (f a) eqn:Ea; cbn; [ split; intro H; discriminate H | exact IH ].
+Qed.
+
+Lemma app4_nil {A} (a b c d : list A) :
+  a ++ b ++ c ++ d = [] <-> a = [] /\ b = [] /\ c = [] /\ d = [].
+Proof.
+  split.
+  - destruct a, b, c, d; cbn; intro H; try discriminate H; repeat split.
+  - intros [-> [-> [-> ->]]]; reflexivity.
+Qed.
+
+Lemma forallb_ext {A} (f g : A -> bool) (l : list A) :
+  (forall x, f x = g x) -> forallb f l = forallb g l.
+Proof. intro H. induction l as [|a l IH]; cbn; [ reflexivity | rewrite H, IH; reflexivity ]. Qed.
+
+Lemma opt_match_none {A} (o : option A) :
+  match o with Some _ => false | None => true end = true -> o = None.
+Proof. destruct o; [ discriminate | reflexivity ]. Qed.
+
+Lemma opt_none_match {A} (o : option A) :
+  o = None -> match o with Some _ => false | None => true end = true.
+Proof. intro H; rewrite H; reflexivity. Qed.
+
+(* every emptiness the branch decision needs, computed from the one d, no ref built *)
+Definition data_no_collision {p} (d : ResultData p) : bool :=
+  match proj1_sig (rd_pkg d) with FreshOk => true | FreshCollision _ _ => false end.
+Definition data_no_missing {p} (d : ResultData p) : bool :=
+  forallb (fun pr => match BN.package_main (rd_binds d) pr with BN.MainMissing => false | _ => true end)
+          (BN.PI.packages (rd_surface d)).
+Definition data_no_redecl {p} (d : ResultData p) : bool :=
+  match BN.redeclaration_roots (rd_binds d) with nil => true | _ :: _ => false end.
+Definition data_no_cause {p} (d : ResultData p) : bool :=
+  forallb (fun row => match occ_cause row with Some _ => false | None => true end) (proj1_sig (rd_facts d)).
+Definition data_no_req {p} (d : ResultData p) : bool :=
+  forallb (fun row => match occ_req row with Some _ => false | None => true end) (proj1_sig (rd_facts d)).
+
+Definition data_diagnostics_empty {p} (d : ResultData p) : bool :=
+  data_no_collision d && data_no_missing d && data_no_redecl d && data_no_cause d.
+Definition data_boundaries_empty {p} (d : ResultData p) : bool := data_no_req d.
+
+(* each d-level emptiness matches the exact list builder over the same Result, one category at a time *)
+Lemma dnc_iff {p} (r : Result p) : data_no_collision (data_of_result r) = true <-> collision_rows r = [].
+Proof.
+  unfold data_no_collision, collision_rows.
+  change (proj1_sig (rd_pkg (data_of_result r))) with (result_preflight r).
+  destruct (result_preflight r) as [|pr rr] eqn:E.
+  - rewrite (proj2 (collision_ref_none r) E); cbn. split; reflexivity.
+  - assert (result_collision_ref r <> None) as Hne
+      by (intro Hn; apply collision_ref_none in Hn; rewrite Hn in E; discriminate E).
+    destruct (result_collision_ref r) as [cr|]; [ | exfalso; apply Hne; reflexivity ].
+    cbn. split; intro H; discriminate H.
+Qed.
+
+(* per package: "not MainMissing" is the negation of is_missing — negb outside the match, so only propositionally *)
+Lemma data_no_missing_pred {p} (r : Result p) (pr : BN.PI.PackageRef (res_surface r)) :
+  (match BN.package_main (rd_binds (data_of_result r)) pr with BN.MainMissing => false | _ => true end)
+  = negb (@is_missing p r pr).
+Proof.
+  unfold is_missing.
+  change (BN.package_main (rd_binds (data_of_result r)) pr) with (result_package_rule r pr).
+  destruct (result_package_rule r pr); reflexivity.
+Qed.
+
+Lemma dnm_iff {p} (r : Result p) : data_no_missing (data_of_result r) = true <-> main_rows r = [].
+Proof.
+  unfold main_rows. rewrite map_eq_nil_iff.
+  assert (data_no_missing (data_of_result r)
+          = forallb (fun pr => negb (@is_missing p r pr)) (BN.PI.packages (res_surface r))) as Hrw.
+  { unfold data_no_missing.
+    change (BN.PI.packages (rd_surface (data_of_result r))) with (BN.PI.packages (res_surface r)).
+    apply forallb_ext. intro pr. apply data_no_missing_pred. }
+  rewrite Hrw, forallb_negb_filter.
+  split.
+  - intro H. apply (proj1 (map_eq_nil_iff mmr_package (result_missing_main_refs r))).
+    rewrite missing_main_packages. exact H.
+  - intro H. rewrite <- missing_main_packages, H. reflexivity.
+Qed.
+
+Lemma dnr_iff {p} (r : Result p) : data_no_redecl (data_of_result r) = true <-> group_rows r = [].
+Proof.
+  unfold group_rows.
+  replace (data_no_redecl (data_of_result r))
+     with (match BN.redeclaration_roots (res_binds r) with nil => true | _ :: _ => false end) by reflexivity.
+  destruct (BN.redeclaration_roots (res_binds r)) as [|x xs]; cbn;
+    [ split; reflexivity | split; intro H; discriminate H ].
+Qed.
+
+(* an empty occ-diagnostic/boundary row list means the retained row carried no invalid/unmet outcome *)
+Lemma occ_cause_of_diag_none {p} (r : Result p) (ref : FactRowRef r) :
+  occ_diag_rows r ref = [] -> occ_cause (frr_row ref) = None.
+Proof.
+  intro H. remember (occ_cause (frr_row ref)) as oc eqn:Ec. destruct oc as [c|]; [ | reflexivity ].
+  exfalso. symmetry in Ec. destruct (occ_diag_complete r ref c Ec) as [ifr [Hd _]]. rewrite Hd in H. discriminate H.
+Qed.
+Lemma occ_req_of_bound_none {p} (r : Result p) (ref : FactRowRef r) :
+  occ_bound_rows r ref = [] -> occ_req (frr_row ref) = None.
+Proof.
+  intro H. remember (occ_req (frr_row ref)) as oq eqn:Ec. destruct oq as [q|]; [ | reflexivity ].
+  exfalso. symmetry in Ec. destruct (occ_bound_complete r ref q Ec) as [ufr [Hb _]]. rewrite Hb in H. discriminate H.
+Qed.
+
+Lemma dncause_iff {p} (r : Result p) : data_no_cause (data_of_result r) = true <-> occ_diags r = [].
+Proof.
+  unfold data_no_cause, occ_diags.
+  change (proj1_sig (rd_facts (data_of_result r))) with (result_fact_list r).
+  split.
+  - intro Hf. apply (proj2 (flat_map_eq_nil _ _)). intros ref Href. apply occ_diag_none.
+    assert (In (frr_row ref) (result_fact_list r)) as Hin
+      by (rewrite <- fact_rows_rows; apply in_map; exact Href).
+    pose proof (proj1 (forallb_forall _ _) Hf (frr_row ref) Hin) as Hrow. cbv beta in Hrow.
+    exact (opt_match_none _ Hrow).
+  - intro Hnil. apply (proj2 (forallb_forall _ _)). intros row Hrow.
+    destruct (fact_list_row r row Hrow) as [ref [Href Hrow_eq]].
+    pose proof (proj1 (flat_map_eq_nil _ _) Hnil ref Href) as Hdr.
+    rewrite <- Hrow_eq; cbv beta.
+    apply opt_none_match. exact (occ_cause_of_diag_none r ref Hdr).
+Qed.
+
+Lemma dnreq_iff {p} (r : Result p) : data_no_req (data_of_result r) = true <-> result_boundaries r = [].
+Proof.
+  unfold data_no_req, result_boundaries.
+  change (proj1_sig (rd_facts (data_of_result r))) with (result_fact_list r).
+  split.
+  - intro Hf. apply (proj2 (flat_map_eq_nil _ _)). intros ref Href. apply occ_bound_none.
+    assert (In (frr_row ref) (result_fact_list r)) as Hin
+      by (rewrite <- fact_rows_rows; apply in_map; exact Href).
+    pose proof (proj1 (forallb_forall _ _) Hf (frr_row ref) Hin) as Hrow. cbv beta in Hrow.
+    exact (opt_match_none _ Hrow).
+  - intro Hnil. apply (proj2 (forallb_forall _ _)). intros row Hrow.
+    destruct (fact_list_row r row Hrow) as [ref [Href Hrow_eq]].
+    pose proof (proj1 (flat_map_eq_nil _ _) Hnil ref Href) as Hbr.
+    rewrite <- Hrow_eq; cbv beta.
+    apply opt_none_match. exact (occ_req_of_bound_none r ref Hbr).
+Qed.
+
+(* the two public bridges: the branch decision's emptiness IS the exact diagnostics/boundaries emptiness *)
+Lemma data_diagnostics_empty_correct {p} (r : Result p) :
+  data_diagnostics_empty (data_of_result r) = true <-> result_diagnostics r = [].
+Proof.
+  unfold data_diagnostics_empty, result_diagnostics.
+  rewrite !andb_true_iff, dnc_iff, dnm_iff, dnr_iff, dncause_iff, app4_nil. tauto.
+Qed.
+
+Lemma data_boundaries_empty_correct {p} (r : Result p) :
+  data_boundaries_empty (data_of_result r) = true <-> result_boundaries r = [].
+Proof. unfold data_boundaries_empty. apply dnreq_iff. Qed.
 
 
 Section IssueLaws.

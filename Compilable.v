@@ -20,40 +20,49 @@ Definition diagnostics_data {p} (r : AN.Result p) := RP.result_diagnostics r.
 Definition boundaries_data {p} (r : AN.Result p) := RP.result_boundaries r.
 Definition AdmissibleData {p} (r : AN.Result p) : Prop := diagnostics_data r = [] /\ boundaries_data r = [].
 
-(* the sole branch decision, over exact data; the program tag is that decision on the canonical data — one decider *)
-Definition disposition_of {p} (r : AN.Result p) : Disposition :=
-  match nil_dec (diagnostics_data r) with
-  | left _ => match nil_dec (boundaries_data r) with left _ => Compiled | right _ => OutsideScope end
-  | right _ => Rejected
-  end.
+(* the sole branch decision reads emptiness from ONE shared ResultData d, never rebuilding the exact ref lists *)
+Definition disposition_from_data {p} (d : AN.ResultData p) : Disposition :=
+  if AN.data_diagnostics_empty d
+  then (if AN.data_boundaries_empty d then Compiled else OutsideScope)
+  else Rejected.
+Definition disposition_of {p} (r : AN.Result p) : Disposition := disposition_from_data (AN.data_of_result r).
 Definition disposition (p : Syntax.Program) : Disposition := disposition_of (compilation_data p).
 
 (* disposition inversion: the OPAQUE branch witnesses invert disposition_of over the exact data; assumption-free *)
 Lemma disposition_compiled {p} (r : AN.Result p) : disposition_of r = Compiled -> AdmissibleData r.
 Proof.
-  unfold disposition_of, AdmissibleData; intro H.
-  destruct (nil_dec (diagnostics_data r)) as [Hd|Hd]; [ | discriminate H ].
-  destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; [ split; assumption | discriminate H ].
+  unfold disposition_of, disposition_from_data, AdmissibleData.
+  destruct (AN.data_diagnostics_empty (AN.data_of_result r)) eqn:Hd; [ | discriminate ].
+  destruct (AN.data_boundaries_empty (AN.data_of_result r)) eqn:Hb; [ | discriminate ].
+  intros _. split.
+  - exact (proj1 (AN.data_diagnostics_empty_correct r) Hd).
+  - exact (proj1 (AN.data_boundaries_empty_correct r) Hb).
 Qed.
 Lemma disposition_rejected {p} (r : AN.Result p) : disposition_of r = Rejected -> diagnostics_data r <> [].
 Proof.
-  unfold disposition_of; intro H. destruct (nil_dec (diagnostics_data r)) as [Hd|Hd].
-  - exfalso; destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; discriminate H.
-  - exact Hd.
+  unfold disposition_of, disposition_from_data; intro H.
+  destruct (AN.data_diagnostics_empty (AN.data_of_result r)) eqn:Hd.
+  - exfalso; destruct (AN.data_boundaries_empty (AN.data_of_result r)); discriminate H.
+  - intro Hnil. rewrite (proj2 (AN.data_diagnostics_empty_correct r) Hnil) in Hd. discriminate Hd.
 Qed.
 Lemma disposition_outside {p} (r : AN.Result p) :
   disposition_of r = OutsideScope -> diagnostics_data r = [] /\ boundaries_data r <> [].
 Proof.
-  unfold disposition_of; intro H. destruct (nil_dec (diagnostics_data r)) as [Hd|Hd]; [ | discriminate H ].
-  destruct (nil_dec (boundaries_data r)) as [Hb|Hb]; [ discriminate H | split; [exact Hd | exact Hb] ].
+  unfold disposition_of, disposition_from_data; intro H.
+  destruct (AN.data_diagnostics_empty (AN.data_of_result r)) eqn:Hd; [ | discriminate H ].
+  destruct (AN.data_boundaries_empty (AN.data_of_result r)) eqn:Hb; [ discriminate H | ].
+  split.
+  - exact (proj1 (AN.data_diagnostics_empty_correct r) Hd).
+  - intro Hnil. rewrite (proj2 (AN.data_boundaries_empty_correct r) Hnil) in Hb. discriminate Hb.
 Qed.
 (* the converse for capability provenance: admissible canonical data forces the Compiled disposition *)
 Lemma admissible_forces_compiled {p} (r : AN.Result p) (Hr : r = compilation_data p)
   (Had : AdmissibleData r) : disposition p = Compiled.
 Proof.
-  unfold disposition. subst r. destruct Had as [Hd Hb]. unfold disposition_of.
-  destruct (nil_dec (diagnostics_data (compilation_data p))) as [_|Hd']; [ | exfalso; exact (Hd' Hd) ].
-  destruct (nil_dec (boundaries_data (compilation_data p))) as [_|Hb']; [ reflexivity | exfalso; exact (Hb' Hb) ].
+  unfold disposition. subst r. destruct Had as [Hd Hb]. unfold disposition_of, disposition_from_data.
+  rewrite (proj2 (AN.data_diagnostics_empty_correct (compilation_data p)) Hd).
+  rewrite (proj2 (AN.data_boundaries_empty_correct (compilation_data p)) Hb).
+  reflexivity.
 Qed.
 
 Module Type C4_PUBLIC.
