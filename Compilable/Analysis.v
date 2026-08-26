@@ -636,12 +636,6 @@ Definition own_stmt_expr (pr : Index.Refs.ExprStmtRef idx) (val_neg app_neg : bo
   then SDependent (DepChild (ExprStmtValueChild pr eq_refl))
   else stmt_expr_body pr app_neg (Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr))) eq_refl.
 
-(* the current expr-statement driver: read its child's value/app negativity directly, then own_stmt_expr *)
-Definition expr_sx_own (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
-  (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : StmtOutcome bp r :=
-  let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
-  own_stmt_expr (Index.Refs.mkExprStmtRef r Hv) (value_neg_b (own_value ctab e)) (app_neg_at e).
-
 (* the represented but unmodelled predeclared types: real Go types with no current C4 TypeForm *)
 Definition is_unmodeled_type (pn : Names.PredeclaredName) : bool :=
   match pn with Names.PUintptr | Names.PAny | Names.PComparable | Names.PError => true | _ => false end.
@@ -792,70 +786,6 @@ Proof.
     (destruct Hin as [Hin|Hin]; [ subst o; split; [ eexists; reflexivity | eexists; exact H ] | exfalso; exact Hin ]).
 Qed.
 
-(* exactly the facts of the families that apply to a node, in family order; an inapplicable family yields none *)
-Definition occ_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
-  match Index.node_view r with
-  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => [OFValue r (own_value bp ctab r)]
-  | Index.Model.VApplication => app_fact_app r ++ [OFValue r (own_value bp ctab r)]
-  | Index.Model.VStmt _ => stmt_fact r (expr_sx_own bp ctab r)
-  | Index.Model.VTypeExpr _ => type_fact r
-  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => [OFValue r (own_value bp ctab r)]
-  | _ => []
-  end.
-
-(* nonapplicability: occ_facts retains an application fact only at an application role, never elsewhere *)
-Lemma no_app_fact_off_application (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : AppOutcome bp r') :
-  In (OFApp r' o) (occ_facts ctab r) -> Index.node_view r = Index.Model.VApplication.
-Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin);
-    try (destruct (stmt_fact_content r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; discriminate Hos);
-    cbn in Hin;
-    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
-    solve [ reflexivity | exfalso; intuition discriminate ].
-Qed.
-(* nonapplicability: occ_facts retains a statement fact only at a statement role *)
-Lemma no_stmt_fact_off_statement (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : StmtOutcome bp r') :
-  In (OFStmt r' o) (occ_facts ctab r) -> exists st, Index.node_view r = Index.Model.VStmt st.
-Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin);
-    try (destruct (stmt_fact_content r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; discriminate Hos);
-    cbn in Hin;
-    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
-    solve [ eexists; reflexivity | exfalso; intuition discriminate ].
-Qed.
-(* nonapplicability: occ_facts retains a type-use fact only at a type-use role *)
-Lemma no_type_fact_off_typeuse (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r r' : Index.NodeRef idx) (o : TypeUseOutcome bp r') :
-  In (OFType r' o) (occ_facts ctab r) -> exists t, Index.node_view r = Index.Model.VTypeExpr t.
-Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [na|nl|nu| |[nt]|nb|nc|nv|nts|nd|nst| |ntp| ] eqn:E;
-    try (rewrite (app_fact_app_at r E) in Hin); try (rewrite (type_fact_at r nt E) in Hin);
-    try (destruct (stmt_fact_content r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; discriminate Hos);
-    cbn in Hin;
-    try (match type of Hin with context [match ?x with _ => _ end] => destruct x end; cbn in Hin);
-    solve [ eexists; reflexivity | exfalso; intuition discriminate ].
-Qed.
-(* §19.4 a negative value fact sits only on a value-emitting node, so it is exactly one of that node's occ_facts *)
-Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) :
-  value_neg_b bp (own_value bp ctab e) = true -> In (OFValue e (own_value bp ctab e)) (occ_facts ctab e).
-Proof.
-  intro Hneg. unfold occ_facts.
-  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E;
-    try (apply in_or_app; right; cbn; left; reflexivity);
-    try (cbn; left; reflexivity);
-    exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
-Qed.
-(* §19.4 the application fact of an application node is exactly one of its occ_facts *)
-Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (He : Index.node_view e = Index.Model.VApplication) :
-  In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts ctab e).
-Proof.
-  assert (Hocc : occ_facts ctab e = app_fact_app e ++ [OFValue e (own_value bp ctab e)])
-    by (unfold occ_facts; rewrite He; reflexivity).
-  rewrite Hocc, (app_fact_app_at e He). apply in_or_app. left. apply in_eq.
-Qed.
-
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => OFValue r (own_value bp ctab r) :: app_fact_app r) nodes.
@@ -935,6 +865,25 @@ Proof.
   rewrite Hnn. exact IH.
 Qed.
 
+(* the one va computation's exact value / application row at a file node — the sole builder's row content *)
+Lemma va_value_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
+  va_value_row (va_facts ctab (Index.file_nodes fr)) r = [OFValue r (own_value bp ctab r)].
+Proof.
+  unfold va_value_row.
+  rewrite (va_value_at ctab r (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
+Qed.
+Lemma va_app_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hva : Index.node_view r = Index.Model.VApplication) :
+  va_app_row (va_facts ctab (Index.file_nodes fr)) r = [OFApp r (own_app bp (Index.Refs.mkAppRef r Hva))].
+Proof.
+  unfold va_app_row.
+  rewrite (va_app_at ctab r Hva (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
+Qed.
+Lemma va_app_row_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hne : Index.node_view r <> Index.Model.VApplication) :
+  va_app_row (va_facts ctab (Index.file_nodes fr)) r = [].
+Proof. unfold va_app_row. rewrite (va_app_none ctab r Hne (Index.file_nodes fr)); reflexivity. Qed.
 (* the va child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
 Lemma va_value_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
@@ -954,39 +903,27 @@ Proof.
   rewrite (va_app_at ctab e Ee (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)).
   rewrite (app_neg_at_app e Ee); reflexivity.
 Qed.
-(* the child-first expr statement equals the current one: it reads from va the child value/app own_stmt recomputes *)
-Lemma occ_facts_va_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
-  occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab r = occ_facts ctab r.
+(* §19.4 a negative value fact sits only on a value-emitting node, so it is one of that node's canonical facts *)
+Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  value_neg_b bp (own_value bp ctab e) = true ->
+  In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
 Proof.
-  pose proof (file_nodes_complete fr r Hf) as Hin. pose proof (file_nodes_nodup fr) as Hnd.
-  unfold occ_facts_va, occ_facts, va_value_row, va_app_row.
-  destruct (Index.node_view r) as [n|l|u| |t|b|c|vv|ts|d|st| |tp|] eqn:Hview;
-    rewrite ?(va_value_at ctab r (Index.file_nodes fr) Hin Hnd);
-    try reflexivity;
-    try (rewrite (va_app_at ctab r Hview (Index.file_nodes fr) Hin Hnd), (app_fact_app_at r Hview); reflexivity).
-  destruct st as [ | | sn sv ].
-  - (* SSExpr: read the child value/app from va, the exact bools own_stmt_expr recomputes *)
-    rewrite (stmt_fact_ssexpr r (expr_sx_va (va_facts ctab (Index.file_nodes fr)) r) Hview),
-            (stmt_fact_ssexpr r (expr_sx_own bp ctab r) Hview).
-    do 2 f_equal. unfold expr_sx_va, expr_sx_own.
-    set (e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hview))).
-    assert (Hfe : Index.nr_file e = fr) by (unfold e; rewrite ee_child_file; exact Hf).
-    rewrite (va_value_negative_correct ctab fr e Hfe), (va_app_negative_correct ctab fr e Hfe). reflexivity.
-  - (* SSDecl: the statement driver is unused, both project the same (empty) fact *)
-    unfold stmt_fact;
-    rewrite (convoy_at (Index.node_view r) (stmt_fact_body r (expr_sx_va (va_facts ctab (Index.file_nodes fr)) r))
-              (Index.Model.VStmt Index.Model.SSDecl) Hview),
-            (convoy_at (Index.node_view r) (stmt_fact_body r (expr_sx_own bp ctab r))
-              (Index.Model.VStmt Index.Model.SSDecl) Hview). reflexivity.
-  - (* SSShort: the driver is unused, both retain the same exact duplicate decision *)
-    unfold stmt_fact;
-    rewrite (convoy_at (Index.node_view r) (stmt_fact_body r (expr_sx_va (va_facts ctab (Index.file_nodes fr)) r))
-              (Index.Model.VStmt (Index.Model.SSShort sn sv)) Hview),
-            (convoy_at (Index.node_view r) (stmt_fact_body r (expr_sx_own bp ctab r))
-              (Index.Model.VStmt (Index.Model.SSShort sn sv)) Hview). reflexivity.
+  intro Hneg. unfold occ_facts_va.
+  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E;
+    try (rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
+    exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
 Qed.
-
+(* §19.4 the application fact of an application node is one of its canonical facts *)
+Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (He : Index.node_view e = Index.Model.VApplication) :
+  In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+Proof.
+  assert (Hocc : occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e
+      = va_app_row (va_facts ctab (Index.file_nodes fr)) e ++ va_value_row (va_facts ctab (Index.file_nodes fr)) e)
+    by (unfold occ_facts_va; rewrite He; reflexivity).
+  rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
+Qed.
 (* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
 Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => let ctab := const_table bp fr in
@@ -1406,12 +1343,16 @@ Qed.
 Definition fact_key (o : OccFact bp) : Index.NodeRef idx * FactKind := (fact_site o, fact_kind o).
 Definition frr_key (ref : FactRowRef fp) : Index.NodeRef idx * FactKind := fact_key (frr_row ref).
 
-(* every fact occ_facts retains at a node carries that exact node as its site *)
-Lemma occ_facts_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) (o : OccFact bp) :
-  In o (occ_facts bp ctab r) -> fact_site o = r.
+(* every fact the one canonical builder retains at a node carries that exact node as its site *)
+Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (o : OccFact bp) :
+  In o (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
 Proof.
-  intro Hin. unfold occ_facts in Hin. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E) in Hin); try (rewrite (type_fact_at bp r nt E) in Hin);
+  intro Hin. unfold occ_facts_va in Hin.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (va_value_row_at bp ctab fr r Hf) in Hin);
+    try (rewrite (va_app_row_at bp ctab fr r Hf E) in Hin);
+    try (rewrite (type_fact_at bp r nt E) in Hin);
     try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
     cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
 Qed.
@@ -1425,14 +1366,16 @@ Proof.
   destruct nst; cbn; try apply NoDup_nil.
   all: apply NoDup_cons; [ intro Hc; exact Hc | apply NoDup_nil ].
 Qed.
-(* the facts occ_facts retains at a node have duplicate-free keys: one per family, application's two kinds distinct *)
-Lemma occ_facts_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
-  NoDup (map fact_key (occ_facts bp ctab r)).
+(* the facts the one canonical builder retains at a node have duplicate-free keys: one per family, app's two distinct *)
+Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
+  NoDup (map fact_key (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r)).
 Proof.
-  unfold occ_facts. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E)); try (rewrite (type_fact_at bp r nt E));
-    try (exact (stmt_fact_key_nodup r (expr_sx_own bp ctab r) (Index.node_view r) eq_refl));
-    cbn [occ_facts map fact_key fact_site fact_kind app];
+  unfold occ_facts_va. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (va_value_row_at bp ctab fr r Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
+    try (rewrite (type_fact_at bp r nt E));
+    try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (Index.node_view r) eq_refl));
+    cbn [map fact_key fact_site fact_kind app];
     repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
     apply NoDup_nil.
 Qed.
@@ -1445,34 +1388,21 @@ Proof.
   - intros pr _. apply BN.pkg_members_nodup.
   - intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
 Qed.
-(* §11 the child-first builder projects the same rows the direct occ_facts traversal does (each node in its file) *)
-Lemma flat_map_ext_in {A B : Type} (f g : A -> list B) (l : list A)
-  (H : forall a, In a l -> f a = g a) : flat_map f l = flat_map g l.
-Proof.
-  induction l as [|x xs IH]; cbn; [reflexivity|].
-  rewrite (H x (or_introl eq_refl)), IH; [reflexivity | intros a Ha; apply H; right; exact Ha].
-Qed.
-Lemma raw_facts_as_occ :
-  raw_facts bp = flat_map (fun fr => flat_map (occ_facts bp (const_table bp fr)) (Index.file_nodes fr))
-                          (flat_map BN.PI.pkg_members (BN.PI.packages s)).
-Proof.
-  unfold raw_facts; cbv zeta. apply flat_map_ext_rows. intro fr.
-  apply flat_map_ext_in. intros r Hr. apply occ_facts_va_eq. exact (Index.file_nodes_file fr r Hr).
-Qed.
 (* §11 canonical-key soundness at the source: no two retained facts share a site+kind key across the whole program *)
 Lemma raw_facts_key_nodup : NoDup (map fact_key (raw_facts bp)).
 Proof.
-  rewrite raw_facts_as_occ; rewrite map_flat_map.
+  unfold raw_facts; cbv zeta. rewrite map_flat_map.
   apply (BN.flat_map_nodup _ (fun sk => Index.nr_file (fst sk))).
   - apply files_nodup.
   - intros fr _. rewrite map_flat_map. apply (BN.flat_map_nodup _ (fun sk => fst sk)).
     + apply file_nodes_nodup.
-    + intros r _. apply occ_facts_key_nodup.
-    + intros r sk _ Hin. apply in_map_iff in Hin. destruct Hin as [o [Hk Ho]].
-      subst sk. cbn. exact (occ_facts_site (const_table bp fr) r o Ho).
+    + intros r Hr. apply (occ_facts_va_key_nodup (const_table bp fr) fr r (Index.file_nodes_file fr r Hr)).
+    + intros r sk Hr Hin. apply in_map_iff in Hin. destruct Hin as [o [Hk Ho]].
+      subst sk. cbn. exact (occ_facts_va_site (const_table bp fr) fr r (Index.file_nodes_file fr r Hr) o Ho).
   - intros fr sk _ Hin. apply in_map_iff in Hin. destruct Hin as [o [Hk Ho]].
     apply in_flat_map in Ho. destruct Ho as [r [Hr Ho]].
-    subst sk. cbn. rewrite (occ_facts_site (const_table bp fr) r o Ho). exact (Index.file_nodes_file fr r Hr).
+    subst sk. cbn. rewrite (occ_facts_va_site (const_table bp fr) fr r (Index.file_nodes_file fr r Hr) o Ho).
+    exact (Index.file_nodes_file fr r Hr).
 Qed.
 (* the retained fact list, and the row enumeration, inherit the duplicate-free site+kind key *)
 Lemma fact_list_key_nodup : NoDup (map fact_key (fact_list fp)).
@@ -1541,19 +1471,21 @@ Proof.
   destruct H1 as [_ [_ Hk1]]. destruct H2 as [_ [_ Hk2]]. subst r2. rewrite Hk1 in Hk2. discriminate.
 Qed.
 
-(* every retained fact decomposes to the exact package file and node whose occ_facts traversal produced it *)
+(* every retained fact decomposes to the exact package file and node the one canonical builder produced it at *)
 Lemma raw_facts_node (o : OccFact bp) :
-  In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr) /\ In o (occ_facts bp (const_table bp fr) r).
+  In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr)
+    /\ In o (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
-  rewrite raw_facts_as_occ. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
+  unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
 Qed.
-(* §12 canonical-row truth: a retained row's exact outcome is the own_* result the canonical traversal selected *)
+(* §12 canonical-row truth: a retained row's exact outcome is the own_* result the one canonical builder selected *)
 Lemma fact_row_is_own (ref : FactRowRef fp) :
   match frr_row ref with
   | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
-  | OFStmt r os => In (OFStmt r os) (stmt_fact bp r (expr_sx_own bp (const_table bp (Index.nr_file r)) r))
+  | OFStmt r os => In (OFStmt r os)
+      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
   | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
       ot = own_type bp r n H
   end.
@@ -1561,8 +1493,11 @@ Proof.
   destruct ref as [k o Hat]; cbn [frr_row].
   assert (Hin : In o (raw_facts bp)) by (rewrite <- (fact_once bp fp); exact (nth_error_In _ _ Hat)).
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
-  unfold occ_facts in Ho. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (app_fact_app_at bp r E) in Ho); try (rewrite (type_fact_at bp r nt E) in Ho);
+  unfold occ_facts_va in Ho.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
+    try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
+    try (rewrite (type_fact_at bp r nt E) in Ho);
     try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
     cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
     subst o; cbn; rewrite ?Hfile; try reflexivity.
@@ -1709,22 +1644,24 @@ Qed.
 Lemma raw_facts_node_file (o : OccFact bp) :
   In o (raw_facts bp) ->
   exists fr r, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
-               /\ In r (Index.file_nodes fr) /\ In o (occ_facts bp (const_table bp fr) r).
+               /\ In r (Index.file_nodes fr)
+               /\ In o (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
-  intro Hin. rewrite raw_facts_as_occ in Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+  unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [exact Hfr | split; [exact Hr | exact Ho]].
 Qed.
-(* a retained row's own file: its package membership, exact file, and the node whose occ_facts produced it *)
+(* a retained row's own file: its package membership, exact file, and the node the one builder produced it at *)
 Lemma row_file (row : FactRowRef fp) :
   In row (fact_rows fp) ->
   exists fr, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
              /\ Index.nr_file (frr_site row) = fr
-             /\ In (frr_row row) (occ_facts bp (const_table bp fr) (frr_site row)).
+             /\ In (frr_row row)
+                  (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) (frr_site row)).
 Proof.
   intro Hin. assert (Hil : In (frr_row row) (fact_list fp))
     by (rewrite <- fact_rows_rows; apply in_map; exact Hin).
   rewrite fact_once in Hil. destruct (raw_facts_node_file (frr_row row) Hil) as [fr [r' [Hfr [Hr' Ho]]]].
-  pose proof (occ_facts_site (const_table bp fr) r' (frr_row row) Ho) as Hsite.
+  pose proof (occ_facts_va_site (const_table bp fr) fr r' (Index.file_nodes_file fr r' Hr') (frr_row row) Ho) as Hsite.
   exists fr. unfold frr_site. rewrite Hsite. split; [exact Hfr | split].
   - exact (Index.file_nodes_file fr r' Hr').
   - exact Ho.
@@ -1736,8 +1673,9 @@ Lemma value_fact_retained (fr : Index.FileRef idx)
   (Hneg : value_neg_b bp (own_value bp (const_table bp fr) e) = true) :
   In (OFValue e (own_value bp (const_table bp fr) e)) (fact_list fp).
 Proof.
-  rewrite fact_once, raw_facts_as_occ. apply in_flat_map. exists fr. split; [exact Hfr|].
-  apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | apply occ_value_mem; exact Hneg ].
+  rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split;
+    [ exact (file_nodes_complete fr e He) | apply (occ_value_mem bp (const_table bp fr) fr e He); exact Hneg ].
 Qed.
 (* a negative application child's exact application fact is retained in the same FactPhase, in its own file *)
 Lemma app_fact_retained (fr : Index.FileRef idx)
@@ -1745,8 +1683,9 @@ Lemma app_fact_retained (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (He : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
   In (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))) (fact_list fp).
 Proof.
-  rewrite fact_once, raw_facts_as_occ. apply in_flat_map. exists fr. split; [exact Hfr|].
-  apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | apply occ_app_mem ].
+  rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split;
+    [ exact (file_nodes_complete fr e He) | apply (occ_app_mem bp (const_table bp fr) fr e He Hva) ].
 Qed.
 (* a retained SDependent statement fact came from the expr-statement arm: its outcome is the exact driver result *)
 Lemma stmt_fact_dependent (r : Index.NodeRef idx)
@@ -1848,19 +1787,23 @@ Proof.
   rewrite Hsite in Hfile.
   pose proof (fact_row_is_own (cdfr_rowref cdfr)) as Hown. rewrite Hok in Hown.
   destruct (stmt_fact_dependent (cdfr_site cdfr) _ (DepChild (cdfr_edge cdfr)) Hown) as [Hv Hsx].
-  unfold expr_sx_own in Hsx.
+  unfold expr_sx_va in Hsx.
   set (pr := Index.Refs.mkExprStmtRef (cdfr_site cdfr) Hv) in *.
   set (e0 := Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) in *.
   set (ctab := const_table bp (Index.nr_file (cdfr_site cdfr))) in *.
+  set (va := va_facts bp ctab (Index.file_nodes (Index.nr_file (cdfr_site cdfr)))) in *.
   symmetry in Hsx.
   destruct (own_stmt_expr_dep_inv pr _ _ (cdfr_edge cdfr) Hsx) as [Hcs Hcase].
   assert (Hes : cdfr_edge_site cdfr = e0) by (unfold cdfr_edge_site; exact Hcs).
   assert (Hfe : Index.nr_file e0 = fr)
     by (unfold e0, pr; rewrite (ee_child_file (cdfr_site cdfr) Hv); exact Hfile).
   assert (Hctab : ctab = const_table bp fr) by (unfold ctab; rewrite Hfile; reflexivity).
+  assert (Hfe' : Index.nr_file e0 = Index.nr_file (cdfr_site cdfr)) by (rewrite Hfe, Hfile; reflexivity).
   destruct Hcase as [[Hk Hvn] | [Hk [_ [Han Hva]]]].
-  - assert (Hret : In (OFValue e0 (own_value bp (const_table bp fr) e0)) (fact_list fp))
-      by (apply (value_fact_retained fr Hfr e0 Hfe); rewrite <- Hctab; exact Hvn).
+  - assert (Hvnb : value_neg_b bp (own_value bp ctab e0) = true)
+      by (rewrite <- (va_value_negative_correct bp ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Hvn).
+    assert (Hret : In (OFValue e0 (own_value bp (const_table bp fr) e0)) (fact_list fp))
+      by (apply (value_fact_retained fr Hfr e0 Hfe); rewrite <- Hctab; exact Hvnb).
     assert (Hek : cdfr_edge_kind cdfr = ValueKind) by (unfold cdfr_edge_kind; exact Hk).
     destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
     apply (child_prerequisite_some cdfr child_row).
@@ -1868,8 +1811,10 @@ Proof.
       apply (fact_row_for_complete e0 ValueKind child_row Hcin);
         [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
     + apply negative_case_some. apply (value_neg_disj child_row e0 (own_value bp (const_table bp fr) e0) Hcrow).
-      rewrite <- Hctab; exact Hvn.
-  - assert (Hret : In (OFApp e0 (own_app bp (Index.Refs.mkAppRef e0 Hva))) (fact_list fp))
+      rewrite <- Hctab; exact Hvnb.
+  - assert (Hanb : app_neg_at bp e0 = true)
+      by (rewrite <- (va_app_negative_correct bp ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Han).
+    assert (Hret : In (OFApp e0 (own_app bp (Index.Refs.mkAppRef e0 Hva))) (fact_list fp))
       by (apply (app_fact_retained fr Hfr e0 Hfe Hva)).
     assert (Hek : cdfr_edge_kind cdfr = ApplicationKind) by (unfold cdfr_edge_kind; exact Hk).
     destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
@@ -1878,7 +1823,7 @@ Proof.
       apply (fact_row_for_complete e0 ApplicationKind child_row Hcin);
         [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
     + apply negative_case_some. apply (app_neg_disj child_row e0 (own_app bp (Index.Refs.mkAppRef e0 Hva)) Hcrow).
-      rewrite (app_neg_at_app bp e0 Hva) in Han; exact Han.
+      rewrite (app_neg_at_app bp e0 Hva) in Hanb; exact Hanb.
 Qed.
 (* §19.1 the retained parent row's site is exactly the edge's parent index *)
 Lemma cdfr_parent_site (cdfr : ChildDependentFactRef) : frr_site (cdfr_rowref cdfr) = cdfr_site cdfr.
