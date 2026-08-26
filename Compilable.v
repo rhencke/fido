@@ -16,8 +16,8 @@ Definition compilation_data (p : Syntax.Program) : AN.Result p := AN.analyze p.
 Inductive Disposition := Compiled | Rejected | OutsideScope.
 
 (* observations computed from the exact data index, never by opening a certificate *)
-Definition diagnostics_data {p} (r : AN.Result p) := RP.diagnostics (AN.res_facts r) (AN.res_pkg r).
-Definition boundaries_data {p} (r : AN.Result p) := RP.boundaries (AN.res_facts r).
+Definition diagnostics_data {p} (r : AN.Result p) := RP.result_diagnostics r.
+Definition boundaries_data {p} (r : AN.Result p) := RP.result_boundaries r.
 Definition AdmissibleData {p} (r : AN.Result p) : Prop := diagnostics_data r = [] /\ boundaries_data r = [].
 
 (* the sole branch decision, over exact data; the program tag is that decision on the canonical data — one decider *)
@@ -145,8 +145,8 @@ Definition rejection_compilation {p} (rj : Rejection p) : Compilation p := Seale
 Definition outside_compilation {p} (ou : Outside p) : Compilation p := Sealed.outside_certificate ou.
 
 (* data-index convenience observations, read from the exact canonical index; no certificate opened *)
-Definition Diagnostic {p} (_ : Compilation p) : Type := RP.Diagnostic (AN.res_facts (compilation_data p)) (AN.res_pkg (compilation_data p)).
-Definition Boundary {p} (_ : Compilation p) : Type := RP.Boundary (AN.res_facts (compilation_data p)).
+Definition Diagnostic {p} (_ : Compilation p) : Type := RP.Diagnostic (compilation_data p).
+Definition Boundary {p} (_ : Compilation p) : Type := RP.Boundary (compilation_data p).
 Definition diagnostics {p} (_ : Compilation p) := diagnostics_data (compilation_data p).
 Definition boundaries {p} (_ : Compilation p) := boundaries_data (compilation_data p).
 Definition Admissible {p} (_ : Compilation p) : Prop := AdmissibleData (compilation_data p).

@@ -116,13 +116,13 @@ Proof. vm_compute; reflexivity. Qed.
 Lemma reader_index : AN.res_index (rres rprobe) = AN.res_index (AN.analyze rprobe).
 Proof. vm_compute; reflexivity. Qed.
 Lemma reader_len :
-  Datatypes.length (AN.fact_list (AN.res_facts (rres rprobe)))
-  = Datatypes.length (AN.fact_list (AN.res_facts (AN.analyze rprobe))).
+  Datatypes.length (AN.result_fact_list (rres rprobe))
+  = Datatypes.length (AN.result_fact_list (AN.analyze rprobe)).
 Proof. vm_compute; reflexivity. Qed.
 (* the diagnostic ROWS themselves; each row already retains its exact subject, family, and cause at construction *)
 Definition dsites (p : Syntax.Program) := AN.result_diagnostics (rres p).
 (* the raw occurrence facts of a program, for the dependent-non-result checks *)
-Definition pfacts (p : Syntax.Program) := AN.fact_list (AN.res_facts (rres p)).
+Definition pfacts (p : Syntax.Program) := AN.result_fact_list (rres p).
 (* §R.5 the public reader over the Compiled and OutsideScope branches too: the branch-carried index is exact, cheap *)
 Definition cprobe : Syntax.Program := prog [ PL [ ILIT 1 ] ].
 Lemma reader_disp_compiled : Compilable.disposition cprobe = Compilable.Compiled. Proof. vm_compute; reflexivity. Qed.
@@ -132,7 +132,7 @@ Lemma reader_disp_outside : Compilable.disposition oprobe = Compilable.OutsideSc
 Lemma reader_index_outside : AN.res_index (rres oprobe) = AN.res_index (AN.analyze oprobe). Proof. vm_compute; reflexivity. Qed.
 (* §R.4 fact-row integration: the branch-carried Result carries the exact res_facts, so its rows ARE analyze's rows *)
 Lemma reader_facts_kinds :
-  map AN.fact_kind (pfacts rprobe) = map AN.fact_kind (AN.fact_list (AN.res_facts (AN.analyze rprobe))).
+  map AN.fact_kind (pfacts rprobe) = map AN.fact_kind (AN.result_fact_list (AN.analyze rprobe)).
 Proof. vm_compute; reflexivity. Qed.
 
 (* provenance: whatever branch a program yields, its projected result IS the exact Result these fixtures read *)
@@ -339,11 +339,11 @@ Definition d4_collision_redeclared_coexist :
 Proof. vm_compute; reflexivity. Qed.
 
 (* §17 the exact package-case refs over the branch-carried pf are vm-cheap and exact, read through bp-free views *)
-Definition ppkg (pp : Syntax.Program) := AN.res_pkg (rres pp).
-Definition pmissing (pp : Syntax.Program) := map RP.missing_main_view (AN.missing_main_refs (ppkg pp)).
-Definition pcollision (pp : Syntax.Program) := option_map RP.collision_view (AN.collision_ref (ppkg pp)).
+Definition ppkg (pp : Syntax.Program) := rres pp.
+Definition pmissing (pp : Syntax.Program) := map RP.missing_main_view (AN.result_missing_main_refs (ppkg pp)).
+Definition pcollision (pp : Syntax.Program) := option_map RP.collision_view (AN.result_collision_ref (ppkg pp)).
 (* §17.1 a package with no fixed main has exactly one exact missing-main case for its own package *)
-Lemma mm17_1_missing_len : Datatypes.length (AN.missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
+Lemma mm17_1_missing_len : Datatypes.length (AN.result_missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
 Proof. vm_compute; reflexivity. Qed.
 Lemma mm17_1_missing_view : map RP.mmv_exec (pmissing (prog_tops [ tconstmain ])) = [ "generated"%string ].
 Proof. vm_compute; reflexivity. Qed.
@@ -361,8 +361,8 @@ Lemma mm17_5_nocollision_none : pcollision (prog [ PL [ ILIT 1 ] ]) = None.
 Proof. vm_compute; reflexivity. Qed.
 (* §17.6 coexistence: p_collision's package has both a collision AND no fixed main, as two distinct cases *)
 Lemma mm17_6_coexist :
-  andb (match AN.collision_ref (ppkg p_collision) with Some _ => true | None => false end)
-       (Nat.ltb 0 (Datatypes.length (AN.missing_main_refs (ppkg p_collision)))) = true.
+  andb (match AN.result_collision_ref (ppkg p_collision) with Some _ => true | None => false end)
+       (Nat.ltb 0 (Datatypes.length (AN.result_missing_main_refs (ppkg p_collision)))) = true.
 Proof. vm_compute; reflexivity. Qed.
 
 (* the formal-vs-Go differential: one named program per case, proven to a disposition and exported for pinned Go *)

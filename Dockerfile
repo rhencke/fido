@@ -1074,24 +1074,20 @@ Definition mk_one (p : Syntax.Program) (s : PI.PackageSurface (Index.index_progr
   (e : BN.Est s) : BN.MainStatus s pr := BN.MainOne e.
 Definition mk_multiple (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p)) (pr : PI.PackageRef s)
   (e1 e2 : BN.Est s) (rest : list (BN.Est s)) : BN.MainStatus s pr := BN.MainMultiple e1 e2 rest.
-Definition mk_redeclared (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
-  (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n) : AN.Diagnostic fp pf := AN.DRedeclaredGroup root.
-(* the package diagnostics are reachable ONLY through the exact retained decision-case refs, never a raw package *)
-Definition mk_missing_diag (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
-  (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DMissingMain mmr.
-Definition mk_collision_diag (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
-  (cr : AN.CollisionRef pf) : AN.Diagnostic fp pf := AN.DOutputCollision cr.
-Definition mk_missing_refs (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (pf : AN.PackageFacts bp) : list (AN.MissingMainRef pf) := AN.missing_main_refs pf.
-Definition mk_collision_ref (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (pf : AN.PackageFacts bp) : option (AN.CollisionRef pf) := AN.collision_ref pf.
-Definition mk_redecl_cause (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
-  {d : BN.PhaseData s} {bp : BN.BindingPhase s d} (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp)
-  (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
-  : AN.diag_cause (AN.DRedeclaredGroup root : AN.Diagnostic fp pf) = AN.RedeclaredGroupCause root := eq_refl.
+Definition mk_redeclared (p : Syntax.Program) (r : AN.Result p)
+  (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot (AN.res_binds r) n) : AN.Diagnostic r := AN.DRedeclaredGroup root.
+(* the package diagnostics are reachable ONLY through the exact retained decision-case refs of one Result *)
+Definition mk_missing_diag (p : Syntax.Program) (r : AN.Result p)
+  (mmr : AN.MissingMainRef r) : AN.Diagnostic r := AN.DMissingMain mmr.
+Definition mk_collision_diag (p : Syntax.Program) (r : AN.Result p)
+  (cr : AN.CollisionRef r) : AN.Diagnostic r := AN.DOutputCollision cr.
+Definition mk_missing_refs (p : Syntax.Program) (r : AN.Result p)
+  : list (AN.MissingMainRef r) := AN.result_missing_main_refs r.
+Definition mk_collision_ref (p : Syntax.Program) (r : AN.Result p)
+  : option (AN.CollisionRef r) := AN.result_collision_ref r.
+Definition mk_redecl_cause (p : Syntax.Program) (r : AN.Result p)
+  (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot (AN.res_binds r) n)
+  : AN.diag_cause (AN.DRedeclaredGroup root : AN.Diagnostic r) = AN.RedeclaredGroupCause root := eq_refl.
 Definition main_projection (p : Syntax.Program) (s : PI.PackageSurface (Index.index_program p))
   {d : BN.PhaseData s} (bp : BN.BindingPhase s d) (pr : PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 Definition main_as_object (p : Syntax.Program) (mo : Index.Refs.MainOccurrenceRef (Index.index_program p))

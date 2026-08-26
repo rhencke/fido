@@ -93,92 +93,90 @@ Definition prov_usecontext (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot 
   AN.mk_redeclared_use u res Hy.
 
 (* §25.4 Report projection: the descriptive group view is the exact retained root's scope, name and members *)
-Definition prov_report_group_name (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
-  : RP.diag_group_name (AN.DRedeclaredGroup root : AN.Diagnostic fp pf) = Some n := eq_refl.
-Definition prov_report_group_view (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
-  : RP.diag_group_view (AN.DRedeclaredGroup root : AN.Diagnostic fp pf)
-    = Some (RP.mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root : AN.Diagnostic fp pf))) := eq_refl.
+Definition prov_report_group_name (rr : AN.Result p) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot (AN.res_binds rr) n)
+  : RP.diag_group_name (AN.DRedeclaredGroup root : AN.Diagnostic rr) = Some n := eq_refl.
+Definition prov_report_group_view (rr : AN.Result p) (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot (AN.res_binds rr) n)
+  : RP.diag_group_view (AN.DRedeclaredGroup root : AN.Diagnostic rr)
+    = Some (RP.mk_group_view (projT1 root) n (AN.diag_related (AN.DRedeclaredGroup root : AN.Diagnostic rr))) := eq_refl.
 
 End Provenance.
 
-(* §20 decisive child-prerequisite fixtures: each exact-ref chain is reachable at its exact site/kind/case *)
+(* §20 decisive child-prerequisite fixtures: each exact-ref chain is reachable at its exact site/kind/case of r *)
 Section ChildPrereq.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
-        {d : BN.PhaseData s} (bp : BN.BindingPhase s d).
+Context {p : Syntax.Program} (r : AN.Result p).
 
 (* §20 the two exact expression-statement child edges: the value child, and the application child with exact AppRef *)
-Definition fix_value_edge (pr : Index.Refs.ExprStmtRef idx)
+Definition fix_value_edge (pr : Index.Refs.ExprStmtRef (AN.res_index r))
   : AN.ChildFactEdge (Index.Refs.exs_node pr) AN.StatementKind := AN.ExprStmtValueChild pr eq_refl.
-Definition fix_app_edge (pr : Index.Refs.ExprStmtRef idx) (ar : Index.Refs.AppRef idx)
+Definition fix_app_edge (pr : Index.Refs.ExprStmtRef (AN.res_index r)) (ar : Index.Refs.AppRef (AN.res_index r))
   (Ha : Index.Refs.app_node ar = Index.Edges.ee_child (Index.Edges.exprstmt_expr pr))
   : AN.ChildFactEdge (Index.Refs.exs_node pr) AN.StatementKind := AN.ExprStmtApplicationChild pr ar eq_refl Ha.
 
 (* §20 the exact child-dependent parent: a retained statement row whose outcome is SDependent of a DepChild edge *)
-Definition fix_cdfr (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (r : Index.NodeRef idx)
-  (edge : AN.ChildFactEdge r AN.StatementKind)
-  (Hok : AN.frr_row row = AN.OFStmt r (AN.SDependent (AN.DepChild edge))) : AN.ChildDependentFactRef fp :=
-  AN.mk_cdfr row r edge Hok.
+Definition fix_cdfr (row : AN.FactRowRef r) (nd : Index.NodeRef (AN.res_index r))
+  (edge : AN.ChildFactEdge nd AN.StatementKind)
+  (Hok : AN.frr_row row = AN.OFStmt nd (AN.SDependent (AN.DepChild edge))) : AN.ChildDependentFactRef r :=
+  AN.mk_cdfr row nd edge Hok.
 
 (* §20.1 value-invalid child: the retained value row's exact InvalidIdentity is the prerequisite's negative case *)
-Definition fix20_1_value_invalid (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
-  (c : AN.Cause bp (AN.frr_site child_row) (AN.frr_kind child_row))
-  (Hc : AN.occ_cause (AN.frr_row child_row) = Some c) : AN.ChildPrerequisiteRef fp cdfr :=
+Definition fix20_1_value_invalid (cdfr : AN.ChildDependentFactRef r)
+  (child_row : AN.FactRowRef r)
+  (Hlk : AN.fact_row_for r (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+  (c : AN.Cause (AN.res_binds r) (AN.frr_site child_row) (AN.frr_kind child_row))
+  (Hc : AN.occ_cause (AN.frr_row child_row) = Some c) : AN.ChildPrerequisiteRef r cdfr :=
   AN.mk_cpr child_row Hlk (AN.ChildInvalid c Hc).
 (* §20.2 value-unmet child: the retained value row's exact requirement is the prerequisite's negative case *)
-Definition fix20_2_value_unmet (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
-  (q : AN.Requirement bp (AN.frr_site child_row) (AN.frr_kind child_row))
-  (Hq : AN.occ_req (AN.frr_row child_row) = Some q) : AN.ChildPrerequisiteRef fp cdfr :=
+Definition fix20_2_value_unmet (cdfr : AN.ChildDependentFactRef r)
+  (child_row : AN.FactRowRef r)
+  (Hlk : AN.fact_row_for r (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+  (q : AN.Requirement (AN.res_binds r) (AN.frr_site child_row) (AN.frr_kind child_row))
+  (Hq : AN.occ_req (AN.frr_row child_row) = Some q) : AN.ChildPrerequisiteRef r cdfr :=
   AN.mk_cpr child_row Hlk (AN.ChildUnmet q Hq).
 (* §20.3 value-dependent child: the child's own exact dependency is retained, not flattened, as the negative case *)
-Definition fix20_3_value_dependent (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
-  (dd : AN.Dependency bp (AN.frr_site child_row) (AN.frr_kind child_row))
-  (Hd : AN.occ_dep (AN.frr_row child_row) = Some dd) : AN.ChildPrerequisiteRef fp cdfr :=
+Definition fix20_3_value_dependent (cdfr : AN.ChildDependentFactRef r)
+  (child_row : AN.FactRowRef r)
+  (Hlk : AN.fact_row_for r (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+  (dd : AN.Dependency (AN.res_binds r) (AN.frr_site child_row) (AN.frr_kind child_row))
+  (Hd : AN.occ_dep (AN.frr_row child_row) = Some dd) : AN.ChildPrerequisiteRef r cdfr :=
   AN.mk_cpr child_row Hlk (AN.ChildDependent dd Hd).
 (* §20.4/20.5 application-invalid / application-unmet child: the application row's exact case is the negative case *)
-Definition fix20_4_app_invalid (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
-  (c : AN.Cause bp (AN.frr_site child_row) (AN.frr_kind child_row))
-  (Hc : AN.occ_cause (AN.frr_row child_row) = Some c) : AN.ChildPrerequisiteRef fp cdfr :=
+Definition fix20_4_app_invalid (cdfr : AN.ChildDependentFactRef r)
+  (child_row : AN.FactRowRef r)
+  (Hlk : AN.fact_row_for r (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+  (c : AN.Cause (AN.res_binds r) (AN.frr_site child_row) (AN.frr_kind child_row))
+  (Hc : AN.occ_cause (AN.frr_row child_row) = Some c) : AN.ChildPrerequisiteRef r cdfr :=
   AN.mk_cpr child_row Hlk (AN.ChildInvalid c Hc).
-Definition fix20_5_app_unmet (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
-  (q : AN.Requirement bp (AN.frr_site child_row) (AN.frr_kind child_row))
-  (Hq : AN.occ_req (AN.frr_row child_row) = Some q) : AN.ChildPrerequisiteRef fp cdfr :=
+Definition fix20_5_app_unmet (cdfr : AN.ChildDependentFactRef r)
+  (child_row : AN.FactRowRef r)
+  (Hlk : AN.fact_row_for r (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+  (q : AN.Requirement (AN.res_binds r) (AN.frr_site child_row) (AN.frr_kind child_row))
+  (Hq : AN.occ_req (AN.frr_row child_row) = Some q) : AN.ChildPrerequisiteRef r cdfr :=
   AN.mk_cpr child_row Hlk (AN.ChildUnmet q Hq).
 (* §20.6 a legal expression statement's nonnegative child row yields no prerequisite — the builder returns None *)
-Definition fix20_6_legal (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp) (child_row : AN.FactRowRef fp)
-  (Hlk : AN.fact_row_for fp (AN.cdfr_edge_site cdfr) (AN.cdfr_edge_kind cdfr) = Some child_row)
+Definition fix20_6_legal (child_row : AN.FactRowRef r)
   (H1 : AN.occ_cause (AN.frr_row child_row) = None) (H2 : AN.occ_req (AN.frr_row child_row) = None)
-  (H3 : AN.occ_dep (AN.frr_row child_row) = None) : AN.negative_case fp child_row = None :=
-  AN.negative_case_none fp child_row H1 H2 H3.
+  (H3 : AN.occ_dep (AN.frr_row child_row) = None) : AN.negative_case r child_row = None :=
+  AN.negative_case_none r child_row H1 H2 H3.
 (* §20.7 the child site carries a distinct value row and application row: the two kinds are provably different *)
-Definition fix20_7_same_site_kinds (fp : AN.FactPhase bp) (site : Index.NodeRef idx)
-  (rv ra : AN.FactRowRef fp) (Hv : AN.fact_row_for fp site AN.ValueKind = Some rv)
-  (Ha : AN.fact_row_for fp site AN.ApplicationKind = Some ra) : ra <> rv :=
-  AN.fact_row_for_kind_distinct fp site ra rv Ha Hv.
+Definition fix20_7_same_site_kinds (site : Index.NodeRef (AN.res_index r))
+  (rv ra : AN.FactRowRef r) (Hv : AN.fact_row_for r site AN.ValueKind = Some rv)
+  (Ha : AN.fact_row_for r site AN.ApplicationKind = Some ra) : ra <> rv :=
+  AN.fact_row_for_kind_distinct r site ra rv Ha Hv.
 (* §20.8 structural discriminator: an edge's child is parented at exactly its own statement, never a foreign one *)
-Definition fix20_8_edge_parent (pr : Index.Refs.ExprStmtRef idx)
+Definition fix20_8_edge_parent (pr : Index.Refs.ExprStmtRef (AN.res_index r))
   : Index.node_parent (AN.cfe_child_site (AN.ExprStmtValueChild pr eq_refl)) = Some (Index.Refs.exs_node pr) :=
   Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr)).
 (* §9.1 strict structural progress: an expression-statement child's node position strictly follows its parent's *)
-Definition fix_strict_progress (pr : Index.Refs.ExprStmtRef idx)
+Definition fix_strict_progress (pr : Index.Refs.ExprStmtRef (AN.res_index r))
   : (Index.nr_pos (Index.Refs.exs_node pr)
      < Index.nr_pos (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)))%nat :=
   Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr)).
 (* §9.1 the exact child prerequisite carries that strict progress: parent position < child position *)
-Definition fix_cpr_parent_lt (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
+Definition fix_cpr_parent_lt (cdfr : AN.ChildDependentFactRef r)
   : (Index.nr_pos (AN.cdfr_site cdfr) < Index.nr_pos (AN.cdfr_edge_site cdfr))%nat :=
-  AN.cpr_parent_lt_child fp cdfr.
+  AN.cpr_parent_lt_child r cdfr.
 (* §9.2 and therefore the parent and child NodeRefs are unequal — genuine structural, not kind/ordinal, distinctness *)
-Definition fix_cpr_parent_neq (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp)
-  : AN.cdfr_site cdfr <> AN.cdfr_edge_site cdfr := AN.cpr_parent_neq_child fp cdfr.
+Definition fix_cpr_parent_neq (cdfr : AN.ChildDependentFactRef r)
+  : AN.cdfr_site cdfr <> AN.cdfr_edge_site cdfr := AN.cpr_parent_neq_child r cdfr.
 
 End ChildPrereq.

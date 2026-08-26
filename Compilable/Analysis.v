@@ -925,15 +925,15 @@ Proof.
   rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
 Qed.
 (* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
-Definition raw_facts : list (OccFact bp) :=
+Local Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => let ctab := const_table bp fr in
                       let va := va_facts ctab (Index.file_nodes fr) in
                       flat_map (occ_facts_va va ctab) (Index.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
 Definition FactPhase : Type := { m : list (OccFact bp) | m = raw_facts }.
-Definition facts : FactPhase := exist _ raw_facts eq_refl.
-Definition fact_list (fp : FactPhase) : list (OccFact bp) := proj1_sig fp.
+Local Definition facts : FactPhase := exist _ raw_facts eq_refl.
+Local Definition fact_list (fp : FactPhase) : list (OccFact bp) := proj1_sig fp.
 
 End Retain.
 
@@ -945,7 +945,7 @@ Section Laws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the phase content is built once; every phase carries exactly the canonical classification, none caller-supplied *)
-Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
+Local Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
 Proof. exact (proj2_sig fp). Qed.
 
 (* statement and type-use families have no Nonconst constructor: OK / invalid / unmet / dependent exhaust each *)
@@ -975,7 +975,7 @@ Arguments FreshOk {p idx s}.
 Arguments FreshCollision {p idx s} _ _.
 
 (* collision applicability is exactly OneSelected, independent of any package's main multiplicity *)
-Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Local Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : FreshBuildDisposition s :=
   let _ := bp in
   match BN.PI.package_selection s with
@@ -991,136 +991,18 @@ Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 
 Definition PackageFacts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : Type := { d : FreshBuildDisposition s | d = raw_preflight bp }.
-Definition package_facts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
+Local Definition package_facts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : PackageFacts bp := exist _ (raw_preflight bp) eq_refl.
-Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Local Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) : FreshBuildDisposition s := proj1_sig pf.
-Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Local Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
-
-Lemma package_rule_is_projection {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) :
-  package_rule pf pr = BN.package_main bp pr.
-Proof. reflexivity. Qed.
-
-Lemma packages_consume_one_surface {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : preflight pf = raw_preflight bp.
-Proof. exact (proj2_sig pf). Qed.
-
-(* an exact missing-main case: a package whose canonical main decision IS MainMissing, retaining that exact proof *)
-Record MissingMainRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : Type := mk_missing_main_ref {
-  mmr_package : BN.PI.PackageRef s ;
-  mmr_case    : package_rule pf mmr_package = BN.MainMissing
-}.
-Arguments MissingMainRef {p idx s bd bp} pf.
-Arguments mk_missing_main_ref {p idx s bd bp pf} _ _.
-Arguments mmr_package {p idx s bd bp pf} _. Arguments mmr_case {p idx s bd bp pf} _.
-
-(* an exact output-collision case: the exact retained preflight decision IS FreshCollision at that package+root *)
-Record CollisionRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (pf : PackageFacts bp) : Type := mk_collision_ref {
-  cr_package : BN.PI.PackageRef s ;
-  cr_root    : BN.PI.RootEntryRef idx ;
-  cr_case    : preflight pf = FreshCollision cr_package cr_root
-}.
-Arguments CollisionRef {p idx s bd bp} pf.
-Arguments mk_collision_ref {p idx s bd bp pf} _ _ _.
-Arguments cr_package {p idx s bd bp pf} _. Arguments cr_root {p idx s bd bp pf} _. Arguments cr_case {p idx s bd bp pf} _.
-
-Section PackageCases.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} (pf : PackageFacts bp).
-
-(* the exact missing-main case at a package, when its canonical status is MainMissing; other statuses yield none *)
-Definition mm_of (pr : BN.PI.PackageRef s) (st : BN.MainStatus s pr) : package_rule pf pr = st -> list (MissingMainRef pf) :=
-  match st as st0 return package_rule pf pr = st0 -> list (MissingMainRef pf) with
-  | BN.MainMissing => fun H => [mk_missing_main_ref pr H]
-  | _ => fun _ => []
-  end.
-Definition missing_main_refs : list (MissingMainRef pf) :=
-  flat_map (fun pr => mm_of pr (package_rule pf pr) eq_refl) (BN.PI.packages s).
-
-(* the exact collision case, when the retained preflight IS a collision; FreshOk yields none *)
-Definition coll_of (d : FreshBuildDisposition s) : preflight pf = d -> option (CollisionRef pf) :=
-  match d as d0 return preflight pf = d0 -> option (CollisionRef pf) with
-  | FreshOk => fun _ => None
-  | FreshCollision pr rr => fun H => Some (mk_collision_ref pr rr H)
-  end.
-Definition collision_ref : option (CollisionRef pf) := coll_of (preflight pf) eq_refl.
-
-End PackageCases.
-Arguments mm_of {p idx s bd bp pf} pr st H.
-Arguments missing_main_refs {p idx s bd bp} pf.
-Arguments coll_of {p idx s bd bp pf} d H.
-Arguments collision_ref {p idx s bd bp} pf.
 
 (* small helper: a per-element singleton-or-empty flat_map is exactly the filter of its boolean condition *)
 Lemma flat_map_match_filter {A} (f : A -> bool) (g : A -> list A) (l : list A)
   (Hg : forall a, g a = if f a then [a] else []) : flat_map g l = filter f l.
 Proof. induction l as [|a t IH]; cbn; [reflexivity|]. rewrite Hg. destruct (f a); cbn; rewrite IH; reflexivity. Qed.
 
-Section PackageCaseLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} (pf : PackageFacts bp).
-
-(* the boolean the missing-main enumeration selects on: exactly the MainMissing decision at a package *)
-Definition is_missing (pr : BN.PI.PackageRef s) : bool :=
-  match package_rule pf pr with BN.MainMissing => true | _ => false end.
-(* mm_of projects to exactly [pr] on the MainMissing decision, and to nothing on MainOne / MainMultiple *)
-Lemma mm_of_package (pr : BN.PI.PackageRef s) (st : BN.MainStatus s pr) (H : package_rule pf pr = st) :
-  map mmr_package (mm_of pr st H) = match st with BN.MainMissing => [pr] | _ => [] end.
-Proof. destruct st; reflexivity. Qed.
-
-(* §11.1/§19.1 the missing-main packages are exactly the MainMissing packages of packages s, in package order *)
-Lemma missing_main_packages : map mmr_package (missing_main_refs pf) = filter is_missing (BN.PI.packages s).
-Proof.
-  unfold missing_main_refs. rewrite BN.map_flat_map.
-  apply flat_map_match_filter. intro pr. rewrite mm_of_package. unfold is_missing.
-  destruct (package_rule pf pr); reflexivity.
-Qed.
-(* §19.1 soundness: every retained missing-main ref carries the exact MainMissing decision of its package *)
-Lemma missing_main_sound (mmr : MissingMainRef pf) : package_rule pf (mmr_package mmr) = BN.MainMissing.
-Proof. exact (mmr_case mmr). Qed.
-(* §19.1 a MainOne or MainMultiple package can never inhabit MissingMainRef: its exact decision is not MainMissing *)
-Lemma no_missing_of_main_one (mmr : MissingMainRef pf) (e : BN.Est s) :
-  package_rule pf (mmr_package mmr) = BN.MainOne e -> False.
-Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
-Lemma no_missing_of_main_multiple (mmr : MissingMainRef pf) (a b : BN.Est s) (rest : list (BN.Est s)) :
-  package_rule pf (mmr_package mmr) = BN.MainMultiple a b rest -> False.
-Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
-(* §11.1/§19.1 completeness: a MainMissing package appears exactly once among the enumerated missing-main packages *)
-Lemma missing_main_complete (pr : BN.PI.PackageRef s) :
-  In pr (BN.PI.packages s) -> package_rule pf pr = BN.MainMissing -> In pr (map mmr_package (missing_main_refs pf)).
-Proof.
-  intros Hin Hmm. rewrite missing_main_packages. apply filter_In. split; [exact Hin | unfold is_missing; rewrite Hmm; reflexivity].
-Qed.
-(* §11.1/§19.1 no duplicate package among the missing-main refs *)
-Lemma missing_main_nodup : NoDup (map mmr_package (missing_main_refs pf)).
-Proof. rewrite missing_main_packages. apply nodup_filter. apply BN.packages_nodup. Qed.
-
-(* §11.2/§19.2 a collision ref exists exactly when the exact retained preflight is a collision at that package+root *)
-Lemma coll_of_none (d : FreshBuildDisposition s) (H : preflight pf = d) : coll_of d H = None <-> d = FreshOk.
-Proof. destruct d; cbn; split; solve [ reflexivity | discriminate | intro; reflexivity ]. Qed.
-Lemma collision_ref_none : collision_ref pf = None <-> preflight pf = FreshOk.
-Proof. exact (coll_of_none (preflight pf) eq_refl). Qed.
-(* §19.2 soundness: a collision ref carries the exact FreshCollision decision at its exact package and root *)
-Lemma collision_case (cr : CollisionRef pf) : preflight pf = FreshCollision (cr_package cr) (cr_root cr).
-Proof. exact (cr_case cr). Qed.
-(* §19.2 a FreshCollision preflight yields a collision ref (not None) *)
-Lemma collision_ref_of_fresh (pr : BN.PI.PackageRef s) (rr : BN.PI.RootEntryRef idx) :
-  preflight pf = FreshCollision pr rr -> collision_ref pf <> None.
-Proof. intros Hf Hn. apply collision_ref_none in Hn. rewrite Hf in Hn. discriminate Hn. Qed.
-(* §19.2 the collision case is unique: any two collision refs name the same exact package and root *)
-Lemma collision_unique (cr1 cr2 : CollisionRef pf) :
-  cr_package cr1 = cr_package cr2 /\ cr_root cr1 = cr_root cr2.
-Proof.
-  pose proof (cr_case cr1) as H1. pose proof (cr_case cr2) as H2. rewrite H1 in H2. injection H2 as Hp Hr.
-  split; [ exact Hp | exact Hr ].
-Qed.
-
-End PackageCaseLaws.
-Arguments is_missing {p idx s bd bp} pf pr.
 
 (* the one canonical analysis result over p; analyze builds it once, holding FactPhase and PackageFacts as fields *)
 Record Result (p : Syntax.Program) : Type := mk_result {
@@ -1166,6 +1048,8 @@ Definition fact_site (o : OccFact bp) : Index.NodeRef idx :=
 Definition fact_kind (o : OccFact bp) : FactKind :=
   match o with OFValue _ _ => ValueKind | OFApp _ _ => ApplicationKind | OFStmt _ _ => StatementKind | OFType _ _ => TypeUseKind end.
 Definition fact_family (o : OccFact bp) : Family := displayed_family (fact_site o) (fact_kind o).
+(* §11 the exact canonical key: an occurrence's exact site paired with its exact fact kind *)
+Definition fact_key (o : OccFact bp) : Index.NodeRef idx * FactKind := (fact_site o, fact_kind o).
 (* the exact cause/requirement/dependency an occurrence fact retains, determined by its exact outcome *)
 Definition occ_cause (o : OccFact bp) : option (Cause bp (fact_site o) (fact_kind o)) :=
   match o as o' return option (Cause bp (fact_site o') (fact_kind o')) with
@@ -1190,158 +1074,9 @@ Definition occ_dep (o : OccFact bp) : option (Dependency bp (fact_site o) (fact_
   end.
 End OccFactProj.
 
-Section FactRow.
+Section FactBuilderLaws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} (fp : FactPhase bp).
-
-(* an exact retained fact-row identity: an ordinal into fact_list fp with the exact row retained at that ordinal *)
-Record FactRowRef : Type := mk_frr {
-  frr_ord : nat ;
-  frr_row : OccFact bp ;
-  frr_at  : nth_error (fact_list fp) frr_ord = Some frr_row
-}.
-Definition frr_site (ref : FactRowRef) : Index.NodeRef idx := fact_site (frr_row ref).
-Definition frr_kind (ref : FactRowRef) : FactKind := fact_kind (frr_row ref).
-Definition frr_family (ref : FactRowRef) : Family := fact_family (frr_row ref).
-
-(* the exact row at ordinal k: retains the row and its membership proof; None ordinals yield no ref *)
-Definition row_of (k : nat) (o : option (OccFact bp)) : nth_error (fact_list fp) k = o -> list FactRowRef :=
-  match o with Some x => fun H => [mk_frr k x H] | None => fun _ => [] end.
-
-(* canonical ordered row enumeration: exactly one retained row per valid ordinal of fact_list fp *)
-Definition fact_rows : list FactRowRef :=
-  flat_map (fun k => row_of k (nth_error (fact_list fp) k) eq_refl) (seq 0%nat (List.length (fact_list fp))).
-
-(* an exact invalid fact ref: a retained row whose exact retained outcome is the invalid case, carrying its cause *)
-Record InvalidFactRef : Type := mk_ifr {
-  ifr_rowref : FactRowRef ;
-  ifr_cause  : Cause bp (fact_site (frr_row ifr_rowref)) (fact_kind (frr_row ifr_rowref)) ;
-  ifr_ok     : occ_cause (frr_row ifr_rowref) = Some ifr_cause
-}.
-Definition ifr_fact (ir : InvalidFactRef) : OccFact bp := frr_row (ifr_rowref ir).
-Definition ifr_ord (ir : InvalidFactRef) : nat := frr_ord (ifr_rowref ir).
-
-(* an exact unmet fact ref: a retained row whose exact retained outcome is the unmet case, carrying its requirement *)
-Record UnmetFactRef : Type := mk_ufr {
-  ufr_rowref : FactRowRef ;
-  ufr_req    : Requirement bp (fact_site (frr_row ufr_rowref)) (fact_kind (frr_row ufr_rowref)) ;
-  ufr_ok     : occ_req (frr_row ufr_rowref) = Some ufr_req
-}.
-Definition ufr_fact (ur : UnmetFactRef) : OccFact bp := frr_row (ufr_rowref ur).
-Definition ufr_ord (ur : UnmetFactRef) : nat := frr_ord (ufr_rowref ur).
-
-(* an exact dependent fact ref: a retained row whose exact outcome is the dependent case; yields no issue row *)
-Record DependentFactRef : Type := mk_dfr {
-  dfr_rowref : FactRowRef ;
-  dfr_dep    : Dependency bp (fact_site (frr_row dfr_rowref)) (fact_kind (frr_row dfr_rowref)) ;
-  dfr_ok     : occ_dep (frr_row dfr_rowref) = Some dfr_dep
-}.
-Definition dfr_fact (dr : DependentFactRef) : OccFact bp := frr_row (dfr_rowref dr).
-Definition dfr_ord (dr : DependentFactRef) : nat := frr_ord (dfr_rowref dr).
-
-End FactRow.
-Arguments FactRowRef {p idx s bd bp} fp.
-Arguments mk_frr {p idx s bd bp fp} _ _ _.
-Arguments frr_ord {p idx s bd bp fp} _. Arguments frr_row {p idx s bd bp fp} _. Arguments frr_at {p idx s bd bp fp} _.
-Arguments frr_site {p idx s bd bp fp} _. Arguments frr_kind {p idx s bd bp fp} _. Arguments frr_family {p idx s bd bp fp} _.
-Arguments row_of {p idx s bd bp fp} k o H.
-Arguments fact_rows {p idx s bd bp} fp.
-Arguments InvalidFactRef {p idx s bd bp} fp.
-Arguments mk_ifr {p idx s bd bp fp} _ _ _.
-Arguments ifr_rowref {p idx s bd bp fp} _. Arguments ifr_cause {p idx s bd bp fp} _. Arguments ifr_ok {p idx s bd bp fp} _.
-Arguments ifr_fact {p idx s bd bp fp} _. Arguments ifr_ord {p idx s bd bp fp} _.
-Arguments UnmetFactRef {p idx s bd bp} fp.
-Arguments mk_ufr {p idx s bd bp fp} _ _ _.
-Arguments ufr_rowref {p idx s bd bp fp} _. Arguments ufr_req {p idx s bd bp fp} _. Arguments ufr_ok {p idx s bd bp fp} _.
-Arguments ufr_fact {p idx s bd bp fp} _. Arguments ufr_ord {p idx s bd bp fp} _.
-Arguments DependentFactRef {p idx s bd bp} fp.
-Arguments mk_dfr {p idx s bd bp fp} _ _ _.
-Arguments dfr_rowref {p idx s bd bp fp} _. Arguments dfr_dep {p idx s bd bp fp} _. Arguments dfr_ok {p idx s bd bp fp} _.
-Arguments dfr_fact {p idx s bd bp fp} _. Arguments dfr_ord {p idx s bd bp fp} _.
-
-(* §10 canonical row enumeration laws: the enumeration IS exactly fact_list fp, once, in retained order *)
-Section FactRowLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} (fp : FactPhase bp).
-
-Lemma map_flat_map_rows {A B C} (f : B -> C) (g : A -> list B) (l : list A) :
-  map f (flat_map g l) = flat_map (fun x => map f (g x)) l.
-Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite map_app, IH. reflexivity. Qed.
-Lemma flat_map_ext_rows {A B} (f g : A -> list B) (l : list A) (H : forall a, f a = g a) :
-  flat_map f l = flat_map g l.
-Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite (H a), IH. reflexivity. Qed.
-Lemma flat_map_map_rows {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
-  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
-Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
-Lemma opt_flatmap_full {A} (L : list A) :
-  flat_map (fun k => match nth_error L k with Some x => [x] | None => [] end) (seq 0 (List.length L)) = L.
-Proof.
-  induction L as [|a L' IH]; [reflexivity|].
-  cbn [List.length seq flat_map nth_error app]. f_equal.
-  rewrite <- seq_shift, flat_map_map_rows. exact IH.
-Qed.
-Lemma idx_flatmap_all {A} (L : list A) (ks : list nat) (Hall : forall k, In k ks -> (k < List.length L)%nat) :
-  flat_map (fun k => match nth_error L k with Some _ => [k] | None => [] end) ks = ks.
-Proof.
-  induction ks as [|k ks' IH]; [reflexivity|]. cbn [flat_map].
-  destruct (nth_error L k) as [x|] eqn:E.
-  - cbn [app]. f_equal. apply IH. intros k' Hk'. apply Hall. right; exact Hk'.
-  - exfalso. apply nth_error_None in E. specialize (Hall k (or_introl eq_refl)). lia.
-Qed.
-
-(* row_of at ordinal k projects to the exact row (its element) and to the exact ordinal k *)
-Lemma row_of_row (k : nat) (o : option (OccFact bp)) (H : nth_error (fact_list fp) k = o) :
-  map frr_row (row_of k o H) = match o with Some x => [x] | None => [] end.
-Proof. destruct o; reflexivity. Qed.
-Lemma row_of_ord (k : nat) (o : option (OccFact bp)) (H : nth_error (fact_list fp) k = o) :
-  map frr_ord (row_of k o H) = match o with Some _ => [k] | None => [] end.
-Proof. destruct o; reflexivity. Qed.
-(* nth_error into seq start n at a valid ordinal is exactly Some (start + k) *)
-Lemma seq_nth_error_id (n : nat) : forall (start k : nat), (k < n)%nat -> nth_error (seq start n) k = Some (start + k)%nat.
-Proof.
-  induction n as [|n' IH]; intros start k Hk; [ lia | ].
-  destruct k as [|k']; cbn [seq nth_error].
-  - f_equal; lia.
-  - rewrite IH by lia. f_equal; lia.
-Qed.
-
-(* §10 the retained rows project exactly to fact_list fp, in retained order; the ordinals are exactly seq 0 n *)
-Lemma fact_rows_rows : map frr_row (fact_rows fp) = fact_list fp.
-Proof.
-  unfold fact_rows. rewrite map_flat_map_rows.
-  rewrite (flat_map_ext_rows _ (fun k => match nth_error (fact_list fp) k with Some x => [x] | None => [] end))
-    by (intro k; apply row_of_row).
-  apply opt_flatmap_full.
-Qed.
-Lemma fact_rows_ords : map frr_ord (fact_rows fp) = seq 0 (List.length (fact_list fp)).
-Proof.
-  unfold fact_rows. rewrite map_flat_map_rows.
-  rewrite (flat_map_ext_rows _ (fun k => match nth_error (fact_list fp) k with Some _ => [k] | None => [] end))
-    by (intro k; apply row_of_ord).
-  apply idx_flatmap_all. intros k Hk. apply in_seq in Hk. lia.
-Qed.
-(* §10 ordinal identity: the row ordinals are duplicate-free *)
-Lemma fact_rows_ord_nodup : NoDup (map frr_ord (fact_rows fp)).
-Proof. rewrite fact_rows_ords. apply seq_NoDup. Qed.
-(* §10 completeness + positional uniqueness: every list member is enumerated at its exact position, retaining it *)
-Lemma fact_rows_complete (k : nat) (row : OccFact bp) (Hk : nth_error (fact_list fp) k = Some row) :
-  exists ref, nth_error (fact_rows fp) k = Some ref /\ frr_ord ref = k /\ frr_row ref = row.
-Proof.
-  assert (Hlt : (k < List.length (fact_list fp))%nat) by (apply nth_error_Some; rewrite Hk; discriminate).
-  destruct (nth_error (fact_rows fp) k) as [ref|] eqn:E.
-  2:{ exfalso. apply nth_error_None in E. rewrite <- (length_map frr_row), fact_rows_rows in E. lia. }
-  exists ref. split; [reflexivity | split].
-  - assert (Ho : nth_error (seq 0 (List.length (fact_list fp))) k = Some (frr_ord ref))
-      by (rewrite <- fact_rows_ords, nth_error_map, E; reflexivity).
-    rewrite (seq_nth_error_id (List.length (fact_list fp)) 0 k Hlt) in Ho. injection Ho as Ho. lia.
-  - assert (Hr : nth_error (fact_list fp) k = Some (frr_row ref))
-      by (rewrite <- fact_rows_rows, nth_error_map, E; reflexivity).
-    rewrite Hk in Hr. injection Hr as Hr. symmetry. exact Hr.
-Qed.
-
-(* §11 the exact canonical key: an occurrence's exact site paired with its exact fact kind *)
-Definition fact_key (o : OccFact bp) : Index.NodeRef idx * FactKind := (fact_site o, fact_kind o).
-Definition frr_key (ref : FactRowRef fp) : Index.NodeRef idx * FactKind := fact_key (frr_row ref).
+        {bp : BN.BindingPhase s bd}.
 
 (* every fact the one canonical builder retains at a node carries that exact node as its site *)
 Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
@@ -1356,6 +1091,7 @@ Proof.
     try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
     cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
 Qed.
+
 (* stmt_fact is a singleton or empty, so its site+kind keys are trivially duplicate-free *)
 Lemma stmt_fact_key_nodup (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
@@ -1366,6 +1102,7 @@ Proof.
   destruct nst; cbn; try apply NoDup_nil.
   all: apply NoDup_cons; [ intro Hc; exact Hc | apply NoDup_nil ].
 Qed.
+
 (* the facts the one canonical builder retains at a node have duplicate-free keys: one per family, app's two distinct *)
 Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
@@ -1388,6 +1125,7 @@ Proof.
   - intros pr _. apply BN.pkg_members_nodup.
   - intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
 Qed.
+
 (* §11 canonical-key soundness at the source: no two retained facts share a site+kind key across the whole program *)
 Lemma raw_facts_key_nodup : NoDup (map fact_key (raw_facts bp)).
 Proof.
@@ -1404,72 +1142,6 @@ Proof.
     subst sk. cbn. rewrite (occ_facts_va_site (const_table bp fr) fr r (Index.file_nodes_file fr r Hr) o Ho).
     exact (Index.file_nodes_file fr r Hr).
 Qed.
-(* the retained fact list, and the row enumeration, inherit the duplicate-free site+kind key *)
-Lemma fact_list_key_nodup : NoDup (map fact_key (fact_list fp)).
-Proof. rewrite fact_once. apply raw_facts_key_nodup. Qed.
-Lemma fact_rows_key_nodup : NoDup (map frr_key (fact_rows fp)).
-Proof. unfold frr_key. rewrite <- map_map, fact_rows_rows. apply fact_list_key_nodup. Qed.
-(* §24.2 row uniqueness: two retained rows with equal site and equal kind are the same exact row *)
-Lemma fact_row_key_unique (r1 r2 : FactRowRef fp) :
-  In r1 (fact_rows fp) -> In r2 (fact_rows fp) -> frr_site r1 = frr_site r2 -> frr_kind r1 = frr_kind r2 -> r1 = r2.
-Proof.
-  intros H1 H2 Hs Hk. apply (nodup_map_inj frr_key (fact_rows fp) fact_rows_key_nodup r1 r2 H1 H2).
-  change (frr_key r1) with (frr_site r1, frr_kind r1). change (frr_key r2) with (frr_site r2, frr_kind r2).
-  rewrite Hs, Hk. reflexivity.
-Qed.
-
-(* a decidable fact-kind equality, so the site+kind lookup is a total boolean search over the retained rows *)
-Definition fact_kind_eqb (a b : FactKind) : bool :=
-  match a, b with
-  | ValueKind, ValueKind | ApplicationKind, ApplicationKind
-  | StatementKind, StatementKind | TypeUseKind, TypeUseKind => true
-  | _, _ => false
-  end.
-Lemma fact_kind_eqb_spec (a b : FactKind) : fact_kind_eqb a b = true <-> a = b.
-Proof. destruct a, b; cbn; split; intro H; solve [ discriminate H | reflexivity ]. Qed.
-
-(* §11 canonical site+kind lookup: search the retained rows only; never rebuild an outcome through own_* *)
-Definition fact_row_for (site : Index.NodeRef idx) (kind : FactKind) : option (FactRowRef fp) :=
-  find (fun ref => andb (BN.noderef_eqb (frr_site ref) site) (fact_kind_eqb (frr_kind ref) kind)) (fact_rows fp).
-
-(* §24.2 soundness: a found row is a retained row with exactly the requested site and kind *)
-Lemma fact_row_for_sound (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
-  fact_row_for site kind = Some ref -> In ref (fact_rows fp) /\ frr_site ref = site /\ frr_kind ref = kind.
-Proof.
-  intro H. apply find_some in H. destruct H as [Hin Hp]. apply andb_prop in Hp. destruct Hp as [Hs Hk].
-  apply BN.noderef_eqb_spec in Hs. apply fact_kind_eqb_spec in Hk. split; [ exact Hin | split; [ exact Hs | exact Hk ] ].
-Qed.
-(* §24.2 completeness: any retained row with that site and kind is exactly the one the lookup returns *)
-Lemma fact_row_for_complete (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
-  In ref (fact_rows fp) -> frr_site ref = site -> frr_kind ref = kind -> fact_row_for site kind = Some ref.
-Proof.
-  intros Hin Hs Hk. destruct (fact_row_for site kind) as [ref'|] eqn:E.
-  - f_equal. apply fact_row_for_sound in E. destruct E as [Hin' [Hs' Hk']].
-    apply (fact_row_key_unique ref' ref Hin' Hin); [ rewrite Hs', Hs; reflexivity | rewrite Hk', Hk; reflexivity ].
-  - exfalso. unfold fact_row_for in E. pose proof (find_none _ _ E ref Hin) as Hno. cbv beta in Hno.
-    rewrite Hs, Hk in Hno. rewrite (proj2 (BN.noderef_eqb_spec site site) eq_refl) in Hno.
-    rewrite (proj2 (fact_kind_eqb_spec kind kind) eq_refl) in Hno. discriminate Hno.
-Qed.
-(* §24.2 None soundness: no retained row of that exact site and kind means the lookup is None *)
-Lemma fact_row_for_none (site : Index.NodeRef idx) (kind : FactKind) :
-  (forall ref, In ref (fact_rows fp) -> ~ (frr_site ref = site /\ frr_kind ref = kind)) -> fact_row_for site kind = None.
-Proof.
-  intro Hno. destruct (fact_row_for site kind) as [ref|] eqn:E; [ | reflexivity ].
-  exfalso. apply fact_row_for_sound in E. destruct E as [Hin [Hs Hk]]. exact (Hno ref Hin (conj Hs Hk)).
-Qed.
-(* §24.2 None completeness: a None lookup means no retained row carries that exact site and kind *)
-Lemma fact_row_for_none_inv (site : Index.NodeRef idx) (kind : FactKind) (ref : FactRowRef fp) :
-  fact_row_for site kind = None -> In ref (fact_rows fp) -> ~ (frr_site ref = site /\ frr_kind ref = kind).
-Proof.
-  intros E Hin [Hs Hk]. pose proof (fact_row_for_complete site kind ref Hin Hs Hk) as Hc. rewrite E in Hc. discriminate.
-Qed.
-(* §24.2 non-conflation: an application site's Application-key and Value-key lookups return two distinct rows *)
-Lemma fact_row_for_kind_distinct (site : Index.NodeRef idx) (r1 r2 : FactRowRef fp) :
-  fact_row_for site ApplicationKind = Some r1 -> fact_row_for site ValueKind = Some r2 -> r1 <> r2.
-Proof.
-  intros H1 H2 Heq. apply fact_row_for_sound in H1. apply fact_row_for_sound in H2.
-  destruct H1 as [_ [_ Hk1]]. destruct H2 as [_ [_ Hk2]]. subst r2. rewrite Hk1 in Hk2. discriminate.
-Qed.
 
 (* every retained fact decomposes to the exact package file and node the one canonical builder produced it at *)
 Lemma raw_facts_node (o : OccFact bp) :
@@ -1479,138 +1151,6 @@ Proof.
   unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
 Qed.
-(* §12 canonical-row truth: a retained row's exact outcome is the own_* result the one canonical builder selected *)
-Lemma fact_row_is_own (ref : FactRowRef fp) :
-  match frr_row ref with
-  | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
-  | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
-  | OFStmt r os => In (OFStmt r os)
-      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
-  | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
-      ot = own_type bp r n H
-  end.
-Proof.
-  destruct ref as [k o Hat]; cbn [frr_row].
-  assert (Hin : In o (raw_facts bp)) by (rewrite <- (fact_once bp fp); exact (nth_error_In _ _ Hat)).
-  destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
-  unfold occ_facts_va in Ho.
-  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
-    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
-    try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
-    try (rewrite (type_fact_at bp r nt E) in Ho);
-    try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
-    cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
-    subst o; cbn; rewrite ?Hfile; try reflexivity.
-  - exists E; reflexivity.
-  - exists nt, E; reflexivity.
-Qed.
-(* §12 no false peer: the only retained fact at an exact site+kind is that one; no fabricated peer joins the list *)
-Lemma no_false_row (o o' : OccFact bp) :
-  In o (fact_list fp) -> In o' (fact_list fp) -> fact_site o' = fact_site o -> fact_kind o' = fact_kind o -> o' = o.
-Proof.
-  intros Ho Ho' Hs Hk. apply (nodup_map_inj fact_key (fact_list fp) fact_list_key_nodup o' o Ho' Ho).
-  unfold fact_key. rewrite Hs, Hk. reflexivity.
-Qed.
-(* §24.3 a row with no retained cause admits no invalid-case ref: a success/nonconstant row is never invalid *)
-Lemma no_invalid_of_no_cause (ref : FactRowRef fp) (ir : InvalidFactRef fp) :
-  ifr_rowref ir = ref -> occ_cause (frr_row ref) = None -> False.
-Proof. intros Href Hnone. subst ref. pose proof (ifr_ok ir) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
-(* §24.3 a row with no retained requirement admits no unmet-case ref: a success/nonconstant row is never unmet *)
-Lemma no_unmet_of_no_req (ref : FactRowRef fp) (ur : UnmetFactRef fp) :
-  ufr_rowref ur = ref -> occ_req (frr_row ref) = None -> False.
-Proof. intros Href Hnone. subst ref. pose proof (ufr_ok ur) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
-
-(* §13 the exact negative case of a child row, projected from that exact row: invalid, unmet, or dependent *)
-Inductive NegativeFactRef (child_row : FactRowRef fp) : Type :=
-| ChildInvalid   : forall c : Cause bp (frr_site child_row) (frr_kind child_row),
-    occ_cause (frr_row child_row) = Some c -> NegativeFactRef child_row
-| ChildUnmet     : forall rq : Requirement bp (frr_site child_row) (frr_kind child_row),
-    occ_req (frr_row child_row) = Some rq -> NegativeFactRef child_row
-| ChildDependent : forall d : Dependency bp (frr_site child_row) (frr_kind child_row),
-    occ_dep (frr_row child_row) = Some d -> NegativeFactRef child_row.
-Arguments ChildInvalid {child_row} _ _. Arguments ChildUnmet {child_row} _ _. Arguments ChildDependent {child_row} _ _.
-(* the exact negative class, a proof-insensitive descriptive projection *)
-Definition nfr_class {child_row : FactRowRef fp} (n : NegativeFactRef child_row) : NegClass :=
-  match n with ChildInvalid _ _ => NegInvalid | ChildUnmet _ _ => NegUnmet | ChildDependent _ _ => NegDependent end.
-(* the exact negative case of a retained row, projected from its own outcome; none for a success/nonconstant row *)
-Definition negative_case (child_row : FactRowRef fp) : option (NegativeFactRef child_row) :=
-  match occ_cause (frr_row child_row) as oc return occ_cause (frr_row child_row) = oc -> option (NegativeFactRef child_row) with
-  | Some c => fun H => Some (ChildInvalid c H)
-  | None => fun _ =>
-    match occ_req (frr_row child_row) as oq return occ_req (frr_row child_row) = oq -> option (NegativeFactRef child_row) with
-    | Some rq => fun H => Some (ChildUnmet rq H)
-    | None => fun _ =>
-      match occ_dep (frr_row child_row) as od return occ_dep (frr_row child_row) = od -> option (NegativeFactRef child_row) with
-      | Some d => fun H => Some (ChildDependent d H)
-      | None => fun _ => None
-      end eq_refl
-    end eq_refl
-  end eq_refl.
-
-(* §14 an exact child-dependent parent: a retained statement row whose exact outcome is SDependent of a DepChild edge *)
-Record ChildDependentFactRef : Type := mk_cdfr {
-  cdfr_rowref : FactRowRef fp ;
-  cdfr_site   : Index.NodeRef idx ;
-  cdfr_edge   : ChildFactEdge cdfr_site StatementKind ;
-  cdfr_ok     : frr_row cdfr_rowref = OFStmt cdfr_site (SDependent (DepChild cdfr_edge))
-}.
-Definition cdfr_edge_site (c : ChildDependentFactRef) : Index.NodeRef idx := cfe_child_site (cdfr_edge c).
-Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_kind (cdfr_edge c).
-(* a statement dependency can only be a DepChild, so its exact edge is a total projection *)
-Definition dep_child_edge {site : Index.NodeRef idx} (d : Dependency bp site StatementKind) : ChildFactEdge site StatementKind :=
-  match d in Dependency _ _ k return (match k with StatementKind => ChildFactEdge site StatementKind | _ => unit end) with
-  | DepChild e => e | _ => tt end.
-Lemma dep_child_eq {site : Index.NodeRef idx} (d : Dependency bp site StatementKind) : d = DepChild (dep_child_edge d).
-Proof.
-  refine (match d as d0 in Dependency _ _ k
-    return (match k as k0 return Dependency bp site k0 -> Prop with
-            | StatementKind => fun dd => dd = DepChild (dep_child_edge dd) | _ => fun _ => True end d0)
-  with DepChild e => eq_refl | _ => I end).
-Qed.
-(* every child-dependent parent row is exactly a retained OFStmt at cdfr_site carrying the exact DepChild edge *)
-Definition child_dep_of_body (row : FactRowRef fp) (o : OccFact bp) (Ho : frr_row row = o) : option ChildDependentFactRef :=
-  match o as o0 return frr_row row = o0 -> option ChildDependentFactRef with
-  | OFStmt r (SDependent d) => fun Hr =>
-      Some (mk_cdfr row r (dep_child_edge d) (eq_trans Hr (f_equal (fun x => OFStmt r (SDependent x)) (dep_child_eq d))))
-  | _ => fun _ => None
-  end Ho.
-Definition child_dep_of (row : FactRowRef fp) : option ChildDependentFactRef :=
-  child_dep_of_body row (frr_row row) eq_refl.
-(* a child-dependent row's retained ref is exactly that row: the enumeration keeps the parent's own ordinal *)
-Lemma child_dep_of_rowref (row : FactRowRef fp) (cdfr : ChildDependentFactRef) :
-  child_dep_of row = Some cdfr -> cdfr_rowref cdfr = row.
-Proof.
-  unfold child_dep_of.
-  assert (Hg : forall (o : OccFact bp) (Ho : frr_row row = o),
-    child_dep_of_body row o Ho = Some cdfr -> cdfr_rowref cdfr = row).
-  { intros o Ho Heq. destruct o as [r ov|r oa|r os|r ot]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
-    destruct os as [ | | | dd ]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
-    injection Heq as Heq. subst cdfr. reflexivity. }
-  exact (Hg (frr_row row) eq_refl).
-Qed.
-
-(* §15 the central relation: the parent's retained edge names the exact child fact_row_for finds, + its negative case *)
-Record ChildPrerequisiteRef (cdfr : ChildDependentFactRef) : Type := mk_cpr {
-  cpr_child_row : FactRowRef fp ;
-  cpr_lookup    : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some cpr_child_row ;
-  cpr_neg       : NegativeFactRef cpr_child_row
-}.
-(* §15 the one total builder from the exact parent child-dependency view: look up the exact child, retain its case *)
-Definition child_prerequisite_body (cdfr : ChildDependentFactRef) (fr : option (FactRowRef fp))
-  (Hfr : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr) : option (ChildPrerequisiteRef cdfr) :=
-  match fr as fr0 return fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr0 -> option (ChildPrerequisiteRef cdfr) with
-  | Some child_row => fun Hlk =>
-      match negative_case child_row with Some neg => Some (mk_cpr cdfr child_row Hlk neg) | None => None end
-  | None => fun _ => None
-  end Hfr.
-Definition child_prerequisite (cdfr : ChildDependentFactRef) : option (ChildPrerequisiteRef cdfr) :=
-  child_prerequisite_body cdfr (fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr)) eq_refl.
-
-(* §16 the canonical ordered prerequisites: one per child-dependent parent row, in retained fact-row order *)
-Definition child_prerequisite_refs : list { cdfr : ChildDependentFactRef & ChildPrerequisiteRef cdfr } :=
-  flat_map (fun row => match child_dep_of row with
-    | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
-    | None => [] end) (fact_rows fp).
 
 (* §19.3/§19.4 inverting the retained child edge: SDependent names e at the selected kind, its guard bool true *)
 Lemma own_stmt_expr_dep_inv (pr : Index.Refs.ExprStmtRef idx) (val_neg app_neg : bool)
@@ -1650,43 +1190,7 @@ Proof.
   unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [exact Hfr | split; [exact Hr | exact Ho]].
 Qed.
-(* a retained row's own file: its package membership, exact file, and the node the one builder produced it at *)
-Lemma row_file (row : FactRowRef fp) :
-  In row (fact_rows fp) ->
-  exists fr, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
-             /\ Index.nr_file (frr_site row) = fr
-             /\ In (frr_row row)
-                  (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) (frr_site row)).
-Proof.
-  intro Hin. assert (Hil : In (frr_row row) (fact_list fp))
-    by (rewrite <- fact_rows_rows; apply in_map; exact Hin).
-  rewrite fact_once in Hil. destruct (raw_facts_node_file (frr_row row) Hil) as [fr [r' [Hfr [Hr' Ho]]]].
-  pose proof (occ_facts_va_site (const_table bp fr) fr r' (Index.file_nodes_file fr r' Hr') (frr_row row) Ho) as Hsite.
-  exists fr. unfold frr_site. rewrite Hsite. split; [exact Hfr | split].
-  - exact (Index.file_nodes_file fr r' Hr').
-  - exact Ho.
-Qed.
-(* a negative value child's exact value fact is retained in the same FactPhase, in its own file *)
-Lemma value_fact_retained (fr : Index.FileRef idx)
-  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages s)))
-  (e : Index.NodeRef idx) (He : Index.nr_file e = fr)
-  (Hneg : value_neg_b bp (own_value bp (const_table bp fr) e) = true) :
-  In (OFValue e (own_value bp (const_table bp fr) e)) (fact_list fp).
-Proof.
-  rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
-  apply in_flat_map. exists e. split;
-    [ exact (file_nodes_complete fr e He) | apply (occ_value_mem bp (const_table bp fr) fr e He); exact Hneg ].
-Qed.
-(* a negative application child's exact application fact is retained in the same FactPhase, in its own file *)
-Lemma app_fact_retained (fr : Index.FileRef idx)
-  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages s)))
-  (e : Index.NodeRef idx) (He : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
-  In (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))) (fact_list fp).
-Proof.
-  rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
-  apply in_flat_map. exists e. split;
-    [ exact (file_nodes_complete fr e He) | apply (occ_app_mem bp (const_table bp fr) fr e He Hva) ].
-Qed.
+
 (* a retained SDependent statement fact came from the expr-statement arm: its outcome is the exact driver result *)
 Lemma stmt_fact_dependent (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
@@ -1709,34 +1213,547 @@ Proof.
       exact (short_stmt_body_not_dep bp r sn sv H _ eq_refl d Heq'). }
   exact (Hgen (Index.node_view r) eq_refl).
 Qed.
+
+(* §12 canonical-row truth over a generic phase: a retained raw fact is exactly the own_* the builder selected *)
+Lemma raw_fact_is_own (o : OccFact bp) :
+  In o (raw_facts bp) ->
+  match o with
+  | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
+  | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
+  | OFStmt r os => In (OFStmt r os)
+      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
+  | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
+      ot = own_type bp r n H
+  end.
+Proof.
+  intro Hin.
+  destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
+  unfold occ_facts_va in Ho.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
+    try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
+    try (rewrite (type_fact_at bp r nt E) in Ho);
+    try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
+    cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
+    subst o; cbn; rewrite ?Hfile; try reflexivity.
+  - exists E; reflexivity.
+  - exists nt, E; reflexivity.
+Qed.
+
+End FactBuilderLaws.
+
+(* the exact retained package decisions of one Result: its canonical preflight and per-package main rule, projected *)
+Definition result_preflight {p} (r : Result p) : FreshBuildDisposition (res_surface r) := preflight (res_pkg r).
+Definition result_package_rule {p} (r : Result p) (pr : BN.PI.PackageRef (res_surface r)) : BN.MainStatus (res_surface r) pr :=
+  package_rule (res_pkg r) pr.
+
+(* an exact missing-main case of one Result: a package whose canonical main decision IS MainMissing, proof retained *)
+Record MissingMainRef {p} (r : Result p) : Type := mk_missing_main_ref {
+  mmr_package : BN.PI.PackageRef (res_surface r) ;
+  mmr_case    : result_package_rule r mmr_package = BN.MainMissing
+}.
+Arguments mk_missing_main_ref {p r} _ _.
+Arguments mmr_package {p r} _. Arguments mmr_case {p r} _.
+
+(* an exact output-collision case of one Result: the exact retained preflight IS FreshCollision at that package+root *)
+Record CollisionRef {p} (r : Result p) : Type := mk_collision_ref {
+  cr_package : BN.PI.PackageRef (res_surface r) ;
+  cr_root    : BN.PI.RootEntryRef (res_index r) ;
+  cr_case    : result_preflight r = FreshCollision cr_package cr_root
+}.
+Arguments mk_collision_ref {p r} _ _ _.
+Arguments cr_package {p r} _. Arguments cr_root {p r} _. Arguments cr_case {p r} _.
+
+Section PackageCases.
+Context {p : Syntax.Program} (r : Result p).
+
+(* the exact missing-main case at a package, when its canonical status is MainMissing; other statuses yield none *)
+Definition mm_of (pr : BN.PI.PackageRef (res_surface r)) (st : BN.MainStatus (res_surface r) pr)
+  : result_package_rule r pr = st -> list (MissingMainRef r) :=
+  match st as st0 return result_package_rule r pr = st0 -> list (MissingMainRef r) with
+  | BN.MainMissing => fun H => [mk_missing_main_ref pr H]
+  | _ => fun _ => []
+  end.
+Definition result_missing_main_refs : list (MissingMainRef r) :=
+  flat_map (fun pr => mm_of pr (result_package_rule r pr) eq_refl) (BN.PI.packages (res_surface r)).
+
+(* the exact collision case, when the retained preflight IS a collision; FreshOk yields none *)
+Definition coll_of (d : FreshBuildDisposition (res_surface r)) : result_preflight r = d -> option (CollisionRef r) :=
+  match d as d0 return result_preflight r = d0 -> option (CollisionRef r) with
+  | FreshOk => fun _ => None
+  | FreshCollision pr rr => fun H => Some (mk_collision_ref pr rr H)
+  end.
+Definition result_collision_ref : option (CollisionRef r) := coll_of (result_preflight r) eq_refl.
+
+(* the boolean the missing-main enumeration selects on: exactly the MainMissing decision at a package *)
+Definition is_missing (pr : BN.PI.PackageRef (res_surface r)) : bool :=
+  match result_package_rule r pr with BN.MainMissing => true | _ => false end.
+(* mm_of projects to exactly [pr] on the MainMissing decision, and to nothing on MainOne / MainMultiple *)
+Lemma mm_of_package (pr : BN.PI.PackageRef (res_surface r)) (st : BN.MainStatus (res_surface r) pr)
+  (H : result_package_rule r pr = st) :
+  map mmr_package (mm_of pr st H) = match st with BN.MainMissing => [pr] | _ => [] end.
+Proof. destruct st; reflexivity. Qed.
+
+(* §11.1/§19.1 the missing-main packages are exactly the MainMissing packages of packages s, in package order *)
+Lemma missing_main_packages : map mmr_package result_missing_main_refs = filter is_missing (BN.PI.packages (res_surface r)).
+Proof.
+  unfold result_missing_main_refs. rewrite BN.map_flat_map.
+  apply flat_map_match_filter. intro pr. rewrite mm_of_package. unfold is_missing.
+  destruct (result_package_rule r pr); reflexivity.
+Qed.
+(* §19.1 soundness: every retained missing-main ref carries the exact MainMissing decision of its package *)
+Lemma missing_main_sound (mmr : MissingMainRef r) : result_package_rule r (mmr_package mmr) = BN.MainMissing.
+Proof. exact (mmr_case mmr). Qed.
+(* §19.1 a MainOne or MainMultiple package can never inhabit MissingMainRef: its exact decision is not MainMissing *)
+Lemma no_missing_of_main_one (mmr : MissingMainRef r) (e : BN.Est (res_surface r)) :
+  result_package_rule r (mmr_package mmr) = BN.MainOne e -> False.
+Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
+Lemma no_missing_of_main_multiple (mmr : MissingMainRef r) (a b : BN.Est (res_surface r)) (rest : list (BN.Est (res_surface r))) :
+  result_package_rule r (mmr_package mmr) = BN.MainMultiple a b rest -> False.
+Proof. intro H. rewrite (mmr_case mmr) in H. discriminate H. Qed.
+(* §11.1/§19.1 completeness: a MainMissing package appears exactly once among the enumerated missing-main packages *)
+Lemma missing_main_complete (pr : BN.PI.PackageRef (res_surface r)) :
+  In pr (BN.PI.packages (res_surface r)) -> result_package_rule r pr = BN.MainMissing ->
+  In pr (map mmr_package result_missing_main_refs).
+Proof.
+  intros Hin Hmm. rewrite missing_main_packages. apply filter_In. split; [exact Hin | unfold is_missing; rewrite Hmm; reflexivity].
+Qed.
+(* §11.1/§19.1 no duplicate package among the missing-main refs *)
+Lemma missing_main_nodup : NoDup (map mmr_package result_missing_main_refs).
+Proof. rewrite missing_main_packages. apply nodup_filter. apply BN.packages_nodup. Qed.
+
+(* §11.2/§19.2 a collision ref exists exactly when the exact retained preflight is a collision at that package+root *)
+Lemma coll_of_none (d : FreshBuildDisposition (res_surface r)) (H : result_preflight r = d) : coll_of d H = None <-> d = FreshOk.
+Proof. destruct d; cbn; split; solve [ reflexivity | discriminate | intro; reflexivity ]. Qed.
+Lemma collision_ref_none : result_collision_ref = None <-> result_preflight r = FreshOk.
+Proof. exact (coll_of_none (result_preflight r) eq_refl). Qed.
+(* §19.2 soundness: a collision ref carries the exact FreshCollision decision at its exact package and root *)
+Lemma collision_case (cr : CollisionRef r) : result_preflight r = FreshCollision (cr_package cr) (cr_root cr).
+Proof. exact (cr_case cr). Qed.
+(* §19.2 a FreshCollision preflight yields a collision ref (not None) *)
+Lemma collision_ref_of_fresh (pr : BN.PI.PackageRef (res_surface r)) (rr : BN.PI.RootEntryRef (res_index r)) :
+  result_preflight r = FreshCollision pr rr -> result_collision_ref <> None.
+Proof. intros Hf Hn. apply collision_ref_none in Hn. rewrite Hf in Hn. discriminate Hn. Qed.
+(* §19.2 the collision case is unique: any two collision refs name the same exact package and root *)
+Lemma collision_unique (cr1 cr2 : CollisionRef r) :
+  cr_package cr1 = cr_package cr2 /\ cr_root cr1 = cr_root cr2.
+Proof.
+  pose proof (cr_case cr1) as H1. pose proof (cr_case cr2) as H2. rewrite H1 in H2. injection H2 as Hp Hr.
+  split; [ exact Hp | exact Hr ].
+Qed.
+
+End PackageCases.
+Arguments mm_of {p r} pr st H.
+Arguments coll_of {p r} d H.
+Arguments is_missing {p r} pr.
+
+(* the exact retained fact list of one Result: the canonical row list its res_facts holds, projected once *)
+Definition result_fact_list {p} (r : Result p) : list (OccFact (res_binds r)) := fact_list (res_facts r).
+
+Section FactRow.
+Context {p : Syntax.Program} (r : Result p).
+Let idx := res_index r.
+Let bp  := res_binds r.
+
+(* an exact retained fact-row identity of r: an ordinal into result_fact_list r with the exact row retained there *)
+Record FactRowRef : Type := mk_frr {
+  frr_ord : nat ;
+  frr_row : OccFact bp ;
+  frr_at  : nth_error (result_fact_list r) frr_ord = Some frr_row
+}.
+Definition frr_site (ref : FactRowRef) : Index.NodeRef idx := fact_site (frr_row ref).
+Definition frr_kind (ref : FactRowRef) : FactKind := fact_kind (frr_row ref).
+Definition frr_family (ref : FactRowRef) : Family := fact_family (frr_row ref).
+
+(* the exact row at ordinal k: retains the row and its membership proof; None ordinals yield no ref *)
+Definition row_of (k : nat) (o : option (OccFact bp)) : nth_error (result_fact_list r) k = o -> list FactRowRef :=
+  match o with Some x => fun H => [mk_frr k x H] | None => fun _ => [] end.
+
+(* canonical ordered row enumeration: exactly one retained row per valid ordinal of result_fact_list r *)
+Definition fact_rows : list FactRowRef :=
+  flat_map (fun k => row_of k (nth_error (result_fact_list r) k) eq_refl) (seq 0%nat (List.length (result_fact_list r))).
+
+(* an exact invalid fact ref: a retained row whose exact retained outcome is the invalid case, carrying its cause *)
+Record InvalidFactRef : Type := mk_ifr {
+  ifr_rowref : FactRowRef ;
+  ifr_cause  : Cause bp (fact_site (frr_row ifr_rowref)) (fact_kind (frr_row ifr_rowref)) ;
+  ifr_ok     : occ_cause (frr_row ifr_rowref) = Some ifr_cause
+}.
+Definition ifr_fact (ir : InvalidFactRef) : OccFact bp := frr_row (ifr_rowref ir).
+Definition ifr_ord (ir : InvalidFactRef) : nat := frr_ord (ifr_rowref ir).
+
+(* an exact unmet fact ref: a retained row whose exact retained outcome is the unmet case, carrying its requirement *)
+Record UnmetFactRef : Type := mk_ufr {
+  ufr_rowref : FactRowRef ;
+  ufr_req    : Requirement bp (fact_site (frr_row ufr_rowref)) (fact_kind (frr_row ufr_rowref)) ;
+  ufr_ok     : occ_req (frr_row ufr_rowref) = Some ufr_req
+}.
+Definition ufr_fact (ur : UnmetFactRef) : OccFact bp := frr_row (ufr_rowref ur).
+Definition ufr_ord (ur : UnmetFactRef) : nat := frr_ord (ufr_rowref ur).
+
+(* an exact dependent fact ref: a retained row whose exact outcome is the dependent case; yields no issue row *)
+Record DependentFactRef : Type := mk_dfr {
+  dfr_rowref : FactRowRef ;
+  dfr_dep    : Dependency bp (fact_site (frr_row dfr_rowref)) (fact_kind (frr_row dfr_rowref)) ;
+  dfr_ok     : occ_dep (frr_row dfr_rowref) = Some dfr_dep
+}.
+Definition dfr_fact (dr : DependentFactRef) : OccFact bp := frr_row (dfr_rowref dr).
+Definition dfr_ord (dr : DependentFactRef) : nat := frr_ord (dfr_rowref dr).
+
+End FactRow.
+Arguments mk_frr {p r} _ _ _.
+Arguments frr_ord {p r} _. Arguments frr_row {p r} _. Arguments frr_at {p r} _.
+Arguments frr_site {p r} _. Arguments frr_kind {p r} _. Arguments frr_family {p r} _.
+Arguments row_of {p r} k o H.
+Arguments mk_ifr {p r} _ _ _.
+Arguments ifr_rowref {p r} _. Arguments ifr_cause {p r} _. Arguments ifr_ok {p r} _.
+Arguments ifr_fact {p r} _. Arguments ifr_ord {p r} _.
+Arguments mk_ufr {p r} _ _ _.
+Arguments ufr_rowref {p r} _. Arguments ufr_req {p r} _. Arguments ufr_ok {p r} _.
+Arguments ufr_fact {p r} _. Arguments ufr_ord {p r} _.
+Arguments mk_dfr {p r} _ _ _.
+Arguments dfr_rowref {p r} _. Arguments dfr_dep {p r} _. Arguments dfr_ok {p r} _.
+Arguments dfr_fact {p r} _. Arguments dfr_ord {p r} _.
+
+(* §10 canonical row enumeration laws: the enumeration IS exactly fact_list fp, once, in retained order *)
+Section FactRowLaws.
+Context {p : Syntax.Program} (res : Result p).
+
+Lemma map_flat_map_rows {A B C} (f : B -> C) (g : A -> list B) (l : list A) :
+  map f (flat_map g l) = flat_map (fun x => map f (g x)) l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite map_app, IH. reflexivity. Qed.
+Lemma flat_map_ext_rows {A B} (f g : A -> list B) (l : list A) (H : forall a, f a = g a) :
+  flat_map f l = flat_map g l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite (H a), IH. reflexivity. Qed.
+Lemma flat_map_map_rows {A B C} (f : B -> list C) (g : A -> B) (l : list A) :
+  flat_map f (map g l) = flat_map (fun x => f (g x)) l.
+Proof. induction l as [|a l' IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+Lemma opt_flatmap_full {A} (L : list A) :
+  flat_map (fun k => match nth_error L k with Some x => [x] | None => [] end) (seq 0 (List.length L)) = L.
+Proof.
+  induction L as [|a L' IH]; [reflexivity|].
+  cbn [List.length seq flat_map nth_error app]. f_equal.
+  rewrite <- seq_shift, flat_map_map_rows. exact IH.
+Qed.
+Lemma idx_flatmap_all {A} (L : list A) (ks : list nat) (Hall : forall k, In k ks -> (k < List.length L)%nat) :
+  flat_map (fun k => match nth_error L k with Some _ => [k] | None => [] end) ks = ks.
+Proof.
+  induction ks as [|k ks' IH]; [reflexivity|]. cbn [flat_map].
+  destruct (nth_error L k) as [x|] eqn:E.
+  - cbn [app]. f_equal. apply IH. intros k' Hk'. apply Hall. right; exact Hk'.
+  - exfalso. apply nth_error_None in E. specialize (Hall k (or_introl eq_refl)). lia.
+Qed.
+
+(* row_of at ordinal k projects to the exact row (its element) and to the exact ordinal k *)
+Lemma row_of_row (k : nat) (o : option (OccFact (res_binds res))) (H : nth_error (result_fact_list res) k = o) :
+  map frr_row (row_of k o H) = match o with Some x => [x] | None => [] end.
+Proof. destruct o; reflexivity. Qed.
+Lemma row_of_ord (k : nat) (o : option (OccFact (res_binds res))) (H : nth_error (result_fact_list res) k = o) :
+  map frr_ord (row_of k o H) = match o with Some _ => [k] | None => [] end.
+Proof. destruct o; reflexivity. Qed.
+(* nth_error into seq start n at a valid ordinal is exactly Some (start + k) *)
+Lemma seq_nth_error_id (n : nat) : forall (start k : nat), (k < n)%nat -> nth_error (seq start n) k = Some (start + k)%nat.
+Proof.
+  induction n as [|n' IH]; intros start k Hk; [ lia | ].
+  destruct k as [|k']; cbn [seq nth_error].
+  - f_equal; lia.
+  - rewrite IH by lia. f_equal; lia.
+Qed.
+
+(* §10 the retained rows project exactly to result_fact_list res, in retained order; the ordinals are exactly seq 0 n *)
+Lemma fact_rows_rows : map frr_row (fact_rows res) = result_fact_list res.
+Proof.
+  unfold fact_rows. rewrite map_flat_map_rows.
+  rewrite (flat_map_ext_rows _ (fun k => match nth_error (result_fact_list res) k with Some x => [x] | None => [] end))
+    by (intro k; apply row_of_row).
+  apply opt_flatmap_full.
+Qed.
+Lemma fact_rows_ords : map frr_ord (fact_rows res) = seq 0 (List.length (result_fact_list res)).
+Proof.
+  unfold fact_rows. rewrite map_flat_map_rows.
+  rewrite (flat_map_ext_rows _ (fun k => match nth_error (result_fact_list res) k with Some _ => [k] | None => [] end))
+    by (intro k; apply row_of_ord).
+  apply idx_flatmap_all. intros k Hk. apply in_seq in Hk. lia.
+Qed.
+(* §10 ordinal identity: the row ordinals are duplicate-free *)
+Lemma fact_rows_ord_nodup : NoDup (map frr_ord (fact_rows res)).
+Proof. rewrite fact_rows_ords. apply seq_NoDup. Qed.
+(* §10 completeness + positional uniqueness: every list member is enumerated at its exact position, retaining it *)
+Lemma fact_rows_complete (k : nat) (row : OccFact (res_binds res)) (Hk : nth_error (result_fact_list res) k = Some row) :
+  exists ref, nth_error (fact_rows res) k = Some ref /\ frr_ord ref = k /\ frr_row ref = row.
+Proof.
+  assert (Hlt : (k < List.length (result_fact_list res))%nat) by (apply nth_error_Some; rewrite Hk; discriminate).
+  destruct (nth_error (fact_rows res) k) as [ref|] eqn:E.
+  2:{ exfalso. apply nth_error_None in E. rewrite <- (length_map frr_row), fact_rows_rows in E. lia. }
+  exists ref. split; [reflexivity | split].
+  - assert (Ho : nth_error (seq 0 (List.length (result_fact_list res))) k = Some (frr_ord ref))
+      by (rewrite <- fact_rows_ords, nth_error_map, E; reflexivity).
+    rewrite (seq_nth_error_id (List.length (result_fact_list res)) 0 k Hlt) in Ho. injection Ho as Ho. lia.
+  - assert (Hr : nth_error (result_fact_list res) k = Some (frr_row ref))
+      by (rewrite <- fact_rows_rows, nth_error_map, E; reflexivity).
+    rewrite Hk in Hr. injection Hr as Hr. symmetry. exact Hr.
+Qed.
+
+(* §11 the exact canonical row key of a retained row: the occurrence's exact site paired with its exact fact kind *)
+Definition frr_key (ref : FactRowRef res) : Index.NodeRef (res_index res) * FactKind := fact_key (frr_row ref).
+
+
+(* the retained fact list, and the row enumeration, inherit the duplicate-free site+kind key *)
+Lemma fact_list_key_nodup : NoDup (map fact_key (result_fact_list res)).
+Proof. unfold result_fact_list. rewrite fact_once. apply raw_facts_key_nodup. Qed.
+Lemma fact_rows_key_nodup : NoDup (map frr_key (fact_rows res)).
+Proof. unfold frr_key. rewrite <- map_map, fact_rows_rows. apply fact_list_key_nodup. Qed.
+(* §24.2 row uniqueness: two retained rows with equal site and equal kind are the same exact row *)
+Lemma fact_row_key_unique (r1 r2 : FactRowRef res) :
+  In r1 (fact_rows res) -> In r2 (fact_rows res) -> frr_site r1 = frr_site r2 -> frr_kind r1 = frr_kind r2 -> r1 = r2.
+Proof.
+  intros H1 H2 Hs Hk. apply (nodup_map_inj frr_key (fact_rows res) fact_rows_key_nodup r1 r2 H1 H2).
+  change (frr_key r1) with (frr_site r1, frr_kind r1). change (frr_key r2) with (frr_site r2, frr_kind r2).
+  rewrite Hs, Hk. reflexivity.
+Qed.
+
+(* a decidable fact-kind equality, so the site+kind lookup is a total boolean search over the retained rows *)
+Definition fact_kind_eqb (a b : FactKind) : bool :=
+  match a, b with
+  | ValueKind, ValueKind | ApplicationKind, ApplicationKind
+  | StatementKind, StatementKind | TypeUseKind, TypeUseKind => true
+  | _, _ => false
+  end.
+Lemma fact_kind_eqb_spec (a b : FactKind) : fact_kind_eqb a b = true <-> a = b.
+Proof. destruct a, b; cbn; split; intro H; solve [ discriminate H | reflexivity ]. Qed.
+
+(* §11 canonical site+kind lookup: search the retained rows only; never rebuild an outcome through own_* *)
+Definition fact_row_for (site : Index.NodeRef (res_index res)) (kind : FactKind) : option (FactRowRef res) :=
+  find (fun ref => andb (BN.noderef_eqb (frr_site ref) site) (fact_kind_eqb (frr_kind ref) kind)) (fact_rows res).
+
+(* §24.2 soundness: a found row is a retained row with exactly the requested site and kind *)
+Lemma fact_row_for_sound (site : Index.NodeRef (res_index res)) (kind : FactKind) (ref : FactRowRef res) :
+  fact_row_for site kind = Some ref -> In ref (fact_rows res) /\ frr_site ref = site /\ frr_kind ref = kind.
+Proof.
+  intro H. apply find_some in H. destruct H as [Hin Hp]. apply andb_prop in Hp. destruct Hp as [Hs Hk].
+  apply BN.noderef_eqb_spec in Hs. apply fact_kind_eqb_spec in Hk. split; [ exact Hin | split; [ exact Hs | exact Hk ] ].
+Qed.
+(* §24.2 completeness: any retained row with that site and kind is exactly the one the lookup returns *)
+Lemma fact_row_for_complete (site : Index.NodeRef (res_index res)) (kind : FactKind) (ref : FactRowRef res) :
+  In ref (fact_rows res) -> frr_site ref = site -> frr_kind ref = kind -> fact_row_for site kind = Some ref.
+Proof.
+  intros Hin Hs Hk. destruct (fact_row_for site kind) as [ref'|] eqn:E.
+  - f_equal. apply fact_row_for_sound in E. destruct E as [Hin' [Hs' Hk']].
+    apply (fact_row_key_unique ref' ref Hin' Hin); [ rewrite Hs', Hs; reflexivity | rewrite Hk', Hk; reflexivity ].
+  - exfalso. unfold fact_row_for in E. pose proof (find_none _ _ E ref Hin) as Hno. cbv beta in Hno.
+    rewrite (proj2 (BN.noderef_eqb_spec (frr_site ref) site) Hs) in Hno.
+    rewrite (proj2 (fact_kind_eqb_spec (frr_kind ref) kind) Hk) in Hno. discriminate Hno.
+Qed.
+(* §24.2 None soundness: no retained row of that exact site and kind means the lookup is None *)
+Lemma fact_row_for_none (site : Index.NodeRef (res_index res)) (kind : FactKind) :
+  (forall ref, In ref (fact_rows res) -> ~ (frr_site ref = site /\ frr_kind ref = kind)) -> fact_row_for site kind = None.
+Proof.
+  intro Hno. destruct (fact_row_for site kind) as [ref|] eqn:E; [ | reflexivity ].
+  exfalso. apply fact_row_for_sound in E. destruct E as [Hin [Hs Hk]]. exact (Hno ref Hin (conj Hs Hk)).
+Qed.
+(* §24.2 None completeness: a None lookup means no retained row carries that exact site and kind *)
+Lemma fact_row_for_none_inv (site : Index.NodeRef (res_index res)) (kind : FactKind) (ref : FactRowRef res) :
+  fact_row_for site kind = None -> In ref (fact_rows res) -> ~ (frr_site ref = site /\ frr_kind ref = kind).
+Proof.
+  intros E Hin [Hs Hk]. pose proof (fact_row_for_complete site kind ref Hin Hs Hk) as Hc. rewrite E in Hc. discriminate.
+Qed.
+(* §24.2 non-conflation: an application site's Application-key and Value-key lookups return two distinct rows *)
+Lemma fact_row_for_kind_distinct (site : Index.NodeRef (res_index res)) (r1 r2 : FactRowRef res) :
+  fact_row_for site ApplicationKind = Some r1 -> fact_row_for site ValueKind = Some r2 -> r1 <> r2.
+Proof.
+  intros H1 H2 Heq. apply fact_row_for_sound in H1. apply fact_row_for_sound in H2.
+  destruct H1 as [_ [_ Hk1]]. destruct H2 as [_ [_ Hk2]]. subst r2. rewrite Hk1 in Hk2. discriminate.
+Qed.
+
+(* §12 canonical-row truth: a retained row's exact outcome is the own_* result the one canonical builder selected *)
+Lemma fact_row_is_own (ref : FactRowRef res) :
+  match frr_row ref with
+  | OFValue r ov => ov = own_value (res_binds res) (const_table (res_binds res) (Index.nr_file r)) r
+  | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app (res_binds res) (Index.Refs.mkAppRef r H)
+  | OFStmt r os => In (OFStmt r os)
+      (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
+  | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
+      ot = own_type (res_binds res) r n H
+  end.
+Proof.
+  destruct ref as [k o Hat]; cbn [frr_row].
+  assert (Hin : In o (raw_facts (res_binds res))) by (rewrite <- (fact_once (res_binds res) (res_facts res)); exact (nth_error_In _ _ Hat)).
+  exact (raw_fact_is_own o Hin).
+Qed.
+(* §12 no false peer: the only retained fact at an exact site+kind is that one; no fabricated peer joins the list *)
+Lemma no_false_row (o o' : OccFact (res_binds res)) :
+  In o (result_fact_list res) -> In o' (result_fact_list res) -> fact_site o' = fact_site o -> fact_kind o' = fact_kind o -> o' = o.
+Proof.
+  intros Ho Ho' Hs Hk. apply (nodup_map_inj fact_key (result_fact_list res) fact_list_key_nodup o' o Ho' Ho).
+  exact (f_equal2 (@pair _ _) Hs Hk).
+Qed.
+(* §24.3 a row with no retained cause admits no invalid-case ref: a success/nonconstant row is never invalid *)
+Lemma no_invalid_of_no_cause (ref : FactRowRef res) (ir : InvalidFactRef res) :
+  ifr_rowref ir = ref -> occ_cause (frr_row ref) = None -> False.
+Proof. intros Href Hnone. subst ref. pose proof (ifr_ok ir) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
+(* §24.3 a row with no retained requirement admits no unmet-case ref: a success/nonconstant row is never unmet *)
+Lemma no_unmet_of_no_req (ref : FactRowRef res) (ur : UnmetFactRef res) :
+  ufr_rowref ur = ref -> occ_req (frr_row ref) = None -> False.
+Proof. intros Href Hnone. subst ref. pose proof (ufr_ok ur) as Hok. rewrite Hnone in Hok. discriminate Hok. Qed.
+
+(* §13 the exact negative case of a child row, projected from that exact row: invalid, unmet, or dependent *)
+Inductive NegativeFactRef (child_row : FactRowRef res) : Type :=
+| ChildInvalid   : forall c : Cause (res_binds res) (frr_site child_row) (frr_kind child_row),
+    occ_cause (frr_row child_row) = Some c -> NegativeFactRef child_row
+| ChildUnmet     : forall rq : Requirement (res_binds res) (frr_site child_row) (frr_kind child_row),
+    occ_req (frr_row child_row) = Some rq -> NegativeFactRef child_row
+| ChildDependent : forall d : Dependency (res_binds res) (frr_site child_row) (frr_kind child_row),
+    occ_dep (frr_row child_row) = Some d -> NegativeFactRef child_row.
+Arguments ChildInvalid {child_row} _ _. Arguments ChildUnmet {child_row} _ _. Arguments ChildDependent {child_row} _ _.
+(* the exact negative class, a proof-insensitive descriptive projection *)
+Definition nfr_class {child_row : FactRowRef res} (n : NegativeFactRef child_row) : NegClass :=
+  match n with ChildInvalid _ _ => NegInvalid | ChildUnmet _ _ => NegUnmet | ChildDependent _ _ => NegDependent end.
+(* the exact negative case of a retained row, projected from its own outcome; none for a success/nonconstant row *)
+Definition negative_case (child_row : FactRowRef res) : option (NegativeFactRef child_row) :=
+  match occ_cause (frr_row child_row) as oc return occ_cause (frr_row child_row) = oc -> option (NegativeFactRef child_row) with
+  | Some c => fun H => Some (ChildInvalid c H)
+  | None => fun _ =>
+    match occ_req (frr_row child_row) as oq return occ_req (frr_row child_row) = oq -> option (NegativeFactRef child_row) with
+    | Some rq => fun H => Some (ChildUnmet rq H)
+    | None => fun _ =>
+      match occ_dep (frr_row child_row) as od return occ_dep (frr_row child_row) = od -> option (NegativeFactRef child_row) with
+      | Some d => fun H => Some (ChildDependent d H)
+      | None => fun _ => None
+      end eq_refl
+    end eq_refl
+  end eq_refl.
+
+(* §14 an exact child-dependent parent: a retained statement row whose exact outcome is SDependent of a DepChild edge *)
+Record ChildDependentFactRef : Type := mk_cdfr {
+  cdfr_rowref : FactRowRef res ;
+  cdfr_site   : Index.NodeRef (res_index res) ;
+  cdfr_edge   : ChildFactEdge cdfr_site StatementKind ;
+  cdfr_ok     : frr_row cdfr_rowref = OFStmt cdfr_site (SDependent (DepChild cdfr_edge))
+}.
+Definition cdfr_edge_site (c : ChildDependentFactRef) : Index.NodeRef (res_index res) := cfe_child_site (cdfr_edge c).
+Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_kind (cdfr_edge c).
+(* a statement dependency can only be a DepChild, so its exact edge is a total projection *)
+Definition dep_child_edge {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : ChildFactEdge site StatementKind :=
+  match d in Dependency _ _ k return (match k with StatementKind => ChildFactEdge site StatementKind | _ => unit end) with
+  | DepChild e => e | _ => tt end.
+Lemma dep_child_eq {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : d = DepChild (dep_child_edge d).
+Proof.
+  refine (match d as d0 in Dependency _ _ k
+    return (match k as k0 return Dependency (res_binds res) site k0 -> Prop with
+            | StatementKind => fun dd => dd = DepChild (dep_child_edge dd) | _ => fun _ => True end d0)
+  with DepChild e => eq_refl | _ => I end).
+Qed.
+(* every child-dependent parent row is exactly a retained OFStmt at cdfr_site carrying the exact DepChild edge *)
+Definition child_dep_of_body (row : FactRowRef res) (o : OccFact (res_binds res)) (Ho : frr_row row = o) : option ChildDependentFactRef :=
+  match o as o0 return frr_row row = o0 -> option ChildDependentFactRef with
+  | OFStmt r (SDependent d) => fun Hr =>
+      Some (mk_cdfr row r (dep_child_edge d) (eq_trans Hr (f_equal (fun x => OFStmt r (SDependent x)) (dep_child_eq d))))
+  | _ => fun _ => None
+  end Ho.
+Definition child_dep_of (row : FactRowRef res) : option ChildDependentFactRef :=
+  child_dep_of_body row (frr_row row) eq_refl.
+(* a child-dependent row's retained ref is exactly that row: the enumeration keeps the parent's own ordinal *)
+Lemma child_dep_of_rowref (row : FactRowRef res) (cdfr : ChildDependentFactRef) :
+  child_dep_of row = Some cdfr -> cdfr_rowref cdfr = row.
+Proof.
+  unfold child_dep_of.
+  assert (Hg : forall (o : OccFact (res_binds res)) (Ho : frr_row row = o),
+    child_dep_of_body row o Ho = Some cdfr -> cdfr_rowref cdfr = row).
+  { intros o Ho Heq. destruct o as [r ov|r oa|r os|r ot]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
+    destruct os as [ | | | dd ]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
+    injection Heq as Heq. subst cdfr. reflexivity. }
+  exact (Hg (frr_row row) eq_refl).
+Qed.
+
+(* §15 the central relation: the parent's retained edge names the exact child fact_row_for finds, + its negative case *)
+Record ChildPrerequisiteRef (cdfr : ChildDependentFactRef) : Type := mk_cpr {
+  cpr_child_row : FactRowRef res ;
+  cpr_lookup    : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some cpr_child_row ;
+  cpr_neg       : NegativeFactRef cpr_child_row
+}.
+(* §15 the one total builder from the exact parent child-dependency view: look up the exact child, retain its case *)
+Definition child_prerequisite_body (cdfr : ChildDependentFactRef) (fr : option (FactRowRef res))
+  (Hfr : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr) : option (ChildPrerequisiteRef cdfr) :=
+  match fr as fr0 return fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = fr0 -> option (ChildPrerequisiteRef cdfr) with
+  | Some child_row => fun Hlk =>
+      match negative_case child_row with Some neg => Some (mk_cpr cdfr child_row Hlk neg) | None => None end
+  | None => fun _ => None
+  end Hfr.
+Definition child_prerequisite (cdfr : ChildDependentFactRef) : option (ChildPrerequisiteRef cdfr) :=
+  child_prerequisite_body cdfr (fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr)) eq_refl.
+
+(* §16 the canonical ordered prerequisites: one per child-dependent parent row, in retained fact-row order *)
+Definition child_prerequisite_refs : list { cdfr : ChildDependentFactRef & ChildPrerequisiteRef cdfr } :=
+  flat_map (fun row => match child_dep_of row with
+    | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
+    | None => [] end) (fact_rows res).
+
+
+(* a retained row's own file: its package membership, exact file, and the node the one builder produced it at *)
+Lemma row_file (row : FactRowRef res) :
+  In row (fact_rows res) ->
+  exists fr, In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res)))
+             /\ Index.nr_file (frr_site row) = fr
+             /\ In (frr_row row)
+                  (occ_facts_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) (const_table (res_binds res) fr) (frr_site row)).
+Proof.
+  intro Hin. assert (Hil : In (frr_row row) (result_fact_list res))
+    by (rewrite <- fact_rows_rows; apply in_map; exact Hin).
+  unfold result_fact_list in Hil. rewrite fact_once in Hil. destruct (raw_facts_node_file (frr_row row) Hil) as [fr [r' [Hfr [Hr' Ho]]]].
+  pose proof (occ_facts_va_site (const_table (res_binds res) fr) fr r' (Index.file_nodes_file fr r' Hr') (frr_row row) Ho) as Hsite.
+  exists fr. unfold frr_site. rewrite Hsite. split; [exact Hfr | split].
+  - exact (Index.file_nodes_file fr r' Hr').
+  - exact Ho.
+Qed.
+(* a negative value child's exact value fact is retained in the same FactPhase, in its own file *)
+Lemma value_fact_retained (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (Hneg : value_neg_b (res_binds res) (own_value (res_binds res) (const_table (res_binds res) fr) e) = true) :
+  In (OFValue e (own_value (res_binds res) (const_table (res_binds res) fr) e)) (result_fact_list res).
+Proof.
+  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split;
+    [ exact (file_nodes_complete fr e He) | apply (occ_value_mem (res_binds res) (const_table (res_binds res) fr) fr e He); exact Hneg ].
+Qed.
+(* a negative application child's exact application fact is retained in the same FactPhase, in its own file *)
+Lemma app_fact_retained (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
+  In (OFApp e (own_app (res_binds res) (Index.Refs.mkAppRef e Hva))) (result_fact_list res).
+Proof.
+  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split;
+    [ exact (file_nodes_complete fr e He) | apply (occ_app_mem (res_binds res) (const_table (res_binds res) fr) fr e He Hva) ].
+Qed.
 (* a negative value / application outcome makes one of the row's own cause/req/dep present *)
-Lemma value_neg_disj (child_row : FactRowRef fp) (e : Index.NodeRef idx) (ov : ValueOutcome bp e)
-  (Hrow : frr_row child_row = OFValue e ov) (Hneg : value_neg_b bp ov = true) :
+Lemma value_neg_disj (child_row : FactRowRef res) (e : Index.NodeRef (res_index res)) (ov : ValueOutcome (res_binds res) e)
+  (Hrow : frr_row child_row = OFValue e ov) (Hneg : value_neg_b (res_binds res) ov = true) :
   occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None \/ occ_dep (frr_row child_row) <> None.
 Proof.
   rewrite Hrow. destruct ov; cbn in Hneg |- *; try discriminate Hneg;
     first [ left; discriminate | right; left; discriminate | right; right; discriminate ].
 Qed.
-Lemma app_neg_disj (child_row : FactRowRef fp) (e : Index.NodeRef idx) (oa : AppOutcome bp e)
-  (Hrow : frr_row child_row = OFApp e oa) (Hneg : app_neg_b bp oa = true) :
+Lemma app_neg_disj (child_row : FactRowRef res) (e : Index.NodeRef (res_index res)) (oa : AppOutcome (res_binds res) e)
+  (Hrow : frr_row child_row = OFApp e oa) (Hneg : app_neg_b (res_binds res) oa = true) :
   occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None \/ occ_dep (frr_row child_row) <> None.
 Proof.
   rewrite Hrow. destruct oa; cbn in Hneg |- *; try discriminate Hneg;
     first [ left; discriminate | right; left; discriminate | right; right; discriminate ].
 Qed.
 (* §19.4/§19.5 a row with a present cause/req/dep has an exact negative case *)
-Lemma negative_case_some (child_row : FactRowRef fp)
+Lemma negative_case_some (child_row : FactRowRef res)
   (H : occ_cause (frr_row child_row) <> None \/ occ_req (frr_row child_row) <> None
        \/ occ_dep (frr_row child_row) <> None) :
   negative_case child_row <> None.
 Proof.
   unfold negative_case.
   assert (Hg : forall
-    (oc : option (Cause bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (oc : option (Cause (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hoc : occ_cause (frr_row child_row) = oc)
-    (oq : option (Requirement bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (oq : option (Requirement (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hoq : occ_req (frr_row child_row) = oq)
-    (od : option (Dependency bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (od : option (Dependency (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hod : occ_dep (frr_row child_row) = od),
     (oc <> None \/ oq <> None \/ od <> None) ->
     (match oc as oc0 return occ_cause (frr_row child_row) = oc0 -> option (NegativeFactRef child_row) with
@@ -1759,7 +1776,7 @@ Proof.
             (occ_dep (frr_row child_row)) eq_refl H).
 Qed.
 (* §19.4 the prerequisite builder succeeds once the exact negative child row is looked up *)
-Lemma child_prerequisite_some (cdfr : ChildDependentFactRef) (child_row : FactRowRef fp)
+Lemma child_prerequisite_some (cdfr : ChildDependentFactRef) (child_row : FactRowRef res)
   (Hlk : fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some child_row)
   (Hneg : negative_case child_row <> None) :
   child_prerequisite cdfr <> None.
@@ -1771,7 +1788,7 @@ Proof.
     [ discriminate | exfalso; apply Hneg; reflexivity ].
 Qed.
 (* a retained fact of the list is exactly a retained fact-row *)
-Lemma fact_list_row (o : OccFact bp) : In o (fact_list fp) -> exists ref, In ref (fact_rows fp) /\ frr_row ref = o.
+Lemma fact_list_row (o : OccFact (res_binds res)) : In o (result_fact_list res) -> exists ref, In ref (fact_rows res) /\ frr_row ref = o.
 Proof.
   intro Hin. apply In_nth_error in Hin. destruct Hin as [k Hk].
   destruct (fact_rows_complete k o Hk) as [ref [Hnth [_ Hrow]]].
@@ -1779,7 +1796,7 @@ Proof.
 Qed.
 (* §19.4 completeness: every child-dependent parent row has its exact negative child prerequisite, same FactPhase *)
 Lemma child_prerequisite_complete (cdfr : ChildDependentFactRef) :
-  In (cdfr_rowref cdfr) (fact_rows fp) -> child_prerequisite cdfr <> None.
+  In (cdfr_rowref cdfr) (fact_rows res) -> child_prerequisite cdfr <> None.
 Proof.
   intro Hin. pose proof (cdfr_ok cdfr) as Hok.
   destruct (row_file (cdfr_rowref cdfr) Hin) as [fr [Hfr [Hfile _]]].
@@ -1790,19 +1807,19 @@ Proof.
   unfold expr_sx_va in Hsx.
   set (pr := Index.Refs.mkExprStmtRef (cdfr_site cdfr) Hv) in *.
   set (e0 := Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) in *.
-  set (ctab := const_table bp (Index.nr_file (cdfr_site cdfr))) in *.
-  set (va := va_facts bp ctab (Index.file_nodes (Index.nr_file (cdfr_site cdfr)))) in *.
+  set (ctab := const_table (res_binds res) (Index.nr_file (cdfr_site cdfr))) in *.
+  set (va := va_facts (res_binds res) ctab (Index.file_nodes (Index.nr_file (cdfr_site cdfr)))) in *.
   symmetry in Hsx.
   destruct (own_stmt_expr_dep_inv pr _ _ (cdfr_edge cdfr) Hsx) as [Hcs Hcase].
   assert (Hes : cdfr_edge_site cdfr = e0) by (unfold cdfr_edge_site; exact Hcs).
   assert (Hfe : Index.nr_file e0 = fr)
     by (unfold e0, pr; rewrite (ee_child_file (cdfr_site cdfr) Hv); exact Hfile).
-  assert (Hctab : ctab = const_table bp fr) by (unfold ctab; rewrite Hfile; reflexivity).
+  assert (Hctab : ctab = const_table (res_binds res) fr) by (unfold ctab; rewrite Hfile; reflexivity).
   assert (Hfe' : Index.nr_file e0 = Index.nr_file (cdfr_site cdfr)) by (rewrite Hfe, Hfile; reflexivity).
   destruct Hcase as [[Hk Hvn] | [Hk [_ [Han Hva]]]].
-  - assert (Hvnb : value_neg_b bp (own_value bp ctab e0) = true)
-      by (rewrite <- (va_value_negative_correct bp ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Hvn).
-    assert (Hret : In (OFValue e0 (own_value bp (const_table bp fr) e0)) (fact_list fp))
+  - assert (Hvnb : value_neg_b (res_binds res) (own_value (res_binds res) ctab e0) = true)
+      by (rewrite <- (va_value_negative_correct (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Hvn).
+    assert (Hret : In (OFValue e0 (own_value (res_binds res) (const_table (res_binds res) fr) e0)) (result_fact_list res))
       by (apply (value_fact_retained fr Hfr e0 Hfe); rewrite <- Hctab; exact Hvnb).
     assert (Hek : cdfr_edge_kind cdfr = ValueKind) by (unfold cdfr_edge_kind; exact Hk).
     destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
@@ -1810,11 +1827,11 @@ Proof.
     + rewrite Hes, Hek.
       apply (fact_row_for_complete e0 ValueKind child_row Hcin);
         [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
-    + apply negative_case_some. apply (value_neg_disj child_row e0 (own_value bp (const_table bp fr) e0) Hcrow).
+    + apply negative_case_some. apply (value_neg_disj child_row e0 (own_value (res_binds res) (const_table (res_binds res) fr) e0) Hcrow).
       rewrite <- Hctab; exact Hvnb.
-  - assert (Hanb : app_neg_at bp e0 = true)
-      by (rewrite <- (va_app_negative_correct bp ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Han).
-    assert (Hret : In (OFApp e0 (own_app bp (Index.Refs.mkAppRef e0 Hva))) (fact_list fp))
+  - assert (Hanb : app_neg_at (res_binds res) e0 = true)
+      by (rewrite <- (va_app_negative_correct (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Han).
+    assert (Hret : In (OFApp e0 (own_app (res_binds res) (Index.Refs.mkAppRef e0 Hva))) (result_fact_list res))
       by (apply (app_fact_retained fr Hfr e0 Hfe Hva)).
     assert (Hek : cdfr_edge_kind cdfr = ApplicationKind) by (unfold cdfr_edge_kind; exact Hk).
     destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
@@ -1822,8 +1839,8 @@ Proof.
     + rewrite Hes, Hek.
       apply (fact_row_for_complete e0 ApplicationKind child_row Hcin);
         [ unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
-    + apply negative_case_some. apply (app_neg_disj child_row e0 (own_app bp (Index.Refs.mkAppRef e0 Hva)) Hcrow).
-      rewrite (app_neg_at_app bp e0 Hva) in Hanb; exact Hanb.
+    + apply negative_case_some. apply (app_neg_disj child_row e0 (own_app (res_binds res) (Index.Refs.mkAppRef e0 Hva)) Hcrow).
+      rewrite (app_neg_at_app (res_binds res) e0 Hva) in Hanb; exact Hanb.
 Qed.
 (* §19.1 the retained parent row's site is exactly the edge's parent index *)
 Lemma cdfr_parent_site (cdfr : ChildDependentFactRef) : frr_site (cdfr_rowref cdfr) = cdfr_site cdfr.
@@ -1869,17 +1886,17 @@ Proof.
   rewrite Heq, Hck in Hpk. destruct (cdfr_child_kind_va cdfr) as [Hv|Hv]; rewrite Hv in Hpk; discriminate Hpk.
 Qed.
 (* §19.5 a success / nonconstant child row has no negative case — none of cause, requirement, dependency present *)
-Lemma negative_case_none (child_row : FactRowRef fp) :
+Lemma negative_case_none (child_row : FactRowRef res) :
   occ_cause (frr_row child_row) = None -> occ_req (frr_row child_row) = None ->
   occ_dep (frr_row child_row) = None -> negative_case child_row = None.
 Proof.
   intros Hc Hq Hd. unfold negative_case.
   assert (Hg : forall
-    (oc : option (Cause bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (oc : option (Cause (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hoc : occ_cause (frr_row child_row) = oc)
-    (oq : option (Requirement bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (oq : option (Requirement (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hoq : occ_req (frr_row child_row) = oq)
-    (od : option (Dependency bp (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
+    (od : option (Dependency (res_binds res) (fact_site (frr_row child_row)) (fact_kind (frr_row child_row))))
     (Hod : occ_dep (frr_row child_row) = od),
     oc = None -> oq = None -> od = None ->
     (match oc as oc0 return occ_cause (frr_row child_row) = oc0 -> option (NegativeFactRef child_row) with
@@ -1900,30 +1917,30 @@ Proof.
   exact (Hg _ eq_refl _ eq_refl _ eq_refl Hc Hq Hd).
 Qed.
 (* §19.5 the negative class is exactly the case retained: invalid, unmet, or dependent, and just one *)
-Lemma nfr_class_invalid (child_row : FactRowRef fp) (n : NegativeFactRef child_row) :
+Lemma nfr_class_invalid (child_row : FactRowRef res) (n : NegativeFactRef child_row) :
   nfr_class n = NegInvalid <-> exists c H, n = ChildInvalid c H.
 Proof.
   split; [ destruct n as [c Hc|rq Hq|d Hd]; cbn; try discriminate; intros _; exists c, Hc; reflexivity
          | intros [c [H ->]]; reflexivity ].
 Qed.
 (* §19.3 a value-negative child is selected first: the retained edge is the exact value-child edge *)
-Lemma stmt_expr_value_first (pr : Index.Refs.ExprStmtRef idx) (an : bool) :
-  own_stmt_expr bp pr true an = SDependent (DepChild (ExprStmtValueChild pr eq_refl)).
+Lemma stmt_expr_value_first (pr : Index.Refs.ExprStmtRef (res_index res)) (an : bool) :
+  own_stmt_expr (res_binds res) pr true an = SDependent (DepChild (ExprStmtValueChild pr eq_refl)).
 Proof. reflexivity. Qed.
 (* §19.3 an application-negative child is selected only when the value child is nonnegative — the app-child edge *)
-Lemma stmt_expr_app_second (pr : Index.Refs.ExprStmtRef idx)
+Lemma stmt_expr_app_second (pr : Index.Refs.ExprStmtRef (res_index res))
   (He : Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) = Index.Model.VApplication) :
-  own_stmt_expr bp pr false true
+  own_stmt_expr (res_binds res) pr false true
   = SDependent (DepChild (ExprStmtApplicationChild pr (Index.Refs.mkAppRef _ He) eq_refl eq_refl)).
 Proof.
   unfold own_stmt_expr.
   rewrite (convoy_at (Index.node_view (Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)))
-             (stmt_expr_body bp pr true) Index.Model.VApplication He).
+             (stmt_expr_body (res_binds res) pr true) Index.Model.VApplication He).
   reflexivity.
 Qed.
 (* §19.3 no child dependency when both applicable child facts are nonnegative *)
-Lemma stmt_expr_none (pr : Index.Refs.ExprStmtRef idx) (d : Dependency bp (Index.Refs.exs_node pr) StatementKind) :
-  own_stmt_expr bp pr false false = SDependent d -> False.
+Lemma stmt_expr_none (pr : Index.Refs.ExprStmtRef (res_index res)) (d : Dependency (res_binds res) (Index.Refs.exs_node pr) StatementKind) :
+  own_stmt_expr (res_binds res) pr false false = SDependent d -> False.
 Proof.
   intro H.
   destruct (own_stmt_expr_dep_inv pr false false (dep_child_edge d)
@@ -1931,8 +1948,8 @@ Proof.
     discriminate Hb.
 Qed.
 (* §19.6 enumeration completeness: every child-dependent parent row is enumerated with its exact prerequisite *)
-Lemma child_prerequisite_refs_complete (row : FactRowRef fp) (cdfr : ChildDependentFactRef) :
-  In row (fact_rows fp) -> child_dep_of row = Some cdfr ->
+Lemma child_prerequisite_refs_complete (row : FactRowRef res) (cdfr : ChildDependentFactRef) :
+  In row (fact_rows res) -> child_dep_of row = Some cdfr ->
   exists cpr, In (existT _ cdfr cpr) child_prerequisite_refs.
 Proof.
   intros Hin Hcd.
@@ -1947,7 +1964,7 @@ Qed.
 Lemma child_prerequisite_refs_order :
   child_prerequisite_refs = flat_map (fun row => match child_dep_of row with
     | Some cdfr => match child_prerequisite cdfr with Some cpr => [existT _ cdfr cpr] | None => [] end
-    | None => [] end) (fact_rows fp).
+    | None => [] end) (fact_rows res).
 Proof. reflexivity. Qed.
 (* a projection of a ≤1-per-element flat_map over a NoDup list, where each output points back at its input, is NoDup *)
 Lemma nodup_flat_map_proj {A B} (h : B -> A) (g : A -> list B) (l : list A)
@@ -1976,21 +1993,18 @@ Proof.
     destruct (child_prerequisite cdfr) as [cpr|]; cbn in Hx; [ | exact (match Hx with end) ].
     destruct Hx as [Hx|[]]. subst x. cbn. exact (child_dep_of_rowref row cdfr Hcd).
   - intro row. destruct (child_dep_of row) as [cdfr|]; [ destruct (child_prerequisite cdfr) | ]; cbn; lia.
-  - exact (NoDup_map_inv frr_ord (fact_rows fp) fact_rows_ord_nodup).
+  - exact (NoDup_map_inv frr_ord (fact_rows res) fact_rows_ord_nodup).
 Qed.
 End FactRowLaws.
-Arguments fact_rows_rows {p idx s bd bp} fp. Arguments fact_rows_ords {p idx s bd bp} fp.
-Arguments fact_rows_ord_nodup {p idx s bd bp} fp.
-Arguments fact_key {p idx s bd bp} o. Arguments frr_key {p idx s bd bp fp} ref.
-Arguments fact_row_for {p idx s bd bp} fp site kind.
-Arguments nfr_class {p idx s bd bp fp child_row} _.
-Arguments cdfr_site {p idx s bd bp fp} _. Arguments cdfr_edge_site {p idx s bd bp fp} _.
-Arguments cdfr_edge_kind {p idx s bd bp fp} _. Arguments cpr_neg {p idx s bd bp fp cdfr} _.
-Arguments mk_cdfr {p idx s bd bp fp} _ _ _ _. Arguments mk_cpr {p idx s bd bp fp cdfr} _ _ _.
-Arguments ChildInvalid {p idx s bd bp fp child_row} _ _.
-Arguments ChildUnmet {p idx s bd bp fp child_row} _ _.
-Arguments ChildDependent {p idx s bd bp fp child_row} _ _.
-Arguments cpr_child_row {p idx s bd bp fp cdfr} _. Arguments cpr_lookup {p idx s bd bp fp cdfr} _.
+Arguments frr_key {p res} ref.
+Arguments nfr_class {p res child_row} _.
+Arguments cdfr_site {p res} _. Arguments cdfr_edge_site {p res} _.
+Arguments cdfr_edge_kind {p res} _. Arguments cpr_neg {p res cdfr} _.
+Arguments mk_cdfr {p res} _ _ _ _. Arguments mk_cpr {p res cdfr} _ _ _.
+Arguments ChildInvalid {p res child_row} _ _.
+Arguments ChildUnmet {p res child_row} _ _.
+Arguments ChildDependent {p res child_row} _ _.
+Arguments cpr_child_row {p res cdfr} _. Arguments cpr_lookup {p res cdfr} _.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -2005,139 +2019,135 @@ Arguments ruc_res {p idx s bd bp n root} _.
 Arguments ruc_yields {p idx s bd bp n root} _.
 
 (* an issue roots at an exact node, an exact package, or an exact redeclaration root; never a self-fallback *)
-Inductive IssueRoot {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  (bp : BN.BindingPhase s bd) : Type :=
-| RootNode : Index.NodeRef idx -> IssueRoot bp
-| RootPackage : BN.PI.PackageRef s -> IssueRoot bp
-| RootGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueRoot bp.
-Arguments RootNode {p idx s bd bp} _.
-Arguments RootPackage {p idx s bd bp} _.
-Arguments RootGroup {p idx s bd bp n} _.
+Inductive IssueRoot {p} (r : Result p) : Type :=
+| RootNode : Index.NodeRef (res_index r) -> IssueRoot r
+| RootPackage : BN.PI.PackageRef (res_surface r) -> IssueRoot r
+| RootGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot (res_binds r) n -> IssueRoot r.
+Arguments RootNode {p r} _.
+Arguments RootPackage {p r} _.
+Arguments RootGroup {p r n} _.
 
-(* the exact diagnostics, indexed by fp AND pf: a package invalidity is exactly its retained decision case ref *)
-Inductive Diagnostic {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) (pf : PackageFacts bp) : Type :=
-| DOcc : InvalidFactRef fp -> Diagnostic fp pf
-| DMissingMain : MissingMainRef pf -> Diagnostic fp pf
-| DOutputCollision : CollisionRef pf -> Diagnostic fp pf
-| DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> Diagnostic fp pf.
-Arguments DOcc {p idx s bd bp fp pf} _.
-Arguments DMissingMain {p idx s bd bp fp pf} _.
-Arguments DOutputCollision {p idx s bd bp fp pf} _.
-Arguments DRedeclaredGroup {p idx s bd bp fp pf n} _.
+(* the exact diagnostics of one Result: a package invalidity is exactly its retained decision case ref of r *)
+Inductive Diagnostic {p} (r : Result p) : Type :=
+| DOcc : InvalidFactRef r -> Diagnostic r
+| DMissingMain : MissingMainRef r -> Diagnostic r
+| DOutputCollision : CollisionRef r -> Diagnostic r
+| DRedeclaredGroup : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot (res_binds r) n -> Diagnostic r.
+Arguments DOcc {p r} _.
+Arguments DMissingMain {p r} _.
+Arguments DOutputCollision {p r} _.
+Arguments DRedeclaredGroup {p r n} _.
 
-(* the exact boundaries: an occurrence-family unmet requirement is exactly its unmet fact-row ref, indexed by fp *)
-Inductive Boundary {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) : Type :=
-| BOcc : UnmetFactRef fp -> Boundary fp.
-Arguments BOcc {p idx s bd bp fp} _.
+(* the exact boundaries of one Result: an occurrence-family unmet requirement is exactly its unmet fact-row ref *)
+Inductive Boundary {p} (r : Result p) : Type :=
+| BOcc : UnmetFactRef r -> Boundary r.
+Arguments BOcc {p r} _.
 
 (* the issue cause a reader projects from a diagnostic row, exactly as retained, never re-derived from a weaker site *)
-Inductive IssueCause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) (pf : PackageFacts bp) : Type :=
-| OccCause : InvalidFactRef fp -> IssueCause fp pf
-| MissingMainCause : MissingMainRef pf -> IssueCause fp pf
-| OutputCollisionCause : CollisionRef pf -> IssueCause fp pf
-| RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot bp n -> IssueCause fp pf.
-Arguments OccCause {p idx s bd bp fp pf} _.
-Arguments MissingMainCause {p idx s bd bp fp pf} _.
-Arguments OutputCollisionCause {p idx s bd bp fp pf} _.
-Arguments RedeclaredGroupCause {p idx s bd bp fp pf n} _.
+Inductive IssueCause {p} (r : Result p) : Type :=
+| OccCause : InvalidFactRef r -> IssueCause r
+| MissingMainCause : MissingMainRef r -> IssueCause r
+| OutputCollisionCause : CollisionRef r -> IssueCause r
+| RedeclaredGroupCause : forall (n : Names.OrdinaryIdentifier), BN.RedeclRoot (res_binds r) n -> IssueCause r.
+Arguments OccCause {p r} _.
+Arguments MissingMainCause {p r} _.
+Arguments OutputCollisionCause {p r} _.
+Arguments RedeclaredGroupCause {p r n} _.
 
 Section IssueProjections.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} {fp : FactPhase bp} {pf : PackageFacts bp}.
+Context {p : Syntax.Program} {r : Result p}.
+Let idx := res_index r.
+Let bp  := res_binds r.
 
 (* related nodes a cause carries: a complex mismatch's two components (all other causes carry none directly) *)
 Definition cause_related {site : Index.NodeRef idx} {k : FactKind} (c : Cause bp site k) : list (Index.NodeRef idx) :=
   match c with ComplexMismatch _ a b => [a; b] | _ => [] end.
 (* the cause a row retains: the exact invalid fact-row ref or exact package-decision case, projected exactly *)
-Definition diag_cause (d : Diagnostic fp pf) : IssueCause fp pf :=
+Definition diag_cause (d : Diagnostic r) : IssueCause r :=
   match d with
   | DOcc ifr => OccCause ifr
   | DMissingMain mmr => MissingMainCause mmr
   | DOutputCollision cr => OutputCollisionCause cr
   | DRedeclaredGroup root => RedeclaredGroupCause root
   end.
-Definition diag_family (d : Diagnostic fp pf) : option Family :=
+Definition diag_family (d : Diagnostic r) : option Family :=
   match d with DOcc ifr => Some (fact_family (ifr_fact ifr)) | _ => None end.
 (* related nodes a row projects: the cause's components, or a group's exact members (use contexts via Report) *)
-Definition diag_related (d : Diagnostic fp pf) : list (Index.NodeRef idx) :=
+Definition diag_related (d : Diagnostic r) : list (Index.NodeRef idx) :=
   match d with
   | DOcc ifr => cause_related (ifr_cause ifr)
   | DRedeclaredGroup root => map (fun m => BN.est_node (BN.es_est m)) (BN.bg_members (BN.rr_group (projT2 root)))
   | _ => []
   end.
-Definition diag_root (d : Diagnostic fp pf) : IssueRoot bp :=
+Definition diag_root (d : Diagnostic r) : IssueRoot r :=
   match d with
   | DOcc ifr => RootNode (fact_site (ifr_fact ifr))
   | DMissingMain mmr => RootPackage (mmr_package mmr)
   | DOutputCollision cr => RootPackage (cr_package cr)
   | DRedeclaredGroup root => RootGroup root
   end.
-Definition bound_req_ref (b : Boundary fp) : UnmetFactRef fp := match b with BOcc ufr => ufr end.
-Definition bound_family (b : Boundary fp) : Family := match b with BOcc ufr => fact_family (ufr_fact ufr) end.
-Definition bound_root (b : Boundary fp) : IssueRoot bp := match b with BOcc ufr => RootNode (fact_site (ufr_fact ufr)) end.
+Definition bound_req_ref (b : Boundary r) : UnmetFactRef r := match b with BOcc ufr => ufr end.
+Definition bound_family (b : Boundary r) : Family := match b with BOcc ufr => fact_family (ufr_fact ufr) end.
+Definition bound_root (b : Boundary r) : IssueRoot r := match b with BOcc ufr => RootNode (fact_site (ufr_fact ufr)) end.
 
 (* §18.3 occurrence-row projections are exact: cause/family/root of a DOcc project from its retained invalid fact *)
-Lemma docc_cause (ifr : InvalidFactRef fp) : diag_cause (DOcc (pf:=pf) ifr) = OccCause ifr.
+Lemma docc_cause (ifr : InvalidFactRef r) : diag_cause (DOcc ifr) = OccCause ifr.
 Proof. reflexivity. Qed.
-Lemma docc_family (ifr : InvalidFactRef fp) : diag_family (DOcc (pf:=pf) ifr) = Some (fact_family (ifr_fact ifr)).
+Lemma docc_family (ifr : InvalidFactRef r) : diag_family (DOcc ifr) = Some (fact_family (ifr_fact ifr)).
 Proof. reflexivity. Qed.
-Lemma docc_root (ifr : InvalidFactRef fp) : diag_root (DOcc (pf:=pf) ifr) = RootNode (fact_site (ifr_fact ifr)).
+Lemma docc_root (ifr : InvalidFactRef r) : diag_root (DOcc ifr) = RootNode (fact_site (ifr_fact ifr)).
 Proof. reflexivity. Qed.
 (* §18.3 the invalid fact ref's exact cause is exactly the outcome payload its retained fact carries *)
-Lemma ifr_cause_of_fact (ifr : InvalidFactRef fp) : occ_cause (ifr_fact ifr) = Some (ifr_cause ifr).
+Lemma ifr_cause_of_fact (ifr : InvalidFactRef r) : occ_cause (ifr_fact ifr) = Some (ifr_cause ifr).
 Proof. exact (ifr_ok ifr). Qed.
 (* §18.3 boundary-row projections are exact: requirement/family/root of a BOcc project from its retained unmet fact *)
-Lemma bocc_req (ufr : UnmetFactRef fp) : bound_req_ref (BOcc ufr) = ufr.
+Lemma bocc_req (ufr : UnmetFactRef r) : bound_req_ref (BOcc ufr) = ufr.
 Proof. reflexivity. Qed.
-Lemma bocc_family (ufr : UnmetFactRef fp) : bound_family (BOcc ufr) = fact_family (ufr_fact ufr).
+Lemma bocc_family (ufr : UnmetFactRef r) : bound_family (BOcc ufr) = fact_family (ufr_fact ufr).
 Proof. reflexivity. Qed.
-Lemma bocc_root (ufr : UnmetFactRef fp) : bound_root (BOcc ufr) = RootNode (fact_site (ufr_fact ufr)).
+Lemma bocc_root (ufr : UnmetFactRef r) : bound_root (BOcc ufr) = RootNode (fact_site (ufr_fact ufr)).
 Proof. reflexivity. Qed.
-Lemma ufr_req_of_fact (ufr : UnmetFactRef fp) : occ_req (ufr_fact ufr) = Some (ufr_req ufr).
+Lemma ufr_req_of_fact (ufr : UnmetFactRef r) : occ_req (ufr_fact ufr) = Some (ufr_req ufr).
 Proof. exact (ufr_ok ufr). Qed.
 
 End IssueProjections.
 
 Section IssueTable.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
-        (fp : FactPhase bp) (pf : PackageFacts bp).
+Context {p : Syntax.Program} (res : Result p).
 
 (* one retained row yields one diagnostic iff its outcome is invalid: the exact invalid fact-row ref, no free fields *)
-Definition occ_diag_rows (ref : FactRowRef fp) : list (Diagnostic fp pf) :=
-  match occ_cause (frr_row ref) as oc return occ_cause (frr_row ref) = oc -> list (Diagnostic fp pf) with
+Definition occ_diag_rows (ref : FactRowRef res) : list (Diagnostic res) :=
+  match occ_cause (frr_row ref) as oc return occ_cause (frr_row ref) = oc -> list (Diagnostic res) with
   | Some c => fun H => [DOcc (mk_ifr ref c H)]
   | None => fun _ => []
   end eq_refl.
 (* one exact retained row yields one boundary exactly when its outcome is unmet; invalid and unmet coexist (§6) *)
-Definition occ_bound_rows (ref : FactRowRef fp) : list (Boundary fp) :=
-  match occ_req (frr_row ref) as oq return occ_req (frr_row ref) = oq -> list (Boundary fp) with
+Definition occ_bound_rows (ref : FactRowRef res) : list (Boundary res) :=
+  match occ_req (frr_row ref) as oq return occ_req (frr_row ref) = oq -> list (Boundary res) with
   | Some q => fun H => [BOcc (mk_ufr ref q H)]
   | None => fun _ => []
   end eq_refl.
 
 (* the sole selected package's default-output collision projects the exact retained preflight collision case *)
-Definition collision_rows : list (Diagnostic fp pf) :=
-  match collision_ref pf with Some cr => [DOutputCollision cr] | None => [] end.
+Definition collision_rows : list (Diagnostic res) :=
+  match result_collision_ref res with Some cr => [DOutputCollision cr] | None => [] end.
 (* one missing-executable-entry diagnostic per package whose exact canonical main decision IS MainMissing *)
-Definition main_rows : list (Diagnostic fp pf) :=
-  map DMissingMain (missing_main_refs pf).
+Definition main_rows : list (Diagnostic res) :=
+  map DMissingMain (result_missing_main_refs res).
 
 (* every package-member name occurrence: the use sites a redeclared group can contextualize *)
-Definition name_uses : list (Index.NodeRef idx) :=
+Definition name_uses : list (Index.NodeRef (res_index res)) :=
   filter (fun r => match Index.node_view r with Index.Model.VName _ => true | _ => false end)
-         (flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages s))).
+         (flat_map Index.file_nodes (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res)))).
 (* one exact use context: a use of root's name resolving by exact-identity check to that exact root, with proof *)
-Definition use_context_of {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
-  (r : Index.NodeRef idx) : option (RedeclaredUseRef root) :=
+Definition use_context_of {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0)
+  (r : Index.NodeRef (res_index res)) : option (RedeclaredUseRef root) :=
   match Index.node_view r with
   | Index.Model.VName n =>
       match BN.ordinary_eq_dec n n0 with
       | left _ =>
-          match BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve bp r n0)) (Some root) with
-          | left Hyields => Some (mk_redeclared_use r (BN.resolve bp r n0) Hyields)
+          match BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve (res_binds res) r n0)) (Some root) with
+          | left Hyields => Some (mk_redeclared_use r (BN.resolve (res_binds res) r n0) Hyields)
           | right _ => None
           end
       | right _ => None
@@ -2145,13 +2155,13 @@ Definition use_context_of {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot 
   | _ => None
   end.
 (* the exact use-site contexts of a redeclared root: uses of its name resolving, by exact identity, to it *)
-Definition group_use_contexts {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
+Definition group_use_contexts {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0)
   : list (RedeclaredUseRef root) :=
   flat_map (fun r => match use_context_of root r with Some c => [c] | None => [] end) name_uses.
 
 (* a returned use context's node is exactly the name occurrence it was built from *)
-Lemma use_context_of_node {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0)
-  (r : Index.NodeRef idx) (c : RedeclaredUseRef root) : use_context_of root r = Some c -> ruc_node c = r.
+Lemma use_context_of_node {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0)
+  (r : Index.NodeRef (res_index res)) (c : RedeclaredUseRef root) : use_context_of root r = Some c -> ruc_node c = r.
 Proof.
   intro H. unfold use_context_of in H.
   destruct (Index.node_view r); try discriminate H.
@@ -2173,9 +2183,9 @@ Proof.
 Qed.
 
 (* §24.4 ordering + completeness handle: the context nodes are exactly the qualifying name uses, in source order *)
-Definition context_qualifies {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) : bool :=
+Definition context_qualifies {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0) (r : Index.NodeRef (res_index res)) : bool :=
   match use_context_of root r with Some _ => true | None => false end.
-Lemma group_use_contexts_nodes {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) :
+Lemma group_use_contexts_nodes {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0) :
   map ruc_node (group_use_contexts root) = filter (context_qualifies root) name_uses.
 Proof. exact (flatmap_option_filter (use_context_of root) ruc_node (use_context_of_node root) name_uses). Qed.
 
@@ -2185,35 +2195,35 @@ Proof.
   unfold name_uses. apply nodup_filter.
   apply (BN.flat_map_nodup_key _ Index.nr_file (fun fr => fr)).
   - rewrite map_id.
-    apply (BN.flat_map_nodup_key _ (BN.PI.package_of_file s) (fun pr => pr)).
+    apply (BN.flat_map_nodup_key _ (BN.PI.package_of_file (res_surface res)) (fun pr => pr)).
     + rewrite map_id. apply BN.packages_nodup.
     + intros pr _. apply BN.pkg_members_nodup.
-    + intros pr fr _ Hin. exact (BN.PI.package_of_file_member s pr fr Hin).
+    + intros pr fr _ Hin. exact (BN.PI.package_of_file_member (res_surface res) pr fr Hin).
   - intros fr _. apply file_nodes_nodup.
   - intros fr r _ Hin. exact (Index.file_nodes_file fr r Hin).
 Qed.
 
 (* §24.4 uniqueness / no-duplication: no name occurrence appears twice as a use context of a root *)
-Lemma group_use_contexts_nodup {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) :
+Lemma group_use_contexts_nodup {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0) :
   NoDup (map ruc_node (group_use_contexts root)).
 Proof. rewrite group_use_contexts_nodes. apply nodup_filter. exact name_uses_nodup. Qed.
 
 (* a name occurrence of the root's name resolving to that exact root does have a context *)
-Lemma use_context_of_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) :
+Lemma use_context_of_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0) (r : Index.NodeRef (res_index res)) :
   Index.node_view r = Index.Model.VName n0 ->
-  BN.resolution_redecl_root (BN.resolve bp r n0) = Some root ->
+  BN.resolution_redecl_root (BN.resolve (res_binds res) r n0) = Some root ->
   exists c, use_context_of root r = Some c.
 Proof.
   intros Hv Hres. unfold use_context_of. rewrite Hv.
   destruct (BN.ordinary_eq_dec n0 n0) as [_|Hne]; [| exfalso; apply Hne; reflexivity].
-  destruct (BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve bp r n0)) (Some root)) as [Hy|Hne];
+  destruct (BN.option_redeclroot_eq_dec (BN.resolution_redecl_root (BN.resolve (res_binds res) r n0)) (Some root)) as [Hy|Hne];
     [ eexists; reflexivity | exfalso; apply Hne; exact Hres ].
 Qed.
 
 (* §24.4 completeness: every relevant use of the root's name resolving to it appears among its contexts *)
-Lemma group_use_context_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n0) (r : Index.NodeRef idx) :
+Lemma group_use_context_complete {n0 : Names.OrdinaryIdentifier} (root : BN.RedeclRoot (res_binds res) n0) (r : Index.NodeRef (res_index res)) :
   In r name_uses -> Index.node_view r = Index.Model.VName n0 ->
-  BN.resolution_redecl_root (BN.resolve bp r n0) = Some root ->
+  BN.resolution_redecl_root (BN.resolve (res_binds res) r n0) = Some root ->
   In r (map ruc_node (group_use_contexts root)).
 Proof.
   intros Hin Hv Hres. destruct (use_context_of_complete root r Hv Hres) as [c HE].
@@ -2221,32 +2231,32 @@ Proof.
   apply in_flat_map. exists r. split; [ exact Hin | rewrite HE; left; reflexivity ].
 Qed.
 (* one redeclared-group diagnostic per exact enumerated root; use contexts stay off the disposition path (on demand) *)
-Definition group_rows : list (Diagnostic fp pf) :=
-  map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
+Definition group_rows : list (Diagnostic res) :=
+  map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots (res_binds res)).
 
 (* §24.4 diagnostic enumeration: the group diagnostics are exactly one DRedeclaredGroup per exact enumerated root *)
 Lemma group_rows_enumerated :
-  group_rows = map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots bp).
+  group_rows = map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots (res_binds res)).
 Proof. reflexivity. Qed.
 
-(* occurrence diagnostics/boundaries derive FROM the exact retained rows (fact_rows fp), not from standalone facts *)
-Definition occ_diags : list (Diagnostic fp pf) := flat_map occ_diag_rows (fact_rows fp).
+(* occurrence diagnostics/boundaries derive FROM the exact retained rows (fact_rows res), not from standalone facts *)
+Definition occ_diags : list (Diagnostic res) := flat_map occ_diag_rows (fact_rows res).
 
 (* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-row order *)
-Definition diagnostics : list (Diagnostic fp pf) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
-Definition boundaries : list (Boundary fp) := flat_map occ_bound_rows (fact_rows fp).
+Local Definition diagnostics : list (Diagnostic res) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Local Definition boundaries : list (Boundary res) := flat_map occ_bound_rows (fact_rows res).
 
 (* §19.3 the package diagnostic rows ARE the exact case-ref projections; neither re-tests the semantic condition *)
-Lemma collision_rows_ref : collision_rows = match collision_ref pf with Some cr => [DOutputCollision cr] | None => [] end.
+Lemma collision_rows_ref : collision_rows = match result_collision_ref res with Some cr => [DOutputCollision cr] | None => [] end.
 Proof. reflexivity. Qed.
-Lemma main_rows_refs : main_rows = map DMissingMain (missing_main_refs pf).
+Lemma main_rows_refs : main_rows = map DMissingMain (result_missing_main_refs res).
 Proof. reflexivity. Qed.
 (* §19.3/§21 the collision-before-main-before-redeclaration-before-occurrence category order is unchanged *)
 Lemma diagnostics_order : diagnostics = collision_rows ++ main_rows ++ group_rows ++ occ_diags.
 Proof. reflexivity. Qed.
 
 (* one row yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across rows (§6) *)
-Lemma occ_row_exclusive (ref : FactRowRef fp) : occ_diag_rows ref <> [] -> occ_bound_rows ref = [].
+Lemma occ_row_exclusive (ref : FactRowRef res) : occ_diag_rows ref <> [] -> occ_bound_rows ref = [].
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov | r oa | r os | r ot];
     [ destruct ov | destruct oa | destruct os | destruct ot ];
@@ -2254,11 +2264,11 @@ Proof.
 Qed.
 
 (* §18.1 the displayed family is exactly the total projection of the exact site and fact kind, never a stored field *)
-Lemma fact_family_projection (o : OccFact bp) : fact_family o = displayed_family (fact_site o) (fact_kind o).
+Lemma fact_family_projection (o : OccFact (res_binds res)) : fact_family o = displayed_family (fact_site o) (fact_kind o).
 Proof. reflexivity. Qed.
 (* §18.2 an occurrence fact's exact site and kind round-trip from the constructor that built it *)
-Lemma occfact_roundtrip (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : AppOutcome bp r)
-  (os : StmtOutcome bp r) (ot : TypeUseOutcome bp r) :
+Lemma occfact_roundtrip (r : Index.NodeRef (res_index res)) (ov : ValueOutcome (res_binds res) r) (oa : AppOutcome (res_binds res) r)
+  (os : StmtOutcome (res_binds res) r) (ot : TypeUseOutcome (res_binds res) r) :
   (fact_site (OFValue r ov) = r /\ fact_kind (OFValue r ov) = ValueKind)
   /\ (fact_site (OFApp r oa) = r /\ fact_kind (OFApp r oa) = ApplicationKind)
   /\ (fact_site (OFStmt r os) = r /\ fact_kind (OFStmt r os) = StatementKind)
@@ -2266,20 +2276,20 @@ Lemma occfact_roundtrip (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : A
 Proof. repeat split; reflexivity. Qed.
 
 (* §18.3 diagnostic completeness: an invalid row yields exactly one DOcc retaining that exact row *)
-Lemma occ_diag_complete (ref : FactRowRef fp) (c : Cause bp (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
+Lemma occ_diag_complete (ref : FactRowRef res) (c : Cause (res_binds res) (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
   occ_cause (frr_row ref) = Some c -> exists ifr, occ_diag_rows ref = [DOcc ifr] /\ ifr_rowref ifr = ref.
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; try discriminate H; eexists; split; reflexivity.
 Qed.
 (* a row with no invalid outcome yields no diagnostic row *)
-Lemma occ_diag_none (ref : FactRowRef fp) : occ_cause (frr_row ref) = None -> occ_diag_rows ref = [].
+Lemma occ_diag_none (ref : FactRowRef res) : occ_cause (frr_row ref) = None -> occ_diag_rows ref = [].
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
 (* §18.3 diagnostic soundness: every occurrence diagnostic row is a DOcc of the exact retained row, no free fields *)
-Lemma occ_diag_row_shape (ref : FactRowRef fp) (d : Diagnostic fp pf) :
+Lemma occ_diag_row_shape (ref : FactRowRef res) (d : Diagnostic res) :
   In d (occ_diag_rows ref) -> exists ifr, d = DOcc ifr /\ ifr_rowref ifr = ref.
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
@@ -2287,20 +2297,20 @@ Proof.
     destruct Hin as [Heq|[]]; subst d; eexists; split; reflexivity.
 Qed.
 (* §18.3 boundary completeness: an unmet row yields exactly one BOcc retaining that exact row *)
-Lemma occ_bound_complete (ref : FactRowRef fp) (q : Requirement bp (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
+Lemma occ_bound_complete (ref : FactRowRef res) (q : Requirement (res_binds res) (fact_site (frr_row ref)) (fact_kind (frr_row ref))) :
   occ_req (frr_row ref) = Some q -> exists ufr, occ_bound_rows ref = [BOcc ufr] /\ ufr_rowref ufr = ref.
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; try discriminate H; eexists; split; reflexivity.
 Qed.
 (* a row with no unmet outcome yields no boundary row *)
-Lemma occ_bound_none (ref : FactRowRef fp) : occ_req (frr_row ref) = None -> occ_bound_rows ref = [].
+Lemma occ_bound_none (ref : FactRowRef res) : occ_req (frr_row ref) = None -> occ_bound_rows ref = [].
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
 (* §18.3 boundary soundness: every occurrence boundary row is a BOcc of the exact retained row, no free fields *)
-Lemma occ_bound_row_shape (ref : FactRowRef fp) (b : Boundary fp) :
+Lemma occ_bound_row_shape (ref : FactRowRef res) (b : Boundary res) :
   In b (occ_bound_rows ref) -> exists ufr, b = BOcc ufr /\ ufr_rowref ufr = ref.
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
@@ -2308,30 +2318,30 @@ Proof.
     destruct Hin as [Heq|[]]; subst b; eexists; split; reflexivity.
 Qed.
 (* §18.3 at most one row of each class per retained row: the row lists are empty or a single exact row *)
-Lemma occ_diag_rows_le1 (ref : FactRowRef fp) : occ_diag_rows ref = [] \/ exists d, occ_diag_rows ref = [d].
+Lemma occ_diag_rows_le1 (ref : FactRowRef res) : occ_diag_rows ref = [] \/ exists d, occ_diag_rows ref = [d].
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
 Qed.
-Lemma occ_bound_rows_le1 (ref : FactRowRef fp) : occ_bound_rows ref = [] \/ exists b, occ_bound_rows ref = [b].
+Lemma occ_bound_rows_le1 (ref : FactRowRef res) : occ_bound_rows ref = [] \/ exists b, occ_bound_rows ref = [b].
 Proof.
   destruct ref as [o row Hat]; destruct row as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; solve [ left; reflexivity | right; eexists; reflexivity ].
 Qed.
 (* §17.3/§18.3 a dependent outcome retains no cause or requirement, so its exact row yields no occurrence row *)
-Lemma occ_dep_no_cause (o : OccFact bp) (d : Dependency bp (fact_site o) (fact_kind o)) :
+Lemma occ_dep_no_cause (o : OccFact (res_binds res)) (d : Dependency (res_binds res) (fact_site o) (fact_kind o)) :
   occ_dep o = Some d -> occ_cause o = None.
 Proof.
   destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
-Lemma occ_dep_no_req (o : OccFact bp) (d : Dependency bp (fact_site o) (fact_kind o)) :
+Lemma occ_dep_no_req (o : OccFact (res_binds res)) (d : Dependency (res_binds res) (fact_site o) (fact_kind o)) :
   occ_dep o = Some d -> occ_req o = None.
 Proof.
   destruct o as [r ov|r oa|r os|r ot]; [destruct ov|destruct oa|destruct os|destruct ot];
     cbn; intro H; solve [ reflexivity | discriminate H ].
 Qed.
-Lemma dependent_fact_no_rows (dfr : DependentFactRef fp) :
+Lemma dependent_fact_no_rows (dfr : DependentFactRef res) :
   occ_diag_rows (dfr_rowref dfr) = [] /\ occ_bound_rows (dfr_rowref dfr) = [].
 Proof.
   destruct dfr as [ref d Hok]; cbn; split;
@@ -2341,16 +2351,14 @@ Qed.
 
 End IssueTable.
 
-Arguments diagnostics {p idx s bd bp} fp pf.
-Arguments boundaries {p idx s bd bp} fp.
 
 Section IssueLaws.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-        {bp : BN.BindingPhase s bd} {fp : FactPhase bp} {pf : PackageFacts bp}.
+Context {p : Syntax.Program} {r : Result p}.
+Let bp := res_binds r.
 
 (* the root algebra is total: every diagnostic roots at an exact node, package, or group, never a self-fallback *)
-Lemma root_algebra_total (d : Diagnostic fp pf) :
-  (exists r, diag_root d = RootNode r) \/ (exists pr, diag_root d = RootPackage pr)
+Lemma root_algebra_total (d : Diagnostic r) :
+  (exists nd, diag_root d = RootNode nd) \/ (exists pr, diag_root d = RootPackage pr)
   \/ (exists (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n), diag_root d = RootGroup root).
 Proof. destruct d; cbn; eauto 8. Qed.
 
@@ -2366,30 +2374,30 @@ Proof. intro H. pose proof (ruc_yields c) as Hy. rewrite Hy in H. injection H as
 
 (* §24.4 diagnostic-root identity: a redeclared-group diagnostic roots at exactly the exact root it retains *)
 Lemma diag_group_root {n : Names.OrdinaryIdentifier} (root : BN.RedeclRoot bp n) :
-  diag_root (DRedeclaredGroup root : Diagnostic fp pf) = RootGroup root.
+  diag_root (DRedeclaredGroup root : Diagnostic r) = RootGroup root.
 Proof. reflexivity. Qed.
 
 End IssueLaws.
 
-(* §6 the complete disposition algebra + applicability before judgment *)
-Inductive Disposition {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) (pf : PackageFacts bp) : Type :=
-| DSucceeded : Disposition fp pf
-| DAbsent : Disposition fp pf
-| DInvalid : IssueCause fp pf -> list (IssueCause fp pf) -> Disposition fp pf
-| DUnsupported : UnmetFactRef fp -> list (UnmetFactRef fp) -> Disposition fp pf
-| DInvalidAndUnsupported : IssueCause fp pf -> list (IssueCause fp pf) -> UnmetFactRef fp -> list (UnmetFactRef fp) -> Disposition fp pf.
-Arguments DSucceeded {p idx s bd bp fp pf}. Arguments DAbsent {p idx s bd bp fp pf}.
-Arguments DInvalid {p idx s bd bp fp pf} _ _. Arguments DUnsupported {p idx s bd bp fp pf} _ _.
-Arguments DInvalidAndUnsupported {p idx s bd bp fp pf} _ _ _ _.
+(* §6 the complete disposition algebra of one Result + applicability before judgment *)
+Inductive Disposition {p} (r : Result p) : Type :=
+| DSucceeded : Disposition r
+| DAbsent : Disposition r
+| DInvalid : IssueCause r -> list (IssueCause r) -> Disposition r
+| DUnsupported : UnmetFactRef r -> list (UnmetFactRef r) -> Disposition r
+| DInvalidAndUnsupported : IssueCause r -> list (IssueCause r) -> UnmetFactRef r -> list (UnmetFactRef r) -> Disposition r.
+Arguments DSucceeded {p r}. Arguments DAbsent {p r}.
+Arguments DInvalid {p r} _ _. Arguments DUnsupported {p r} _ _.
+Arguments DInvalidAndUnsupported {p r} _ _ _ _.
 
 Section DispositionAlgebra.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
-        (fp : FactPhase bp) (pf : PackageFacts bp).
+Context {p : Syntax.Program} (r : Result p).
+Let fp := res_facts r.
+Let pf := res_pkg r.
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
-Definition program_disposition : Disposition fp pf :=
-  match diagnostics fp pf, boundaries fp with
+Local Definition program_disposition : Disposition r :=
+  match diagnostics r, boundaries r with
   | nil, nil => DSucceeded
   | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
   | nil, b :: bs => DUnsupported (bound_req_ref b) (map bound_req_ref bs)
@@ -2399,9 +2407,9 @@ Definition program_disposition : Disposition fp pf :=
 
 (* success is exactly empty reports; a rejected program with simultaneous boundaries is InvalidAndUnsupported *)
 Lemma program_disposition_succeeded :
-  program_disposition = DSucceeded <-> diagnostics fp pf = nil /\ boundaries fp = nil.
+  program_disposition = DSucceeded <-> diagnostics r = nil /\ boundaries r = nil.
 Proof.
-  unfold program_disposition; destruct (diagnostics fp pf) as [|d ds], (boundaries fp) as [|b bs]; cbn.
+  unfold program_disposition; destruct (diagnostics r) as [|d ds], (boundaries r) as [|b bs]; cbn.
   - split; intros _; [ split; reflexivity | reflexivity ].
   - split; [ discriminate | intros [_ H2]; discriminate H2 ].
   - split; [ discriminate | intros [H1 _]; discriminate H1 ].
@@ -2409,13 +2417,13 @@ Proof.
 Qed.
 
 Lemma program_disposition_both :
-  (exists d ds b bs c1 c2 q1 q2, diagnostics fp pf = d :: ds /\ boundaries fp = b :: bs
+  (exists d ds b bs c1 c2 q1 q2, diagnostics r = d :: ds /\ boundaries r = b :: bs
      /\ program_disposition = DInvalidAndUnsupported c1 c2 q1 q2) \/
   program_disposition = DSucceeded \/
   (exists c cs, program_disposition = DInvalid c cs) \/
   (exists q qs, program_disposition = DUnsupported q qs).
 Proof.
-  unfold program_disposition; destruct (diagnostics fp pf) as [|d ds] eqn:Ed, (boundaries fp) as [|b bs] eqn:Eb.
+  unfold program_disposition; destruct (diagnostics r) as [|d ds] eqn:Ed, (boundaries r) as [|b bs] eqn:Eb.
   - right; left; reflexivity.
   - right; right; right; eexists; eexists; reflexivity.
   - right; right; left; eexists; eexists; reflexivity.
@@ -2429,61 +2437,53 @@ Section Cost.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* one structural pass: each node contributes the facts of its applicable families via a single flat_map, no fuel *)
-Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
+Local Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
 Proof. unfold fact_list, facts; cbn [proj1_sig]. reflexivity. Qed.
 
 End Cost.
 
-(* the canonical issue lists and 5-way summary as projections of the one retained result, indexed by its exact fp *)
-Definition result_diagnostics {p} (r : Result p) : list (Diagnostic (res_facts r) (res_pkg r)) :=
-  diagnostics (res_facts r) (res_pkg r).
-Definition result_boundaries {p} (r : Result p) : list (Boundary (res_facts r)) :=
-  boundaries (res_facts r).
-Definition result_disposition {p} (r : Result p) : Disposition (res_facts r) (res_pkg r) :=
-  program_disposition (res_facts r) (res_pkg r).
+(* the canonical issue lists and 5-way summary as projections of the one retained result, indexed by that Result *)
+Definition result_diagnostics {p} (r : Result p) : list (Diagnostic r) := diagnostics r.
+Definition result_boundaries {p} (r : Result p) : list (Boundary r) := boundaries r.
+Definition result_disposition {p} (r : Result p) : Disposition r := program_disposition r.
 (* §17 the child prerequisites of the one retained result, a narrow projection from its exact res_facts *)
 Definition result_child_prerequisites {p} (r : Result p)
-  : list { cdfr : ChildDependentFactRef (res_facts r) & ChildPrerequisiteRef (res_facts r) cdfr } :=
-  child_prerequisite_refs (res_facts r).
-(* §19.6 the Result projection begins from the one retained res_facts, never a recomputation *)
-Lemma result_child_prerequisites_from_facts {p} (r : Result p) :
-  result_child_prerequisites r = child_prerequisite_refs (res_facts r).
-Proof. reflexivity. Qed.
+  : list { cdfr : ChildDependentFactRef r & ChildPrerequisiteRef r cdfr } :=
+  child_prerequisite_refs r.
 
 (* an issue is a diagnostic or a boundary; the two classes partition the one canonical sequence *)
 Inductive IssueClass : Type := ClassDiagnostic | ClassBoundary.
 
-Inductive Issue {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
-  {bp : BN.BindingPhase s bd} (fp : FactPhase bp) (pf : PackageFacts bp) : Type :=
-| IDiag  : Diagnostic fp pf -> Issue fp pf
-| IBound : Boundary fp -> Issue fp pf.
-Arguments IDiag {p idx s bd bp fp pf} _.
-Arguments IBound {p idx s bd bp fp pf} _.
+Inductive Issue {p} (r : Result p) : Type :=
+| IDiag  : Diagnostic r -> Issue r
+| IBound : Boundary r -> Issue r.
+Arguments IDiag {p r} _.
+Arguments IBound {p r} _.
 
 (* the one canonical issue sequence: every diagnostic then every boundary, each kept in its own source order *)
-Definition result_issues {p} (r : Result p) : list (Issue (res_facts r) (res_pkg r)) :=
+Definition result_issues {p} (r : Result p) : list (Issue r) :=
   map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
 
 Section IssueIdentity.
 Context {p : Syntax.Program}.
 
 (* an issue's class, root, family, subject, and cause-or-requirement, projected from whichever row it is *)
-Definition issue_class {r : Result p} (i : Issue (res_facts r) (res_pkg r)) : IssueClass :=
+Definition issue_class {r : Result p} (i : Issue r) : IssueClass :=
   match i with IDiag _ => ClassDiagnostic | IBound _ => ClassBoundary end.
-Definition issue_root {r : Result p} (i : Issue (res_facts r) (res_pkg r)) : IssueRoot (res_binds r) :=
+Definition issue_root {r : Result p} (i : Issue r) : IssueRoot r :=
   match i with IDiag d => diag_root d | IBound b => bound_root b end.
-Definition issue_family {r : Result p} (i : Issue (res_facts r) (res_pkg r)) : option Family :=
+Definition issue_family {r : Result p} (i : Issue r) : option Family :=
   match i with IDiag d => diag_family d | IBound b => Some (bound_family b) end.
-Definition issue_cause_or_req {r : Result p} (i : Issue (res_facts r) (res_pkg r))
-  : IssueCause (res_facts r) (res_pkg r) + UnmetFactRef (res_facts r) :=
+Definition issue_cause_or_req {r : Result p} (i : Issue r)
+  : IssueCause r + UnmetFactRef r :=
   match i with IDiag d => inl (diag_cause d) | IBound b => inr (bound_req_ref b) end.
-Definition issue_related {r : Result p} (i : Issue (res_facts r) (res_pkg r)) : list (Index.NodeRef (res_index r)) :=
+Definition issue_related {r : Result p} (i : Issue r) : list (Index.NodeRef (res_index r)) :=
   match i with IDiag d => diag_related d | IBound _ => [] end.
 
 (* an issue identity: an exact ordinal into result_issues, retaining the exact row it indexes there *)
 Record IssueRef (r : Result p) : Type := mkIssueRef {
   ir_ord : nat ;
-  ir_row : Issue (res_facts r) (res_pkg r) ;
+  ir_row : Issue r ;
   ir_at  : nth_error (result_issues r) ir_ord = Some ir_row
 }.
 Arguments mkIssueRef {r} _ _ _.
@@ -2492,16 +2492,16 @@ Arguments ir_row {r} _.
 Arguments ir_at {r} _.
 
 (* Diagnostic and Boundary are projections of an issue ref: exactly the row it references, never a synthesis *)
-Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic (res_facts r) (res_pkg r)) :=
+Definition iref_diagnostic {r : Result p} (ref : IssueRef r) : option (Diagnostic r) :=
   match ir_row ref with IDiag d => Some d | IBound _ => None end.
-Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary (res_facts r)) :=
+Definition iref_boundary {r : Result p} (ref : IssueRef r) : option (Boundary r) :=
   match ir_row ref with IBound b => Some b | IDiag _ => None end.
 
 (* bidirectional membership: a ref is exactly a position that indexes an issue in the one sequence *)
 Lemma issue_ref_sound (r : Result p) (ref : IssueRef r) :
   nth_error (result_issues r) (ir_ord ref) = Some (ir_row ref).
 Proof. exact (ir_at ref). Qed.
-Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue (res_facts r) (res_pkg r)) :
+Lemma issue_ref_complete (r : Result p) (n : nat) (i : Issue r) :
   nth_error (result_issues r) n = Some i -> exists ref : IssueRef r, ir_ord ref = n /\ ir_row ref = i.
 Proof. intro H. exists (mkIssueRef n i H). split; reflexivity. Qed.
 
@@ -2515,7 +2515,7 @@ Lemma result_issues_class_split (r : Result p) :
 Proof. reflexivity. Qed.
 
 (* the row any position names is exactly a canonical diagnostic or boundary, never a fabricated one *)
-Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic (res_facts r) (res_pkg r)) :
+Lemma idiag_in (r : Result p) (n : nat) (d : Diagnostic r) :
   nth_error (result_issues r) n = Some (IDiag d) -> In d (result_diagnostics r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -2523,7 +2523,7 @@ Proof.
   - apply in_map_iff in Hd. destruct Hd as [d' [Heq Hin]]. injection Heq as Heq. subst d'. exact Hin.
   - apply in_map_iff in Hb. destruct Hb as [b' [Heq _]]. discriminate Heq.
 Qed.
-Lemma ibound_in (r : Result p) (n : nat) (b : Boundary (res_facts r)) :
+Lemma ibound_in (r : Result p) (n : nat) (b : Boundary r) :
   nth_error (result_issues r) n = Some (IBound b) -> In b (result_boundaries r).
 Proof.
   intro H. apply nth_error_In in H. unfold result_issues in H. apply in_app_or in H.
@@ -2546,14 +2546,14 @@ Proof.
 Qed.
 
 (* stable order: the k-th diagnostic sits at ordinal k; the j-th boundary at ordinal (#diagnostics + j) *)
-Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic (res_facts r) (res_pkg r)) :
+Lemma issue_diag_at (r : Result p) (n : nat) (d : Diagnostic r) :
   nth_error (result_diagnostics r) n = Some d -> nth_error (result_issues r) n = Some (IDiag d).
 Proof.
   intro H. unfold result_issues.
   rewrite nth_error_app1 by (rewrite <- nth_error_Some; rewrite (map_nth_error _ _ _ H); discriminate).
   exact (map_nth_error _ _ _ H).
 Qed.
-Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary (res_facts r)) :
+Lemma issue_bound_at (r : Result p) (n : nat) (b : Boundary r) :
   nth_error (result_boundaries r) n = Some b ->
   nth_error (result_issues r) ((Datatypes.length (result_diagnostics r) + n)%nat) = Some (IBound b).
 Proof.
