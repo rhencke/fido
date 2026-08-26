@@ -702,7 +702,7 @@ Qed.
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
-(* §11/§10 the single application fact of a node, shared by va_facts and occ_facts so the AppRef proof is one term *)
+(* §11/§10 the single application fact of a node, shared by va_facts and occ_facts_va so the AppRef proof is one term *)
 Definition app_fact_body (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
   match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
   | Index.Model.VApplication => fun H0 => [OFApp r (own_app bp (Index.Refs.mkAppRef r H0))]
@@ -727,7 +727,7 @@ Proof.
   unfold app_neg_at. rewrite (convoy_at (Index.node_view e) (app_neg_body bp e) v H). unfold app_neg_body.
   destruct v; try reflexivity; exfalso; apply Hne; reflexivity.
 Qed.
-(* §10 the type-use fact of a node, keyed to its exact named-type name, shared by occ_facts and occ_facts_va *)
+(* §10 the type-use fact of a node, keyed to its exact named-type name, one term for the canonical builder *)
 Definition type_fact_body (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
   match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
   | Index.Model.VTypeExpr (Syntax.NamedType n) => fun H0 => [OFType r (own_type bp r n H0)]

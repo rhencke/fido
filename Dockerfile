@@ -970,6 +970,18 @@ typefail neg_unmet_as_invalid "an unmet requirement used where the invalid case 
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (q : AN.Requirement bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some q) : AN.NegativeFactRef row := AN.ChildInvalid q H.'
 typefail neg_dependent_as_invalid "a child dependency used where the invalid case demands a cause" \
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (dd : AN.Dependency bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some dd) : AN.NegativeFactRef row := AN.ChildInvalid dd H.'
+# §6/§10 the deleted second fact builder and its equality bridges are unnameable by any client — one authority
+typefail neg_deleted_occ_facts "the deleted second complete fact builder occ_facts" \
+  'Definition forged := @AN.occ_facts.'
+typefail neg_deleted_expr_sx_own "the deleted own_*-rerunning expr-statement driver expr_sx_own" \
+  'Definition forged := @AN.expr_sx_own.'
+typefail neg_deleted_occ_facts_va_eq "the deleted equality bridge occ_facts_va_eq between two fact builders" \
+  'Definition forged := @AN.occ_facts_va_eq.'
+typefail neg_deleted_raw_facts_as_occ "the deleted equality bridge raw_facts_as_occ" \
+  'Definition forged := @AN.raw_facts_as_occ.'
+# §10 a raw node equality cannot substitute for the structural child-progress theorem — strict progress is real
+typefail neg_node_eq_not_progress "a node self-equality coerced to strict parent<child position progress" \
+  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (a : IX.NodeRef idx) (H : a = a) : (IX.nr_pos a < IX.nr_pos a)%nat := H.'
 typefail_run
 # — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
 if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
@@ -1004,6 +1016,13 @@ if grep -nE '\bPhaseCert\.' Compilable/Analysis.v Compilable/Report.v Render.v E
   fail "certificate-isolation control — a consumer names the sealed PhaseCert authority module directly"
 fi
 echo "fido: status absence control OK — no forgeable/prospective route; Analysis reads only phase rows; the sealed PhaseCert certificate authority is unnamed outside the Binding owner"
+# — §6 one executable fact authority: the deleted peer complete-fact builder and its equality bridges are ABSENT
+#   from the certified path; occ_facts_va over the one va_facts is the sole executable fact builder (occ_facts_va,
+#   occ_facts_va_site and occ_facts_va_key_nodup keep their _va suffix, so the word-boundary match spares them) —
+if grep -nE '\bocc_facts\b|\bexpr_sx_own\b|occ_facts_va_eq|raw_facts_as_occ' Compilable/Analysis.v Compilable/Report.v Compilable.v; then
+  fail "one-fact-authority absence control — a second complete fact builder or an equality-bridge lemma still exists"
+fi
+echo "fido: one-fact-authority absence control OK — occ_facts/expr_sx_own and the occ_facts_va_eq/raw_facts_as_occ bridges are gone; occ_facts_va over the one va_facts is the sole executable fact builder"
 # (f) the POSITIVE control — the public surface and the ONE end-to-end route are reachable, so the seals and
 #     neg_* controls above are not passing merely because the client failed to load the theory.
 cat > /tmp/sealed_ok.v <<'CLIENT'
