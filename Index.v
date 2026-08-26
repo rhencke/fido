@@ -405,6 +405,20 @@ Proof.
     | discriminate E ].
 Qed.
 
+(* strict structural progress: a parent edge points strictly earlier — the parent's position precedes the child's *)
+Lemma node_parent_pos_lt {p} {idx : ProgramIndex p} (r par : NodeRef idx) :
+  node_parent r = Some par -> nr_pos par < nr_pos r.
+Proof.
+  intro Hpar.
+  destruct (c_parent (occ_at r)) as [pp|] eqn:Hcp;
+    [ | apply node_parent_none in Hcp; rewrite Hcp in Hpar; discriminate ].
+  destruct (node_parent_some r pp Hcp) as [pc [Hpc [Hpos _]]].
+  rewrite Hpar in Hpc. injection Hpc as Heq. subst pc.
+  destruct (occ_in_number_file r) as [f [Hin _]].
+  destruct (number_file_pbounds f (nr_pos r) (occ_at r) Hin pp Hcp) as [_ Hlt].
+  rewrite Hpos. exact Hlt.
+Qed.
+
 (* parent/child inverse: a direct child's parent edge points back exactly to its parent node *)
 Lemma node_children_inverse {p} {idx : ProgramIndex p} (r c : NodeRef idx) :
   In c (node_children r) -> node_parent c = Some r.

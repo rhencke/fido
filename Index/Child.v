@@ -31,6 +31,11 @@ Lemma ca_node_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal 
   (e : ChildAt parent ordinal) : node_parent (ca_child e) = Some parent.
 Proof. apply node_children_inverse, ca_in. Qed.
 
+(* strict structural progress: the exact direct child's position strictly follows its parent's — parent <> child *)
+Lemma child_pos_gt_parent {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
+  (e : ChildAt parent ordinal) : nr_pos parent < nr_pos (ca_child e).
+Proof. exact (node_parent_pos_lt (ca_child e) parent (ca_node_parent e)). Qed.
+
 (* the child's role is exactly the layout role its parent's view fixes at this ordinal *)
 Lemma ca_role {p} {idx : ProgramIndex p} {parent : NodeRef idx} {ordinal : nat}
   (e : ChildAt parent ordinal) : node_role (ca_child e) = layout_role (node_view parent) ordinal.
