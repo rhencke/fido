@@ -454,7 +454,8 @@ a sole main package's default executable name must not collide with an existing 
 two-or-more packages write no default output, and the empty program is accepted.
 
 The private composer `elaborate` (inside `Module Sealed`, never a public route) builds one retained `Compilation`
-wrapping one `Analysis.Result` — the intrinsic index, the package surface, the binding phase, the fact phase and
+indexed by the sealed `Analysis.Result` authority `analyze p`, whose transparent data `result_data p` holds the
+intrinsic index, the package surface, the binding phase, the fact phase and
 the package facts, computed once, each a dependent projection of the prior field it consumes. The transparent `disposition p` is a direct three-way
 projection of the one canonical issue table, and `Compilable.compile p : OutcomeAt p (disposition p)` is the **sole
 source** of the abstract branch objects: for a concrete `p` the tag reduces and `compile p` is directly the
@@ -492,9 +493,11 @@ precedence above and the one-core provenance law below are unchanged.
 
 ### Retained causal objects
 
-The production analysis is one transparent `Analysis.Result` — the intrinsic index, the package surface, the
-binding phase, the fact phase and the package facts, each a field typed by the exact prior field it consumes — and
-it is the exact type **index** of the branch-neutral `Compilation` certificate, never a field held behind it.
+The production analysis **data** is one transparent `ResultData` (`result_data p`) — the intrinsic index, the
+package surface, the binding phase, the fact phase and the package facts, each a field typed by the exact prior
+field it consumes — behind a **sealed abstract `Analysis.Result` authority** minted only by `analyze`; that
+authority is the exact type **index** of the branch-neutral `Compilation` certificate, never a field held behind
+it, and every `res_*` projection reads a `ResultData` field through `data_of_result`, never the opaque token.
 Nothing is rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
 
 Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
@@ -508,7 +511,8 @@ There is no `List.find`/`existsb` scan or recomputed peer object in the read pat
 The phase retains the whole flow as a dependent chain: the causal chain **is** the dependent types, so a foreign
 component is unrepresentable by type mismatch rather than caught by a comparison.
 
-**Equality to a recomputation is never provenance.** The transparent `Analysis.Result` — the exact type index the
+**Equality to a recomputation is never provenance.** The transparent `ResultData` behind the sealed
+`Analysis.Result` — the exact type index the
 `Compilation` certificate is built over — holds each phase once; the index, facts, package facts, diagnostics and
 boundaries are projections of it, never a stored equality to a rerun. The
 compiled capability `Program p` is abstract — sealed behind the `C4_PUBLIC` signature whose only maker `mkProg`
