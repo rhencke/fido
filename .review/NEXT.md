@@ -1,12 +1,15 @@
-# Active task: the C4 Exact Same-FactPhase Child-Prerequisite candidate
+# Active task: the C4 Exact Result-Owned Semantic Authority candidate
 
 Review: none
 
-An Analysis fact is semantically authoritative only when it is the exact retained row of the canonical
-`FactPhase`. Every invalid/unmet/dependent ref and every occurrence diagnostic/boundary is a dependent view of
-that exact row, and the exact `Analysis.Result` is the transparent type **index** of the sealed branch
-certificate rather than a field behind it. `make check` is green on the pinned toolchain and the generated Go
-bytes are byte-identical.
+The exact `Analysis.Result` is the sole public semantic acquisition boundary. Every public semantic type — fact
+rows, package decisions, child prerequisites, diagnostics, boundaries, causes, issues and every Report view — is
+indexed by one exact `Result r`, so a semantic object of Result A cannot inhabit Result B even when their
+`FactPhase`/`PackageFacts` are propositionally or definitionally equal. `FactPhase` and `PackageFacts` remain
+transparent retained fields of `Result` for computation and proof, but no public reference, issue, Report reader,
+package decision or fact lookup begins from an independently supplied product. The exact `Result` is also the
+transparent type **index** of the sealed branch certificate rather than a field behind it. `make check` is green
+on the pinned toolchain and the generated Go bytes are byte-identical.
 
 The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compilable.Program p`:
 
@@ -23,37 +26,39 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   distinguished projection over those declarations for executable-entry multiplicity.
 - **Analysis** is the sole fact and issue authority. `Cause`/`Requirement`/`Dependency bp site kind` are indexed by
   exact phase, occurrence site and fact kind; each outcome accepts only its own site+kind payload, and the displayed
-  family is a total site+kind projection. `FactPhase bp` retains the canonical one-pass fact list, and a
-  **`FactRowRef fp`** is an exact ordinal into `fact_list fp` with the retained row and its `nth_error` membership
-  proof. The row enumeration `fact_rows fp` is exactly `fact_list fp`, once, in retained order (complete,
-  duplicate-free by ordinal, positionally unique); `fact_row_for site kind` searches only those rows and is unique
-  by exact site+kind, returning two distinct rows for an application's Value and Application keys. A retained row's
-  outcome is exactly the `own_*` result the canonical `occ_facts` traversal selected, so no fabricated same-site
-  same-kind peer belongs to the list. `InvalidFactRef`/`UnmetFactRef`/`DependentFactRef` are case views over an
-  exact `FactRowRef` (the cause/requirement/dependency projected from the retained row, never caller-supplied).
+  family is a total site+kind projection. `FactPhase` remains a transparent retained field of `Result`, and a
+  **`FactRowRef r`** is an exact ordinal into `result_fact_list r` (the retained row list of the one `r`) with the
+  retained row and its `nth_error` membership proof. The row enumeration `fact_rows r` is exactly `result_fact_list r`,
+  once, in retained order (complete, duplicate-free by ordinal, positionally unique); `fact_row_for r site kind`
+  searches only those rows and is unique by exact site+kind, returning two distinct rows for an application's Value
+  and Application keys. A retained row's outcome is exactly the `own_*` result the canonical one-pass `va_facts` /
+  `occ_facts_va` builder selected, so no fabricated same-site same-kind peer belongs to the list.
+  `InvalidFactRef r`/`UnmetFactRef r`/`DependentFactRef r` are case views over an exact `FactRowRef r` (the
+  cause/requirement/dependency projected from the retained row, never caller-supplied).
   A statement's child dependency is no longer location-only: `DepChild` carries an exact `ChildFactEdge site kind`
   — the value child, or the application child with its exact `AppRef` — indexed by the parent site, so the child's
   node is a real structural descendant with strict positional progress — `node_parent child = parent` and
   `nr_pos parent < nr_pos child`, so the parent statement node is never its own child — and its kind is exactly
-  value or application. There is exactly one executable complete fact construction: `va_facts` computes each node's
-  value and application facts once, `occ_facts_va` projects the canonical rows from that one `va`, and `raw_facts`
-  is that projection over every file. The expr-statement driver reads its child's negativity from that same `va`
-  (never a rerun of `own_value`/`own_app`), and every retained-fact and child-prerequisite law is proved directly
-  over that one builder — no second complete builder and no equality-to-a-peer-builder bridge exist. A
-  `ChildDependentFactRef fp`
-  is a retained statement row whose outcome is exactly `SDependent (DepChild edge)`; a `NegativeFactRef` is the child
-  row's own exact invalid/unmet/dependent case (a dependent child keeps its own exact dependency, unflattened); and a
-  `ChildPrerequisiteRef` retains the exact `fact_row_for` result at the edge's child site+kind with that negative
-  case — all in the same `FactPhase`. Completeness holds: every child-dependent parent row's exact negative child
-  fact is retained in that same phase, so `child_prerequisite` never fails, and `child_prerequisite_refs` enumerates
-  one per child-dependent parent row in retained order. Dependent facts still emit no duplicate issue row.
-  `Boundary fp` is indexed by the exact fact phase, while `Diagnostic fp pf`/`IssueCause fp pf`/`Issue fp pf` are
-  indexed by the exact fact phase AND the exact `PackageFacts`: a missing-main diagnostic retains an exact
-  `MissingMainRef pf` (its package's canonical decision IS `package_rule pf pr = MainMissing`) and an
-  output-collision diagnostic an exact `CollisionRef pf` (the retained `preflight pf` IS a `FreshCollision` at that
-  package+root), so a raw `PackageRef` or package+root pair is not a package fact. `main_rows`/`collision_rows`
-  project those exact case builders (`missing_main_refs`/`collision_ref`), never re-testing the raw condition inline.
-  Every issue has an exact ordinal identity — an `IssueRef` into the one `result_issues` sequence.
+  value or application. There is exactly one executable complete fact construction, internal to `analyze`: `va_facts`
+  computes each node's value and application facts once, `occ_facts_va` projects the canonical rows from that one
+  `va`, and the raw list is that projection over every file. The expr-statement driver reads its child's negativity
+  from that same `va` (never a rerun of `own_value`/`own_app`), and every retained-fact and child-prerequisite law is
+  proved directly over that one builder — no second complete builder and no equality-to-a-peer-builder bridge exist.
+  A `ChildDependentFactRef r` is a retained statement row of `r` whose outcome is exactly `SDependent (DepChild edge)`;
+  a `NegativeFactRef` is the child row's own exact invalid/unmet/dependent case (a dependent child keeps its own exact
+  dependency, unflattened); and a `ChildPrerequisiteRef r cdfr` retains the exact `fact_row_for r` result at the
+  edge's child site+kind with that negative case — all in the same `r`. Completeness holds: every child-dependent
+  parent row's exact negative child fact is retained in that same result, so `child_prerequisite` never fails, and
+  `result_child_prerequisites r` enumerates one per child-dependent parent row in retained order. Dependent facts
+  still emit no duplicate issue row. `Boundary r`, `Diagnostic r`, `IssueCause r` and `Issue r` are all indexed by the
+  one exact `Result r`: a missing-main diagnostic retains an exact `MissingMainRef r` (its package's canonical
+  decision IS `result_package_rule r pr = MainMissing`) and an output-collision diagnostic an exact `CollisionRef r`
+  (the retained `result_preflight r` IS a `FreshCollision` at that package+root), so a raw `PackageRef` or
+  package+root pair is not a package fact. `result_diagnostics r` projects those exact case builders
+  (`result_missing_main_refs r` / `result_collision_ref r`), never re-testing the raw condition inline. Every issue
+  has an exact ordinal identity — an `IssueRef r` into the one `result_issues r` sequence. The product makers/readers
+  `facts`, `package_facts`, `fact_list`, `preflight`, `package_rule`, `diagnostics`, `boundaries` and
+  `program_disposition` are gone from the public surface; the `result_*` projections are the sole public route.
 - **Report** projects those exact row/case/issue identities and nothing else, with proved bidirectional-membership,
   exact identity, class-partition, no-collapse, payload, and stable-order laws; its bp-free `CauseView`/`ReqView`
   are one-way projections that cannot mint an exact Cause/Requirement/row. Its bp-free `ChildPrerequisiteView`
@@ -82,20 +87,21 @@ claimed accepted or complete, and only Rob accepts. The frozen lower stack stays
 stays historically accepted; C6 roots beyond the cutover stay frozen until acceptance; `make check` on the pinned
 toolchain is the supported run). Governing truth held by this candidate:
 
-- `FactPhase` and `PackageFacts` still exist and remain fields of `Analysis.Result`; their full
-  consolidation/deletion/sealing is a later C4 root.
-- The included stack establishes exact retained fact-row identity, the transparent-data/sealed-certificate branch
-  topology, and exact package-decision-case identity: a missing-main diagnostic retains an exact `MissingMainRef`
-  case and an output-collision diagnostic an exact `CollisionRef` case, both indexed by the exact `PackageFacts`
-  from the same Result (a diagnostic for one `PackageFacts` cannot inhabit another). It does not make `Result` the
-  sole public semantic reader everywhere.
-- This slice makes `DepChild` carry an exact structural `ChildFactEdge` and establishes the exact same-`FactPhase`
-  child-prerequisite: a `ChildDependentFactRef`'s retained edge names the exact child row `fact_row_for` selects,
-  with that child's own exact negative case, and the parent consumes the one executable fact builder rather than
-  rerunning `own_value`/`own_app`; the prerequisite carries strict `nr_pos parent < nr_pos child` progress (so the
-  parent is never its own child), surfaced from the canonical numbering as the public `Index.node_parent_pos_lt` /
-  `Index.Child.child_pos_gt_parent` without exposing Build internals. Full Result/product consolidation of that
-  prerequisite remains a later C4 root.
+- `FactPhase` and `PackageFacts` still exist and remain transparent retained fields of `Analysis.Result`, useful for
+  finite computation and dependent proof factoring; they are no longer public semantic authority. Their eventual
+  full deletion, if ever warranted, is a later C4 root.
+- `Analysis.Result` is now the sole public semantic acquisition boundary: every public fact-row, package-decision,
+  child-prerequisite, diagnostic, boundary, cause, issue and Report object is indexed by one exact `Result r`. A
+  semantic object of Result A cannot inhabit Result B even when both Results carry equal `FactPhase`/`PackageFacts`
+  (the type is genuinely parameterized by the exact `r`). The peer product makers/readers (`facts`, `package_facts`,
+  `fact_list`, `preflight`, `package_rule`, `diagnostics`, `boundaries`, `program_disposition`) are gone from the
+  public surface — `@AN.<name>` is unresolvable — and the `result_*` projections are the sole public route.
+- The child-prerequisite is exact same-`Result`: a `ChildDependentFactRef r`'s retained `DepChild` edge names the
+  exact child row `fact_row_for r` selects, with that child's own exact negative case, and the parent consumes the
+  one executable fact builder rather than rerunning `own_value`/`own_app`; the prerequisite carries strict
+  `nr_pos parent < nr_pos child` progress (so the parent is never its own child), surfaced from the canonical
+  numbering as the public `Index.node_parent_pos_lt` / `Index.Child.child_pos_gt_parent` without exposing Build
+  internals.
 - C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
   complete; the known missing static cases stay mandatory later work.
 - The implemented issue order is output-collision diagnostics, then main diagnostics, then redeclaration
