@@ -542,56 +542,58 @@ typefail neg_raw_node_as_source_object "a SourceObject built directly from a raw
 # — report / analysis (R3/R4/§23): every occurrence diagnostic/boundary is one exact retained fact-ROW ref, never
 #   a raw OccFact or free site/family/cause; the ref carries its membership proof, is fact-phase-indexed, and does
 #   not cross phases; a requirement stays exact for its site and kind, never a nullary payload at an arbitrary site —
-typefail neg_occfact_as_factrow "a raw OccFact accepted directly as an exact retained fact-row ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.FactRowRef fp := o.'
+typefail neg_occfact_as_factrow "a raw OccFact accepted directly as an exact retained fact-row ref of a Result" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (o : AN.OccFact (AN.res_binds r)) : AN.FactRowRef r := o.'
 typefail neg_factrow_forged_membership "a fact-row ref whose membership proof is a bare reflexivity over a raw fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.FactRowRef fp := AN.mk_frr 0 o eq_refl.'
-typefail neg_factrow_cross_phase "a fact-row ref of fact phase A used at fact phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (ref : AN.FactRowRef fp1) : AN.FactRowRef fp2 := ref.'
-typefail neg_factrow_cross_result "a fact-row ref from one Result res_facts used at another Result res_facts" \
-  'Definition forged (p q : Syntax.Program) (ref : AN.FactRowRef (AN.res_facts (CP.compilation_data p))) : AN.FactRowRef (AN.res_facts (CP.compilation_data q)) := ref.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (o : AN.OccFact (AN.res_binds r)) : AN.FactRowRef r := AN.mk_frr 0 o eq_refl.'
+typefail neg_factrow_cross_result "a fact-row ref of Result A used at Result B, though both res_facts are equal" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (ref : AN.FactRowRef rA) : AN.FactRowRef rB := ref.'
+typefail neg_factrow_cross_result_concrete "a fact-row ref from one compiled Result used at another compiled Result" \
+  'Definition forged (p q : Syntax.Program) (ref : AN.FactRowRef (CP.compilation_data p)) : AN.FactRowRef (CP.compilation_data q) := ref.'
 typefail neg_ifr_forged_case "an invalid-case ref whose outcome proof is a bare reflexivity over a chosen cause" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (rr : AN.FactRowRef fp) (c : AN.Cause bp (AN.fact_site (AN.frr_row rr)) (AN.fact_kind (AN.frr_row rr))) : AN.InvalidFactRef fp := AN.mk_ifr rr c eq_refl.'
-typefail neg_ifr_cross_phase "an invalid-case ref of fact phase A used at fact phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (ir : AN.InvalidFactRef fp1) : AN.InvalidFactRef fp2 := ir.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (rr : AN.FactRowRef r) (c : AN.Cause (AN.res_binds r) (AN.fact_site (AN.frr_row rr)) (AN.fact_kind (AN.frr_row rr))) : AN.InvalidFactRef r := AN.mk_ifr rr c eq_refl.'
+typefail neg_ifr_cross_result "an invalid-case ref of Result A used at Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (ir : AN.InvalidFactRef rA) : AN.InvalidFactRef rB := ir.'
 typefail neg_occ_diag_raw_fact "an occurrence diagnostic built from a raw OccFact, not one exact invalid fact-row ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.Diagnostic fp := AN.DOcc o.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (o : AN.OccFact (AN.res_binds r)) : AN.Diagnostic r := AN.DOcc o.'
 typefail neg_occ_bound_raw_fact "an occurrence boundary built from a raw OccFact, not one exact unmet fact-row ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (o : AN.OccFact bp) : AN.Boundary fp := AN.BOcc o.'
-typefail neg_diag_cross_phase "an occurrence diagnostic of fact phase A used at fact phase B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp1 fp2 : AN.FactPhase bp) (dg : AN.Diagnostic fp1) : AN.Diagnostic fp2 := dg.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (o : AN.OccFact (AN.res_binds r)) : AN.Boundary r := AN.BOcc o.'
+typefail neg_diag_cross_result "an occurrence diagnostic of Result A used at Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (dg : AN.Diagnostic rA) : AN.Diagnostic rB := dg.'
 typefail neg_causeview_mints_diag "a bp-free Report cause view minting an occurrence diagnostic, not an exact fact ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (cv : RP.CauseView) : AN.Diagnostic fp := AN.DOcc cv.'
-typefail neg_diagnostic_bp_unindexed "the deleted binding-phase-indexed occurrence diagnostic, not fact-phase-indexed" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (cv : RP.CauseView) : AN.Diagnostic r := AN.DOcc cv.'
+typefail neg_diagnostic_bp_unindexed "the deleted binding-phase-indexed occurrence diagnostic, not Result-indexed" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) : Type := AN.Diagnostic bp.'
+typefail neg_diagnostic_fp_unindexed "the deleted fact-phase-indexed occurrence diagnostic, not Result-indexed" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) : Type := AN.Diagnostic fp.'
 typefail neg_generic_requirement "a requirement with no exact site payload" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) : AN.Requirement bp r AN.ValueKind := AN.ReqComplexType.'
 # — §18 package-decision case identity: a package diagnostic/cause is exactly its retained MissingMainRef /
-#   CollisionRef, so a raw PackageRef / package+root pair, a forged decision proof, a case ref from another
-#   PackageFacts, or a cross-case ref (missing-as-collision) each fails to TYPECHECK; the mmr_case / cr_case proof
-#   obligation makes a MainOne-package missing-main or a non-colliding collision unrepresentable —
+#   CollisionRef of the one Result, so a raw PackageRef / package+root pair, a forged decision proof, a case ref
+#   from another Result, or a cross-case ref (missing-as-collision) each fails to TYPECHECK; the mmr_case / cr_case
+#   proof obligation makes a MainOne-package missing-main or a non-colliding collision unrepresentable —
 typefail neg_missing_from_raw_package "a missing-main diagnostic built from a raw package ref, not an exact case" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.Diagnostic fp pf := AN.DMissingMain pr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (pr : PI.PackageRef (AN.res_surface r)) : AN.Diagnostic r := AN.DMissingMain pr.'
 typefail neg_missing_cause_raw_package "a missing-main issue cause built from a raw package ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.IssueCause fp pf := AN.MissingMainCause pr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (pr : PI.PackageRef (AN.res_surface r)) : AN.IssueCause r := AN.MissingMainCause pr.'
 typefail neg_missing_forged_case "a missing-main ref whose decision proof is a bare reflexivity at any package" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) : AN.MissingMainRef pf := AN.mk_missing_main_ref pr eq_refl.'
-typefail neg_missing_cross_pf "a missing-main ref of PackageFacts A used at PackageFacts B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf1 pf2 : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf1) : AN.MissingMainRef pf2 := mmr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (pr : PI.PackageRef (AN.res_surface r)) : AN.MissingMainRef r := AN.mk_missing_main_ref pr eq_refl.'
+typefail neg_missing_cross_result "a missing-main ref of Result A used at Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (mmr : AN.MissingMainRef rA) : AN.MissingMainRef rB := mmr.'
 typefail neg_collision_from_raw_pair "an output-collision diagnostic built from a raw package+root pair, not an exact case" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) (rr : PI.RootEntryRef (IX.index_program p)) : AN.Diagnostic fp pf := AN.DOutputCollision pr rr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (pr : PI.PackageRef (AN.res_surface r)) (rr : PI.RootEntryRef (AN.res_index r)) : AN.Diagnostic r := AN.DOutputCollision pr rr.'
 typefail neg_collision_forged_case "a collision ref whose preflight proof is a bare reflexivity at any package+root" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf : AN.PackageFacts bp) (pr : PI.PackageRef sf) (rr : PI.RootEntryRef (IX.index_program p)) : AN.CollisionRef pf := AN.mk_collision_ref pr rr eq_refl.'
-typefail neg_collision_cross_pf "a collision ref of PackageFacts A used at PackageFacts B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (pf1 pf2 : AN.PackageFacts bp) (cr : AN.CollisionRef pf1) : AN.CollisionRef pf2 := cr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (pr : PI.PackageRef (AN.res_surface r)) (rr : PI.RootEntryRef (AN.res_index r)) : AN.CollisionRef r := AN.mk_collision_ref pr rr eq_refl.'
+typefail neg_collision_cross_result "a collision ref of Result A used at Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (cr : AN.CollisionRef rA) : AN.CollisionRef rB := cr.'
 typefail neg_missing_as_collision "a missing-main case used where an output-collision case is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DOutputCollision mmr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (mmr : AN.MissingMainRef r) : AN.Diagnostic r := AN.DOutputCollision mmr.'
 typefail neg_collision_as_missing "an output-collision case used where a missing-main case is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (cr : AN.CollisionRef pf) : AN.Diagnostic fp pf := AN.DMissingMain cr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (cr : AN.CollisionRef r) : AN.Diagnostic r := AN.DMissingMain cr.'
 typefail neg_package_case_as_occ "a package decision case used where an occurrence invalid fact ref is required" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (mmr : AN.MissingMainRef pf) : AN.Diagnostic fp pf := AN.DOcc mmr.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (mmr : AN.MissingMainRef r) : AN.Diagnostic r := AN.DOcc mmr.'
 typefail neg_missing_view_mints_diag "a bp-free missing-main view minting a missing-main diagnostic, not an exact case" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) (v : RP.MissingMainView) : AN.Diagnostic fp pf := AN.DMissingMain v.'
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (v : RP.MissingMainView) : AN.Diagnostic r := AN.DMissingMain v.'
 # — image (R5): the evidence-indexed image comes ONLY from of_compiled/of_evidence over a real Program p; it
 #   carries no byte/file slot and cannot pair evidence with a foreign compiled root —
 typefail neg_image_from_bytes "an image fabricated from a raw byte string" \
@@ -843,7 +845,7 @@ typefail neg_useredecl_wrong_root "a redeclared use context forged for a root it
 typefail neg_report_view_mints_cause "an Analysis cause forged from a bp-free Report CauseView" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.CauseView) : AN.Cause bp r AN.ValueKind := v.'
 typefail neg_report_view_mints_diag "an Analysis diagnostic forged from a bp-free Report CauseView" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic bp := v.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic (CP.compilation_data p) := v.'
 # — §17.1 CROSS-SITE: a payload exact for site A cannot inhabit an outcome/ref for site B (site is an index) —
 typefail neg_xsite_resolution_cause "a resolution-derived value cause for site A placed in a value outcome for site B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp a) n) (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None) : AN.ValueOutcome bp b := AN.VInvalid (AN.UnresolvedNameV r H1 H2).'
@@ -874,37 +876,37 @@ typefail neg_notcallable_as_stmt "NotCallable (an application cause) placed in a
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp r) n) (o : BN.ObjectRef (IX.index_program p)) (H : BN.resolution_object_view r0 = Some o) : AN.StmtOutcome bp r := AN.SInvalid (AN.NotCallable r0 o H).'
 # — §17.3 EXACT FACT CASE: a case ref is constructible only for a fact whose exact outcome matches its case —
 typefail neg_success_no_ifr "an invalid fact ref built for a success (nonconstant) fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r AN.VNonconst) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r AN.VNonconst) c eq_refl.'
 typefail neg_invalid_no_ufr "an unmet fact ref built for an invalid fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) (q : AN.Requirement bp r AN.ValueKind) : AN.UnmetFactRef bp := AN.mk_ufr (AN.OFValue r (AN.VInvalid c)) q eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) (q : AN.Requirement bp r AN.ValueKind) : AN.UnmetFactRef (CP.compilation_data p) := AN.mk_ufr (AN.OFValue r (AN.VInvalid c)) q eq_refl.'
 typefail neg_unmet_no_ifr "an invalid fact ref built for an unmet fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r (AN.VUnmet q)) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r (AN.VUnmet q)) c eq_refl.'
 typefail neg_dependent_no_ifr "an invalid fact ref built for a dependent fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue r (AN.VDependent dep)) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r (AN.VDependent dep)) c eq_refl.'
 typefail neg_ifr_xsite "an invalid fact ref pairing a fact at site A with a cause for site B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ca : AN.Cause bp a AN.ValueKind) (cb : AN.Cause bp b AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFValue a (AN.VInvalid ca)) cb eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ca : AN.Cause bp a AN.ValueKind) (cb : AN.Cause bp b AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue a (AN.VInvalid ca)) cb eq_refl.'
 typefail neg_ifr_xkind "an invalid fact ref reinterpreting an application fact kind as value" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (oa : AN.AppOutcome bp r) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef bp := AN.mk_ifr (AN.OFApp r oa) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (oa : AN.AppOutcome bp r) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFApp r oa) c eq_refl.'
 # — §17.4 FREE PAIRING ABSENCE: no row is built from raw fields, a raw payload, a family, or the wrong fact ref —
 typefail neg_bocc_three_fields "a BOcc built from raw site + family + requirement" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary bp := AN.BOcc r fam q.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary (CP.compilation_data p) := AN.BOcc r fam q.'
 typefail neg_docc_raw_cause "a DOcc built from a raw cause alone" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic bp := AN.DOcc c.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc c.'
 typefail neg_bocc_raw_req "a BOcc built from a raw requirement alone" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary bp := AN.BOcc q.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary (CP.compilation_data p) := AN.BOcc q.'
 typefail neg_docc_extra_family "a DOcc given an extra family field beside the exact fact ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef bp) (fam : AN.Family) : AN.Diagnostic bp := AN.DOcc ifr fam.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef (CP.compilation_data p)) (fam : AN.Family) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc ifr fam.'
 typefail neg_invalid_as_boundary "an invalid fact ref used to build a boundary" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef bp) : AN.Boundary bp := AN.BOcc ifr.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef (CP.compilation_data p)) : AN.Boundary (CP.compilation_data p) := AN.BOcc ifr.'
 typefail neg_unmet_as_diagnostic "an unmet fact ref used to build a diagnostic" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ufr : AN.UnmetFactRef bp) : AN.Diagnostic bp := AN.DOcc ufr.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ufr : AN.UnmetFactRef (CP.compilation_data p)) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc ufr.'
 # — §17.5 PROJECTION BOUNDARY: a bp-free Report view cannot mint an exact Requirement or row; a foreign phase is rejected —
 typefail neg_reqview_mints_req "an exact Requirement minted from a bp-free ReqView" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.ReqView) : AN.Requirement bp r AN.ValueKind := v.'
 typefail neg_groupview_mints_row "an exact occurrence diagnostic minted from a Report group view" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (gv : RP.DeclarationGroupView sf bp) : AN.Diagnostic bp := AN.DOcc gv.'
-typefail neg_foreign_phase_ifr "a diagnostic for phase B built from an invalid fact ref of phase A" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) {d2 : BN.PhaseData sf} (bp2 : BN.BindingPhase sf d2) (ifr : AN.InvalidFactRef bp) : AN.Diagnostic bp2 := AN.DOcc ifr.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (gv : RP.DeclarationGroupView sf bp) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc gv.'
+typefail neg_foreign_result_ifr "a diagnostic for Result B built from an invalid fact ref of Result A" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (ifr : AN.InvalidFactRef rA) : AN.Diagnostic rB := AN.DOcc ifr.'
 # — 18.1/23 the descriptive redeclaration route is DELETED: the exact redeclaration_roots enumeration is the sole
 #   authority, and every descriptive-group carrier/projection fails to RESOLVE —
 typefail neg_deleted_redeclared_groups "the deleted descriptive redeclared-groups route" \
@@ -946,30 +948,30 @@ typefail neg_edge_site_mismatch "a child edge at parent A used as a dependency a
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (siteA siteB : IX.NodeRef idx) (edge : AN.ChildFactEdge siteA AN.StatementKind) : AN.Dependency bp siteB AN.StatementKind := AN.DepChild edge.'
 typefail neg_value_edge_as_app "a value child edge relabelled application-kind" \
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (site : IX.NodeRef idx) (edge : AN.ChildFactEdge site AN.StatementKind) (H : AN.cfe_child_kind edge = AN.ValueKind) : AN.cfe_child_kind edge = AN.ApplicationKind := H.'
-# §21.3 rows and refs are indexed by the exact FactPhase; a foreign-phase row/ref cannot inhabit another
-typefail neg_cross_phase_child_row "a child row from FactPhase A used in FactPhase B" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fpA fpB : AN.FactPhase bp) (rowA : AN.FactRowRef fpA) : AN.FactRowRef fpB := rowA.'
-typefail neg_cross_phase_cdfr "a child-dependent parent ref from FactPhase A used in FactPhase B" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fpA fpB : AN.FactPhase bp) (cdfrA : AN.ChildDependentFactRef fpA) : AN.ChildDependentFactRef fpB := cdfrA.'
+# §23.1 rows and refs are indexed by the exact Result; a foreign-Result row/ref cannot inhabit another
+typefail neg_cross_result_child_row "a child row from Result A used in Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (rowA : AN.FactRowRef rA) : AN.FactRowRef rB := rowA.'
+typefail neg_cross_result_cdfr "a child-dependent parent ref from Result A used in Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (cdfrA : AN.ChildDependentFactRef rA) : AN.ChildDependentFactRef rB := cdfrA.'
 # §21.4 a negative child ref demands the row''s own exact negative case, at its exact row, in its exact class
 typefail neg_success_no_negative "a successful child row (occ_cause = None) coerced to an invalid case" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (c : AN.Cause bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = None) : AN.NegativeFactRef row := AN.ChildInvalid c H.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (row : AN.FactRowRef rr) (c : AN.Cause (AN.res_binds rr) (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = None) : AN.NegativeFactRef row := AN.ChildInvalid c H.'
 typefail neg_invalid_as_unmet "an invalid cause used where the unmet case demands a requirement" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (c : AN.Cause bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_req (AN.frr_row row) = Some c) : AN.NegativeFactRef row := AN.ChildUnmet c H.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (row : AN.FactRowRef rr) (c : AN.Cause (AN.res_binds rr) (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_req (AN.frr_row row) = Some c) : AN.NegativeFactRef row := AN.ChildUnmet c H.'
 typefail neg_negcase_cross_row "a negative case for row A used as the negative case of row B" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (rowA rowB : AN.FactRowRef fp) (n : AN.NegativeFactRef rowA) : AN.NegativeFactRef rowB := n.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (rowA rowB : AN.FactRowRef rr) (n : AN.NegativeFactRef rowA) : AN.NegativeFactRef rowB := n.'
 # §21.5 a child-dependent parent ref demands the exact SDependent-of-DepChild outcome, never a value/nondependent row
 typefail neg_nondependent_cdfr "a non-dependent value row coerced to a child-dependent parent ref" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (r : IX.NodeRef idx) (edge : AN.ChildFactEdge r AN.StatementKind) (vv : AN.ValueOutcome bp r) (Hok : AN.frr_row row = AN.OFValue r vv) : AN.ChildDependentFactRef fp := AN.mk_cdfr row r edge Hok.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (row : AN.FactRowRef rr) (r : IX.NodeRef (AN.res_index rr)) (edge : AN.ChildFactEdge r AN.StatementKind) (vv : AN.ValueOutcome (AN.res_binds rr) r) (Hok : AN.frr_row row = AN.OFValue r vv) : AN.ChildDependentFactRef rr := AN.mk_cdfr row r edge Hok.'
 # §21.7 the bp-free descriptive view cannot mint an exact prerequisite or child-dependent ref
 typefail neg_view_mints_prereq "a bp-free ChildPrerequisiteView coerced to an exact ChildPrerequisiteRef" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (cdfr : AN.ChildDependentFactRef fp) (v : RP.ChildPrerequisiteView idx) : AN.ChildPrerequisiteRef fp cdfr := v.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (cdfr : AN.ChildDependentFactRef rr) (v : RP.ChildPrerequisiteView (AN.res_index rr)) : AN.ChildPrerequisiteRef rr cdfr := v.'
 typefail neg_view_mints_cdfr "a bp-free ChildPrerequisiteView coerced to an exact ChildDependentFactRef" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (v : RP.ChildPrerequisiteView idx) : AN.ChildDependentFactRef fp := v.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (v : RP.ChildPrerequisiteView (AN.res_index rr)) : AN.ChildDependentFactRef rr := v.'
 typefail neg_unmet_as_invalid "an unmet requirement used where the invalid case demands a cause" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (q : AN.Requirement bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some q) : AN.NegativeFactRef row := AN.ChildInvalid q H.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (row : AN.FactRowRef rr) (q : AN.Requirement (AN.res_binds rr) (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some q) : AN.NegativeFactRef row := AN.ChildInvalid q H.'
 typefail neg_dependent_as_invalid "a child dependency used where the invalid case demands a cause" \
-  'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (s : PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd) (fp : AN.FactPhase bp) (row : AN.FactRowRef fp) (dd : AN.Dependency bp (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some dd) : AN.NegativeFactRef row := AN.ChildInvalid dd H.'
+  'Definition forged (p : Syntax.Program) (rr : AN.Result p) (row : AN.FactRowRef rr) (dd : AN.Dependency (AN.res_binds rr) (AN.frr_site row) (AN.frr_kind row)) (H : AN.occ_cause (AN.frr_row row) = Some dd) : AN.NegativeFactRef row := AN.ChildInvalid dd H.'
 # §6/§10 the deleted second fact builder and its equality bridges are unnameable by any client — one authority
 typefail neg_deleted_occ_facts "the deleted second complete fact builder occ_facts" \
   'Definition forged := @AN.occ_facts.'
@@ -979,6 +981,26 @@ typefail neg_deleted_occ_facts_va_eq "the deleted equality bridge occ_facts_va_e
   'Definition forged := @AN.occ_facts_va_eq.'
 typefail neg_deleted_raw_facts_as_occ "the deleted equality bridge raw_facts_as_occ" \
   'Definition forged := @AN.raw_facts_as_occ.'
+# §16/§23.3 the product makers/readers are module-private (Local); the sole public route is the result_* projection
+typefail neg_public_facts "the deleted public fact-phase maker facts" \
+  'Definition forged := @AN.facts.'
+typefail neg_public_package_facts "the deleted public package-facts maker package_facts" \
+  'Definition forged := @AN.package_facts.'
+typefail neg_public_fact_list "the deleted public fact_list reader (result_fact_list is the sole route)" \
+  'Definition forged := @AN.fact_list.'
+typefail neg_public_preflight "the deleted public preflight reader (result_preflight is the sole route)" \
+  'Definition forged := @AN.preflight.'
+typefail neg_public_package_rule "the deleted public package_rule reader (result_package_rule is the sole route)" \
+  'Definition forged := @AN.package_rule.'
+typefail neg_public_diagnostics "the deleted public product diagnostics reader (result_diagnostics is the sole route)" \
+  'Definition forged := @AN.diagnostics.'
+typefail neg_public_boundaries "the deleted public product boundaries reader (result_boundaries is the sole route)" \
+  'Definition forged := @AN.boundaries.'
+typefail neg_public_program_disposition "the deleted public product program_disposition (result_disposition is the sole route)" \
+  'Definition forged := @AN.program_disposition.'
+# §23.2 an arbitrary FactPhase/PackageFacts cannot mint a Result-indexed semantic object: there is no product route
+typefail neg_report_product_diagnostics "the deleted Report product-level diagnostics reader over an arbitrary FactPhase" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (fp : AN.FactPhase bp) (pf : AN.PackageFacts bp) := RP.diagnostics fp pf.'
 # §10 a raw node equality cannot substitute for the structural child-progress theorem — strict progress is real
 typefail neg_node_eq_not_progress "a node self-equality coerced to strict parent<child position progress" \
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (a : IX.NodeRef idx) (H : a = a) : (IX.nr_pos a < IX.nr_pos a)%nat := H.'

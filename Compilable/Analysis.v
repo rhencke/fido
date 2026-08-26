@@ -932,20 +932,16 @@ Local Definition raw_facts : list (OccFact bp) :=
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
 Definition FactPhase : Type := { m : list (OccFact bp) | m = raw_facts }.
-Local Definition facts : FactPhase := exist _ raw_facts eq_refl.
-Local Definition fact_list (fp : FactPhase) : list (OccFact bp) := proj1_sig fp.
 
 End Retain.
 
 Arguments FactPhase {p idx s bd} bp.
-Arguments facts {p idx s bd} bp.
-Arguments fact_list {p idx s bd bp} _.
 
 Section Laws.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
 (* the phase content is built once; every phase carries exactly the canonical classification, none caller-supplied *)
-Local Lemma fact_once (fp : FactPhase bp) : fact_list fp = raw_facts bp.
+Local Lemma fact_once (fp : FactPhase bp) : proj1_sig fp = raw_facts bp.
 Proof. exact (proj2_sig fp). Qed.
 
 (* statement and type-use families have no Nonconst constructor: OK / invalid / unmet / dependent exhaust each *)
@@ -991,12 +987,6 @@ Local Definition raw_preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.Packa
 
 Definition PackageFacts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
   {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : Type := { d : FreshBuildDisposition s | d = raw_preflight bp }.
-Local Definition package_facts {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx}
-  {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd) : PackageFacts bp := exist _ (raw_preflight bp) eq_refl.
-Local Definition preflight {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
-  (pf : PackageFacts bp) : FreshBuildDisposition s := proj1_sig pf.
-Local Definition package_rule {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
-  (pf : PackageFacts bp) (pr : BN.PI.PackageRef s) : BN.MainStatus s pr := BN.package_main bp pr.
 
 (* small helper: a per-element singleton-or-empty flat_map is exactly the filter of its boolean condition *)
 Lemma flat_map_match_filter {A} (f : A -> bool) (g : A -> list A) (l : list A)
@@ -1022,7 +1012,7 @@ Definition analyze (p : Syntax.Program) : Result p :=
   let i := Index.index_program p in
   let s := BN.PI.package_surface i in
   let b := BN.bindings s in
-  mk_result i s (BN.phase_data s) b (facts b) (package_facts b).
+  mk_result i s (BN.phase_data s) b (exist _ (raw_facts b) eq_refl) (exist _ (raw_preflight b) eq_refl).
 
 (* the semantic family of an occurrence issue: declaration specs and short-decls are distinct from plain uses *)
 Inductive Family : Type := FamValue | FamApplication | FamStatement | FamTypeUse | FamDeclaration.
@@ -1243,9 +1233,9 @@ Qed.
 End FactBuilderLaws.
 
 (* the exact retained package decisions of one Result: its canonical preflight and per-package main rule, projected *)
-Definition result_preflight {p} (r : Result p) : FreshBuildDisposition (res_surface r) := preflight (res_pkg r).
+Definition result_preflight {p} (r : Result p) : FreshBuildDisposition (res_surface r) := proj1_sig (res_pkg r).
 Definition result_package_rule {p} (r : Result p) (pr : BN.PI.PackageRef (res_surface r)) : BN.MainStatus (res_surface r) pr :=
-  package_rule (res_pkg r) pr.
+  BN.package_main (res_binds r) pr.
 
 (* an exact missing-main case of one Result: a package whose canonical main decision IS MainMissing, proof retained *)
 Record MissingMainRef {p} (r : Result p) : Type := mk_missing_main_ref {
@@ -1348,7 +1338,7 @@ Arguments coll_of {p r} d H.
 Arguments is_missing {p r} pr.
 
 (* the exact retained fact list of one Result: the canonical row list its res_facts holds, projected once *)
-Definition result_fact_list {p} (r : Result p) : list (OccFact (res_binds r)) := fact_list (res_facts r).
+Definition result_fact_list {p} (r : Result p) : list (OccFact (res_binds r)) := proj1_sig (res_facts r).
 
 Section FactRow.
 Context {p : Syntax.Program} (r : Result p).
@@ -2243,8 +2233,8 @@ Proof. reflexivity. Qed.
 Definition occ_diags : list (Diagnostic res) := flat_map occ_diag_rows (fact_rows res).
 
 (* the canonical order: output collision, package main, ordinary redeclaration, then occurrence in fact-row order *)
-Local Definition diagnostics : list (Diagnostic res) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
-Local Definition boundaries : list (Boundary res) := flat_map occ_bound_rows (fact_rows res).
+Definition result_diagnostics : list (Diagnostic res) := collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Definition result_boundaries : list (Boundary res) := flat_map occ_bound_rows (fact_rows res).
 
 (* §19.3 the package diagnostic rows ARE the exact case-ref projections; neither re-tests the semantic condition *)
 Lemma collision_rows_ref : collision_rows = match result_collision_ref res with Some cr => [DOutputCollision cr] | None => [] end.
@@ -2252,7 +2242,7 @@ Proof. reflexivity. Qed.
 Lemma main_rows_refs : main_rows = map DMissingMain (result_missing_main_refs res).
 Proof. reflexivity. Qed.
 (* §19.3/§21 the collision-before-main-before-redeclaration-before-occurrence category order is unchanged *)
-Lemma diagnostics_order : diagnostics = collision_rows ++ main_rows ++ group_rows ++ occ_diags.
+Lemma diagnostics_order : result_diagnostics = collision_rows ++ main_rows ++ group_rows ++ occ_diags.
 Proof. reflexivity. Qed.
 
 (* one row yields a diagnostic XOR a boundary; distinct-family facts of one subject still coexist across rows (§6) *)
@@ -2392,12 +2382,10 @@ Arguments DInvalidAndUnsupported {p r} _ _ _ _.
 
 Section DispositionAlgebra.
 Context {p : Syntax.Program} (r : Result p).
-Let fp := res_facts r.
-Let pf := res_pkg r.
 
 (* the whole-program disposition aggregates the one canonical issue table into the complete 5-way algebra *)
-Local Definition program_disposition : Disposition r :=
-  match diagnostics r, boundaries r with
+Definition result_disposition : Disposition r :=
+  match result_diagnostics r, result_boundaries r with
   | nil, nil => DSucceeded
   | d :: ds, nil => DInvalid (diag_cause d) (map diag_cause ds)
   | nil, b :: bs => DUnsupported (bound_req_ref b) (map bound_req_ref bs)
@@ -2407,9 +2395,9 @@ Local Definition program_disposition : Disposition r :=
 
 (* success is exactly empty reports; a rejected program with simultaneous boundaries is InvalidAndUnsupported *)
 Lemma program_disposition_succeeded :
-  program_disposition = DSucceeded <-> diagnostics r = nil /\ boundaries r = nil.
+  result_disposition = DSucceeded <-> result_diagnostics r = nil /\ result_boundaries r = nil.
 Proof.
-  unfold program_disposition; destruct (diagnostics r) as [|d ds], (boundaries r) as [|b bs]; cbn.
+  unfold result_disposition; destruct (result_diagnostics r) as [|d ds], (result_boundaries r) as [|b bs]; cbn.
   - split; intros _; [ split; reflexivity | reflexivity ].
   - split; [ discriminate | intros [_ H2]; discriminate H2 ].
   - split; [ discriminate | intros [H1 _]; discriminate H1 ].
@@ -2417,13 +2405,13 @@ Proof.
 Qed.
 
 Lemma program_disposition_both :
-  (exists d ds b bs c1 c2 q1 q2, diagnostics r = d :: ds /\ boundaries r = b :: bs
-     /\ program_disposition = DInvalidAndUnsupported c1 c2 q1 q2) \/
-  program_disposition = DSucceeded \/
-  (exists c cs, program_disposition = DInvalid c cs) \/
-  (exists q qs, program_disposition = DUnsupported q qs).
+  (exists d ds b bs c1 c2 q1 q2, result_diagnostics r = d :: ds /\ result_boundaries r = b :: bs
+     /\ result_disposition = DInvalidAndUnsupported c1 c2 q1 q2) \/
+  result_disposition = DSucceeded \/
+  (exists c cs, result_disposition = DInvalid c cs) \/
+  (exists q qs, result_disposition = DUnsupported q qs).
 Proof.
-  unfold program_disposition; destruct (diagnostics r) as [|d ds] eqn:Ed, (boundaries r) as [|b bs] eqn:Eb.
+  unfold result_disposition; destruct (result_diagnostics r) as [|d ds] eqn:Ed, (result_boundaries r) as [|b bs] eqn:Eb.
   - right; left; reflexivity.
   - right; right; right; eexists; eexists; reflexivity.
   - right; right; left; eexists; eexists; reflexivity.
@@ -2432,20 +2420,6 @@ Qed.
 
 End DispositionAlgebra.
 
-(* §11 structural progress + cost: every construction is structural recursion over finite maps, no fuel or budget *)
-Section Cost.
-Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
-
-(* one structural pass: each node contributes the facts of its applicable families via a single flat_map, no fuel *)
-Local Lemma fact_phase_one_pass : fact_list (facts bp) = raw_facts bp.
-Proof. unfold fact_list, facts; cbn [proj1_sig]. reflexivity. Qed.
-
-End Cost.
-
-(* the canonical issue lists and 5-way summary as projections of the one retained result, indexed by that Result *)
-Definition result_diagnostics {p} (r : Result p) : list (Diagnostic r) := diagnostics r.
-Definition result_boundaries {p} (r : Result p) : list (Boundary r) := boundaries r.
-Definition result_disposition {p} (r : Result p) : Disposition r := program_disposition r.
 (* §17 the child prerequisites of the one retained result, a narrow projection from its exact res_facts *)
 Definition result_child_prerequisites {p} (r : Result p)
   : list { cdfr : ChildDependentFactRef r & ChildPrerequisiteRef r cdfr } :=
