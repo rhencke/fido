@@ -1,15 +1,21 @@
-# Active task: the C4 Exact Result-Owned Semantic Authority candidate
+# Active task: the C4 Sealed Analysis Result Authority candidate
 
 Review: none
 
-The exact `Analysis.Result` is the sole public semantic acquisition boundary. Every public semantic type — fact
-rows, package decisions, child prerequisites, diagnostics, boundaries, causes, issues and every Report view — is
-indexed by one exact `Result r`, so a semantic object of Result A cannot inhabit Result B even when their
-`FactPhase`/`PackageFacts` are propositionally or definitionally equal. `FactPhase` and `PackageFacts` remain
-transparent retained fields of `Result` for computation and proof, but no public reference, issue, Report reader,
-package decision or fact lookup begins from an independently supplied product. The exact `Result` is also the
-transparent type **index** of the sealed branch certificate rather than a field behind it. `make check` is green
-on the pinned toolchain and the generated Go bytes are byte-identical.
+The exact `Analysis.Result` is a **sealed abstract authority**: the transparent canonical analysis is the record
+`ResultData p`, `result_data p` is its one computation, and the singleton authority `Result p` is minted **only**
+by `analyze`, with `result_unique : forall (r : Result p), r = analyze p` axiom-free. The `res_*` projections read
+the canonical `ResultData` fields through `data_of_result`, never inspecting the opaque token, and the old public
+record constructor `mk_result` is gone. Every public semantic type — fact rows, package decisions, child
+prerequisites, diagnostics, boundaries, causes, issues and every Report view — is indexed by one exact `Result r`,
+so a semantic object of Result A cannot inhabit Result B even when their `ResultData` are propositionally or
+definitionally equal. `FactPhase` and `PackageFacts` are transparent fields of that `ResultData` (projected by
+`res_facts`/`res_pkg`) for computation and proof, but no public reference, issue, Report reader, package decision
+or fact lookup begins from an independently supplied product. The exact `Result` is also the transparent type
+**index** of the sealed branch certificate rather than a field behind it. The branch decision reads its disposition
+from one shared `ResultData` — the emptiness of diagnostics and boundaries computed without building the exact ref
+lists — so the sealed dataless authority stays computationally irrelevant and never lands on a `vm_compute` goal.
+`make check` is green on the pinned toolchain and the generated Go bytes are byte-identical.
 
 The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compilable.Program p`:
 
@@ -26,7 +32,8 @@ The C4 static-authority subsystem is an exact-evidence DAG rooted at one `Compil
   distinguished projection over those declarations for executable-entry multiplicity.
 - **Analysis** is the sole fact and issue authority. `Cause`/`Requirement`/`Dependency bp site kind` are indexed by
   exact phase, occurrence site and fact kind; each outcome accepts only its own site+kind payload, and the displayed
-  family is a total site+kind projection. `FactPhase` remains a transparent retained field of `Result`, and a
+  family is a total site+kind projection. `FactPhase` is a transparent field of the canonical `ResultData` (read
+  through `res_facts`), and a
   **`FactRowRef r`** is an exact ordinal into `result_fact_list r` (the retained row list of the one `r`) with the
   retained row and its `nth_error` membership proof. The row enumeration `fact_rows r` is exactly `result_fact_list r`,
   once, in retained order (complete, duplicate-free by ordinal, positionally unique); `fact_row_for r site kind`
@@ -87,12 +94,20 @@ claimed accepted or complete, and only Rob accepts. The frozen lower stack stays
 stays historically accepted; C6 roots beyond the cutover stay frozen until acceptance; `make check` on the pinned
 toolchain is the supported run). Governing truth held by this candidate:
 
-- `FactPhase` and `PackageFacts` still exist and remain transparent retained fields of `Analysis.Result`, useful for
-  finite computation and dependent proof factoring; they are no longer public semantic authority. Their eventual
-  full deletion, if ever warranted, is a later C4 root.
-- `Analysis.Result` is now the sole public semantic acquisition boundary: every public fact-row, package-decision,
+- `Analysis.Result` is a **sealed abstract authority**: the transparent canonical analysis is `ResultData p`,
+  `result_data p` is its one computation, `analyze` is the sole mint, and `result_unique : forall (r : Result p), r =
+  analyze p` holds axiom-free (`Result p := unit` under a sealed `RESULT_AUTHORITY` module; the whole-theory and e2e
+  assumption audits stay clean). `data_of_result r := result_data p` reduces definitionally, the `res_*` projections
+  read the canonical `ResultData` fields through it, and the old public record constructor `mk_result` is gone (the
+  data maker `mk_result_data` builds `ResultData`, not authority). The dataless token never lands on a `vm_compute`
+  goal: the branch disposition reads diagnostic/boundary emptiness from one shared `d` without building the exact ref
+  lists, and `fact_rows` binds its row list once, so concrete computation stays cheap (`make check` in the low-20s).
+- `FactPhase` and `PackageFacts` still exist and remain transparent retained fields of the canonical `ResultData`
+  behind `Analysis.Result`, useful for finite computation and dependent proof factoring; they are no longer public
+  semantic authority. Their eventual full deletion, if ever warranted, is a later C4 root.
+- `Analysis.Result` is the sole public semantic acquisition boundary: every public fact-row, package-decision,
   child-prerequisite, diagnostic, boundary, cause, issue and Report object is indexed by one exact `Result r`. A
-  semantic object of Result A cannot inhabit Result B even when both Results carry equal `FactPhase`/`PackageFacts`
+  semantic object of Result A cannot inhabit Result B even when both Results carry equal `ResultData`
   (the type is genuinely parameterized by the exact `r`). The peer product makers/readers (`facts`, `package_facts`,
   `fact_list`, `preflight`, `package_rule`, `diagnostics`, `boundaries`, `program_disposition`) are gone from the
   public surface — `@AN.<name>` is unresolvable — and the `result_*` projections are the sole public route.
@@ -103,7 +118,9 @@ toolchain is the supported run). Governing truth held by this candidate:
   numbering as the public `Index.node_parent_pos_lt` / `Index.Child.child_pos_gt_parent` without exposing Build
   internals.
 - C4's requirement to decide every represented Go static fact remains authoritative, but the implementation is not
-  complete; the known missing static cases stay mandatory later work.
+  complete; the known missing static cases stay mandatory later work. Remaining static-semantic completeness, the
+  `DAbsent` removal, `result_disposition` cleanup, issue-order redesign, and post-C4 documentation normalization are
+  all later roots — this slice closed only the Result-mint sealing and its data-threaded VM safety.
 - The implemented issue order is output-collision diagnostics, then main diagnostics, then redeclaration
   diagnostics, then occurrence diagnostics, then all boundaries. That order is category/class partitioned and
   stable; it is not claimed to be unified global source order.

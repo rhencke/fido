@@ -8,6 +8,17 @@ Module BN := Compilable.Bindings.
 Module AN := Compilable.Analysis.
 Module RP := Compilable.Report.
 
+(* §13.1 the sealed Result authority is reachable exactly as specified: analyze is the sole mint of Result q *)
+Definition prov_analyze_mint (q : Syntax.Program) : AN.Result q := AN.analyze q.
+(* the authority's transparent data index is exactly the one canonical computation, definitionally *)
+Definition prov_data_canonical (q : Syntax.Program) (r : AN.Result q) : AN.data_of_result r = AN.result_data q := AN.data_of_result_canonical r.
+(* every Result over q IS analyze q: the singleton authority is unique, assumption-free *)
+Definition prov_result_unique (q : Syntax.Program) (r : AN.Result q) : r = AN.analyze q := AN.result_unique r.
+(* the public projections read the canonical data fields of that one authority, never the opaque token *)
+Definition prov_proj_index (q : Syntax.Program) (r : AN.Result q) : AN.res_index r = AN.rd_index (AN.data_of_result r) := eq_refl.
+Definition prov_proj_facts (q : Syntax.Program) (r : AN.Result q) : AN.res_facts r = AN.rd_facts (AN.data_of_result r) := eq_refl.
+Definition prov_proj_pkg (q : Syntax.Program) (r : AN.Result q) : AN.res_pkg r = AN.rd_pkg (AN.data_of_result r) := eq_refl.
+
 Section Provenance.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
         {d : BN.PhaseData s} (bp : BN.BindingPhase s d).

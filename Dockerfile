@@ -1004,6 +1004,40 @@ typefail neg_report_product_diagnostics "the deleted Report product-level diagno
 # §10 a raw node equality cannot substitute for the structural child-progress theorem — strict progress is real
 typefail neg_node_eq_not_progress "a node self-equality coerced to strict parent<child position progress" \
   'Definition forged (p : Syntax.Program) (idx : IX.ProgramIndex p) (a : IX.NodeRef idx) (H : a = a) : (IX.nr_pos a < IX.nr_pos a)%nat := H.'
+# — §12.1 the raw Result MINT is gone: the old record constructor mk_result, the sealed authority's own unit
+#   constructor, and any of_data-style route are unnameable; ResultData's mk_result_data is DATA, not authority —
+typefail neg_mk_result_absent "the deleted raw Result record constructor" \
+  'Definition forged := AN.mk_result.'
+typefail neg_result_seal_ctor "the sealed Result authority inhabited by the underlying unit constructor" \
+  'Definition forged (p : Syntax.Program) : AN.Result p := tt.'
+typefail neg_result_of_data_route "an of_data-style public route from ResultData to the Result authority" \
+  'Definition forged := AN.result_of_data.'
+# — §12.2 raw ResultData cannot MINT the authority: the transparent data, its maker, or data+equality are not a
+#   Result, and raw data cannot index an authority-indexed fact-row ref —
+typefail neg_resultdata_as_result "the transparent canonical data accepted as the Result authority" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : AN.Result p := d.'
+typefail neg_resultdata_maker_mints_result "the ResultData maker building the Result authority" \
+  'Definition forged (p : Syntax.Program) (i : IX.ProgramIndex p) (s : PI.PackageSurface i) (bd : BN.PhaseData s) (b : BN.BindingPhase s bd) (f : AN.FactPhase b) (pk : AN.PackageFacts b) : AN.Result p := AN.mk_result_data i s bd b f pk.'
+typefail neg_data_eqrefl_mints_result "canonical data plus an equality proof used as the Result authority" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) (H : d = AN.result_data p) : AN.Result p := H.'
+typefail neg_data_indexes_factrow "raw ResultData used to index an exact fact-row ref, bypassing the authority" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : Type := AN.FactRowRef d.'
+# — §12.3 no public route rewraps an existing Result: its own projections feed only the DATA maker, never a sibling —
+typefail neg_rewrap_result "an existing Result's projections rewrapped into a sibling Result authority" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : AN.Result p := AN.mk_result_data (AN.res_index r) (AN.res_surface r) (AN.res_bind_data r) (AN.res_binds r) (AN.res_facts r) (AN.res_pkg r).'
+# — §12.4 ResultData equality alone does NOT transport an authority-indexed object across two authorities —
+typefail neg_data_eq_transports_factrow "a fact-row ref moved across authorities that merely share ResultData" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (H : AN.data_of_result rA = AN.data_of_result rB) (ref : AN.FactRowRef rA) : AN.FactRowRef rB := ref.'
+# — §12.5 the Compilable boundary: transparent data is not a branch certificate's authority index, raw data mints
+#   no branch certificate, a branch certificate is not a Result, and equality-to-analyze is not the authority —
+typefail neg_data_indexes_program "transparent ResultData used as a Compilable branch certificate's authority index" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : Type := CP.Sealed.Program p d.'
+typefail neg_data_mints_branch_cert "raw ResultData minting a Compilable Program certificate over the canonical index" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : CP.Sealed.Program p (CP.compilation_data p) := d.'
+typefail neg_branch_cert_as_result "a Compilable branch certificate coerced back to an Analysis Result authority" \
+  'Definition forged (p : Syntax.Program) (cp : CP.Program p) : AN.Result p := cp.'
+typefail neg_analyze_eq_as_result "an equality to analyze used as the Result authority constructor" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (H : r = AN.analyze p) : AN.Result p := H.'
 typefail_run
 # — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
 if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
