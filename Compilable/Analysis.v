@@ -790,6 +790,14 @@ Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTyp
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => OFValue r (own_value bp ctab r) :: app_fact_app r) nodes.
+(* §10 the exact fact-row retention policy: which views retain a Value occurrence fact — not a value-expression claim *)
+Definition retains_value_fact_view (v : Index.Model.NodeView) : bool :=
+  match v with
+  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ | Index.Model.VApplication
+  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => true
+  | _ => false
+  end.
+Definition retains_value_fact (site : Index.NodeRef idx) : bool := retains_value_fact_view (Index.node_view site).
 Definition va_value_negative (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
   match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
   | Some (OFValue _ ov) => match ov with VInvalid _ | VUnmet _ | VDependent _ => true | _ => false end | _ => false end.
@@ -801,8 +809,9 @@ Definition expr_sx_va (va : list (OccFact bp)) (r : Index.NodeRef idx)
   (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : StmtOutcome bp r :=
   let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
   own_stmt_expr bp (Index.Refs.mkExprStmtRef r Hv) (va_value_negative va e) (va_app_negative va e).
-(* the child-first read that a node's value is nonconstant: known as a value, but not a known one-value constant *)
+(* the child-first read that a node's value is nonconstant AND its Value fact is retained by policy at that site *)
 Definition va_value_nonconst (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
+  retains_value_fact e &&
   match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
   | Some (OFValue _ ov) => match ov with VNonconst => true | _ => false end | _ => false end.
 (* the first source-ordered short RHS whose exact child value is nonconstant — its value meaning is not yet known *)
@@ -1075,15 +1084,16 @@ Definition va_value_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list 
   match find (fun o => match o with OFValue r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
 Definition va_app_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match find (fun o => match o with OFApp r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
-(* §11 raw_facts projects the one va computation: value/app rows from va, statement rows read their child from va *)
+(* the Value row is retained exactly when the shared policy admits the site's view — the one retention gate *)
+Definition retained_value_row (va : list (OccFact bp)) (site : Index.NodeRef idx) : list (OccFact bp) :=
+  if retains_value_fact site then va_value_row va site else [].
+(* §11 raw_facts projects the one va computation through the shared retention policy at each node's view *)
 Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
-  | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => va_value_row va r
-  | Index.Model.VApplication => va_app_row va r ++ va_value_row va r
+  | Index.Model.VApplication => va_app_row va r ++ retained_value_row va r
   | Index.Model.VStmt _ => stmt_fact r (expr_sx_va va r) va
   | Index.Model.VTypeExpr _ => type_fact r
-  | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => va_value_row va r
-  | _ => []
+  | _ => retained_value_row va r
   end.
 
 (* va computes own_value for every file node once, so the child-read finds exactly own_value at that child *)
@@ -1179,8 +1189,8 @@ Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr 
   value_neg_b bp (own_value bp ctab e) = true ->
   In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
 Proof.
-  intro Hneg. unfold occ_facts_va.
-  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E;
+  intro Hneg. unfold occ_facts_va, retained_value_row, retains_value_fact.
+  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
     try (rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
     exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
 Qed.
@@ -1190,7 +1200,7 @@ Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : 
   In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
 Proof.
   assert (Hocc : occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e
-      = va_app_row (va_facts ctab (Index.file_nodes fr)) e ++ va_value_row (va_facts ctab (Index.file_nodes fr)) e)
+      = va_app_row (va_facts ctab (Index.file_nodes fr)) e ++ retained_value_row (va_facts ctab (Index.file_nodes fr)) e)
     by (unfold occ_facts_va; rewrite He; reflexivity).
   rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
 Qed.
@@ -1385,8 +1395,8 @@ Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) 
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (o : OccFact bp) :
   In o (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
 Proof.
-  intro Hin. unfold occ_facts_va in Hin.
-  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+  intro Hin. unfold occ_facts_va, retained_value_row, retains_value_fact in Hin.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Hin;
     try (rewrite (va_value_row_at bp ctab fr r Hf) in Hin);
     try (rewrite (va_app_row_at bp ctab fr r Hf E) in Hin);
     try (rewrite (type_fact_at bp r nt E) in Hin);
@@ -1410,7 +1420,8 @@ Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantIn
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
   NoDup (map fact_key (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r)).
 Proof.
-  unfold occ_facts_va. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+  unfold occ_facts_va, retained_value_row, retains_value_fact.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view];
     try (rewrite (va_value_row_at bp ctab fr r Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
     try (rewrite (type_fact_at bp r nt E));
     try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (va_facts bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
@@ -1533,8 +1544,8 @@ Lemma raw_fact_is_own (o : OccFact bp) :
 Proof.
   intro Hin.
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
-  unfold occ_facts_va in Ho.
-  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
+  unfold occ_facts_va, retained_value_row, retains_value_fact in Ho.
+  destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Ho;
     try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
     try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
     try (rewrite (type_fact_at bp r nt E) in Ho);
