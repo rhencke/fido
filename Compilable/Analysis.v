@@ -1007,6 +1007,12 @@ Lemma stmt_fact_ssexpr (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
   (H : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : stmt_fact r sx va = [OFStmt r (sx H)].
 Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx va) (Index.Model.VStmt Index.Model.SSExpr) H). Qed.
+(* a short statement node's one retained fact is exactly its canonical short-declaration decision *)
+Lemma stmt_fact_ssshort (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (nn nv : nat) (H : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
+  stmt_fact r sx va = [OFStmt r (short_decl_decision va r nn nv H)].
+Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx va) (Index.Model.VStmt (Index.Model.SSShort nn nv)) H). Qed.
 (* every fact stmt_fact retains is an OFStmt at that exact node — and it retains one only at a statement node *)
 Lemma stmt_fact_content (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
@@ -1140,6 +1146,19 @@ Proof.
       = va_app_row (va_facts ctab (Index.file_nodes fr)) e ++ va_value_row (va_facts ctab (Index.file_nodes fr)) e)
     by (unfold occ_facts_va; rewrite He; reflexivity).
   rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
+Qed.
+(* the short-declaration decision of a short statement node is that node's one canonical fact *)
+Lemma occ_stmt_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (nn nv : nat)
+  (Hv : Index.node_view e = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
+  In (OFStmt e (short_decl_decision (va_facts ctab (Index.file_nodes fr)) e nn nv Hv))
+     (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+Proof.
+  assert (Hocc : occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e
+      = stmt_fact e (expr_sx_va (va_facts ctab (Index.file_nodes fr)) e) (va_facts ctab (Index.file_nodes fr)))
+    by (unfold occ_facts_va; rewrite Hv; reflexivity).
+  rewrite Hocc, (stmt_fact_ssshort e (expr_sx_va (va_facts ctab (Index.file_nodes fr)) e)
+    (va_facts ctab (Index.file_nodes fr)) nn nv Hv). apply in_eq.
 Qed.
 (* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
 Local Definition raw_facts : list (OccFact bp) :=
@@ -1989,6 +2008,19 @@ Proof.
   apply in_flat_map. exists e. split;
     [ exact (file_nodes_complete fr e He) | apply (occ_app_mem (res_binds res) (const_table (res_binds res) fr) fr e He Hva) ].
 Qed.
+(* a short statement node's exact canonical decision is retained as its exact statement fact in its own file *)
+Lemma stmt_fact_retained (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr) (nn nv : nat)
+  (Hv : Index.node_view e = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
+  In (OFStmt e (short_decl_decision (res_binds res)
+       (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) e nn nv Hv))
+     (result_fact_list res).
+Proof.
+  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split;
+    [ exact (file_nodes_complete fr e He) | apply (occ_stmt_mem (res_binds res) (const_table (res_binds res) fr) fr e He nn nv Hv) ].
+Qed.
 (* a negative value / application outcome makes one of the row's own cause/req/dep present *)
 Lemma value_neg_disj (child_row : FactRowRef res) (e : Index.NodeRef (res_index res)) (ov : ValueOutcome (res_binds res) e)
   (Hrow : frr_row child_row = OFValue e ov) (Hneg : value_neg_b (res_binds res) ov = true) :
@@ -2270,6 +2302,84 @@ Proof.
     destruct Hx as [Hx|[]]. subst x. cbn. exact (child_dep_of_rowref row cdfr Hcd).
   - intro row. destruct (child_dep_of row) as [cdfr|]; [ destruct (child_prerequisite cdfr) | ]; cbn; lia.
   - exact (NoDup_map_inv frr_ord (fact_rows res) fact_rows_ord_nodup).
+Qed.
+(* an option-convoy builder that wraps its Some payload is non-None exactly when its scrutinee is Some *)
+Lemma match_some_not_none {A B : Type} (o : option A) (h : forall a : A, o = Some a -> B) (a0 : A) (E : o = Some a0) :
+  (match o as o0 return (o = o0 -> option B) with
+   | Some a => fun Ha => Some (h a Ha) | None => fun _ => None end eq_refl) <> None.
+Proof.
+  assert (Hg : forall (o1 : option A) (Ho : o = o1), o = Some a0 ->
+    (match o1 as o0 return (o = o0 -> option B) with Some a => fun Ha => Some (h a Ha) | None => fun _ => None end Ho) <> None).
+  { intros o1 Ho HE. destruct o1 as [a1|]; [ discriminate | ]. rewrite Ho in HE. discriminate HE. }
+  exact (Hg o eq_refl E).
+Qed.
+(* §8 an exact Result-owned short statement fact: the exact ShortStmtRef and its exact retained statement row *)
+Record ShortStatementFactRef : Type := mk_ssfr {
+  ssfr_stmt   : Index.Refs.ShortStmtRef (res_index res) ;
+  ssfr_row    : FactRowRef res ;
+  ssfr_lookup : fact_row_for (Index.Refs.sh_node ssfr_stmt) StatementKind = Some ssfr_row
+}.
+(* the row's site and kind are exactly the queried statement site and StatementKind, read off the lookup *)
+Definition ssfr_site (ssfr : ShortStatementFactRef) : frr_site (ssfr_row ssfr) = Index.Refs.sh_node (ssfr_stmt ssfr)
+  := proj1 (proj2 (fact_row_for_sound _ _ _ (ssfr_lookup ssfr))).
+Definition ssfr_kind (ssfr : ShortStatementFactRef) : frr_kind (ssfr_row ssfr) = StatementKind
+  := proj2 (proj2 (fact_row_for_sound _ _ _ (ssfr_lookup ssfr))).
+(* the canonical lookup begins from fact_row_for at the exact statement site and StatementKind, never a raw OccFact *)
+Definition short_statement_fact (st : Index.Refs.ShortStmtRef (res_index res)) : option ShortStatementFactRef :=
+  match fact_row_for (Index.Refs.sh_node st) StatementKind as o
+    return fact_row_for (Index.Refs.sh_node st) StatementKind = o -> option ShortStatementFactRef with
+  | Some row => fun E => Some (mk_ssfr st row E)
+  | None => fun _ => None
+  end eq_refl.
+(* every represented short statement has its exact retained statement row: the lookup never fails *)
+Lemma short_statement_fact_complete (st : Index.Refs.ShortStmtRef (res_index res)) : short_statement_fact st <> None.
+Proof.
+  assert (Hfr : In (Index.nr_file (Index.Refs.sh_node st)) (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res)))).
+  { apply in_flat_map. exists (BN.PI.package_of_file (res_surface res) (Index.nr_file (Index.Refs.sh_node st))).
+    split; [ apply BN.PI.packages_complete | apply BN.PI.pkg_members_of_file ]. }
+  destruct (fact_list_row _ (stmt_fact_retained (Index.nr_file (Index.Refs.sh_node st)) Hfr (Index.Refs.sh_node st) eq_refl
+              (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st))) as [row [Hrin Hrow]].
+  assert (HSome : fact_row_for (Index.Refs.sh_node st) StatementKind = Some row)
+    by (apply fact_row_for_complete;
+        [ exact Hrin | unfold frr_site; rewrite Hrow; reflexivity | unfold frr_kind; rewrite Hrow; reflexivity ]).
+  unfold short_statement_fact. exact (match_some_not_none _ (fun row0 E => mk_ssfr st row0 E) row HSome).
+Qed.
+(* the looked-up fact carries exactly the queried statement *)
+Lemma short_statement_fact_stmt (st : Index.Refs.ShortStmtRef (res_index res)) (ssfr : ShortStatementFactRef) :
+  short_statement_fact st = Some ssfr -> ssfr_stmt ssfr = st.
+Proof.
+  unfold short_statement_fact.
+  assert (Hg : forall (o : option (FactRowRef res)) (Ho : fact_row_for (Index.Refs.sh_node st) StatementKind = o),
+    (match o as o0 return (fact_row_for (Index.Refs.sh_node st) StatementKind = o0 -> option ShortStatementFactRef)
+       with Some row => fun E => Some (mk_ssfr st row E) | None => fun _ => None end Ho) = Some ssfr -> ssfr_stmt ssfr = st).
+  { intros o Ho. destruct o as [row0|]; [ | discriminate ]. intro H. injection H as H. rewrite <- H. reflexivity. }
+  exact (Hg (fact_row_for (Index.Refs.sh_node st) StatementKind) eq_refl).
+Qed.
+(* §8 the retained statement row's outcome IS the one canonical short-declaration decision — never a recomputation *)
+Lemma ssfr_is_short_decl (ssfr : ShortStatementFactRef) :
+  exists (va : list (OccFact (res_binds res)))
+         (Hv : Index.node_view (Index.Refs.sh_node (ssfr_stmt ssfr))
+             = Index.Model.VStmt (Index.Model.SSShort (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)))),
+    frr_row (ssfr_row ssfr) = OFStmt (Index.Refs.sh_node (ssfr_stmt ssfr))
+      (short_decl_decision (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))
+        (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) Hv).
+Proof.
+  pose proof (ssfr_site ssfr) as Hsite. pose proof (ssfr_kind ssfr) as Hkind.
+  pose proof (fact_row_is_own (ssfr_row ssfr)) as Hown.
+  destruct (frr_row (ssfr_row ssfr)) as [r' ov|r' oa|r' os|r' ot] eqn:Hfrow;
+    [ exfalso; unfold frr_kind in Hkind; rewrite Hfrow in Hkind; cbn in Hkind; discriminate Hkind
+    | exfalso; unfold frr_kind in Hkind; rewrite Hfrow in Hkind; cbn in Hkind; discriminate Hkind
+    | | exfalso; unfold frr_kind in Hkind; rewrite Hfrow in Hkind; cbn in Hkind; discriminate Hkind ].
+  assert (Hr' : r' = Index.Refs.sh_node (ssfr_stmt ssfr))
+    by (unfold frr_site in Hsite; rewrite Hfrow in Hsite; cbn in Hsite; exact Hsite).
+  subst r'. cbn [fact_site] in Hown.
+  set (va := va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+             (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) in *.
+  rewrite (stmt_fact_ssshort (res_binds res) (Index.Refs.sh_node (ssfr_stmt ssfr))
+    (expr_sx_va (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))) va
+    (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) in Hown.
+  destruct Hown as [Heq | []].
+  exists va, (Index.Refs.sh_ok (ssfr_stmt ssfr)). exact (eq_sym Heq).
 Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
