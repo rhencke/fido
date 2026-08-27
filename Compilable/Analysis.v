@@ -3026,6 +3026,13 @@ Arguments ChildInvalid {p res child_row} _ _.
 Arguments ChildUnmet {p res child_row} _ _.
 Arguments ChildDependent {p res child_row} _ _.
 Arguments cpr_child_row {p res cdfr} _. Arguments cpr_lookup {p res cdfr} _.
+Arguments ssfr_stmt {p res} _. Arguments ssfr_row {p res} _. Arguments ssfr_site {p res} _. Arguments ssfr_kind {p res} _.
+Arguments nvfr_rowref {p res} _. Arguments nvfr_site {p res} _. Arguments nvfr_is {p res} _. Arguments nvfr_kind {p res} _.
+Arguments srmr_parent {p res} _. Arguments srmr_j {p res} _. Arguments srmr_edge {p res} _. Arguments srmr_child {p res} _.
+Arguments srmr_req {p res} _. Arguments srmr_child_at {p res} _. Arguments srmr_lookup {p res} _.
+Arguments sur_parent {p res} _. Arguments sur_req {p res} _. Arguments sur_new_rows {p res} _.
+Arguments srtr_parent {p res} _. Arguments srtr_req {p res} _.
+Arguments srtr_existing_rows {p res} _. Arguments srtr_new_rows {p res} _.
 
 (* an exact use context of a redeclared root: a name occurrence whose exact resolution yields that exact root *)
 Record RedeclaredUseRef {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}

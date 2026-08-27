@@ -269,6 +269,72 @@ Lemma result_child_prereq_views_exact {p} (r : AN.Result p) :
   result_child_prereq_views r = map (fun x => child_prereq_view (projT2 x)) (AN.result_child_prerequisites r).
 Proof. reflexivity. Qed.
 
+(* §21.1 bp-free RHS-meaning view: parent statement site, RHS index, child site, and the child Value fact kind *)
+Record ShortRhsMeaningView {p} (idx : Index.ProgramIndex p) : Type := mk_srm_view {
+  srmv_parent_site : Index.NodeRef idx ;
+  srmv_rhs_index   : nat ;
+  srmv_child_site  : Index.NodeRef idx ;
+  srmv_child_kind  : AN.FactKind
+}.
+Arguments mk_srm_view {p idx} _ _ _ _.
+Arguments srmv_parent_site {p idx} _. Arguments srmv_rhs_index {p idx} _.
+Arguments srmv_child_site {p idx} _. Arguments srmv_child_kind {p idx} _.
+(* one-way projection: the exact parent and child sites and RHS index off the ref, the child kind fixed to Value *)
+Definition short_rhs_meaning_view {p} {r : AN.Result p} (srmr : AN.ShortRhsMeaningRef r)
+  : ShortRhsMeaningView (AN.res_index r) :=
+  mk_srm_view (Index.Refs.sh_node (AN.ssfr_stmt (AN.srmr_parent srmr))) (AN.srmr_j srmr)
+    (AN.nvfr_site (AN.srmr_child srmr)) AN.ValueKind.
+(* §21.1 the view projects exactly the parent/child sites, the RHS index, and the Value kind, one-way *)
+Lemma short_rhs_meaning_view_exact {p} {r : AN.Result p} (srmr : AN.ShortRhsMeaningRef r) :
+  srmv_parent_site (short_rhs_meaning_view srmr) = Index.Refs.sh_node (AN.ssfr_stmt (AN.srmr_parent srmr))
+  /\ srmv_rhs_index (short_rhs_meaning_view srmr) = AN.srmr_j srmr
+  /\ srmv_child_site (short_rhs_meaning_view srmr) = AN.nvfr_site (AN.srmr_child srmr)
+  /\ srmv_child_kind (short_rhs_meaning_view srmr) = AN.ValueKind.
+Proof. repeat split; reflexivity. Qed.
+
+(* §21.3 bp-free usage view: parent statement site, the source-ordered New indices, and the final usage tag *)
+Record ShortUsageView {p} (idx : Index.ProgramIndex p) : Type := mk_su_view {
+  suv_parent_site : Index.NodeRef idx ;
+  suv_new_indices : list nat ;
+  suv_branch      : ReqView
+}.
+Arguments mk_su_view {p idx} _ _ _.
+Arguments suv_parent_site {p idx} _. Arguments suv_new_indices {p idx} _. Arguments suv_branch {p idx} _.
+(* one-way projection: the exact parent site and canonical New-row source indices, tagged as the usage branch *)
+Definition short_usage_view {p} {r : AN.Result p} (sur : AN.ShortUsageRef r) : ShortUsageView (AN.res_index r) :=
+  mk_su_view (Index.Refs.sh_node (AN.ssfr_stmt (AN.sur_parent sur)))
+    (map (@projT1 _ _) (AN.sur_new_rows sur)) RvShortUsage.
+(* §21.3 the view projects exactly the parent site, the canonical New indices, and the usage tag, one-way *)
+Lemma short_usage_view_exact {p} {r : AN.Result p} (sur : AN.ShortUsageRef r) :
+  suv_parent_site (short_usage_view sur) = Index.Refs.sh_node (AN.ssfr_stmt (AN.sur_parent sur))
+  /\ suv_new_indices (short_usage_view sur) = map (@projT1 _ _) (AN.sur_new_rows sur)
+  /\ suv_branch (short_usage_view sur) = RvShortUsage.
+Proof. repeat split; reflexivity. Qed.
+
+(* §21.2 bp-free mixed view: parent site, source-ordered existing indices, the aligned RHS indices, and New indices *)
+Record ShortRedeclView {p} (idx : Index.ProgramIndex p) : Type := mk_srd_view {
+  srdv_parent_site    : Index.NodeRef idx ;
+  srdv_existing_index : list nat ;
+  srdv_rhs_index      : list nat ;
+  srdv_new_index      : list nat
+}.
+Arguments mk_srd_view {p idx} _ _ _ _.
+Arguments srdv_parent_site {p idx} _. Arguments srdv_existing_index {p idx} _.
+Arguments srdv_rhs_index {p idx} _. Arguments srdv_new_index {p idx} _.
+(* one-way projection: exact parent site, canonical existing indices, index-aligned RHS indices, New indices *)
+Definition short_redecl_view {p} {r : AN.Result p} (srtr : AN.ShortRedeclarationTypesRef r)
+  : ShortRedeclView (AN.res_index r) :=
+  mk_srd_view (Index.Refs.sh_node (AN.ssfr_stmt (AN.srtr_parent srtr)))
+    (map (@projT1 _ _) (AN.srtr_existing_rows srtr)) (map (@projT1 _ _) (AN.srtr_existing_rows srtr))
+    (map (@projT1 _ _) (AN.srtr_new_rows srtr)).
+(* §21.2 the view projects exactly the parent site, the canonical existing/RHS/New indices, one-way *)
+Lemma short_redecl_view_exact {p} {r : AN.Result p} (srtr : AN.ShortRedeclarationTypesRef r) :
+  srdv_parent_site (short_redecl_view srtr) = Index.Refs.sh_node (AN.ssfr_stmt (AN.srtr_parent srtr))
+  /\ srdv_existing_index (short_redecl_view srtr) = map (@projT1 _ _) (AN.srtr_existing_rows srtr)
+  /\ srdv_rhs_index (short_redecl_view srtr) = map (@projT1 _ _) (AN.srtr_existing_rows srtr)
+  /\ srdv_new_index (short_redecl_view srtr) = map (@projT1 _ _) (AN.srtr_new_rows srtr).
+Proof. repeat split; reflexivity. Qed.
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
