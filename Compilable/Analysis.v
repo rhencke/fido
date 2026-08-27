@@ -1115,6 +1115,18 @@ Proof.
     as [Htrue | Hnt]; [ | exfalso; exact (Hnt Hnew) ].
   rewrite Hneg, Hfind. reflexivity.
 Qed.
+(* the same soundness over an exact ShortStmtRef, so the decision names the caller's own statement, not a rebuild *)
+Lemma short_decl_decision_rhsmeaning_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge st j0)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
+  (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
+  (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true)
+  (Hneg : short_rhs_neg va st = None)
+  (Hfind : find_rhs_vnonconst va st = Some (existT _ j0 edge0)) :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet (ReqShortRhsMeaning st j0 edge0 eq_refl).
+Proof. destruct st as [node names values ok]; apply short_decl_decision_rhsmeaning_sound; assumption. Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
@@ -2536,10 +2548,12 @@ Proof.
 Qed.
 (* §8 the retained statement row's outcome IS the one canonical short-declaration decision — never a recomputation *)
 Lemma ssfr_is_short_decl (ssfr : ShortStatementFactRef) :
-  exists (va : list (OccFact (res_binds res))),
-    frr_row (ssfr_row ssfr) = OFStmt (Index.Refs.sh_node (ssfr_stmt ssfr))
-      (short_decl_decision (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))
-        (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))).
+  frr_row (ssfr_row ssfr) = OFStmt (Index.Refs.sh_node (ssfr_stmt ssfr))
+    (short_decl_decision (res_binds res)
+      (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+        (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
+      (Index.Refs.sh_node (ssfr_stmt ssfr))
+      (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))).
 Proof.
   pose proof (ssfr_site ssfr) as Hsite. pose proof (ssfr_kind ssfr) as Hkind.
   pose proof (fact_row_is_own (ssfr_row ssfr)) as Hown.
@@ -2556,7 +2570,7 @@ Proof.
     (expr_sx_va (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))) va
     (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) in Hown.
   destruct Hown as [Heq | []].
-  exists va. exact (eq_sym Heq).
+  exact (eq_sym Heq).
 Qed.
 (* §10 an exact Result-owned nonconstant Value fact: a retained row whose exact outcome is OFValue site VNonconst *)
 Record NonconstValueFactRef : Type := mk_nvfr {
@@ -2579,6 +2593,37 @@ Record ShortRhsMeaningRef : Type := mk_srmr {
   srmr_child_at : nvfr_site srmr_child = Index.Edges.sr_child srmr_edge ;
   srmr_lookup   : fact_row_for (Index.Edges.sr_child srmr_edge) ValueKind = Some (nvfr_rowref srmr_child)
 }.
+(* §11 the RHS-meaning boundary is constructible whenever the decision reaches that branch, in the one Result *)
+Lemma short_rhs_meaning_construct (ssfr : ShortStatementFactRef)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = None)
+  (Hcount : Index.Refs.sh_names (ssfr_stmt ssfr) = Index.Refs.sh_values (ssfr_stmt ssfr))
+  (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
+  (Hneg : short_rhs_neg (res_binds res)
+            (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+              (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
+  (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge (ssfr_stmt ssfr) j0)
+  (Hfind : find_rhs_vnonconst (res_binds res)
+             (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+               (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
+           = Some (existT _ j0 edge0)) :
+  exists srmr : ShortRhsMeaningRef, srmr_parent srmr = ssfr /\ srmr_j srmr = j0.
+Proof.
+  set (fr := Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))) in *.
+  assert (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res)))).
+  { apply in_flat_map. exists (BN.PI.package_of_file (res_surface res) fr).
+    split; [ apply BN.PI.packages_complete | apply BN.PI.pkg_members_of_file ]. }
+  assert (Hcf : Index.nr_file (Index.Edges.sr_child edge0) = fr)
+    by (unfold fr; rewrite <- (proj2 (Index.node_parent_inv _ _ (Index.Edges.sr_parent edge0))); reflexivity).
+  pose proof (find_some _ _ Hfind) as [_ Hnc0]. cbn in Hnc0.
+  destruct (nonconst_child_retained fr Hfr (Index.Edges.sr_child edge0) Hcf Hnc0) as [child_row [Hlk Hcrow]].
+  pose proof (ssfr_is_short_decl ssfr) as Hrow. fold fr in Hrow.
+  rewrite (short_decl_decision_rhsmeaning_sound_st (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr))
+    (ssfr_stmt ssfr) j0 edge0 Hdup Hcount Hblk Hnew Hneg Hfind) in Hrow.
+  exists (mk_srmr ssfr j0 edge0 (mk_nvfr child_row (Index.Edges.sr_child edge0) Hcrow) Hrow eq_refl Hlk).
+  split; reflexivity.
+Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
 Arguments nfr_class {p res child_row} _.
