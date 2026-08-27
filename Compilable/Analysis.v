@@ -1249,6 +1249,20 @@ Proof.
       rewrite Hout in Heq; discriminate Heq. }
   split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk | split; [ exact Hnew | reflexivity ] ] ] ].
 Qed.
+(* the same unmet-guard inversion over an exact short statement ref, matching the case-ref construction hypotheses *)
+Lemma short_decl_decision_unmet_guards_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  {q : Requirement bp (Index.Refs.sh_node st) StatementKind} :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet q ->
+  BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None
+  /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+  /\ BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker
+  /\ existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true
+  /\ short_rhs_neg va st = None.
+Proof.
+  destruct st as [node names values ok]; cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok].
+  apply short_decl_decision_unmet_guards.
+Qed.
 (* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
 Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
@@ -2854,6 +2868,37 @@ Proof.
   - cbn in Hc; discriminate Hc.
   - cbn in Hq; discriminate Hq.
   - cbn in Hd; discriminate Hd.
+Qed.
+(* §17.2 the unmet case is never generic: an unmet short row is exactly RHS-meaning, mixed or usage, with its ref *)
+Lemma short_unmet_refines (ssfr : ShortStatementFactRef) (ufr : UnmetFactRef res)
+  (Hu : ufr_rowref ufr = ssfr_row ssfr) :
+  (exists srmr : ShortRhsMeaningRef, srmr_parent srmr = ssfr)
+  \/ (exists srtr : ShortRedeclarationTypesRef, srtr_parent srtr = ssfr)
+  \/ (exists sur : ShortUsageRef, sur_parent sur = ssfr).
+Proof.
+  assert (Hne : occ_req (frr_row (ssfr_row ssfr)) <> None).
+  { rewrite <- Hu, (ufr_ok ufr). discriminate. }
+  rewrite (ssfr_is_short_decl ssfr) in Hne.
+  destruct (short_decl_decision (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
+    (Index.Refs.sh_node (ssfr_stmt ssfr)) (Index.Refs.sh_names (ssfr_stmt ssfr))
+    (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) eqn:Hdec;
+    cbn in Hne; try (exfalso; apply Hne; reflexivity). clear Hne.
+  pose proof (short_decl_decision_unmet_guards_st (res_binds res) _ (ssfr_stmt ssfr) Hdec) as Hg.
+  destruct Hg as [Hdup [Hcount [Hblk [Hnew Hneg]]]].
+  destruct (find_rhs_vnonconst (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)) as [[j0 e0]|] eqn:Hfind.
+  - left. destruct (short_rhs_meaning_construct ssfr Hdup Hcount Hblk Hnew Hneg j0 e0 Hfind) as [srmr [Hpar _]].
+    exists srmr. exact Hpar.
+  - destruct (Bool.bool_dec (existsb BN.is_existing_var_row
+      (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr)))) true) as [Hmix | Hmix].
+    + right; left. destruct (short_redecl_construct ssfr Hdup Hcount Hblk Hnew Hneg Hfind Hmix) as [srtr Hpar].
+      exists srtr. exact Hpar.
+    + right; right. apply Bool.not_true_is_false in Hmix.
+      destruct (short_usage_construct ssfr Hdup Hcount Hblk Hnew Hneg Hfind Hmix) as [sur Hpar].
+      exists sur. exact Hpar.
 Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
