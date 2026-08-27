@@ -2902,6 +2902,10 @@ Proof.
     Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
   exists (mk_srtr ssfr Hrow). reflexivity.
 Qed.
+(* same-site statement outcome injectivity, proved once over abstract outcomes so callers never inject a huge term *)
+Lemma ofstmt_outcome_inj (s : Index.NodeRef (res_index res)) (os1 os2 : StmtOutcome (res_binds res) s) :
+  OFStmt s os1 = OFStmt s os2 -> os1 = os2.
+Proof. intro H. injection H as H. apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in H. exact H. Qed.
 (* §16 the usage New rows are every canonical New row of the event, each tagged New, exactly by construction *)
 Lemma sur_new_rows_forall (sur : ShortUsageRef) :
   Forall (fun x => BN.is_new_row (BN.row_decision (projT2 x)) = true) (sur_new_rows sur).
@@ -2915,8 +2919,8 @@ Proof. apply BN.short_rows_where_map. Qed.
 Lemma sur_has_new (sur : ShortUsageRef) :
   existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (sur_parent sur)))) = true.
 Proof.
-  pose proof (sur_req sur) as Hreq. rewrite (ssfr_is_short_decl (sur_parent sur)) in Hreq. injection Hreq as Hreq.
-  apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Hreq.
+  pose proof (sur_req sur) as Hreq. rewrite (ssfr_is_short_decl (sur_parent sur)) in Hreq.
+  apply ofstmt_outcome_inj in Hreq.
   destruct (short_decl_decision_usage_complete (res_binds res)
     (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur)))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur))))))
@@ -2948,8 +2952,8 @@ Lemma srtr_has_rows (srtr : ShortRedeclarationTypesRef) :
   existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))) = true
   /\ existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))) = true.
 Proof.
-  pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq. injection Hreq as Hreq.
-  apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Hreq.
+  pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq.
+  apply ofstmt_outcome_inj in Hreq.
   destruct (short_decl_decision_redecl_complete (res_binds res)
     (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr))))))
