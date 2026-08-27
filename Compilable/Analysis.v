@@ -77,6 +77,10 @@ Lemma is_value_decl_type {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef 
   Index.node_view site = Index.Model.VTypeSpec t -> is_value_decl_node site = true.
 Proof. intro H. unfold is_value_decl_node. rewrite H. reflexivity. Qed.
 
+(* a transparent proof-insensitive test the short decision reads off a retained row: is it a new binding *)
+Definition short_row_is_new (d : BN.ShortLeftDecisionData) : bool :=
+  match d with BN.ShortNewData _ => true | _ => false end.
+
 (* the exact cause of an invalidity, owned by phase bp, site and fact kind: site A / kind X never inhabits B / Y *)
 Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -117,6 +121,15 @@ Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} 
 | ShortDuplicate : forall (st : Index.Refs.ShortStmtRef idx) (se : BN.ShortEventRef bp st)
     (dd : BN.ShortDuplicateDecision se) (n : Names.OrdinaryIdentifier),
     dd = BN.short_duplicate_decision se -> BN.short_dup_decision_name dd = Some n ->
+    site = Index.Refs.sh_node st -> Cause bp site StatementKind
+| ShortCountMismatch : forall (st : Index.Refs.ShortStmtRef idx),
+    site = Index.Refs.sh_node st -> Index.Refs.sh_names st <> Index.Refs.sh_values st -> Cause bp site StatementKind
+| ShortReusesNonVariable : forall (st : Index.Refs.ShortStmtRef idx)
+    (i : nat) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (m : nat),
+    BN.row_decision row = BN.ShortExistingNonVariableData m ->
+    site = Index.Refs.sh_node st -> Cause bp site StatementKind
+| ShortNoNewName : forall (st : Index.Refs.ShortStmtRef idx),
+    existsb short_row_is_new (BN.se_rows (BN.short_event bp st)) = false ->
     site = Index.Refs.sh_node st -> Cause bp site StatementKind.
 Arguments InvalidIdentity {p idx s bd bp site n} _ _ _.
 Arguments UnresolvedNameV {p idx s bd bp site n} _ _ _.
@@ -130,6 +143,9 @@ Arguments ConversionArity {p idx s bd bp site} _ _ _. Arguments ComplexArity {p 
 Arguments MainArity {p idx s bd bp site n} _ _ _ _ _.
 Arguments UnresolvedNameT {p idx s bd bp site n} _ _ _. Arguments NotAType {p idx s bd bp site n} _ _ _.
 Arguments IllegalStatement {p idx s bd bp site} _. Arguments ShortDuplicate {p idx s bd bp site st se} _ _ _ _ _.
+Arguments ShortCountMismatch {p idx s bd bp site} st _ _.
+Arguments ShortReusesNonVariable {p idx s bd bp site} st i row m _ _.
+Arguments ShortNoNewName {p idx s bd bp site} st _ _.
 
 Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -146,11 +162,21 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     list (Index.NodeRef idx) -> Requirement bp site ApplicationKind
 | ReqTypeMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
     BN.resolution_object_view r = Some o -> Requirement bp site TypeUseKind
-| ReqDeclMeaningS : forall (st : Index.Refs.ShortStmtRef idx), site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
+| ReqDeclMeaningS : forall (st : Index.Refs.ShortStmtRef idx), site = Index.Refs.sh_node st -> Requirement bp site StatementKind
+| ReqShortRedeclarationTypes : forall (st : Index.Refs.ShortStmtRef idx)
+    (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
+    evrows <> nil ->
+    Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows ->
+    existsb short_row_is_new (BN.se_rows (BN.short_event bp st)) = true ->
+    site = Index.Refs.sh_node st -> Requirement bp site StatementKind
+| ReqShortRhsMeaning : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j),
+    site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
 Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _. Arguments ReqDeclMeaningS {p idx s bd bp site} st _.
+Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st evrows _ _ _ _.
+Arguments ReqShortRhsMeaning {p idx s bd bp site} st j edge _.
 
 (* §8 the exact structural edge from an expr-statement parent to its exact expression child (ExprStmtRef, +AppRef) *)
 Inductive ChildFactEdge {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -159,19 +185,33 @@ Inductive ChildFactEdge {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef i
 | ExprStmtApplicationChild : forall (pr : Index.Refs.ExprStmtRef idx) (ar : Index.Refs.AppRef idx),
     site = Index.Refs.exs_node pr ->
     Index.Refs.app_node ar = Index.Edges.ee_child (Index.Edges.exprstmt_expr pr) ->
+    ChildFactEdge site StatementKind
+| ShortValueChild : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j),
+    site = Index.Refs.sh_node st -> ChildFactEdge site StatementKind
+| ShortApplicationChild : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j)
+    (ar : Index.Refs.AppRef idx),
+    site = Index.Refs.sh_node st ->
+    Index.Refs.app_node ar = Index.Edges.sr_child edge ->
     ChildFactEdge site StatementKind.
 Arguments ExprStmtValueChild {p idx site} _ _.
 Arguments ExprStmtApplicationChild {p idx site} _ _ _ _.
+Arguments ShortValueChild {p idx site} st j edge _.
+Arguments ShortApplicationChild {p idx site} st j edge ar _ _.
 (* the exact child site is a projection of the edge, never supplied independently; the child kind is closed by case *)
 Definition cfe_child_site {p} {idx : Index.ProgramIndex p} {site : Index.NodeRef idx} {k : FactKind}
   (e : ChildFactEdge site k) : Index.NodeRef idx :=
   match e with
   | ExprStmtValueChild pr _ => Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)
   | ExprStmtApplicationChild pr _ _ _ => Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)
+  | ShortValueChild _ _ edge _ => Index.Edges.sr_child edge
+  | ShortApplicationChild _ _ edge _ _ _ => Index.Edges.sr_child edge
   end.
 Definition cfe_child_kind {p} {idx : Index.ProgramIndex p} {site : Index.NodeRef idx} {k : FactKind}
   (e : ChildFactEdge site k) : FactKind :=
-  match e with ExprStmtValueChild _ _ => ValueKind | ExprStmtApplicationChild _ _ _ _ => ApplicationKind end.
+  match e with
+  | ExprStmtValueChild _ _ => ValueKind | ExprStmtApplicationChild _ _ _ _ => ApplicationKind
+  | ShortValueChild _ _ _ _ => ValueKind | ShortApplicationChild _ _ _ _ _ _ => ApplicationKind
+  end.
 
 (* the exact prerequisite of a dependent non-result: a redeclared/unbound name use, an invalid identity, or a child *)
 Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -188,13 +228,18 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ApplicationKind
 | DepInvalidId : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp site ApplicationKind
-| DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind.
+| DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind
+| DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
+    (i : nat) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (a b : nat),
+    BN.row_decision row = BN.ShortAmbiguousData a b ->
+    site = Index.Refs.sh_node st -> Dependency bp site StatementKind.
 Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameA {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameA {p idx s bd bp site n} _ _ _.
 Arguments DepInvalidId {p idx s bd bp site n} _ _ _. Arguments DepChild {p idx s bd bp site} _.
+Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
 Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -1652,22 +1697,36 @@ Record ChildDependentFactRef : Type := mk_cdfr {
 }.
 Definition cdfr_edge_site (c : ChildDependentFactRef) : Index.NodeRef (res_index res) := cfe_child_site (cdfr_edge c).
 Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_kind (cdfr_edge c).
-(* a statement dependency can only be a DepChild, so its exact edge is a total projection *)
-Definition dep_child_edge {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : ChildFactEdge site StatementKind :=
-  match d in Dependency _ _ k return (match k with StatementKind => ChildFactEdge site StatementKind | _ => unit end) with
-  | DepChild e => e | _ => tt end.
-Lemma dep_child_eq {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : d = DepChild (dep_child_edge d).
+(* a statement dependency is DepChild or DepShortAmbiguous; only DepChild has a child edge — a partial projection *)
+Definition dep_child_edge_opt {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : option (ChildFactEdge site StatementKind) :=
+  match d in Dependency _ _ k return (match k with StatementKind => option (ChildFactEdge site StatementKind) | _ => unit end) with
+  | DepChild e => Some e | DepShortAmbiguous _ _ _ _ _ _ _ => None | _ => tt end.
+Lemma dep_child_eq_some {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind)
+  (e : ChildFactEdge site StatementKind) : dep_child_edge_opt d = Some e -> d = DepChild e.
 Proof.
   refine (match d as d0 in Dependency _ _ k
     return (match k as k0 return Dependency (res_binds res) site k0 -> Prop with
-            | StatementKind => fun dd => dd = DepChild (dep_child_edge dd) | _ => fun _ => True end d0)
-  with DepChild e => eq_refl | _ => I end).
+            | StatementKind => fun dd => dep_child_edge_opt dd = Some e -> dd = DepChild e | _ => fun _ => True end d0)
+  with DepChild e0 => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end); cbn.
+  - intro H. injection H as H. rewrite H. reflexivity.
+  - discriminate.
 Qed.
 (* every child-dependent parent row is exactly a retained OFStmt at cdfr_site carrying the exact DepChild edge *)
 Definition child_dep_of_body (row : FactRowRef res) (o : OccFact (res_binds res)) (Ho : frr_row row = o) : option ChildDependentFactRef :=
   match o as o0 return frr_row row = o0 -> option ChildDependentFactRef with
-  | OFStmt r (SDependent d) => fun Hr =>
-      Some (mk_cdfr row r (dep_child_edge d) (eq_trans Hr (f_equal (fun x => OFStmt r (SDependent x)) (dep_child_eq d))))
+  | OFStmt r os =>
+      match os as os0 return frr_row row = OFStmt r os0 -> option ChildDependentFactRef with
+      | SDependent d =>
+          match d as d0 in Dependency _ _ k
+            return (match k return Dependency (res_binds res) r k -> Type with
+                    | StatementKind => fun d1 => frr_row row = OFStmt r (SDependent d1) -> option ChildDependentFactRef
+                    | _ => fun _ => unit end d0) with
+          | DepChild e => fun Hr => Some (mk_cdfr row r e Hr)
+          | DepShortAmbiguous _ _ _ _ _ _ _ => fun _ => None
+          | _ => tt
+          end
+      | _ => fun _ => None
+      end
   | _ => fun _ => None
   end Ho.
 Definition child_dep_of (row : FactRowRef res) : option ChildDependentFactRef :=
@@ -1679,9 +1738,17 @@ Proof.
   unfold child_dep_of.
   assert (Hg : forall (o : OccFact (res_binds res)) (Ho : frr_row row = o),
     child_dep_of_body row o Ho = Some cdfr -> cdfr_rowref cdfr = row).
-  { intros o Ho Heq. destruct o as [r ov|r oa|r os|r ot]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
-    destruct os as [ | | | dd ]; cbn [child_dep_of_body] in Heq; try discriminate Heq.
-    injection Heq as Heq. subst cdfr. reflexivity. }
+  { intros o Ho Heq. destruct o as [r ov|r oa|r os|r ot]; try (cbn [child_dep_of_body] in Heq; discriminate Heq).
+    destruct os as [ | | | d ]; try (cbn [child_dep_of_body] in Heq; discriminate Heq).
+    generalize dependent Ho.
+    refine (match d as d0 in Dependency _ _ k
+      return (match k return Dependency (res_binds res) r k -> Prop with
+              | StatementKind => fun d1 => forall (Ho1 : frr_row row = OFStmt r (SDependent d1)),
+                  child_dep_of_body row (OFStmt r (SDependent d1)) Ho1 = Some cdfr -> cdfr_rowref cdfr = row
+              | _ => fun _ => True end d0)
+      with DepChild e => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end);
+      intros Ho1 Heq1; cbn [child_dep_of_body] in Heq1; try discriminate Heq1.
+    injection Heq1 as Heq1. subst cdfr. reflexivity. }
   exact (Hg (frr_row row) eq_refl).
 Qed.
 
@@ -1869,15 +1936,23 @@ Proof. unfold frr_site; rewrite (cdfr_ok cdfr); reflexivity. Qed.
 Lemma cdfr_child_parent (cdfr : ChildDependentFactRef) :
   Index.node_parent (cdfr_edge_site cdfr) = Some (cdfr_site cdfr).
 Proof.
-  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha]; cbn [cfe_child_site];
-    rewrite Hp; exact (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha | st j edge Hp | st j edge ar Hp Ha];
+    cbn [cfe_child_site]; rewrite Hp.
+  - exact (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  - exact (Index.Child.ca_node_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  - exact (Index.Edges.sr_parent edge).
+  - exact (Index.Edges.sr_parent edge).
 Qed.
 (* §8 strict structural progress: the exact child fact's node position strictly follows the parent statement's *)
 Lemma cpr_parent_lt_child (cdfr : ChildDependentFactRef) :
   (Index.nr_pos (cdfr_site cdfr) < Index.nr_pos (cdfr_edge_site cdfr))%nat.
 Proof.
-  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha]; cbn [cfe_child_site];
-    rewrite Hp; exact (Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  unfold cdfr_edge_site. destruct (cdfr_edge cdfr) as [pr Hp | pr ar Hp Ha | st j edge Hp | st j edge ar Hp Ha];
+    cbn [cfe_child_site]; rewrite Hp.
+  - exact (Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  - exact (Index.Child.child_pos_gt_parent (Index.Edges.ee_at (Index.Edges.exprstmt_expr pr))).
+  - exact (Index.Child.child_pos_gt_parent (Index.Edges.sr_at edge)).
+  - exact (Index.Child.child_pos_gt_parent (Index.Edges.sr_at edge)).
 Qed.
 (* §8 and therefore the parent statement node is never its own child: exact structural source-node progress *)
 Lemma cpr_parent_neq_child (cdfr : ChildDependentFactRef) : cdfr_site cdfr <> cdfr_edge_site cdfr.
@@ -1887,7 +1962,7 @@ Qed.
 (* §19.1 the retained child kind is exactly value or application, never statement or type-use *)
 Lemma cdfr_child_kind_va (cdfr : ChildDependentFactRef) :
   cdfr_edge_kind cdfr = ValueKind \/ cdfr_edge_kind cdfr = ApplicationKind.
-Proof. unfold cdfr_edge_kind; destruct (cdfr_edge cdfr); [ left | right ]; reflexivity. Qed.
+Proof. unfold cdfr_edge_kind; destruct (cdfr_edge cdfr); [ left | right | left | right ]; reflexivity. Qed.
 (* §19.4 soundness: a prerequisite names the exact retained child row fact_row_for selects *)
 Lemma cpr_lookup_exact (cdfr : ChildDependentFactRef) (cpr : ChildPrerequisiteRef cdfr) :
   fact_row_for (cdfr_edge_site cdfr) (cdfr_edge_kind cdfr) = Some (cpr_child_row cdfr cpr).
@@ -1962,10 +2037,12 @@ Qed.
 Lemma stmt_expr_none (pr : Index.Refs.ExprStmtRef (res_index res)) (d : Dependency (res_binds res) (Index.Refs.exs_node pr) StatementKind) :
   own_stmt_expr (res_binds res) pr false false = SDependent d -> False.
 Proof.
-  intro H.
-  destruct (own_stmt_expr_dep_inv pr false false (dep_child_edge d)
-    (eq_trans H (f_equal (fun x => SDependent x) (dep_child_eq d)))) as [_ [[_ Hb]|[_ [_ [Hb _]]]]];
-    discriminate Hb.
+  unfold own_stmt_expr.
+  assert (Hgen : forall v Hv, stmt_expr_body (res_binds res) pr false v Hv = SDependent d -> False).
+  { intros v Hv HH. destruct v; cbn [stmt_expr_body] in HH; try discriminate HH.
+    cbn [stmt_expr_app_branch] in HH.
+    repeat (match goal with | _ : context [ match ?x with _ => _ end ] |- _ => destruct x end); discriminate HH. }
+  exact (Hgen _ eq_refl).
 Qed.
 (* §19.6 enumeration completeness: every child-dependent parent row is enumerated with its exact prerequisite *)
 Lemma child_prerequisite_refs_complete (row : FactRowRef res) (cdfr : ChildDependentFactRef) :
