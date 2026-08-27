@@ -5798,6 +5798,58 @@ Proof.
   exists n, grp, mr1, mr2. repeat split; solve [ reflexivity | assumption ].
 Qed.
 
+(* an ambiguous short row yields its name's block-scope redeclaration root, via block_visible_le's group bound *)
+Definition short_ambiguous_root {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (row : ShortDecisionRowRef se i) (a b : nat) (Hrow : row_decision row = ShortAmbiguousData a b)
+  : { n : Names.OrdinaryIdentifier & RedeclRoot bp n }.
+Proof.
+  unfold row_decision in Hrow.
+  pose proof (short_lhs_ambiguous (short_state_before se) (sdr_edge row) (sdr_row row)
+                (short_row_fact se i row)) as Hamb.
+  rewrite Hrow in Hamb.
+  destruct (binder_ident (Index.Edges.sl_child (sdr_edge row))) as [n|] eqn:Hbid.
+  2: { assert (HF : False)
+         by (destruct Hamb as [n' [_ [_ [_ [_ [_ [Hbi _]]]]]]]; congruence).
+       destruct HF. }
+  exists n.
+  assert (Hgroup2 : 2 <= length (group_refs bp (BlockScope (trow_block (btr_row (se_trace se)))) n)).
+  { destruct Hamb as [n' [grp [mr1 [mr2 [Hbo1 [Hbo2 [Hbi [Hfd [Hft [Hlg [Hs1 Hs2]]]]]]]]]]].
+    assert (Hnn : n = n') by congruence.
+    subst n'.
+    assert (Hcut : se_ord se <= length (trow_evs (btr_row (se_trace se)))).
+    { pose proof (short_event_site_lt se) as Hlt. unfold trace_event_count in Hlt.
+      rewrite (btr_at (se_trace se)) in Hlt. lia. }
+    pose proof (block_visible_le bp (Index.Refs.sh_node (se_stmt se)) (btr_ord (se_trace se))
+                  (se_ord se) (btr_row (se_trace se)) n (btr_at (se_trace se)) Hcut) as Hbvl.
+    assert (Hbs : bs_members (short_state_before se) = state_refs bp (btr_ord (se_trace se)) (se_ord se))
+      by reflexivity.
+    destruct (find_two_ord_found (same_block_cand n) (map es_est (bs_members (short_state_before se)))
+                0 (bm_ord mr1) (bm_ord mr2) Hft) as [_ [Hlt _]].
+    assert (Htwo : 2 <= length (local_group_refs (short_state_before se) n)).
+    { assert (Hgen : forall (g : EstablishmentRef bp -> bool) (l : list (EstablishmentRef bp))
+          (x y : nat) (ex ey : EstablishmentRef bp),
+          x < y -> nth_error l x = Some ex -> g ex = true -> nth_error l y = Some ey -> g ey = true ->
+          2 <= length (filter g l)).
+      { intros g l. induction l as [|z t IH]; intros x y ex ey Hxy Hx Hgx Hy Hgy.
+        - destruct x; discriminate Hx.
+        - destruct y as [|y']; [ lia |]. destruct x as [|x'].
+          + cbn in Hx. injection Hx as Hz. subst z. cbn in Hy.
+            cbn [filter]. rewrite Hgx. cbn [length].
+            assert (Hin : In ey (filter g t))
+              by (apply filter_In; split; [ exact (nth_error_In _ _ Hy) | exact Hgy ]).
+            destruct (filter g t) as [|w r]; [ destruct Hin | cbn [length]; lia ].
+          + cbn in Hx, Hy. cbn [filter]. destruct (g z);
+              [ cbn [length]; pose proof (IH x' y' ex ey ltac:(lia) Hx Hgx Hy Hgy); lia
+              | exact (IH x' y' ex ey ltac:(lia) Hx Hgx Hy Hgy) ]. }
+      unfold local_group_refs.
+      exact (Hgen (fun er => same_block_cand n (es_est er)) (bs_members (short_state_before se))
+               (bm_ord mr1) (bm_ord mr2) (bm_ref mr1) (bm_ref mr2) Hlt (bm_at mr1) Hs1 (bm_at mr2) Hs2). }
+    unfold local_group_refs in Htwo. rewrite Hbs in Htwo. lia. }
+  exact (existT _ (BlockScope (trow_block (btr_row (se_trace se))))
+           (mk_redeclaration (binding_group bp (BlockScope (trow_block (btr_row (se_trace se)))) n) Hgroup2)).
+Defined.
+
 (* each decl fact case names its exact evidence, keyed by the retained decision row (contract §9.4) *)
 Lemma decl_lhs_blank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {b0 : Index.NodeRef idx} {tr : BlockTraceRef bp b0}

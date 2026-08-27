@@ -169,7 +169,6 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     list (Index.NodeRef idx) -> Requirement bp site ApplicationKind
 | ReqTypeMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
     BN.resolution_object_view r = Some o -> Requirement bp site TypeUseKind
-| ReqDeclMeaningS : forall (st : Index.Refs.ShortStmtRef idx), site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortRedeclarationTypes : forall (st : Index.Refs.ShortStmtRef idx)
     (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
     evrows <> nil ->
@@ -187,7 +186,7 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
-Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _. Arguments ReqDeclMeaningS {p idx s bd bp site} st _.
+Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _.
 Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st evrows _ _ _ _.
 Arguments ReqShortRhsMeaning {p idx s bd bp site} st j edge _.
 Arguments ReqShortUsage {p idx s bd bp site} st newrows _ _ _ _.
@@ -246,6 +245,7 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
     (i : nat) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (a b : nat),
     BN.row_decision row = BN.ShortAmbiguousData a b ->
+    { n : Names.OrdinaryIdentifier & BN.RedeclRoot bp n } ->
     site = Index.Refs.sh_node st -> Dependency bp site StatementKind.
 Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameA {p idx s bd bp site n} _ _ _.
@@ -253,7 +253,7 @@ Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameA {p idx s bd bp site n} _ _ _.
 Arguments DepInvalidId {p idx s bd bp site n} _ _ _. Arguments DepChild {p idx s bd bp site} _.
-Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
+Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _ _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
 Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -910,14 +910,6 @@ Definition sdd_dup_branch (r : Index.NodeRef idx) (nn nv : nat)
       (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl Hn eq_refl)
   | None => fun Hn => cont Hn
   end Hdup.
-Lemma sdd_dup_branch_not_dep (r : Index.NodeRef idx) (nn nv : nat)
-  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
-  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
-  (dupn : option Names.OrdinaryIdentifier)
-  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
-  (d : Dependency bp r StatementKind) :
-  (forall H, cont H <> SDependent d) -> sdd_dup_branch r nn nv Hv cont dupn Hdup <> SDependent d.
-Proof. intro Hc. unfold sdd_dup_branch. destruct dupn; cbn; [ discriminate | apply Hc ]. Qed.
 Lemma sdd_dup_branch_dep_inv (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
@@ -939,23 +931,17 @@ Definition sdd_blocker_branch (r : Index.NodeRef idx) (nn nv : nat)
   | BN.ShortBlockNonvar i row m Hrow => fun _ =>
       SInvalid (ShortReusesNonVariable (Index.Refs.mkShortStmtRef r nn nv Hv) i row m Hrow eq_refl)
   | BN.ShortBlockAmbiguous i row a b Hrow => fun _ =>
-      SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+      SDependent (DepShortAmbiguous (Index.Refs.mkShortStmtRef r nn nv Hv) i row a b Hrow
+        (BN.short_ambiguous_root (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) i row a b Hrow) eq_refl)
   end Hblk.
-Lemma sdd_blocker_branch_not_dep (r : Index.NodeRef idx) (nn nv : nat)
-  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
-  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
-  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
-  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
-  (d : Dependency bp r StatementKind) :
-  (forall H, cont H <> SDependent d) -> sdd_blocker_branch r nn nv Hv cont blk Hblk <> SDependent d.
-Proof. intro Hc. unfold sdd_blocker_branch. destruct blk; cbn; [ apply Hc | discriminate | discriminate ]. Qed.
 Lemma sdd_blocker_branch_dep_inv (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
   (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
   (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
-  (d : Dependency bp r StatementKind) :
-  sdd_blocker_branch r nn nv Hv cont blk Hblk = SDependent d -> exists H, cont H = SDependent d.
+  (edge : ChildFactEdge r StatementKind) :
+  sdd_blocker_branch r nn nv Hv cont blk Hblk = SDependent (DepChild edge) ->
+  exists H, cont H = SDependent (DepChild edge).
 Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ exists Hblk; exact Heq | discriminate Heq | discriminate Heq ]. Qed.
 (* the canonical short-declaration decision: the fixed precedence read off the exact retained rows and RHS facts *)
 Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
@@ -1903,14 +1889,14 @@ Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_ki
 (* a statement dependency is DepChild or DepShortAmbiguous; only DepChild has a child edge — a partial projection *)
 Definition dep_child_edge_opt {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : option (ChildFactEdge site StatementKind) :=
   match d in Dependency _ _ k return (match k with StatementKind => option (ChildFactEdge site StatementKind) | _ => unit end) with
-  | DepChild e => Some e | DepShortAmbiguous _ _ _ _ _ _ _ => None | _ => tt end.
+  | DepChild e => Some e | DepShortAmbiguous _ _ _ _ _ _ _ _ => None | _ => tt end.
 Lemma dep_child_eq_some {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind)
   (e : ChildFactEdge site StatementKind) : dep_child_edge_opt d = Some e -> d = DepChild e.
 Proof.
   refine (match d as d0 in Dependency _ _ k
     return (match k as k0 return Dependency (res_binds res) site k0 -> Prop with
             | StatementKind => fun dd => dep_child_edge_opt dd = Some e -> dd = DepChild e | _ => fun _ => True end d0)
-  with DepChild e0 => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end); cbn.
+  with DepChild e0 => _ | DepShortAmbiguous _ _ _ _ _ _ _ _ => _ | _ => I end); cbn.
   - intro H. injection H as H. rewrite H. reflexivity.
   - discriminate.
 Qed.
@@ -1925,7 +1911,7 @@ Definition child_dep_of_body (row : FactRowRef res) (o : OccFact (res_binds res)
                     | StatementKind => fun d1 => frr_row row = OFStmt r (SDependent d1) -> option ChildDependentFactRef
                     | _ => fun _ => unit end d0) with
           | DepChild e => fun Hr => Some (mk_cdfr row r e Hr)
-          | DepShortAmbiguous _ _ _ _ _ _ _ => fun _ => None
+          | DepShortAmbiguous _ _ _ _ _ _ _ _ => fun _ => None
           | _ => tt
           end
       | _ => fun _ => None
@@ -1949,7 +1935,7 @@ Proof.
               | StatementKind => fun d1 => forall (Ho1 : frr_row row = OFStmt r (SDependent d1)),
                   child_dep_of_body row (OFStmt r (SDependent d1)) Ho1 = Some cdfr -> cdfr_rowref cdfr = row
               | _ => fun _ => True end d0)
-      with DepChild e => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end);
+      with DepChild e => _ | DepShortAmbiguous _ _ _ _ _ _ _ _ => _ | _ => I end);
       intros Ho1 Heq1; cbn [child_dep_of_body] in Heq1; try discriminate Heq1.
     injection Heq1 as Heq1. subst cdfr. reflexivity. }
   exact (Hg (frr_row row) eq_refl).
