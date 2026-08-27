@@ -245,7 +245,6 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
     (i : nat) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (a b : nat),
     BN.row_decision row = BN.ShortAmbiguousData a b ->
-    { n : Names.OrdinaryIdentifier & BN.RedeclRoot bp n } ->
     site = Index.Refs.sh_node st -> Dependency bp site StatementKind.
 Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameA {p idx s bd bp site n} _ _ _.
@@ -253,7 +252,7 @@ Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameA {p idx s bd bp site n} _ _ _.
 Arguments DepInvalidId {p idx s bd bp site n} _ _ _. Arguments DepChild {p idx s bd bp site} _.
-Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _ _.
+Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
 Inductive ValueOutcome {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
@@ -931,8 +930,7 @@ Definition sdd_blocker_branch (r : Index.NodeRef idx) (nn nv : nat)
   | BN.ShortBlockNonvar i row m Hrow => fun _ =>
       SInvalid (ShortReusesNonVariable (Index.Refs.mkShortStmtRef r nn nv Hv) i row m Hrow eq_refl)
   | BN.ShortBlockAmbiguous i row a b Hrow => fun _ =>
-      SDependent (DepShortAmbiguous (Index.Refs.mkShortStmtRef r nn nv Hv) i row a b Hrow
-        (BN.short_ambiguous_root (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) i row a b Hrow) eq_refl)
+      SDependent (DepShortAmbiguous (Index.Refs.mkShortStmtRef r nn nv Hv) i row a b Hrow eq_refl)
   end Hblk.
 Lemma sdd_blocker_branch_dep_inv (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
@@ -1889,14 +1887,14 @@ Definition cdfr_edge_kind (c : ChildDependentFactRef) : FactKind := cfe_child_ki
 (* a statement dependency is DepChild or DepShortAmbiguous; only DepChild has a child edge — a partial projection *)
 Definition dep_child_edge_opt {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind) : option (ChildFactEdge site StatementKind) :=
   match d in Dependency _ _ k return (match k with StatementKind => option (ChildFactEdge site StatementKind) | _ => unit end) with
-  | DepChild e => Some e | DepShortAmbiguous _ _ _ _ _ _ _ _ => None | _ => tt end.
+  | DepChild e => Some e | DepShortAmbiguous _ _ _ _ _ _ _ => None | _ => tt end.
 Lemma dep_child_eq_some {site : Index.NodeRef (res_index res)} (d : Dependency (res_binds res) site StatementKind)
   (e : ChildFactEdge site StatementKind) : dep_child_edge_opt d = Some e -> d = DepChild e.
 Proof.
   refine (match d as d0 in Dependency _ _ k
     return (match k as k0 return Dependency (res_binds res) site k0 -> Prop with
             | StatementKind => fun dd => dep_child_edge_opt dd = Some e -> dd = DepChild e | _ => fun _ => True end d0)
-  with DepChild e0 => _ | DepShortAmbiguous _ _ _ _ _ _ _ _ => _ | _ => I end); cbn.
+  with DepChild e0 => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end); cbn.
   - intro H. injection H as H. rewrite H. reflexivity.
   - discriminate.
 Qed.
@@ -1911,7 +1909,7 @@ Definition child_dep_of_body (row : FactRowRef res) (o : OccFact (res_binds res)
                     | StatementKind => fun d1 => frr_row row = OFStmt r (SDependent d1) -> option ChildDependentFactRef
                     | _ => fun _ => unit end d0) with
           | DepChild e => fun Hr => Some (mk_cdfr row r e Hr)
-          | DepShortAmbiguous _ _ _ _ _ _ _ _ => fun _ => None
+          | DepShortAmbiguous _ _ _ _ _ _ _ => fun _ => None
           | _ => tt
           end
       | _ => fun _ => None
@@ -1935,7 +1933,7 @@ Proof.
               | StatementKind => fun d1 => forall (Ho1 : frr_row row = OFStmt r (SDependent d1)),
                   child_dep_of_body row (OFStmt r (SDependent d1)) Ho1 = Some cdfr -> cdfr_rowref cdfr = row
               | _ => fun _ => True end d0)
-      with DepChild e => _ | DepShortAmbiguous _ _ _ _ _ _ _ _ => _ | _ => I end);
+      with DepChild e => _ | DepShortAmbiguous _ _ _ _ _ _ _ => _ | _ => I end);
       intros Ho1 Heq1; cbn [child_dep_of_body] in Heq1; try discriminate Heq1.
     injection Heq1 as Heq1. subst cdfr. reflexivity. }
   exact (Hg (frr_row row) eq_refl).

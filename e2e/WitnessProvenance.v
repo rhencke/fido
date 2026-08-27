@@ -126,12 +126,17 @@ Definition prov_short_redecl (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtR
   (Hf : Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows)
   (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true) (Hs : u = Index.Refs.sh_node st)
   : AN.Requirement bp u AN.StatementKind := AN.ReqShortRedeclarationTypes st evrows Hne Hf Hnew Hs.
-(* §16.8 ambiguous dependency: it retains the exact ambiguous row and the exact redeclaration root of its name *)
+(* §16.8 ambiguous dependency: it retains the exact ambiguous row, and that row derives the exact redeclaration root *)
 Definition prov_short_ambiguous (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (i a b : nat)
   (row : BN.ShortDecisionRowRef (BN.short_event bp st) i)
+  (Hrow : BN.row_decision row = BN.ShortAmbiguousData a b) (Hs : u = Index.Refs.sh_node st)
+  : AN.Dependency bp u AN.StatementKind := AN.DepShortAmbiguous st i row a b Hrow Hs.
+(* §8.4/§14.4 the exact redeclaration root the ambiguous row's predecessor group yields, derived not supplied *)
+Definition prov_short_ambiguous_root (st : Index.Refs.ShortStmtRef idx) (i a b : nat)
+  (row : BN.ShortDecisionRowRef (BN.short_event bp st) i)
   (Hrow : BN.row_decision row = BN.ShortAmbiguousData a b)
-  (nr : { n : Names.OrdinaryIdentifier & BN.RedeclRoot bp n }) (Hs : u = Index.Refs.sh_node st)
-  : AN.Dependency bp u AN.StatementKind := AN.DepShortAmbiguous st i row a b Hrow nr Hs.
+  : { n : Names.OrdinaryIdentifier & BN.RedeclRoot bp n } :=
+  BN.short_ambiguous_root (BN.short_event bp st) i row a b Hrow.
 (* §16.9 RHS-child dependency: it retains the exact RHS value/application child edge, never a raw node *)
 Definition prov_short_value_child (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (Hs : u = Index.Refs.sh_node st)

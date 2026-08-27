@@ -297,6 +297,13 @@ done
 for f in Compilable/Report.v Compilable/Bindings.v; do
   if grep -qE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; then grep -nE 'Index\.index_program|occ_index\b|occ_file\b' "$f"; fail "one-build control: $f rebuilds the index/fold instead of reading the threaded one"; fi
 done
+# §11/§18.6 the live Analysis short decision rescans no LHS names/groups and names no deleted route: the old
+# duplicate-only classifier, the broad ReqDeclMeaningS requirement, and the raw group/duplicate finders are absent.
+for nm in short_stmt_body ReqDeclMeaningS short_left_decide short_decide_rows find_dup find_two_ord same_block_cand group_refs binding_group; do
+  n=$(grep -coF "$nm" Compilable/Analysis.v || true)
+  [ "$n" = "0" ] || { grep -nF "$nm" Compilable/Analysis.v; fail "short no-rescan control: Analysis names forbidden/deleted $nm $n time(s)"; }
+done
+echo "fido: short no-rescan control OK — the Analysis short decision names no deleted classifier or requirement and no raw LHS-group or duplicate finder"
 # Report is projection-only: it resolves, classifies, and indexes NOTHING — it names no resolver, index
 # builder, phase builder, type layer, or peer composer (contract: Report does not reference index_program,
 # package-surface/package-fact builders, resolve, facts, TypeResolution, or another composer).
@@ -859,6 +866,18 @@ typefail neg_xsite_shortdup "a statement cause for statement A placed in a state
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (sa sb : IX.Refs.ShortStmtRef (IX.index_program p)) (c : AN.Cause bp (IX.Refs.sh_node sa) AN.StatementKind) : AN.StmtOutcome bp (IX.Refs.sh_node sb) := AN.SInvalid c.'
 typefail neg_xsite_const "a value cause for const spec A placed in a value outcome for const spec B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ca cb : IX.SpecRef (IX.index_program p) IX.ConstSpecF) (c : AN.Cause bp (IX.Refs.sp_node ca) AN.ValueKind) : AN.ValueOutcome bp (IX.Refs.sp_node cb) := AN.VInvalid c.'
+# — §18 short-declaration structural vocabulary: each exact cause/requirement/dependency rejects wrong-tag rows,
+#   wrong count proofs, a missing structural-validity witness, and the deleted broad requirement by absence —
+typefail neg_short_nonvar_newrow "a nonvariable-reuse cause forged from a New row" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (i m : nat) (n : Names.OrdinaryIdentifier) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (H : BN.row_decision row = BN.ShortNewData n) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Cause bp (IX.Refs.sh_node st) AN.StatementKind := AN.ShortReusesNonVariable st i row m H Hs.'
+typefail neg_short_ambiguous_newrow "an ambiguous dependency forged from a New row" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (i a b : nat) (n : Names.OrdinaryIdentifier) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (H : BN.row_decision row = BN.ShortNewData n) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Dependency bp (IX.Refs.sh_node st) AN.StatementKind := AN.DepShortAmbiguous st i row a b H Hs.'
+typefail neg_short_nonew_hasnew "a no-new cause forged when the event has a New row" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (H : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Cause bp (IX.Refs.sh_node st) AN.StatementKind := AN.ShortNoNewName st H Hs.'
+typefail neg_short_usage_no_valid "a usage requirement forged without the structural-validity witness" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (nr : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : nr <> nil) (Hf : Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) nr) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Requirement bp (IX.Refs.sh_node st) AN.StatementKind := AN.ReqShortUsage st nr Hne Hf Hs.'
+typefail neg_short_reqdeclmeanings_absent "the deleted broad short declaration-meaning requirement" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Requirement bp (IX.Refs.sh_node st) AN.StatementKind := AN.ReqDeclMeaningS st Hs.'
 # — §17.2 CROSS-KIND: at one node where several fact kinds apply, a payload of one kind cannot inhabit another —
 typefail neg_xkind_value_in_app "a value cause placed in an application outcome at the same node" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.AppOutcome bp r := AN.AInvalid c.'
@@ -1052,6 +1071,15 @@ typefail neg_branch_cert_as_result "a Compilable branch certificate coerced back
 typefail neg_analyze_eq_as_result "an equality to analyze used as the Result authority constructor" \
   'Definition forged (p : Syntax.Program) (r : AN.Result p) (H : r = AN.analyze p) : AN.Result p := H.'
 typefail_run
+SH
+# The repository-absence and reachability/positive controls run in a THIRD prover-stage RUN over the SAME _build
+# cache mount, for the identical reason RUN two is split from RUN one: the certified library the first RUN built
+# is read (never rebuilt), and each RUN's inline script stays under the per-argument exec limit — one `make prove`
+# gate still, nothing skipped, weakened, sampled or moved.
+RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+set -eu
+fail() { echo "fido: prove FAILED — $*"; exit 1; }
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # — repository-wide absence: no consumer names a deleted edge route, a generic child list, or a position guess —
 if grep -nE 'first_edge|role_children|pred_children|RoleChildEdge|PredChildEdge|ChildEdge|SiblingBefore|node_children|arg_children|spec_name_children|type_use_child|value_children|preceding_siblings' Compilable/Bindings.v Compilable/Analysis.v; then
   fail "edge absence control — a consumer still names a deleted edge route or raw child access"
