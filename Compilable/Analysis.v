@@ -1210,6 +1210,29 @@ Proof.
   destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp _))) true) as [Ht | Hf];
     [ reflexivity | exfalso; exact (Hf Hmix) ].
 Qed.
+(* every unmet short outcome sits past the cleared duplicate/count/blocker/no-new guards, with no negative RHS *)
+Lemma short_decl_decision_unmet_guards (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) (q : Requirement bp r StatementKind) :
+  short_decl_decision va r nn nv Hv = SUnmet q ->
+  BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None
+  /\ Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv)
+  /\ BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker
+  /\ existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = true
+  /\ short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = None.
+Proof.
+  unfold short_decl_decision; cbv zeta. intro Heq.
+  apply sdd_dup_branch_peel_unmet in Heq. destruct Heq as [Hdup [Hd0 Heq]]. cbv beta in Heq.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Hcount | Hne]; [ | discriminate Heq ].
+  apply sdd_blocker_branch_peel_unmet in Heq. destruct Heq as [Hblk [Hb0 Heq]]. cbv beta in Heq.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Hnew | Hnt]; [ | discriminate Heq ].
+  destruct (short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [out|] eqn:Hrhs.
+  { destruct (short_rhs_neg_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) out Hrhs) as [jj [ee Hr]].
+    destruct (rhs_neg_at_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) jj ee out Hr) as [[Hout Hvn] | [Hap [Hout Han]]];
+      rewrite Hout in Heq; discriminate Heq. }
+  split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk | split; [ exact Hnew | reflexivity ] ] ] ].
+Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
