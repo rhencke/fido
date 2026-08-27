@@ -2902,6 +2902,64 @@ Proof.
     Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
   exists (mk_srtr ssfr Hrow). reflexivity.
 Qed.
+(* §16 the usage New rows are every canonical New row of the event, each tagged New, exactly by construction *)
+Lemma sur_new_rows_forall (sur : ShortUsageRef) :
+  Forall (fun x => BN.is_new_row (BN.row_decision (projT2 x)) = true) (sur_new_rows sur).
+Proof. apply BN.short_rows_where_forall. Qed.
+(* §16 the usage New-row decisions are exactly the New-filtered retained rows: complete, no extra member *)
+Lemma sur_new_rows_complete (sur : ShortUsageRef) :
+  map (fun x => BN.row_decision (projT2 x)) (sur_new_rows sur)
+  = filter BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (sur_parent sur)))).
+Proof. apply BN.short_rows_where_map. Qed.
+(* the usage boundary's own event carries a New row: read back from the exact usage requirement via completeness *)
+Lemma sur_has_new (sur : ShortUsageRef) :
+  existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (sur_parent sur)))) = true.
+Proof.
+  pose proof (sur_req sur) as Hreq. rewrite (ssfr_is_short_decl (sur_parent sur)) in Hreq. injection Hreq as Hreq.
+  apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Hreq.
+  destruct (short_decl_decision_usage_complete (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur)))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur))))))
+    (ssfr_stmt (sur_parent sur)) Hreq) as [_ [_ [_ [Hnew _]]]]. exact Hnew.
+Qed.
+(* §16 the usage New-row list is nonempty: the final branch requires at least one New name *)
+Lemma sur_new_rows_nonempty (sur : ShortUsageRef) : sur_new_rows sur <> nil.
+Proof. apply BN.short_rows_where_nonempty. apply sur_has_new. Qed.
+(* §14 the mixed ExistingVariable rows are every canonical existing-variable row, each so tagged *)
+Lemma srtr_existing_rows_forall (srtr : ShortRedeclarationTypesRef) :
+  Forall (fun x => BN.is_existing_var_row (BN.row_decision (projT2 x)) = true) (srtr_existing_rows srtr).
+Proof. apply BN.short_rows_where_forall. Qed.
+(* §14 the mixed New rows are every canonical New row, each so tagged *)
+Lemma srtr_new_rows_forall (srtr : ShortRedeclarationTypesRef) :
+  Forall (fun x => BN.is_new_row (BN.row_decision (projT2 x)) = true) (srtr_new_rows srtr).
+Proof. apply BN.short_rows_where_forall. Qed.
+(* §14 the mixed ExistingVariable decisions are exactly the existing-variable-filtered retained rows *)
+Lemma srtr_existing_rows_complete (srtr : ShortRedeclarationTypesRef) :
+  map (fun x => BN.row_decision (projT2 x)) (srtr_existing_rows srtr)
+  = filter BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))).
+Proof. apply BN.short_rows_where_map. Qed.
+(* §14 the mixed New decisions are exactly the New-filtered retained rows *)
+Lemma srtr_new_rows_complete (srtr : ShortRedeclarationTypesRef) :
+  map (fun x => BN.row_decision (projT2 x)) (srtr_new_rows srtr)
+  = filter BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))).
+Proof. apply BN.short_rows_where_map. Qed.
+(* the mixed boundary's event carries both an existing-variable row and a New row, via completeness *)
+Lemma srtr_has_rows (srtr : ShortRedeclarationTypesRef) :
+  existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))) = true
+  /\ existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))) = true.
+Proof.
+  pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq. injection Hreq as Hreq.
+  apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Hreq.
+  destruct (short_decl_decision_redecl_complete (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr))))))
+    (ssfr_stmt (srtr_parent srtr)) Hreq) as [_ [_ [_ [Hnew [_ [_ Hmix]]]]]]. split; [ exact Hmix | exact Hnew ].
+Qed.
+(* §14 both mixed row lists are nonempty: the branch requires at least one existing variable and one New name *)
+Lemma srtr_existing_rows_nonempty (srtr : ShortRedeclarationTypesRef) : srtr_existing_rows srtr <> nil.
+Proof. apply BN.short_rows_where_nonempty. apply srtr_has_rows. Qed.
+Lemma srtr_new_rows_nonempty (srtr : ShortRedeclarationTypesRef) : srtr_new_rows srtr <> nil.
+Proof. apply BN.short_rows_where_nonempty. apply srtr_has_rows. Qed.
 (* §17 total classification: every retained short statement fact is exactly an invalid, dependent or unmet row *)
 Lemma short_fact_case_total (ssfr : ShortStatementFactRef) :
   (exists ifr : InvalidFactRef res, ifr_rowref ifr = ssfr_row ssfr)
