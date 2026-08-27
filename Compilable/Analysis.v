@@ -1127,6 +1127,89 @@ Lemma short_decl_decision_rhsmeaning_sound_st (va : list (OccFact bp)) (st : Ind
   short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
   = SUnmet (ReqShortRhsMeaning st j0 edge0 eq_refl).
 Proof. destruct st as [node names values ok]; apply short_decl_decision_rhsmeaning_sound; assumption. Qed.
+(* the decision, past the cleared duplicate/count/blocker/no-new guards, is exactly its RHS-and-mixed tail *)
+Lemma short_decl_decision_tail (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
+  (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = true) :
+  short_decl_decision va r nn nv Hv
+  = match short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+    | Some out => out
+    | None => match find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+      | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j edge eq_refl)
+      | None => match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+        | left _ => SUnmet (ReqShortRedeclarationTypes (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+        | right _ => SUnmet (ReqShortUsage (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+        end end end.
+Proof.
+  unfold short_decl_decision; cbv zeta.
+  rewrite (sdd_dup_branch_cont r nn nv Hv
+    (fun Hdupnone => match Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+       (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv)) with
+     | right Hne => SInvalid (ShortCountMismatch (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl Hne)
+     | left Heq => sdd_blocker_branch r nn nv Hv
+         (fun Hblk0 => match Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+          | right Hnt => SInvalid (ShortNoNewName (Index.Refs.mkShortStmtRef r nn nv Hv) (Bool.not_true_is_false _ Hnt) eq_refl)
+          | left Htrue => match short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+            | Some out => out
+            | None => match find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+              | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j edge eq_refl)
+              | None => match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+                | left _ => SUnmet (ReqShortRedeclarationTypes (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+                | right _ => SUnmet (ReqShortUsage (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+                end end end end)
+         (BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) eq_refl
+     end) _ eq_refl Hdup Hdup (fun _ _ => eq_refl)). cbv beta.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Heqc | Hne]; [ | exfalso; exact (Hne Hcount) ].
+  rewrite (sdd_blocker_branch_cont r nn nv Hv
+    (fun Hblk0 => match Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+     | right Hnt => SInvalid (ShortNoNewName (Index.Refs.mkShortStmtRef r nn nv Hv) (Bool.not_true_is_false _ Hnt) eq_refl)
+     | left Htrue => match short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+       | Some out => out
+       | None => match find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+         | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j edge eq_refl)
+         | None => match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+           | left _ => SUnmet (ReqShortRedeclarationTypes (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+           | right _ => SUnmet (ReqShortUsage (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+           end end end end) _ eq_refl Hblk Hblk (fun _ _ => eq_refl)). cbv beta.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Htrue | Hnt]; [ | exfalso; exact (Hnt Hnew) ]. reflexivity.
+Qed.
+(* §18.8 usage soundness: all guards cleared, no negative or nonconstant RHS, and no existing-variable reuse *)
+Lemma short_decl_decision_usage_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
+  (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
+  (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true)
+  (Hneg : short_rhs_neg va st = None) (Hfind : find_rhs_vnonconst va st = None)
+  (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = false) :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet (ReqShortUsage st eq_refl).
+Proof.
+  destruct st as [node names values ok]; cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok].
+  rewrite (short_decl_decision_tail va node names values ok Hdup Hcount Hblk Hnew), Hneg, Hfind.
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp _))) true) as [Ht | Hf];
+    [ rewrite Hmix in Ht; discriminate Ht | reflexivity ].
+Qed.
+(* §18.7 mixed-redeclaration soundness: all guards cleared, no negative or nonconstant RHS, some existing variable *)
+Lemma short_decl_decision_redecl_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
+  (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
+  (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true)
+  (Hneg : short_rhs_neg va st = None) (Hfind : find_rhs_vnonconst va st = None)
+  (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = true) :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet (ReqShortRedeclarationTypes st eq_refl).
+Proof.
+  destruct st as [node names values ok]; cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok].
+  rewrite (short_decl_decision_tail va node names values ok Hdup Hcount Hblk Hnew), Hneg, Hfind.
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp _))) true) as [Ht | Hf];
+    [ reflexivity | exfalso; exact (Hf Hmix) ].
+Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
@@ -2623,6 +2706,70 @@ Proof.
     (ssfr_stmt ssfr) j0 edge0 Hdup Hcount Hblk Hnew Hneg Hfind) in Hrow.
   exists (mk_srmr ssfr j0 edge0 (mk_nvfr child_row (Index.Edges.sr_child edge0) Hcrow) Hrow eq_refl Hlk).
   split; reflexivity.
+Qed.
+(* §16 the Result-owned usage boundary: the parent statement fact carrying the exact unmet usage requirement *)
+Record ShortUsageRef : Type := mk_sur {
+  sur_parent : ShortStatementFactRef ;
+  sur_req    : frr_row (ssfr_row sur_parent)
+             = OFStmt (Index.Refs.sh_node (ssfr_stmt sur_parent)) (SUnmet (ReqShortUsage (ssfr_stmt sur_parent) eq_refl))
+}.
+(* the exact canonical New rows the usage boundary certifies: the source-ordered New left rows of its event *)
+Definition sur_new_rows (sur : ShortUsageRef)
+  : list { i : nat & BN.ShortDecisionRowRef (BN.short_event (res_binds res) (ssfr_stmt (sur_parent sur))) i }
+  := BN.short_rows_where (BN.short_event (res_binds res) (ssfr_stmt (sur_parent sur))) BN.is_new_row.
+(* §14 the Result-owned mixed-redeclaration boundary: the parent fact carrying the exact unmet type requirement *)
+Record ShortRedeclarationTypesRef : Type := mk_srtr {
+  srtr_parent : ShortStatementFactRef ;
+  srtr_req    : frr_row (ssfr_row srtr_parent)
+              = OFStmt (Index.Refs.sh_node (ssfr_stmt srtr_parent)) (SUnmet (ReqShortRedeclarationTypes (ssfr_stmt srtr_parent) eq_refl))
+}.
+(* the exact canonical source-ordered ExistingVariable rows whose type equality the mixed boundary still requires *)
+Definition srtr_existing_rows (srtr : ShortRedeclarationTypesRef)
+  : list { i : nat & BN.ShortDecisionRowRef (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))) i }
+  := BN.short_rows_where (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))) BN.is_existing_var_row.
+(* the exact canonical source-ordered New rows the mixed boundary also carries *)
+Definition srtr_new_rows (srtr : ShortRedeclarationTypesRef)
+  : list { i : nat & BN.ShortDecisionRowRef (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))) i }
+  := BN.short_rows_where (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))) BN.is_new_row.
+(* §16 the usage boundary is constructible whenever the decision reaches its final structurally-valid branch *)
+Lemma short_usage_construct (ssfr : ShortStatementFactRef)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = None)
+  (Hcount : Index.Refs.sh_names (ssfr_stmt ssfr) = Index.Refs.sh_values (ssfr_stmt ssfr))
+  (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
+  (Hneg : short_rhs_neg (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+            (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
+  (Hfind : find_rhs_vnonconst (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+            (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
+  (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = false) :
+  exists sur : ShortUsageRef, sur_parent sur = ssfr.
+Proof.
+  pose proof (ssfr_is_short_decl ssfr) as Hrow.
+  rewrite (short_decl_decision_usage_sound_st (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
+    Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
+  exists (mk_sur ssfr Hrow). reflexivity.
+Qed.
+(* §14 the mixed-redeclaration boundary is constructible whenever the decision reaches that branch *)
+Lemma short_redecl_construct (ssfr : ShortStatementFactRef)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = None)
+  (Hcount : Index.Refs.sh_names (ssfr_stmt ssfr) = Index.Refs.sh_values (ssfr_stmt ssfr))
+  (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
+  (Hneg : short_rhs_neg (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+            (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
+  (Hfind : find_rhs_vnonconst (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+            (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
+  (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true) :
+  exists srtr : ShortRedeclarationTypesRef, srtr_parent srtr = ssfr.
+Proof.
+  pose proof (ssfr_is_short_decl ssfr) as Hrow.
+  rewrite (short_decl_decision_redecl_sound_st (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
+    Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
+  exists (mk_srtr ssfr Hrow). reflexivity.
 Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
