@@ -108,9 +108,16 @@ Inductive CauseView : Type :=
 | CvTypeAsValue : option Names.PredeclaredName -> CauseView
 | CvComplexMismatch : CauseView
 | CvMainArity : CauseView
+| CvShortDuplicate : Names.OrdinaryIdentifier -> CauseView
+| CvShortCountMismatch : nat -> nat -> CauseView
+| CvShortReusesNonvar : nat -> nat -> CauseView
+| CvShortNoNew : CauseView
 | CvOtherCause : CauseView.
 Inductive ReqView : Type :=
 | RvComplexType : ReqView
+| RvShortUsage : ReqView
+| RvShortRhsMeaning : nat -> ReqView
+| RvShortRedeclTypes : ReqView
 | RvOtherReq : ReqView.
 
 (* bp-free descriptive views of the exact package decision cases: the package's identity, the colliding root entry *)
@@ -162,13 +169,23 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.TypeAsValue _ o _ => CvTypeAsValue (object_predeclared o)
   | AN.ComplexMismatch _ _ _ => CvComplexMismatch
   | AN.MainArity _ _ _ _ _ => CvMainArity
+  | AN.ShortDuplicate _ n _ _ _ => CvShortDuplicate n
+  | AN.ShortCountMismatch st _ _ => CvShortCountMismatch (Index.Refs.sh_names st) (Index.Refs.sh_values st)
+  | AN.ShortReusesNonVariable _ i _ m _ _ => CvShortReusesNonvar i m
+  | AN.ShortNoNewName _ _ _ => CvShortNoNew
   | _ => CvOtherCause
   end.
 Definition issuecause_view {p} {r : AN.Result p} (ic : AN.IssueCause r) : CauseView :=
   match ic with AN.OccCause ifr => cause_view (AN.ifr_cause ifr) | _ => CvOtherCause end.
 Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (q : AN.Requirement bp site k) : ReqView :=
-  match q with AN.ReqComplexType _ => RvComplexType | _ => RvOtherReq end.
+  match q with
+  | AN.ReqComplexType _ => RvComplexType
+  | AN.ReqShortUsage _ _ _ _ _ _ => RvShortUsage
+  | AN.ReqShortRhsMeaning _ j _ _ => RvShortRhsMeaning j
+  | AN.ReqShortRedeclarationTypes _ _ _ _ _ _ => RvShortRedeclTypes
+  | _ => RvOtherReq
+  end.
 
 (* concrete controls read these bp-free occurrence views computed DIRECTLY from fact_list, off the vm_compute path *)
 Definition result_cause_views {p} (r : AN.Result p) : list CauseView :=
