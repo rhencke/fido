@@ -102,12 +102,7 @@ Definition o_short_new : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (S
 (* declaration invalidities: a first const spec omitting its initializer, a result-count mismatch, a short duplicate *)
 Definition r_const_noinit : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) Syntax.InheritedConstInit ]) ]). Proof. reject. Qed.
 Definition r_const_count : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ]). Proof. reject. Qed.
-Definition r_short_dup : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "x")]) (Collections.MakeNonEmpty (ILIT 1) [ILIT 2]) ]). Proof. reject. Qed.
-(* §16 the exact short-declaration structural boundaries as concrete programs *)
-Definition r_short_count : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (NE1 (ILIT 1)) ]). Proof. reject. Qed.
-Definition r_short_nonew : Compilable.rejects (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 1)) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 2)) ]). Proof. reject. Qed.
-Definition r_short_allblank : Compilable.rejects (prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty Syntax.BBlank [Syntax.BBlank]) (Collections.MakeNonEmpty (ILIT 1) [ILIT 2]) ]). Proof. reject. Qed.
-Definition r_short_nonvar : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Collections.MakeNonEmpty (ILIT 2) [ILIT 3]) ]). Proof. reject. Qed.
+(* §16 RHS-negative and ambiguous are Fido-only rejections; the differential short cases are dp_short_* below *)
 Definition r_short_rhsneg : Compilable.rejects (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (VNAME "z")) ]). Proof. reject. Qed.
 Definition r_short_ambiguous : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Collections.MakeNonEmpty (ILIT 3) [ILIT 4]) ]). Proof. reject. Qed.
 Definition o_short_blank_new : Compilable.outsides (prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty Syntax.BBlank [Syntax.BNamed (OID "x")]) (Collections.MakeNonEmpty (ILIT 0) [ILIT 1]) ; PL [ VNAME "x" ] ]). Proof. outside. Qed.
@@ -388,6 +383,12 @@ Definition dp_default_ovf : Syntax.Program := prog [ PL [ ILIT ((2 ^ 63)%N) ] ].
 Definition dp_no_main     : Syntax.Program := prog_tops [ tconstmain ].
 Definition dp_multi_main  : Syntax.Program := prog_tops [ main0 ; main0 ].
 Definition dp_ok          : Syntax.Program := prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ].
+(* §17 the five newly-decided short-declaration rejections, each a whole program pinned Go also rejects *)
+Definition dp_short_dup      : Syntax.Program := prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "x")]) (Collections.MakeNonEmpty (ILIT 1) [ILIT 2]) ].
+Definition dp_short_count    : Syntax.Program := prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (NE1 (ILIT 1)) ].
+Definition dp_short_nonew    : Syntax.Program := prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 1)) ; Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 2)) ].
+Definition dp_short_allblank : Syntax.Program := prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty Syntax.BBlank [Syntax.BBlank]) (Collections.MakeNonEmpty (ILIT 1) [ILIT 2]) ].
+Definition dp_short_nonvar   : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Collections.MakeNonEmpty (ILIT 2) [ILIT 3]) ].
 
 Definition dr_neg_string  : Compilable.rejects dp_neg_string.  Proof. reject. Qed.
 Definition dr_conv0       : Compilable.rejects dp_conv0.       Proof. reject. Qed.
@@ -399,6 +400,11 @@ Definition dr_default_ovf : Compilable.rejects dp_default_ovf. Proof. reject. Qe
 Definition dr_no_main     : Compilable.rejects dp_no_main.     Proof. reject. Qed.
 Definition dr_multi_main  : Compilable.rejects dp_multi_main.  Proof. reject. Qed.
 Definition dc_ok          : Compilable.compiles dp_ok.         Proof. compileok. Qed.
+Definition dr_short_dup      : Compilable.rejects dp_short_dup.      Proof. reject. Qed.
+Definition dr_short_count    : Compilable.rejects dp_short_count.    Proof. reject. Qed.
+Definition dr_short_nonew    : Compilable.rejects dp_short_nonew.    Proof. reject. Qed.
+Definition dr_short_allblank : Compilable.rejects dp_short_allblank. Proof. reject. Qed.
+Definition dr_short_nonvar   : Compilable.rejects dp_short_nonvar.   Proof. reject. Qed.
 
 Declare ML Module "fido.emit".
 Fido OracleExport (otransport dp_neg_string)  To "/workspace/diff/reject/neg_string".
@@ -410,4 +416,9 @@ Fido OracleExport (otransport dp_stmt_lit)    To "/workspace/diff/reject/stmt_li
 Fido OracleExport (otransport dp_default_ovf) To "/workspace/diff/reject/default_ovf".
 Fido OracleExport (otransport dp_no_main)     To "/workspace/diff/reject/no_main".
 Fido OracleExport (otransport dp_multi_main)  To "/workspace/diff/reject/multi_main".
+Fido OracleExport (otransport dp_short_dup)      To "/workspace/diff/reject/short_dup".
+Fido OracleExport (otransport dp_short_count)    To "/workspace/diff/reject/short_count".
+Fido OracleExport (otransport dp_short_nonew)    To "/workspace/diff/reject/short_nonew".
+Fido OracleExport (otransport dp_short_allblank) To "/workspace/diff/reject/short_allblank".
+Fido OracleExport (otransport dp_short_nonvar)   To "/workspace/diff/reject/short_nonvar".
 Fido OracleExport (otransport dp_ok)          To "/workspace/diff/compiled/ok".

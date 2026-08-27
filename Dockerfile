@@ -1842,10 +1842,10 @@ echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/i
 # the one-source differential cases were exported: one rendered tree per case (reject / compiled), each keyed
 # to the SAME Syntax.Program proven above; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope
 # is a Fido implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported here.
-for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main compiled/ok; do
+for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main reject/short_dup reject/short_count reject/short_nonew reject/short_allblank reject/short_nonvar compiled/ok; do
   [ -f "/workspace/diff/$b/go.mod" ] || { ls -R /workspace/diff 2>/dev/null; fail "differential oracle: /workspace/diff/$b/go.mod was not exported"; }
 done
-echo "fido: differential oracle export OK — 10 one-source trees written for the pinned-Go formal-vs-Go differential"
+echo "fido: differential oracle export OK — 15 one-source trees written for the pinned-Go formal-vs-Go differential"
 
 # R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They compile outside the Fido
 # path, so the audit's Fido-modpath seed cannot reach them here; recompile each under the Fido path (the Fido
@@ -2498,7 +2498,7 @@ diff_accept() {  # <tree-dir> <label>
 _dn=0
 for d in /e2e/diff/reject/*/; do [ -d "$d" ] || continue; diff_reject "$d" "reject/$(basename "$d")"; _dn=$((_dn+1)); done
 for d in /e2e/diff/compiled/*/; do [ -d "$d" ] || continue; diff_accept "$d" "compiled/$(basename "$d")"; _dn=$((_dn+1)); done
-[ "$_dn" -ge 10 ] || { echo "fido e2e diff: expected >=10 one-source differential trees, judged only $_dn"; exit 1; }
+[ "$_dn" -ge 15 ] || { echo "fido e2e diff: expected >=15 one-source differential trees, judged only $_dn"; exit 1; }
 echo "fido e2e diff: one-source formal-vs-Go differential OK — $_dn rendered trees judged by pinned Go, every verdict agreeing with its proven Compilable disposition"
 
 # ── COMPLEMENTARY pinned-Go BEHAVIOR PROBES (NOT a Fido comparison — the mechanical one-source Fido-vs-Go
