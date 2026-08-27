@@ -1309,6 +1309,18 @@ Proof.
     [ | discriminate Heq ].
   repeat split; assumption.
 Qed.
+(* §18.5 negative-RHS soundness: past the cleared guards, a present negative RHS is the decision verbatim *)
+Lemma short_decl_decision_rhsneg_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
+  (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = true)
+  (out : StmtOutcome bp r) (Hrhs : short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = Some out) :
+  short_decl_decision va r nn nv Hv = out.
+Proof.
+  rewrite (short_decl_decision_tail va r nn nv Hv Hdup Hcount Hblk Hnew), Hrhs. reflexivity.
+Qed.
 (* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
 Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
