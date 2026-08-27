@@ -122,6 +122,11 @@ toolchain is the supported run). Governing truth held by this candidate:
   represented static-semantic completion remains open, and the exact unsupported requirements are honest temporary
   boundaries. Remaining static-semantic completeness, issue-order redesign, and post-C4 documentation normalization
   are later roots.
+- Short-declaration structural legality is now decided exactly by one canonical `short_decl_decision` following the
+  fixed precedence; a structurally valid short declaration carries an exact unmet `ReqShortUsage` and is
+  `OutsideScope`, never a false diagnostic and never `SOK` (the generic `ReqDeclMeaningS` catch-all is deleted).
+  Whole-program acceptance stays blocked by exact local-variable usage analysis and mixed redeclaration by exact
+  source-variable type equality; both are honest temporary boundaries (decision `C4-SHORTDECL` in `DECISIONS.md`).
 - The live classifications are exactly the Result-indexed diagnostics, boundaries and issues plus Compilable's
   three-way `Compiled`/`Rejected`/`OutsideScope` verdict; there is **no** separate Analysis summary algebra. The
   former dead five-way `Analysis.Disposition` summary and its whole-program projection were deleted this slice
