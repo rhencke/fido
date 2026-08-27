@@ -77,10 +77,6 @@ Lemma is_value_decl_type {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef 
   Index.node_view site = Index.Model.VTypeSpec t -> is_value_decl_node site = true.
 Proof. intro H. unfold is_value_decl_node. rewrite H. reflexivity. Qed.
 
-(* a transparent proof-insensitive test the short decision reads off a retained row: is it a new binding *)
-Definition short_row_is_new (d : BN.ShortLeftDecisionData) : bool :=
-  match d with BN.ShortNewData _ => true | _ => false end.
-
 (* the exact cause of an invalidity, owned by phase bp, site and fact kind: site A / kind X never inhabits B / Y *)
 Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -129,7 +125,7 @@ Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} 
     BN.row_decision row = BN.ShortExistingNonVariableData m ->
     site = Index.Refs.sh_node st -> Cause bp site StatementKind
 | ShortNoNewName : forall (st : Index.Refs.ShortStmtRef idx),
-    existsb short_row_is_new (BN.se_rows (BN.short_event bp st)) = false ->
+    existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false ->
     site = Index.Refs.sh_node st -> Cause bp site StatementKind.
 Arguments InvalidIdentity {p idx s bd bp site n} _ _ _.
 Arguments UnresolvedNameV {p idx s bd bp site n} _ _ _.
@@ -146,6 +142,17 @@ Arguments IllegalStatement {p idx s bd bp site} _. Arguments ShortDuplicate {p i
 Arguments ShortCountMismatch {p idx s bd bp site} st _ _.
 Arguments ShortReusesNonVariable {p idx s bd bp site} st i row m _ _.
 Arguments ShortNoNewName {p idx s bd bp site} st _ _.
+
+(* §8.6 the exact positive short-declaration verdict: local structural legality, prior to declared-and-used *)
+Record ShortStructurallyValid {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
+  (bp : BN.BindingPhase s bd) (st : Index.Refs.ShortStmtRef idx) : Prop := mkShortValid {
+  ssv_no_dup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None ;
+  ssv_count : Index.Refs.sh_names st = Index.Refs.sh_values st ;
+  ssv_no_blocker : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker ;
+  ssv_has_new : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true ;
+  ssv_no_mixed : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = false ;
+}.
+Arguments mkShortValid {p idx s bd bp st} _ _ _ _ _.
 
 Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -167,9 +174,15 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
     evrows <> nil ->
     Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows ->
-    existsb short_row_is_new (BN.se_rows (BN.short_event bp st)) = true ->
+    existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true ->
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortRhsMeaning : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j),
+    site = Index.Refs.sh_node st -> Requirement bp site StatementKind
+| ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx)
+    (newrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
+    newrows <> nil ->
+    Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) newrows ->
+    ShortStructurallyValid bp st ->
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
@@ -177,6 +190,7 @@ Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p id
 Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _. Arguments ReqDeclMeaningS {p idx s bd bp site} st _.
 Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st evrows _ _ _ _.
 Arguments ReqShortRhsMeaning {p idx s bd bp site} st j edge _.
+Arguments ReqShortUsage {p idx s bd bp site} st newrows _ _ _ _.
 
 (* §8 the exact structural edge from an expr-statement parent to its exact expression child (ExprStmtRef, +AppRef) *)
 Inductive ChildFactEdge {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -782,55 +796,6 @@ Definition type_fact (r : Index.NodeRef idx) : list (OccFact bp) := type_fact_bo
 Lemma type_fact_at (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)) : type_fact r = [OFType r (own_type bp r n H)].
 Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTypeExpr (Syntax.NamedType n)) H). Qed.
-(* the short-declaration duplicate decision, named so its non-dependent outcome is provable off the convoy *)
-Definition short_stmt_body (r : Index.NodeRef idx) (nn nv : nat)
-  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
-  (nm : option Names.OrdinaryIdentifier)
-  (Hnm : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm)
-  : StmtOutcome bp r :=
-  match nm as nm0 return
-    BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm0
-    -> StmtOutcome bp r with
-  | Some n => fun Hn => SInvalid (ShortDuplicate
-      (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl Hn eq_refl)
-  | None => fun _ => SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
-  end Hnm.
-(* §10 the statement fact: expr arm from the driver, short arm its exact decision, any other node yields no fact *)
-Definition stmt_fact_body (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
-  (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
-  match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
-  | Index.Model.VStmt Index.Model.SSExpr => fun Hv => [OFStmt r (sx Hv)]
-  | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv =>
-      [OFStmt r (short_stmt_body r nn nv Hv
-        (BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) eq_refl)]
-  | _ => fun _ => []
-  end H.
-(* the short-declaration outcome is a duplicate diagnostic, never a child dependency *)
-Lemma short_stmt_body_not_dep (r : Index.NodeRef idx) (nn nv : nat)
-  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
-  (nm : option Names.OrdinaryIdentifier)
-  (Hnm : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = nm)
-  (d : Dependency bp r StatementKind) : short_stmt_body r nn nv Hv nm Hnm <> SDependent d.
-Proof. unfold short_stmt_body. destruct nm; cbn; discriminate. Qed.
-Definition stmt_fact (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) : list (OccFact bp) :=
-  stmt_fact_body r sx (Index.node_view r) eq_refl.
-Lemma stmt_fact_ssexpr (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
-  (H : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : stmt_fact r sx = [OFStmt r (sx H)].
-Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx) (Index.Model.VStmt Index.Model.SSExpr) H). Qed.
-(* every fact stmt_fact retains is an OFStmt at that exact node — and it retains one only at a statement node *)
-Lemma stmt_fact_content (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (o : OccFact bp)
-  (v : Index.Model.NodeView) (H : Index.node_view r = v) :
-  In o (stmt_fact_body r sx v H) -> (exists os, o = OFStmt r os) /\ exists st, Index.node_view r = Index.Model.VStmt st.
-Proof.
-  destruct v as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp| ]; try (cbn; intro Hin; exfalso; exact Hin).
-  destruct nst; cbn; intro Hin; try (exfalso; exact Hin);
-    (destruct Hin as [Hin|Hin]; [ subst o; split; [ eexists; reflexivity | eexists; exact H ] | exfalso; exact Hin ]).
-Qed.
-
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => OFValue r (own_value bp ctab r) :: app_fact_app r) nodes.
@@ -845,6 +810,156 @@ Definition expr_sx_va (va : list (OccFact bp)) (r : Index.NodeRef idx)
   (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : StmtOutcome bp r :=
   let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
   own_stmt_expr bp (Index.Refs.mkExprStmtRef r Hv) (va_value_negative va e) (va_app_negative va e).
+(* the child-first read that a node's value is nonconstant: known as a value, but not a known one-value constant *)
+Definition va_value_nonconst (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
+  match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
+  | Some (OFValue _ ov) => match ov with VNonconst => true | _ => false end | _ => false end.
+(* a short RHS is negative when its exact child value or application fact is invalid, unmet, or dependent *)
+Definition rhs_has_negative (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) : bool :=
+  existsb (fun sig => let e := Index.Edges.sr_child (projT2 sig) in orb (va_value_negative va e) (va_app_negative va e))
+    (Index.Edges.short_rhs_edges st).
+(* the first source-ordered short RHS whose exact child value is nonconstant — its value meaning is not yet known *)
+Definition find_rhs_vnonconst (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  : option { j : nat & Index.Edges.ShortRhsEdge st j } :=
+  find (fun sig => va_value_nonconst va (Index.Edges.sr_child (projT2 sig))) (Index.Edges.short_rhs_edges st).
+(* a row that passes the new-binding test is exactly a New row; likewise the existing-variable test *)
+Lemma is_new_row_ex (row : BN.ShortLeftDecisionData) : BN.is_new_row row = true -> exists n, row = BN.ShortNewData n.
+Proof. destruct row as [|earlier|n|m1|m2|f1 f2]; cbn; intro H; try discriminate H. exists n; reflexivity. Qed.
+Lemma is_existing_var_row_ex (row : BN.ShortLeftDecisionData) : BN.is_existing_var_row row = true -> exists m, row = BN.ShortExistingVariableData m.
+Proof. destruct row as [|earlier|n|m1|m2|f1 f2]; cbn; intro H; try discriminate H. exists m1; reflexivity. Qed.
+(* the collected New / existing-variable row refs each carry exactly that tag on their retained decision *)
+Lemma short_new_rows_forall {st : Index.Refs.ShortStmtRef idx} (se : BN.ShortEventRef bp st) :
+  Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) (BN.short_rows_where se BN.is_new_row).
+Proof.
+  eapply Forall_impl; [ | exact (BN.short_rows_where_forall se BN.is_new_row) ].
+  intros x Hx. exact (is_new_row_ex _ Hx).
+Qed.
+Lemma short_existing_var_rows_forall {st : Index.Refs.ShortStmtRef idx} (se : BN.ShortEventRef bp st) :
+  Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) (BN.short_rows_where se BN.is_existing_var_row).
+Proof.
+  eapply Forall_impl; [ | exact (BN.short_rows_where_forall se BN.is_existing_var_row) ].
+  intros x Hx. exact (is_existing_var_row_ex _ Hx).
+Qed.
+(* the leftmost-duplicate precedence step: a named duplicate row is invalid, else the later precedence decides *)
+Definition sdd_dup_branch (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
+  : StmtOutcome bp r :=
+  match dupn as o
+    return BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = o
+      -> StmtOutcome bp r with
+  | Some n => fun Hn => SInvalid (ShortDuplicate
+      (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl Hn eq_refl)
+  | None => fun Hn => cont Hn
+  end Hdup.
+Lemma sdd_dup_branch_not_dep (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
+  (d : Dependency bp r StatementKind) :
+  (forall H, cont H <> SDependent d) -> sdd_dup_branch r nn nv Hv cont dupn Hdup <> SDependent d.
+Proof. intro Hc. unfold sdd_dup_branch. destruct dupn; cbn; [ discriminate | apply Hc ]. Qed.
+(* the first-blocker step: nonvariable reuse is invalid, ambiguous depends, else later precedence decides *)
+Definition sdd_blocker_branch (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
+  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
+  : StmtOutcome bp r :=
+  match blk as b
+    return BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = b -> StmtOutcome bp r with
+  | BN.ShortNoBlocker => fun H => cont H
+  | BN.ShortBlockNonvar i row m Hrow => fun _ =>
+      SInvalid (ShortReusesNonVariable (Index.Refs.mkShortStmtRef r nn nv Hv) i row m Hrow eq_refl)
+  | BN.ShortBlockAmbiguous i row a b Hrow => fun _ =>
+      SUnmet (ReqDeclMeaningS (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+  end Hblk.
+Lemma sdd_blocker_branch_not_dep (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
+  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
+  (d : Dependency bp r StatementKind) :
+  (forall H, cont H <> SDependent d) -> sdd_blocker_branch r nn nv Hv cont blk Hblk <> SDependent d.
+Proof. intro Hc. unfold sdd_blocker_branch. destruct blk; cbn; [ apply Hc | discriminate | discriminate ]. Qed.
+(* the canonical short-declaration decision: the fixed precedence read off the exact retained rows and RHS facts *)
+Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) : StmtOutcome bp r :=
+  let st := Index.Refs.mkShortStmtRef r nn nv Hv in
+  let se := BN.short_event bp st in
+  sdd_dup_branch r nn nv Hv
+    (fun Hdupnone =>
+      match Nat.eq_dec (Index.Refs.sh_names st) (Index.Refs.sh_values st) with
+      | right Hne => SInvalid (ShortCountMismatch st eq_refl Hne)
+      | left Heq =>
+        sdd_blocker_branch r nn nv Hv
+          (fun Hblk =>
+            match Bool.bool_dec (existsb BN.is_new_row (BN.se_rows se)) true with
+            | right Hnt => SInvalid (ShortNoNewName st (Bool.not_true_is_false _ Hnt) eq_refl)
+            | left Htrue =>
+              if rhs_has_negative va st then SUnmet (ReqDeclMeaningS st eq_refl)
+              else match find_rhs_vnonconst va st with
+                | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning st j edge eq_refl)
+                | None =>
+                  match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows se)) true with
+                  | left Hmix => SUnmet (ReqShortRedeclarationTypes st (BN.short_rows_where se BN.is_existing_var_row)
+                      (BN.short_rows_where_nonempty se BN.is_existing_var_row Hmix) (short_existing_var_rows_forall se) Htrue eq_refl)
+                  | right Hnm => SUnmet (ReqShortUsage st (BN.short_rows_where se BN.is_new_row)
+                      (BN.short_rows_where_nonempty se BN.is_new_row Htrue) (short_new_rows_forall se)
+                      (mkShortValid Hdupnone Heq Hblk Htrue (Bool.not_true_is_false _ Hnm)) eq_refl)
+                  end
+                end
+            end)
+          (BN.short_blocker_decision se) eq_refl
+      end)
+    (BN.short_dup_decision_name (BN.short_duplicate_decision se)) eq_refl.
+(* the short-declaration decision is a diagnostic or requirement in this reachable range, never a child dependency *)
+Lemma short_decl_decision_not_dep (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (d : Dependency bp r StatementKind) : short_decl_decision va r nn nv Hv <> SDependent d.
+Proof.
+  unfold short_decl_decision; cbv zeta.
+  apply sdd_dup_branch_not_dep; intro Hdupnone.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Heq | Hne]; [ | discriminate ].
+  apply sdd_blocker_branch_not_dep; intro Hblk.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Htrue | Hnt]; [ | discriminate ].
+  destruct (rhs_has_negative va (Index.Refs.mkShortStmtRef r nn nv Hv)); [ discriminate | ].
+  destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [[j edge]|]; [ discriminate | ].
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Hmix | Hnm]; discriminate.
+Qed.
+(* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
+Definition stmt_fact_body (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (va : list (OccFact bp)) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
+  match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
+  | Index.Model.VStmt Index.Model.SSExpr => fun Hv => [OFStmt r (sx Hv)]
+  | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv => [OFStmt r (short_decl_decision va r nn nv Hv)]
+  | _ => fun _ => []
+  end H.
+Definition stmt_fact (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (va : list (OccFact bp)) : list (OccFact bp) :=
+  stmt_fact_body r sx va (Index.node_view r) eq_refl.
+Lemma stmt_fact_ssexpr (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (H : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : stmt_fact r sx va = [OFStmt r (sx H)].
+Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx va) (Index.Model.VStmt Index.Model.SSExpr) H). Qed.
+(* every fact stmt_fact retains is an OFStmt at that exact node — and it retains one only at a statement node *)
+Lemma stmt_fact_content (r : Index.NodeRef idx)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (o : OccFact bp) (v : Index.Model.NodeView) (H : Index.node_view r = v) :
+  In o (stmt_fact_body r sx va v H) -> (exists os, o = OFStmt r os) /\ exists st, Index.node_view r = Index.Model.VStmt st.
+Proof.
+  destruct v as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp| ]; try (cbn; intro Hin; exfalso; exact Hin).
+  destruct nst; cbn; intro Hin; try (exfalso; exact Hin);
+    (destruct Hin as [Hin|Hin]; [ subst o; split; [ eexists; reflexivity | eexists; exact H ] | exfalso; exact Hin ]).
+Qed.
 (* the exact value / application row a node already has in the child-first table — projected, never recomputed *)
 Definition va_value_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match find (fun o => match o with OFValue r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
@@ -855,7 +970,7 @@ Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (
   match Index.node_view r with
   | Index.Model.VName _ | Index.Model.VLiteral _ | Index.Model.VUnary _ => va_value_row va r
   | Index.Model.VApplication => va_app_row va r ++ va_value_row va r
-  | Index.Model.VStmt _ => stmt_fact r (expr_sx_va va r)
+  | Index.Model.VStmt _ => stmt_fact r (expr_sx_va va r) va
   | Index.Model.VTypeExpr _ => type_fact r
   | Index.Model.VConstSpec _ | Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => va_value_row va r
   | _ => []
@@ -1152,15 +1267,15 @@ Proof.
     try (rewrite (va_value_row_at bp ctab fr r Hf) in Hin);
     try (rewrite (va_app_row_at bp ctab fr r Hf E) in Hin);
     try (rewrite (type_fact_at bp r nt E) in Hin);
-    try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
+    try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
     cbn in Hin; repeat (destruct Hin as [Hin|Hin]); solve [ exfalso; exact Hin | subst o; reflexivity ].
 Qed.
 
 (* stmt_fact is a singleton or empty, so its site+kind keys are trivially duplicate-free *)
 Lemma stmt_fact_key_nodup (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
   (v : Index.Model.NodeView) (H : Index.node_view r = v) :
-  NoDup (map fact_key (stmt_fact_body bp r sx v H)).
+  NoDup (map fact_key (stmt_fact_body bp r sx va v H)).
 Proof.
   destruct v as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp| ]; try (cbn; apply NoDup_nil).
   destruct nst; cbn; try apply NoDup_nil.
@@ -1175,7 +1290,7 @@ Proof.
   unfold occ_facts_va. destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E;
     try (rewrite (va_value_row_at bp ctab fr r Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
     try (rewrite (type_fact_at bp r nt E));
-    try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (Index.node_view r) eq_refl));
+    try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (va_facts bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
     cbn [map fact_key fact_site fact_kind app];
     repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
     apply NoDup_nil.
@@ -1257,14 +1372,14 @@ Qed.
 
 (* a retained SDependent statement fact came from the expr-statement arm: its outcome is the exact driver result *)
 Lemma stmt_fact_dependent (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
   (d : Dependency bp r StatementKind) :
-  In (OFStmt r (SDependent d)) (stmt_fact bp r sx) ->
+  In (OFStmt r (SDependent d)) (stmt_fact bp r sx va) ->
   exists (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr), SDependent d = sx Hv.
 Proof.
   unfold stmt_fact.
   assert (Hgen : forall (v : Index.Model.NodeView) (H : Index.node_view r = v),
-    In (OFStmt r (SDependent d)) (stmt_fact_body bp r sx v H) ->
+    In (OFStmt r (SDependent d)) (stmt_fact_body bp r sx va v H) ->
     exists (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr), SDependent d = sx Hv).
   { intros v H Hin. destruct v as [na|nl|nu| |nt|nb|nc|nvv|nts|nd0|nst| |ntp|];
       cbn [stmt_fact_body] in Hin; try (exfalso; exact Hin).
@@ -1274,7 +1389,7 @@ Proof.
     - exfalso; exact Hin.
     - exfalso. destruct Hin as [Heq | []]. injection Heq as Heq'.
       apply (Eqdep_dec.inj_pair2_eq_dec _ noderef_eq_dec) in Heq'.
-      exact (short_stmt_body_not_dep bp r sn sv H _ eq_refl d Heq'). }
+      exact (short_decl_decision_not_dep bp va r sn sv H d Heq'). }
   exact (Hgen (Index.node_view r) eq_refl).
 Qed.
 
@@ -1285,7 +1400,7 @@ Lemma raw_fact_is_own (o : OccFact bp) :
   | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
-      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
+      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r) (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
   | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
       ot = own_type bp r n H
   end.
@@ -1297,7 +1412,7 @@ Proof.
     try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
     try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
     try (rewrite (type_fact_at bp r nt E) in Ho);
-    try (destruct (stmt_fact_content bp r _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
+    try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
     cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
     subst o; cbn; rewrite ?Hfile; try reflexivity.
   - exists E; reflexivity.
@@ -1636,7 +1751,8 @@ Lemma fact_row_is_own (ref : FactRowRef res) :
   | OFValue r ov => ov = own_value (res_binds res) (const_table (res_binds res) (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app (res_binds res) (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
-      (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r))
+      (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r)
+        (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
   | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
       ot = own_type (res_binds res) r n H
   end.
@@ -1890,7 +2006,7 @@ Proof.
   assert (Hsite : frr_site (cdfr_rowref cdfr) = cdfr_site cdfr) by (unfold frr_site; rewrite Hok; reflexivity).
   rewrite Hsite in Hfile.
   pose proof (fact_row_is_own (cdfr_rowref cdfr)) as Hown. rewrite Hok in Hown.
-  destruct (stmt_fact_dependent (cdfr_site cdfr) _ (DepChild (cdfr_edge cdfr)) Hown) as [Hv Hsx].
+  destruct (stmt_fact_dependent (cdfr_site cdfr) _ _ (DepChild (cdfr_edge cdfr)) Hown) as [Hv Hsx].
   unfold expr_sx_va in Hsx.
   set (pr := Index.Refs.mkExprStmtRef (cdfr_site cdfr) Hv) in *.
   set (e0 := Index.Edges.ee_child (Index.Edges.exprstmt_expr pr)) in *.

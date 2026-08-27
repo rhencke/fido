@@ -3702,6 +3702,162 @@ Definition short_duplicate_status {p} {idx : Index.ProgramIndex p} {s : PI.Packa
   : ShortDuplicateStatus se (short_duplicate_decision se) :=
   dup_cert se (Index.Edges.short_lhs_edges (se_stmt se)).
 
+(* the first source-ordered structural blocker among the exact rows: a nonvariable reuse or an ambiguous predecessor *)
+Inductive ShortBlockerDecision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) : Type :=
+| ShortNoBlocker
+| ShortBlockNonvar (i : nat) (r : ShortDecisionRowRef se i) (member : nat)
+    (Hrow : row_decision r = ShortExistingNonVariableData member)
+| ShortBlockAmbiguous (i : nat) (r : ShortDecisionRowRef se i) (first second : nat)
+    (Hrow : row_decision r = ShortAmbiguousData first second).
+Arguments ShortNoBlocker {p idx s d bp st se}.
+Arguments ShortBlockNonvar {p idx s d bp st se} _ _ _ _.
+Arguments ShortBlockAmbiguous {p idx s d bp st se} _ _ _ _ _.
+
+(* the per-row branch on the exact decision tag, carrying its decision proof; factored so a convoy step computes *)
+Definition blk_branch {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} {se : ShortEventRef bp st}
+  (i : nat) (r : ShortDecisionRowRef se i) (acc : ShortBlockerDecision se)
+  (rd : ShortLeftDecisionData) (H : row_decision r = rd) : ShortBlockerDecision se :=
+  match rd as rd0 return row_decision r = rd0 -> ShortBlockerDecision se with
+  | ShortExistingNonVariableData m => fun H0 => ShortBlockNonvar i r m H0
+  | ShortAmbiguousData a b => fun H0 => ShortBlockAmbiguous i r a b H0
+  | _ => fun _ => acc
+  end H.
+(* the convoy step: the branch on the exact row tag agrees with the branch on any equal tag under its proof *)
+Lemma blk_convoy {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} {se : ShortEventRef bp st}
+  (i : nat) (r : ShortDecisionRowRef se i) (acc : ShortBlockerDecision se)
+  (rd : ShortLeftDecisionData) (H : row_decision r = rd) :
+  blk_branch i r acc (row_decision r) eq_refl = blk_branch i r acc rd H.
+Proof. destruct H. reflexivity. Qed.
+
+(* the per-edge fold step: the leftmost nonvariable or ambiguous row wins, carrying its exact row and decision proof *)
+Definition blk_fold_body {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (x : {i : nat & Index.Edges.ShortLhsEdge (se_stmt se) i}) (acc : ShortBlockerDecision se)
+  : ShortBlockerDecision se :=
+  match x with existT _ i e =>
+    blk_branch i (short_decision_row se i e) acc (row_decision (short_decision_row se i e)) eq_refl end.
+
+(* whether a source edge is a structural blocker: exactly the edges the fold step contributes, read off the row tag *)
+Definition blk_contributes {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (x : {i : nat & Index.Edges.ShortLhsEdge (se_stmt se) i}) : bool :=
+  match x with existT _ i _ =>
+    match nth_error (se_rows se) i with
+    | Some (ShortExistingNonVariableData _) | Some (ShortAmbiguousData _ _) => true
+    | _ => false end end.
+
+(* the canonical structural-blocker decision, folded left-to-right over the exact rows: the leftmost blocker wins *)
+Definition short_blocker_decision {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : ShortBlockerDecision se :=
+  fold_right (blk_fold_body se) ShortNoBlocker (Index.Edges.short_lhs_edges (se_stmt se)).
+
+(* the fold step as equations, so the single nth_error elimination is done off any dependent outer match *)
+Lemma blk_step_nc {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.Edges.ShortLhsEdge (se_stmt se) i) (acc : ShortBlockerDecision se) :
+  blk_contributes se (existT _ i e) = false -> blk_fold_body se (existT _ i e) acc = acc.
+Proof.
+  intro Hc. unfold blk_contributes in *.
+  destruct (nth_error (se_rows se) i) as [row|] eqn:Hn.
+  2:{ exfalso. apply nth_error_None in Hn. rewrite se_rows_length in Hn. pose proof (Index.Edges.sl_lt e). lia. }
+  pose proof (short_decision_row_row se i e row Hn) as Hrd.
+  unfold blk_fold_body. rewrite (blk_convoy i (short_decision_row se i e) acc row Hrd).
+  unfold blk_branch. destruct row as [|earlier|n0|m1|m2|f1 f2]; try reflexivity; discriminate Hc.
+Qed.
+Lemma blk_step_nonvar {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.Edges.ShortLhsEdge (se_stmt se) i) (acc : ShortBlockerDecision se) (m : nat) :
+  nth_error (se_rows se) i = Some (ShortExistingNonVariableData m) ->
+  exists (r : ShortDecisionRowRef se i) (H : row_decision r = ShortExistingNonVariableData m),
+    blk_fold_body se (existT _ i e) acc = ShortBlockNonvar i r m H /\ sdr_edge r = e.
+Proof.
+  intro Hn. unfold blk_fold_body. exists (short_decision_row se i e).
+  pose proof (short_decision_row_row se i e _ Hn) as Hrd.
+  rewrite (blk_convoy i (short_decision_row se i e) acc _ Hrd).
+  unfold blk_branch. exists Hrd. split; [ reflexivity | apply short_decision_row_sdr_edge ].
+Qed.
+Lemma blk_step_ambig {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (e : Index.Edges.ShortLhsEdge (se_stmt se) i) (acc : ShortBlockerDecision se) (a b : nat) :
+  nth_error (se_rows se) i = Some (ShortAmbiguousData a b) ->
+  exists (r : ShortDecisionRowRef se i) (H : row_decision r = ShortAmbiguousData a b),
+    blk_fold_body se (existT _ i e) acc = ShortBlockAmbiguous i r a b H /\ sdr_edge r = e.
+Proof.
+  intro Hn. unfold blk_fold_body. exists (short_decision_row se i e).
+  pose proof (short_decision_row_row se i e _ Hn) as Hrd.
+  rewrite (blk_convoy i (short_decision_row se i e) acc _ Hrd).
+  unfold blk_branch. exists Hrd. split; [ reflexivity | apply short_decision_row_sdr_edge ].
+Qed.
+
+(* an empty filter means no element passes the test *)
+Lemma filter_nil_existsb {A : Type} (pred : A -> bool) (l : list A) :
+  filter pred l = nil -> existsb pred l = false.
+Proof.
+  induction l as [|y l IH]; cbn.
+  - intros _; reflexivity.
+  - destruct (pred y) eqn:Hy; intro H; [ discriminate H | exact (IH H) ].
+Qed.
+(* the exact source-ordered row refs whose retained decision satisfies a tag test — a filter over the exact edges *)
+Definition short_rows_where {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) : list { i : nat & ShortDecisionRowRef se i } :=
+  fold_right (fun x acc => match x with existT _ i e =>
+    if pred (row_decision (short_decision_row se i e))
+    then existT _ i (short_decision_row se i e) :: acc else acc end) [] (Index.Edges.short_lhs_edges (se_stmt se)).
+(* every collected row ref indeed satisfies the tag test, exactly by construction *)
+Lemma short_rows_where_forall {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  Forall (fun x => pred (row_decision (projT2 x)) = true) (short_rows_where se pred).
+Proof.
+  unfold short_rows_where. induction (Index.Edges.short_lhs_edges (se_stmt se)) as [|x l IH]; [ constructor | ].
+  cbn. destruct x as [i e]. destruct (pred (row_decision (short_decision_row se i e))) eqn:Hp; [ | exact IH ].
+  constructor; [ cbn; exact Hp | exact IH ].
+Qed.
+(* a row ref's exact decision is exactly the canonical short-left decision of its exact edge against the state *)
+Lemma sdr_row_decide {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (i : nat) (r : ShortDecisionRowRef se i) :
+  row_decision r = short_left_decide (map es_est (bs_members (short_state_before se))) (sdr_edge r).
+Proof.
+  pose proof (sdr_at r) as Ha. rewrite se_rows_decide in Ha. unfold short_decide_rows in Ha.
+  rewrite nth_error_map, (short_row_edge_at se i r) in Ha. cbn in Ha. injection Ha as Ha. exact (eq_sym Ha).
+Qed.
+(* the exact decisions read off every source edge in order are exactly the retained event rows *)
+Lemma short_edge_decisions_eq_rows {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  map (fun x => match x with existT _ i e => row_decision (short_decision_row se i e) end)
+    (Index.Edges.short_lhs_edges (se_stmt se)) = se_rows se.
+Proof.
+  rewrite se_rows_decide. unfold short_decide_rows. apply map_ext. intro x. destruct x as [i e].
+  rewrite sdr_row_decide, short_decision_row_sdr_edge. reflexivity.
+Qed.
+(* collecting the tag-passing row refs mirrors filtering the retained rows by the same tag *)
+Lemma short_rows_where_map {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  map (fun x => row_decision (projT2 x)) (short_rows_where se pred) = filter pred (se_rows se).
+Proof.
+  rewrite <- short_edge_decisions_eq_rows. unfold short_rows_where.
+  induction (Index.Edges.short_lhs_edges (se_stmt se)) as [|x l IH]; [ reflexivity | ].
+  destruct x as [i e]. cbn.
+  destruct (pred (row_decision (short_decision_row se i e))) eqn:Hp; cbn; [ f_equal; exact IH | exact IH ].
+Qed.
+(* if any exact row satisfies the tag test, the collected list is nonempty *)
+Lemma short_rows_where_nonempty {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  existsb pred (se_rows se) = true -> short_rows_where se pred <> nil.
+Proof.
+  intro Hex. intro Habs.
+  assert (Hmap : filter pred (se_rows se) = nil) by (rewrite <- short_rows_where_map, Habs; reflexivity).
+  rewrite (filter_nil_existsb pred (se_rows se) Hmap) in Hex. discriminate Hex.
+Qed.
+
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
@@ -3730,6 +3886,9 @@ Qed.
 (* whether a retained short row is New *)
 Definition is_new_row (r : ShortLeftDecisionData) : bool :=
   match r with ShortNewData _ => true | _ => false end.
+(* whether a retained row reuses a prior same-block variable — a mixed redeclaration left *)
+Definition is_existing_var_row (r : ShortLeftDecisionData) : bool :=
+  match r with ShortExistingVariableData _ => true | _ => false end.
 
 (* the canonical addition ordinal of a short row: the count of New rows strictly before its exact left index *)
 Definition short_new_rank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
