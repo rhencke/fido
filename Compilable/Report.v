@@ -181,9 +181,9 @@ Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (q : AN.Requirement bp site k) : ReqView :=
   match q with
   | AN.ReqComplexType _ => RvComplexType
-  | AN.ReqShortUsage _ _ _ _ _ _ => RvShortUsage
+  | AN.ReqShortUsage _ _ => RvShortUsage
   | AN.ReqShortRhsMeaning _ j _ _ => RvShortRhsMeaning j
-  | AN.ReqShortRedeclarationTypes _ _ _ _ _ _ => RvShortRedeclTypes
+  | AN.ReqShortRedeclarationTypes _ _ => RvShortRedeclTypes
   | _ => RvOtherReq
   end.
 

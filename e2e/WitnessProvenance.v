@@ -110,22 +110,18 @@ Definition prov_short_nonvar (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtR
 Definition prov_short_nonew (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
   (Hnn : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false) (Hs : u = Index.Refs.sh_node st)
   : AN.Cause bp u AN.StatementKind := AN.ShortNoNewName st Hnn Hs.
-(* §16.1 usage residual: the requirement retains the exact new rows plus the exact structural-validity verdict *)
+(* §7 the usage requirement is a minimal tag; the exact New rows are the Result-owned ShortUsageRef *)
 Definition prov_short_usage (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
-  (newrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : newrows <> nil)
-  (Hf : Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) newrows)
-  (Hv : AN.ShortStructurallyValid bp st) (Hs : u = Index.Refs.sh_node st)
-  : AN.Requirement bp u AN.StatementKind := AN.ReqShortUsage st newrows Hne Hf Hv Hs.
+  (Hs : u = Index.Refs.sh_node st)
+  : AN.Requirement bp u AN.StatementKind := AN.ReqShortUsage st Hs.
 (* §9.2 RHS meaning residual: the requirement identifies one exact RHS edge and index *)
 Definition prov_short_rhs_meaning (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (Hs : u = Index.Refs.sh_node st)
   : AN.Requirement bp u AN.StatementKind := AN.ReqShortRhsMeaning st j edge Hs.
-(* §16.10 mixed redeclaration residual: the requirement retains exact existing-variable rows and a new-row witness *)
+(* §7 the mixed requirement is a minimal tag; the exact rows are the Result-owned ShortRedeclarationTypesRef *)
 Definition prov_short_redecl (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
-  (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : evrows <> nil)
-  (Hf : Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows)
-  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true) (Hs : u = Index.Refs.sh_node st)
-  : AN.Requirement bp u AN.StatementKind := AN.ReqShortRedeclarationTypes st evrows Hne Hf Hnew Hs.
+  (Hs : u = Index.Refs.sh_node st)
+  : AN.Requirement bp u AN.StatementKind := AN.ReqShortRedeclarationTypes st Hs.
 (* §16.8 ambiguous dependency: it retains the exact ambiguous row, and that row derives the exact redeclaration root *)
 Definition prov_short_ambiguous (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (i a b : nat)
   (row : BN.ShortDecisionRowRef (BN.short_event bp st) i)

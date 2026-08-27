@@ -3857,6 +3857,56 @@ Proof.
   assert (Hmap : filter pred (se_rows se) = nil) by (rewrite <- short_rows_where_map, Habs; reflexivity).
   rewrite (filter_nil_existsb pred (se_rows se) Hmap) in Hex. discriminate Hex.
 Qed.
+(* §9 the exact all-row enumeration: every source-ordered left row once, a view over the retained rows *)
+Definition short_row_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : list { i : nat & ShortDecisionRowRef se i } := short_rows_where se (fun _ => true).
+(* the enumeration is exactly each exact source edge rewrapped as its exact retained row, in order *)
+Lemma short_row_refs_eq {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  short_row_refs se = map (fun x => match x with existT _ i e => existT _ i (short_decision_row se i e) end)
+    (Index.Edges.short_lhs_edges (se_stmt se)).
+Proof.
+  unfold short_row_refs, short_rows_where.
+  induction (Index.Edges.short_lhs_edges (se_stmt se)) as [|x l IH]; [ reflexivity | ].
+  destruct x as [i e]. cbn. rewrite IH. reflexivity.
+Qed.
+(* filtering the retained rows by a tag is exactly filtering the all-row enumeration by that tag *)
+Lemma short_rows_where_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  short_rows_where se pred = filter (fun x => pred (row_decision (projT2 x))) (short_row_refs se).
+Proof.
+  rewrite short_row_refs_eq. unfold short_rows_where.
+  induction (Index.Edges.short_lhs_edges (se_stmt se)) as [|x l IH]; [ reflexivity | ].
+  destruct x as [i e]. cbn.
+  destruct (pred (row_decision (short_decision_row se i e))); cbn; rewrite IH; reflexivity.
+Qed.
+(* the enumeration's decisions are exactly the retained event rows, in source order *)
+Lemma short_row_refs_decisions {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  map (fun x => row_decision (projT2 x)) (short_row_refs se) = se_rows se.
+Proof.
+  rewrite short_row_refs_eq, map_map, <- short_edge_decisions_eq_rows.
+  apply map_ext. intros [i e]. reflexivity.
+Qed.
+(* the enumeration's ordinals are exactly the complete source positions of the left names *)
+Lemma short_row_refs_ords {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  map (@projT1 _ _) (short_row_refs se) = seq 0 (Index.Refs.sh_names (se_stmt se)).
+Proof.
+  rewrite short_row_refs_eq, map_map, <- (Index.Edges.short_lhs_edges_ords (se_stmt se)).
+  apply map_ext. intros [i e]. reflexivity.
+Qed.
+(* the enumeration carries each ordinal once, so it lists each exact row once *)
+Lemma short_row_refs_ord_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  NoDup (map (@projT1 _ _) (short_row_refs se)).
+Proof. rewrite short_row_refs_ords. apply seq_NoDup. Qed.
+Lemma short_row_refs_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
+  NoDup (short_row_refs se).
+Proof. apply (NoDup_map_inv (@projT1 _ _)). apply short_row_refs_ord_nodup. Qed.
 
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}

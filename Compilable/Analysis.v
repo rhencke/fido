@@ -169,27 +169,19 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     list (Index.NodeRef idx) -> Requirement bp site ApplicationKind
 | ReqTypeMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
     BN.resolution_object_view r = Some o -> Requirement bp site TypeUseKind
-| ReqShortRedeclarationTypes : forall (st : Index.Refs.ShortStmtRef idx)
-    (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
-    evrows <> nil ->
-    Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows ->
-    existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true ->
+| ReqShortRedeclarationTypes : forall (st : Index.Refs.ShortStmtRef idx),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortRhsMeaning : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
-| ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx)
-    (newrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }),
-    newrows <> nil ->
-    Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) newrows ->
-    ShortStructurallyValid bp st ->
+| ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
 Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _.
-Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st evrows _ _ _ _.
+Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st _.
 Arguments ReqShortRhsMeaning {p idx s bd bp site} st j edge _.
-Arguments ReqShortUsage {p idx s bd bp site} st newrows _ _ _ _.
+Arguments ReqShortUsage {p idx s bd bp site} st _.
 
 (* §8 the exact structural edge from an expr-statement parent to its exact expression child (ExprStmtRef, +AppRef) *)
 Inductive ChildFactEdge {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : FactKind -> Type :=
@@ -962,11 +954,8 @@ Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) 
                 | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning st j edge eq_refl)
                 | None =>
                   match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows se)) true with
-                  | left Hmix => SUnmet (ReqShortRedeclarationTypes st (BN.short_rows_where se BN.is_existing_var_row)
-                      (BN.short_rows_where_nonempty se BN.is_existing_var_row Hmix) (short_existing_var_rows_forall se) Htrue eq_refl)
-                  | right Hnm => SUnmet (ReqShortUsage st (BN.short_rows_where se BN.is_new_row)
-                      (BN.short_rows_where_nonempty se BN.is_new_row Htrue) (short_new_rows_forall se)
-                      (mkShortValid Hdupnone Heq Hblk Htrue (Bool.not_true_is_false _ Hnm)) eq_refl)
+                  | left _ => SUnmet (ReqShortRedeclarationTypes st eq_refl)
+                  | right _ => SUnmet (ReqShortUsage st eq_refl)
                   end
                 end
               end
