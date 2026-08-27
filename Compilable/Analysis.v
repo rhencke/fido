@@ -2964,6 +2964,20 @@ Lemma srtr_existing_rows_nonempty (srtr : ShortRedeclarationTypesRef) : srtr_exi
 Proof. apply BN.short_rows_where_nonempty. apply srtr_has_rows. Qed.
 Lemma srtr_new_rows_nonempty (srtr : ShortRedeclarationTypesRef) : srtr_new_rows srtr <> nil.
 Proof. apply BN.short_rows_where_nonempty. apply srtr_has_rows. Qed.
+(* §16/§14 each canonical row list carries every exact ordinal once, hence each exact row ref once, in source order *)
+Lemma sur_new_rows_ord_nodup (sur : ShortUsageRef) : NoDup (map (@projT1 _ _) (sur_new_rows sur)).
+Proof. apply BN.short_rows_where_ord_nodup. Qed.
+Lemma sur_new_rows_nodup (sur : ShortUsageRef) : NoDup (sur_new_rows sur).
+Proof. apply BN.short_rows_where_nodup. Qed.
+Lemma srtr_existing_rows_ord_nodup (srtr : ShortRedeclarationTypesRef) :
+  NoDup (map (@projT1 _ _) (srtr_existing_rows srtr)).
+Proof. apply BN.short_rows_where_ord_nodup. Qed.
+Lemma srtr_existing_rows_nodup (srtr : ShortRedeclarationTypesRef) : NoDup (srtr_existing_rows srtr).
+Proof. apply BN.short_rows_where_nodup. Qed.
+Lemma srtr_new_rows_ord_nodup (srtr : ShortRedeclarationTypesRef) : NoDup (map (@projT1 _ _) (srtr_new_rows srtr)).
+Proof. apply BN.short_rows_where_ord_nodup. Qed.
+Lemma srtr_new_rows_nodup (srtr : ShortRedeclarationTypesRef) : NoDup (srtr_new_rows srtr).
+Proof. apply BN.short_rows_where_nodup. Qed.
 (* §17 total classification: every retained short statement fact is exactly an invalid, dependent or unmet row *)
 Lemma short_fact_case_total (ssfr : ShortStatementFactRef) :
   (exists ifr : InvalidFactRef res, ifr_rowref ifr = ssfr_row ssfr)

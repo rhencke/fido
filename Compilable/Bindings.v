@@ -3907,6 +3907,28 @@ Lemma short_row_refs_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurfa
   {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) :
   NoDup (short_row_refs se).
 Proof. apply (NoDup_map_inv (@projT1 _ _)). apply short_row_refs_ord_nodup. Qed.
+(* mapping a key over a filtered sublist keeps the keys distinct whenever they were distinct over the whole list *)
+Lemma nodup_map_filter {A B} (f : A -> B) (g : A -> bool) (l : list A) :
+  NoDup (map f l) -> NoDup (map f (filter g l)).
+Proof.
+  induction l as [|a l IH]; cbn; [ auto | ]. intro H. apply NoDup_cons_iff in H. destruct H as [Hnotin Hnd].
+  destruct (g a); [ cbn; apply NoDup_cons_iff; split | apply IH; exact Hnd ].
+  - intro Hin. apply Hnotin. apply in_map_iff in Hin. destruct Hin as [x [Hfx Hxin]].
+    apply filter_In in Hxin. apply in_map_iff. exists x. split; [ exact Hfx | apply Hxin ].
+  - apply IH; exact Hnd.
+Qed.
+(* a tag-filtered row collection carries each ordinal at most once: filtering the source-ordered enumeration *)
+Lemma short_rows_where_ord_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  NoDup (map (@projT1 _ _) (short_rows_where se pred)).
+Proof. rewrite short_rows_where_refs. apply nodup_map_filter. apply short_row_refs_ord_nodup. Qed.
+(* a tag-filtered row collection lists each exact row ref at most once *)
+Lemma short_rows_where_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (pred : ShortLeftDecisionData -> bool) :
+  NoDup (short_rows_where se pred).
+Proof. rewrite short_rows_where_refs. apply NoDup_filter. apply short_row_refs_nodup. Qed.
 
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
