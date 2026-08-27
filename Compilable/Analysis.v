@@ -964,6 +964,22 @@ Lemma sdd_blocker_branch_peel_unmet (r : Index.NodeRef idx) (nn nv : nat)
   BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker
   /\ exists H, cont H = SUnmet q.
 Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ split; [ exact Hblk | exists Hblk; exact Heq ] | discriminate Heq | discriminate Heq ]. Qed.
+(* peeling the duplicate layer to a clean outcome: the duplicate is absent, so the later precedence produced it *)
+Lemma sdd_dup_branch_ok_inv (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn) :
+  sdd_dup_branch r nn nv Hv cont dupn Hdup = SOK -> exists H, cont H = SOK.
+Proof. unfold sdd_dup_branch. destruct dupn as [n|]; cbn; intro Heq; [ discriminate Heq | exists Hdup; exact Heq ]. Qed.
+(* peeling the blocker layer to a clean outcome: no structural blocker fired, so the later precedence produced it *)
+Lemma sdd_blocker_branch_ok_inv (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
+  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk) :
+  sdd_blocker_branch r nn nv Hv cont blk Hblk = SOK -> exists H, cont H = SOK.
+Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ exists Hblk; exact Heq | discriminate Heq | discriminate Heq ]. Qed.
 (* the canonical short-declaration decision: the fixed precedence read off the exact retained rows and RHS facts *)
 Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) : StmtOutcome bp r :=
@@ -1232,6 +1248,26 @@ Proof.
     destruct (rhs_neg_at_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) jj ee out Hr) as [[Hout Hvn] | [Hap [Hout Han]]];
       rewrite Hout in Heq; discriminate Heq. }
   split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk | split; [ exact Hnew | reflexivity ] ] ] ].
+Qed.
+(* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
+Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
+  short_decl_decision va r nn nv Hv <> SOK.
+Proof.
+  unfold short_decl_decision; cbv zeta. intro Heq.
+  apply sdd_dup_branch_ok_inv in Heq. destruct Heq as [Hd0 Heq]. cbv beta in Heq.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Hcount | Hne]; [ | discriminate Heq ].
+  apply sdd_blocker_branch_ok_inv in Heq. destruct Heq as [Hb0 Heq]. cbv beta in Heq.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Hnew | Hnt]; [ | discriminate Heq ].
+  destruct (short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [out|] eqn:Hrhs.
+  - destruct (short_rhs_neg_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) out Hrhs) as [jj [ee Hr]].
+    destruct (rhs_neg_at_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) jj ee out Hr) as [[Hout Hvn] | [Hap [Hout Han]]];
+      rewrite Hout in Heq; discriminate Heq.
+  - destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [[jj ee]|]; [ discriminate Heq | ].
+    destruct (Bool.bool_dec (existsb BN.is_existing_var_row
+      (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true); discriminate Heq.
 Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
@@ -2793,6 +2829,31 @@ Proof.
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
     Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
   exists (mk_srtr ssfr Hrow). reflexivity.
+Qed.
+(* §17 total classification: every retained short statement fact is exactly an invalid, dependent or unmet row *)
+Lemma short_fact_case_total (ssfr : ShortStatementFactRef) :
+  (exists ifr : InvalidFactRef res, ifr_rowref ifr = ssfr_row ssfr)
+  \/ (exists dfr : DependentFactRef res, dfr_rowref dfr = ssfr_row ssfr)
+  \/ (exists ufr : UnmetFactRef res, ufr_rowref ufr = ssfr_row ssfr).
+Proof.
+  destruct (occ_cause (frr_row (ssfr_row ssfr))) as [c|] eqn:Hc.
+  { left. exists (mk_ifr (ssfr_row ssfr) c Hc). reflexivity. }
+  destruct (occ_dep (frr_row (ssfr_row ssfr))) as [d|] eqn:Hd.
+  { right; left. exists (mk_dfr (ssfr_row ssfr) d Hd). reflexivity. }
+  destruct (occ_req (frr_row (ssfr_row ssfr))) as [q|] eqn:Hq.
+  { right; right. exists (mk_ufr (ssfr_row ssfr) q Hq). reflexivity. }
+  exfalso.
+  pose proof (ssfr_is_short_decl ssfr) as Hrow.
+  rewrite Hrow in Hc, Hd, Hq.
+  destruct (short_decl_decision (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
+    (Index.Refs.sh_node (ssfr_stmt ssfr)) (Index.Refs.sh_names (ssfr_stmt ssfr))
+    (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) eqn:Hdec.
+  - revert Hdec. apply short_decl_decision_not_ok.
+  - cbn in Hc; discriminate Hc.
+  - cbn in Hq; discriminate Hq.
+  - cbn in Hd; discriminate Hd.
 Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
