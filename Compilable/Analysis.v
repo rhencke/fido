@@ -2536,12 +2536,10 @@ Proof.
 Qed.
 (* §8 the retained statement row's outcome IS the one canonical short-declaration decision — never a recomputation *)
 Lemma ssfr_is_short_decl (ssfr : ShortStatementFactRef) :
-  exists (va : list (OccFact (res_binds res)))
-         (Hv : Index.node_view (Index.Refs.sh_node (ssfr_stmt ssfr))
-             = Index.Model.VStmt (Index.Model.SSShort (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)))),
+  exists (va : list (OccFact (res_binds res))),
     frr_row (ssfr_row ssfr) = OFStmt (Index.Refs.sh_node (ssfr_stmt ssfr))
       (short_decl_decision (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))
-        (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) Hv).
+        (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))).
 Proof.
   pose proof (ssfr_site ssfr) as Hsite. pose proof (ssfr_kind ssfr) as Hkind.
   pose proof (fact_row_is_own (ssfr_row ssfr)) as Hown.
@@ -2558,8 +2556,29 @@ Proof.
     (expr_sx_va (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))) va
     (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) in Hown.
   destruct Hown as [Heq | []].
-  exists va, (Index.Refs.sh_ok (ssfr_stmt ssfr)). exact (eq_sym Heq).
+  exists va. exact (eq_sym Heq).
 Qed.
+(* §10 an exact Result-owned nonconstant Value fact: a retained row whose exact outcome is OFValue site VNonconst *)
+Record NonconstValueFactRef : Type := mk_nvfr {
+  nvfr_rowref : FactRowRef res ;
+  nvfr_site   : Index.NodeRef (res_index res) ;
+  nvfr_is     : frr_row nvfr_rowref = OFValue nvfr_site VNonconst
+}.
+Lemma nvfr_kind (n : NonconstValueFactRef) : frr_kind (nvfr_rowref n) = ValueKind.
+Proof. unfold frr_kind; rewrite (nvfr_is n); reflexivity. Qed.
+Lemma nvfr_frr_site (n : NonconstValueFactRef) : frr_site (nvfr_rowref n) = nvfr_site n.
+Proof. unfold frr_site; rewrite (nvfr_is n); reflexivity. Qed.
+(* §11 the Result-owned RHS-meaning boundary: parent fact, RHS edge, and the exact retained VNonconst child row *)
+Record ShortRhsMeaningRef : Type := mk_srmr {
+  srmr_parent : ShortStatementFactRef ;
+  srmr_j      : nat ;
+  srmr_edge   : Index.Edges.ShortRhsEdge (ssfr_stmt srmr_parent) srmr_j ;
+  srmr_child  : NonconstValueFactRef ;
+  srmr_req    : frr_row (ssfr_row srmr_parent) = OFStmt (Index.Refs.sh_node (ssfr_stmt srmr_parent))
+                  (SUnmet (ReqShortRhsMeaning (ssfr_stmt srmr_parent) srmr_j srmr_edge eq_refl)) ;
+  srmr_child_at : nvfr_site srmr_child = Index.Edges.sr_child srmr_edge ;
+  srmr_lookup   : fact_row_for (Index.Edges.sr_child srmr_edge) ValueKind = Some (nvfr_rowref srmr_child)
+}.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
 Arguments nfr_class {p res child_row} _.
