@@ -1263,6 +1263,52 @@ Proof.
   destruct st as [node names values ok]; cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok].
   apply short_decl_decision_unmet_guards.
 Qed.
+(* §18.8 usage completeness: the exact usage requirement implies every final guard, including no RHS meaning or mix *)
+Lemma short_decl_decision_usage_complete (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet (ReqShortUsage st eq_refl) ->
+  BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None
+  /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+  /\ BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker
+  /\ existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true
+  /\ short_rhs_neg va st = None
+  /\ find_rhs_vnonconst va st = None
+  /\ existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = false.
+Proof.
+  intro Heq. pose proof (short_decl_decision_unmet_guards_st va st Heq) as Hg.
+  revert Heq Hg. destruct st as [node names values ok]. intros Heq Hg.
+  cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok] in Heq, Hg |- *.
+  destruct Hg as [Hdup [Hcount [Hblk [Hnew Hneg]]]].
+  rewrite (short_decl_decision_tail va node names values ok Hdup Hcount Hblk Hnew), Hneg in Heq.
+  destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef node names values ok)) as [[j e]|] eqn:Hfind;
+    [ discriminate Heq | ].
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp _))) true) as [Ht | Hf];
+    [ discriminate Heq | ].
+  repeat split; try assumption. apply Bool.not_true_is_false; exact Hf.
+Qed.
+(* §18.7 mixed completeness: the exact redeclaration-types requirement implies every guard, existing row present *)
+Lemma short_decl_decision_redecl_complete (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) :
+  short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
+  = SUnmet (ReqShortRedeclarationTypes st eq_refl) ->
+  BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None
+  /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+  /\ BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker
+  /\ existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true
+  /\ short_rhs_neg va st = None
+  /\ find_rhs_vnonconst va st = None
+  /\ existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = true.
+Proof.
+  intro Heq. pose proof (short_decl_decision_unmet_guards_st va st Heq) as Hg.
+  revert Heq Hg. destruct st as [node names values ok]. intros Heq Hg.
+  cbn [Index.Refs.sh_node Index.Refs.sh_names Index.Refs.sh_values Index.Refs.sh_ok] in Heq, Hg |- *.
+  destruct Hg as [Hdup [Hcount [Hblk [Hnew Hneg]]]].
+  rewrite (short_decl_decision_tail va node names values ok Hdup Hcount Hblk Hnew), Hneg in Heq.
+  destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef node names values ok)) as [[j e]|] eqn:Hfind;
+    [ discriminate Heq | ].
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp _))) true) as [Ht | Hf];
+    [ | discriminate Heq ].
+  repeat split; assumption.
+Qed.
 (* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
 Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
