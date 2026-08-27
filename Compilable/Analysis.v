@@ -1172,6 +1172,15 @@ Proof.
   unfold va_value_negative.
   rewrite (va_value_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
 Qed.
+(* the canonical read of a node's nonconstant value: policy-applicable AND its own value is exactly VNonconst *)
+Lemma va_value_nonconst_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  va_value_nonconst (va_facts ctab (Index.file_nodes fr)) e
+  = retains_value_fact e && match own_value bp ctab e with VNonconst => true | _ => false end.
+Proof.
+  unfold va_value_nonconst.
+  rewrite (va_value_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
+Qed.
 Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
   va_app_negative (va_facts ctab (Index.file_nodes fr)) e = app_neg_at bp e.
@@ -1193,6 +1202,17 @@ Proof.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
     try (rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
     exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
+Qed.
+(* the retained Value row of a policy-applicable site is one of its canonical facts, whatever the value outcome *)
+Lemma occ_value_mem_retained (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  retains_value_fact e = true ->
+  In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+Proof.
+  unfold retains_value_fact, occ_facts_va, retained_value_row, retains_value_fact.
+  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
+    intro Hret; try discriminate Hret;
+    rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ].
 Qed.
 (* §19.4 the application fact of an application node is one of its canonical facts *)
 Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
@@ -2146,6 +2166,38 @@ Proof.
   intro Hin. apply In_nth_error in Hin. destruct Hin as [k Hk].
   destruct (fact_rows_complete k o Hk) as [ref [Hnth [_ Hrow]]].
   exists ref. split; [ exact (nth_error_In _ _ Hnth) | exact Hrow ].
+Qed.
+(* §10 a policy-applicable node whose value is nonconstant has its exact VNonconst Value row retained in the Result *)
+Lemma nonconst_value_fact_retained (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (Hret : retains_value_fact e = true)
+  (Hnc : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst) :
+  In (OFValue e VNonconst) (result_fact_list res).
+Proof.
+  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | ].
+  rewrite <- Hnc. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e He Hret).
+Qed.
+(* §10/§11 the retention bridge: a canonical nonconstant child value is retrievable as its exact retained Result row *)
+Lemma nonconst_child_retained (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (child : Index.NodeRef (res_index res)) (Hf : Index.nr_file child = fr) :
+  va_value_nonconst (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) child = true ->
+  exists child_row : FactRowRef res,
+    fact_row_for child ValueKind = Some child_row
+    /\ frr_row child_row = OFValue child VNonconst.
+Proof.
+  intro Hva. rewrite (va_value_nonconst_correct (res_binds res) (const_table (res_binds res) fr) fr child Hf) in Hva.
+  apply andb_prop in Hva. destruct Hva as [Hret Hnc].
+  assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) child = VNonconst)
+    by (destruct (own_value (res_binds res) (const_table (res_binds res) fr) child); try discriminate Hnc; reflexivity).
+  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr child Hf Hret Hown)) as [child_row [Hcin Hcrow]].
+  exists child_row. split.
+  - apply fact_row_for_complete;
+      [ exact Hcin | unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
+  - exact Hcrow.
 Qed.
 (* §19.1 the exact child fact's node is a real structural descendant: node_parent child = the parent statement *)
 Lemma cdfr_child_parent (cdfr : ChildDependentFactRef) :
