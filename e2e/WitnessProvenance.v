@@ -97,6 +97,58 @@ Definition prov_shortdup (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef i
   (Hs : u = Index.Refs.sh_node st) : AN.Cause bp u AN.StatementKind :=
   AN.ShortDuplicate (BN.short_duplicate_decision se) n eq_refl Hn Hs.
 
+(* §16.7 count mismatch: the cause retains the exact statement, its counts a projection, never supplied free *)
+Definition prov_short_count (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
+  (Hs : u = Index.Refs.sh_node st) (Hne : Index.Refs.sh_names st <> Index.Refs.sh_values st)
+  : AN.Cause bp u AN.StatementKind := AN.ShortCountMismatch st Hs Hne.
+(* §16.6 nonvariable reuse: the cause retains the exact row ref and its prior member ordinal *)
+Definition prov_short_nonvar (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (i m : nat)
+  (row : BN.ShortDecisionRowRef (BN.short_event bp st) i)
+  (Hrow : BN.row_decision row = BN.ShortExistingNonVariableData m) (Hs : u = Index.Refs.sh_node st)
+  : AN.Cause bp u AN.StatementKind := AN.ShortReusesNonVariable st i row m Hrow Hs.
+(* §16.4 no new name: the cause retains the exact event's canonical no-new decision *)
+Definition prov_short_nonew (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
+  (Hnn : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false) (Hs : u = Index.Refs.sh_node st)
+  : AN.Cause bp u AN.StatementKind := AN.ShortNoNewName st Hnn Hs.
+(* §16.1 usage residual: the requirement retains the exact new rows plus the exact structural-validity verdict *)
+Definition prov_short_usage (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
+  (newrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : newrows <> nil)
+  (Hf : Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) newrows)
+  (Hv : AN.ShortStructurallyValid bp st) (Hs : u = Index.Refs.sh_node st)
+  : AN.Requirement bp u AN.StatementKind := AN.ReqShortUsage st newrows Hne Hf Hv Hs.
+(* §9.2 RHS meaning residual: the requirement identifies one exact RHS edge and index *)
+Definition prov_short_rhs_meaning (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+  (edge : Index.Edges.ShortRhsEdge st j) (Hs : u = Index.Refs.sh_node st)
+  : AN.Requirement bp u AN.StatementKind := AN.ReqShortRhsMeaning st j edge Hs.
+(* §16.10 mixed redeclaration residual: the requirement retains exact existing-variable rows and a new-row witness *)
+Definition prov_short_redecl (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx)
+  (evrows : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : evrows <> nil)
+  (Hf : Forall (fun x => exists m, BN.row_decision (projT2 x) = BN.ShortExistingVariableData m) evrows)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true) (Hs : u = Index.Refs.sh_node st)
+  : AN.Requirement bp u AN.StatementKind := AN.ReqShortRedeclarationTypes st evrows Hne Hf Hnew Hs.
+(* §16.8 ambiguous dependency: it retains the exact ambiguous row and the exact redeclaration root of its name *)
+Definition prov_short_ambiguous (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (i a b : nat)
+  (row : BN.ShortDecisionRowRef (BN.short_event bp st) i)
+  (Hrow : BN.row_decision row = BN.ShortAmbiguousData a b)
+  (nr : { n : Names.OrdinaryIdentifier & BN.RedeclRoot bp n }) (Hs : u = Index.Refs.sh_node st)
+  : AN.Dependency bp u AN.StatementKind := AN.DepShortAmbiguous st i row a b Hrow nr Hs.
+(* §16.9 RHS-child dependency: it retains the exact RHS value/application child edge, never a raw node *)
+Definition prov_short_value_child (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+  (edge : Index.Edges.ShortRhsEdge st j) (Hs : u = Index.Refs.sh_node st)
+  : AN.Dependency bp u AN.StatementKind := AN.DepChild (AN.ShortValueChild st j edge Hs).
+Definition prov_short_app_child (u : Index.NodeRef idx) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+  (edge : Index.Edges.ShortRhsEdge st j) (ar : Index.Refs.AppRef idx) (Hs : u = Index.Refs.sh_node st)
+  (Ha : Index.Refs.app_node ar = Index.Edges.sr_child edge)
+  : AN.Dependency bp u AN.StatementKind := AN.DepChild (AN.ShortApplicationChild st j edge ar Hs Ha).
+(* §8.6 the exact positive structural verdict: the five exact local-legality facts, prior to declared-and-used *)
+Definition prov_short_valid (st : Index.Refs.ShortStmtRef idx)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
+  (Hc : Index.Refs.sh_names st = Index.Refs.sh_values st)
+  (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = true)
+  (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp st)) = false)
+  : AN.ShortStructurallyValid bp st := AN.mkShortValid Hdup Hc Hblk Hnew Hmix.
+
 (* §18.2 use context: a redeclared use context retains the exact resolution that yields its exact root *)
 Definition prov_usecontext (n : Names.OrdinaryIdentifier) (root : BN.RedeclRoot bp n)
   (u : Index.NodeRef idx) (res : BN.ResolutionRef (BN.use_env bp u) n)
