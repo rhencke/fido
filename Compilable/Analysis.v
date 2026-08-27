@@ -1046,6 +1046,75 @@ Proof.
         (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true); discriminate Heq. }
   split; [ reflexivity | discriminate ].
 Qed.
+(* forward reduction of the duplicate layer when no duplicate fired and the continuation ignores its proof *)
+Lemma sdd_dup_branch_cont (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
+  (Hn : dupn = None)
+  (H : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
+  (Hg : forall H1 H2, cont H1 = cont H2) :
+  sdd_dup_branch r nn nv Hv cont dupn Hdup = cont H.
+Proof. unfold sdd_dup_branch. destruct dupn as [n|]; [ discriminate Hn | cbn; apply Hg ]. Qed.
+(* forward reduction of the blocker layer when no structural blocker fired and the continuation ignores its proof *)
+Lemma sdd_blocker_branch_cont (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
+  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
+  (Hn : blk = BN.ShortNoBlocker)
+  (H : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker)
+  (Hg : forall H1 H2, cont H1 = cont H2) :
+  sdd_blocker_branch r nn nv Hv cont blk Hblk = cont H.
+Proof. unfold sdd_blocker_branch. destruct blk; [ cbn; apply Hg | discriminate Hn | discriminate Hn ]. Qed.
+(* the RHS-meaning branch soundness: the cleared guards, no negative RHS, and a first nonconstant RHS produce it *)
+Lemma short_decl_decision_rhsmeaning_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge (Index.Refs.mkShortStmtRef r nn nv Hv) j0)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
+  (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker)
+  (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = true)
+  (Hneg : short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = None)
+  (Hfind : find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) = Some (existT _ j0 edge0)) :
+  short_decl_decision va r nn nv Hv = SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j0 edge0 eq_refl).
+Proof.
+  unfold short_decl_decision; cbv zeta.
+  rewrite (sdd_dup_branch_cont r nn nv Hv
+    (fun Hdupnone => match Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+       (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv)) with
+     | right Hne => SInvalid (ShortCountMismatch (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl Hne)
+     | left Heq => sdd_blocker_branch r nn nv Hv
+         (fun Hblk0 => match Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+          | right Hnt => SInvalid (ShortNoNewName (Index.Refs.mkShortStmtRef r nn nv Hv) (Bool.not_true_is_false _ Hnt) eq_refl)
+          | left Htrue => match short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+            | Some out => out
+            | None => match find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+              | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j edge eq_refl)
+              | None => match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+                | left _ => SUnmet (ReqShortRedeclarationTypes (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+                | right _ => SUnmet (ReqShortUsage (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+                end end end end)
+         (BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) eq_refl
+     end) _ eq_refl Hdup Hdup (fun _ _ => eq_refl)). cbv beta.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Heqc | Hne]; [ | exfalso; exact (Hne Hcount) ].
+  rewrite (sdd_blocker_branch_cont r nn nv Hv
+    (fun Hblk0 => match Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+     | right Hnt => SInvalid (ShortNoNewName (Index.Refs.mkShortStmtRef r nn nv Hv) (Bool.not_true_is_false _ Hnt) eq_refl)
+     | left Htrue => match short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+       | Some out => out
+       | None => match find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) with
+         | Some (existT _ j edge) => SUnmet (ReqShortRhsMeaning (Index.Refs.mkShortStmtRef r nn nv Hv) j edge eq_refl)
+         | None => match Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true with
+           | left _ => SUnmet (ReqShortRedeclarationTypes (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+           | right _ => SUnmet (ReqShortUsage (Index.Refs.mkShortStmtRef r nn nv Hv) eq_refl)
+           end end end end) _ eq_refl Hblk Hblk (fun _ _ => eq_refl)). cbv beta.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Htrue | Hnt]; [ | exfalso; exact (Hnt Hnew) ].
+  rewrite Hneg, Hfind. reflexivity.
+Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
