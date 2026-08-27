@@ -933,6 +933,28 @@ Lemma sdd_blocker_branch_dep_inv (r : Index.NodeRef idx) (nn nv : nat)
   sdd_blocker_branch r nn nv Hv cont blk Hblk = SDependent (DepChild edge) ->
   exists H, cont H = SDependent (DepChild edge).
 Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ exists Hblk; exact Heq | discriminate Heq | discriminate Heq ]. Qed.
+(* peeling the duplicate layer to an unmet outcome: the duplicate is absent and the later precedence produced it *)
+Lemma sdd_dup_branch_peel_unmet (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
+  (q : Requirement bp r StatementKind) :
+  sdd_dup_branch r nn nv Hv cont dupn Hdup = SUnmet q ->
+  BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None
+  /\ exists H, cont H = SUnmet q.
+Proof. unfold sdd_dup_branch. destruct dupn as [n|]; cbn; intro Heq; [ discriminate Heq | split; [ exact Hdup | exists Hdup; exact Heq ] ]. Qed.
+(* peeling the blocker layer to an unmet outcome: no structural blocker fired and the later precedence produced it *)
+Lemma sdd_blocker_branch_peel_unmet (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker -> StmtOutcome bp r)
+  (blk : BN.ShortBlockerDecision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))
+  (Hblk : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = blk)
+  (q : Requirement bp r StatementKind) :
+  sdd_blocker_branch r nn nv Hv cont blk Hblk = SUnmet q ->
+  BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker
+  /\ exists H, cont H = SUnmet q.
+Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ split; [ exact Hblk | exists Hblk; exact Heq ] | discriminate Heq | discriminate Heq ]. Qed.
 (* the canonical short-declaration decision: the fixed precedence read off the exact retained rows and RHS facts *)
 Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) : StmtOutcome bp r :=
@@ -989,6 +1011,31 @@ Proof.
     cbn [cfe_child_kind cfe_child_site]. left. split; [ reflexivity | exact Hvn ].
   - rewrite Hout in Heq. injection Heq as Heq'. subst edge.
     cbn [cfe_child_kind cfe_child_site]. right. split; [ reflexivity | split; [ exact Han | exact Hap ] ].
+Qed.
+(* inverting the RHS-meaning branch: no earlier branch fired, no negative RHS, and a first nonconstant RHS exists *)
+Lemma short_decl_decision_rhsmeaning_inv (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (st' : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st' j)
+  (Hs : r = Index.Refs.sh_node st') :
+  short_decl_decision va r nn nv Hv = SUnmet (ReqShortRhsMeaning st' j edge Hs) ->
+  short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = None
+  /\ find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) <> None.
+Proof.
+  unfold short_decl_decision; cbv zeta. intro Heq.
+  apply sdd_dup_branch_peel_unmet in Heq. destruct Heq as [_ [Hdupn Heq]]. cbv beta in Heq.
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Heqc | Hne]; [ | discriminate Heq ].
+  apply sdd_blocker_branch_peel_unmet in Heq. destruct Heq as [_ [Hblkn Heq]]. cbv beta in Heq.
+  destruct (Bool.bool_dec (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true)
+    as [Htrue | Hnt]; [ | discriminate Heq ].
+  destruct (short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [out|] eqn:Hrhs.
+  { destruct (short_rhs_neg_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) out Hrhs) as [jj [ee Hr]].
+    destruct (rhs_neg_at_inv va (Index.Refs.mkShortStmtRef r nn nv Hv) jj ee out Hr) as [[Hout Hvn] | [Hap [Hout Han]]];
+      rewrite Hout in Heq; discriminate Heq. }
+  destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [[j0 edge0]|] eqn:Hfind.
+  2:{ destruct (Bool.bool_dec (existsb BN.is_existing_var_row
+        (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true); discriminate Heq. }
+  split; [ reflexivity | discriminate ].
 Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
