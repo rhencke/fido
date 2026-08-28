@@ -156,6 +156,7 @@ Arguments mkShortValid {p idx s bd bp st} _ _ _ _ _.
 
 Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
+(* the residual value-meaning requirement of a DOBinder source use; a DOShort use is instead a lawful nonconstant *)
 | ReqValueMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (org : BN.DeclOrigin idx),
     BN.resolution_object_view r = Some (BN.SourceObject org) -> Requirement bp site ValueKind
 | ReqComplexType : Index.node_view site = Index.Model.VApplication -> Requirement bp site ValueKind

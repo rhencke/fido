@@ -134,9 +134,16 @@ toolchain is the supported run). Governing truth held by this candidate:
   RHS-meaning / redeclaration / usage), each with its exact retained outcome, discharged branch-by-branch by the
   per-case sound and completeness lemmas over free `bp`/`r`, with source-order firstness certificates and the
   result-level `short_case_for` projection; the decision is never `SOK` and no second evaluator exists.
-- **Short-origin source-value meaning remains the next slice**; whole-program acceptance stays blocked by exact
-  local-variable usage analysis, and mixed redeclaration by exact source-variable type equality — both honest
-  temporary boundaries (decision `C4-SHORTDECL` in `DECISIONS.md`). No C4 completion is claimed.
+- **Short-origin source-value meaning is now modeled.** A value-position name use resolving to a `DOShort` source
+  object is a lawful nonconstant `VNonconst` value: the Result-owned exact `ShortOriginValueRef` retains the use
+  site, spelling, exact `ResolutionRef`, `DOShort` origin, and the retained `VNonconst` Value row, so
+  `ReqValueMeaning` no longer fires for short-origin uses (it is now the residual for `DOBinder` uses only).
+  Whole-program success is unchanged: a structurally valid short declaration still carries the exact `ReqShortUsage`,
+  so `x := 1; println(x)` stays `OutsideScope` and no new program is `Compiled`. Exact declared-and-unused
+  local-variable usage analysis is the next slice; exact source-variable type equality (mixed redeclaration and
+  binder value/type meaning) remains a later root — both honest temporary boundaries (decision `C4-SHORTDECL` in
+  `DECISIONS.md`). Material performance opportunities remain explicit in `.review/PERFORMANCE_OPPORTUNITIES.tsv`.
+  No C4 completion is claimed.
 - The live classifications are exactly the Result-indexed diagnostics, boundaries and issues plus Compilable's
   three-way `Compiled`/`Rejected`/`OutsideScope` verdict; there is **no** separate Analysis summary algebra. The
   former dead five-way `Analysis.Disposition` summary and its whole-program projection were deleted this slice
