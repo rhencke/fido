@@ -1356,6 +1356,29 @@ Lemma short_decl_decision_rhsneg_sound (va : list (OccFact bp)) (r : Index.NodeR
 Proof.
   rewrite (short_decl_decision_tail va r nn nv Hv Hdup Hcount Hblk Hnew), Hrhs. reflexivity.
 Qed.
+(* the duplicate layer at a present duplicate name is exactly the duplicate invalid, ignoring the later precedence *)
+Lemma sdd_dup_branch_some (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
+  (cont : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None -> StmtOutcome bp r)
+  (dupn : option Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = dupn)
+  (n : Names.OrdinaryIdentifier) (Hn : dupn = Some n) :
+  exists H, sdd_dup_branch r nn nv Hv cont dupn Hdup
+    = SInvalid (ShortDuplicate (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl H eq_refl).
+Proof.
+  destruct dupn as [n0|]; [ | discriminate Hn ]. injection Hn as Hn; subst n0.
+  exists Hdup. unfold sdd_dup_branch. reflexivity.
+Qed.
+(* §18.1 duplicate soundness: a present duplicate name makes the decision exactly the duplicate invalid *)
+Lemma short_decl_decision_dup_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) (n : Names.OrdinaryIdentifier)
+  (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = Some n) :
+  exists H, short_decl_decision va r nn nv Hv
+    = SInvalid (ShortDuplicate (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) n eq_refl H eq_refl).
+Proof.
+  unfold short_decl_decision; cbv zeta.
+  exact (sdd_dup_branch_some r nn nv Hv _ _ eq_refl n Hdup).
+Qed.
 (* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
 Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
